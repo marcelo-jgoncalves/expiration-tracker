@@ -38,13 +38,10 @@ export async function handler(event: ScheduledEvent<ReconciliationEventDetail>):
   }
 
   if (mode === "DST") {
-    // NOTE (M3.5 known gap, not silently hidden): ReminderMaterializer does not yet WRITE
-    // WORKSTATE#DST_PENDING GSI6 pointers on occurrences whose schedule crosses a known DST
-    // transition - that's a materializer change out of this pass's time budget. Until it
-    // lands, listDstCandidates legitimately returns an empty page (not a bug in this
-    // handler) and DST reconciliation is a correct no-op rather than a false-green claim of
-    // full coverage. The read path (this handler + the adapter) is real and tested; only the
-    // write side is pending.
+    // ReminderMaterializer (M3.5) writes a WORKSTATE#DST_PENDING GSI6 pointer whenever a
+    // trigger's schedule was computed at an ambiguous/nonexistent local time (dstKind !==
+    // "NORMAL") - see reminder-materializer.ts. This query finds those candidates for
+    // re-evaluation; occurrences that were never DST-ambiguous never appear here.
     const windowStart = now();
     const windowEnd = new Date(Date.parse(windowStart) + 7 * 24 * 60 * 60_000).toISOString();
     const page = await candidateSource.listDstCandidates({ window: { start: windowStart, end: windowEnd } });

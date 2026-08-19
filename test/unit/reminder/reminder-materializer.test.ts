@@ -108,4 +108,70 @@ describe("ReminderMaterializer (implementation-blueprint.md §9.2)", () => {
     expect(v1.status).toBe("CANCELLED");
     expect(v2.status).toBe("SCHEDULED");
   });
+
+  describe("M3.5: GSI6 WORKSTATE#DST_PENDING pointer lifecycle", () => {
+    it("sets a GSI6 pointer only for a trigger whose schedule lands on a DST-ambiguous/nonexistent local time", async () => {
+      // America/New_York 2026-03-08 02:30 is the US spring-forward gap (NONEXISTENT).
+      const dstPolicy = policy({
+        timeZone: "America/New_York",
+        triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "02:30" }],
+      });
+      const result = await materializer.materialize({
+        tenantId: "t1",
+        itemId: "item1",
+        itemVersion: 1,
+        itemDueDate: "2026-03-08",
+        policy: dstPolicy,
+        shardConfig: defaultShardConfig(),
+      });
+      const occ = result.created[0]!;
+      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING");
+      expect(occ.GSI6SK).toBe(`${occ.scheduledAt}#TENANT#t1#OCCURRENCE#${occ.occurrenceId}`);
+    });
+
+    it("does NOT set a GSI6 pointer for a normal (non-DST-boundary) schedule", async () => {
+      const result = await materializer.materialize({
+        tenantId: "t1",
+        itemId: "item1",
+        itemVersion: 1,
+        itemDueDate: "2026-09-10",
+        policy: policy(), // America/Sao_Paulo, fixed offset, always NORMAL
+        shardConfig: defaultShardConfig(),
+      });
+      const occ = result.created[0]!;
+      expect(occ.GSI6PK).toBeUndefined();
+      expect(occ.GSI6SK).toBeUndefined();
+    });
+
+    it("removes the GSI6 pointer when cancelStaleOccurrences cancels the occurrence", async () => {
+      const dstPolicy = policy({
+        timeZone: "America/New_York",
+        triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "02:30" }],
+      });
+      await materializer.materialize({
+        tenantId: "t1",
+        itemId: "item1",
+        itemVersion: 1,
+        itemDueDate: "2026-03-08",
+        policy: dstPolicy,
+        shardConfig: defaultShardConfig(),
+      });
+      await materializer.materialize({
+        tenantId: "t1",
+        itemId: "item1",
+        itemVersion: 2,
+        itemDueDate: "2026-04-01",
+        policy: dstPolicy,
+        shardConfig: defaultShardConfig(),
+      });
+
+      await materializer.cancelStaleOccurrences({ tenantId: "t1", itemId: "item1", currentItemVersion: 2 });
+
+      const all = (await store.queryByItem<ReminderOccurrence>("t1", "item1")) as ReminderOccurrence[];
+      const cancelled = all.find((o) => o.itemVersion === 1)!;
+      expect(cancelled.status).toBe("CANCELLED");
+      expect(cancelled.GSI6PK).toBeUndefined();
+      expect(cancelled.GSI6SK).toBeUndefined();
+    });
+  });
 });

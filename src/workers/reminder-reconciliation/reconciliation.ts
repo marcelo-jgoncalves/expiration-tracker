@@ -141,6 +141,7 @@ export async function reconcileDst(
               tenantId: candidate.tenantId,
               expectedVersion: occurrence.version,
               set: { status: "CANCELLED" },
+              remove: ["GSI6PK", "GSI6SK"],
             }),
           },
         ]);

@@ -72,6 +72,10 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
           } else if (name.startsWith("#set")) {
             const valueKey = `:${name.slice(1)}`;
             next[placeholder] = entry.Update.ExpressionAttributeValues[valueKey];
+          } else if (name.startsWith("#rem")) {
+            // Mirrors occ.ts's REMOVE clause support (M3.5) - #remN names are attributes to
+            // delete, e.g. GSI6PK/GSI6SK when a claim/DST pointer stops applying.
+            delete next[placeholder];
           }
         }
         this.items.set(this.k(key), next);
