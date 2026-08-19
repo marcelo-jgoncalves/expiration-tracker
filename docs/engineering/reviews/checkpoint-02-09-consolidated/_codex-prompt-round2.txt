@@ -1,0 +1,37 @@
+Responda em texto puro. Não precisa rodar comandos nem ler arquivos — toda evidência necessária está neste prompt.
+
+Você é engenheiro sênior, segundo revisor independente, na rodada 2 (pós-remediação) da mesma Engineering Maturity Review de antes (micro-SaaS AWS serverless, TypeScript/Node, pré-produção, single-table DynamoDB, repositório privado no GitHub). Mesma rubrica congelada de antes (16 domínios A-P, pesos somando 100%, gates G1-G11, evidence-first, N/A≠NOT ENOUGH EVIDENCE distintos). Na rodada 1 você deu nota ponderada 4.84/10 e vetou ENGINEERING FOUNDATION STATUS como NOT APPROVED, com 4 P0s.
+
+=== O QUE MUDOU DESDE A RODADA 1 (evidência real, não declaração) ===
+
+1. CI: o SHA truncado do `actions/setup-node` (39→40 caracteres) foi corrigido e CONFIRMADO em execução real: push para main disparou a run 32262099908, job `guardrails` completou com sucesso em 45s (checkout, typecheck, lint, test, validate-schemas, audit, SBOM), confirmado via `gh run view`. Esta é a primeira execução bem-sucedida do CI desde que o workflow foi criado.
+
+2. Branch protection: `main` agora tem proteção real no GitHub — `gh api repos/.../branches/main/protection` retorna `required_status_checks: {strict: true, contexts: ["guardrails"]}`, `allow_force_pushes: false`, `allow_deletions: false` (confirmado, não presumido). `enforce_admins: false` (o dono do repo ainda pode bypassar como admin, decisão consciente proporcional ao tamanho do time — solo/pequeno).
+
+3. Estratégia de branch formalizada: `develop` agora é o branch de trabalho padrão (documentado em AGENTS.md), `main` só recebe merge via PR quando um marco está estável. Isso é novo processo, ainda não exercitado num PR real (nenhum PR develop→main foi aberto ainda nesta sessão).
+
+4. Dependency audit: `npm audit --omit=dev` = 0 vulnerabilidades (confirmado agora de novo). O CI agora tem dois steps separados: audit de produção REALMENTE bloqueante (`npm audit --omit=dev --audit-level=high`, sem `|| echo`) e audit de dev informacional (mesmas 5 vulnerabilidades transitivas de antes — 2 critical/1 high/2 moderate, todas via vitest/vite/esbuild, dev-server only, não expostas em produção) registrado como exceção formal em `docs/engineering/exceptions.md` (EX-001: justificativa, risco residual, owner, prazo de revisão de 30 dias, compensating control). Não foi corrigida (upgrade major do Vitest é desproporcional a fazer às pressas), mas passou de "warning eterno sem dono" para "exceção registrada com prazo".
+
+5. Boundary enforcement: ESLint ganhou uma regra `no-restricted-imports` escopada a `src/modules/*/domain/**/*.ts` que bloqueia mecanicamente imports de `infra/`, `aws-sdk`/`@aws-sdk/*`, e das camadas application/ports/http/persistence de OUTROS módulos. Verificado que passa hoje sem quebrar nada (`npm run lint` limpo) E que roda dentro do job `guardrails` do CI (confirmado na run real acima). Antes disso, os boundaries estavam limpos só por disciplina/convenção, sem nenhum mecanismo automatizado.
+
+6. README.md criado na raiz (não existia antes) — comandos, estrutura do repo, convenções principais, ponto de entrada pra um engenheiro novo.
+
+7. Divergência documentação↔realidade corrigida: `NEXT_SESSION_PROMPT.md` agora tem uma nota datada no topo explicando que as seções antigas (que diziam "nada commitado" e citavam contagens de teste desatualizadas) não devem ser lidas como estado vigente — aponta pro estado real (git log, `npm test`). As seções antigas foram preservadas como histórico, não reescritas silenciosamente.
+
+8. G8 (recuperação de falhas assíncronas) - PARCIALMENTE avançado, não fechado: dois arquivos de teste novos, `test/unit/reminder/reconciliation.test.ts` e `test/unit/reminder/producer.test.ts`. Antes desta sessão, `reconcileDst` (a passada de re-avaliação por DST em reconciliation.ts) tinha ZERO cobertura de teste em qualquer lugar do repositório, direta ou indireta — agora tem 3 casos dedicados (cancela ocorrência divergente materializada sob regra antiga e recria sob a regra atual; é idempotente quando já está correto; ignora policy desabilitada). O caminho `failed` de `runProducerTick` (partial-batch-failure handling, antes só afirmado vazio no caminho feliz) agora tem um teste dedicado com um fake store que injeta uma falha genuína de transactWrite (não uma perda de race de OCC) numa claim específica, provando que ela cai em `failed` sem abortar o resto do tick nem mutar a ocorrência (fica disponível pra retry). DECISÃO EXPLÍCITA tomada e registrada (E-007 no decisions-log.md): NÃO injetar SecureLogger na lógica pura dos workers (dispatch/producer/reconciliation) porque isso quebraria um padrão arquitetural já documentado no próprio código ("this module stays observability-agnostic" - telemetria fica pra quando o handler Lambda real existir, M4+). Ou seja: G8 ganhou evidência real pra "replay/reconciliation são testados", mas "observável em execução real" continua não resolvido - segue exigindo Lambda/fila real que não existe ainda. 130 testes totais agora (era 123), typecheck/lint limpos.
+
+=== NÃO MUDOU (ainda pendente, não fabricar evidência que não existe) ===
+
+- Nenhum deploy real, nenhum ambiente AWS real, nenhuma métrica/alarme em execução.
+- `cdk synth` real via CLI da AWS ainda não foi executado (só via `aws-cdk-lib/assertions` em memória).
+- Duplicação do pipeline de error-mapping HTTP em 3 módulos ainda não extraída pra `shared/`.
+- Sem secret scanner automatizado no CI (ainda é verificação manual dirigida).
+- Nenhum PR real develop→main foi aberto/mergeado ainda para exercitar o novo processo de branch protection na prática.
+
+=== SUA TAREFA (rodada 2, avaliação independente) ===
+
+Reavalie os domínios que você acha que mudaram (não precisa repetir os 16 se não houver motivo pra mudar a nota de um domínio específico - mas justifique explicitamente quais você manteve e por quê). Dê o novo score ponderado. Refaça o veredito de cada gate G1-G11. Dê o veredito final ENGINEERING FOUNDATION STATUS (APPROVED/NOT APPROVED) e liste os P0s/P1s que continuam abertos, se houver.
+
+Além disso, faça uma passada leve de RED TEAM (Prompt Mestre §28) sobre o que mudou: tente ativamente achar um jeito de a regra de boundary do ESLint ser contornada (ex.: um import indireto que ela não pega), um jeito do gate de audit de produção ser driblado (ex.: uma dependência movida de `dependencies` pra `devDependencies` só pra escapar do audit bloqueante), ou qualquer outro bypass que você enxergue nesta descrição. Não precisa ser exaustivo - é uma passada rápida, não uma auditoria completa.
+
+Seja rigoroso, não seja generoso só porque houve remediação real - continue procurando ativamente razões pra não aprovar.

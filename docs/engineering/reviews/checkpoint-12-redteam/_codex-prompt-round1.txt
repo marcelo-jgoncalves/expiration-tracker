@@ -1,0 +1,40 @@
+Responda em texto puro. Não precisa rodar comandos nem ler arquivos — evidência necessária está aqui. Se quiser confirmar algo pontual, pode, mas não é obrigatório.
+
+Você é engenheiro sênior fazendo o Checkpoint 12 (Red Team de Engenharia) formal de uma Engineering Maturity Review já em andamento (micro-SaaS AWS serverless, TypeScript/Node, DynamoDB single-table, pré-produção). Rodadas anteriores já cobriram rubrica congelada e duas rodadas de avaliação por domínio; o veredito atual é NOT APPROVED com G8 (recuperação de falha assíncrona) aberto. Esta é uma passada de red team FORMAL e mais ampla que a "leve" já feita antes (que só olhou o que mudou entre rodadas) — aqui o objetivo é procurar ativamente, no repositório como um todo, os padrões de risco do Prompt Mestre §28.
+
+=== CONTEXTO DO SISTEMA (não repita, use como base) ===
+
+- Single-table DynamoDB, chaves `TENANT#t#ITEM#i`, GSI1 (dashboard), GSI3 (scheduler de reminders, chave global `DUE#yyyyMMddHHmm#NN`, exceção documentada e isolada via IAM).
+- Módulos: identity (matriz de autorização, resolver central), expiration (CRUD/renew, OCC via ConditionExpression version=:expected, outbox transacional na mesma TransactWriteItems), reminder (policies + materializer DST-aware + workers producer/dispatch/reconciliation).
+- Todos os workers assíncronos são lógica pura testável (sem AWS SDK real ainda) - handlers Lambda reais são placeholder inline (`exports.handler = async () => ({statusCode: 501})`), sem SQS/DLQ/EventBridge wired ainda. Isso é a causa raiz do G8 estar aberto.
+- Idempotência: PutItem attribute_not_exists(PK) com chaves determinísticas por operação; reminder occurrences derivam occurrenceId de um hash da chave de idempotência (não um IdempotencyStore separado).
+- Autorização: matriz de roles como código, testada com suíte cross-tenant negativa (9 casos).
+- CI real (confirmado em duas execuções verdes): typecheck, lint (incl. regra ESLint no-restricted-imports pra boundary de domain/), test (130 casos), validate-schemas, audit de produção bloqueante, SBOM. Branch `main` protegida (required check, sem force-push/deleção, enforce_admins=false).
+- Achados de red team leve já registrados (não repita, mas pode aprofundar): bypass de boundary ESLint via import transitivo/dynamic import/alias; bypass de audit via reclassificação de dependência pra devDependencies; enforce_admins=false é bypass admin consciente; EX-001 (vuln de devDependency, dev-server only) pode expirar silenciosamente sem automação.
+
+=== TAREFA: RED TEAM FORMAL (Prompt Mestre §28) ===
+
+Procure ativamente, com base só no que já foi descrito acima (não invente detalhes de implementação que não foram fornecidos - se precisar de mais detalhe pra avaliar uma categoria, diga isso explicitamente em vez de supor), sinais de risco nas categorias abaixo. Para cada uma, diga se há sinal de risco real dado o que foi descrito, ou se não há informação suficiente pra avaliar (não invente):
+
+- bypass de validação / autorização
+- tenant escape
+- missing idempotency / double delivery
+- race conditions
+- stale state / partial writes / orphan records
+- inconsistência docs ↔ código
+- CI bypass
+- supply-chain weaknesses
+- workflow permissions excessivas
+- unpinned dependencies
+- secret leakage
+- logging de dados sensíveis
+- retry storms
+- poison messages / DLQ sem tratamento
+- silent failures
+- paths sem teste
+- código morto
+- complexidade acidental / abstrações prematuras
+- pontos únicos de manutenção difícil
+- false-green CI (CI que passa mas não prova o que devia)
+
+Ao final, classifique os 3-5 achados mais importantes por severidade (P0/P1/P2) e diga qual é, na sua visão, o MAIOR risco real deste sistema hoje - não necessariamente o mais fácil de descrever.

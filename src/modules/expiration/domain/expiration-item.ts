@@ -6,7 +6,7 @@
  * place on the same aggregate - the source item transitions to RENEWED and a new
  * ACTIVE item is created with `renewedFromId` pointing at the source).
  */
-import type { EntityKey } from "../ports/expiration-store.js";
+import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
 export type ExpirationItemStatus = "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
 

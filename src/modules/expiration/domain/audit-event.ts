@@ -8,7 +8,7 @@
  */
 import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
-import type { EntityKey, TransactPutEntry } from "../ports/expiration-store.js";
+import type { EntityKey, TransactPutEntry } from "../../../shared/dynamodb/occ.js";
 
 export type AuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "RENEW" | "DELETE";
 

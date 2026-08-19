@@ -57,6 +57,13 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check architecture boundaries (transitive dependency graph)
+        # dependency-cruiser resolves the real module graph, closing a gap ESLint's
+        # no-restricted-imports can't: it only matches literal import-specifier text, so it
+        # never catches a transitive re-export or a same-module domain->ports import written
+        # as a relative path (found and fixed for real 2026-08-19, see decisions-log.md).
+        run: npm run check-boundaries
+
       - name: Validate JSON schemas
         run: npm run validate-schemas
 

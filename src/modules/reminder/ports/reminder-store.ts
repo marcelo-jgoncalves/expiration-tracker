@@ -16,9 +16,13 @@
  * ReminderProducer worker, exposes it. test/integration/gsi3-isolation.test.ts asserts
  * this structurally (no tenant-facing dependency graph can reach queryGsi3).
  */
-export type { EntityKey, TransactWriteEntry, TransactPutEntry, TransactUpdateEntry } from "../../expiration/ports/expiration-store.js";
-export { isTransactionCanceled } from "../../expiration/ports/expiration-store.js";
-import type { EntityKey, TransactWriteEntry } from "../../expiration/ports/expiration-store.js";
+// 2026-08-19 (Engineering Maturity Review): imports from shared/dynamodb/occ.ts directly
+// rather than re-exporting through expiration/ports/expiration-store.js - the previous
+// indirection was an accidental cross-module ports->ports dependency (this module doesn't
+// actually need anything Expiration-specific here, just the generic DynamoDB shapes).
+export type { EntityKey, TransactWriteEntry, TransactPutEntry, TransactUpdateEntry } from "../../../shared/dynamodb/occ.js";
+export { isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 
 export interface ReminderStore {
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;

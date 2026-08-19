@@ -92,6 +92,40 @@ export function buildVersionedCreate(tableName: string, item: Record<string, unk
   };
 }
 
+/**
+ * TransactWriteItems entry shapes - moved here from expiration/ports/expiration-store.ts
+ * (2026-08-19, Engineering Maturity Review): that was the only place they were declared,
+ * but reminder/ports/reminder-store.ts already re-exported them from there (a cross-module
+ * ports->ports dependency), and expiration/domain/audit-event.ts imported them directly,
+ * which is a domain->ports boundary violation dependency-cruiser catches but ESLint's
+ * text-matching no-restricted-imports rule cannot (it only matches literal specifier
+ * substrings, and this codebase's relative imports never contain "modules/"). Reuses the
+ * inner Put/Update shapes already defined above instead of re-declaring them a third time.
+ */
+export interface TransactPutEntry {
+  Put: DynamoPutCommandInput;
+}
+
+export interface TransactUpdateEntry {
+  Update: DynamoUpdateCommandInput;
+}
+
+export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry;
+
+/** Name of the AWS SDK error thrown when any entry in a TransactWriteItems call fails its
+ * ConditionExpression - used by callers to distinguish OCC/idempotency conflicts from other
+ * DynamoDB errors without importing the SDK type. */
+export const TRANSACTION_CANCELED = "TransactionCanceledException";
+
+export function isTransactionCanceled(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: unknown }).name === TRANSACTION_CANCELED
+  );
+}
+
 /** Name of the AWS SDK error thrown when a ConditionExpression fails - used by callers
  * to distinguish OCC conflicts from other DynamoDB errors without importing the SDK type. */
 export const CONDITIONAL_CHECK_FAILED = "ConditionalCheckFailedException";
