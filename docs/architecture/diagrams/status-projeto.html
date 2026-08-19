@@ -172,8 +172,8 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · 7 entregáveis aprovados</p>
-  <h1>Fundação, arquitetura, Red Team, dados e SLOs aprovados — faltam DR, LGPD, custo e ADRs formais</h1>
+  <p class="eyebrow">Controle de Vencimentos · 8 entregáveis aprovados</p>
+  <h1>Fundação, arquitetura, Red Team, dados, SLOs e DR aprovados — faltam LGPD, custo e ADRs formais</h1>
   <p class="lede">Requirements, capacity model, arquitetura AWS conceitual, Architecture Red Team, Domain/Data Model e SLOs já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos em todas as sete rodadas. No caminho, o processo corrigiu a si mesmo pelo menos duas vezes de forma real: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais), e um erro técnico de sharding do Claude pego pelo Codex no data model (shard precisa estar na PK, não na SK, para distribuir carga).</p>
 
   <div class="callout">
@@ -321,17 +321,20 @@ footer code{
             <rect x="700" y="412" width="90" height="24" rx="12" fill="var(--done-bg)"/>
             <text x="745" y="428" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Next: DR/LGPD/Cost/ADRs -->
-            <circle cx="80" cy="502" r="9" fill="var(--next)"/>
-            <text x="104" y="492" fill="currentColor" font-weight="600" font-size="13">Disaster Recovery · Privacy/LGPD · Cost Model</text>
-            <text x="104" y="509" fill="var(--ink-dim)" font-size="11">RTO/RPO com teste real, mapa de dados pessoais, custo por estágio</text>
-            <rect x="700" y="484" width="90" height="24" rx="12" fill="var(--next-bg)"/>
-            <text x="745" y="500" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
+            <!-- DR done -->
+            <circle cx="80" cy="502" r="9" fill="var(--done)"/>
+            <text x="104" y="492" fill="currentColor" font-weight="600" font-size="13">Disaster Recovery</text>
+            <text x="104" y="509" fill="var(--ink-dim)" font-size="11">RPO/RTO por componente · teste real de restore · runbook LGPD</text>
+            <text x="104" y="524" fill="var(--ink-dim)" font-size="11">Claude ~9.10 · Codex 9.10</text>
+            <rect x="700" y="484" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="500" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- ADRs formais -->
-            <circle cx="80" cy="562" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="552" fill="var(--ink-dim)" font-size="13">ADRs formais individuais</text>
-            <text x="104" y="569" fill="var(--ink-dim)" font-size="11">Modelo da seção 24 para cada decisão já em decisions-log.md</text>
+            <!-- Next: LGPD/Cost/ADRs -->
+            <circle cx="80" cy="562" r="9" fill="var(--next)"/>
+            <text x="104" y="552" fill="currentColor" font-weight="600" font-size="13">Privacy/LGPD · Cost Model · ADRs formais</text>
+            <text x="104" y="569" fill="var(--ink-dim)" font-size="11">Mapa de dados pessoais, custo por estágio, modelo da seção 24</text>
+            <rect x="700" y="544" width="90" height="24" rx="12" fill="var(--next-bg)"/>
+            <text x="745" y="560" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
 
             <!-- MCP/AWS review/evolution -->
             <circle cx="80" cy="622" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
