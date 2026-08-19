@@ -93,42 +93,56 @@ Confirmação: commit `6d541a0` pushado para `main`, run `32262099908` (https://
 - **Sem secret scanner automatizado no CI** (FF9) — verificação manual dirigida feita nesta sessão, sem achado real, mas não é um mecanismo contínuo.
 - **Red team formal (Checkpoint 12 do Prompt Mestre) não foi executado como exercício separado** nesta sessão — os achados equivalentes (CI quebrado, gate decorativo, ausência de branch protection, commit único de 4 milestones) emergiram organicamente da avaliação evidence-first, mas uma rodada dedicada de red team (bypass de autorização, race conditions, poison messages, etc., Prompt Mestre §28) fica como trabalho futuro explícito, não fabricada como concluída.
 - **Duplicação de HTTP error-mapping** (domínio A) não extraída para `shared/` — P2, não bloqueante.
-- **Workers assíncronos sem teste unitário individual com fault injection** — cobertos só via integração agregada.
+- **Boundary enforcement do ESLint é parcial, não à prova de bypass** (achado do red team leve da rodada 2, ver abaixo) — cobre import direto proibido, não cobre import transitivo via um arquivo-ponte dentro do próprio `domain/`, `import()` dinâmico, ou alias de `tsconfig` fora do padrão bloqueado.
+- **Gate de audit de produção confia na classificação `dependencies`/`devDependencies` do `package.json`** — uma dependência de runtime movida deliberadamente para `devDependencies` escaparia do gate bloqueante (achado do red team).
+- **`enforce_admins: false` na proteção de `main`** — o dono do repo pode fazer bypass da proteção como admin; decisão consciente e proporcional ao tamanho do time, não um descuido, mas é um bypass real.
+- **Fluxo `develop`→PR→`main` documentado mas não exercitado** — nenhum PR real foi aberto/mergeado ainda para provar o processo na prática (a run verde do CI foi disparada por push direto em `main`, antes da nova estratégia de branch).
+- **`EX-001` depende de disciplina humana** — sem checagem automatizada, o prazo de revisão de 30 dias pode expirar silenciosamente.
 
 ## Exceptions
 
-`docs/engineering/exceptions.md` — EX-001 (vulnerabilidade transitiva de devDependency, dev-server only, prazo de revisão 30 dias).
+`docs/engineering/exceptions.md` — EX-001 (vulnerabilidade transitiva de devDependency, dev-server only, prazo de revisão 30 dias, sem expiração automatizada — ver Known Gaps).
 
-## Engineering Scores (rodada 1, pós-remediação de P0s de alto valor — não re-pontuado numericamente após os fixes)
+## Engineering Scores
 
 ```text
 ENGINEERING FOUNDATION STATUS: NOT APPROVED
 OPERATIONAL ENGINEERING STATUS: NOT APPROVED (esperado — sem produção, sem deploy real, per Prompt Mestre §63)
-
-CLAUDE ENGINEERING SCORE (pré-remediação): 5.88 / 10.00
-CODEX ENGINEERING SCORE (pré-remediação): 4.84 / 10.00
-CONSERVATIVE ENGINEERING SCORE (pré-remediação): 4.84 / 10.00
 ```
 
-Notas por domínio (pré-remediação, evidência real coletada em 2026-08-19): ver `docs/engineering/reviews/checkpoint-02-09-consolidated/claude-evaluation-round1.md` e `_codex-output-round1.txt`. Os 4 P0s convergentes identificados por ambos os revisores foram tratados nesta sessão (3 corrigidos: CI quebrado, gate de audit decorativo, boundaries sem enforcement; 1 parcialmente, branch protection recomendada mas não aplicada; 1 mantido como trabalho de milestone futuro: G8/recuperação assíncrona real). **Uma nova rodada de notas Claude+Codex sobre o estado pós-remediação não foi executada nesta sessão** — os números acima permanecem como o resultado formal da rodada 1, e não devem ser lidos como o estado atual sem essa reavaliação.
+**Rodada 1** (baseline, antes de qualquer remediação): Claude 5.88/10.00, Codex 4.84/10.00, Conservative 4.84/10.00. Ver `docs/engineering/reviews/checkpoint-02-09-consolidated/claude-evaluation-round1.md` e `_codex-output-round1.txt`.
+
+**Rodada 2** (pós-remediação de 5 dos 7 gaps abertos: CI real, branch protection real, audit de produção bloqueante, boundary enforcement, README, correção de docs, testes de reconciliação/producer):
 
 ```text
-GATES (após confirmação em CI real, run 32262099908):
-G1 PASS | G2 PARCIAL (CI real verde, falta branch protection) | G3 PASS | G4 PASS | G5 PASS | G6 PASS | G7 PASS | G8 FAIL | G9 PASS | G10 PASS | G11 PASS
+CLAUDE ENGINEERING SCORE (rodada 2): 5.98 / 10.00
+CODEX ENGINEERING SCORE (rodada 2): qualitativo apenas — "aumento material" confirmado, sem número exato
+CONSERVATIVE ENGINEERING SCORE (rodada 2): não calculável numericamente para os dois lados
 ```
 
+Nota de processo (`disagreement-log.md` D-003): o prompt da rodada 2 para o Codex não incluiu a tabela congelada de pesos/notas A-P (falha de preparo desta sessão, não do processo) — o Codex corretamente recusou-se a inventar um número sem ela, dando só direção qualitativa ("aumento material" vs. os 4.84 da rodada 1), reavaliação por domínio, gates, e um red team leve. O score Claude de 5.98 é autoavaliação com a rubrica completa, partindo do padrão de evidência mais rigoroso que o Codex aplicou na rodada 1 (aceito em D-001) e aplicando alta em D (CI: 0.50→7.00), N (Governance: 2.00→5.00), G (Supply Chain: 2.00→5.50), A (Code Quality: 7.00→7.50), C (Testing: 6.50→7.20), I (Reliability: 2.50→3.50 — só a parte testável melhorou, G8 segue sem prova de runtime), K (DX: 3.50→6.00), L (Documentation: 3.00→5.00); demais domínios mantidos. **Ambos os lados concordam, sem ambiguidade, no veredito qualitativo**: aumento material, mas `NOT APPROVED` continua correto porque G8 segue aberto e o score está bem abaixo de 9.0 de qualquer forma.
+
 ```text
-UNRESOLVED:
-P0: Decidir/habilitar branch protection em main (única peça faltante para G2 virar PASS pleno).
-P0: G8 — recuperação de falhas assíncronas reais (DLQ, replay, telemetria) — trabalho de M4+, não resolvível por edição de arquivo.
-P1: Rodada 2 de notas Claude+Codex sobre o estado pós-remediação (agora com G1/G3/G11 confirmados em CI real, não só local) — provável melhora de nota, mas não fabricada sem reavaliação formal.
-P1: Red team formal dedicado (Checkpoint 12 do Prompt Mestre), não executado como exercício isolado nesta sessão.
-P2: Vulnerabilidade de devDependency (EX-001), duplicação de HTTP error-mapping, testes unitários individuais para workers assíncronos, atualizar pins de Actions para runners Node 24.
+GATES (rodada 2, após CI real + branch protection + boundary enforcement confirmados):
+G1 PASS | G2 PASS (branch protection confirmada via API: required check "guardrails", sem force-push/deleção — reserva: enforce_admins=false) | G3 PASS | G4 PASS | G5 PASS | G6 PASS | G7 PASS | G8 FAIL (replay/reconciliation agora testados; observabilidade em runtime real segue ausente) | G9 PASS | G10 PASS (reserva: não cobre bypass transitivo, ver red team) | G11 PASS
 ```
+
+## Red Team (rodada leve, 2026-08-19, Codex)
+
+Não é o red team formal completo do Checkpoint 12 do Prompt Mestre (não executado como exercício isolado) — foi uma passada rápida sobre especificamente o que mudou nesta sessão, pedida junto com a rodada 2 de notas. Achados reais, não hipotéticos:
+
+- **Bypass do boundary ESLint via import transitivo**: a regra `no-restricted-imports` avalia o specifier direto do import — um arquivo dentro de `domain/` que importe um "arquivo-ponte" também dentro de `domain/`, que por sua vez importe `application/`/`infra`, não é pego. Também não cobre `import()` dinâmico, `require()`, alias de `tsconfig.json` fora do padrão bloqueado, ou barrel files com reexportação.
+- **Bypass do gate de audit de produção via reclassificação de dependência**: `npm audit --omit=dev` confia inteiramente na seção (`dependencies` vs. `devDependencies`) do `package.json` — uma dependência de runtime movida deliberadamente (ou por engano) para `devDependencies` escaparia do gate bloqueante.
+- **`enforce_admins: false`** é um bypass administrativo real e consciente da proteção de `main`.
+- **Confusão de provenance do required check**: um check obrigatório só pelo nome (`guardrails`) é teoricamente vulnerável se outro workflow/app pudesse publicar um contexto com o mesmo nome — não investigado a fundo nesta passada leve.
+
+Nenhum desses é um P0 (nenhum já foi explorado, e todos exigem ação deliberada ou configuração adicional para virar um problema real) — registrados como P1/P2 em Known Gaps.
 
 ## Next Steps
 
-1. Push das correções feitas nesta sessão (`.github/workflows/ci.yml`, `.eslintrc.cjs`, `README.md`, `NEXT_SESSION_PROMPT.md`, `docs/engineering/**`, `ENGINEERING.md`) e observar a run real do CI no GitHub Actions.
-2. Decidir sobre branch protection (recomendação concreta: exigir PR + `guardrails` como required check).
-3. Rodada 2 de notas Claude+Codex pós-remediação, para checkpoint formal.
-4. Continuar para M4 (Notification Engine) só depois de decidir a prioridade relativa entre feature work e fechar G8 (recuperação de falha assíncrona real) — este é um gate de engenharia, não um item de produto, e ficou aberto nesta rodada.
+1. ~~Push das correções e observar a run real do CI~~ — feito, confirmado (run 32262099908).
+2. ~~Decidir sobre branch protection~~ — feito e confirmado via API.
+3. ~~Rodada 2 de notas pós-remediação~~ — feito (ver acima); refazer com a tabela completa anexada ao prompt do Codex, se um número exato conservador for necessário.
+4. Abrir e mergear o primeiro PR real `develop`→`main` para exercitar o processo documentado (hoje só existe no papel).
+5. Fechar G8 de verdade exige runtime real (Lambda + fila + telemetria) — trabalho de M4+, não uma correção de arquivo. Decidir a prioridade relativa entre isso e feature work (M4 Notification Engine) antes de prosseguir.
+6. P1s do red team, quando fizer sentido pelo tamanho do time: `dependency-cruiser`/`madge` para checar boundary transitivamente; checagem automatizada de exceções vencidas (`EX-001`); `cdk synth` real via CLI.
