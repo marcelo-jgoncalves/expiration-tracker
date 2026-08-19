@@ -156,7 +156,20 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
     const mainQueue = Object.values(queues).find((q) => (q.Properties.RedrivePolicy as { deadLetterTargetArn?: unknown } | undefined)?.deadLetterTargetArn);
     expect(mainQueue).toBeTruthy();
     expect((mainQueue?.Properties.RedrivePolicy as { maxReceiveCount: number }).maxReceiveCount).toBe(5);
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 1);
+    // Full-audit round1 (Arquitetura, Observability & Operability): 1 DLQ age alarm
+    // (reminder-queue.ts) + ReminderObservability's 5 per-function error alarms (producer,
+    // dispatch, reconciliation, relay, sweeper) + 1 dispatch-queue backlog-age alarm = 7.
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 7);
+  });
+
+  it("Full-audit round1 (Arquitetura, Observability & Operability): every critical async function has an error alarm, and the dispatch queue has a backlog-age alarm distinct from the DLQ's", () => {
+    const template = synthTemplate();
+    const alarms = template.findResources("AWS::CloudWatch::Alarm");
+    const descriptions = Object.values(alarms).map((a) => String(a.Properties.AlarmDescription ?? ""));
+    for (const name of ["ReminderProducer", "ReminderDispatch", "ReminderReconciliation", "DispatchOutboxRelay", "OutboxSweeperReminderDispatch"]) {
+      expect(descriptions.some((d) => d.includes(name) && d.includes("errors")), `missing error alarm for ${name}`).toBe(true);
+    }
+    expect(descriptions.some((d) => d.includes("falling behind producer"))).toBe(true);
   });
 
   it("M3.5: exactly two EventBridge Scheduler schedules invoke ReminderReconciliation (CLAIMS every 5 min, DST daily), each with a distinct mode", () => {

@@ -1,0 +1,9 @@
+Voce e o revisor independente Codex no protocolo de debate Claude-Codex deste repositorio (AGENTS.md secao 4). Leia AGENTS.md e docs/engineering/joint-review-criteria.md secao "Eixo: Arquitetura" (11 criterios ponderados) neste repositorio, que esta no diretorio atual.
+
+Tarefa: dar uma nota cega (0-10 por criterio, mais nota ponderada final) para o eixo Arquitetura, contra o ESTADO REAL do repositorio (leia o codigo, nao apenas documentacao de intencao), nao contra o design pretendido. Voce NAO tem acesso a nenhuma nota do Claude - esta e uma avaliacao independente.
+
+Leia pelo menos: infra/lib/expiration-tracker-stack.ts, infra/lib/dynamo-table.ts, infra/lib/reminder-schedule.ts, infra/lib/scoped-lambda-function.ts, src/shared (estrutura + occ.ts/outbox.ts/idempotency.ts), src/modules/reminder e src/workers (estrutura), e NEXT_SESSION_PROMPT.md para entender o estado de teste (Camada 1/2 verdes, Camada 3 sandbox AWS nao executada).
+
+Para cada um dos 11 criterios (Domain Fit and Simplicity 8%, Reliability and Fault Recovery 16%, Event and Integration Correctness 11%, Data Model and Consistency 13%, Security and Privacy 13%, Modifiability and Evolvability 7%, Observability and Operability 8%, Testability and Delivery Safety 8%, Cost and Resource Governance 5%, Performance and Scalability Fitness 4%, Architecture Governance and Traceability 7%), de uma nota 0-10 com evidencia concreta arquivo:linha - nota alta sem evidencia concreta nao conta.
+
+Produza a saida em markdown com: tabela criterio/peso/nota/evidencia, nota ponderada final, e uma secao separada listando quais criterios ficaram abaixo de 9.0 e por que (distinga o que e corrigivel sem deploy AWS real do que depende de deploy real / sandbox AWS, que e um impedimento externo conhecido nesta sessao - o time decidiu que o deploy sera via pipeline+Terraform, ainda nao implementado).

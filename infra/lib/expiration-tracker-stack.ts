@@ -13,6 +13,7 @@ import { ScopedLambdaFunction, tableAccessFor, queueAccessFor } from "./scoped-l
 import { ExpirationTrackerApi } from "./api.js";
 import { ReminderDispatchQueue } from "./reminder-queue.js";
 import { ReminderSchedule } from "./reminder-schedule.js";
+import { ReminderObservability } from "./reminder-observability.js";
 
 export interface ExpirationTrackerStackProps extends StackProps {
   mfaPolicy?: MfaPolicy;
@@ -176,6 +177,17 @@ export class ExpirationTrackerStack extends Stack {
       reminderReconciliation: this.reminderReconciliation.function,
       outboxSweeper: this.outboxSweeper.function,
       schedulesEnabled: props.schedulesEnabled,
+    });
+
+    // Full-audit round1 (Arquitetura, Observability & Operability): error/backlog alarms
+    // for the five async-pipeline functions, beyond the pre-existing DLQ age alarm alone.
+    new ReminderObservability(this, "ReminderObservability", {
+      reminderProducer: this.reminderProducer.function,
+      reminderDispatch: this.reminderDispatch.function,
+      reminderReconciliation: this.reminderReconciliation.function,
+      dispatchOutboxRelay: this.dispatchOutboxRelay.function,
+      outboxSweeper: this.outboxSweeper.function,
+      dispatchQueue: this.dispatchQueue.queue,
     });
   }
 }
