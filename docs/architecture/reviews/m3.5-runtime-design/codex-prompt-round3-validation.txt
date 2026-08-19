@@ -1,0 +1,14 @@
+Validacao final do documento convergido do protocolo Claude<->Codex (AGENTS.md secao 4, expiration-tracker) para o milestone M3.5 (runtime real do Reminder Engine / fechamento de G8).
+
+Voce ja participou das Rodadas 1 e 2 (suas respostas em codex-output-round1.txt e codex-output-round2.txt, mesmo diretorio docs/architecture/reviews/m3.5-runtime-design/). Na Rodada 2 voce deu nota de confianca 9,3/10 na proposta convergente descrita em prosa pela Claude.
+
+Agora leia o DOCUMENTO NORMATIVO FINAL que a Claude escreveu a partir dessa convergencia: docs/architecture/m3.5-runtime-design.md (raiz de docs/architecture/, nao dentro de reviews/).
+
+Sua tarefa agora e VALIDACAO, nao mais proposta nem critica de conteudo tecnico novo:
+
+1. O documento representa fielmente o que foi convergido nas Rodadas 1 e 2, ou introduz alguma mudanca silenciosa, imprecisao, contradicao interna, ou promessa que os dois lados nao debateram de fato?
+2. Alguma das 5 secoes de "Componentes do milestone" ficou vaga ou subespecificada a ponto de nao dar para comecar a implementar sem re-decidir algo em pleno codigo?
+3. A secao "O que este milestone explicitamente NAO fecha" continua precisa em relacao aos 5 P1 do red team (checkpoint-12)?
+4. De uma nota FINAL 0-10 a este documento como especificacao pronta para implementacao (nao a ideia em abstrato). Se abaixo de 9.0, liste exatamente o que teria que mudar no arquivo para chegar a 9.0 - mudancas pontuais, nao nova rodada de design.
+
+Responda em portugues, direto ao ponto, sem preambulo.

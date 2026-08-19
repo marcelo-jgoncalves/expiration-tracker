@@ -1,0 +1,7 @@
+Revalidacao (Rodada 6, protocolo Claude<->Codex, expiration-tracker, M3.5) de docs/architecture/m3.5-runtime-design.md.
+
+Na Rodada 5 voce confirmou que o bloqueio de consultabilidade do GSI6 foi fechado, mas apontou impreciso de IAM: a permissao e da role da Lambda, nao do "adapter"; o OutboxSweeperReminderDispatch tambem precisa de acesso ao GSI6 (nao so a reconciliacao), entao "restrito exclusivamente a um adapter" estava com exclusividade incorreta; faltava exigir teste de synth positivo/negativo das duas roles, AccessDenied de sandbox para GSI3 E GSI6, e remocao atomica das chaves na mesma transacao da mudanca de estado.
+
+Reescrevi a secao de decisao do GSI6: agora especifica que EXATAMENTE DUAS roles (ReminderReconciliation e OutboxSweeperReminderDispatch) recebem dynamodb:Query sobre /index/GSI6, via uma capability nova gsi6Read() em scoped-lambda-function.ts (mesmo padrao de gsi3Read(), nunca implicita em readWriteKeys/readKeys); teste de synth positivo/negativo das duas roles; teste de sandbox exigindo AccessDenied para GSI3 e GSI6; remocao atomica das chaves na mesma TransactWriteItems/UpdateItem da mudanca de estado correspondente.
+
+Leia a versao atual de docs/architecture/m3.5-runtime-design.md e confirme se o ponto foi fechado com precisao suficiente. De uma nota final 0-10. Se for uma rodada de convergencia bem sucedida (>=9.0), pode ser uma resposta curta.
