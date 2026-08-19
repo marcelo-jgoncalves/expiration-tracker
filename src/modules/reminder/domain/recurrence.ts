@@ -173,7 +173,17 @@ export function parseLocalTime(hhmm: string): { hour: number; minute: number } {
  * offset change even though its own computed instant was never ambiguous.
  */
 export function timeZoneObservesDst(timeZone: string, year: number): boolean {
-  const januaryOffset = offsetMinutesAt(Date.UTC(year, 0, 15, 12, 0, 0), timeZone);
-  const julyOffset = offsetMinutesAt(Date.UTC(year, 6, 15, 12, 0, 0), timeZone);
-  return januaryOffset !== julyOffset;
+  // Codex implementation review (round 2): comparing only Jan/Jul is not sufficient -
+  // zones with short/irregular DST windows (e.g. Africa/Casablanca, suspended around
+  // Ramadan) can have equal offsets in January and July while still transitioning
+  // elsewhere in the year. Sample the 15th of every month instead - still not a
+  // mathematical proof against a transition entirely contained within a single
+  // sampling gap (<1 month), but IANA DST transitions are structurally at least ~1
+  // month apart in every zone this system targets, so monthly sampling catches every
+  // real-world case without needing a full day-by-day scan.
+  const offsets = new Set<number>();
+  for (let month = 0; month < 12; month++) {
+    offsets.add(offsetMinutesAt(Date.UTC(year, month, 15, 12, 0, 0), timeZone));
+  }
+  return offsets.size > 1;
 }
