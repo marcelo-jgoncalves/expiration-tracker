@@ -19,6 +19,12 @@ export interface VersionedUpdateInput {
   expectedVersion: number;
   /** Additional SET clauses beyond version/updatedAt, e.g. { status: "CANCELLED" }. */
   set: Record<string, unknown>;
+  /** Attribute names to REMOVE atomically in the same conditional update - e.g. dropping
+   * GSI6PK/GSI6SK when a reconciliation-candidate pointer (M3.5) stops applying. Gap noted
+   * since M3 (occ.ts was SET-only, cancelled GSI3 pointers were left orphaned because
+   * nothing actively queried them); M3.5 needs REMOVE for real because GSI6 pointers ARE
+   * actively queried by reconciliation. */
+  remove?: string[];
   now?: string;
 }
 
@@ -62,10 +68,24 @@ export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateC
     i += 1;
   }
 
+  const removeClauses: string[] = [];
+  let j = 0;
+  for (const field of input.remove ?? []) {
+    const nameKey = `#rem${j}`;
+    names[nameKey] = field;
+    removeClauses.push(nameKey);
+    j += 1;
+  }
+
+  const expression =
+    removeClauses.length > 0
+      ? `SET ${setClauses.join(", ")} REMOVE ${removeClauses.join(", ")}`
+      : `SET ${setClauses.join(", ")}`;
+
   return {
     TableName: input.tableName,
     Key: input.key,
-    UpdateExpression: `SET ${setClauses.join(", ")}`,
+    UpdateExpression: expression,
     ConditionExpression:
       "attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion AND #tenantId = :tenantId",
     ExpressionAttributeNames: names,

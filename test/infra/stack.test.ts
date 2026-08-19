@@ -61,7 +61,6 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
       () =>
         new ScopedLambdaFunction(stack, "Bad", {
           runtime: lambda.Runtime.NODEJS_20_X,
-          handler: "index.handler",
           access: [{ kind: "table:delete-everything", description: "nope", grant: () => {} }],
         }),
     ).toThrow(/unknown access capability kind/);

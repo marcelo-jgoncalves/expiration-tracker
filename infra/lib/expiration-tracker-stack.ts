@@ -34,7 +34,6 @@ export class ExpirationTrackerStack extends Stack {
 
     const testRouteHandler = new ScopedLambdaFunction(this, "TestPingHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [tableAccess.readWriteKeys("IdentityMapping", "User", "TenantQuota")],
     });
 
@@ -45,7 +44,6 @@ export class ExpirationTrackerStack extends Stack {
     // ReminderProducer.
     const itemsHandler = new ScopedLambdaFunction(this, "ItemsHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [tableAccess.readWriteKeys("ExpirationItem", "AuditEvent", "OutboxEvent", "IdempotencyRecord")],
     });
 
@@ -58,7 +56,6 @@ export class ExpirationTrackerStack extends Stack {
     // M3: policy CRUD is tenant-facing (HTTP), like ItemsHandler - table-level RW, no GSI3.
     this.remindersHandler = new ScopedLambdaFunction(this, "RemindersHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [tableAccess.readWriteKeys("ReminderPolicy", "ReminderOccurrence")],
     });
 
@@ -68,7 +65,6 @@ export class ExpirationTrackerStack extends Stack {
     // asserts this at the synthesized-template level).
     this.reminderProducer = new ScopedLambdaFunction(this, "ReminderProducer", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [tableAccess.readWriteKeys("ReminderOccurrence"), tableAccess.gsi3Read()],
     });
 
@@ -77,7 +73,6 @@ export class ExpirationTrackerStack extends Stack {
     // and read access to ExpirationItem/ReminderPolicy for the staleness check, never GSI3.
     this.reminderDispatch = new ScopedLambdaFunction(this, "ReminderDispatch", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [
         tableAccess.readWriteKeys(
           "ReminderOccurrence",
@@ -94,7 +89,6 @@ export class ExpirationTrackerStack extends Stack {
     // the scheduler index).
     this.reminderReconciliation = new ScopedLambdaFunction(this, "ReminderReconciliation", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
       access: [
         tableAccess.readWriteKeys("ReminderOccurrence"),
         tableAccess.readKeys("ExpirationItem", "ReminderPolicy"),
