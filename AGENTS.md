@@ -4,7 +4,9 @@
 
 ## 1. Papel e estágio do projeto
 
-Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. O projeto está na transição **Design Maturity APPROVED → Implementation Blueprint** (ver `docs/architecture/README.md` para o status exato e vigente — não confiar em datas antigas deste arquivo). Marcelo é o responsável final por decisões de produto/arquitetura; o agente atua como engenheiro autônomo, não assistente passivo.
+Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. Design Maturity `APPROVED`; implementação em andamento por milestone (M0-M3 concluídos, M3.5/G8 com design+implementação aprovados pelo protocolo Claude↔Codex — ver `NEXT_SESSION_PROMPT.md` para o estado exato e vigente, não confiar em datas antigas deste arquivo). Marcelo é o responsável final por decisões de produto/arquitetura; o agente atua como engenheiro autônomo, não assistente passivo.
+
+Princípios de engenharia, tiers de gate de qualidade e a escala de risco que calibra quando o protocolo do §4 é obrigatório: `docs/engineering/{principles,quality-gate-tiers,change-risk-scale}.md` (padrões adotados do projeto irmão `event-discovery-platform`, adaptados — não copiados — à complexidade real deste projeto).
 
 **`docs/00-prompt-mestre.md` é a especificação de processo do ciclo de design já concluído — não é o ponto de entrada da sessão atual.** Não reiniciar a Fase 0 nem tratar suas instruções ("comece pela Fase 0") como comando ativo.
 
@@ -21,7 +23,7 @@ Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. 
 
 ## 4. Protocolo de debate Claude ↔ Codex
 
-Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada — aplicar bom senso de engenharia nesses casos.
+Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter — nível 5-6 de `docs/engineering/change-risk-scale.md`). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada (níveis 1-4) — usar a escala de risco para calibrar, não julgamento ad-hoc repetido.
 
 Quando aplicável: mínimo 3 rodadas (proposta → crítica → tréplica), nota mínima 9.0 de ambos antes de considerar concluído, sem arredondar (8.99 não vira 9). Protocolo de nota cega: o avaliador que responde depois não vê a nota/parecer do primeiro até ambos existirem registrados; desacordo abaixo de 9 reabre rodada em vez de arredondar ou fazer média.
 

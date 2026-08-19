@@ -1,6 +1,6 @@
 # Exception Registry
 
-Registro de violações conscientes de regra, com justificativa, risco, owner e prazo de revisão (Prompt Mestre §47). Nenhuma exceção aqui é permanente por padrão.
+Registro de violações conscientes de regra, com justificativa, risco, owner e prazo de revisão (Prompt Mestre §47; formalizado com o padrão de `expiraEm` do `event-discovery-platform`, ver `docs/engineering/quality-gate-tiers.md` §"Política de exceção"). Nenhuma exceção aqui é permanente por padrão — **uma exceção sem `expiraEm` explícito não é uma exceção válida, é uma vulnerabilidade não tratada disfarçada.** Ao expirar sem reavaliação registrada, o achado volta a bloquear `Dependency audit` normalmente até ser re-registrado com novo prazo.
 
 ## EX-001 — Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild)
 
