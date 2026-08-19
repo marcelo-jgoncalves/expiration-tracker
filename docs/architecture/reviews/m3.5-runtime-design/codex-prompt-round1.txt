@@ -1,0 +1,23 @@
+Você é o segundo engenheiro independente num protocolo de nota cega Claude<->Codex (AGENTS.md secao 4 do repo expiration-tracker, c:/Users/Usuario/Desktop/projects/expiration-tracker). NAO leia claude-proposal.md neste diretorio - sua proposta precisa ser independente, sera comparada depois.
+
+Contexto: micro-SaaS serverless AWS (TypeScript, CDK, DynamoDB, SQS, EventBridge). M0-M3 ja implementados e testados (123 testes) mas SEM runtime real: adapters DynamoDB sao fakes em memoria, handlers Lambda sao placeholders `exports.handler = async () => ({statusCode: 501})`, sem filas/EventBridge wired. Um red team formal (checkpoint-12) apontou isso como bloqueador de aprovacao de arquitetura (G8), com 5 P1: (1) pipeline assincrono sem recuperacao real, (2) idempotencia nao provada no limite do efeito externo (at-least-once classico), (3) false-green entre logica pura e comportamento implantado, (4) concorrencia/estado obsoleto entre renew/cancel/materializacao/dispatch/reconciliation, (5) blast radius cross-tenant do GSI3 (IAM ja limita, falta teste negativo contra adapter real).
+
+O usuario decidiu tratar o fechamento de G8 como um milestone dedicado (mesma disciplina de M0-M3: design -> implementacao -> teste real -> revisao Claude+Codex), com este escopo fixo:
+1. Adapters DynamoDB reais implementando os ports existentes (ReminderStore, ExpirationStore, IdentityStore) contra AWS real.
+2. Handlers Lambda reais substituindo os placeholders 501.
+3. Filas SQS + DLQ com redrive policy para o pipeline producer->dispatch.
+4. EventBridge Scheduled Rule disparando o ReminderProducer periodicamente (a cada minuto) e a ReminderReconciliation periodicamente.
+5. Testes de fault injection contra esse runtime real (timeout de dependencia, poison message, redrive).
+
+Arquitetura relevante ja existente e fixa (nao redesenhar, so integrar):
+- Ports SDK-agnosticos ja definidos: ReminderStore (get/putIfAbsent/update/transactWrite/queryByItem), ReminderProducerStore (queryGsi3/get/transactWrite, isolado do resto por desenho), ExpirationStore, IdentityStore - todos em src/modules/*/ports/.
+- shared/dynamodb/occ.ts ja produz os parametros de ConditionExpression/TransactWriteItems (builders puros, sem SDK ainda).
+- shared/outbox/outbox.ts, shared/idempotency/idempotency.ts, shared/errors/app-error.ts (taxonomia retryable/terminal) ja existem.
+- infra/lib/scoped-lambda-function.ts: todo Lambda deve nascer via ScopedLambdaFunction (unico ponto de enforcement de IAM least-privilege), hoje usa lambda.Code.fromInline para os placeholders.
+- infra/lib/expiration-tracker-stack.ts ja declara os 5 ScopedLambdaFunction do Reminder Engine (RemindersHandler HTTP, ReminderProducer com gsi3Read exclusivo, ReminderDispatch, ReminderReconciliation) com as capabilities de tabela corretas - falta so trocar o codigo placeholder por bundle real e adicionar fila/schedule.
+- GSI3 e deliberadamente isolado: so ReminderProducerStore/ReminderProducer pode fazer Query nele (protecao contra P1 #5), enforcement via IAM real (Table.grantReadWriteData do CDK inclui TODOS os indices por padrao - ja corrigido com PolicyStatement explicito).
+- Reserved concurrency e DLQ ja documentados no blueprint (implementation-blueprint.md secao 26): ReminderDispatchWorker concurrency 10, DLQ maxReceiveCount=5; ReminderProducer concurrency 2, sem DLQ (lookback [M-5min,M] cobre falha de tick); ReminderReconciliation concurrency 1, sem DLQ (idempotente, diario).
+
+Produza uma proposta tecnica concreta cobrindo os 5 itens do escopo: escolhas de biblioteca/pacote AWS SDK v3, estrutura de arquivos dos adapters DynamoDB (um por port, mantendo os ports SDK-agnosticos como estao), estrategia de bundling dos handlers Lambda reais, desenho da fila+DLQ (nomes, redrive policy, batch size, partial batch failure), desenho do EventBridge Schedule (Scheduler vs Rule legado, flexible time window), e como voce testaria fault injection de forma real (nao mockada) sem tornar o CI lento/fragil demais - inclua sua escolha entre DynamoDB Local, LocalStack, ou testcontainers, e por que. Aponte explicitamente o que este milestone NAO resolve dos 5 P1 do red team (idempotencia ponta-a-ponta contra efeito externo real depende de Notification/M4, que nao existe ainda) para evitar falsa sensacao de "G8 fechado = tudo resolvido". Termine com uma nota de confianca 0-10 na sua propria proposta e os riscos que mais te preocupam.
+
+Responda em portugues, formato markdown, direto ao ponto (nao precisa de preambulo).

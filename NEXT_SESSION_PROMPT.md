@@ -1,6 +1,16 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+## Próxima ação obrigatória (2026-08-19, sessão de design M3.5 — mais recente, leia isto primeiro)
+
+Fase de **design** do milestone M3.5 (runtime real do Reminder Engine / fechamento de G8) concluída e **APPROVED** (Claude 9.0/Codex 9.3, protocolo `AGENTS.md` §4, 2 rodadas). Documento normativo: `docs/architecture/m3.5-runtime-design.md`. Artefatos de rodada (propostas independentes, crítica cruzada, tréplica) em `docs/architecture/reviews/m3.5-runtime-design/`.
+
+**Mudança de escopo real, decidida na convergência de design (não estava no escopo original)**: wiring real do GSI6 (antes item 4 da lista de pendências pós-M3, tratado como follow-up separado) **entra neste milestone** — sem uma fonte real de candidatos de reconciliação, a EventBridge Rule de reconciliação dispararia sobre arrays vazios (false-green). Também decidido: outbox durável (reuso de `shared/outbox/outbox.ts`) entre o claim do producer e a publicação em SQS — `TransactWrite(claim)` seguido de `SendMessage` direto não é atômico, gap que nenhuma das duas propostas independentes tinha visto sozinha, só apareceu na crítica cruzada.
+
+**Próxima ação real**: implementar o milestone seguindo `docs/architecture/m3.5-runtime-design.md` seção "Componentes do milestone" (5 itens: adapters DynamoDB reais, handlers Lambda reais, SQS+DLQ+outbox relay, EventBridge Scheduler+GSI6, testes em 3 camadas incluindo sandbox AWS efêmero). Nada disso foi implementado ainda nesta sessão — só o design. Não pular a implementação do outbox/relay nem do port de reconciliação achando que "fila+DLQ bastam" — foi exatamente o erro que a Rodada 1 cometeu isoladamente dos dois lados.
+
+---
+
+## Próxima ação obrigatória (histórico — superada pela seção acima, preservada como contexto de G8)
 
 Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEERING.md` na raiz para o relatório completo). Veredito: `ENGINEERING FOUNDATION STATUS: NOT APPROVED`, bloqueador único e conhecido: **G8 (recuperação real de falha assíncrona)**.
 
