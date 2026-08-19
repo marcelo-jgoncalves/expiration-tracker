@@ -1,16 +1,11 @@
-/**
- * Real DynamoDB adapter for ExpirationStore (M3.5). `transactWrite` executes the
- * TransactWriteItems parameter shapes already produced by shared/dynamodb/occ.ts's
- * builders (buildVersionedCreate/buildVersionedUpdate) and shared/outbox/outbox.ts's
- * appendToTransaction - this adapter does not reconstruct OCC/idempotency/outbox logic,
- * only executes the SDK command.
- */
+/** Real DynamoDB adapter for ReminderStore (M3.5). Same translation pattern as
+ * DynamoDbExpirationStore - see that file's header for the shared rationale. */
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, ExpirationStore, Gsi1QueryInput, TransactWriteEntry } from "../ports/expiration-store.js";
+import type { EntityKey, ReminderStore, TransactWriteEntry } from "../ports/reminder-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
-export class DynamoDbExpirationStore implements ExpirationStore {
+export class DynamoDbReminderStore implements ReminderStore {
   constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
@@ -23,7 +18,7 @@ export class DynamoDbExpirationStore implements ExpirationStore {
       );
       return result.Item as T | undefined;
     } catch (err) {
-      throw mapDynamoError(err, "ExpirationStore.get");
+      throw mapDynamoError(err, "ReminderStore.get");
     }
   }
 
@@ -39,7 +34,7 @@ export class DynamoDbExpirationStore implements ExpirationStore {
       return true;
     } catch (err) {
       if (isConditionalCheckFailed(err)) return false;
-      throw mapDynamoError(err, "ExpirationStore.putIfAbsent");
+      throw mapDynamoError(err, "ReminderStore.putIfAbsent");
     }
   }
 
@@ -47,7 +42,7 @@ export class DynamoDbExpirationStore implements ExpirationStore {
     try {
       await this.client.send(new PutCommand({ TableName: this.tableName, Item: item }));
     } catch (err) {
-      throw mapDynamoError(err, "ExpirationStore.update");
+      throw mapDynamoError(err, "ReminderStore.update");
     }
   }
 
@@ -62,7 +57,8 @@ export class DynamoDbExpirationStore implements ExpirationStore {
     );
   }
 
-  async queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]> {
+  /** Strongly consistent read of all `OCC#`-prefixed rows under the item's own partition (data-model.md §5). */
+  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]> {
     try {
       const items: T[] = [];
       let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -70,21 +66,18 @@ export class DynamoDbExpirationStore implements ExpirationStore {
         const result = await this.client.send(
           new QueryCommand({
             TableName: this.tableName,
-            IndexName: "GSI1",
-            KeyConditionExpression: "GSI1PK = :pk",
-            ExpressionAttributeValues: { ":pk": input.gsi1pk },
-            ScanIndexForward: input.ascending ?? true,
-            Limit: input.limit,
+            KeyConditionExpression: "PK = :pk AND begins_with(SK, :occPrefix)",
+            ExpressionAttributeValues: { ":pk": `TENANT#${tenantId}#ITEM#${itemId}`, ":occPrefix": "OCC#" },
+            ConsistentRead: true,
             ExclusiveStartKey: exclusiveStartKey,
           }),
         );
         items.push(...((result.Items ?? []) as T[]));
         exclusiveStartKey = result.LastEvaluatedKey;
-        if (input.limit && items.length >= input.limit) break;
       } while (exclusiveStartKey);
-      return input.limit ? items.slice(0, input.limit) : items;
+      return items;
     } catch (err) {
-      throw mapDynamoError(err, "ExpirationStore.queryGsi1");
+      throw mapDynamoError(err, "ReminderStore.queryByItem");
     }
   }
 }
