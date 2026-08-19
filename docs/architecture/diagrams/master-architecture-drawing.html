@@ -1,0 +1,584 @@
+<title>Expiration Tracker — Master Architecture Drawing</title>
+<meta name="description" content="Desenho completo da arquitetura AWS do Expiration Tracker, todas as camadas num único diagrama técnico." />
+<style>
+:root{
+  --paper:#eef1ee;
+  --paper-2:#e3e8e4;
+  --ink:#141a1f;
+  --ink-dim:#4c5860;
+  --line:#c3ccc6;
+  --line-strong:#9aa79f;
+  --accent:#0e7490;
+  --accent-soft:#d9ecf0;
+  --gate:#2f6f4f;
+  --gate-soft:#e0ede5;
+  --queue:#a8620f;
+  --queue-soft:#f3e6d3;
+  --danger:#9c3b2e;
+  --card:#ffffff;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1116;
+    --paper-2:#111820;
+    --ink:#e7ecee;
+    --ink-dim:#8fa0a8;
+    --line:#28333b;
+    --line-strong:#3c4a53;
+    --accent:#2fb8d1;
+    --accent-soft:#0f2b32;
+    --gate:#4fae82;
+    --gate-soft:#12291f;
+    --queue:#d99447;
+    --queue-soft:#2b2013;
+    --danger:#e0685a;
+    --card:#0f161c;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1116;
+  --paper-2:#111820;
+  --ink:#e7ecee;
+  --ink-dim:#8fa0a8;
+  --line:#28333b;
+  --line-strong:#3c4a53;
+  --accent:#2fb8d1;
+  --accent-soft:#0f2b32;
+  --gate:#4fae82;
+  --gate-soft:#12291f;
+  --queue:#d99447;
+  --queue-soft:#2b2013;
+  --danger:#e0685a;
+  --card:#0f161c;
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.5;
+}
+.sheet{
+  max-width:1400px;
+  margin:0 auto;
+  padding:2.2rem 1.4rem 4rem;
+}
+
+/* ---------- Title block ---------- */
+.titleblock{
+  border:1.5px solid var(--line-strong);
+  background:var(--card);
+  display:grid;
+  grid-template-columns: 1.6fr 1fr 1fr;
+  gap:0;
+  margin-bottom:2.2rem;
+}
+.titleblock > div{
+  padding:1rem 1.2rem;
+  border-right:1px solid var(--line);
+}
+.titleblock > div:last-child{border-right:none;}
+.tb-main .eyebrow{
+  font-family:var(--mono);
+  font-size:0.7rem;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  color:var(--ink-dim);
+  margin:0 0 0.35rem;
+}
+.tb-main h1{
+  font-family:var(--serif);
+  font-size:clamp(1.5rem,3vw,2rem);
+  font-weight:600;
+  margin:0 0 0.4rem;
+  text-wrap:balance;
+  letter-spacing:-0.01em;
+}
+.tb-main p{
+  margin:0;
+  color:var(--ink-dim);
+  font-size:0.92rem;
+  max-width:56ch;
+}
+.tb-status{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:0.5rem;
+}
+.tb-status .row{display:flex; justify-content:space-between; font-family:var(--mono); font-size:0.78rem;}
+.tb-status .row span:first-child{color:var(--ink-dim);}
+.pill{
+  display:inline-block;
+  font-family:var(--mono);
+  font-size:0.72rem;
+  padding:0.15rem 0.55rem;
+  border-radius:2px;
+  background:var(--gate-soft);
+  color:var(--gate);
+  border:1px solid color-mix(in srgb, var(--gate) 40%, transparent);
+  font-weight:600;
+}
+.pill.warn{
+  background:var(--queue-soft);
+  color:var(--queue);
+  border-color:color-mix(in srgb, var(--queue) 40%, transparent);
+}
+.tb-approvals{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:0.6rem;
+}
+.approval{
+  font-family:var(--mono);
+  font-size:0.78rem;
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+}
+.approval .who{color:var(--ink-dim);}
+.approval .score{font-weight:700; font-variant-numeric:tabular-nums; color:var(--accent);}
+
+/* ---------- Diagram ---------- */
+.diagram-wrap{
+  border:1.5px solid var(--line-strong);
+  background:var(--card);
+  padding:0;
+  overflow-x:auto;
+  margin-bottom:1.6rem;
+}
+.diagram-wrap svg{
+  display:block;
+  min-width:1500px;
+  width:100%;
+  height:auto;
+}
+.lane-label{
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  fill:var(--ink-dim);
+}
+.node-title{
+  font-family:var(--sans);
+  font-size:12.5px;
+  font-weight:600;
+  fill:var(--ink);
+}
+.node-sub{
+  font-family:var(--mono);
+  font-size:9.5px;
+  fill:var(--ink-dim);
+}
+.node-box{
+  fill:var(--card);
+  stroke:var(--line-strong);
+  stroke-width:1.2;
+}
+.node-box.gate{
+  stroke:var(--gate);
+  stroke-width:1.6;
+  fill:var(--gate-soft);
+}
+.node-box.queue{
+  stroke:var(--queue);
+  fill:var(--queue-soft);
+}
+.node-box.accent{
+  stroke:var(--accent);
+  fill:var(--accent-soft);
+}
+.node-box.ghost{
+  fill:transparent;
+  stroke:var(--line);
+  stroke-dasharray:3 3;
+}
+.edge{
+  stroke:var(--line-strong);
+  stroke-width:1.3;
+  fill:none;
+  marker-end:url(#arrow);
+}
+.edge.accent{stroke:var(--accent); marker-end:url(#arrow-accent);}
+.edge.queue{stroke:var(--queue); marker-end:url(#arrow-queue);}
+.edge.dashed{stroke-dasharray:4 4;}
+.zone{
+  fill:none;
+  stroke:var(--queue);
+  stroke-width:1.4;
+  stroke-dasharray:5 4;
+}
+.zone-label{
+  font-family:var(--mono);
+  font-size:10px;
+  fill:var(--queue);
+  letter-spacing:0.04em;
+}
+
+/* ---------- Legend + notes ---------- */
+.notes{
+  display:grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap:1.4rem;
+  border:1.5px solid var(--line-strong);
+  background:var(--card);
+}
+.notes > div{padding:1.1rem 1.3rem;}
+.notes > div:first-child{border-right:1px solid var(--line);}
+.notes h2{
+  font-family:var(--mono);
+  font-size:0.72rem;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  color:var(--ink-dim);
+  margin:0 0 0.7rem;
+  border-bottom:1px solid var(--line);
+  padding-bottom:0.5rem;
+}
+.legend-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:0.5rem 1.2rem;
+}
+.legend-item{
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  font-size:0.82rem;
+}
+.swatch{
+  width:0.9rem;height:0.9rem;
+  border-radius:2px;
+  flex:none;
+  border:1.4px solid transparent;
+}
+.sw-domain{border-color:var(--line-strong); background:var(--card);}
+.sw-gate{border-color:var(--gate); background:var(--gate-soft);}
+.sw-queue{border-color:var(--queue); background:var(--queue-soft);}
+.sw-accent{border-color:var(--accent); background:var(--accent-soft);}
+
+.stats{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:0;
+}
+.stat{
+  padding:0.5rem 0;
+  border-bottom:1px dotted var(--line);
+}
+.stat .num{
+  font-family:var(--mono);
+  font-size:1.3rem;
+  font-weight:700;
+  color:var(--accent);
+  font-variant-numeric:tabular-nums;
+  display:block;
+}
+.stat .label{
+  font-size:0.72rem;
+  color:var(--ink-dim);
+}
+
+footer{
+  margin-top:1.6rem;
+  font-family:var(--mono);
+  font-size:0.74rem;
+  color:var(--ink-dim);
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:0.5rem;
+}
+footer code{
+  background:var(--paper-2);
+  padding:0.1rem 0.35rem;
+  border-radius:2px;
+}
+</style>
+
+<div class="sheet">
+
+  <div class="titleblock">
+    <div class="tb-main">
+      <p class="eyebrow">Doc. 000 · Master Architecture Drawing</p>
+      <h1>Expiration Tracker — desenho completo da arquitetura</h1>
+      <p>"Cadastre o que não pode vencer. Nós lembramos você." — todas as camadas do sistema AWS serverless num único diagrama: borda, autenticação, domínio, dados, motores assíncronos e provedores externos.</p>
+    </div>
+    <div class="tb-status">
+      <div class="row"><span>Revisão</span><span>2026-08-19</span></div>
+      <div class="row"><span>Rodadas de debate</span><span>34+</span></div>
+      <div class="row"><span>Design Maturity</span><span class="pill">APPROVED</span></div>
+      <div class="row"><span>Architecture Status</span><span class="pill warn">NOT APPROVED — pré-implementação</span></div>
+    </div>
+    <div class="tb-approvals">
+      <div class="approval"><span class="who">Claude · Overall</span><span class="score">9.1–9.3</span></div>
+      <div class="approval"><span class="who">Codex · Overall</span><span class="score">9.0–9.3</span></div>
+      <div class="approval"><span class="who">Checkpoints ≥9.0</span><span class="score">10 / 10</span></div>
+    </div>
+  </div>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 1900 1080" role="img" aria-label="Diagrama completo: usuário passa por CloudFront, WAF e API Gateway, autentica via Cognito com quota por tenant, chega ao monólito Lambda modular, que escreve em DynamoDB single-table e em S3 quarantine. Documentos passam por GuardDuty até S3 clean, depois por uma Step Function que executa Textract, parser determinístico e Bedrock, terminando em ExtractedField ou no gate fail-closed PENDING_CONFIRMATION. EventBridge com outbox e sweeper distribui eventos de domínio. Um Reminder Scanner lê shards do DynamoDB, publica em SQS, e um Dispatcher revalida a versão do item antes de enviar para filas por canal (e-mail, Telegram, WhatsApp), cada uma com seu adapter e provedor externo, com um WebhookInbox recebendo callbacks de status. Uma coluna lateral mostra Observabilidade, Disaster Recovery e Kill Switch monitorando todas as camadas.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--line-strong)"/>
+        </marker>
+        <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="arrow-queue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--queue)"/>
+        </marker>
+      </defs>
+
+      <!-- Lane labels -->
+      <text x="24" y="60" class="lane-label">01 · Edge / Security</text>
+      <text x="24" y="220" class="lane-label">02 · Domain (Lambda monólito)</text>
+      <text x="24" y="360" class="lane-label">03 · Data</text>
+      <text x="24" y="540" class="lane-label">04 · Async — Reminder</text>
+      <text x="24" y="700" class="lane-label">05 · Async — Notification</text>
+      <text x="24" y="860" class="lane-label">06 · Async — AI/OCR</text>
+
+      <!-- lane separators -->
+      <line x1="0" y1="80" x2="1900" y2="80" stroke="var(--line)" stroke-width="1"/>
+      <line x1="0" y1="240" x2="1900" y2="240" stroke="var(--line)" stroke-width="1"/>
+      <line x1="0" y1="380" x2="1900" y2="380" stroke="var(--line)" stroke-width="1"/>
+
+      <!-- ===== Lane 01: Edge/Security ===== -->
+      <g>
+        <rect class="node-box" x="30" y="94" width="120" height="56" rx="3"/>
+        <text x="90" y="118" text-anchor="middle" class="node-title">Usuário</text>
+        <text x="90" y="134" text-anchor="middle" class="node-sub">web / PWA</text>
+
+        <line x1="150" y1="122" x2="196" y2="122" class="edge"/>
+        <rect class="node-box" x="200" y="94" width="130" height="56" rx="3"/>
+        <text x="265" y="118" text-anchor="middle" class="node-title">CloudFront</text>
+        <text x="265" y="134" text-anchor="middle" class="node-sub">CDN + SPA estática</text>
+
+        <line x1="330" y1="122" x2="376" y2="122" class="edge"/>
+        <rect class="node-box" x="380" y="94" width="110" height="56" rx="3"/>
+        <text x="435" y="118" text-anchor="middle" class="node-title">WAF</text>
+        <text x="435" y="134" text-anchor="middle" class="node-sub">condicional, §14</text>
+
+        <line x1="490" y1="122" x2="536" y2="122" class="edge"/>
+        <rect class="node-box accent" x="540" y="94" width="180" height="56" rx="3"/>
+        <text x="630" y="118" text-anchor="middle" class="node-title">API Gateway HTTP</text>
+        <text x="630" y="134" text-anchor="middle" class="node-sub">borda de confiança</text>
+
+        <line x1="720" y1="110" x2="766" y2="110" class="edge"/>
+        <rect class="node-box" x="770" y="90" width="150" height="50" rx="3"/>
+        <text x="845" y="112" text-anchor="middle" class="node-title">Cognito</text>
+        <text x="845" y="127" text-anchor="middle" class="node-sub">JWT, sub desacoplado</text>
+
+        <line x1="720" y1="134" x2="766" y2="134" class="edge"/>
+        <rect class="node-box" x="770" y="146" width="170" height="50" rx="3"/>
+        <text x="855" y="167" text-anchor="middle" class="node-title">TenantQuota</text>
+        <text x="855" y="182" text-anchor="middle" class="node-sub">token bucket / tenant</text>
+      </g>
+
+      <!-- ===== Lane 02: Domain ===== -->
+      <g>
+        <line x1="630" y1="150" x2="630" y2="256" class="edge"/>
+        <rect class="node-box" x="220" y="260" width="1000" height="100" rx="4"/>
+        <text x="720" y="284" text-anchor="middle" class="node-title" style="font-size:13.5px;">Lambda — monólito modular</text>
+        <text x="260" y="312" class="node-sub">Identity/Tenancy</text>
+        <text x="420" y="312" class="node-sub">Expiration Items</text>
+        <text x="600" y="312" class="node-sub">Reminder</text>
+        <text x="740" y="312" class="node-sub">Notification</text>
+        <text x="900" y="312" class="node-sub">Document</text>
+        <text x="1050" y="312" class="node-sub">Audit</text>
+        <text x="720" y="340" text-anchor="middle" class="node-sub" fill="var(--ink-dim)">autorização por requisição (SEC-007) · tenantId em toda operação</text>
+      </g>
+
+      <!-- ===== Lane 03: Data ===== -->
+      <g>
+        <line x1="440" y1="360" x2="440" y2="396" class="edge"/>
+        <rect class="node-box accent" x="280" y="400" width="320" height="70" rx="3"/>
+        <text x="440" y="428" text-anchor="middle" class="node-title">DynamoDB single-table</text>
+        <text x="440" y="446" text-anchor="middle" class="node-sub">17 entidades · 6 GSIs · tenantId em toda PK</text>
+        <text x="440" y="460" text-anchor="middle" class="node-sub">PITR 35d · optimistic concurrency</text>
+
+        <line x1="900" y1="360" x2="900" y2="396" class="edge"/>
+        <rect class="node-box" x="800" y="400" width="150" height="60" rx="3"/>
+        <text x="875" y="424" text-anchor="middle" class="node-title">S3 quarantine</text>
+        <text x="875" y="440" text-anchor="middle" class="node-sub">IAM próprio</text>
+
+        <line x1="950" y1="430" x2="996" y2="430" class="edge queue"/>
+        <rect class="node-box queue" x="1000" y="400" width="150" height="60" rx="3"/>
+        <text x="1075" y="424" text-anchor="middle" class="node-title">GuardDuty</text>
+        <text x="1075" y="440" text-anchor="middle" class="node-sub">malware protection</text>
+
+        <line x1="1150" y1="430" x2="1196" y2="430" class="edge gate"/>
+        <rect class="node-box gate" x="1200" y="400" width="150" height="60" rx="3"/>
+        <text x="1275" y="424" text-anchor="middle" class="node-title">S3 clean</text>
+        <text x="1275" y="440" text-anchor="middle" class="node-sub">único bucket lido</text>
+
+        <rect class="zone" x="790" y="392" width="370" height="78"/>
+        <text x="800" y="486" class="zone-label">ZONA NÃO CONFIÁVEL — CLEAN/REJECTED/UNSUPPORTED/TIMEOUT</text>
+      </g>
+
+      <!-- ===== Lane 04: Reminder ===== -->
+      <g>
+        <line x1="440" y1="470" x2="440" y2="516" class="edge"/>
+        <rect class="node-box" x="330" y="520" width="220" height="60" rx="3"/>
+        <text x="440" y="544" text-anchor="middle" class="node-title">Reminder Scanner</text>
+        <text x="440" y="560" text-anchor="middle" class="node-sub">shards DUE#yyyyMMddHHmm#NN · tick 1min</text>
+
+        <line x1="550" y1="550" x2="596" y2="550" class="edge queue"/>
+        <rect class="node-box queue" x="600" y="520" width="190" height="60" rx="3"/>
+        <text x="695" y="544" text-anchor="middle" class="node-title">SQS reminder-due</text>
+        <text x="695" y="560" text-anchor="middle" class="node-sub">+ DLQ, alarme 1h/4h</text>
+
+        <line x1="790" y1="550" x2="836" y2="550" class="edge"/>
+        <rect class="node-box" x="840" y="520" width="220" height="60" rx="3"/>
+        <text x="950" y="544" text-anchor="middle" class="node-title">Reminder Dispatcher</text>
+        <text x="950" y="560" text-anchor="middle" class="node-sub">revalida versão do item (OCC)</text>
+
+        <line x1="950" y1="520" x2="950" y2="480" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 3"/>
+        <line x1="950" y1="480" x2="440" y2="480" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 3"/>
+        <text x="700" y="474" class="node-sub" text-anchor="middle" fill="var(--ink-dim)">revalidação obsoleta → notificação corretiva (FR-014)</text>
+      </g>
+
+      <!-- ===== Lane 05: Notification ===== -->
+      <g>
+        <line x1="950" y1="580" x2="950" y2="606" class="edge queue"/>
+        <line x1="950" y1="606" x2="760" y2="606" class="edge queue"/>
+        <line x1="950" y1="606" x2="950" y2="606" class="edge queue"/>
+        <rect class="node-box queue" x="670" y="610" width="150" height="50" rx="3"/>
+        <text x="745" y="631" text-anchor="middle" class="node-title" style="font-size:11.5px;">SQS e-mail</text>
+        <text x="745" y="645" text-anchor="middle" class="node-sub">+ DLQ</text>
+        <line x1="670" y1="635" x2="950" y2="580" class="edge queue"/>
+
+        <rect class="node-box queue" x="840" y="610" width="150" height="50" rx="3"/>
+        <text x="915" y="631" text-anchor="middle" class="node-title" style="font-size:11.5px;">SQS Telegram</text>
+        <text x="915" y="645" text-anchor="middle" class="node-sub">+ DLQ</text>
+        <line x1="915" y1="610" x2="950" y2="580" class="edge queue"/>
+
+        <rect class="node-box queue" x="1010" y="610" width="150" height="50" rx="3"/>
+        <text x="1085" y="631" text-anchor="middle" class="node-title" style="font-size:11.5px;">SQS WhatsApp</text>
+        <text x="1085" y="645" text-anchor="middle" class="node-sub">+ DLQ</text>
+        <line x1="1085" y1="610" x2="950" y2="580" class="edge queue"/>
+
+        <line x1="745" y1="660" x2="745" y2="686" class="edge"/>
+        <rect class="node-box" x="670" y="690" width="150" height="50" rx="3"/>
+        <text x="745" y="711" text-anchor="middle" class="node-title" style="font-size:11.5px;">SES</text>
+        <text x="745" y="725" text-anchor="middle" class="node-sub">e-mail sempre ativo</text>
+
+        <line x1="915" y1="660" x2="915" y2="686" class="edge"/>
+        <rect class="node-box" x="840" y="690" width="150" height="50" rx="3"/>
+        <text x="915" y="711" text-anchor="middle" class="node-title" style="font-size:11.5px;">Telegram Bot</text>
+        <text x="915" y="725" text-anchor="middle" class="node-sub">API</text>
+
+        <line x1="1085" y1="660" x2="1085" y2="686" class="edge"/>
+        <rect class="node-box" x="1010" y="690" width="150" height="50" rx="3"/>
+        <text x="1085" y="711" text-anchor="middle" class="node-title" style="font-size:11.5px;">WhatsApp BSP</text>
+        <text x="1085" y="725" text-anchor="middle" class="node-sub">~90% do custo, Stage 5</text>
+
+        <line x1="1160" y1="715" x2="1206" y2="715" class="edge dashed"/>
+        <rect class="node-box" x="1210" y="690" width="180" height="50" rx="3"/>
+        <text x="1300" y="711" text-anchor="middle" class="node-title" style="font-size:11.5px;">WebhookInbox</text>
+        <text x="1300" y="725" text-anchor="middle" class="node-sub">provider+tenant+eventId</text>
+      </g>
+
+      <!-- ===== Lane 06: AI/OCR ===== -->
+      <g>
+        <line x1="1275" y1="460" x2="1275" y2="500" class="edge"/>
+        <line x1="1275" y1="500" x2="1275" y2="770" stroke="var(--line-strong)" stroke-width="1.3"/>
+        <rect class="node-box" x="1190" y="774" width="170" height="56" rx="3"/>
+        <text x="1275" y="798" text-anchor="middle" class="node-title" style="font-size:11.5px;">Textract</text>
+        <text x="1275" y="813" text-anchor="middle" class="node-sub">OCR determinístico</text>
+
+        <line x1="1360" y1="802" x2="1396" y2="802" class="edge"/>
+        <rect class="node-box gate" x="1400" y="774" width="220" height="56" rx="3"/>
+        <text x="1510" y="796" text-anchor="middle" class="node-title" style="font-size:11.5px;">Step Functions Standard</text>
+        <text x="1510" y="811" text-anchor="middle" class="node-sub">orquestração fail-closed</text>
+
+        <line x1="1620" y1="802" x2="1656" y2="802" class="edge"/>
+        <rect class="node-box" x="1660" y="774" width="150" height="56" rx="3"/>
+        <text x="1735" y="796" text-anchor="middle" class="node-title" style="font-size:11.5px;">Bedrock</text>
+        <text x="1735" y="811" text-anchor="middle" class="node-sub">LLM fallback (60%)</text>
+
+        <line x1="1510" y1="830" x2="1510" y2="862" class="edge gate"/>
+        <rect class="node-box gate" x="1400" y="866" width="220" height="56" rx="3"/>
+        <text x="1510" y="888" text-anchor="middle" class="node-title" style="font-size:11.5px;">PENDING_CONFIRMATION</text>
+        <text x="1510" y="903" text-anchor="middle" class="node-sub">gate G4 — nunca automático</text>
+
+        <line x1="1400" y1="894" x2="470" y2="894" stroke="var(--gate)" stroke-width="1.3" stroke-dasharray="4 4" marker-end="url(#arrow-accent)"/>
+        <text x="900" y="888" text-anchor="middle" class="node-sub" fill="var(--gate)">campo de baixa confiança → nunca aplicado ao Item</text>
+      </g>
+
+      <!-- Event backbone (spans across, drawn last so it sits above) -->
+      <g>
+        <rect class="node-box accent" x="30" y="520" width="270" height="70" rx="3"/>
+        <text x="165" y="546" text-anchor="middle" class="node-title">EventBridge + Outbox</text>
+        <text x="165" y="562" text-anchor="middle" class="node-sub">registro PENDING + sweeper</text>
+        <text x="165" y="576" text-anchor="middle" class="node-sub">nunca só DynamoDB Streams</text>
+        <line x1="220" y1="360" x2="220" y2="516" stroke="var(--accent)" stroke-width="1.3" stroke-dasharray="4 4" marker-end="url(#arrow-accent)"/>
+      </g>
+
+      <!-- Right rail: Observability / DR / Kill switch -->
+      <g>
+        <line x1="1650" y1="60" x2="1650" y2="1020" stroke="var(--line)" stroke-width="1"/>
+        <text x="1672" y="60" class="lane-label">Transversal</text>
+
+        <rect class="node-box" x="1672" y="80" width="200" height="70" rx="3"/>
+        <text x="1772" y="106" text-anchor="middle" class="node-title" style="font-size:12px;">Observabilidade</text>
+        <text x="1772" y="122" text-anchor="middle" class="node-sub">CloudWatch EMF · X-Ray</text>
+        <text x="1772" y="136" text-anchor="middle" class="node-sub">correlationId + tenantId</text>
+
+        <rect class="node-box" x="1672" y="170" width="200" height="70" rx="3"/>
+        <text x="1772" y="196" text-anchor="middle" class="node-title" style="font-size:12px;">Disaster Recovery</text>
+        <text x="1772" y="212" text-anchor="middle" class="node-sub">RPO≤5min · RTO≤4h</text>
+        <text x="1772" y="226" text-anchor="middle" class="node-sub">restore = gate de produção</text>
+
+        <rect class="node-box queue" x="1672" y="260" width="200" height="70" rx="3"/>
+        <text x="1772" y="286" text-anchor="middle" class="node-title" style="font-size:12px;">Kill Switch</text>
+        <text x="1772" y="302" text-anchor="middle" class="node-sub">AppConfig — AI/OCR/WhatsApp</text>
+        <text x="1772" y="316" text-anchor="middle" class="node-sub">fail-safe, sem novo deploy</text>
+
+        <line x1="1672" y1="115" x2="1600" y2="330" stroke="var(--line)" stroke-width="0.8" stroke-dasharray="2 3"/>
+        <line x1="1672" y1="115" x2="1160" y2="440" stroke="var(--line)" stroke-width="0.8" stroke-dasharray="2 3"/>
+        <line x1="1672" y1="115" x2="700" y2="120" stroke="var(--line)" stroke-width="0.8" stroke-dasharray="2 3"/>
+        <text x="1772" y="356" text-anchor="middle" class="node-sub" fill="var(--ink-dim)">monitora todas as camadas</text>
+      </g>
+
+    </svg>
+  </div>
+
+  <div class="notes">
+    <div>
+      <h2>Legenda</h2>
+      <div class="legend-grid">
+        <div class="legend-item"><span class="swatch sw-domain"></span>Componente síncrono / domínio</div>
+        <div class="legend-item"><span class="swatch sw-accent"></span>Camada de dados / eventos críticos</div>
+        <div class="legend-item"><span class="swatch sw-queue"></span>Fila / worker assíncrono</div>
+        <div class="legend-item"><span class="swatch sw-gate"></span>Gate fail-closed (G4)</div>
+      </div>
+      <p style="font-size:0.82rem; color:var(--ink-dim); margin-top:0.9rem; margin-bottom:0;">
+        A zona pontilhada em torno de <code style="font-family:var(--mono);">S3 quarantine → GuardDuty</code> é tratada como não confiável até o objeto ser promovido a <code style="font-family:var(--mono);">clean</code> — nenhum outro módulo tem permissão IAM de leitura antes disso.
+      </p>
+    </div>
+    <div>
+      <h2>Números do processo</h2>
+      <div class="stats">
+        <div class="stat"><span class="num">17</span><span class="label">entidades de domínio</span></div>
+        <div class="stat"><span class="num">26</span><span class="label">decisões registradas</span></div>
+        <div class="stat"><span class="num">14</span><span class="label">diagramas Mermaid</span></div>
+        <div class="stat"><span class="num">8</span><span class="label">ADRs formais</span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Fonte: <code>ARCHITECTURE.md</code> · <code>docs/architecture/architecture-fase3-consolidada.md</code> · <code>docs/architecture/data-model.md</code></span>
+    <span>expiration-tracker · marcelo-jgoncalves</span>
+  </footer>
+
+</div>
