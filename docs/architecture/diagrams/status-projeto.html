@@ -172,13 +172,13 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · 8 entregáveis aprovados</p>
-  <h1>Fundação, arquitetura, Red Team, dados, SLOs e DR aprovados — faltam LGPD, custo e ADRs formais</h1>
-  <p class="lede">Requirements, capacity model, arquitetura AWS conceitual, Architecture Red Team, Domain/Data Model e SLOs já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos em todas as sete rodadas. No caminho, o processo corrigiu a si mesmo pelo menos duas vezes de forma real: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais), e um erro técnico de sharding do Claude pego pelo Codex no data model (shard precisa estar na PK, não na SK, para distribuir carga).</p>
+  <p class="eyebrow">Controle de Vencimentos · DESIGN MATURITY: APPROVED</p>
+  <h1>Arquitetura conceitual completa e aprovada — ARCHITECTURE.md publicado</h1>
+  <p class="lede">14 documentos de arquitetura, 8 ADRs formais e 14 diagramas Mermaid, todos passados por debate Claude↔Codex e avaliação independente às cegas — 10 checkpoints pontuados, todos ≥9.0 de ambos, sem arredondamento. O processo corrigiu a si mesmo várias vezes de forma real ao longo do caminho: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais — Design Maturity e Operational Evidence), um erro técnico de sharding pego pelo Codex no data model, e uma correção final do próprio status: <code>ARCHITECTURE STATUS</code> (seção 62) é formalmente <code>NOT APPROVED</code> até haver implementação real testada — <code>DESIGN MATURITY STATUS: APPROVED</code> é o que este processo entrega, não o gate final de produção.</p>
 
   <div class="callout">
     <span class="dot" aria-hidden="true"></span>
-    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (13 entidades, 6 GSIs) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. SLO de drenagem do pico extremo (1M lembretes) fixado em 5 minutos. Todas as decisões têm justificativa rastreada a requisitos e ao capacity model, com trade-offs e alternativas rejeitadas registrados — nada foi escolhido "porque é óbvio".</p>
+    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (17 entidades, 6 GSIs) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. SLO de drenagem do pico extremo (1M lembretes) fixado em 5 minutos. WhatsApp identificado como maior driver de custo (76-94% em qualquer cenário). Ver <code>ARCHITECTURE.md</code> na raiz do repositório para o documento consolidado final.</p>
   </div>
 
   <section>

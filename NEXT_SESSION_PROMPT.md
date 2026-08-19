@@ -1,62 +1,46 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-Projeto: micro-SaaS de controle de vencimentos/renovações. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\` (renomeada de `controle-vencimentos` em 2026-08-19; repo GitHub: `marcelo-jgoncalves/expiration-tracker`, privado).
-Prompt mestre completo: `docs/00-prompt-mestre.md` (64 seções — processo Claude ↔ Codex com debate obrigatório, arquitetura só aprovada com nota ≥9.0 de ambos, sem arredondamento).
+Projeto: micro-SaaS de controle de vencimentos/renovações. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
+Prompt mestre completo: `docs/00-prompt-mestre.md` (64 seções — processo Claude ↔ Codex com debate obrigatório).
 
-## Regra de processo reforçada pelo usuário (2026-08-19)
-Toda etapa (não só a arquitetura final) deve passar por: (1) mínimo 3 rodadas de debate Claude↔Codex — **mínimo, não teto**: continuar quantas rodadas forem necessárias até um padrão world-class, não parar em 3 por formalidade — e (2) avaliação independente às cegas por `fitness-function.md`/`quality-criteria.md`, com nota mínima **9.0 de ambos** antes de avançar para a próxima fase. Trabalhar de forma o mais autônoma possível — não pausar para pedir confirmação entre rodadas de debate/nota; só interromper se houver bloqueio real que nenhuma pesquisa/discussão Claude↔Codex resolva. Manter `architecture-fase3-consolidada.md`, `decisions-log.md` e os diagramas sempre atualizados a cada rodada relevante.
+## STATUS ATUAL: DESIGN MATURITY APPROVED — ARCHITECTURE.md publicado
+Todo o processo de arquitetura conceitual (Fases 0–3 do prompt mestre + todos os documentos das seções 35-52) está **completo e aprovado**. Ver `ARCHITECTURE.md` na raiz do repositório para o documento final consolidado.
 
-## Concluído — Fase 0 — APPROVED
-- `docs/architecture/quality-criteria.md` — final consolidado, 12 critérios, pesos somando 100%.
-- `docs/architecture/fitness-function.md` — final, fórmula, gates G1–G6, regra de aprovação.
+### O que foi concluído (10 checkpoints pontuados, todos ≥9.0 de Claude e Codex, sem arredondamento)
+1. **Fase 0** — Quality Criteria + Fitness Function (`docs/architecture/quality-criteria.md`, `fitness-function.md`) — consenso de conteúdo, 3 rodadas.
+2. **Fase 1** — Requirements (`requirements.md`) — Claude 9.16 / Codex 9.03.
+3. **Fase 2** — Capacity Model (`capacity-model.md`) — Claude ~9.3 / Codex 9.1, fecha UNK-CAP-006 depois na Fase de SLO.
+4. **Fase 3 + Red Team** — Arquitetura AWS conceitual (`architecture-fase3-consolidada.md`) — Claude 9.13 / Codex 9.20 pós-Red-Team.
+5. **Domain/Data Model** (`data-model.md`) — Claude ~9.05 / Codex 9.10. 17 entidades, DynamoDB single-table, 6 GSIs.
+6. **SLOs** (`slo.md`) — Claude ~9.08 / Codex 9.001. Fecha SLO de drenagem do pico extremo = 5min.
+7. **Disaster Recovery** (`disaster-recovery.md`) — Claude ~9.10 / Codex 9.10. RPO/RTO, teste de restore, runbook.
+8. **Privacy/LGPD** (`privacy-lgpd.md`) — Claude ~9.15 / Codex 9.10. 8 classes de retenção, direitos do titular.
+9. **Cost Model** (`cost-model.md`) — Claude ~9.15 / Codex 9.20. WhatsApp domina 76-94% do custo.
+10. **MCP Readiness + Evolution + AWS Well-Architected Review** (pacote) — Claude ~9.25 / Codex 9.30.
 
-## Concluído — Fase 1 (Requirements) — APPROVED
-- `docs/architecture/requirements.md`. FR/NFR/SEC/PRIV/COST/SCALE/OPS/Future(FUT)/Constraints/Assumptions/Unknowns/Non-goals com IDs.
-- 4 rodadas de debate + avaliação independente às cegas: **Claude 9.16 / Codex 9.03** (APPROVED, após 1ª rodada NOT APPROVED com Codex 8.7).
-- Seção 13 formaliza rubrica de nota, precedência de gates, fail-closed (FR-043/044), gatilho multi-tenant (SCALE-004), critérios verificáveis de abuso (COST-004/005).
+Mais: **8 ADRs formais** (`docs/architecture/adr/`) para decisões Type 1; **14 diagramas Mermaid** completos (`docs/architecture/diagrams/diagrams.md`); **26 decisões** registradas em `decisions-log.md`; painel visual atualizado (`docs/architecture/diagrams/status-projeto.html`).
 
-## Concluído — Fase 2 (Capacity Model) — APPROVED
-- `docs/architecture/capacity-model.md`. Stage 0 a Stage 5 (dev até 1M usuários), fórmulas explícitas, classificação KNOWN/ASSUMPTION/ESTIMATE/UNKNOWN.
-- 9 rodadas de debate de conteúdo (erros aritméticos, métricas ausentes, bug de duplicação, fator de pico mal aplicado — todos corrigidos) até consenso confirmado.
-- Avaliação independente às cegas: **Claude ~9.3 / Codex 9.1** (APPROVED, após 1ª rodada NOT APPROVED com 8.78/8.4).
+### Distinção de status formal (importante para não reabrir debate desnecessário)
+```text
+DESIGN MATURITY STATUS: APPROVED   ← o que este processo entrega (rubrica A, requirements.md §13.1)
+ARCHITECTURE STATUS: NOT APPROVED  ← seção 62 do prompt mestre, rubrica B (Operational Evidence) — 
+                                       correto e esperado, pois nada foi implementado ainda
+```
+Esta distinção foi validada pelo Codex numa verificação final de consistência do `ARCHITECTURE.md` — ele corrigiu uma tentativa inicial de usar um terceiro estado ("NOT YET EVALUATED") que não existe na seção 62, que só admite APPROVED/NOT APPROVED. O `ARCHITECTURE STATUS: NOT APPROVED` **não é uma reprovação de mérito** — é o estado normativo correto até haver implementação real testada sob falha/carga.
 
-## Concluído — Fase 3 (Arquitetura AWS Conceitual) + Architecture Red Team — APPROVED (Design Maturity)
-- `docs/architecture/architecture-fase3-consolidada.md` — arquitetura consolidada: Lambda + monólito modular, API Gateway HTTP API, DynamoDB on-demand single-table, S3 (quarentena de 2 buckets), Cognito, EventBridge + outbox seletivo com sweeper, SQS por canal de notificação (SES/Telegram/WhatsApp) com contract tests, Textract+Bedrock via Step Functions Standard com fail-closed (`PENDING_CONFIRMATION`), CDK+GitHub Actions, kill switch via AppConfig, WAF condicional.
-- Processo (Fase 3, propostas → consenso): 5 rodadas — propostas independentes com convergência muito forte; crítica cruzada + análise crítica própria do Claude (`round2-claude-critique.md`, anti-sycophancy); tréplica refinando outbox/Step Functions/WhatsApp; **correção metodológica real** — a 1ª nota (Codex 5.9) expôs que a rubrica de evidência original exigia implementação/teste, impossível antes da arquitetura ser aprovada, corrigida formalizando duas rubricas em `requirements.md` §13.1 (**A: Design Maturity** para checkpoints conceituais; **B: Operational Evidence** para o gate final pós-implementação); 7 ADRs fechados; nota final **Claude 9.10 / Codex 9.04** (exato) — FASE 3 (pré-Red-Team) APPROVED.
-- **Architecture Red Team (seção 58, Rodada 6)**: 20 cenários avaliados independentemente por Claude (`red-team-claude-round1.md`) e Codex (`red-team-codex-round1.md`) — convergência forte, nenhuma lacuna estrutural. 6 lacunas críticas fechadas diretamente na arquitetura: upload presigned podia contornar quota → slot atômico em DynamoDB com restituição via reconciliador; poison message/DLQ sem SLA → `maxReceiveCount=5` + alarme 1h/escalonamento 4h; webhook sem proteção → inbox idempotente com chave composta `provider+tenant+providerEventId` + anti-replay; corrida em alteração de data/exclusão de documento → optimistic concurrency control (version check); falha de região → risco aceito documentado explicitamente com gatilho de revisão (1º cliente pagante com SLA contratual); rollback de deploy não cobria dados → estratégia expand/contract obrigatória para schema/eventos/Step Functions.
-- Avaliação independente às cegas pós-Red-Team (rubrica A): **Claude 9.13 / Codex 9.20** (exato, sem arredondamento) — ambos ≥9.0, nenhum gate violado. **STATUS: FASE 3 + ARCHITECTURE RED TEAM APPROVED.**
-- Itens abertos remanescentes (não bloqueiam, são operacionais/pós-implementação ou dependem de pesquisa externa): BSP WhatsApp (pricing/quotas), modelo Bedrock específico, SLA de latência quarantine→clean, circuit breaker/fallback de canal (decisão de produto), testes adversariais de prompt injection, runbook de credencial comprometida + notificação LGPD, teste real de restore com reconciliação, load test progressivo validando shards/quotas sob carga real.
-- Diagramas Mermaid (6 de 14 exigidos pela seção 52) em `docs/architecture/diagrams/diagrams.md`. Painel de status visual em `docs/architecture/diagrams/status-projeto.html`.
-- **Importante**: esta aprovação é do checkpoint de **desenho conceitual pós-Red-Team** (rubrica A). O Gate de Aprovação Final da seção 23 do prompt mestre (rubrica B) só se aplica depois de implementação real.
+## Próxima ação obrigatória — Implementation Blueprint (seção 60) e além
+1. **Implementation Blueprint** (`docs/architecture/implementation-blueprint.md`, não iniciado) — componentes, módulos, interfaces, eventos, schemas, ordem de deploy, milestones, dependências, critérios de aceite técnicos. Só agora pode começar (a arquitetura estava proibida de ser implementada antes da aprovação, seção 60).
+2. **Threat model formal** (`docs/architecture/threat-model.md`, seção 33) — risco de severidade Alta identificado em `aws-well-architected-review.md`, recomendado antes ou junto do início da implementação.
+3. Implementação real seguindo as ~26 decisões já consolidadas.
+4. Testes de carga real, teste de restore real (gate já definido em `disaster-recovery.md` §6), exercício do runbook de credencial comprometida.
+5. Reavaliação sob rubrica (B) — Operational Evidence — só então a seção 62/`ARCHITECTURE STATUS` pode legitimamente virar `APPROVED`.
+6. Decisões de produto ainda pendentes de pesquisa externa (não bloqueiam início da implementação, mas bloqueiam habilitar os canais/features específicos): BSP WhatsApp (pricing real, UNK-003), modelo Bedrock específico, região AWS (bloqueante para LGPD/transferência internacional), MFA obrigatório vs. opcional (UNK-006).
 
-## Concluído — Domain Model + Data Model (seção 25) — APPROVED
-- `docs/architecture/data-model.md`. 13 entidades (User, Organization, Membership, ExpirationItem, ReminderPolicy, ReminderOccurrence, Document, ExtractedField, ExtractionRun, NotificationIntent, NotificationAttempt, Channel, Provider, WebhookInbox, UploadSlot, TenantQuota, AuditEvent) mapeadas para DynamoDB single-table (PK/SK, 6 GSIs), idempotência por operação, optimistic concurrency control, soft delete/retenção (PRIV-003/004/006).
-- Processo: 2 rodadas — (1) propostas independentes com forte convergência, Claude adotou 5 refinamentos estruturais do Codex (PK co-localizando ocorrências/documentos sob o item pai, UploadSlot como entidade, WebhookInbox com chave provider+account, GSI6 consolidado de retenção, distinção consistência forte/eventual); (2) Codex encontrou **erro técnico real** na 1ª nota (8.4, NOT APPROVED): mitigação de hot partition do GSI1 propunha shard na SK em vez da PK (que é quem determina a partição física) — corrigido; adicionadas `categoryNormalized`, `ExtractionRun` (item-pai da extração, corrige idempotência de `ExtractedField`), `TenantQuota` (lacuna de rastreabilidade a G6/COST-005 identificada pelo próprio Claude).
-- Nota final: **Claude ~9.05 / Codex 9.10** — ambos ≥9.0, nenhum gate violado. **STATUS: APPROVED.**
-
-## Concluído — SLOs (seção 39) — APPROVED
-- `docs/architecture/slo.md`. Metas por estágio (Stage 0–5) para API, reminder freshness, extração IA/OCR, quarentena, reconciliação, tentativa de entrega por canal, disponibilidade.
-- **Fecha UNK-CAP-006** (pendente desde a Fase 2): SLO de drenagem do cenário de pico extremo (1M ocorrências) = **5 minutos** — decisão convergente e independente de Claude e Codex, com justificativa quase idêntica nas duas propostas.
-- Processo: 2 rodadas — propostas independentes fortemente convergentes (proposta do Codex mais madura estruturalmente, adotada como base: tabela por estágio, convenções de medição, SLIs numéricos); Codex reagiu aos 3 pontos abertos do Claude com uma **objeção técnica válida** (visibilidade de rejeição de documento mede processamento, não UX — formalizado `REJECTED→consultável/notificado`, p95≤1min/p99≤5min).
-- Nota final: **Claude ~9.08 / Codex 9.001** (exato) — ambos ≥9.0, nenhum gate violado. **STATUS: APPROVED.**
-
-## Concluído — Disaster Recovery (seção 43) — APPROVED
-- `docs/architecture/disaster-recovery.md`. RPO/RTO por componente (DynamoDB≤5min/2h, S3≤5min/3h, infra≤2h, filas≤4h), procedimento de restore com validação de invariantes de domínio, tratamento de órfãos quarantine/clean, teste real de restore como gate de produção (dataset sentinela, 3 execuções, critérios de aprovação), runbook de credencial comprometida com notificação LGPD em 3 dias úteis (fonte oficial ANPD), critério de saída de reconciliação Stage 5.
-- Processo: 2 rodadas — proposta do Codex mais rigorosa (fontes oficiais) adotada como base; Codex resolveu os 2 pontos abertos do Claude com mecanismos concretos: reparo seletivo por tenant/entidade para corrupção tardia (não rollback total da tabela), matriz `retentionClass`/`legalHold` para backup cross-region de S3 por classe de documento.
-- Nota final: **Claude ~9.10 / Codex 9.1** (exato 9.051) — ambos ≥9.0. **STATUS: APPROVED.**
-
-## Próxima ação obrigatória — Domínios/decisões detalhadas + documentos de fase posterior
-1. Domínios ainda a desenhar em detalhe (seção 19 — os principais já cobertos; faltam Billing readiness, Analytics, Administration, API (versionamento concreto), MCP readiness, Integrations).
-2. Decisões individuais ainda superficiais (seção 20 — Search se necessário, Analytics, API versioning, MCP readiness) — cada uma pelo protocolo completo da seção 21.
-3. ADRs formais individuais em `docs/architecture/adr/` (modelo da seção 24) para cada decisão já tomada em `decisions-log.md` (D-006 a D-008, D-010 a D-023) — hoje as justificativas equivalentes estão espalhadas nos documentos consolidados e de proposta/crítica, não no formato ADR padronizado.
-4. Documentos ainda não iniciados: `privacy-lgpd.md` (agora com dependência concreta: matriz `retentionClass`/`legalHold` do `disaster-recovery.md` precisa ser preenchida lá), `cost-model.md`, `mcp-readiness.md`, `aws-well-architected-review.md`, `evolution.md`.
-5. 8 diagramas Mermaid restantes da seção 52 (Security Boundaries, Data Flow completo, Deployment, Observability, DR, Growth Evolution, MCP Future Flow, Container/Service detalhado) — agora podem ser mais precisos com `data-model.md`/`slo.md`/`disaster-recovery.md` como referência.
-
-## Padrão de invocação do Codex (validado, com nota de robustez)
-`cd <pasta-do-projeto> && codex exec --skip-git-repo-check "<prompt>"`. Sempre rodar em background (`run_in_background: true`). Sempre perguntar ao Codex ANTES de revelar a posição/nota do Claude quando for avaliação independente (regra anti-anchoring). Cuidado ao usar Edit para substituir blocos grandes de tabela — validar com `grep -n "^## Stage"` (ou equivalente) que não houve duplicação antes de reenviar ao Codex. **Se um processo `codex` ficar rodando por muito mais tempo que rodadas anteriores comparáveis (ex.: >10 min quando outras levaram 1-5 min), verificar `CPU` do processo (PowerShell `Get-Process -Id <pid>`) — CPU quase zero com runtime alto indica que travou esperando stdin (geralmente causado por prompt muito longo/com escaping problemático), não que está "pensando"; nesse caso, matar o processo (`taskkill //F //PID <pid>`) e relançar com prompt mais enxuto.**
+## Padrão de invocação do Codex (validado ao longo de toda a sessão)
+`cd <pasta-do-projeto> && codex exec --skip-git-repo-check "<prompt>"`. Sempre rodar em background (`run_in_background: true`). Sempre perguntar ao Codex ANTES de revelar a posição/nota do Claude quando for avaliação independente (regra anti-anchoring). Cuidado ao usar Edit para substituir blocos grandes de tabela — validar com `grep -n "^## Stage"` (ou equivalente) que não houve duplicação antes de reenviar ao Codex. Se um processo `codex` ficar rodando muito mais tempo que rodadas comparáveis, verificar CPU via `Get-Process -Id <pid>` — CPU quase zero com runtime alto indica travamento esperando stdin (prompt longo/escaping problemático), não "pensando"; matar e relançar com prompt mais enxuto.
 
 ## Nota sobre renomear pastas com git ativo no Windows
-Ao renomear uma pasta de projeto que é um repo git, **não usar Rename-Item/Move-Item direto** se houver risco de o `.git` estar sendo escaneado pelo Windows Defender logo após um commit/push — o rename pode falhar no meio e corromper o `.git` (dividido entre origem e destino). Método seguro usado nesta sessão: garantir que tudo está commitado e pushado, depois deletar a pasta local e clonar de novo do GitHub já com o nome novo (`gh repo rename` primeiro, depois `git clone` local).
+Não usar Rename-Item/Move-Item direto se houver risco de o `.git` estar sendo escaneado pelo Windows Defender logo após commit/push — pode corromper o `.git`. Método seguro: garantir tudo commitado/pushado, deletar a pasta local, clonar de novo do GitHub com o nome novo.
 
-## Escopo total do prompt mestre (para dimensionar o trabalho restante)
-Projeto multi-sessão longo, análogo ao `capital-agent-v0.2` (ver memória `capital_agent_quality_improvement_initiative`). Faltam: domain/data model detalhado, privacy-lgpd.md, cost-model.md, slo.md, disaster-recovery.md, mcp-readiness.md, aws-well-architected-review.md, evolution.md, 8 diagramas Mermaid restantes, ADRs formais individuais, e só então `ARCHITECTURE.md` final com aprovação ≥9.0/10 de ambos os engenheiros (rubrica B, pós-implementação) — cada etapa intermediária também exige ≥9.0 de ambos antes de prosseguir.
+## Regra de processo (vale para a fase de implementação também, se o mesmo rigor for mantido)
+Mínimo 3 rodadas de debate Claude↔Codex — **mínimo, não teto**. Avaliação independente às cegas com nota mínima 9.0 de ambos antes de considerar algo concluído. Trabalhar de forma autônoma — só interromper se houver bloqueio real que nenhuma pesquisa/discussão resolva. Manter documentação sempre atualizada a cada rodada relevante.
