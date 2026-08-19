@@ -163,9 +163,26 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
     const template = synthTemplate();
     const schedules = template.findResources("AWS::Scheduler::Schedule");
     expect(Object.keys(schedules).length).toBe(4); // producer, claims-reconciliation, dst-reconciliation, sweeper
-    const withInput = Object.values(schedules).filter((s) => typeof (s.Properties.Target as { Input?: string }).Input === "string");
-    const modes = withInput.map((s) => (JSON.parse((s.Properties.Target as { Input: string }).Input) as { mode: string }).mode);
+    const withMode = Object.values(schedules)
+      .map((s) => JSON.parse((s.Properties.Target as { Input: string }).Input) as { mode?: string })
+      .filter((parsed): parsed is { mode: string } => typeof parsed.mode === "string");
+    const modes = withMode.map((parsed) => parsed.mode);
     expect(modes.sort()).toEqual(["CLAIMS", "DST"]);
+  });
+
+  it("M3.5 contract (bug found by Codex implementation review): every schedule's Input is a top-level JSON payload with scheduledTime, matching what the handlers read - EventBridge Scheduler does NOT wrap payloads in a `detail` envelope like legacy Rules, so event.detail.mode / event.time would always be undefined", () => {
+    const template = synthTemplate();
+    const schedules = template.findResources("AWS::Scheduler::Schedule");
+    for (const [logicalId, def] of Object.entries(schedules)) {
+      const input = (def.Properties.Target as { Input?: string }).Input;
+      expect(input, `${logicalId} has no Input - handler would receive {} and fail`).toBeTruthy();
+      const parsed = JSON.parse(input!) as Record<string, unknown>;
+      expect(parsed["scheduledTime"], `${logicalId} Input is missing scheduledTime`).toBe("<aws.scheduler.scheduled-time>");
+      expect(parsed["detail"], `${logicalId} Input must not be Rule-shaped (no detail wrapper)`).toBeUndefined();
+      if (logicalId.includes("Reconciliation")) {
+        expect(["CLAIMS", "DST"]).toContain(parsed["mode"]);
+      }
+    }
   });
 
   it("GSI3 exists with a global (non-tenant-prefixed) key shape and minimal projection", () => {

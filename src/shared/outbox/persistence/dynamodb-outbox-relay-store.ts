@@ -38,7 +38,12 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
         new UpdateCommand({
           TableName: this.tableName,
           Key: key,
-          UpdateExpression: "SET #status = :published REMOVE leaseOwner, leaseExpiresAt",
+          // Bug found by Codex implementation review: without also removing GSI6PK/GSI6SK,
+          // published records stayed indexed under RECON#OUTBOX#PENDING forever - not a
+          // duplicate-send risk (publishOne already checks status === "PUBLISHED"), but the
+          // sweeper's query would keep growing to include every record ever published,
+          // reading and discarding them on every run.
+          UpdateExpression: "SET #status = :published REMOVE leaseOwner, leaseExpiresAt, GSI6PK, GSI6SK",
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: { ":published": "PUBLISHED" },
         }),

@@ -32,6 +32,15 @@ export class ReminderSchedule extends Construct {
 
     const state = (props.schedulesEnabled ?? true) ? "ENABLED" : "DISABLED";
 
+    // IMPORTANT (bug found by Codex implementation review): EventBridge Scheduler's Lambda
+    // target does NOT wrap the payload in a `detail` envelope the way legacy EventBridge
+    // Rules do - whatever `input` is set to (or `{}` if omitted) becomes the event object
+    // handed to the Lambda directly. Every schedule below MUST set an explicit `input`
+    // matching exactly what its handler reads (`event.mode`, `event.scheduledTime` - see
+    // reminder-producer-handler.ts / reminder-reconciliation-handler.ts), never
+    // `event.detail.*` / `event.time` (those are Rule-shaped fields that don't exist here).
+    // `<aws.scheduler.scheduled-time>` is a Scheduler context attribute, substituted at
+    // invoke time with the schedule's fire time (ISO-8601 UTC).
     new scheduler.CfnSchedule(this, "ReminderProducerSchedule", {
       scheduleExpression: "rate(1 minute)",
       state,
@@ -39,12 +48,13 @@ export class ReminderSchedule extends Construct {
       target: {
         arn: props.reminderProducer.functionArn,
         roleArn: grantInvoke(this, "ReminderProducer", props.reminderProducer).roleArn,
+        input: JSON.stringify({ scheduledTime: "<aws.scheduler.scheduled-time>" }),
       },
     });
 
-    // Two independent schedules invoking the SAME ReminderReconciliation function with
-    // different `detail.mode` (m3.5-runtime-design.md: "mesmo handler pode receber mode,
-    // mantendo lógicas e métricas separadas").
+    // Two independent schedules invoking the SAME ReminderReconciliation function with a
+    // different `mode` (m3.5-runtime-design.md: "mesmo handler pode receber mode, mantendo
+    // lógicas e métricas separadas") - field is top-level, not under `detail`.
     new scheduler.CfnSchedule(this, "ReminderClaimReconciliationSchedule", {
       scheduleExpression: "rate(5 minutes)",
       state,
@@ -52,7 +62,7 @@ export class ReminderSchedule extends Construct {
       target: {
         arn: props.reminderReconciliation.functionArn,
         roleArn: grantInvoke(this, "ReminderClaimReconciliation", props.reminderReconciliation).roleArn,
-        input: JSON.stringify({ mode: "CLAIMS" }),
+        input: JSON.stringify({ mode: "CLAIMS", scheduledTime: "<aws.scheduler.scheduled-time>" }),
       },
     });
 
@@ -64,7 +74,7 @@ export class ReminderSchedule extends Construct {
       target: {
         arn: props.reminderReconciliation.functionArn,
         roleArn: grantInvoke(this, "ReminderDstReconciliation", props.reminderReconciliation).roleArn,
-        input: JSON.stringify({ mode: "DST" }),
+        input: JSON.stringify({ mode: "DST", scheduledTime: "<aws.scheduler.scheduled-time>" }),
       },
     });
 
@@ -75,8 +85,8 @@ export class ReminderSchedule extends Construct {
       target: {
         arn: props.outboxSweeper.functionArn,
         roleArn: grantInvoke(this, "OutboxSweeperReminderDispatch", props.outboxSweeper).roleArn,
+        input: JSON.stringify({ scheduledTime: "<aws.scheduler.scheduled-time>" }),
       },
     });
-
   }
 }

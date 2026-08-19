@@ -130,7 +130,33 @@ export async function reconcileDst(
     for (const occurrence of liveExisting) {
       const expected = expectedByTrigger.get(occurrence.triggerId);
       const diverges = !expected || expected.scheduledAtUtc !== occurrence.scheduledAt;
-      if (!diverges) continue;
+      if (!diverges) {
+        // M3.5 (bug found by Codex implementation review - the original code left
+        // WORKSTATE#DST_PENDING pointers in place forever whenever recomputation confirmed
+        // the schedule was still correct, so confirmed-correct occurrences were
+        // re-evaluated on every single daily run indefinitely). The window is processed for
+        // this occurrence either way - clear the pointer once confirmed, not only on
+        // cancellation.
+        if (occurrence.GSI6PK) {
+          try {
+            await deps.store.transactWrite([
+              {
+                Update: buildVersionedUpdate({
+                  tableName: deps.tableName,
+                  key: { PK: occurrence.PK, SK: occurrence.SK },
+                  tenantId: candidate.tenantId,
+                  expectedVersion: occurrence.version,
+                  set: {},
+                  remove: ["GSI6PK", "GSI6SK"],
+                }),
+              },
+            ]);
+          } catch (err) {
+            if (!isTransactionCanceled(err)) throw err; // lost a race - fine, not our job to force it
+          }
+        }
+        continue;
+      }
       divergences += 1;
       try {
         await deps.store.transactWrite([

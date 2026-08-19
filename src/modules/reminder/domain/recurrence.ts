@@ -160,3 +160,20 @@ export function parseLocalTime(hhmm: string): { hour: number; minute: number } {
   }
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
+
+/**
+ * M3.5 (docs/architecture/m3.5-runtime-design.md §"Reconciliação"; broadened after Codex's
+ * implementation review found the original AMBIGUOUS/NONEXISTENT-only trigger too narrow):
+ * true if `timeZone` observes DST at all during `year` - compares the UTC offset at two
+ * fixed reference instants (Jan 15 and Jul 15 noon UTC), one of which is guaranteed to fall
+ * in each side of a DST transition for any zone that has one. A fixed-offset zone (e.g.
+ * America/Sao_Paulo since 2019, or any UTC+N zone) always returns false. Used to flag EVERY
+ * occurrence in a DST-observing zone as a reconciliation candidate, not just the literally
+ * ambiguous/nonexistent ones - a plain 09:00 reminder can still need re-evaluation after an
+ * offset change even though its own computed instant was never ambiguous.
+ */
+export function timeZoneObservesDst(timeZone: string, year: number): boolean {
+  const januaryOffset = offsetMinutesAt(Date.UTC(year, 0, 15, 12, 0, 0), timeZone);
+  const julyOffset = offsetMinutesAt(Date.UTC(year, 6, 15, 12, 0, 0), timeZone);
+  return januaryOffset !== julyOffset;
+}

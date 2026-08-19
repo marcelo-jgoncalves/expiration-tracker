@@ -1,0 +1,22 @@
+Revisao final da IMPLEMENTACAO do milestone M3.5 (runtime real do Reminder Engine / fechamento de G8), expiration-tracker, protocolo Claude<->Codex (AGENTS.md secao 4). Voce ja validou o DESIGN (docs/architecture/m3.5-runtime-design.md, 6 rodadas, nota final 9.3/10 - ja aprovado, nao redebater). Esta e uma revisao DIFERENTE: verificar se o CODIGO real implementa esse design corretamente, nao mais revisar a especificacao em si.
+
+Branch `develop` (HEAD) tem a implementacao completa, ainda nao mergeada na `main` alem de dois PRs ja mergeados anteriormente. Rode `git log --oneline -12` e `git diff main...develop --stat` primeiro para orientar-se, depois leia os arquivos relevantes.
+
+Contexto: ambiente desta sessao NAO tem Docker nem credenciais AWS - so Camada 1 de testes (unit/contract/synth CDK) foi executada e verificada (143 testes verdes, typecheck/lint/check-boundaries limpos). Camadas 2 (DynamoDB Local/LocalStack) e 3 (sandbox AWS efemero) do design NAO foram executadas - isso e conhecido, nao precisa reapontar como achado, a menos que ache um problema que goste a ponto de argumentar que nem a Camada 1 e suficiente para confiar no design dos testes que SERIAM rodados nas camadas 2/3 (ex: um teste de integracao que teoricamente prova algo mas tem um bug logico).
+
+Foco da revisao (arquivos principais, todos sob src/ e infra/):
+- src/workers/reminder-producer/producer.ts (outbox duravel + ponteiro GSI6 WORKSTATE#CLAIMED no claim)
+- src/workers/dispatch-outbox-relay/relay.ts (relay + sweeper)
+- src/modules/reminder/application/reminder-materializer.ts (ponteiro GSI6 WORKSTATE#DST_PENDING)
+- src/modules/*/persistence/dynamodb-*.ts (5 adapters DynamoDB reais)
+- src/runtime/aws/handlers/*.ts (8 handlers Lambda reais, composition roots)
+- infra/lib/{expiration-tracker-stack,reminder-queue,reminder-schedule,dynamo-table,scoped-lambda-function}.ts (wiring CDK: fila+DLQ, Streams, EventBridge Scheduler, gsi6Read exclusivo)
+- src/shared/outbox/outbox.ts e src/shared/dynamodb/occ.ts (destination discriminador, REMOVE clause)
+
+Perguntas especificas a responder, com evidencia de arquivo:linha:
+1. O codigo bate com o design aprovado nos pontos criticos: outbox duravel atomico com o claim (mesmo TransactWriteItems), roteamento exclusivo via `destination`, GSI6 com chaves globais corretas, exatamente duas roles com gsi6Read(), remocao atomica das chaves GSI6 nas transicoes de estado?
+2. Ha bugs de correcao reais no codigo (nao no design) - condicoes de corrida nao tratadas, tipos incorretos, erros de composicao entre adapters/handlers, algo que quebraria em runtime mesmo que o design estivesse certo?
+3. Os testes escritos realmente provam o que afirmam provar, ou ha algum teste que passa por motivo errado (false positive)?
+4. Alguma simplificacao/reuso obvio que deveria ter sido feito e nao foi?
+
+Termine com nota de confianca 0-10 na implementacao (nao no design) como pronta para as Camadas 2/3 de teste assim que Docker/AWS estiverem disponiveis - ou seja, "dado que o design ja e 9.3/10, o codigo que o implementa esta correto o suficiente para eu confiar nos resultados de Camada 2/3 quando rodarem, sem reescrever nada antes". Responda em portugues, direto ao ponto.

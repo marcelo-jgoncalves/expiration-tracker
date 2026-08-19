@@ -21,6 +21,7 @@ import {
   addCalendarDays,
   parseDayOffset,
   parseLocalTime,
+  timeZoneObservesDst,
 } from "../domain/recurrence.js";
 import { gsi3Keys, occurrenceKey, stableHash, type ReminderOccurrence } from "../domain/reminder-occurrence.js";
 import type { ReminderPolicy, QuietHours } from "../domain/reminder-policy.js";
@@ -157,22 +158,22 @@ export class ReminderMaterializer {
         shardCount: generation.shardCount,
       });
 
-      // M3.5 (docs/architecture/m3.5-runtime-design.md §"Reconciliação"): occurrences whose
-      // schedule was computed at an ambiguous or nonexistent local time (dstKind !==
-      // "NORMAL") are exactly the ones a DST transition can make wrong later - e.g.
-      // materialized against one UTC offset, but the actual transition date/rule changes
-      // before the occurrence fires. These get a GSI6 WORKSTATE#DST_PENDING pointer so the
-      // daily DST reconciliation pass can find and re-evaluate them without scanning every
-      // occurrence in the system. Judgment call: narrower than "every occurrence with any
-      // timeZone" - it targets the concrete edge cases computeSchedule already flags, not a
-      // speculative full-timezone-database forecast of future transitions.
-      const dstPending =
-        schedule.dstKind !== "NORMAL"
-          ? {
-              GSI6PK: GSI6PK_WORKSTATE_DST_PENDING,
-              GSI6SK: buildDstCandidateGsi6Sk(schedule.scheduledAtUtc, input.tenantId, occurrenceId),
-            }
-          : {};
+      // M3.5 (docs/architecture/m3.5-runtime-design.md §"Reconciliação"; broadened after
+      // Codex's implementation review found the original AMBIGUOUS/NONEXISTENT-only trigger
+      // too narrow): a GSI6 WORKSTATE#DST_PENDING pointer is set whenever EITHER the
+      // schedule was computed at an ambiguous/nonexistent local time (dstKind !== "NORMAL")
+      // OR the policy's timeZone observes DST at all in the occurrence's target year - a
+      // plain 09:00 reminder in a DST-observing zone can still need re-evaluation after an
+      // offset change even though its own computed instant was never ambiguous. Occurrences
+      // in a fixed-offset timeZone (e.g. America/Sao_Paulo since 2019) never get the pointer.
+      const dstRelevant =
+        schedule.dstKind !== "NORMAL" || timeZoneObservesDst(input.policy.timeZone, toCalendarDate(schedule.scheduledAtUtc).year);
+      const dstPending = dstRelevant
+        ? {
+            GSI6PK: GSI6PK_WORKSTATE_DST_PENDING,
+            GSI6SK: buildDstCandidateGsi6Sk(schedule.scheduledAtUtc, input.tenantId, occurrenceId),
+          }
+        : {};
 
       const occurrence: ReminderOccurrence = {
         ...occurrenceKey(input.tenantId, input.itemId, schedule.scheduledAtUtc, occurrenceId),

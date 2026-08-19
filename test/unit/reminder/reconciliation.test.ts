@@ -230,6 +230,45 @@ describe("reconciliation.ts", () => {
       expect(result.created).toBe(0);
     });
 
+    it("M3.5: removes the GSI6 WORKSTATE#DST_PENDING pointer once recomputation CONFIRMS the schedule is still correct (bug found by Codex implementation review - the pointer used to stay forever in this case, causing daily re-evaluation indefinitely)", async () => {
+      const policy = await policies.createPolicy(ctx, {
+        scope: "ITEM",
+        itemId: ITEM_ID,
+        rule: {
+          name: "same day 09:00",
+          triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "09:00" }],
+          timeZone: "America/New_York", // DST-observing zone -> materializer sets the pointer
+          channels: ["EMAIL"],
+        },
+      });
+      const materializer = new ReminderMaterializer(store, TABLE, now);
+      const materialized = await materializer.materialize({
+        tenantId: TENANT,
+        itemId: ITEM_ID,
+        itemVersion: 1,
+        itemDueDate: "2026-09-10T00:00:00.000Z",
+        policy,
+        shardConfig: defaultShardConfig(),
+      });
+      const occ = materialized.created[0]!;
+      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING"); // sanity: the pointer IS present before reconciliation
+
+      clock.current = "2026-09-05T00:00:00.000Z"; // within the 7-day window, schedule unchanged since materialization
+
+      const result = await reconcileDst(
+        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
+        [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
+      );
+
+      expect(result.divergences).toBe(0);
+      expect(result.cancelled).toBe(0);
+
+      const confirmed = await store.get<ReminderOccurrence>({ PK: occ.PK, SK: occ.SK });
+      expect(confirmed?.status).toBe("SCHEDULED"); // still live, only the pointer was cleared
+      expect(confirmed?.GSI6PK).toBeUndefined();
+      expect(confirmed?.GSI6SK).toBeUndefined();
+    });
+
     it("skips a disabled policy entirely (no cancellation, no materialization)", async () => {
       const enabled = await policies.createPolicy(ctx, {
         scope: "ITEM",
