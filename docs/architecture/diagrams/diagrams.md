@@ -1,7 +1,6 @@
 # Diagramas de Arquitetura — Plataforma de Controle de Vencimentos
 
-Status: sincronizado com `docs/architecture/architecture-fase3-consolidada.md` (Rodada 4). Atualizar este arquivo sempre que uma decisão de arquitetura mudar — os diagramas não podem divergir do texto consolidado.
-Conforme seção 52 do prompt mestre, 14 diagramas são exigidos ao final. Esta primeira leva cobre os 6 mais centrais às decisões já consolidadas; os demais (Security Boundaries, Data Flow, Deployment, Observability, DR, Growth Evolution, MCP Future Flow, Container/Service detalhado) ficam pendentes para quando os ADRs correspondentes fecharem (ver "Itens abertos" em `architecture-fase3-consolidada.md`).
+Status: **14 de 14 diagramas completos** (seção 52), sincronizados com `architecture-fase3-consolidada.md`, `data-model.md`, `slo.md`, `disaster-recovery.md`, `evolution.md`, `mcp-readiness.md`. Atualizar este arquivo sempre que uma decisão de arquitetura mudar — os diagramas não podem divergir do texto consolidado.
 
 ## 1. System Context
 
@@ -146,12 +145,173 @@ graph TD
     ItemUpdate --> Audit[(AuditEvent: ator, valor anterior/proposto, versão do pipeline)]
 ```
 
-## Diagramas pendentes (a produzir quando os ADRs correspondentes fecharem)
-7. Security Boundaries — depende da decisão final de WAF×HTTP API (item aberto).
-8. Data Flow completo (incluindo outbox/sweeper) — depende do ADR de replay (fechado conceitualmente, falta detalhar visualmente).
-9. Deployment — depende do detalhamento de CI/CD (`ScopedLambdaFunction`, ambientes).
-10. Observability — dashboards/alarmes concretos (depende de `slo.md`, Fase posterior).
-11. Disaster Recovery — depende de `disaster-recovery.md` (RTO/RPO já têm meta, falta o fluxo de restore).
-12. Growth Evolution — depende da seção "Evolução da Arquitetura" (ainda não escrita).
-13. MCP Future Flow — depende de `mcp-readiness.md` (não iniciado).
-14. Container/Service detalhado com todas as filas/DLQs nomeadas — versão expandida do diagrama 2 acima, a produzir junto do Implementation Blueprint (seção 60, pós-aprovação).
+## 7. Security Boundaries
+
+```mermaid
+graph TD
+    subgraph Internet["Não confiável"]
+        User[Usuário]
+        Attacker[Tráfego anônimo/abusivo]
+    end
+    subgraph Edge["Borda — WAF condicional"]
+        CF[CloudFront]
+        WAF[AWS WAF — regras gerenciadas + rate-based]
+        APIGW[API Gateway HTTP API]
+    end
+    subgraph AuthZ["Autenticação/Autorização"]
+        Cognito[Cognito User Pools]
+        Quota[TenantQuota — token bucket]
+        DomainAuthZ[Verificação por requisição, SEC-007]
+    end
+    subgraph Trust["Confiável — dentro do domínio"]
+        Lambda[Lambda — monólito modular]
+        DDB[(DynamoDB — tenantId em toda chave)]
+        S3Clean[S3 clean]
+    end
+    subgraph Quarantine["Zona de quarentena — não confiável até CLEAN"]
+        S3Q[S3 quarantine]
+        GD[GuardDuty Malware Protection]
+    end
+
+    User -->|HTTPS| CF --> WAF --> APIGW
+    Attacker -.->|bloqueado/limitado| WAF
+    APIGW --> Cognito
+    APIGW --> Quota
+    Quota --> DomainAuthZ
+    DomainAuthZ --> Lambda
+    Lambda --> DDB
+    Lambda -->|presigned upload| S3Q
+    S3Q --> GD
+    GD -->|CLEAN apenas| S3Clean
+    Lambda -->|leitura, só CLEAN| S3Clean
+```
+
+## 8. Data Flow completo (com outbox/sweeper)
+
+```mermaid
+graph LR
+    Write[Escrita de domínio] -->|TransactWriteItems| DDB[(DynamoDB)]
+    DDB -->|registro PENDING| Outbox[(Outbox)]
+    Outbox -->|publicação bem-sucedida| EB[EventBridge]
+    Outbox -.->|nunca confirmado| Sweeper[Sweeper/Reconciliador]
+    Sweeper -->|reenfileira| EB
+    EB --> Consumers[Módulos consumidores: Reminder, Notification, Audit]
+    Consumers -->|dedup por eventId| Idempotent[Processamento idempotente]
+```
+
+## 9. Deployment
+
+```mermaid
+graph TD
+    Dev[Commit aprovado] --> CI[GitHub Actions: lint/testes/scans]
+    CI --> CDKDiff[cdk diff]
+    CDKDiff --> Staging[Deploy Staging via CDK]
+    Staging --> Smoke[Smoke test]
+    Smoke --> Manual[Aprovação manual de produção]
+    Manual --> Canary[Deploy canário — alias Lambda]
+    Canary --> Monitor[Monitorar métricas/erros]
+    Monitor -->|ok| Full[Rollout completo]
+    Monitor -->|regressão| Rollback[Rollback de alias]
+    Full -.->|mudança de schema/evento| ExpandContract[Estratégia expand/contract, nunca destrutiva in-place]
+```
+
+## 10. Observability
+
+```mermaid
+graph TD
+    Lambda[Lambda/Step Functions] -->|EMF| CW[CloudWatch Metrics]
+    Lambda -->|logs JSON + correlationId| CWLogs[CloudWatch Logs]
+    Lambda -->|traces amostrados| XRay[X-Ray]
+    CW --> Dashboards[Dashboards por SLO]
+    CW --> Alarms[Alarmes por sintoma]
+    Alarms -->|DLQ idade 1h/4h| OnCall[Revisão humana]
+    Alarms -->|Cost Anomaly| KillSwitch[Kill switch AppConfig]
+    Dashboards --> SLOReview[Revisão de SLO — slo.md]
+```
+
+## 11. Disaster Recovery
+
+```mermaid
+sequenceDiagram
+    participant IC as Incident Commander
+    participant DDB as DynamoDB (PITR)
+    participant NewT as Tabela nova (restore)
+    participant S3 as S3 quarantine/clean
+    participant Recon as Reconciliação
+
+    IC->>DDB: fixa T0 (último instante íntegro)
+    IC->>DDB: interrompe writers/consumidores
+    DDB->>NewT: restore PITR para tabela nova
+    IC->>NewT: valida contagens, hashes, GSIs, isolamento tenantId
+    IC->>S3: restaura buckets versionados se necessário
+    NewT->>Recon: reconcilia registros PENDING e intervalo T0-retomada
+    Recon->>IC: smoke test + canário
+    IC->>IC: corte para nova tabela, mede RPO/RTO observados
+```
+
+## 12. Growth Evolution
+
+```mermaid
+graph LR
+    MVP[Day 0 / MVP] -->|1o cliente pagante| Early[Early Traction]
+    Early -->|alarme ConsumedReadCapacity >70%| Growth[Growth 10k+]
+    Growth -->|SLA contratual ou Stage 3| Scale[Scale 100k+]
+    Scale -.->|gatilho: multi-region ativo-passivo| ScaleDR[Revisão de postura de região]
+    Scale -->|volume Stage 5 medido| Large[Large Scale 1M+]
+    MVP -.->|1a venda B2B| Org[Habilitar Organizations]
+    Org -.->|dual-write→backfill→cutover| OrgDone[Migração de tenantId concluída]
+```
+
+## 13. MCP Future Flow
+
+```mermaid
+graph TD
+    Agent[Cliente MCP / Agente] -->|OAuth scope, ex: items:read| Cognito[Cognito]
+    Cognito -->|tenantId do token, nunca do agente| MCPGateway[MCP Tool Gateway]
+    MCPGateway -->|1 tool = 1 operação da API| API[API HTTP interna]
+    API --> DomainAuthZ[Autorização por objeto, SEC-007]
+    DomainAuthZ --> Lambda[Domínio]
+    Lambda --> Audit[AuditEvent — actorUserId + origin + actingOnBehalfOf]
+    Lambda -->|campo de baixa confiança| Pending[PENDING_CONFIRMATION — mesmo gate G4]
+```
+
+## 14. Container/Service detalhado
+
+```mermaid
+graph TD
+    subgraph API_Layer["API Layer"]
+        APIGW[API Gateway HTTP API]
+    end
+    subgraph Domain["Lambda — monólito modular"]
+        Identity[Identity/Tenancy]
+        Expiration[Expiration Items]
+        ReminderMod[Reminder]
+        NotifMod[Notification]
+        DocMod[Document]
+        AuditMod[Audit]
+    end
+    subgraph Async["Workers assíncronos"]
+        Scanner[Reminder Scanner]
+        Dispatcher[Reminder Dispatcher]
+        AdapterE[Adapter SES]
+        AdapterT[Adapter Telegram]
+        AdapterW[Adapter WhatsApp]
+        ExtractSF[Step Function Extração]
+    end
+    subgraph Queues["Filas/DLQs nomeadas"]
+        QReminder[SQS reminder-due + DLQ]
+        QEmail[SQS email-queue + DLQ]
+        QTelegram[SQS telegram-queue + DLQ]
+        QWhatsApp[SQS whatsapp-queue + DLQ]
+        QWebhook[WebhookInbox]
+    end
+    APIGW --> Identity & Expiration & ReminderMod & NotifMod & DocMod
+    Scanner --> QReminder --> Dispatcher
+    Dispatcher --> QEmail --> AdapterE
+    Dispatcher --> QTelegram --> AdapterT
+    Dispatcher --> QWhatsApp --> AdapterW
+    DocMod --> ExtractSF
+    AdapterE & AdapterT & AdapterW -.webhook.-> QWebhook --> AuditMod
+```
+
+Todos os 14 diagramas exigidos pela seção 52 do prompt mestre estão agora presentes, sincronizados com `architecture-fase3-consolidada.md`, `data-model.md`, `slo.md`, `disaster-recovery.md` e `evolution.md`.
