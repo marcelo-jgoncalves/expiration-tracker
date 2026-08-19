@@ -65,26 +65,28 @@ Processo Claude↔Codex real, com Codex genuinamente rejeitando o draft inicial 
 ## Engineering Gates (estado após remediação desta sessão)
 
 ```text
-G1 (build reproduzível)              PARCIAL → melhora esperada após push (CI corrigido, não re-executado em runner real ainda)
-G2 (CI enforced)                     FAIL → SHA corrigido, mas precisa de execução real bem-sucedida + branch protection para virar PASS
-G3 (testes críticos)                 PASS local / PARCIAL até rodar em CI real
+G1 (build reproduzível)              PASS — confirmado: run real 32262099908 (commit 6d541a0) verde em runner limpo do GitHub Actions, 45s, incluindo build/typecheck/lint/test
+G2 (CI enforced)                     PARCIAL → CI agora executa com sucesso de verdade (confirmado em produção, primeira vez desde a criação do workflow); falta só branch protection para virar PASS pleno
+G3 (testes críticos)                 PASS — confirmado em CI real, não só local
 G4 (sem secret)                      PASS
-G5 (sem vuln crítica não tratada)    PASS agora (produção limpa; dev com exceção formal EX-001, não mais "tratada" por omissão)
+G5 (sem vuln crítica não tratada)    PASS agora (produção limpa; dev com exceção formal EX-001, não mais "tratada" por omissão) — warning informacional do audit de dev apareceu na run real como desenhado, sem bloquear
 G6 (autorização cross-tenant)        PASS
 G7 (least privilege de índice)       PASS
 G8 (falhas assíncronas recuperáveis) FAIL (sem mudança nesta sessão — requer Lambda/fila real)
 G9 (infra sintetizável)              PASS
-G10 (boundaries enforced automaticamente) PASS agora (ESLint no-restricted-imports adicionado e verificado, antes era só convenção)
-G11 (contratos no CI)                PASS local / PARCIAL até rodar em CI real
+G10 (boundaries enforced automaticamente) PASS agora (ESLint no-restricted-imports adicionado e verificado, antes era só convenção) — confirmado também em CI real
+G11 (contratos no CI)                PASS — confirmado em CI real
 ```
+
+Confirmação: commit `6d541a0` pushado para `main`, run `32262099908` (https://github.com/marcelo-jgoncalves/expiration-tracker/actions/runs/32262099908) — job `guardrails` completo com sucesso em 45s, SBOM gerado como artefato, warning informacional do audit de dev apareceu exatamente como desenhado (não bloqueou). Dois achados novos não-críticos da run real: (1) as três Actions pinadas visam Node 20, que o runner do GitHub já força para Node 24 (deprecation warning, não erro — pins funcionam mas merecem atualização numa manutenção futura); (2) uma falha transitória de infraestrutura do GitHub ("services aren't available"/cache 400) apareceu como anotação, não relacionada ao código deste repositório.
 
 ## Fitness Functions
 
-`docs/engineering/02-engineering-fitness-functions.md` — 9 fitness functions definidas, FF5 corrigida nesta sessão (era decorativa), FF9 (secret scan automatizado) ainda não implementada.
+`docs/engineering/02-engineering-fitness-functions.md` — 9 fitness functions definidas, FF5 corrigida nesta sessão (era decorativa) e confirmada em execução real, FF9 (secret scan automatizado) ainda não implementada.
 
 ## Known Gaps
 
-- **G2/G1/G11 dependem de uma execução real do CI corrigido** — o fix foi feito e verificado localmente (typecheck/lint/test/schemas todos verdes), mas ninguém pushou ainda para confirmar que o workflow completa com sucesso no GitHub Actions real. Recomendação: push + observar a run antes de considerar G2 um PASS pleno.
+- **G2 falta só branch protection para virar PASS pleno** — o CI já executa com sucesso de verdade (confirmado em produção, run `32262099908`), mas `main` continua sem proteção nenhuma no GitHub.
 - **Branch protection não foi habilitada** — decisão deliberadamente deixada para o usuário confirmar (muda o fluxo de trabalho atual de push direto). Recomendação concreta: exigir PR + pelo menos o job `guardrails` como required status check.
 - **G8 (recuperação de falhas assíncronas) segue FAIL** — não é uma correção de arquivo, é trabalho de M4+ (Lambda real, DLQ real, telemetria real).
 - **Vulnerabilidade de devDependency (EX-001)** não corrigida (requer upgrade major do Vitest) — prazo de revisão de 30 dias registrado.
@@ -111,17 +113,17 @@ CONSERVATIVE ENGINEERING SCORE (pré-remediação): 4.84 / 10.00
 Notas por domínio (pré-remediação, evidência real coletada em 2026-08-19): ver `docs/engineering/reviews/checkpoint-02-09-consolidated/claude-evaluation-round1.md` e `_codex-output-round1.txt`. Os 4 P0s convergentes identificados por ambos os revisores foram tratados nesta sessão (3 corrigidos: CI quebrado, gate de audit decorativo, boundaries sem enforcement; 1 parcialmente, branch protection recomendada mas não aplicada; 1 mantido como trabalho de milestone futuro: G8/recuperação assíncrona real). **Uma nova rodada de notas Claude+Codex sobre o estado pós-remediação não foi executada nesta sessão** — os números acima permanecem como o resultado formal da rodada 1, e não devem ser lidos como o estado atual sem essa reavaliação.
 
 ```text
-GATES:
-G1 PARCIAL | G2 FAIL→PARCIAL (fix aplicado, não confirmado em CI real) | G3 PARCIAL | G4 PASS | G5 PASS | G6 PASS | G7 PASS | G8 FAIL | G9 PASS | G10 PASS | G11 PARCIAL
+GATES (após confirmação em CI real, run 32262099908):
+G1 PASS | G2 PARCIAL (CI real verde, falta branch protection) | G3 PASS | G4 PASS | G5 PASS | G6 PASS | G7 PASS | G8 FAIL | G9 PASS | G10 PASS | G11 PASS
 ```
 
 ```text
 UNRESOLVED:
-P0: Confirmar execução real do CI corrigido (push + observar run) e decidir/habilitar branch protection.
+P0: Decidir/habilitar branch protection em main (única peça faltante para G2 virar PASS pleno).
 P0: G8 — recuperação de falhas assíncronas reais (DLQ, replay, telemetria) — trabalho de M4+, não resolvível por edição de arquivo.
-P1: Rodada 2 de notas Claude+Codex sobre o estado pós-remediação, para confirmar se os P0s corrigidos efetivamente mudam o veredito de ENGINEERING FOUNDATION STATUS.
+P1: Rodada 2 de notas Claude+Codex sobre o estado pós-remediação (agora com G1/G3/G11 confirmados em CI real, não só local) — provável melhora de nota, mas não fabricada sem reavaliação formal.
 P1: Red team formal dedicado (Checkpoint 12 do Prompt Mestre), não executado como exercício isolado nesta sessão.
-P2: Vulnerabilidade de devDependency (EX-001), duplicação de HTTP error-mapping, testes unitários individuais para workers assíncronos.
+P2: Vulnerabilidade de devDependency (EX-001), duplicação de HTTP error-mapping, testes unitários individuais para workers assíncronos, atualizar pins de Actions para runners Node 24.
 ```
 
 ## Next Steps
