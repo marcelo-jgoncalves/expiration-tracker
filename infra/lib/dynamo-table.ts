@@ -43,6 +43,10 @@ export class ExpirationTrackerTable extends Construct {
       encryption: dynamodb.TableEncryption.AWS_MANAGED, // CMK upgrade tracked as infra follow-up, see report
       removalPolicy: props.removalPolicy ?? RemovalPolicy.RETAIN,
       timeToLiveAttribute: "purgeAfterTtl", // auxiliary cleanup only, never operational trigger (data-model.md §3)
+      // M3.5: NEW_IMAGE stream feeds DispatchOutboxRelay (docs/architecture/
+      // m3.5-runtime-design.md "Decisão central: outbox durável") - it only needs the
+      // post-write item shape, never the old image.
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
     });
 
     // GSI1 - vencimentos/dashboard: PK=TENANT#t#ITEMSTATUS#<status>, SK=DUE#<dueDate>#ITEM#i
