@@ -37,7 +37,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `mcp-readiness.md` | normativo atual | Prontidão de domínio para MCP futuro |
 | `evolution.md` | normativo atual | Transições de estágio, gatilhos |
 | `aws-well-architected-review.md` | normativo atual | Revisão pelos 6 pilares AWS, riscos conhecidos |
-| `threat-model.md` | em consolidação (não normativo até nota final ≥9 de ambos) | Threat model STRIDE, seção 33 — em andamento, ver nota "Planejado" abaixo |
+| `threat-model.md` | normativo atual | Threat model STRIDE, seção 33 — APPROVED (Claude ~9.05 / Codex 9.002) |
 | `decisions-log.md` | decisão/ADR (log vivo) | 26 decisões (D-000 a D-025), nota Claude/Codex, status |
 | `adr/` | decisão/ADR | 8 ADRs formais para decisões Type 1 |
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
@@ -58,9 +58,8 @@ Cada subpasta contém os artefatos de proposta/crítica/tréplica que antecedera
 | `history/disaster-recovery/` | `disaster-recovery.md` |
 | `history/privacy-lgpd/` | `privacy-lgpd.md` |
 | `history/cost-model/` | `cost-model.md` |
-| `history/threat-model/` | `threat-model.md` (em andamento, ver abaixo) |
+| `history/threat-model/` | `threat-model.md` |
 
 ## Planejado, ainda inexistente
 
 - `implementation-blueprint.md` (seção 60 do prompt mestre) — próxima ação obrigatória, ver `NEXT_SESSION_PROMPT.md`.
-- `threat-model.md` (seção 33) — risco Alta severidade registrado em `aws-well-architected-review.md`, recomendado antes ou junto do início da implementação. **Em andamento**: `history/threat-model/threat-model-claude-round1.md` já contém a proposta Rodada 1 do Claude (WIP ativo, não normativo) — falta a proposta do Codex, crítica/tréplica e consolidação antes de virar `threat-model.md`.

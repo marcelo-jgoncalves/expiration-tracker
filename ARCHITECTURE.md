@@ -54,7 +54,7 @@ Mapa de dados pessoais, 8 classes de retenção (`retentionClass`/`legalHold`), 
 CloudWatch EMF, X-Ray amostrado, correlation ID + tenantId (nunca como dimensão de métrica), alarmes por sintoma — `docs/architecture/architecture-fase3-consolidada.md` §13.
 
 ## Reliability
-Idempotência, OCC, outbox com sweeper, DLQ com SLA (1h/4h), reconciliação diária, testes negativos de isolamento — `docs/architecture/architecture-fase3-consolidada.md`, `docs/architecture/red-team-claude-round1.md`/`docs/architecture/history/architecture-fase3/red-team-codex-round1.md`.
+Idempotência, OCC, outbox com sweeper, DLQ com SLA (1h/4h), reconciliação diária, testes negativos de isolamento — `docs/architecture/architecture-fase3-consolidada.md`, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md`/`docs/architecture/history/architecture-fase3/red-team-codex-round1.md`.
 
 ## DR
 RPO≤5min/RTO≤4h (falhas dentro da região); falha de região é risco aceito com gatilho de revisão; teste de restore real como gate de produção — `docs/architecture/disaster-recovery.md`.

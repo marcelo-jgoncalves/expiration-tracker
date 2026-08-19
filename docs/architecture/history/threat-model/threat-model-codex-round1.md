@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../threat-model.md` (APPROVED, Claude ~9.05 / Codex 9.002).
+
 # Threat Model — Codex, Rodada 1 (Proposta Independente)
 
 Status: proposta independente do Codex, sem acesso à proposta do Claude.

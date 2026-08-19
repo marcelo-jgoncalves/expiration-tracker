@@ -1,9 +1,9 @@
-> **Status: WIP ativo (não supersedido).** Proposta Rodada 1 do Claude para `threat-model.md` (documento ainda não consolidado, ver `docs/architecture/README.md`), produzida em sessão paralela a esta reorganização de contexto. Não é normativo até o documento final ser consolidado e passar pelo protocolo de nota cega (`AGENTS.md` §3).
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../threat-model.md` (APPROVED, Claude ~9.05 / Codex 9.002).
 
 # Threat Model — Claude, Rodada 1 (Proposta Independente)
 
 Status: proposta independente do Claude, antes de ver a do Codex.
-Base: seção 33 do prompt mestre (lista mínima de ameaças), `docs/architecture/architecture-fase3-consolidada.md`, `docs/architecture/data-model.md`, `docs/architecture/red-team-claude-round1.md`/`red-team-codex-round1.md` (já cobrem várias ameaças operacionalmente — este documento sistematiza sob a lente de threat modeling, não repete do zero).
+Base: seção 33 do prompt mestre (lista mínima de ameaças), `docs/architecture/architecture-fase3-consolidada.md`, `docs/architecture/data-model.md`, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md`/`docs/architecture/history/architecture-fase3/red-team-codex-round1.md` (já cobrem várias ameaças operacionalmente — este documento sistematiza sob a lente de threat modeling, não repete do zero).
 
 ## Metodologia
 STRIDE aplicado por superfície de ataque (não por componente isolado), já que muitas ameaças cruzam múltiplos componentes. Para cada ameaça: **Vetor** (como o ataque ocorreria) · **Mitigação existente** (já decidida em documento aprovado) · **Risco residual** · **Severidade** (Alta/Média/Baixa, calibrada por impacto × probabilidade dado as mitigações já existentes, não pelo dano teórico sem controle nenhum).
