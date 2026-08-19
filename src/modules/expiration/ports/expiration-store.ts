@@ -8,45 +8,12 @@
  * write, the critical `ItemDueDateChanged` outbox record and the audit trail must never
  * be individually visible without the others.
  */
-export interface EntityKey {
-  PK: string;
-  SK: string;
-}
+import type { EntityKey, TransactPutEntry, TransactUpdateEntry, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 
-export interface TransactPutEntry {
-  Put: {
-    TableName: string;
-    Item: Record<string, unknown>;
-    ConditionExpression: string;
-  };
-}
-
-export interface TransactUpdateEntry {
-  Update: {
-    TableName: string;
-    Key: EntityKey;
-    UpdateExpression: string;
-    ConditionExpression: string;
-    ExpressionAttributeNames: Record<string, string>;
-    ExpressionAttributeValues: Record<string, unknown>;
-  };
-}
-
-export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry;
-
-/** Name of the AWS SDK error thrown when any entry in a TransactWriteItems call fails
- * its ConditionExpression - used by callers to distinguish OCC/idempotency conflicts
- * from other DynamoDB errors without importing the SDK type. */
-export const TRANSACTION_CANCELED = "TransactionCanceledException";
-
-export function isTransactionCanceled(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "name" in err &&
-    (err as { name?: unknown }).name === TRANSACTION_CANCELED
-  );
-}
+// Re-exported for backward compatibility with existing importers (application/http layers
+// of this and other modules) - canonical definitions now live in shared/dynamodb/occ.ts.
+export type { EntityKey, TransactPutEntry, TransactUpdateEntry, TransactWriteEntry };
+export { TRANSACTION_CANCELED, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 
 export interface Gsi1QueryInput {
   gsi1pk: string;

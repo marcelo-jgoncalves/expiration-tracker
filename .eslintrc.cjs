@@ -45,10 +45,15 @@ module.exports = {
       },
     },
     {
-      // Architecture boundary enforcement (Engineering Maturity Review G10, 2026-08-19):
-      // domain/ layers must stay SDK-agnostic and must not reach into infra/ or sibling
-      // modules' internals. Previously true only by convention (verified by grep, not by
-      // CI) - this makes the boundary a real, automated, required check.
+      // Architecture boundary, IDE-speed layer only (Engineering Maturity Review G10,
+      // 2026-08-19). IMPORTANT: no-restricted-imports matches the literal import-specifier
+      // TEXT, not the resolved module graph - it cannot see a transitive re-export (domain
+      // file A imports domain file B, which imports application/), and this codebase's
+      // relative imports (e.g. "../ports/foo.js") often don't even literally contain
+      // "modules/" for the cross-module patterns below to match. The AUTHORITATIVE boundary
+      // check is `npm run check-boundaries` (.dependency-cruiser.cjs, wired into CI) - it
+      // resolves the real graph. This ESLint rule stays only for fast in-editor feedback on
+      // the direct-import case; do not treat it as sufficient on its own.
       files: ["src/modules/*/domain/**/*.ts"],
       rules: {
         "no-restricted-imports": [

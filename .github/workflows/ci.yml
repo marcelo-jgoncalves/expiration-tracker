@@ -57,20 +57,24 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check architecture boundaries (transitive dependency graph)
+        # dependency-cruiser resolves the real module graph, closing a gap ESLint's
+        # no-restricted-imports can't: it only matches literal import-specifier text, so it
+        # never catches a transitive re-export or a same-module domain->ports import written
+        # as a relative path (found and fixed for real 2026-08-19, see decisions-log.md).
+        run: npm run check-boundaries
+
       - name: Validate JSON schemas
         run: npm run validate-schemas
 
       - name: Unit + contract tests
         run: npm test
 
-      - name: Dependency audit (production + dev, blocking)
-        # EX-001 (transitive vitest/vite/esbuild vulnerabilities) was resolved 2026-08-19 via
-        # major-version upgrade, not just excepted - no active exception remains, so both
-        # dependency graphs are fully blocking again. If a future finding needs a documented,
-        # time-boxed exception (docs/engineering/exceptions.md), split this back into a
-        # blocking prod step + an informational dev step referencing it - do not silently
-        # weaken this gate.
-        run: npm audit --audit-level=high
+      - name: Dependency audit (production - blocking)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Dependency audit (dev - informational, known exceptions in docs/engineering/exceptions.md)
+        run: npm audit --audit-level=high || echo "::warning::npm audit found dev-dependency findings - cross-check against docs/engineering/exceptions.md; anything not listed there is a new finding and must be triaged"
 
       - name: Generate SBOM (CycloneDX)
         run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json

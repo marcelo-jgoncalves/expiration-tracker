@@ -2,9 +2,14 @@
 
 Registro de violações conscientes de regra, com justificativa, risco, owner e prazo de revisão (Prompt Mestre §47). Nenhuma exceção aqui é permanente por padrão.
 
-## EX-001 — Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild) — FECHADA 2026-08-19
+## EX-001 — Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild)
 
 - **Regra violada**: G5 (sem vulnerabilidade crítica não tratada).
-- **Achado original**: `npm audit` reportava 2 critical, 1 high, 2 moderate, todos transitivos via `vitest`→`vite`→`esbuild`.
-- **Resolução**: upgrade de `vitest`/`@vitest/coverage-v8` de 1.6.0 para 4.1.11 (major version), na mesma sessão em que a exceção foi registrada — não foi preciso esperar o prazo de 30 dias. `npm audit` agora reporta **0 vulnerabilidades** (produção e dev). Suíte inteira (130 testes) verde após o upgrade; único ajuste necessário foi `testTimeout` global de 15s em `vitest.config.ts` (Vitest 4 tem timeout padrão de 5s, mais apertado que o synth do CDK em `test/infra`, que leva ~10s — não era um teste quebrado, só um timeout de config desatualizado para a nova major version).
-- **Status**: fechada, não mais uma exceção ativa. Mantida aqui como registro histórico (Prompt Mestre: não esconder o que foi encontrado, mesmo depois de corrigido).
+- **Achado**: `npm audit` reporta 2 critical, 1 high, 2 moderate, todos transitivos via `vitest`→`vite`→`esbuild`. A mais severa (CVSS 9.8, GHSA-5xrq-8626-4rwp) é sobre o servidor de UI do Vitest permitir leitura/execução arbitrária de arquivo quando exposto — este projeto nunca inicia esse servidor (não há `vitest --ui` em nenhum script/workflow).
+- **Justificativa**: risco real é de dev-server local, não de runtime de produção; `npm audit --omit=dev` (produção) mostra 0 vulnerabilidades.
+- **Tentativa de correção registrada (2026-08-19)**: upgrade para Vitest 4.1.11 foi tentado nesta sessão. Localmente (Windows) passou limpo (typecheck/lint/130 testes/audit zerado), mas **quebrou o CI real (Ubuntu)**: `Error: Cannot find native binding... Cannot find module '@rolldown/binding-wasm32-wasi'` — bug conhecido e não resolvido do ecossistema npm com optional dependencies cross-platform (`npm/cli#4828`, referenciado na própria mensagem de erro), onde o lockfile gerado numa plataforma não resolve corretamente o binding nativo de outra mesmo depois de regenerado do zero. **Revertido** para `vitest@^1.6.0` após confirmar em duas execuções reais de CI que o upgrade quebrava o pipeline — CI real verde é mais importante do que fechar esta exceção às pressas. Não tentar de novo sem verificar primeiro se o bug upstream do rolldown/npm foi corrigido numa versão futura do Vitest/Vite.
+- **Risco residual**: baixo (superfície de ataque exige rodar o dev-server localmente com input não confiável) — mas não é zero e não deve virar exceção permanente.
+- **Owner**: Marcelo (a definir formalmente).
+- **Data de registro**: 2026-08-19.
+- **Prazo de revisão**: antes de M4 ou em 30 dias, o que vier primeiro — reavaliar upgrade do Vitest quando o bug de optional dependencies cross-platform estiver resolvido upstream.
+- **Compensating control**: gate de CI `Dependency audit (production - blocking)` bloqueia qualquer vulnerabilidade real em `dependencies` (não `devDependencies`); o job separado de dev-audit é informacional e referencia esta entrada.
