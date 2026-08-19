@@ -1,0 +1,732 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01ae6-d667-7c70-80f2-6d531946bfa8
+--------
+user
+Responda em texto puro. Não precisa rodar comandos nem ler arquivos — evidência necessária está aqui. Se quiser confirmar algo pontual, pode, mas não é obrigatório.
+
+Você é engenheiro sênior fazendo o Checkpoint 12 (Red Team de Engenharia) formal de uma Engineering Maturity Review já em andamento (micro-SaaS AWS serverless, TypeScript/Node, DynamoDB single-table, pré-produção). Rodadas anteriores já cobriram rubrica congelada e duas rodadas de avaliação por domínio; o veredito atual é NOT APPROVED com G8 (recuperação de falha assíncrona) aberto. Esta é uma passada de red team FORMAL e mais ampla que a "leve" já feita antes (que só olhou o que mudou entre rodadas) — aqui o objetivo é procurar ativamente, no repositório como um todo, os padrões de risco do Prompt Mestre §28.
+
+=== CONTEXTO DO SISTEMA (não repita, use como base) ===
+
+- Single-table DynamoDB, chaves `TENANT#t#ITEM#i`, GSI1 (dashboard), GSI3 (scheduler de reminders, chave global `DUE#yyyyMMddHHmm#NN`, exceção documentada e isolada via IAM).
+- Módulos: identity (matriz de autorização, resolver central), expiration (CRUD/renew, OCC via ConditionExpression version=:expected, outbox transacional na mesma TransactWriteItems), reminder (policies + materializer DST-aware + workers producer/dispatch/reconciliation).
+- Todos os workers assíncronos são lógica pura testável (sem AWS SDK real ainda) - handlers Lambda reais são placeholder inline (`exports.handler = async () => ({statusCode: 501})`), sem SQS/DLQ/EventBridge wired ainda. Isso é a causa raiz do G8 estar aberto.
+- Idempotência: PutItem attribute_not_exists(PK) com chaves determinísticas por operação; reminder occurrences derivam occurrenceId de um hash da chave de idempotência (não um IdempotencyStore separado).
+- Autorização: matriz de roles como código, testada com suíte cross-tenant negativa (9 casos).
+- CI real (confirmado em duas execuções verdes): typecheck, lint (incl. regra ESLint no-restricted-imports pra boundary de domain/), test (130 casos), validate-schemas, audit de produção bloqueante, SBOM. Branch `main` protegida (required check, sem force-push/deleção, enforce_admins=false).
+- Achados de red team leve já registrados (não repita, mas pode aprofundar): bypass de boundary ESLint via import transitivo/dynamic import/alias; bypass de audit via reclassificação de dependência pra devDependencies; enforce_admins=false é bypass admin consciente; EX-001 (vuln de devDependency, dev-server only) pode expirar silenciosamente sem automação.
+
+=== TAREFA: RED TEAM FORMAL (Prompt Mestre §28) ===
+
+Procure ativamente, com base só no que já foi descrito acima (não invente detalhes de implementação que não foram fornecidos - se precisar de mais detalhe pra avaliar uma categoria, diga isso explicitamente em vez de supor), sinais de risco nas categorias abaixo. Para cada uma, diga se há sinal de risco real dado o que foi descrito, ou se não há informação suficiente pra avaliar (não invente):
+
+- bypass de validação / autorização
+- tenant escape
+- missing idempotency / double delivery
+- race conditions
+- stale state / partial writes / orphan records
+- inconsistência docs ↔ código
+- CI bypass
+- supply-chain weaknesses
+- workflow permissions excessivas
+- unpinned dependencies
+- secret leakage
+- logging de dados sensíveis
+- retry storms
+- poison messages / DLQ sem tratamento
+- silent failures
+- paths sem teste
+- código morto
+- complexidade acidental / abstrações prematuras
+- pontos únicos de manutenção difícil
+- false-green CI (CI que passa mas não prova o que devia)
+
+Ao final, classifique os 3-5 achados mais importantes por severidade (P0/P1/P2) e diga qual é, na sua visão, o MAIOR risco real deste sistema hoje - não necessariamente o mais fácil de descrever.
+
+codex
+CHECKPOINT 12 — RED TEAM DE ENGENHARIA
+
+Escopo e limitação
+
+A avaliação abaixo usa somente as evidências fornecidas. “Sem informação suficiente” não significa ausência de risco; significa que o controle não pode ser confirmado sem inspecionar implementação, infraestrutura sintetizada ou testes específicos.
+
+1. Bypass de validação / autorização
+
+Sinal de risco real: SIM.
+
+A matriz de autorização, o resolver central e os testes cross-tenant são controles positivos. Porém, não foi demonstrado que todos os entrypoints — inclusive futuros handlers Lambda, workers, endpoints internos e operações de reconciliação — passam obrigatoriamente pelo resolver central.
+
+Como os handlers reais ainda não existem, a autorização está comprovada principalmente no domínio testável, não no caminho de execução implantável. O risco principal é um adapter futuro aceitar tenantId, userId ou role do payload sem reconstruir a identidade a partir de claims confiáveis.
+
+Classificação preliminar: P1 enquanto não houver testes dos adapters reais.
+
+2. Tenant escape
+
+Sinal de risco real: SIM, parcialmente mitigado.
+
+As chaves tenant-scoped e a suíte negativa de nove casos são bons controles. A exceção é o GSI3 global. O isolamento via IAM reduz quem pode consultá-lo, mas não transforma o índice em tenant-scoped. Qualquer worker autorizado a ler o GSI3 passa a ser um componente de alto impacto: uma falha de filtragem, roteamento ou construção de comandos pode cruzar tenants.
+
+Faltam evidências sobre:
+
+- validação da coerência entre tenantId do item, PK/SK e payload;
+- comportamento diante de item malformado no GSI3;
+- testes de isolamento executados através dos workers reais;
+- restrição do retorno de atributos e das operações permitidas ao principal que consulta o GSI3.
+
+Classificação preliminar: P1 pela amplitude potencial, embora não exista evidência de exploração atual.
+
+3. Missing idempotency / double delivery
+
+Sinal de risco real: SIM.
+
+Há uma base correta: chaves determinísticas, PutItem com attribute_not_exists e occurrenceId derivado da chave idempotente. Ainda não foi demonstrado o comportamento completo sob:
+
+- duas entregas simultâneas;
+- timeout após o efeito externo, mas antes do reconhecimento;
+- falha entre claim idempotente e conclusão;
+- reprocessamento após retenção/expiração do registro;
+- mudança de payload usando a mesma chave;
+- dois workers disputando a mesma occurrence;
+- redrive manual ou tardio.
+
+A deduplicação de criação não prova idempotência do efeito externo. Para dispatch de notificação, o caso crítico é “provedor aceitou a mensagem, worker perdeu a resposta e a fila entregou novamente”.
+
+Classificação preliminar: P1 e parte direta de G8.
+
+4. Race conditions
+
+Sinal de risco real: SIM.
+
+O OCC protege atualizações concorrentes do agregado quando todos os escritores usam expected version. A transação atômica protege agregado, audit e outbox. Entretanto, não há evidência equivalente para as máquinas de estado assíncronas.
+
+Cenários relevantes:
+
+- renew concorrendo com materialização ou dispatch de reminder antigo;
+- cancelamento concorrendo com producer;
+- reconciliation concorrendo com processamento normal;
+- dois dispatchers adquirindo a mesma occurrence;
+- reschedule deixando uma ocorrência antiga elegível no GSI3;
+- retry operando sobre uma versão obsoleta do agregado.
+
+OCC detecta conflito; não define sozinho compensação, retry ou descarte seguro.
+
+Classificação preliminar: P1.
+
+5. Stale state / partial writes / orphan records
+
+Sinal de risco real: SIM, com boa mitigação no caminho síncrono.
+
+Item, outbox e audit na mesma TransactWriteItems reduzem fortemente partial writes na criação/alteração do agregado. A lacuna está depois da outbox e nos artefatos derivados:
+
+- reminders materializados podem ficar obsoletos após renew/cancel;
+- registros de idempotência podem permanecer presos;
+- eventos podem ficar na outbox sem publicação;
+- ocorrências podem permanecer em estado intermediário;
+- reconciliação pode recriar ou deixar de detectar órfãos.
+
+O worker de reconciliation mostra que o problema foi reconhecido, mas lógica pura sem wiring, trigger e observabilidade não constitui recuperação operacional.
+
+Classificação preliminar: P1.
+
+6. Inconsistência docs ↔ código
+
+Não há informação suficiente para afirmar uma inconsistência específica.
+
+Existe, porém, risco de representação excessivamente madura caso documentos descrevam “Reminder Engine”, “workers” ou “recuperação” sem distinguir claramente lógica pura implementada de integração operacional ainda inexistente. Se os documentos registram explicitamente os handlers 501 e G8 aberto, não há inconsistência.
+
+Classificação preliminar: P2, condicionada à redação documental.
+
+7. CI bypass
+
+Sinal de risco real: SIM, mas não é o principal risco.
+
+O required check e as execuções verdes são bons controles. Ainda faltam evidências de que:
+
+- o check exigido corresponde exatamente ao workflow atual;
+- mudanças no próprio workflow e nas configurações de lint são protegidas;
+- todos os jobs críticos são obrigatórios, sem caminhos condicionais;
+- PRs de forks recebem tratamento seguro;
+- não existem filtros de paths que omitam validações;
+- merges administrativos são auditados.
+
+Além do bypass admin já conhecido, um atacante ou mudança acidental poderia enfraquecer o workflow e obter um check verde se não houver controle independente da configuração.
+
+Classificação preliminar: P2.
+
+8. Supply-chain weaknesses
+
+Sinal de risco real: SIM, residual.
+
+Audit de produção bloqueante, SBOM, npm ci e scripts de instalação desabilitados são bons controles. Não foi demonstrado:
+
+- política de atualização e revisão do lockfile;
+- verificação de integridade/proveniência dos artefatos;
+- assinatura de releases;
+- dependabot ou equivalente;
+- allowlist de registries e namespaces;
+- proteção contra dependency confusion;
+- controle de packages obtidos por URL/Git;
+- revisão de dependências transitivas.
+
+O SBOM melhora inventário, mas não impede comprometimento.
+
+Classificação preliminar: P2.
+
+9. Workflow permissions excessivas
+
+Não há informação suficiente para avaliar.
+
+São necessários os permissions efetivos do workflow, por job, incluindo contents, actions, security-events, id-token, packages e pull-requests. Também é necessário saber se há credenciais AWS, OIDC ou secrets disponíveis para jobs que executam código de PR.
+
+Se permissions não estiverem explicitamente reduzidas, isso deve ser tratado como achado até verificação.
+
+10. Unpinned dependencies
+
+Não há informação suficiente para avaliar as dependências npm.
+
+npm ci indica lockfile, mas não informa se ele está versionado, se todas as dependências são resolvidas com integridade verificável ou se existem referências flutuantes. As actions são descritas como pinadas por SHA, o que é positivo, mas a reverificação periódica ainda depende de processo manual.
+
+Classificação preliminar: P2 se houver qualquer referência flutuante; caso contrário, sem achado confirmado.
+
+11. Secret leakage
+
+Não há informação suficiente para avaliar.
+
+É necessário verificar histórico Git, arquivos ignorados, fixtures, variáveis do workflow, templates de infraestrutura, source maps, artefatos de build e tratamento de secrets em logs. O fato de o projeto estar em pré-produção reduz a probabilidade de segredos produtivos, mas não elimina credenciais de desenvolvimento ou tokens de automação.
+
+12. Logging de dados sensíveis
+
+Sinal de risco real: POSSÍVEL, mas não comprovado.
+
+SecureLogger e a proibição de console fora da camada de observabilidade são controles úteis. Ainda não há evidência da política de redaction nem dos campos registrados.
+
+Pontos críticos incluem:
+
+- payloads completos de eventos e filas;
+- claims de identidade;
+- e-mail, telefone ou conteúdo de reminders;
+- headers Authorization;
+- detalhes de erro retornados por provedores;
+- chaves DynamoDB que revelem identificadores;
+- registros de poison messages ou DLQ.
+
+Um logger central reduz dispersão, mas também vira um ponto único de vazamento se sua sanitização estiver incompleta.
+
+Classificação preliminar: P1 se payloads forem registrados; sem informação suficiente para confirmar.
+
+13. Retry storms
+
+Sinal de risco real: SIM.
+
+Não existem ainda SQS, DLQ, EventBridge e handlers reais wired. Portanto, não há evidência de:
+
+- backoff;
+- jitter;
+- visibility timeout adequado;
+- maxReceiveCount;
+- reserved concurrency;
+- batch failure parcial;
+- circuit breaker para dependências;
+- rate limiting;
+- classificação consistente entre erros retryable e permanentes.
+
+A taxonomia retryable é uma boa fundação, mas não prova que a infraestrutura respeitará essa classificação. Um provedor degradado pode gerar retries sincronizados, duplicidade e aumento de custos.
+
+Classificação preliminar: P1 e parte de G8.
+
+14. Poison messages / DLQ sem tratamento
+
+Sinal de risco real: SIM, confirmado por ausência operacional.
+
+Não há DLQ wired nem processo demonstrado de triagem, redrive ou quarentena. Um evento permanentemente inválido pode:
+
+- ser reprocessado repetidamente;
+- bloquear um lote;
+- consumir capacidade;
+- gerar ruído e custos;
+- ser descartado silenciosamente quando o retry se esgotar;
+- voltar por redrive sem correção da causa.
+
+Mesmo a futura existência de uma DLQ não fechará o risco sem owner, alerta, runbook, retenção, inspeção segura e política de redrive.
+
+Classificação preliminar: P1 e núcleo de G8.
+
+15. Silent failures
+
+Sinal de risco real: SIM.
+
+Handlers 501 tornam a indisponibilidade explícita se invocados diretamente, mas o risco mais importante é a ausência de um caminho operacional que demonstre publicação, consumo, confirmação e recuperação. Um registro pode ser gravado com outbox transacional e nunca resultar em reminder, sem evidência de alarme ponta a ponta.
+
+Não foram demonstrados:
+
+- métricas de idade da outbox;
+- idade da mensagem;
+- taxa de falha e de redrive;
+- alarmes de DLQ;
+- alarmes de ausência de processamento;
+- canário ou SLO de entrega;
+- correlação agregado → outbox → occurrence → tentativa → resultado;
+- detecção de scheduler parado.
+
+Classificação preliminar: P1.
+
+16. Paths sem teste
+
+Sinal de risco real: SIM.
+
+Os 130 testes indicam cobertura útil, mas os caminhos de maior risco operacional ainda não existem ou não são exercitados:
+
+- adapters AWS reais;
+- serialization/deserialization do evento real;
+- IAM efetivo em runtime;
+- partial batch response;
+- retries e visibility timeout;
+- DLQ/redrive;
+- falhas e timeouts de provedor;
+- interrupção entre efeito externo e ack;
+- cold start e configuração inválida;
+- concorrência real;
+- observabilidade e alarmes;
+- deploy e rollback.
+
+O número de testes não compensa a ausência desses caminhos.
+
+Classificação preliminar: P1.
+
+17. Código morto
+
+Sinal de risco real: SIM, no sentido operacional.
+
+Os workers puros podem ser corretos e ainda assim serem código inalcançável em produção, pois os handlers reais são placeholders e os triggers não estão wired. Isso não torna a lógica inútil, mas cria distância entre “implementado” e “executável”.
+
+Também não há informação suficiente para saber se exports, branches de erro, schemas ou abstrações não referenciadas são detectados automaticamente.
+
+Classificação preliminar: P2 isoladamente; contribui para o false-green.
+
+18. Complexidade acidental / abstrações prematuras
+
+Sinal de risco real: POSSÍVEL.
+
+Ports, módulos SDK-agnostic, taxonomia de erros, OCC, outbox e reconciliation são justificáveis para este domínio. O risco é construir uma arquitetura interna sofisticada antes de validar o caminho mínimo implantável de ponta a ponta.
+
+A assimetria é o sinal relevante: há múltiplas abstrações e 130 testes, mas não há handler, fila ou recuperação operacional real. Isso pode esconder incompatibilidades entre interfaces idealizadas e semântica concreta de SQS, Lambda, EventBridge e provedores.
+
+Classificação preliminar: P2.
+
+19. Pontos únicos de manutenção difícil
+
+Sinal de risco real: SIM.
+
+Possíveis pontos de concentração:
+
+- resolver central de identidade;
+- matriz de autorização;
+- builders obrigatórios de OCC;
+- SecureLogger;
+- classificação retryable;
+- construct de IAM da single-table;
+- contrato da outbox;
+- lógica de materialização DST;
+- worker de reconciliation;
+- acesso global ao GSI3.
+
+Centralização é desejável, mas uma falha nesses componentes afeta vários módulos. Faltam evidências de contract tests específicos para consumidores múltiplos, versionamento de contratos e ownership operacional.
+
+Classificação preliminar: P2, podendo subir para P1 no resolver de identidade, IAM do GSI3 ou classificação de retry.
+
+20. False-green CI
+
+Sinal de risco real: SIM, forte.
+
+Este é um achado central. A CI está genuinamente verde para o escopo que executa, mas esse escopo não prova o comportamento operacional mais importante do produto.
+
+Hoje ela pode demonstrar:
+
+- correção estática;
+- conformidade de lint;
+- validade de schemas;
+- lógica pura;
+- síntese de infraestrutura existente;
+- segurança básica de dependências.
+
+Ela não demonstra entrega assíncrona funcional porque o caminho real contém handlers 501 e não possui filas, triggers, DLQ ou redrive wired. Portanto, “130 testes e CI verde” pode ser interpretado incorretamente como prontidão do Reminder Engine. Isso é false-green por lacuna de objeto testado, não necessariamente por teste defeituoso.
+
+Classificação preliminar: P1.
+
+ACHADOS PRIORITÁRIOS
+
+1. P1 — Pipeline assíncrono não operacional e sem recuperação
+
+Handlers 501, ausência de wiring, DLQ, redrive e tratamento operacional mantêm G8 objetivamente aberto. Falhas de entrega não têm caminho comprovado de detecção e recuperação.
+
+2. P1 — Semântica de idempotência insuficientemente provada no limite do efeito externo
+
+O claim determinístico protege contra parte das duplicatas, mas não resolve sozinho o intervalo “efeito realizado, confirmação perdida”. Esse é o cenário clássico de duplicação em sistemas at-least-once.
+
+3. P1 — False-green entre lógica pura e comportamento implantado
+
+A CI valida componentes internos, mas não testa o sistema assíncrono real. Isso pode levar a uma decisão de maturidade baseada em evidência que não cobre o risco dominante.
+
+4. P1 — Concorrência e estado obsoleto entre renew/cancel, materialização, dispatch e reconciliation
+
+O OCC protege o agregado, mas não há evidência de fencing ou validação de versão antes do efeito externo. Um reminder antigo pode ser enviado após mudança legítima do estado.
+
+5. P1 — Blast radius cross-tenant do GSI3 e dos workers privilegiados
+
+O IAM limita o acesso, mas o consumidor autorizado enxerga um índice global. Erro nesse consumidor pode afetar múltiplos tenants e exige testes negativos no adapter real, não apenas na lógica de domínio.
+
+MAIOR RISCO REAL
+
+O maior risco é a ausência de uma garantia ponta a ponta de entrega assíncrona correta e recuperável.
+
+Não se trata apenas de “a fila ainda não foi criada”. O sistema já tem mecanismos que podem produzir confiança — outbox transacional, idempotência, reconciliation, testes e CI verde — sem ainda demonstrar que um reminder atravessa o ciclo completo com segurança sob timeout, duplicidade, concorrência, poison message e indisponibilidade do provedor.
+
+Esse risco combina perda silenciosa de notificações, duplicação, envio de estado obsoleto, ausência de recuperação e falsa percepção de prontidão. Por isso, o veredito NOT APPROVED e a manutenção de G8 aberto são tecnicamente corretos. Não identifiquei evidência de P0 no estado pré-produção descrito, mas há vários P1 que impedem aprovação.
+tokens used
+10.480
+CHECKPOINT 12 — RED TEAM DE ENGENHARIA
+
+Escopo e limitação
+
+A avaliação abaixo usa somente as evidências fornecidas. “Sem informação suficiente” não significa ausência de risco; significa que o controle não pode ser confirmado sem inspecionar implementação, infraestrutura sintetizada ou testes específicos.
+
+1. Bypass de validação / autorização
+
+Sinal de risco real: SIM.
+
+A matriz de autorização, o resolver central e os testes cross-tenant são controles positivos. Porém, não foi demonstrado que todos os entrypoints — inclusive futuros handlers Lambda, workers, endpoints internos e operações de reconciliação — passam obrigatoriamente pelo resolver central.
+
+Como os handlers reais ainda não existem, a autorização está comprovada principalmente no domínio testável, não no caminho de execução implantável. O risco principal é um adapter futuro aceitar tenantId, userId ou role do payload sem reconstruir a identidade a partir de claims confiáveis.
+
+Classificação preliminar: P1 enquanto não houver testes dos adapters reais.
+
+2. Tenant escape
+
+Sinal de risco real: SIM, parcialmente mitigado.
+
+As chaves tenant-scoped e a suíte negativa de nove casos são bons controles. A exceção é o GSI3 global. O isolamento via IAM reduz quem pode consultá-lo, mas não transforma o índice em tenant-scoped. Qualquer worker autorizado a ler o GSI3 passa a ser um componente de alto impacto: uma falha de filtragem, roteamento ou construção de comandos pode cruzar tenants.
+
+Faltam evidências sobre:
+
+- validação da coerência entre tenantId do item, PK/SK e payload;
+- comportamento diante de item malformado no GSI3;
+- testes de isolamento executados através dos workers reais;
+- restrição do retorno de atributos e das operações permitidas ao principal que consulta o GSI3.
+
+Classificação preliminar: P1 pela amplitude potencial, embora não exista evidência de exploração atual.
+
+3. Missing idempotency / double delivery
+
+Sinal de risco real: SIM.
+
+Há uma base correta: chaves determinísticas, PutItem com attribute_not_exists e occurrenceId derivado da chave idempotente. Ainda não foi demonstrado o comportamento completo sob:
+
+- duas entregas simultâneas;
+- timeout após o efeito externo, mas antes do reconhecimento;
+- falha entre claim idempotente e conclusão;
+- reprocessamento após retenção/expiração do registro;
+- mudança de payload usando a mesma chave;
+- dois workers disputando a mesma occurrence;
+- redrive manual ou tardio.
+
+A deduplicação de criação não prova idempotência do efeito externo. Para dispatch de notificação, o caso crítico é “provedor aceitou a mensagem, worker perdeu a resposta e a fila entregou novamente”.
+
+Classificação preliminar: P1 e parte direta de G8.
+
+4. Race conditions
+
+Sinal de risco real: SIM.
+
+O OCC protege atualizações concorrentes do agregado quando todos os escritores usam expected version. A transação atômica protege agregado, audit e outbox. Entretanto, não há evidência equivalente para as máquinas de estado assíncronas.
+
+Cenários relevantes:
+
+- renew concorrendo com materialização ou dispatch de reminder antigo;
+- cancelamento concorrendo com producer;
+- reconciliation concorrendo com processamento normal;
+- dois dispatchers adquirindo a mesma occurrence;
+- reschedule deixando uma ocorrência antiga elegível no GSI3;
+- retry operando sobre uma versão obsoleta do agregado.
+
+OCC detecta conflito; não define sozinho compensação, retry ou descarte seguro.
+
+Classificação preliminar: P1.
+
+5. Stale state / partial writes / orphan records
+
+Sinal de risco real: SIM, com boa mitigação no caminho síncrono.
+
+Item, outbox e audit na mesma TransactWriteItems reduzem fortemente partial writes na criação/alteração do agregado. A lacuna está depois da outbox e nos artefatos derivados:
+
+- reminders materializados podem ficar obsoletos após renew/cancel;
+- registros de idempotência podem permanecer presos;
+- eventos podem ficar na outbox sem publicação;
+- ocorrências podem permanecer em estado intermediário;
+- reconciliação pode recriar ou deixar de detectar órfãos.
+
+O worker de reconciliation mostra que o problema foi reconhecido, mas lógica pura sem wiring, trigger e observabilidade não constitui recuperação operacional.
+
+Classificação preliminar: P1.
+
+6. Inconsistência docs ↔ código
+
+Não há informação suficiente para afirmar uma inconsistência específica.
+
+Existe, porém, risco de representação excessivamente madura caso documentos descrevam “Reminder Engine”, “workers” ou “recuperação” sem distinguir claramente lógica pura implementada de integração operacional ainda inexistente. Se os documentos registram explicitamente os handlers 501 e G8 aberto, não há inconsistência.
+
+Classificação preliminar: P2, condicionada à redação documental.
+
+7. CI bypass
+
+Sinal de risco real: SIM, mas não é o principal risco.
+
+O required check e as execuções verdes são bons controles. Ainda faltam evidências de que:
+
+- o check exigido corresponde exatamente ao workflow atual;
+- mudanças no próprio workflow e nas configurações de lint são protegidas;
+- todos os jobs críticos são obrigatórios, sem caminhos condicionais;
+- PRs de forks recebem tratamento seguro;
+- não existem filtros de paths que omitam validações;
+- merges administrativos são auditados.
+
+Além do bypass admin já conhecido, um atacante ou mudança acidental poderia enfraquecer o workflow e obter um check verde se não houver controle independente da configuração.
+
+Classificação preliminar: P2.
+
+8. Supply-chain weaknesses
+
+Sinal de risco real: SIM, residual.
+
+Audit de produção bloqueante, SBOM, npm ci e scripts de instalação desabilitados são bons controles. Não foi demonstrado:
+
+- política de atualização e revisão do lockfile;
+- verificação de integridade/proveniência dos artefatos;
+- assinatura de releases;
+- dependabot ou equivalente;
+- allowlist de registries e namespaces;
+- proteção contra dependency confusion;
+- controle de packages obtidos por URL/Git;
+- revisão de dependências transitivas.
+
+O SBOM melhora inventário, mas não impede comprometimento.
+
+Classificação preliminar: P2.
+
+9. Workflow permissions excessivas
+
+Não há informação suficiente para avaliar.
+
+São necessários os permissions efetivos do workflow, por job, incluindo contents, actions, security-events, id-token, packages e pull-requests. Também é necessário saber se há credenciais AWS, OIDC ou secrets disponíveis para jobs que executam código de PR.
+
+Se permissions não estiverem explicitamente reduzidas, isso deve ser tratado como achado até verificação.
+
+10. Unpinned dependencies
+
+Não há informação suficiente para avaliar as dependências npm.
+
+npm ci indica lockfile, mas não informa se ele está versionado, se todas as dependências são resolvidas com integridade verificável ou se existem referências flutuantes. As actions são descritas como pinadas por SHA, o que é positivo, mas a reverificação periódica ainda depende de processo manual.
+
+Classificação preliminar: P2 se houver qualquer referência flutuante; caso contrário, sem achado confirmado.
+
+11. Secret leakage
+
+Não há informação suficiente para avaliar.
+
+É necessário verificar histórico Git, arquivos ignorados, fixtures, variáveis do workflow, templates de infraestrutura, source maps, artefatos de build e tratamento de secrets em logs. O fato de o projeto estar em pré-produção reduz a probabilidade de segredos produtivos, mas não elimina credenciais de desenvolvimento ou tokens de automação.
+
+12. Logging de dados sensíveis
+
+Sinal de risco real: POSSÍVEL, mas não comprovado.
+
+SecureLogger e a proibição de console fora da camada de observabilidade são controles úteis. Ainda não há evidência da política de redaction nem dos campos registrados.
+
+Pontos críticos incluem:
+
+- payloads completos de eventos e filas;
+- claims de identidade;
+- e-mail, telefone ou conteúdo de reminders;
+- headers Authorization;
+- detalhes de erro retornados por provedores;
+- chaves DynamoDB que revelem identificadores;
+- registros de poison messages ou DLQ.
+
+Um logger central reduz dispersão, mas também vira um ponto único de vazamento se sua sanitização estiver incompleta.
+
+Classificação preliminar: P1 se payloads forem registrados; sem informação suficiente para confirmar.
+
+13. Retry storms
+
+Sinal de risco real: SIM.
+
+Não existem ainda SQS, DLQ, EventBridge e handlers reais wired. Portanto, não há evidência de:
+
+- backoff;
+- jitter;
+- visibility timeout adequado;
+- maxReceiveCount;
+- reserved concurrency;
+- batch failure parcial;
+- circuit breaker para dependências;
+- rate limiting;
+- classificação consistente entre erros retryable e permanentes.
+
+A taxonomia retryable é uma boa fundação, mas não prova que a infraestrutura respeitará essa classificação. Um provedor degradado pode gerar retries sincronizados, duplicidade e aumento de custos.
+
+Classificação preliminar: P1 e parte de G8.
+
+14. Poison messages / DLQ sem tratamento
+
+Sinal de risco real: SIM, confirmado por ausência operacional.
+
+Não há DLQ wired nem processo demonstrado de triagem, redrive ou quarentena. Um evento permanentemente inválido pode:
+
+- ser reprocessado repetidamente;
+- bloquear um lote;
+- consumir capacidade;
+- gerar ruído e custos;
+- ser descartado silenciosamente quando o retry se esgotar;
+- voltar por redrive sem correção da causa.
+
+Mesmo a futura existência de uma DLQ não fechará o risco sem owner, alerta, runbook, retenção, inspeção segura e política de redrive.
+
+Classificação preliminar: P1 e núcleo de G8.
+
+15. Silent failures
+
+Sinal de risco real: SIM.
+
+Handlers 501 tornam a indisponibilidade explícita se invocados diretamente, mas o risco mais importante é a ausência de um caminho operacional que demonstre publicação, consumo, confirmação e recuperação. Um registro pode ser gravado com outbox transacional e nunca resultar em reminder, sem evidência de alarme ponta a ponta.
+
+Não foram demonstrados:
+
+- métricas de idade da outbox;
+- idade da mensagem;
+- taxa de falha e de redrive;
+- alarmes de DLQ;
+- alarmes de ausência de processamento;
+- canário ou SLO de entrega;
+- correlação agregado → outbox → occurrence → tentativa → resultado;
+- detecção de scheduler parado.
+
+Classificação preliminar: P1.
+
+16. Paths sem teste
+
+Sinal de risco real: SIM.
+
+Os 130 testes indicam cobertura útil, mas os caminhos de maior risco operacional ainda não existem ou não são exercitados:
+
+- adapters AWS reais;
+- serialization/deserialization do evento real;
+- IAM efetivo em runtime;
+- partial batch response;
+- retries e visibility timeout;
+- DLQ/redrive;
+- falhas e timeouts de provedor;
+- interrupção entre efeito externo e ack;
+- cold start e configuração inválida;
+- concorrência real;
+- observabilidade e alarmes;
+- deploy e rollback.
+
+O número de testes não compensa a ausência desses caminhos.
+
+Classificação preliminar: P1.
+
+17. Código morto
+
+Sinal de risco real: SIM, no sentido operacional.
+
+Os workers puros podem ser corretos e ainda assim serem código inalcançável em produção, pois os handlers reais são placeholders e os triggers não estão wired. Isso não torna a lógica inútil, mas cria distância entre “implementado” e “executável”.
+
+Também não há informação suficiente para saber se exports, branches de erro, schemas ou abstrações não referenciadas são detectados automaticamente.
+
+Classificação preliminar: P2 isoladamente; contribui para o false-green.
+
+18. Complexidade acidental / abstrações prematuras
+
+Sinal de risco real: POSSÍVEL.
+
+Ports, módulos SDK-agnostic, taxonomia de erros, OCC, outbox e reconciliation são justificáveis para este domínio. O risco é construir uma arquitetura interna sofisticada antes de validar o caminho mínimo implantável de ponta a ponta.
+
+A assimetria é o sinal relevante: há múltiplas abstrações e 130 testes, mas não há handler, fila ou recuperação operacional real. Isso pode esconder incompatibilidades entre interfaces idealizadas e semântica concreta de SQS, Lambda, EventBridge e provedores.
+
+Classificação preliminar: P2.
+
+19. Pontos únicos de manutenção difícil
+
+Sinal de risco real: SIM.
+
+Possíveis pontos de concentração:
+
+- resolver central de identidade;
+- matriz de autorização;
+- builders obrigatórios de OCC;
+- SecureLogger;
+- classificação retryable;
+- construct de IAM da single-table;
+- contrato da outbox;
+- lógica de materialização DST;
+- worker de reconciliation;
+- acesso global ao GSI3.
+
+Centralização é desejável, mas uma falha nesses componentes afeta vários módulos. Faltam evidências de contract tests específicos para consumidores múltiplos, versionamento de contratos e ownership operacional.
+
+Classificação preliminar: P2, podendo subir para P1 no resolver de identidade, IAM do GSI3 ou classificação de retry.
+
+20. False-green CI
+
+Sinal de risco real: SIM, forte.
+
+Este é um achado central. A CI está genuinamente verde para o escopo que executa, mas esse escopo não prova o comportamento operacional mais importante do produto.
+
+Hoje ela pode demonstrar:
+
+- correção estática;
+- conformidade de lint;
+- validade de schemas;
+- lógica pura;
+- síntese de infraestrutura existente;
+- segurança básica de dependências.
+
+Ela não demonstra entrega assíncrona funcional porque o caminho real contém handlers 501 e não possui filas, triggers, DLQ ou redrive wired. Portanto, “130 testes e CI verde” pode ser interpretado incorretamente como prontidão do Reminder Engine. Isso é false-green por lacuna de objeto testado, não necessariamente por teste defeituoso.
+
+Classificação preliminar: P1.
+
+ACHADOS PRIORITÁRIOS
+
+1. P1 — Pipeline assíncrono não operacional e sem recuperação
+
+Handlers 501, ausência de wiring, DLQ, redrive e tratamento operacional mantêm G8 objetivamente aberto. Falhas de entrega não têm caminho comprovado de detecção e recuperação.
+
+2. P1 — Semântica de idempotência insuficientemente provada no limite do efeito externo
+
+O claim determinístico protege contra parte das duplicatas, mas não resolve sozinho o intervalo “efeito realizado, confirmação perdida”. Esse é o cenário clássico de duplicação em sistemas at-least-once.
+
+3. P1 — False-green entre lógica pura e comportamento implantado
+
+A CI valida componentes internos, mas não testa o sistema assíncrono real. Isso pode levar a uma decisão de maturidade baseada em evidência que não cobre o risco dominante.
+
+4. P1 — Concorrência e estado obsoleto entre renew/cancel, materialização, dispatch e reconciliation
+
+O OCC protege o agregado, mas não há evidência de fencing ou validação de versão antes do efeito externo. Um reminder antigo pode ser enviado após mudança legítima do estado.
+
+5. P1 — Blast radius cross-tenant do GSI3 e dos workers privilegiados
+
+O IAM limita o acesso, mas o consumidor autorizado enxerga um índice global. Erro nesse consumidor pode afetar múltiplos tenants e exige testes negativos no adapter real, não apenas na lógica de domínio.
+
+MAIOR RISCO REAL
+
+O maior risco é a ausência de uma garantia ponta a ponta de entrega assíncrona correta e recuperável.
+
+Não se trata apenas de “a fila ainda não foi criada”. O sistema já tem mecanismos que podem produzir confiança — outbox transacional, idempotência, reconciliation, testes e CI verde — sem ainda demonstrar que um reminder atravessa o ciclo completo com segurança sob timeout, duplicidade, concorrência, poison message e indisponibilidade do provedor.
+
+Esse risco combina perda silenciosa de notificações, duplicação, envio de estado obsoleto, ausência de recuperação e falsa percepção de prontidão. Por isso, o veredito NOT APPROVED e a manutenção de G8 aberto são tecnicamente corretos. Não identifiquei evidência de P0 no estado pré-produção descrito, mas há vários P1 que impedem aprovação.
