@@ -12,6 +12,8 @@ Adaptado (não copiado) do padrão equivalente do projeto irmão `event-discover
 
 Cada eixo evolui apenas se o próprio critério se mostrar mal calibrado em uso real — registrar por que, junto com a mudança, e não reabrir a cada nova revisão sobre o mesmo eixo.
 
+**Eixos existentes**: Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança da Informação e AppSec. **Consenso sobre quais eixos formais este projeto deveria ter** (2026-08-19, pesquisa independente Claude+Codex + rodada de convergência — `docs/engineering/reviews/audit-areas-research-*` e `audit-areas-convergence-*`): 9 eixos totais — os 4 acima, mais Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant (com FinOps como eixo próprio, decidido pelo usuário, mas **não formalizado ainda** — sem critérios definidos, não usar até existir uma seção própria aqui). Os 5 eixos aprovados mas não formalizados ficam como trabalho futuro, não implícitos no protocolo até ganharem seção própria.
+
 ---
 
 ## Eixo: Arquitetura
@@ -66,6 +68,25 @@ Convergido em 2026-08-19. Avalia a qualidade do próprio sistema de documentaç�
 | 7 | Higiene de Contexto & Sinal-Ruído | 8% | Só conhecimento durável é promovido a destinos canônicos; ausência de versões concorrentes ou documentos órfãos. |
 | 8 | Portabilidade Agnóstica entre Agentes de IA | 6% | Regras essenciais utilizáveis por diferentes agentes/ferramentas — `AGENTS.md`/`CLAUDE.md` já seguem essa separação. |
 | 9 | Auditabilidade & Enforcement do Sistema de Contexto | 9% | Afirmações sobre a saúde do contexto verificáveis por evidência datada e revisões reproduzíveis; achados com lifecycle claro (aberto/corrigido/adiado/arquivado). |
+
+## Eixo: Segurança da Informação e AppSec
+
+Convergido em 2026-08-19 (fontes: OWASP ASVS 5.0, OWASP Top 10:2025, OWASP SAMM, práticas de least-privilege IAM AWS Lambda/DynamoDB). Rodada de convergência completa em `docs/engineering/reviews/security-axis-criteria-round1-{claude,codex-prompt,codex-output}.*` — convergência forte: os dois critérios de maior peso (isolamento multi-tenant, least-privilege IAM) saíram com pesos **idênticos** nas duas propostas independentes, sem precisar de reconciliação. Eixo avalia confidencialidade/integridade/disponibilidade/isolamento diante de abuso intencional e falhas de fronteira de confiança — não reavalia craft de código, arquitetura funcional ou disciplina de teste geral (eixos distintos); só quando esses elementos são controle ou evidência especificamente de segurança.
+
+Pesos calibrados pelo risco real já observado neste projeto: GSI3/GSI6 são exceções de particionamento com blast radius cross-tenant deliberado que já produziram bug real nesta sessão (não risco hipotético); o pipeline assíncrono (M3.5/G8) passou por 3 rodadas reais de revisão que encontraram bugs de contrato, race condition e limpeza de índice.
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | Isolamento Multi-Tenant & Autorização por Objeto | 18% | `tenantId` derivado exclusivamente da identidade validada e propagado por chaves, queries, eventos, idempotência e auditoria; proteção contra IDOR e acesso cross-tenant em toda rota/worker. Maior peso do eixo — risco mais concreto e já testado deste projeto (GSI3/GSI6). |
+| 2 | Least-Privilege IAM & Contenção de Blast Radius | 14% | Capability/role específica por Lambda (`ScopedLambdaFunction`), sem grants implícitos/curinga. `gsi3Read()`/`gsi6Read()` como capabilities exclusivas de lista fechada de workers — permissões tenant-facing devem produzir `AccessDenied` real (Camada 3, ainda pendente). |
+| 3 | Autenticação, Sessão & Gestão de Identidade | 11% | Validação completa de JWT Cognito (assinatura/issuer/audience/expiração/claims), revogação global/por dispositivo, TTL/rotação, MFA proporcional. Nenhuma autorização confia em identidade/tenant fornecido pelo cliente. |
+| 4 | Integridade do Pipeline Assíncrono & Fronteiras de Mensagem | 14% | Eventos EventBridge/SQS/Streams/outbox autenticados pela infra, validados por schema, vinculados ao tenant, protegidos contra replay/duplicação/roteamento cruzado. Claim/estado/outbox preservam atomicidade; retry/DLQ/redrive/sweeper não contornam autorização. Peso alto: é onde G8 já encontrou bugs reais. |
+| 5 | Validação de Entrada, Injection & Fail-Closed | 9% | Validação server-side por contrato (Ajv) em toda borda — HTTP, filas, dados persistidos. Entrada inválida/estado impossível/erro de autorização falha de modo fechado, sem mutação parcial nem detalhe interno vazado. |
+| 6 | Proteção de Dados Sensíveis, Segredos & Criptografia | 9% | Minimização/classificação de PII e tokens, criptografia em trânsito/repouso, segredos fora de código/log/artefato. `SecureLogger`/`Redactor` deve valer também em exceções, traces, eventos e DLQ — não só no caminho feliz. |
+| 7 | Logging Seguro, Detecção & Resposta a Incidentes | 8% | Eventos de autenticação/autorização negada/alteração privilegiada/acesso a GSI global produzem trilha íntegra, correlacionável, privacy-safe (OWASP A09:2025). Alarmes com threshold acionável e runbook de contenção/revogação/investigação. |
+| 8 | Configuração Segura da Plataforma & Superfície Exposta | 6% | API Gateway/Cognito/Lambda/DynamoDB/SQS/EventBridge/Streams com defaults seguros, exposição mínima, retenção adequada. Mudanças de CDK devem ser capazes de detectar regressão (wildcard de índice, grant excessivo, handler placeholder — já aconteceu nesta sessão). |
+| 9 | Resistência a Abuso, DoS & Exaustão de Custo | 5% | Rate limits, quotas por tenant, concorrência reservada, limites de batch/paginação impedem que um tenant, poison message ou evento amplificado degrade outros tenants ou gere custo descontrolado; retries/reconciliação não podem virar multiplicador de ataque. |
+| 10 | Verificação Adversarial & Gestão Contínua de Risco | 6% | Evidência específica de segurança (threat model vivo, testes de abuso/cross-tenant/replay, assertions de IAM/IaC) — inclusive teste em AWS real quando emulação não prova o controle (Camada 3). Achados com severidade/dono/prazo; nova superfície (upload, provedor externo, frontend, webhook) reabre a análise antes da implementação. |
 
 ## Como adicionar um novo eixo
 

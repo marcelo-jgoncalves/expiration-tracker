@@ -1,0 +1,9 @@
+Pesquisa independente (nao leia nenhuma proposta minha previa sobre este assunto - isso e uma pesquisa cega, para comparar depois).
+
+Projeto: expiration-tracker (c:/Users/Usuario/Desktop/projects/expiration-tracker), micro-SaaS multi-tenant AWS serverless (Lambda/DynamoDB/SQS/EventBridge/Cognito/API Gateway), com dado sensivel de usuario (LGPD relevante, regiao de producao ainda pendente por isso), construido e mantido por agentes de IA (Claude Code + Codex CLI) seguindo um protocolo de revisao formal entre os dois.
+
+O projeto ja tem 3 eixos formais de auditoria/revisao: Engenharia (qualidade de codigo/teste/CI), Contexto (qualidade do proprio sistema de documentacao/handoff entre sessoes de IA), e Arquitetura (design de sistema, AWS Well-Architected/ATAM/ISO 25010).
+
+Pesquise na internet (voce tem acesso a web?) quais OUTRAS areas de auditoria fariam sentido para um projeto com essas caracteristicas especificas - nao liste Engenharia/Contexto/Arquitetura de novo, essas ja existem. Se voce nao tiver acesso a internet neste ambiente, baseie-se no seu conhecimento de padroes de industria (AWS Well-Architected, ISO/IEC 25010, OWASP, praticas de auditoria de SaaS multi-tenant, praticas de governanca de agentes de IA em 2026) e diga explicitamente que esta e sua limitacao.
+
+Responda APENAS com a lista de areas (nome curto + uma frase de justificativa cada, adaptada as caracteristicas especificas deste projeto listadas acima) - nao vou pedir documentos ainda, so a lista de areas para comparar com outra pesquisa independente. Responda em portugues.

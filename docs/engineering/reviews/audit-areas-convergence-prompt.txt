@@ -1,0 +1,22 @@
+Rodada de convergencia (nao mais pesquisa cega) sobre novas areas de auditoria para o projeto expiration-tracker, alem dos 3 eixos ja existentes (Engenharia, Contexto, Arquitetura).
+
+Voce ja fez sua pesquisa independente (ver docs/engineering/reviews/audit-areas-research-codex-output.txt, sua propria resposta anterior). Eu tambem pesquisei independentemente (web search real) e cheguei a uma lista parecida. Comparando as duas, a lista consolidada proposta e esta (13 candidatos, com quem propos cada um):
+
+1. Seguranca da Informacao / AppSec (ambos)
+2. Privacidade e Protecao de Dados / LGPD (ambos)
+3. Governanca de Dados (ambos)
+4. Operacoes / SRE e Gestao de Incidentes (ambos)
+5. Governanca de IA e Agentes (ambos)
+6. Cadeia de Suprimento / Terceiros (ambos)
+7. FinOps / Economia Unitaria (ambos)
+8. Conformidade Juridica e Contratual / Legal & Licenciamento (ambos, sua versao mais ampla - ToS, contrato controlador-operador)
+9. Experiencia, Acessibilidade e Protecao do Usuario / Produto-UX (ambos, sua versao argumenta que ja se aplica mesmo sem frontend por causa da confiabilidade do lembrete)
+10. Continuidade de Negocio e Recuperacao de Desastres (so voce propos como eixo proprio - eu tinha dobrado dentro de SRE)
+11. Governanca de Servico Multi-tenant (so voce propos - onboarding/offboarding, quotas, exportacao/exclusao de tenant)
+12. Controles Internos e Auditabilidade (so voce propos - segregacao de funcoes, trilha imutavel, atribuicao de acao a pessoa/agente)
+
+Minha posicao: aceito os itens 10, 11 e 12 como eixos adicionais validos - fundamentacao forte, nao redundante com Engenharia/Contexto/Arquitetura existentes. Isso da 12 areas novas candidatas no total (alem das 3 ja existentes).
+
+Pergunta para voce: (a) concorda com os 12 como lista final, ou algum deveria ser MESCLADO com outro (ex: Continuidade de Negocio dentro de SRE, Governanca de Servico Multi-tenant dentro de Governanca de Dados) por serem redundantes o suficiente para nao justificar documento/eixo formal separado? (b) falta algum que nem voce nem eu propusemos? (c) COM 15 eixos totais (3 existentes + 12 novos), isso e excesso de sofisticacao para o estagio real deste projeto (docs/engineering/principles.md #1: "sofisticacao segue complexidade observada")? Se sim, quais dos 12 deveriam virar so uma SECAO dentro de um eixo maior em vez de eixo formal proprio, e quais realmente merecem eixo dedicado agora?
+
+Responda com a lista final que voce considera correta, com justificativa objetiva para cada merge/corte proposto. Se precisar pesquisar mais para decidir algum item, pesquise antes de responder. Portugues, direto ao ponto.
