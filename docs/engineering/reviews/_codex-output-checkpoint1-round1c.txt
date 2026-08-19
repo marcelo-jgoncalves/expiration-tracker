@@ -1,0 +1,407 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01a43-cb07-7ca1-93b3-b07d0ce43be7
+--------
+user
+Responda em texto puro, SEM rodar nenhum comando de shell/PowerShell, SEM ler nenhum arquivo. Toda a informação necessária já está neste prompt.
+
+Você é um engenheiro de software sênior atuando como segundo revisor independente de uma rubrica de "Engineering Maturity" para um micro-SaaS AWS serverless (TypeScript/Node, pré-produção, single-table DynamoDB). Regras do processo: evidence-first (documentação sem enforcement não vale nota), N/A só com justificativa, checkpoint só aprova com Claude>=9.0 E Codex>=9.0, nota final = min(Claude,Codex), proibido mudar peso pra forçar nota alta, "Engineering Foundation" (código/testes/CI/IaC) é avaliável hoje, "Operational Evidence" (deploy real, load test real) é legitimamente NOT ENOUGH EVIDENCE agora.
+
+Rubrica DRAFT proposta (pesos somam 100%): A.Code Quality&Maintainability 12%, B.Type Safety/Contracts/Correctness 13%, C.Testing Engineering 15%, D.Continuous Integration 8%, E.CD&Release Engineering 6%, F.Secure Software Engineering 13%, G.Software Supply Chain 7%, H.Infrastructure Engineering/IaC 7%, I.Reliability Engineering 9%, J.Observability&Operability 5%, K.Developer Experience 2%, L.Documentation Engineering 1%, M.Data&State Engineering 5%, N.Engineering Governance 1%, O.AI-Assisted Engineering 3%, P.Performance&Efficiency 1%.
+
+Nota do autor: M (Data/State) se sobrepõe parcialmente com B (Correctness) e I (Reliability) porque o projeto usa OCC/idempotência/outbox em DynamoDB single-table — não resolvido, pede sua opinião.
+
+Gates propostos: G1 build reproduzível; G2 CI real (roda em todo PR, não só existe); G3 testes críticos passam (cross-tenant isolation, isolamento de GSI restrito, lifecycle, reminder engine); G4 nenhum secret no repo; G5 sem vuln crítica não tratada; G6 tenant isolation enforced em IAM real (não só em código de app — já houve um bug real onde `Table.grantReadWriteData` do AWS CDK vazava acesso a um GSI restrito para toda função da tabela); G7 nenhuma falha silenciosa conhecida no processamento de lembretes/reminders; G8 infra sintetizável/validável (CDK synth); G9 boundaries de módulo (domain não importa infra) verificáveis por lint/teste.
+
+Bibliografia usada: ISO/IEC 25010:2023, NIST SSDF v1.1 (v1.2 só draft), OWASP SAMM v2, OpenSSF Scorecard (repo é privado — pode não ser executável, tratar como NOT ENOUGH EVIDENCE se falhar, não simular), SLSA (L1/L2 atingíveis via GitHub Actions hospedado, L3 desproporcional agora), AWS Well-Architected Framework, Google SRE book (SLI/SLO/error budget), DORA four keys (sem deploys reais, será NOT ENOUGH EVIDENCE).
+
+TAREFA: critique esta rubrica de forma independente e crítica, sem aprovar por padrão. Cubra: (1) pesos desbalanceados/domínios ausentes ou redundantes, incluindo sua opinião sobre o overlap M vs B/I; (2) gates insuficientes ou desproporcionais para o estágio; (3) gaps na bibliografia; (4) se a regra de N/A é robusta contra gaming; (5) qualquer critério que pareça favorecer artificialmente este projeto. Estruture a resposta em: 1.Concordâncias (breve) 2.Discordâncias/mudanças concretas 3.Gaps bibliográficos 4.Proposta revisada de pesos+gates se divergir materialmente. Seja direto e crítico.
+
+codex
+1. Concordâncias
+
+A orientação evidence-first está correta: intenção, ADR ou documentação sem mecanismo verificável não deve gerar pontuação de maturidade.
+
+Também concordo com:
+
+- Separar Engineering Foundation de Operational Evidence.
+- Registrar deploy, carga, SLO e DORA como NOT ENOUGH EVIDENCE enquanto não houver operação real.
+- Usar gates para propriedades que não podem ser compensadas por uma média alta.
+- Tratar isolamento de tenant, supply chain e processamento de reminders como riscos de primeira classe.
+- Não exigir SLSA L3 neste estágio.
+- Não simular OpenSSF Scorecard quando a execução em repositório privado não for viável.
+
+Há, porém, um erro objetivo: os pesos apresentados não somam 100%, mas 108%. Isso precisa ser corrigido antes de qualquer avaliação. Caso contrário, notas calculadas com normalização implícita podem esconder mudanças efetivas de peso.
+
+2. Discordâncias/mudanças concretas
+
+2.1 Sobreposição M versus B/I
+
+M deve permanecer separado, mas com fronteiras muito mais estritas.
+
+B deve avaliar correção local e contratual:
+
+- Tipagem estática.
+- Validação de schemas.
+- Invariantes de domínio.
+- Compatibilidade de contratos.
+- Tratamento explícito de erros.
+
+M deve avaliar propriedades específicas de persistência e estado:
+
+- Modelagem single-table e padrões de acesso.
+- Integridade de chaves e índices.
+- OCC.
+- Atomicidade transacional.
+- Idempotência persistida.
+- Outbox.
+- Migração e evolução de dados.
+- Backup, restauração, retenção e exclusão.
+- Consistência e reconciliação de estado.
+
+I deve avaliar comportamento do sistema diante de falhas:
+
+- Retry e backoff.
+- DLQ.
+- Redrive.
+- Reconciliação.
+- Tolerância a duplicação e reordenação.
+- Recuperação.
+- SLOs e error budgets quando houver operação.
+
+A mesma evidência não deve receber pontuação integral em mais de um domínio. Por exemplo, uma transação item+outbox+audit pode demonstrar atomicidade em M, enquanto testes de recuperação do consumidor demonstram confiabilidade em I. Apenas possuir outbox não deve pontuar nos dois.
+
+2.2 Pesos
+
+Testing com 15% é defensável, mas combinado com Code Quality, Correctness, CI e AI-Assisted tende a premiar excessivamente o estágio atual do projeto.
+
+AI-Assisted Engineering com 3% parece especialmente artificial. Uso de IA não é, por si só, resultado de engenharia. Debate entre agentes, prompts ou documentação do processo não substituem revisão, testes ou controles. Eu reduziria esse domínio a 1% ou o incorporaria a Governance/DX.
+
+Documentation e Governance com 1% cada estão subponderados. Para um sistema com decisões arquiteturais, segurança multi-tenant e contratos assíncronos, rastreabilidade de decisões, ownership, políticas de exceção e documentação operacional valem mais que isso.
+
+Performance com 1% também é baixo demais para DynamoDB single-table e workers serverless. Mesmo sem load test real, podem ser avaliados budgets, complexidade dos access patterns, paginação, batch limits, concorrência, hot partitions e prevenção de custo explosivo.
+
+Observability com 5% está um pouco baixa, especialmente porque “nenhuma falha silenciosa” depende diretamente de telemetria e alarmes.
+
+2.3 Gates
+
+G1 “build reproduzível” precisa de definição operacional: versão de runtime fixada, lockfile, instalação imutável, ambiente limpo e resultado repetível. Reprodutibilidade binária completa não é realista para este estágio.
+
+G2 é correto, mas “roda em todo PR” não basta. O gate deveria exigir checks obrigatórios e não contornáveis no branch protegido, ou registrar NOT ENOUGH EVIDENCE se a configuração do provedor não puder ser inspecionada.
+
+G3 mistura várias capacidades em um único gate. Isso torna o diagnóstico ruim e permite ambiguidade sobre o que é “crítico”. Separe ao menos:
+
+- Isolamento cross-tenant.
+- Autorização/IAM e isolamento de índices.
+- Integridade do lifecycle.
+- Entrega, retry e reconciliação de reminders.
+
+G4 “nenhum secret no repo” é absoluto e difícil de provar. Reformule como varredura automatizada do histórico e conteúdo atual, ausência de achados ativos e processo de revogação para falsos negativos ou incidentes conhecidos.
+
+G5 precisa definir scanner, severidade, escopo, freshness e política de exceção. “Não tratada” deve significar sem correção, mitigação documentada, prazo e owner.
+
+G6 é essencial, mas “IAM real” conflita com o estágio pré-deploy. Políticas IAM sintetizadas por CDK são enforcement de infraestrutura, não mera lógica de aplicação. O gate atual exigiria deployment real e tornaria o checkpoint impossível. Para Engineering Foundation, exija política IAM sintetizada com recursos explícitos e testes negativos sobre índices restritos. A validação pós-deploy deve ser um gate operacional futuro.
+
+G7 é fraco e gameável: “nenhuma falha silenciosa conhecida” recompensa desconhecimento. Substitua por controles verificáveis: falhas produzem retry/DLQ ou estado terminal observável; existe reconciliação; há testes de duplicação, falha parcial e redrive; alarmes/configuração operacional podem ficar como NOT ENOUGH EVIDENCE até deployment.
+
+G8 deveria incluir não apenas synth, mas validação de invariantes de segurança e policy-as-code. Um template sintetizável ainda pode ser inseguro.
+
+G9 é adequado, desde que o boundary seja executável em CI. Convenção de pastas ou documentação não basta.
+
+Faltam gates para:
+
+- Atomicidade das escritas críticas: agregado, audit e outbox na mesma transação quando exigido.
+- Validação de contratos em fronteiras externas.
+- Proteção de logs contra secrets/PII.
+- Política de exceções dos gates com owner, justificativa e expiração.
+- Restore readiness. Backup configurado sem teste de restauração não prova recuperabilidade; no estágio atual, a parte operacional pode permanecer NOT ENOUGH EVIDENCE.
+
+2.4 Regra de N/A
+
+A regra ainda não está robusta contra gaming. “N/A só com justificativa” permite remover justamente áreas imaturas do denominador.
+
+Sugiro distinguir três estados:
+
+- N/A: estruturalmente inaplicável ao sistema, com justificativa baseada em escopo e aprovação independente.
+- NOT ENOUGH EVIDENCE: aplicável, mas ainda não demonstrável.
+- FAIL/0: aplicável e sem controle ou evidência requerida.
+
+N/A não deve aumentar automaticamente a nota. O relatório deve publicar nota bruta, cobertura de evidência e lista de itens excluídos. Reclassificações para N/A devem ocorrer antes da pontuação, ter owner e ser aprovadas pelos dois revisores. “Ainda não implementado”, “pré-produção” e “não temos acesso” não são justificativas para N/A.
+
+Para Operational Evidence, eu publicaria um subscore separado ou “não avaliável”, sem redistribuir seus pesos para Foundation. Redistribuição premiaria artificialmente a ausência de operação.
+
+2.5 Critérios que favorecem este projeto
+
+Há sinais claros de adaptação excessiva da rubrica ao estado atual:
+
+- G3 cita exatamente as suítes e funcionalidades já implementadas.
+- G6 codifica um bug específico já descoberto no projeto.
+- G7 destaca especificamente reminders.
+- G9 reflete a arquitetura modular já escolhida.
+- AI-Assisted Engineering com 3% favorece um projeto que formalizou debate Claude–Codex.
+- Testing e contracts recebem peso elevado enquanto CD, performance e evidência operacional recebem pouco peso.
+
+Os riscos são legítimos, mas os gates devem ser generalizados. Por exemplo, “isolamento de todo recurso tenant-scoped, inclusive índices e caminhos indiretos” é melhor que mencionar GSI restrito. Casos específicos pertencem ao catálogo de testes do projeto, não à definição universal da rubrica.
+
+3. Gaps bibliográficos
+
+A base é boa, mas faltam referências mais diretamente aplicáveis:
+
+- AWS Well-Architected Serverless Applications Lens.
+- AWS DynamoDB Developer Guide, especialmente single-table design, adaptive capacity, transações, consistência, backups e hot partitions.
+- AWS Security Reference Architecture e IAM best practices.
+- OWASP ASVS e OWASP API Security Top 10 para critérios verificáveis de aplicação/API.
+- NIST SP 800-218 SSDF deve ser complementado por práticas de threat modeling e gestão de vulnerabilidades; o SSDF sozinho é amplo demais para virar checklist técnico.
+- OpenTelemetry semantic conventions ou AWS Powertools guidance para observabilidade estruturada e correlação.
+- CycloneDX/SPDX para requisitos de SBOM.
+- Sigstore/SLSA provenance guidance para assinatura e proveniência.
+- FinOps Framework ou AWS Cost Optimization Pillar para eficiência e risco de custo serverless.
+- Literatura de testes de resiliência, mutation testing e contract testing, caso esses itens recebam pontuação.
+- NIST Privacy Framework ou outra referência de privacy engineering se o produto armazenar dados pessoais.
+
+OpenSSF Scorecard mede práticas observáveis do repositório e não deve ser tratado como uma medida completa de supply-chain maturity. ISO 25010 também é um modelo de qualidade, não um conjunto de controles de enforcement.
+
+4. Proposta revisada de pesos e gates
+
+Pesos, totalizando exatamente 100%:
+
+A. Code Quality & Maintainability: 10%
+B. Type Safety, Contracts & Correctness: 11%
+C. Testing Engineering: 14%
+D. Continuous Integration: 7%
+E. CD & Release Engineering: 4%
+F. Secure Software Engineering: 12%
+G. Software Supply Chain: 6%
+H. Infrastructure Engineering/IaC: 7%
+I. Reliability Engineering: 8%
+J. Observability & Operability: 6%
+K. Developer Experience: 3%
+L. Documentation Engineering: 2%
+M. Data & State Engineering: 5%
+N. Engineering Governance: 2%
+O. AI-Assisted Engineering: 1%
+P. Performance, Efficiency & Cost: 2%
+
+Gates revisados:
+
+G1. Build limpo e repetível: runtime e dependências fixados, instalação imutável e build/testes executáveis em ambiente limpo.
+
+G2. CI enforced: checks obrigatórios em PR para typecheck, lint, testes, schemas, IaC e segurança relevante; configuração não inspecionável resulta em NOT ENOUGH EVIDENCE.
+
+G3. Isolamento multi-tenant: testes negativos em aplicação e políticas IAM sintetizadas, incluindo tabelas, índices, filas, logs e demais recursos tenant-scoped.
+
+G4. Integridade de estado crítico: OCC/idempotência e atomicidade entre agregado, audit e outbox são verificadas por testes de conflito e falha parcial.
+
+G5. Processamento assíncrono seguro: duplicação, reordenação, retry, DLQ/redrive e reconciliação têm comportamento verificável; nenhuma classe de falha termina sem estado ou sinal observável.
+
+G6. Segurança de secrets e logs: scanning automatizado, ausência de achados ativos, redaction de dados sensíveis e processo de revogação.
+
+G7. Vulnerabilidades críticas: nenhuma vulnerabilidade crítica explorável sem correção ou exceção formal, temporária, com owner e mitigação.
+
+G8. IaC validável: synth passa e testes/policy-as-code validam least privilege, criptografia, exposição pública e recursos sensíveis.
+
+G9. Contratos e boundaries enforced: schemas são validados nas fronteiras e dependências proibidas entre camadas falham em CI.
+
+G10. Testes críticos definidos por risco: existe um catálogo versionado que deriva testes críticos de ameaças e invariantes, sem fixar na rubrica nomes de módulos já implementados.
+
+G11. Exceções governadas: qualquer waiver de gate tem justificativa, risco, owner, compensating control e expiração; waiver não equivale a gate aprovado.
+
+Minha conclusão é que a proposta tem uma boa direção, mas não está pronta para aprovação: os pesos estão aritmeticamente incorretos, alguns gates são gameáveis ou incompatíveis com o estágio, e vários critérios parecem moldados para maximizar a nota deste projeto específico. Eu reabriria a rodada.
+tokens used
+9.519
+1. Concordâncias
+
+A orientação evidence-first está correta: intenção, ADR ou documentação sem mecanismo verificável não deve gerar pontuação de maturidade.
+
+Também concordo com:
+
+- Separar Engineering Foundation de Operational Evidence.
+- Registrar deploy, carga, SLO e DORA como NOT ENOUGH EVIDENCE enquanto não houver operação real.
+- Usar gates para propriedades que não podem ser compensadas por uma média alta.
+- Tratar isolamento de tenant, supply chain e processamento de reminders como riscos de primeira classe.
+- Não exigir SLSA L3 neste estágio.
+- Não simular OpenSSF Scorecard quando a execução em repositório privado não for viável.
+
+Há, porém, um erro objetivo: os pesos apresentados não somam 100%, mas 108%. Isso precisa ser corrigido antes de qualquer avaliação. Caso contrário, notas calculadas com normalização implícita podem esconder mudanças efetivas de peso.
+
+2. Discordâncias/mudanças concretas
+
+2.1 Sobreposição M versus B/I
+
+M deve permanecer separado, mas com fronteiras muito mais estritas.
+
+B deve avaliar correção local e contratual:
+
+- Tipagem estática.
+- Validação de schemas.
+- Invariantes de domínio.
+- Compatibilidade de contratos.
+- Tratamento explícito de erros.
+
+M deve avaliar propriedades específicas de persistência e estado:
+
+- Modelagem single-table e padrões de acesso.
+- Integridade de chaves e índices.
+- OCC.
+- Atomicidade transacional.
+- Idempotência persistida.
+- Outbox.
+- Migração e evolução de dados.
+- Backup, restauração, retenção e exclusão.
+- Consistência e reconciliação de estado.
+
+I deve avaliar comportamento do sistema diante de falhas:
+
+- Retry e backoff.
+- DLQ.
+- Redrive.
+- Reconciliação.
+- Tolerância a duplicação e reordenação.
+- Recuperação.
+- SLOs e error budgets quando houver operação.
+
+A mesma evidência não deve receber pontuação integral em mais de um domínio. Por exemplo, uma transação item+outbox+audit pode demonstrar atomicidade em M, enquanto testes de recuperação do consumidor demonstram confiabilidade em I. Apenas possuir outbox não deve pontuar nos dois.
+
+2.2 Pesos
+
+Testing com 15% é defensável, mas combinado com Code Quality, Correctness, CI e AI-Assisted tende a premiar excessivamente o estágio atual do projeto.
+
+AI-Assisted Engineering com 3% parece especialmente artificial. Uso de IA não é, por si só, resultado de engenharia. Debate entre agentes, prompts ou documentação do processo não substituem revisão, testes ou controles. Eu reduziria esse domínio a 1% ou o incorporaria a Governance/DX.
+
+Documentation e Governance com 1% cada estão subponderados. Para um sistema com decisões arquiteturais, segurança multi-tenant e contratos assíncronos, rastreabilidade de decisões, ownership, políticas de exceção e documentação operacional valem mais que isso.
+
+Performance com 1% também é baixo demais para DynamoDB single-table e workers serverless. Mesmo sem load test real, podem ser avaliados budgets, complexidade dos access patterns, paginação, batch limits, concorrência, hot partitions e prevenção de custo explosivo.
+
+Observability com 5% está um pouco baixa, especialmente porque “nenhuma falha silenciosa” depende diretamente de telemetria e alarmes.
+
+2.3 Gates
+
+G1 “build reproduzível” precisa de definição operacional: versão de runtime fixada, lockfile, instalação imutável, ambiente limpo e resultado repetível. Reprodutibilidade binária completa não é realista para este estágio.
+
+G2 é correto, mas “roda em todo PR” não basta. O gate deveria exigir checks obrigatórios e não contornáveis no branch protegido, ou registrar NOT ENOUGH EVIDENCE se a configuração do provedor não puder ser inspecionada.
+
+G3 mistura várias capacidades em um único gate. Isso torna o diagnóstico ruim e permite ambiguidade sobre o que é “crítico”. Separe ao menos:
+
+- Isolamento cross-tenant.
+- Autorização/IAM e isolamento de índices.
+- Integridade do lifecycle.
+- Entrega, retry e reconciliação de reminders.
+
+G4 “nenhum secret no repo” é absoluto e difícil de provar. Reformule como varredura automatizada do histórico e conteúdo atual, ausência de achados ativos e processo de revogação para falsos negativos ou incidentes conhecidos.
+
+G5 precisa definir scanner, severidade, escopo, freshness e política de exceção. “Não tratada” deve significar sem correção, mitigação documentada, prazo e owner.
+
+G6 é essencial, mas “IAM real” conflita com o estágio pré-deploy. Políticas IAM sintetizadas por CDK são enforcement de infraestrutura, não mera lógica de aplicação. O gate atual exigiria deployment real e tornaria o checkpoint impossível. Para Engineering Foundation, exija política IAM sintetizada com recursos explícitos e testes negativos sobre índices restritos. A validação pós-deploy deve ser um gate operacional futuro.
+
+G7 é fraco e gameável: “nenhuma falha silenciosa conhecida” recompensa desconhecimento. Substitua por controles verificáveis: falhas produzem retry/DLQ ou estado terminal observável; existe reconciliação; há testes de duplicação, falha parcial e redrive; alarmes/configuração operacional podem ficar como NOT ENOUGH EVIDENCE até deployment.
+
+G8 deveria incluir não apenas synth, mas validação de invariantes de segurança e policy-as-code. Um template sintetizável ainda pode ser inseguro.
+
+G9 é adequado, desde que o boundary seja executável em CI. Convenção de pastas ou documentação não basta.
+
+Faltam gates para:
+
+- Atomicidade das escritas críticas: agregado, audit e outbox na mesma transação quando exigido.
+- Validação de contratos em fronteiras externas.
+- Proteção de logs contra secrets/PII.
+- Política de exceções dos gates com owner, justificativa e expiração.
+- Restore readiness. Backup configurado sem teste de restauração não prova recuperabilidade; no estágio atual, a parte operacional pode permanecer NOT ENOUGH EVIDENCE.
+
+2.4 Regra de N/A
+
+A regra ainda não está robusta contra gaming. “N/A só com justificativa” permite remover justamente áreas imaturas do denominador.
+
+Sugiro distinguir três estados:
+
+- N/A: estruturalmente inaplicável ao sistema, com justificativa baseada em escopo e aprovação independente.
+- NOT ENOUGH EVIDENCE: aplicável, mas ainda não demonstrável.
+- FAIL/0: aplicável e sem controle ou evidência requerida.
+
+N/A não deve aumentar automaticamente a nota. O relatório deve publicar nota bruta, cobertura de evidência e lista de itens excluídos. Reclassificações para N/A devem ocorrer antes da pontuação, ter owner e ser aprovadas pelos dois revisores. “Ainda não implementado”, “pré-produção” e “não temos acesso” não são justificativas para N/A.
+
+Para Operational Evidence, eu publicaria um subscore separado ou “não avaliável”, sem redistribuir seus pesos para Foundation. Redistribuição premiaria artificialmente a ausência de operação.
+
+2.5 Critérios que favorecem este projeto
+
+Há sinais claros de adaptação excessiva da rubrica ao estado atual:
+
+- G3 cita exatamente as suítes e funcionalidades já implementadas.
+- G6 codifica um bug específico já descoberto no projeto.
+- G7 destaca especificamente reminders.
+- G9 reflete a arquitetura modular já escolhida.
+- AI-Assisted Engineering com 3% favorece um projeto que formalizou debate Claude–Codex.
+- Testing e contracts recebem peso elevado enquanto CD, performance e evidência operacional recebem pouco peso.
+
+Os riscos são legítimos, mas os gates devem ser generalizados. Por exemplo, “isolamento de todo recurso tenant-scoped, inclusive índices e caminhos indiretos” é melhor que mencionar GSI restrito. Casos específicos pertencem ao catálogo de testes do projeto, não à definição universal da rubrica.
+
+3. Gaps bibliográficos
+
+A base é boa, mas faltam referências mais diretamente aplicáveis:
+
+- AWS Well-Architected Serverless Applications Lens.
+- AWS DynamoDB Developer Guide, especialmente single-table design, adaptive capacity, transações, consistência, backups e hot partitions.
+- AWS Security Reference Architecture e IAM best practices.
+- OWASP ASVS e OWASP API Security Top 10 para critérios verificáveis de aplicação/API.
+- NIST SP 800-218 SSDF deve ser complementado por práticas de threat modeling e gestão de vulnerabilidades; o SSDF sozinho é amplo demais para virar checklist técnico.
+- OpenTelemetry semantic conventions ou AWS Powertools guidance para observabilidade estruturada e correlação.
+- CycloneDX/SPDX para requisitos de SBOM.
+- Sigstore/SLSA provenance guidance para assinatura e proveniência.
+- FinOps Framework ou AWS Cost Optimization Pillar para eficiência e risco de custo serverless.
+- Literatura de testes de resiliência, mutation testing e contract testing, caso esses itens recebam pontuação.
+- NIST Privacy Framework ou outra referência de privacy engineering se o produto armazenar dados pessoais.
+
+OpenSSF Scorecard mede práticas observáveis do repositório e não deve ser tratado como uma medida completa de supply-chain maturity. ISO 25010 também é um modelo de qualidade, não um conjunto de controles de enforcement.
+
+4. Proposta revisada de pesos e gates
+
+Pesos, totalizando exatamente 100%:
+
+A. Code Quality & Maintainability: 10%
+B. Type Safety, Contracts & Correctness: 11%
+C. Testing Engineering: 14%
+D. Continuous Integration: 7%
+E. CD & Release Engineering: 4%
+F. Secure Software Engineering: 12%
+G. Software Supply Chain: 6%
+H. Infrastructure Engineering/IaC: 7%
+I. Reliability Engineering: 8%
+J. Observability & Operability: 6%
+K. Developer Experience: 3%
+L. Documentation Engineering: 2%
+M. Data & State Engineering: 5%
+N. Engineering Governance: 2%
+O. AI-Assisted Engineering: 1%
+P. Performance, Efficiency & Cost: 2%
+
+Gates revisados:
+
+G1. Build limpo e repetível: runtime e dependências fixados, instalação imutável e build/testes executáveis em ambiente limpo.
+
+G2. CI enforced: checks obrigatórios em PR para typecheck, lint, testes, schemas, IaC e segurança relevante; configuração não inspecionável resulta em NOT ENOUGH EVIDENCE.
+
+G3. Isolamento multi-tenant: testes negativos em aplicação e políticas IAM sintetizadas, incluindo tabelas, índices, filas, logs e demais recursos tenant-scoped.
+
+G4. Integridade de estado crítico: OCC/idempotência e atomicidade entre agregado, audit e outbox são verificadas por testes de conflito e falha parcial.
+
+G5. Processamento assíncrono seguro: duplicação, reordenação, retry, DLQ/redrive e reconciliação têm comportamento verificável; nenhuma classe de falha termina sem estado ou sinal observável.
+
+G6. Segurança de secrets e logs: scanning automatizado, ausência de achados ativos, redaction de dados sensíveis e processo de revogação.
+
+G7. Vulnerabilidades críticas: nenhuma vulnerabilidade crítica explorável sem correção ou exceção formal, temporária, com owner e mitigação.
+
+G8. IaC validável: synth passa e testes/policy-as-code validam least privilege, criptografia, exposição pública e recursos sensíveis.
+
+G9. Contratos e boundaries enforced: schemas são validados nas fronteiras e dependências proibidas entre camadas falham em CI.
+
+G10. Testes críticos definidos por risco: existe um catálogo versionado que deriva testes críticos de ameaças e invariantes, sem fixar na rubrica nomes de módulos já implementados.
+
+G11. Exceções governadas: qualquer waiver de gate tem justificativa, risco, owner, compensating control e expiração; waiver não equivale a gate aprovado.
+
+Minha conclusão é que a proposta tem uma boa direção, mas não está pronta para aprovação: os pesos estão aritmeticamente incorretos, alguns gates são gameáveis ou incompatíveis com o estágio, e vários critérios parecem moldados para maximizar a nota deste projeto específico. Eu reabriria a rodada.

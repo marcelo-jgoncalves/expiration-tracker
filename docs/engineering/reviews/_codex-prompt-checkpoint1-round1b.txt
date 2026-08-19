@@ -1,0 +1,65 @@
+Você é um engenheiro de software sênior, independente, atuando como segundo revisor num processo formal de Engineering Maturity Review do repositório "Expiration Tracker" (micro-SaaS AWS serverless, pré-produção, TypeScript/Node). Esta é uma retentativa — sua tentativa anterior travou tentando reler arquivos grandes em blocos e uma chamada foi bloqueada por política. NÃO tente ler "Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md" inteiro de novo. Se precisar consultá-lo, use `Select-String` ou leia só um trecho pequeno por vez (ex.: `Get-Content -LiteralPath 'arquivo' | Select-Object -First 100`), nunca slicing de array grande.
+
+Contexto essencial já resumido abaixo — não precisa reabrir os arquivos-fonte a menos que queira confirmar um detalhe pontual.
+
+=== RESUMO DO PROCESSO (Prompt Mestre) ===
+Objetivo: avaliar e elevar a maturidade de ENGENHARIA (não arquitetura — arquitetura já foi aprovada em processo anterior e não deve ser refeita) do repositório, via processo formal Claude↔Codex: pesquisa → critérios → proposta → crítica → tréplica → correção → nota independente → aprovação. Regras-chave: (1) evidence-first — execução real > testes > código > docs > declaração; documentação que afirma algo sem mecanismo de enforcement não vale como prova; (2) N/A só é permitido com justificativa e concordância dos dois revisores, nunca para esconder deficiência; (3) checkpoint só é aprovado com Claude>=9.0 E Codex>=9.0 (sem arredondar) E gates todos PASS E nenhum P0 aberto — divergência não vira média, reabre rodada; (4) score final = min(Claude, Codex), a "nota conservadora"; (5) proibido: mudar pesos pra alcançar 9, remover gates que falharam, dar crédito por intenção/documentação sem enforcement, suavizar crítica porque a arquitetura já passou; (6) separar "Engineering Foundation" (código/testes/CI/IaC/docs — pode ser avaliado hoje) de "Operational Engineering Evidence" (deploys reais, load test real, restore real — legitimamente NOT APPROVED/NOT ENOUGH EVIDENCE agora por ausência de produção, isso não penaliza a Foundation); (7) proporcionalidade — não exigir governança de empresa grande num micro-SaaS pequeno, mas problemas básicos (secrets no git, falta de isolamento, falta de idempotência) continuam graves independente do estágio.
+
+=== 00-research-bibliography.md (conteúdo integral) ===
+Fontes pesquisadas e por quê: ISO/IEC 25010:2023 (9 características de qualidade — usado pra ancorar domínio Code Quality/Maintainability e Reliability em vocabulário padrão, não inventado); NIST SP 800-218 SSDF v1.1 (vigente; v1.2 é só draft público até jan/2026, não normativo ainda — usado pras 4 categorias PO/PS/PW/RV no domínio de segurança); OWASP SAMM v2 (vigente, 5 business functions × maturidade 0-3 por coverage+quality — usado pra calibrar que segurança tem níveis, nível 1 já é aceitável neste estágio); OpenSSF Scorecard v5.5.0 (18 checks, evidência auxiliar não normativa — LIMITAÇÃO: repo é privado, Scorecard pode não ser executável, tratar como NOT ENOUGH EVIDENCE se falhar tecnicamente, não simular); SLSA (Build L1→L2→L3, projeto já roda CI em GitHub Actions hospedado então L1/L2 são atingíveis a baixo custo via attestation, L3 desproporcional agora); AWS Well-Architected Framework (6 pilares, fonte primária pois projeto é 100% AWS, usado em IaC/Reliability/Observability); Google SRE book/workbook (SLI/SLO/error budget, projeto já tem slo.md na arquitetura — aqui avalia-se se SLOs têm SLI real instrumentado no código, não só documentado); DORA/Accelerate four keys (pesquisa empírica, não normativa — sem deploys reais em produção o resultado será NOT ENOUGH EVIDENCE, usado só como vocabulário/estrutura futura). Nota final do documento: dado o estágio (pré-produção, single-table DynamoDB, serverless, uso intensivo de Claude/Codex), a rubrica deve pesar mais correctness/type-safety/testing e secure-by-default proporcional (nível 1-2 dos frameworks, não nível máximo), e Operational Evidence será legitimamente NOT ENOUGH EVIDENCE agora.
+
+=== 01-engineering-quality-criteria.md (DRAFT Claude round 1, conteúdo integral) ===
+Status DRAFT, não congelada.
+
+Domínios e pesos propostos (soma 100%):
+A. Code Quality & Maintainability — 12% (fonte: ISO 25010 maintainability)
+B. Type Safety, Contracts & Correctness — 13% (ISO 25010 functional suitability/reliability)
+C. Testing Engineering — 15% (ISO 25010 + evidence-first)
+D. Continuous Integration — 8% (SSDF PW, DORA estrutural)
+E. CD & Release Engineering — 6% (DORA, SLSA)
+F. Secure Software Engineering — 13% (NIST SSDF, OWASP SAMM v2)
+G. Software Supply Chain — 7% (OpenSSF Scorecard, SLSA)
+H. Infrastructure Engineering / IaC — 7% (AWS Well-Architected)
+I. Reliability Engineering — 9% (AWS Well-Architected Reliability, Google SRE)
+J. Observability & Operability — 5% (Google SRE SLI/SLO)
+K. Developer Experience — 2%
+L. Documentation Engineering — 1%
+M. Data & State Engineering — 5% (nota do autor: se sobrepõe parcialmente com B/I porque o projeto é single-table DynamoDB com OCC/idempotência que é tanto correctness quanto data engineering — marcado como não resolvido, para a crítica do Codex decidir)
+N. Engineering Governance — 1%
+O. AI-Assisted Engineering — 3% (baseado em AGENTS.md/CLAUDE.md do próprio repo)
+P. Performance & Efficiency — 1% (proporcional, estágio inicial não pede otimização)
+Total: 100%
+
+Gates eliminatórios propostos (falha em qualquer um bloqueia ENGINEERING FOUNDATION STATUS: APPROVED, independente do score ponderado):
+G1 — Build reproduzível (npm ci + build/typecheck em ambiente limpo)
+G2 — CI obrigatório real (workflow do GitHub Actions realmente executa typecheck+lint+test+schema-validation em todo PR/push, não só existe)
+G3 — Testes críticos passam (cross-tenant, isolamento GSI3, lifecycle de expiration, reminder engine — npm test exit 0)
+G4 — Nenhum secret conhecido no repositório
+G5 — Sem vulnerabilidade crítica não tratada (npm audit sem critical/high não mitigado, ou exceção registrada)
+G6 — Tenant isolation enforced em IAM real, não só em código de aplicação (achado real: M3 já provou que isso pode falhar silenciosamente via grantReadWriteData vazando /index/*)
+G7 — Nenhuma falha silenciosa conhecida em reminder processing (catch-and-swallow em paths críticos)
+G8 — Infraestrutura sintetizável/validável (CDK synth sem erro, mesmo que só via assertions em memória)
+G9 — Arquitetura crítica enforced (boundaries de módulo verificáveis, idealmente por lint/teste, não só convenção)
+
+Fitness functions: esqueleto apenas — build, typecheck, lint, test (unit/contract/integration/infra), validate-schemas, npm audit, secret-scan, IaC synth, dependency-direction/architecture-boundary check. Detalhamento fica para depois da rubrica congelada.
+
+Regra de N/A: domínios de Operational Evidence começam como candidatos a N/A por ausência de produção, mas só viram N/A de fato com justificativa registrada e concordância Claude+Codex — nunca descontados silenciosamente.
+
+Regra de redistribuição: se um domínio virar N/A por decisão conjunta, seu peso é redistribuído proporcionalmente entre os domínios restantes do mesmo eixo (Foundation), preservando soma 100%.
+
+=== SUA TAREFA (Checkpoint 1, Passo B — Codex Blind Review) ===
+
+Faça uma crítica INDEPENDENTE desta proposta. Não aprove por padrão — procure ativamente:
+1. Pesos desbalanceados ou domínios ausentes/redundantes (dê sua opinião sobre o overlap M vs B/I sinalizado acima).
+2. Gates insuficientes ou desproporcionais pro estágio do projeto (pré-produção, micro-SaaS pequeno).
+3. Gaps na pesquisa bibliográfica — alguma fonte reconhecida relevante que ficou de fora?
+4. Se a regra de N/A e redistribuição de peso é robusta contra gaming.
+5. Qualquer critério que pareça favorecer artificialmente este projeto específico.
+
+Responda em texto direto (não precisa rodar comandos, a menos que queira confirmar algo pontual e pequeno):
+1. Pontos de concordância (breve).
+2. Pontos de discordância / mudanças concretas propostas (pesos, domínios, gates).
+3. Gaps na bibliografia, se houver.
+4. Sua proposta de rubrica revisada (pesos + gates), se divergir materialmente.
+
+Seja direto e crítico — isto é engenharia real, não teatro de revisão.

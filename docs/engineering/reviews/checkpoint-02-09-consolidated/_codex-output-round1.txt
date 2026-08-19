@@ -1,0 +1,302 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01a50-f28b-7ea1-b7ca-e4bc4c43f3a4
+--------
+user
+Responda em texto puro. Não precisa rodar comandos nem ler arquivos — toda a evidência necessária está neste prompt. Se quiser confirmar algo pontual e pequeno, pode, mas não é necessário.
+
+Você é um engenheiro de software sênior atuando como segundo revisor independente numa Engineering Maturity Review de um micro-SaaS AWS serverless (TypeScript/Node, pré-produção, single-table DynamoDB, repositório privado no GitHub). Rubrica já congelada por acordo prévio Claude+Codex (16 domínios, pesos somando 100%, gates G1-G11, regra N/A vs NOT ENOUGH EVIDENCE distinta). Esta é uma avaliação evidence-first: só conta execução real, teste executável, código; documentação sem enforcement não vale nota.
+
+=== RUBRICA CONGELADA (pesos) ===
+A.Code Quality&Maintainability 10% | B.Type Safety/Contracts/Correctness 11% | C.Testing Engineering 14% | D.Continuous Integration 8% | E.CD&Release Engineering 4% | F.Secure Software Engineering 12% | G.Software Supply Chain 6% | H.Infrastructure Engineering/IaC 7% | I.Reliability Engineering 8% | J.Observability&Operability 6% | K.Developer Experience 2% | L.Documentation Engineering 3% | M.Data&State Engineering 5% | N.Engineering Governance 2% | O.AI-Assisted Engineering 1% | P.Performance&Efficiency 1%
+
+Gates G1-G11 (resumo): G1 build reproduzível; G2 CI executa de fato em todo PR + branch protegida (evidência real do GitHub, não presumida do YAML); G3 testes críticos orientados a risco passam; G4 sem secret no repo; G5 sem vuln crítica não tratada (definição de "tratada" = corrigida/mitigada/aceita formalmente com prazo); G6 autorização/isolamento cross-tenant no caminho real de dados; G7 least privilege de infra/índices nas políticas IAM sintetizadas (distinto de G6); G8 falhas assíncronas terminais observáveis/recuperáveis (DLQ/telemetria/replay testado); G9 infra sintetiza + assertions de segurança; G10 boundaries arquiteturais enforced automaticamente no CI (não só convenção); G11 schemas/contratos válidos verificados no CI.
+
+=== EVIDÊNCIA REAL COLETADA (execução real, não declaração) ===
+
+1. CI NUNCA EXECUTOU COM SUCESSO. O pin `actions/setup-node@60edb5dd545a775178f52524783378180af0d1f` em .github/workflows/ci.yml linha 46 tem 39 caracteres (SHA git válido tem 40 — confirmado por contagem). `gh run view` na única execução real do workflow (rodada 32258273775, único push já feito) mostra falha em "Set up job", ANTES do checkout de código, com erro do GitHub Actions: "Unable to resolve action actions/setup-node@60edb5...f, the provided ref is the shortened version of a commit SHA, which is not supported." Os outros dois pins do mesmo arquivo (`actions/checkout`, `actions/upload-artifact`) têm 40 caracteres corretos — só este está truncado.
+
+2. `gh api repos/.../branches/main/protection` retorna 404 "Branch not protected" — main não tem proteção nenhuma, sem required checks, sem bloqueio de push direto.
+
+3. `npm audit` real (executado agora): 2 critical, 1 high, 2 moderate — todos transitivos via vitest→vite→esbuild, relacionados ao dev-server do Vite (não expostos em runtime de produção; fix disponível via `npm audit fix --force`, que é breaking change de vitest 1.x→4.x). O step de audit no CI é: `npm audit --audit-level=high || echo "::warning::..."` — o `|| echo` garante que esse step NUNCA falha o job, independente do que o audit encontrar.
+
+4. Divergência documentação↔realidade: `NEXT_SESSION_PROMPT.md` (arquivo de estado do projeto) afirma "nada commitado" para os milestones M0-M3; o estado real do git é que M0-M3 JÁ ESTÁ commitado num único commit grande (`154d6e0`, mensagem "Implementation Blueprint... + implementacao real M0-M3"). Registro anterior de sessão também citava "390 testes"; `npm test` real agora mostra 123 testes (19 arquivos), todos passando localmente.
+
+5. Repositório não tem nenhum README.md na raiz. Existem AGENTS.md/CLAUDE.md (orientados a agentes de IA) e vários docs em docs/architecture/, mas nenhum ponto de entrada para um humano novo.
+
+6. Duplicação real: o pipeline de mapeamento de erro HTTP (`STATUS_BY_CATEGORY`, função `toResponse`, função `withErrorMapping`) está copiado quase verbatim em três arquivos: src/modules/expiration/http/item-handlers.ts, src/modules/reminder/http/policy-handlers.ts, src/modules/identity/http/test-route-handler.ts. Comentários no próprio código admitem "mirrors X exactly" — não foi extraído para src/shared/errors/, que já existe e seria o lar natural.
+
+7. Boundaries de módulo: grep confirma ZERO arquivos em */domain/ importando infra/, aws-sdk, ou internals de outro módulo. shared/ é consumido de forma unidirecional. Não há, porém, nenhum teste/lint automatizado que PROÍBA mecanicamente essa violação — hoje está limpo por disciplina, não por enforcement.
+
+8. Zero `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` em src/. Únicos casts são 4 instâncias de `as unknown as Record<string,unknown> & {PK,SK}` — mesmo padrão justificado (adaptar objeto de domínio tipado pro shape genérico do builder de OCC compartilhado).
+
+9. Nenhum secret real encontrado em arquivos versionados via grep (padrões AKIA*, chaves privadas PEM, password=/apiKey=/secret= literais). Único achado é um valor canário de teste (`CANARY_SECRET = "super-secret-token-value-12345"`) em test/unit/redactor.test.ts, usado propositalmente para provar que o redactor de logs funciona.
+
+10. 13 blocos `catch` revisados em src/ — nenhum swallowing silencioso encontrado: todos ou rethrow, ou mapeiam pra AppError tipado, ou tratam race condition nomeada explicitamente (ex.: `isTransactionCanceled`). Três handlers HTTP de borda (item-handlers.ts, policy-handlers.ts, test-route-handler.ts) mapeiam erro pra resposta HTTP tipada mas não foi confirmado se chamam o SecureLogger antes de responder.
+
+11. Bug real de infraestrutura foi encontrado e corrigido numa sessão anterior (M3): `Table.grantReadWriteData`/`grantReadData` do CDK vazavam acesso de query a um GSI restrito (GSI3, usado pelo scheduler de reminders) para QUALQUER função Lambda da tabela, inclusive as tenant-facing — quebrando o isolamento de índice documentado desde M1. Foi corrigido com PolicyStatements explícitos por índice, e há um teste de regressão (`test/infra/stack.test.ts`) que prova via CDK synth que só a função ReminderProducer referencia `/index/GSI3`.
+
+12. `cdk synth` real via CLI da AWS nunca foi executado (o pacote `aws-cdk` CLI não está instalado no ambiente, só a lib `aws-cdk-lib`). A sintetização é verificada só via `aws-cdk-lib/assertions` (`Template.fromStack`) em memória — equivalente para validação estática, mas nunca rodou o comando real.
+
+13. Workers assíncronos (`src/workers/reminder-dispatch/dispatch.ts`, `reminder-producer/producer.ts`, `reminder-reconciliation/reconciliation.ts`) não têm arquivo de teste unitário individual nomeado — a cobertura vem só da suíte de integração `test/integration/reminder-engine.test.ts`, que testa o conjunto, não cada worker isoladamente com fault injection dedicada (timeout de dependência, mensagem poison, etc.).
+
+14. Contract tests de schema existem e passam (`test/contract/schemas.test.ts`, JSON Schema via Ajv, `npm run validate-schemas` também roda fora do test runner). Nenhum destes foi confirmado como executado com sucesso em CI real (só localmente) — mesma ressalva do achado 1.
+
+15. Não há evidência de deploy real, ambiente real, load test real, restore test real, ou métricas/alarmes em execução — projeto é genuinamente pré-produção. `slo.md`/`disaster-recovery.md` existem na fase de arquitetura mas não há instrumentação real correspondente ainda no código revisado.
+
+=== SUA TAREFA (Checkpoint 2-9, Passo B — Codex Blind Review) ===
+
+Dê uma nota independente 0.00-10.00 para CADA um dos 16 domínios (A-P), baseada SOMENTE na evidência acima (não peça mais evidência que não foi fornecida — se faltar, marque NOT ENOUGH EVIDENCE explicitamente para aquele domínio/sub-critério e explique o impacto na nota máxima possível daquele domínio). Para cada gate G1-G11, marque PASS / FAIL / PARCIAL com uma frase de justificativa. Ao final, dê seu veredito para `ENGINEERING FOUNDATION STATUS` (APPROVED/NOT APPROVED) e liste os P0 (bloqueadores) que você identifica, se houver.
+
+Seja rigoroso e busque ativamente razões para reduzir a nota (anti-confirmation-bias) — isto não é uma confirmação da minha avaliação, é uma avaliação independente seguindo a mesma regra de evidência-first do processo. Não vi minha nota nem meu veredito, e você não deve tentar adivinhá-los ou "acertar" com uma segunda opinião — avalie de forma autônoma.
+
+Formato de resposta: (1) tabela ou lista com nota por domínio + uma linha de justificativa por domínio; (2) gates G1-G11 com veredito; (3) ENGINEERING FOUNDATION STATUS + P0s; (4) qualquer coisa que você ache que a evidência fornecida esconde ou não prova o suficiente.
+
+codex
+1) NOTAS POR DOMÍNIO
+
+A. Code Quality & Maintainability — 7.00/10.00
+Boa separação arquitetural, dependências direcionais e ausência de catch silencioso. Redução pela duplicação explícita do pipeline HTTP em três módulos e pela inexistência de enforcement automático dos boundaries.
+
+B. Type Safety / Contracts / Correctness — 8.00/10.00
+TypeScript aparentemente disciplinado: zero any, supressões ou casts arbitrários; contratos JSON Schema e validação Ajv passam localmente. Os quatro casts duplos parecem intencionais, mas ainda contornam o sistema de tipos. NOT ENOUGH EVIDENCE sobre property-based testing, exhaustividade ampla e execução dos contratos em CI; isso impede nota de excelência.
+
+C. Testing Engineering — 6.50/10.00
+Há 123 testes locais passando, incluindo contratos, integração, cross-tenant e regressão de IAM via synth. A cobertura dos workers é agregada e não há fault injection dedicada para timeout, poison message ou falhas terminais. NOT ENOUGH EVIDENCE sobre cobertura quantitativa, mutation testing, flakiness e execução em CI; teto aproximado de 7 nesta revisão.
+
+D. Continuous Integration — 0.50/10.00
+O único workflow real falhou antes do checkout por SHA inválido, portanto nenhum controle foi executado em CI. Main não possui proteção, required checks ou bloqueio de push direto. O YAML existente conta apenas como intenção, não como controle operacional.
+
+E. CD & Release Engineering — 0.00/10.00
+Não há evidência de deploy, ambiente, promoção, rollback, aprovação ou artefato de release real. NOT ENOUGH EVIDENCE para qualquer capacidade de CD; pela regra evidence-first, não há pontos demonstrados.
+
+F. Secure Software Engineering — 6.50/10.00
+Pontos fortes: nenhum secret real encontrado, redaction testada, autorização cross-tenant e isolamento de GSI cobertos por regressão. Reduções importantes: vulnerabilidades críticas não estão formalmente tratadas, audit é deliberadamente não bloqueante e logging seguro nos caminhos de erro HTTP não foi confirmado. NOT ENOUGH EVIDENCE sobre threat-model enforcement, testes dinâmicos e controles no runtime implantado.
+
+G. Software Supply Chain — 2.00/10.00
+Há intenção de pinagem e audit, mas um pin inválido inutilizou toda a CI. Existem 2 vulnerabilidades críticas, 1 alta e 2 moderadas sem tratamento formal; além disso, o audit nunca reprova o job. NOT ENOUGH EVIDENCE sobre SBOM produzido com sucesso, provenance, assinatura e política efetivamente aplicada.
+
+H. Infrastructure Engineering / IaC — 7.50/10.00
+A infraestrutura sintetiza em memória e possui assertions relevantes de segurança, inclusive regressão precisa para least privilege de GSI3. A ausência do comando CLI cdk synth não é, por si só, deficiência substancial na validação estática. Redução porque nada foi validado em CI ou ambiente AWS real.
+
+I. Reliability Engineering — 2.50/10.00
+Existem integração do reminder engine e tratamento explícito de algumas races, mas não há prova de DLQ, replay, recuperação terminal ou fault injection. SLO e disaster recovery documentados sem instrumentação, restore test ou ambiente real não pontuam. NOT ENOUGH EVIDENCE sobre comportamento operacional; teto baixo até haver execução real.
+
+J. Observability & Operability — 2.00/10.00
+Há SecureLogger e teste de redaction, mas não foi comprovado logging nos três caminhos de erro HTTP. Não há métricas, alarmes, dashboards, tracing ou telemetria de DLQ em execução. NOT ENOUGH EVIDENCE operacional impede nota acima da faixa inicial.
+
+K. Developer Experience — 3.50/10.00
+Existem comandos padronizados e Node fixado, mas a CI está inutilizável e falta README humano na raiz. NOT ENOUGH EVIDENCE sobre bootstrap limpo via npm ci, tempo de feedback e onboarding reproduzível.
+
+L. Documentation Engineering — 3.00/10.00
+Há documentação arquitetural extensa, mas não existe README de entrada para humanos e o handoff contém fatos materialmente falsos sobre commits e quantidade de testes. Como documentação sem enforcement não pontua como controle, a divergência reduz fortemente a confiança.
+
+M. Data & State Engineering — 7.00/10.00
+Há evidência de OCC, transações atômicas, outbox, single-table design e isolamento de índice testado. NOT ENOUGH EVIDENCE sobre migração, backup/restore, evolução de schema, capacidade e comportamento sob contenção real; isso impede nota superior.
+
+N. Engineering Governance — 2.00/10.00
+Há regras e arquitetura documentadas, mas controles fundamentais não são enforced: branch desprotegida, boundaries apenas disciplinares, audit não bloqueante e estado documental divergente. Governança declarada sem execução recebe pouco crédito.
+
+O. AI-Assisted Engineering — 2.00/10.00
+AGENTS.md e processo orientado a agentes existem, mas isso não demonstra qualidade, rastreabilidade ou validação específica de mudanças produzidas por IA. NOT ENOUGH EVIDENCE sobre controles de revisão, proveniência e avaliação; máximo razoável de 2 com o material fornecido.
+
+P. Performance & Efficiency — 0.50/10.00
+Não há load test, benchmark, profiling, métricas de latência/custo ou validação de capacidade. NOT ENOUGH EVIDENCE quase total; o desenho serverless, isoladamente, não prova eficiência.
+
+NOTA PONDERADA: 4.84/10.00
+
+
+2) GATES G1–G11
+
+G1 — PARCIAL
+Testes rodam localmente, mas não há execução comprovada de npm ci/build em ambiente limpo e a CI nunca chegou ao checkout.
+
+G2 — FAIL
+A única execução de CI falhou no setup e main não possui proteção nem required checks.
+
+G3 — PARCIAL
+Os 123 testes locais passam e cobrem riscos relevantes, mas faltam testes dedicados de falhas assíncronas terminais e fault injection dos workers.
+
+G4 — PASS
+Nenhum secret real foi encontrado; o único valor sensível é um canário deliberado para testar redaction.
+
+G5 — FAIL
+Existem vulnerabilidades críticas sem correção, mitigação ou aceitação formal com prazo. Serem transitivas e limitadas ao toolchain de desenvolvimento reduz a exposição, mas não satisfaz a definição congelada de “tratada”.
+
+G6 — PASS
+Isolamento cross-tenant e autorização estão cobertos pela suíte de integração que passa localmente, incluindo o caminho de dados implementado.
+
+G7 — PASS
+As políticas IAM sintetizadas usam recursos explícitos, e o teste de regressão comprova que somente ReminderProducer referencia GSI3.
+
+G8 — FAIL
+Não há evidência executável de DLQ, telemetria de falha terminal ou replay/recuperação testados.
+
+G9 — PASS
+Template.fromStack realiza synth em memória e as assertions de segurança passam; o binário CLI não é requisito técnico para essa validação estática.
+
+G10 — FAIL
+Os boundaries estão atualmente limpos, mas nenhum lint ou teste automático impede sua violação, muito menos em CI.
+
+G11 — PARCIAL
+Schemas e contratos são validados e passam localmente, mas nunca foram executados com sucesso em CI real.
+
+
+3) ENGINEERING FOUNDATION STATUS
+
+NOT APPROVED
+
+P0 — Restaurar uma CI realmente executável:
+Corrigir o SHA truncado, demonstrar uma execução completa bem-sucedida e proteger main com required checks e bloqueio de bypass/push direto conforme a política definida.
+
+P0 — Tratar as vulnerabilidades críticas:
+Atualizar, mitigar ou registrar aceitação formal com responsável e prazo. O audit deve bloquear violações da política; “|| echo warning” torna o controle ineficaz.
+
+P0 — Implementar enforcement automático de boundaries:
+Adicionar regra de lint, teste arquitetural ou ferramenta equivalente e executá-la como required check. O estado atual satisfaz a arquitetura por disciplina, mas falha explicitamente G10.
+
+P0 — Demonstrar recuperação de falhas assíncronas:
+Adicionar configuração e testes executáveis para DLQ, observabilidade de falha terminal e replay/redrive seguro, incluindo poison messages e falhas de dependências.
+
+
+4) LACUNAS E RISCOS NÃO PROVADOS
+
+A aprovação não deve ser inferida dos 123 testes: todos passaram apenas no ambiente local apresentado, sem prova de instalação limpa ou execução num runner independente.
+
+A suíte cross-tenant prova o modelo testado, mas a evidência não demonstra adapters AWS ou runtime Lambda implantados. Isso não muda meu PASS de G6 para o estágio atual, mas precisa ser reavaliado quando o caminho real de persistência existir.
+
+O teste de GSI3 é evidência forte e específica, porém não prova least privilege completo de todas as funções, ações DynamoDB, filas, logs e chaves. G7 passa pelo critério descrito, não como auditoria IAM abrangente.
+
+A afirmação antiga de 390 testes contra 123 atuais pode ser apenas documentação obsoleta, mas também pode esconder testes removidos, não descobertos pelo runner ou alteração de configuração. A evidência fornecida não distingue essas hipóteses.
+
+O único commit grande de M0–M3 reduz auditabilidade e capacidade de revisão incremental. Não o tratei como P0 isolado, mas ele aumenta o risco de mudanças heterogêneas escaparem à revisão.
+
+Por fim, pré-produção explica a ausência de deploy, métricas e restore tests, mas não converte ausência em N/A. Esses domínios continuam sem maturidade demonstrada e devem ser reavaliados antes de qualquer aprovação para produção.
+tokens used
+10.549
+1) NOTAS POR DOMÍNIO
+
+A. Code Quality & Maintainability — 7.00/10.00
+Boa separação arquitetural, dependências direcionais e ausência de catch silencioso. Redução pela duplicação explícita do pipeline HTTP em três módulos e pela inexistência de enforcement automático dos boundaries.
+
+B. Type Safety / Contracts / Correctness — 8.00/10.00
+TypeScript aparentemente disciplinado: zero any, supressões ou casts arbitrários; contratos JSON Schema e validação Ajv passam localmente. Os quatro casts duplos parecem intencionais, mas ainda contornam o sistema de tipos. NOT ENOUGH EVIDENCE sobre property-based testing, exhaustividade ampla e execução dos contratos em CI; isso impede nota de excelência.
+
+C. Testing Engineering — 6.50/10.00
+Há 123 testes locais passando, incluindo contratos, integração, cross-tenant e regressão de IAM via synth. A cobertura dos workers é agregada e não há fault injection dedicada para timeout, poison message ou falhas terminais. NOT ENOUGH EVIDENCE sobre cobertura quantitativa, mutation testing, flakiness e execução em CI; teto aproximado de 7 nesta revisão.
+
+D. Continuous Integration — 0.50/10.00
+O único workflow real falhou antes do checkout por SHA inválido, portanto nenhum controle foi executado em CI. Main não possui proteção, required checks ou bloqueio de push direto. O YAML existente conta apenas como intenção, não como controle operacional.
+
+E. CD & Release Engineering — 0.00/10.00
+Não há evidência de deploy, ambiente, promoção, rollback, aprovação ou artefato de release real. NOT ENOUGH EVIDENCE para qualquer capacidade de CD; pela regra evidence-first, não há pontos demonstrados.
+
+F. Secure Software Engineering — 6.50/10.00
+Pontos fortes: nenhum secret real encontrado, redaction testada, autorização cross-tenant e isolamento de GSI cobertos por regressão. Reduções importantes: vulnerabilidades críticas não estão formalmente tratadas, audit é deliberadamente não bloqueante e logging seguro nos caminhos de erro HTTP não foi confirmado. NOT ENOUGH EVIDENCE sobre threat-model enforcement, testes dinâmicos e controles no runtime implantado.
+
+G. Software Supply Chain — 2.00/10.00
+Há intenção de pinagem e audit, mas um pin inválido inutilizou toda a CI. Existem 2 vulnerabilidades críticas, 1 alta e 2 moderadas sem tratamento formal; além disso, o audit nunca reprova o job. NOT ENOUGH EVIDENCE sobre SBOM produzido com sucesso, provenance, assinatura e política efetivamente aplicada.
+
+H. Infrastructure Engineering / IaC — 7.50/10.00
+A infraestrutura sintetiza em memória e possui assertions relevantes de segurança, inclusive regressão precisa para least privilege de GSI3. A ausência do comando CLI cdk synth não é, por si só, deficiência substancial na validação estática. Redução porque nada foi validado em CI ou ambiente AWS real.
+
+I. Reliability Engineering — 2.50/10.00
+Existem integração do reminder engine e tratamento explícito de algumas races, mas não há prova de DLQ, replay, recuperação terminal ou fault injection. SLO e disaster recovery documentados sem instrumentação, restore test ou ambiente real não pontuam. NOT ENOUGH EVIDENCE sobre comportamento operacional; teto baixo até haver execução real.
+
+J. Observability & Operability — 2.00/10.00
+Há SecureLogger e teste de redaction, mas não foi comprovado logging nos três caminhos de erro HTTP. Não há métricas, alarmes, dashboards, tracing ou telemetria de DLQ em execução. NOT ENOUGH EVIDENCE operacional impede nota acima da faixa inicial.
+
+K. Developer Experience — 3.50/10.00
+Existem comandos padronizados e Node fixado, mas a CI está inutilizável e falta README humano na raiz. NOT ENOUGH EVIDENCE sobre bootstrap limpo via npm ci, tempo de feedback e onboarding reproduzível.
+
+L. Documentation Engineering — 3.00/10.00
+Há documentação arquitetural extensa, mas não existe README de entrada para humanos e o handoff contém fatos materialmente falsos sobre commits e quantidade de testes. Como documentação sem enforcement não pontua como controle, a divergência reduz fortemente a confiança.
+
+M. Data & State Engineering — 7.00/10.00
+Há evidência de OCC, transações atômicas, outbox, single-table design e isolamento de índice testado. NOT ENOUGH EVIDENCE sobre migração, backup/restore, evolução de schema, capacidade e comportamento sob contenção real; isso impede nota superior.
+
+N. Engineering Governance — 2.00/10.00
+Há regras e arquitetura documentadas, mas controles fundamentais não são enforced: branch desprotegida, boundaries apenas disciplinares, audit não bloqueante e estado documental divergente. Governança declarada sem execução recebe pouco crédito.
+
+O. AI-Assisted Engineering — 2.00/10.00
+AGENTS.md e processo orientado a agentes existem, mas isso não demonstra qualidade, rastreabilidade ou validação específica de mudanças produzidas por IA. NOT ENOUGH EVIDENCE sobre controles de revisão, proveniência e avaliação; máximo razoável de 2 com o material fornecido.
+
+P. Performance & Efficiency — 0.50/10.00
+Não há load test, benchmark, profiling, métricas de latência/custo ou validação de capacidade. NOT ENOUGH EVIDENCE quase total; o desenho serverless, isoladamente, não prova eficiência.
+
+NOTA PONDERADA: 4.84/10.00
+
+
+2) GATES G1–G11
+
+G1 — PARCIAL
+Testes rodam localmente, mas não há execução comprovada de npm ci/build em ambiente limpo e a CI nunca chegou ao checkout.
+
+G2 — FAIL
+A única execução de CI falhou no setup e main não possui proteção nem required checks.
+
+G3 — PARCIAL
+Os 123 testes locais passam e cobrem riscos relevantes, mas faltam testes dedicados de falhas assíncronas terminais e fault injection dos workers.
+
+G4 — PASS
+Nenhum secret real foi encontrado; o único valor sensível é um canário deliberado para testar redaction.
+
+G5 — FAIL
+Existem vulnerabilidades críticas sem correção, mitigação ou aceitação formal com prazo. Serem transitivas e limitadas ao toolchain de desenvolvimento reduz a exposição, mas não satisfaz a definição congelada de “tratada”.
+
+G6 — PASS
+Isolamento cross-tenant e autorização estão cobertos pela suíte de integração que passa localmente, incluindo o caminho de dados implementado.
+
+G7 — PASS
+As políticas IAM sintetizadas usam recursos explícitos, e o teste de regressão comprova que somente ReminderProducer referencia GSI3.
+
+G8 — FAIL
+Não há evidência executável de DLQ, telemetria de falha terminal ou replay/recuperação testados.
+
+G9 — PASS
+Template.fromStack realiza synth em memória e as assertions de segurança passam; o binário CLI não é requisito técnico para essa validação estática.
+
+G10 — FAIL
+Os boundaries estão atualmente limpos, mas nenhum lint ou teste automático impede sua violação, muito menos em CI.
+
+G11 — PARCIAL
+Schemas e contratos são validados e passam localmente, mas nunca foram executados com sucesso em CI real.
+
+
+3) ENGINEERING FOUNDATION STATUS
+
+NOT APPROVED
+
+P0 — Restaurar uma CI realmente executável:
+Corrigir o SHA truncado, demonstrar uma execução completa bem-sucedida e proteger main com required checks e bloqueio de bypass/push direto conforme a política definida.
+
+P0 — Tratar as vulnerabilidades críticas:
+Atualizar, mitigar ou registrar aceitação formal com responsável e prazo. O audit deve bloquear violações da política; “|| echo warning” torna o controle ineficaz.
+
+P0 — Implementar enforcement automático de boundaries:
+Adicionar regra de lint, teste arquitetural ou ferramenta equivalente e executá-la como required check. O estado atual satisfaz a arquitetura por disciplina, mas falha explicitamente G10.
+
+P0 — Demonstrar recuperação de falhas assíncronas:
+Adicionar configuração e testes executáveis para DLQ, observabilidade de falha terminal e replay/redrive seguro, incluindo poison messages e falhas de dependências.
+
+
+4) LACUNAS E RISCOS NÃO PROVADOS
+
+A aprovação não deve ser inferida dos 123 testes: todos passaram apenas no ambiente local apresentado, sem prova de instalação limpa ou execução num runner independente.
+
+A suíte cross-tenant prova o modelo testado, mas a evidência não demonstra adapters AWS ou runtime Lambda implantados. Isso não muda meu PASS de G6 para o estágio atual, mas precisa ser reavaliado quando o caminho real de persistência existir.
+
+O teste de GSI3 é evidência forte e específica, porém não prova least privilege completo de todas as funções, ações DynamoDB, filas, logs e chaves. G7 passa pelo critério descrito, não como auditoria IAM abrangente.
+
+A afirmação antiga de 390 testes contra 123 atuais pode ser apenas documentação obsoleta, mas também pode esconder testes removidos, não descobertos pelo runner ou alteração de configuração. A evidência fornecida não distingue essas hipóteses.
+
+O único commit grande de M0–M3 reduz auditabilidade e capacidade de revisão incremental. Não o tratei como P0 isolado, mas ele aumenta o risco de mudanças heterogêneas escaparem à revisão.
+
+Por fim, pré-produção explica a ausência de deploy, métricas e restore tests, mas não converte ausência em N/A. Esses domínios continuam sem maturidade demonstrada e devem ser reavaliados antes de qualquer aprovação para produção.

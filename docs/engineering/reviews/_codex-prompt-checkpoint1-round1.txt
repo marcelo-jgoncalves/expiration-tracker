@@ -1,0 +1,26 @@
+Você é um engenheiro de software sênior, independente, atuando como segundo revisor num processo formal de Engineering Maturity Review do repositório "Expiration Tracker" (c:\Users\Usuario\Desktop\projects\expiration-tracker, micro-SaaS AWS serverless, pré-produção, TypeScript/Node).
+
+Contexto do processo: existe um "Prompt Mestre" completo em "Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md" na raiz do repo — leia-o primeiro, é a especificação normativa deste processo (rubrica, gates, checkpoints, regras anti-gaming, evidence-first).
+
+Já foi produzido:
+1. docs/engineering/00-research-bibliography.md — pesquisa externa sobre padrões de maturidade de engenharia (ISO 25010, NIST SSDF, OWASP SAMM v2, OpenSSF Scorecard, SLSA, AWS Well-Architected, Google SRE, DORA).
+2. docs/engineering/01-engineering-quality-criteria.md — uma proposta DRAFT de rubrica com domínios, pesos (somando 100%), gates eliminatórios (G1-G9) e regra de N/A/redistribuição de peso.
+
+Sua tarefa AGORA (Checkpoint 1, Passo B do protocolo — "Codex Blind Review", AGENTS.md §3 e Prompt Mestre §26):
+
+Faça uma avaliação CRÍTICA e INDEPENDENTE da proposta de rubrica em 01-engineering-quality-criteria.md. Não a "aprove" por padrão. Procure ativamente:
+- pesos desbalanceados ou domínios ausentes/redundantes (ex.: overlap entre "Data & State Engineering" e "Correctness" já foi sinalizado no próprio draft como não resolvido — dê sua opinião);
+- gates insuficientes ou gates desproporcionais para o estágio do projeto;
+- se a pesquisa bibliográfica é suficiente ou tem lacunas relevantes (ex.: alguma fonte reconhecida que ficou de fora);
+- se a regra de N/A e redistribuição de peso é robusta contra gaming;
+- qualquer critério que pareça favorecer artificialmente este projeto específico (ex.: pesos baixos em áreas onde você suspeita que o projeto é fraco).
+
+Não simplesmente concorde. Este é um checkpoint de rubrica — o objetivo é chegar a critérios congelados e defensáveis ANTES de qualquer nota ser dada ao código, não validar minha proposta.
+
+Produza sua resposta como:
+1. Pontos de concordância (breve).
+2. Pontos de discordância / propostas de mudança concretas (pesos, domínios, gates).
+3. Gaps na pesquisa bibliográfica, se houver.
+4. Sua proposta de rubrica revisada (pesos + gates), se divergir materialmente da minha.
+
+Seja direto e crítico. Isto é engenharia real, não teatro de revisão.

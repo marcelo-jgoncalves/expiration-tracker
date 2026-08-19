@@ -1,0 +1,556 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01a43-039e-7803-8e88-a0e5819bf8f3
+--------
+user
+Você é um engenheiro de software sênior, independente, atuando como segundo revisor num processo formal de Engineering Maturity Review do repositório "Expiration Tracker" (micro-SaaS AWS serverless, pré-produção, TypeScript/Node). Esta é uma retentativa — sua tentativa anterior travou tentando reler arquivos grandes em blocos e uma chamada foi bloqueada por política. NÃO tente ler "Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md" inteiro de novo. Se precisar consultá-lo, use `Select-String` ou leia só um trecho pequeno por vez (ex.: `Get-Content -LiteralPath 'arquivo' | Select-Object -First 100`), nunca slicing de array grande.
+
+Contexto essencial já resumido abaixo — não precisa reabrir os arquivos-fonte a menos que queira confirmar um detalhe pontual.
+
+=== RESUMO DO PROCESSO (Prompt Mestre) ===
+Objetivo: avaliar e elevar a maturidade de ENGENHARIA (não arquitetura — arquitetura já foi aprovada em processo anterior e não deve ser refeita) do repositório, via processo formal Claude↔Codex: pesquisa → critérios → proposta → crítica → tréplica → correção → nota independente → aprovação. Regras-chave: (1) evidence-first — execução real > testes > código > docs > declaração; documentação que afirma algo sem mecanismo de enforcement não vale como prova; (2) N/A só é permitido com justificativa e concordância dos dois revisores, nunca para esconder deficiência; (3) checkpoint só é aprovado com Claude>=9.0 E Codex>=9.0 (sem arredondar) E gates todos PASS E nenhum P0 aberto — divergência não vira média, reabre rodada; (4) score final = min(Claude, Codex), a "nota conservadora"; (5) proibido: mudar pesos pra alcançar 9, remover gates que falharam, dar crédito por intenção/documentação sem enforcement, suavizar crítica porque a arquitetura já passou; (6) separar "Engineering Foundation" (código/testes/CI/IaC/docs — pode ser avaliado hoje) de "Operational Engineering Evidence" (deploys reais, load test real, restore real — legitimamente NOT APPROVED/NOT ENOUGH EVIDENCE agora por ausência de produção, isso não penaliza a Foundation); (7) proporcionalidade — não exigir governança de empresa grande num micro-SaaS pequeno, mas problemas básicos (secrets no git, falta de isolamento, falta de idempotência) continuam graves independente do estágio.
+
+=== 00-research-bibliography.md (conteúdo integral) ===
+Fontes pesquisadas e por quê: ISO/IEC 25010:2023 (9 características de qualidade — usado pra ancorar domínio Code Quality/Maintainability e Reliability em vocabulário padrão, não inventado); NIST SP 800-218 SSDF v1.1 (vigente; v1.2 é só draft público até jan/2026, não normativo ainda — usado pras 4 categorias PO/PS/PW/RV no domínio de segurança); OWASP SAMM v2 (vigente, 5 business functions × maturidade 0-3 por coverage+quality — usado pra calibrar que segurança tem níveis, nível 1 já é aceitável neste estágio); OpenSSF Scorecard v5.5.0 (18 checks, evidência auxiliar não normativa — LIMITAÇÃO: repo é privado, Scorecard pode não ser executável, tratar como NOT ENOUGH EVIDENCE se falhar tecnicamente, não simular); SLSA (Build L1→L2→L3, projeto já roda CI em GitHub Actions hospedado então L1/L2 são atingíveis a baixo custo via attestation, L3 desproporcional agora); AWS Well-Architected Framework (6 pilares, fonte primária pois projeto é 100% AWS, usado em IaC/Reliability/Observability); Google SRE book/workbook (SLI/SLO/error budget, projeto já tem slo.md na arquitetura — aqui avalia-se se SLOs têm SLI real instrumentado no código, não só documentado); DORA/Accelerate four keys (pesquisa empírica, não normativa — sem deploys reais em produção o resultado será NOT ENOUGH EVIDENCE, usado só como vocabulário/estrutura futura). Nota final do documento: dado o estágio (pré-produção, single-table DynamoDB, serverless, uso intensivo de Claude/Codex), a rubrica deve pesar mais correctness/type-safety/testing e secure-by-default proporcional (nível 1-2 dos frameworks, não nível máximo), e Operational Evidence será legitimamente NOT ENOUGH EVIDENCE agora.
+
+=== 01-engineering-quality-criteria.md (DRAFT Claude round 1, conteúdo integral) ===
+Status DRAFT, não congelada.
+
+Domínios e pesos propostos (soma 100%):
+A. Code Quality & Maintainability — 12% (fonte: ISO 25010 maintainability)
+B. Type Safety, Contracts & Correctness — 13% (ISO 25010 functional suitability/reliability)
+C. Testing Engineering — 15% (ISO 25010 + evidence-first)
+D. Continuous Integration — 8% (SSDF PW, DORA estrutural)
+E. CD & Release Engineering — 6% (DORA, SLSA)
+F. Secure Software Engineering — 13% (NIST SSDF, OWASP SAMM v2)
+G. Software Supply Chain — 7% (OpenSSF Scorecard, SLSA)
+H. Infrastructure Engineering / IaC — 7% (AWS Well-Architected)
+I. Reliability Engineering — 9% (AWS Well-Architected Reliability, Google SRE)
+J. Observability & Operability — 5% (Google SRE SLI/SLO)
+K. Developer Experience — 2%
+L. Documentation Engineering — 1%
+M. Data & State Engineering — 5% (nota do autor: se sobrepõe parcialmente com B/I porque o projeto é single-table DynamoDB com OCC/idempotência que é tanto correctness quanto data engineering — marcado como não resolvido, para a crítica do Codex decidir)
+N. Engineering Governance — 1%
+O. AI-Assisted Engineering — 3% (baseado em AGENTS.md/CLAUDE.md do próprio repo)
+P. Performance & Efficiency — 1% (proporcional, estágio inicial não pede otimização)
+Total: 100%
+
+Gates eliminatórios propostos (falha em qualquer um bloqueia ENGINEERING FOUNDATION STATUS: APPROVED, independente do score ponderado):
+G1 — Build reproduzível (npm ci + build/typecheck em ambiente limpo)
+G2 — CI obrigatório real (workflow do GitHub Actions realmente executa typecheck+lint+test+schema-validation em todo PR/push, não só existe)
+G3 — Testes críticos passam (cross-tenant, isolamento GSI3, lifecycle de expiration, reminder engine — npm test exit 0)
+G4 — Nenhum secret conhecido no repositório
+G5 — Sem vulnerabilidade crítica não tratada (npm audit sem critical/high não mitigado, ou exceção registrada)
+G6 — Tenant isolation enforced em IAM real, não só em código de aplicação (achado real: M3 já provou que isso pode falhar silenciosamente via grantReadWriteData vazando /index/*)
+G7 — Nenhuma falha silenciosa conhecida em reminder processing (catch-and-swallow em paths críticos)
+G8 — Infraestrutura sintetizável/validável (CDK synth sem erro, mesmo que só via assertions em memória)
+G9 — Arquitetura crítica enforced (boundaries de módulo verificáveis, idealmente por lint/teste, não só convenção)
+
+Fitness functions: esqueleto apenas — build, typecheck, lint, test (unit/contract/integration/infra), validate-schemas, npm audit, secret-scan, IaC synth, dependency-direction/architecture-boundary check. Detalhamento fica para depois da rubrica congelada.
+
+Regra de N/A: domínios de Operational Evidence começam como candidatos a N/A por ausência de produção, mas só viram N/A de fato com justificativa registrada e concordância Claude+Codex — nunca descontados silenciosamente.
+
+Regra de redistribuição: se um domínio virar N/A por decisão conjunta, seu peso é redistribuído proporcionalmente entre os domínios restantes do mesmo eixo (Foundation), preservando soma 100%.
+
+=== SUA TAREFA (Checkpoint 1, Passo B — Codex Blind Review) ===
+
+Faça uma crítica INDEPENDENTE desta proposta. Não aprove por padrão — procure ativamente:
+1. Pesos desbalanceados ou domínios ausentes/redundantes (dê sua opinião sobre o overlap M vs B/I sinalizado acima).
+2. Gates insuficientes ou desproporcionais pro estágio do projeto (pré-produção, micro-SaaS pequeno).
+3. Gaps na pesquisa bibliográfica — alguma fonte reconhecida relevante que ficou de fora?
+4. Se a regra de N/A e redistribuição de peso é robusta contra gaming.
+5. Qualquer critério que pareça favorecer artificialmente este projeto específico.
+
+Responda em texto direto (não precisa rodar comandos, a menos que queira confirmar algo pontual e pequeno):
+1. Pontos de concordância (breve).
+2. Pontos de discordância / mudanças concretas propostas (pesos, domínios, gates).
+3. Gaps na bibliografia, se houver.
+4. Sua proposta de rubrica revisada (pesos + gates), se divergir materialmente.
+
+Seja direto e crítico — isto é engenharia real, não teatro de revisão.
+
+codex
+Vou fazer a revisão cega como crítica da rubrica, sem reavaliar a arquitetura nem reler o Prompt Mestre. Antes, vou apenas conferir o estado vigente e a precedência documental nos dois arquivos curtos exigidos pelo repositório.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'NEXT_SESSION_PROMPT.md' -TotalCount 160; Get-Content -LiteralPath 'docs/architecture/README.md' -TotalCount 180" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 304ms:
+# Expiration Tracker â€” Status e PrÃ³xima SessÃ£o
+
+Projeto: micro-SaaS de controle de vencimentos/renovaÃ§Ãµes. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
+
+Mapa completo de documentaÃ§Ã£o, status vigente e regra de precedÃªncia: `docs/architecture/README.md`. Regras de processo e ferramentas: `AGENTS.md`. Log cronolÃ³gico de sessÃµes: `docs/architecture/session-log.md`.
+
+## Status atual
+
+```text
+DESIGN MATURITY STATUS: APPROVED (arquitetura conceitual + Implementation Blueprint)
+ARCHITECTURE STATUS: NOT APPROVED
+```
+
+Todo o processo de design (Fases 0-3 do prompt mestre + os 14 entregÃ¡veis das seÃ§Ãµes 35-52 + threat model seÃ§Ã£o 33 + Implementation Blueprint seÃ§Ã£o 60) estÃ¡ completo e aprovado â€” ver `ARCHITECTURE.md` na raiz para o documento consolidado. `ARCHITECTURE STATUS: NOT APPROVED` Ã© o estado normativo correto atÃ© haver implementaÃ§Ã£o real testada sob falha/carga (rubrica B, `requirements.md` Â§13.1) â€” **nÃ£o Ã© reprovaÃ§Ã£o de mÃ©rito, e nÃ£o muda com a conclusÃ£o do blueprint**: o blueprint Ã© design detalhado, nÃ£o evidÃªncia operacional.
+
+## ConcluÃ­do nesta sessÃ£o â€” Implementation Blueprint (seÃ§Ã£o 60) â€” APPROVED
+
+`docs/architecture/implementation-blueprint.md`. Componentes/mÃ³dulos (Identity, Expiration, Reminder, Notification, Document, Audit + workers assÃ­ncronos), interfaces concretas, eventos/schemas reais (grounded em `data-model.md`), ordem de deploy, milestones M0-M7, critÃ©rios de aceite tÃ©cnicos por componente, e as 7 lacunas do `threat-model.md` incorporadas como requisito desde o inÃ­cio (nÃ£o apÃªndice). Processo: 2 propostas independentes (Claude/Codex) â†’ crÃ­tica cruzada (17 problemas reais encontrados, incluindo um erro tÃ©cnico presente nas duas propostas â€” chave do GSI3 do scheduler nÃ£o era consultÃ¡vel) â†’ convergÃªncia â†’ 5 rodadas de nota cega com correÃ§Ã£o pontual a cada achado (cabeÃ§alho prematuro, contradiÃ§Ã£o de kill switch, tabela incompleta, decisÃµes Type 1 nÃ£o propagadas Ã s seÃ§Ãµes operativas, mapeamento de estado da Step Functions incompleto). **Nota final: Claude 9.20 / Codex 9.2 (exato)** â€” ambos â‰¥9.0 sem arredondar, 8 rodadas totais, nenhum gate violado. DecisÃ£o Type 1 nova registrada: chave global do GSI3 (`GSI3PK=DUE#yyyyMMddHHmm#NN`, exceÃ§Ã£o documentada Ã  regra de toda chave comeÃ§ar por `TENANT#tenantId`) â€” a decisÃ£o estÃ¡ fechada no blueprint; falta sÃ³ o registro mecÃ¢nico em `data-model.md` (nÃ£o bloqueia implementaÃ§Ã£o).
+
+## ConcluÃ­do nesta sessÃ£o â€” M0 "Guardrails e contratos" (implementation-blueprint.md Â§19)
+
+Todas as entregas de M0 implementadas e testadas (53 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): estrutura TypeScript (`src/shared/*`, alinhada a `implementation-blueprint.md` Â§2), schemas JSON (`schemas/{events,queues,api}` + `sensitive-fields.json`, validados via Ajv em `src/shared/contracts/schema-validator.ts`), `SecureLogger`+`Redactor` central (`src/shared/observability/`, corpus de teste com valores canÃ¡rio provando que nada vaza), configuraÃ§Ã£o tipada fail-fast (`src/shared/config/config.ts`), taxonomia de erro normalizada retryable/terminal (`src/shared/errors/app-error.ts`), idempotÃªncia via `PutItem attribute_not_exists(PK)` (`src/shared/idempotency/idempotency.ts`, chaves por operaÃ§Ã£o conforme `data-model.md` Â§4), OCC com `ConditionExpression: version=:expected` (`src/shared/dynamodb/occ.ts`, `data-model.md` Â§5), outbox transacional (`src/shared/outbox/outbox.ts`, shape de `implementation-blueprint.md` Â§5.3), pipeline supply-chain (`.github/workflows/ci.yml`: npm ci imutÃ¡vel, actions pinadas por SHA, SBOM CycloneDX, audit, gate de schema). `AGENTS.md` Â§6 atualizado com comandos/convenÃ§Ãµes. Nada foi commitado (working tree aberto para revisÃ£o).
+
+Judgment calls (blueprint estava silente): Ajv+ajv-formats para validaÃ§Ã£o de JSON Schema; Vitest como test runner; ESLint `no-console` (com exceÃ§Ã£o para `src/shared/observability/**`) como o mecanismo que faz "chamada direta a `console.*` falhar no lint" (`implementation-blueprint.md` Â§14.1); idempotÃªncia/OCC/outbox construÃ­dos como builders puros de parÃ¢metros DynamoDB (sem `@aws-sdk` ainda) para ficarem testÃ¡veis sem tabelas reais, que sÃ³ existem a partir de M1; SLSA/assinatura de artefato adiada para M1+ (nÃ£o hÃ¡ alvo de deploy ainda); SHAs de actions no CI pinados no momento da escrita â€” revisar antes do primeiro run real.
+
+## ConcluÃ­do nesta sessÃ£o â€” M1 "Foundation, Identity e isolamento" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (89 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorizaÃ§Ã£o como cÃ³digo, `IdentityMapping`/`User`/`DeviceSession`/`TenantQuota` via portas SDK-agnÃ³sticas) e `infra/{lib,bin}` (`ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi` com a rota `GET /test/ping`). SuÃ­te cross-tenant negativa em `test/integration/cross-tenant.test.ts` (9 casos, exit criterion do marco) e synth de infra em `test/infra/stack.test.ts` (6 casos, via `aws-cdk-lib/assertions`, sem AWS CLI). Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente ou pendÃªncia externa jÃ¡ conhecida): (1) MFA implementado como prop configurÃ¡vel (`OFF`/`OPTIONAL`/`REQUIRED`, default `OPTIONAL`) pois UNK-006 segue pendente de pesquisa externa â€” nÃ£o bloqueava M1; (2) CSP/CloudFront Response Headers Policy **nÃ£o implementado nesta sessÃ£o** â€” nÃ£o hÃ¡ distribuiÃ§Ã£o CloudFront/frontend ainda no repositÃ³rio, e o texto do blueprint (Â§4.2) coloca CSP no contexto do SPA estÃ¡tico servido por CloudFront; tratado como pertencente ao milestone que introduzir o frontend, nÃ£o forÃ§ado em M1 (revisar se essa leitura estiver errada); (3) sessÃ£o/revogaÃ§Ã£o modelada como campo `globalLogoutAfter` no item `User` + item filho `DeviceSession` (`TENANT#t#USER#u`/`SESSION#<deviceId>`) em vez de uma entidade `Session` de primeira classe â€” `data-model.md` nÃ£o define uma; (4) `ScopedLambdaFunction` mantÃ©m a lista de entidades por capability como metadado/documentaÃ§Ã£o, mas o IAM real concedido Ã© table-level (`grantReadWriteData`) â€” DynamoDB IAM nÃ£o expressa restriÃ§Ã£o por SK/entidade da forma que a sintaxe do blueprint sugere visualmente; per-entity IAM mais fino fica como follow-up; (5) `TenantQuota` implementado como janela fixa (fixed-window), nÃ£o sliding-window/leaky-bucket â€” mais simples e ainda satisfaz "decremento atÃ´mico, sem race condition" do `data-model.md`; (6) BFF de sessÃ£o (`/session/refresh`, `/session/logout`) **nÃ£o implementado como rota HTTP nesta sessÃ£o** â€” o Cognito client jÃ¡ estÃ¡ configurado para o padrÃ£o (client secret, tokens de vida curta), mas os endpoints do BFF em si ficam para quando a Expiration/Notification API skeleton crescer alÃ©m da rota de teste; revisar se isso deveria ter sido parte do exit criterion. `cdk synth` real via CLI nÃ£o foi executado (o pacote `aws-cdk` CLI nÃ£o estÃ¡ instalado, sÃ³ a lib `aws-cdk-lib`); a sintetizaÃ§Ã£o foi verificada programaticamente via `Template.fromStack` nos testes, que Ã© equivalente para fins de validaÃ§Ã£o estÃ¡tica.
+
+## ConcluÃ­do nesta sessÃ£o â€” M2 "Expiration core e Audit" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` â€” CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutaÃ§Ã£o na mesma transaÃ§Ã£o, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; Ã© idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). SuÃ­te de integraÃ§Ã£o `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente): (1) evento `ItemDueDateChanged` segue exatamente o schema jÃ¡ existente desde M0 (`schemas/events/item-due-date-changed.v1.json`: `itemId`/`previousDueDate`/`newDueDate`/`itemVersion`, `additionalProperties: false`) em vez do exemplo mais rico do texto do blueprint Â§8.3 (que inclui `timeZone`/`reminderPolicyId`/`changeReason`) â€” o schema jÃ¡ testado/versionado Ã© a fonte de verdade de contrato per `AGENTS.md` Â§6, o exemplo em prosa nÃ£o; campos adicionais ficam para quando M3 (Reminder) precisar deles, exigindo `.v2` aditivo; (2) `renewItem` tambÃ©m dispara `ItemDueDateChanged` (para o item novo, `previousDueDate: null`) â€” o blueprint sÃ³ descreve esse evento no contexto de `updateItem`, mas renovaÃ§Ã£o tambÃ©m Ã© uma "mudanÃ§a de vencimento" do ponto de vista do futuro `ReminderProducer` (M3), e a alternativa (renovaÃ§Ã£o silenciosa) deixaria o dashboard/scheduler sem sinal de que um novo item precisa de agendamento; (3) `archiveItem` usa a aÃ§Ã£o de autorizaÃ§Ã£o `item:update` (nÃ£o uma aÃ§Ã£o dedicada â€” a matriz de M1 nÃ£o define uma para archive) enquanto `deleteItem` usa `item:delete` (ADMIN_ROLES), seguindo a granularidade que jÃ¡ existe; (4) idempotÃªncia de renovaÃ§Ã£o aceita uma `idempotencyKey` explÃ­cita do chamador (header `Idempotency-Key`) com fallback determinÃ­stico `itemId|expectedVersion|cycle` quando ausente, jÃ¡ que o blueprint define a CHAVE de dedupe mas nÃ£o de onde ela vem por HTTP; (5) `ExpirationStore.transactWrite` foi adicionado ao port (nÃ£o existe em `IdentityStore`) porque nenhuma escrita de M1 precisava de `TransactWriteItems` multi-item â€” a fake em memÃ³ria (`test/unit/expiration/in-memory-store.ts`) sÃ³ entende as duas formas exatas de `ConditionExpression` que este cÃ³digo produz (mesma limitaÃ§Ã£o documentada, mesmo espÃ­rito de `InMemoryIdentityStore`).
+
+## ConcluÃ­do nesta sessÃ£o â€” M3 "Reminder Engine" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (123 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/reminder/{domain,application,ports,http}` (policies CRUD, `ReminderMaterializer` com conversÃ£o localâ†’UTC IANA-aware â€” DST tratado explicitamente, horÃ¡rio inexistente e ambÃ­guo â€” reagindo a `ItemDueDateChanged` via `cancelStaleOccurrences`) e `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lÃ³gica pura testÃ¡vel com relÃ³gio falso). GSI3 com shard versionado (`shardFnVersion`) e producer com janela de lookback `[M-5min, M]`; dispatch faz `CLAIMEDâ†’TRIGGERED`+`NotificationIntent`+outbox numa Ãºnica transaÃ§Ã£o; reconciliaÃ§Ã£o Ã© um Ãºnico job (claim-expiry + DST). Exit criterion provado end-to-end em `test/integration/reminder-engine.test.ts`. **Bug real de infraestrutura corrigido**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluÃ­am `<tableArn>/index/*`, vazando `dynamodb:Query` no GSI3 para QUALQUER funÃ§Ã£o da tabela (inclusive as tenant-facing de M1/M2) â€” a salvaguarda de isolamento documentada desde M1 nunca foi de fato aplicada. Corrigido em `infra/lib/dynamo-table.ts` com `PolicyStatement`s explÃ­citos; teste de isolamento novo em `test/infra/stack.test.ts` prova via CDK synth que sÃ³ `ReminderProducer` referencia `/index/GSI3`. Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente): (1) `occurrenceId` derivado deterministicamente (hash da chave de idempotÃªncia de data-model.md Â§4) em vez de UUID + registro `IdempotencyStore` separado â€” o prÃ³prio `putIfAbsent` condicional jÃ¡ garante a idempotÃªncia de materializaÃ§Ã£o, mesmo padrÃ£o que data-model.md documenta para `WebhookInbox`; (2) cancelamento de ocorrÃªncia stale nÃ£o remove `GSI3PK`/`GSI3SK` (o builder de `occ.ts` Ã© SET-only, sem REMOVE) â€” deixa um ponteiro Ã³rfÃ£o no Ã­ndice, mas o `Query` condicional `SCHEDULEDâ†’CLAIMED` do producer falha sobre ele de forma inofensiva; (3) tolerÃ¢ncia de dispatch (`toleranceMs`, default 30min) e TTL de claim (default 2min) nÃ£o estÃ£o fixados no blueprint â€” valores razoÃ¡veis documentados no cÃ³digo, revisar contra dados reais de produÃ§Ã£o; (4) reconciliaÃ§Ã£o DST/claim-expiry recebe os candidatos como parÃ¢metro (batch) em vez de fazer sua prÃ³pria varredura via GSI6 â€” a wiring desse Ã­ndice de "polÃ­ticas ativas"/"claims expirados" real fica como follow-up de infra, o mecanismo de reconciliaÃ§Ã£o em si (o que a tarefa pediu) estÃ¡ implementado e testado; (5) Lambda handlers reais (bundling com `@aws-sdk`) nÃ£o foram escritos â€” mesmo estÃ¡gio que M0-M2, CDK usa cÃ³digo inline placeholder via `ScopedLambdaFunction`; a lÃ³gica testÃ¡vel Ã© o entregÃ¡vel real desta fase, igual Ã s anteriores.
+
+## PrÃ³xima aÃ§Ã£o obrigatÃ³ria
+
+1. **M4 â€” Notification Engine** (`implementation-blueprint.md` Â§19, depende de M3 âœ…): router de `NotificationIntent`â†’canal, delivery workers (email/WhatsApp stub-first), `NotificationAttempt`, resoluÃ§Ã£o de destinatÃ¡rio/template.
+2. Decidir e fechar os itens abaixo (BFF de sessÃ£o como rotas reais, CSP/CloudFront quando o frontend existir) antes de considerar a lacuna de "session theft" do threat model totalmente fechada â€” ainda nÃ£o resolvido, re-flagueado a cada sessÃ£o desde M1 para nÃ£o se perder: M1 fechou o mecanismo de revogaÃ§Ã£o/matriz de autorizaÃ§Ã£o, nÃ£o o endpoint BFF completo; M2/M3 nÃ£o tinham escopo de frontend/sessÃ£o (confirmado no blueprint) entÃ£o tambÃ©m nÃ£o o resolveram.
+3. **Ratificar formalmente em `data-model.md` a exceÃ§Ã£o do GSI3** (chave global do scheduler, jÃ¡ decidida e justificada em `implementation-blueprint.md` Â§9.2/Â§23.3 item 10) â€” passo de manutenÃ§Ã£o documental, nÃ£o nova rodada de debate. M3 jÃ¡ corrigiu o enforcement real do isolamento em IAM; falta sÃ³ o registro mecÃ¢nico no documento.
+4. Wiring real do GSI6 (ou Ã­ndice equivalente) para alimentar a reconciliaÃ§Ã£o de M3 com o batch real de "polÃ­ticas ativas"/"claims a verificar" em produÃ§Ã£o â€” hoje o mecanismo de reconciliaÃ§Ã£o recebe esse batch como parÃ¢metro injetado (testÃ¡vel), a query real fica pendente.
+5. Testes de carga real (cenÃ¡rios de drenagem do pico extremo, `capacity-model.md`, com SLO de drenagem UNK-CAP-006 a formalizar em `slo.md` antes do gate de M7), teste de restore real (gate jÃ¡ definido em `disaster-recovery.md` Â§6), exercÃ­cio do runbook de credencial comprometida.
+6. ReavaliaÃ§Ã£o sob rubrica (B) â€” Operational Evidence â€” sÃ³ entÃ£o `ARCHITECTURE STATUS` pode legitimamente virar `APPROVED`. **NÃ£o declarar isso antes de haver evidÃªncia operacional real.** Implementar M0/M1/M2/M3 nÃ£o Ã© evidÃªncia operacional.
+7. DecisÃµes ainda pendentes de pesquisa externa (nÃ£o bloqueiam M4 estruturalmente, mas bloqueiam habilitar os canais/features especÃ­ficos, ver `implementation-blueprint.md` Â§23.3): provider inicial de e-mail, BSP WhatsApp (pricing real, UNK-003), modelo Bedrock especÃ­fico, regiÃ£o AWS (bloqueante para LGPD/transferÃªncia internacional), MFA obrigatÃ³rio vs. opcional (UNK-006), ferramenta de backup S3 (RPOâ‰¤24h), ferramenta de assinatura/provenance do pipeline de CI.
+# docs/architecture/ â€” Ãndice e Mapa de Autoridade
+
+```text
+Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
+Operational architecture: NOT APPROVED
+Current phase:           ImplementaÃ§Ã£o real (cÃ³digo/infra/testes) â€” Implementation Blueprint concluÃ­do
+Last verified:           2026-08-19
+```
+
+Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a prÃ³xima aÃ§Ã£o concreta.
+
+## PrecedÃªncia de fontes (quando houver divergÃªncia)
+
+1. `AGENTS.md` (raiz) â€” processo de trabalho dos agentes, sempre vence sobre conteÃºdo de arquitetura.
+2. ADR aceito em `adr/` â€” decisÃ£o arquitetural especÃ­fica e formal.
+3. Documento temÃ¡tico corrente (tabela abaixo, coluna "normativo atual") â€” especificaÃ§Ã£o detalhada do domÃ­nio.
+4. `ARCHITECTURE.md` â€” visÃ£o consolidada e Ã­ndice executivo; nÃ£o sobrescreve silenciosamente um ADR ou documento temÃ¡tico divergente â€” divergÃªncia entre eles Ã© defeito a corrigir, nÃ£o licenÃ§a para escolher.
+5. `NEXT_SESSION_PROMPT.md` â€” estado de execuÃ§Ã£o, nunca fonte normativa de arquitetura.
+6. `docs/architecture/history/` â€” evidÃªncia histÃ³rica de como se chegou a uma decisÃ£o, nunca normativo.
+
+## Ãndice por documento
+
+| Documento | ClassificaÃ§Ã£o | Do que trata |
+|---|---|---|
+| `../ARCHITECTURE.md` | resumo/Ã­ndice | Documento consolidado final, aponta para todos os outros |
+| `../docs/00-prompt-mestre.md` | histÃ³rico/processo (ciclo concluÃ­do) | Processo Claudeâ†”Codex que produziu o design; nÃ£o Ã© ponto de entrada de sessÃ£o |
+| `quality-criteria.md` | normativo atual | 12 critÃ©rios de qualidade, pesos, gates G1-G6 |
+| `fitness-function.md` | normativo atual | Fitness function derivada dos critÃ©rios |
+| `requirements.md` | normativo atual | Requisitos funcionais/nÃ£o-funcionais, unknowns |
+| `capacity-model.md` | normativo atual | Modelo de capacidade Stage 0-5 |
+| `architecture-fase3-consolidada.md` | normativo atual | Arquitetura AWS conceitual, 14 decisÃµes numeradas |
+| `data-model.md` | normativo atual | Modelo de domÃ­nio/dados, DynamoDB single-table, 6 GSIs |
+| `slo.md` | normativo atual | SLOs, incluindo drenagem de pico extremo |
+| `disaster-recovery.md` | normativo atual | RPO/RTO, teste de restore, runbook |
+| `privacy-lgpd.md` | normativo atual | Classes de retenÃ§Ã£o, direitos do titular |
+| `cost-model.md` | normativo atual | Modelo de custo por estÃ¡gio |
+| `mcp-readiness.md` | normativo atual | ProntidÃ£o de domÃ­nio para MCP futuro |
+| `evolution.md` | normativo atual | TransiÃ§Ãµes de estÃ¡gio, gatilhos |
+| `aws-well-architected-review.md` | normativo atual | RevisÃ£o pelos 6 pilares AWS, riscos conhecidos |
+| `threat-model.md` | normativo atual | Threat model STRIDE, seÃ§Ã£o 33 â€” APPROVED (Claude ~9.05 / Codex 9.002) |
+| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seÃ§Ã£o 60 â€” componentes, interfaces, eventos/schemas, ordem de deploy, milestones â€” APPROVED (Claude 9.20 / Codex 9.2) |
+| `decisions-log.md` | decisÃ£o/ADR (log vivo) | 26 decisÃµes (D-000 a D-025), nota Claude/Codex, status |
+| `adr/` | decisÃ£o/ADR | 8 ADRs formais para decisÃµes Type 1 |
+| `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
+| `diagrams/status-projeto.html` | resumo/Ã­ndice (visual) | Painel visual do status do projeto |
+| `session-log.md` | histÃ³rico | Log cronolÃ³gico compacto por sessÃ£o |
+| `history/` | histÃ³rico/supersedido | Artefatos de rodada (propostas, crÃ­ticas, red team) que produziram os documentos normativos acima â€” ver subseÃ§Ã£o |
+
+## `history/` â€” evidÃªncia de rodada, por tema
+
+Cada subpasta contÃ©m os artefatos de proposta/crÃ­tica/trÃ©plica que antecederam o documento normativo correspondente. Nunca tratar como fonte de decisÃ£o vigente â€” sÃ³ como prova de como o consenso foi alcanÃ§ado.
+
+| Subpasta | Documento normativo correspondente |
+|---|---|
+| `history/quality-criteria/` | `quality-criteria.md` |
+| `history/architecture-fase3/` | `architecture-fase3-consolidada.md` |
+| `history/data-model/` | `data-model.md` |
+| `history/slo/` | `slo.md` |
+| `history/disaster-recovery/` | `disaster-recovery.md` |
+| `history/privacy-lgpd/` | `privacy-lgpd.md` |
+| `history/cost-model/` | `cost-model.md` |
+| `history/threat-model/` | `threat-model.md` |
+| `history/implementation-blueprint/` | `implementation-blueprint.md` |
+
+codex
+## 1. Pontos de concordância
+
+A proposta parte de fundamentos corretos:
+
+- Separar Engineering Foundation de Operational Engineering Evidence evita reprovar artificialmente um sistema pré-produção por ainda não possuir histórico operacional.
+- Evidence-first está bem definido: documentação não substitui mecanismo executável.
+- Gates eliminatórios são apropriados para isolamento, segurança básica, integridade do pipeline e caminhos assíncronos críticos.
+- O peso combinado de correctness, contratos e testes deve ser dominante neste projeto.
+- OpenSSF Scorecard como evidência auxiliar, e não como autoridade normativa, é a decisão correta para um repositório privado.
+- SLSA L3, governança corporativa extensa e métricas DORA reais seriam desproporcionais neste estágio.
+
+## 2. Discordâncias e mudanças propostas
+
+### A rubrica está fragmentada demais
+
+Dezesseis domínios são excessivos para uma rubrica de 100 pontos. Domínios de 1–3% produzem precisão aparente sem influência real e aumentam as oportunidades de double counting.
+
+Os principais problemas são:
+
+- Documentation 1%, Governance 1%, DX 2% e AI-Assisted Engineering 3% são categorias pequenas demais para avaliação consistente.
+- AI-Assisted Engineering com 3% é claramente específico ao modo de trabalho deste repositório. Uso de Claude/Codex não é, por si, atributo de maturidade do produto. O que importa é revisão, rastreabilidade, proteção contra alterações incorretas e reprodutibilidade — independentemente de quem escreveu o código.
+- CD & Release, Supply Chain e CI têm fronteiras pouco claras. Provenance, build imutável e promoção de artefatos podem receber crédito em mais de um domínio.
+- Reliability, Data & State e Correctness também precisam de fronteiras explícitas para impedir duplicidade.
+
+Minha recomendação é eliminar AI-Assisted Engineering como domínio pontuado. Seus mecanismos úteis devem aparecer em Developer Experience/Governance ou nos domínios técnicos que efetivamente protegem.
+
+### O domínio M deve permanecer, mas com escopo estreito
+
+Data & State Engineering merece domínio próprio neste projeto. Single-table DynamoDB, OCC, idempotência, outbox, consistência transacional, TTL e evolução de itens são centrais demais para serem apenas subitens genéricos.
+
+Porém, a separação deve ser normativa:
+
+- B — Type Safety, Contracts & Correctness: tipos, validação de entrada, schemas, compatibilidade de contratos, invariantes de domínio e semântica de erros.
+- M — Data & State Engineering: atomicidade, concorrência, idempotência persistida, modelagem de chaves/índices, evolução de dados, retenção e integridade transacional.
+- I — Reliability Engineering: comportamento sob falha e repetição, retries, DLQ, reconciliação, recuperação, degradação e continuidade.
+
+Uma mesma evidência pode ser referenciada em vários lugares, mas os pontos não podem ser concedidos duas vezes pela mesma propriedade.
+
+### Alguns gates estão vagos ou tecnicamente incorretos
+
+**G2 — “CI obrigatório real”**
+
+A existência de um workflow e até uma execução verde não prova que o CI seja obrigatório. Separar:
+
+- workflow executado em PR/push, com evidência de execução remota;
+- proteção de branch/required checks, quando configurável e aplicável;
+- nenhuma forma normal de merge contornar os checks sem exceção auditável.
+
+Se não houver acesso à configuração remota, a obrigatoriedade é NOT ENOUGH EVIDENCE, não PASS inferido pelo YAML.
+
+**G4 — secrets conhecidos**
+
+“Nenhum secret conhecido” é fraco e subjetivo. O gate deve exigir varredura automatizada do estado atual e, idealmente, do histórico Git, com findings triados. Um scanner verde não prova ausência absoluta; prova que um controle definido foi executado.
+
+**G5 — qualquer vulnerabilidade high**
+
+Bloquear automaticamente por toda dependência classificada como high pode ser desproporcional e incentiva exceções cosméticas. Sugestão:
+
+- critical alcançável ou em dependência de runtime, sem mitigação aceita: bloqueia;
+- high alcançável: bloqueia;
+- high não alcançável, apenas dev/tooling ou falso positivo: exige exceção registrada com justificativa, owner e prazo;
+- severidade não deve ser reduzida informalmente pelo time.
+
+**G6 — isolamento de tenant em IAM**
+
+A formulação atual é tecnicamente problemática. Uma Lambda compartilhada entre tenants normalmente não consegue aplicar isolamento por tenant apenas em IAM, porque o principal IAM é a função, não o tenant de cada requisição.
+
+O gate correto é defesa em profundidade:
+
+- identidade e tenant derivados de contexto confiável;
+- autorização e escopo aplicados centralmente;
+- testes negativos cross-tenant;
+- IAM sintetizado com menor privilégio por capability;
+- índices globais/restritos, como GSI3, acessíveis somente aos workers autorizados;
+- ausência de grants genéricos que exponham todos os índices.
+
+Não se deve exigir um mecanismo IAM por tenant que a arquitetura compartilhada não consegue expressar.
+
+**G7 — reminder processing**
+
+É específico demais ao projeto e estreito demais. O gate deve cobrir todos os caminhos assíncronos críticos:
+
+- nenhum catch-and-swallow;
+- classificação retryable/terminal;
+- política de retry e destino terminal/DLQ;
+- idempotência sob redelivery;
+- falha parcial de batch;
+- teste de comportamento sob falha.
+
+Reminder pode ser um caso obrigatório, mas não o nome do princípio.
+
+**G8 — IaC sintetizável**
+
+Correto, desde que “synth” seja definido como síntese real em memória ou via CLI. Teste de assertions que instancia a stack é evidência válida de síntese estática. O gate também deve validar propriedades críticas, e não apenas “não lançou exceção”.
+
+**G9 — boundaries “idealmente” verificáveis**
+
+Um gate não pode conter “idealmente”. Ou existe comando executável e critério binário, ou isso deve ser um item pontuado.
+
+Proposta:
+
+- PASS somente se houver lint/teste de dependência que falhe com uma violação deliberada ou fixture negativa;
+- caso contrário, avaliar modularidade no domínio de maintainability, sem gate eliminatório.
+
+### Falta um gate contra infraestrutura de fachada
+
+O estado vigente informa que stacks ainda podem apontar para handlers inline placeholder. Isso é legítimo durante implementação, mas não pode sustentar aprovação de uma foundation considerada deployable.
+
+Adicionar gate:
+
+**G10 — Deployable wiring integrity:** todo componente declarado implementado/deployable possui entrypoint real, bundle validável e configuração ligada à stack; placeholders precisam estar explicitamente fora do escopo aprovado.
+
+Isso pode deixar a Foundation ainda não aprovada hoje. Não é um problema da rubrica; é exatamente o tipo de distinção que evidence-first deve revelar.
+
+## 3. Gaps bibliográficos
+
+A pesquisa é boa, mas faltam fontes mais operacionais:
+
+- **OWASP ASVS**: fornece requisitos verificáveis para autenticação, sessão, autorização, validação, logging e APIs. É mais concreto para avaliação de código do que SAMM, que mede maturidade de processo.
+- **AWS Well-Architected Serverless Applications Lens**: mais diretamente aplicável que apenas o framework geral para Lambda, filas, retries, idempotência e observabilidade serverless.
+- **AWS Security Best Practices / Security Pillar**: útil para transformar “secure-by-default” em critérios específicos de IAM, logging, criptografia e gestão de credenciais.
+- **OpenSSF OSPS Baseline**: complementa Scorecard e SLSA com controles mínimos de projeto e supply chain mais diretamente auditáveis.
+- **CycloneDX ou SPDX**: se SBOM recebe crédito ou gate, a especificação adotada deve ser citada, não apenas a ferramenta que o gera.
+- **OWASP Software Component Verification Standard**, se a revisão quiser critérios mais concretos para dependências e supply chain.
+
+Eu não adicionaria ISO 27001, NIST 800-53 ou COBIT: seriam excessivos para o estágio e adicionariam governança sem melhorar materialmente a avaliação técnica.
+
+## 4. Rubrica revisada
+
+| Domínio | Peso |
+|---|---:|
+| Code Quality & Maintainability | 10% |
+| Type Safety, Contracts & Correctness | 15% |
+| Testing Engineering | 16% |
+| Continuous Integration | 8% |
+| Release Engineering & Software Supply Chain | 9% |
+| Secure Software Engineering & Privacy Controls | 14% |
+| Infrastructure Engineering / IaC | 8% |
+| Data & State Engineering | 7% |
+| Reliability & Async Processing | 7% |
+| Observability & Operability | 3% |
+| Developer Experience, Documentation & Governance | 2% |
+| Performance & Efficiency | 1% |
+| **Total** | **100%** |
+
+Performance com 1% é aceitável somente porque load/capacity operacional fica fora da Foundation. Ainda assim, devem ser avaliados antipadrões evidentes e testes determinísticos de paginação/batching; não desempenho real.
+
+### Gates revisados
+
+- **G1 — Reproducibilidade limpa:** versão de Node fixada; `npm ci`; typecheck/build; lint; schema validation.
+- **G2 — CI real e obrigatório:** execução remota comprovada em PR/push e required checks comprovados, ou NOT ENOUGH EVIDENCE para a parte remota.
+- **G3 — Suítes críticas verdes:** cross-tenant, GSI restrito, lifecycle, reminder e demais fluxos classificados como críticos.
+- **G4 — Secret scanning:** árvore atual e histórico analisados; nenhum segredo válido não revogado.
+- **G5 — Vulnerabilidades:** nenhuma critical ou high alcançável sem mitigação aceita; exceções não alcançáveis possuem owner e expiração.
+- **G6 — Isolamento e IAM:** cross-tenant negativo, identidade confiável, menor privilégio por capability e índices restritos inacessíveis aos principals indevidos.
+- **G7 — Segurança assíncrona:** retry/DLQ, idempotência, falha parcial e ausência de swallow comprovados nos caminhos críticos.
+- **G8 — IaC válida:** síntese real e assertions das propriedades críticas de segurança, isolamento e persistência.
+- **G9 — Boundaries executáveis:** somente gate se houver enforcement automatizado e critério binário; caso contrário, remover como gate e pontuar em Maintainability.
+- **G10 — Wiring deployável:** componentes declarados prontos possuem entrypoints reais e bundle/configuração validáveis; placeholders não contam como implementação.
+
+### Regra de N/A
+
+A regra atual ainda permite gaming porque redistribuir peso aumenta silenciosamente o valor dos domínios fortes. “Mesmo eixo” também não está formalmente definido.
+
+Eu adotaria:
+
+1. Operational Engineering Evidence é um placar/status separado. Não entra como N/A nem redistribui a Foundation.
+2. N/A na Foundation só pode ser definido antes da inspeção dos resultados, com justificativa e concordância dos dois revisores.
+3. Domínios centrais — correctness, testing, security, IaC, data/state e reliability — não podem ser N/A neste projeto.
+4. Publicar simultaneamente:
+   - nota normalizada;
+   - peso efetivamente avaliado;
+   - lista e peso dos N/A.
+5. Foundation só pode ser APPROVED se ao menos 95% do peso original tiver evidência avaliável.
+6. Ausência temporária de evidência para uma capacidade que o projeto declara possuir é NOT ENOUGH EVIDENCE ou zero no critério, não N/A.
+
+Conclusão: a proposta inicial tem boa base, mas eu não a congelaria. O principal risco é uma rubrica excessivamente fragmentada e personalizada ao repositório, somado a gates vagos — especialmente G6 e G9 — que não produziriam resultados binários defensáveis.
+tokens used
+18.078
+## 1. Pontos de concordância
+
+A proposta parte de fundamentos corretos:
+
+- Separar Engineering Foundation de Operational Engineering Evidence evita reprovar artificialmente um sistema pré-produção por ainda não possuir histórico operacional.
+- Evidence-first está bem definido: documentação não substitui mecanismo executável.
+- Gates eliminatórios são apropriados para isolamento, segurança básica, integridade do pipeline e caminhos assíncronos críticos.
+- O peso combinado de correctness, contratos e testes deve ser dominante neste projeto.
+- OpenSSF Scorecard como evidência auxiliar, e não como autoridade normativa, é a decisão correta para um repositório privado.
+- SLSA L3, governança corporativa extensa e métricas DORA reais seriam desproporcionais neste estágio.
+
+## 2. Discordâncias e mudanças propostas
+
+### A rubrica está fragmentada demais
+
+Dezesseis domínios são excessivos para uma rubrica de 100 pontos. Domínios de 1–3% produzem precisão aparente sem influência real e aumentam as oportunidades de double counting.
+
+Os principais problemas são:
+
+- Documentation 1%, Governance 1%, DX 2% e AI-Assisted Engineering 3% são categorias pequenas demais para avaliação consistente.
+- AI-Assisted Engineering com 3% é claramente específico ao modo de trabalho deste repositório. Uso de Claude/Codex não é, por si, atributo de maturidade do produto. O que importa é revisão, rastreabilidade, proteção contra alterações incorretas e reprodutibilidade — independentemente de quem escreveu o código.
+- CD & Release, Supply Chain e CI têm fronteiras pouco claras. Provenance, build imutável e promoção de artefatos podem receber crédito em mais de um domínio.
+- Reliability, Data & State e Correctness também precisam de fronteiras explícitas para impedir duplicidade.
+
+Minha recomendação é eliminar AI-Assisted Engineering como domínio pontuado. Seus mecanismos úteis devem aparecer em Developer Experience/Governance ou nos domínios técnicos que efetivamente protegem.
+
+### O domínio M deve permanecer, mas com escopo estreito
+
+Data & State Engineering merece domínio próprio neste projeto. Single-table DynamoDB, OCC, idempotência, outbox, consistência transacional, TTL e evolução de itens são centrais demais para serem apenas subitens genéricos.
+
+Porém, a separação deve ser normativa:
+
+- B — Type Safety, Contracts & Correctness: tipos, validação de entrada, schemas, compatibilidade de contratos, invariantes de domínio e semântica de erros.
+- M — Data & State Engineering: atomicidade, concorrência, idempotência persistida, modelagem de chaves/índices, evolução de dados, retenção e integridade transacional.
+- I — Reliability Engineering: comportamento sob falha e repetição, retries, DLQ, reconciliação, recuperação, degradação e continuidade.
+
+Uma mesma evidência pode ser referenciada em vários lugares, mas os pontos não podem ser concedidos duas vezes pela mesma propriedade.
+
+### Alguns gates estão vagos ou tecnicamente incorretos
+
+**G2 — “CI obrigatório real”**
+
+A existência de um workflow e até uma execução verde não prova que o CI seja obrigatório. Separar:
+
+- workflow executado em PR/push, com evidência de execução remota;
+- proteção de branch/required checks, quando configurável e aplicável;
+- nenhuma forma normal de merge contornar os checks sem exceção auditável.
+
+Se não houver acesso à configuração remota, a obrigatoriedade é NOT ENOUGH EVIDENCE, não PASS inferido pelo YAML.
+
+**G4 — secrets conhecidos**
+
+“Nenhum secret conhecido” é fraco e subjetivo. O gate deve exigir varredura automatizada do estado atual e, idealmente, do histórico Git, com findings triados. Um scanner verde não prova ausência absoluta; prova que um controle definido foi executado.
+
+**G5 — qualquer vulnerabilidade high**
+
+Bloquear automaticamente por toda dependência classificada como high pode ser desproporcional e incentiva exceções cosméticas. Sugestão:
+
+- critical alcançável ou em dependência de runtime, sem mitigação aceita: bloqueia;
+- high alcançável: bloqueia;
+- high não alcançável, apenas dev/tooling ou falso positivo: exige exceção registrada com justificativa, owner e prazo;
+- severidade não deve ser reduzida informalmente pelo time.
+
+**G6 — isolamento de tenant em IAM**
+
+A formulação atual é tecnicamente problemática. Uma Lambda compartilhada entre tenants normalmente não consegue aplicar isolamento por tenant apenas em IAM, porque o principal IAM é a função, não o tenant de cada requisição.
+
+O gate correto é defesa em profundidade:
+
+- identidade e tenant derivados de contexto confiável;
+- autorização e escopo aplicados centralmente;
+- testes negativos cross-tenant;
+- IAM sintetizado com menor privilégio por capability;
+- índices globais/restritos, como GSI3, acessíveis somente aos workers autorizados;
+- ausência de grants genéricos que exponham todos os índices.
+
+Não se deve exigir um mecanismo IAM por tenant que a arquitetura compartilhada não consegue expressar.
+
+**G7 — reminder processing**
+
+É específico demais ao projeto e estreito demais. O gate deve cobrir todos os caminhos assíncronos críticos:
+
+- nenhum catch-and-swallow;
+- classificação retryable/terminal;
+- política de retry e destino terminal/DLQ;
+- idempotência sob redelivery;
+- falha parcial de batch;
+- teste de comportamento sob falha.
+
+Reminder pode ser um caso obrigatório, mas não o nome do princípio.
+
+**G8 — IaC sintetizável**
+
+Correto, desde que “synth” seja definido como síntese real em memória ou via CLI. Teste de assertions que instancia a stack é evidência válida de síntese estática. O gate também deve validar propriedades críticas, e não apenas “não lançou exceção”.
+
+**G9 — boundaries “idealmente” verificáveis**
+
+Um gate não pode conter “idealmente”. Ou existe comando executável e critério binário, ou isso deve ser um item pontuado.
+
+Proposta:
+
+- PASS somente se houver lint/teste de dependência que falhe com uma violação deliberada ou fixture negativa;
+- caso contrário, avaliar modularidade no domínio de maintainability, sem gate eliminatório.
+
+### Falta um gate contra infraestrutura de fachada
+
+O estado vigente informa que stacks ainda podem apontar para handlers inline placeholder. Isso é legítimo durante implementação, mas não pode sustentar aprovação de uma foundation considerada deployable.
+
+Adicionar gate:
+
+**G10 — Deployable wiring integrity:** todo componente declarado implementado/deployable possui entrypoint real, bundle validável e configuração ligada à stack; placeholders precisam estar explicitamente fora do escopo aprovado.
+
+Isso pode deixar a Foundation ainda não aprovada hoje. Não é um problema da rubrica; é exatamente o tipo de distinção que evidence-first deve revelar.
+
+## 3. Gaps bibliográficos
+
+A pesquisa é boa, mas faltam fontes mais operacionais:
+
+- **OWASP ASVS**: fornece requisitos verificáveis para autenticação, sessão, autorização, validação, logging e APIs. É mais concreto para avaliação de código do que SAMM, que mede maturidade de processo.
+- **AWS Well-Architected Serverless Applications Lens**: mais diretamente aplicável que apenas o framework geral para Lambda, filas, retries, idempotência e observabilidade serverless.
+- **AWS Security Best Practices / Security Pillar**: útil para transformar “secure-by-default” em critérios específicos de IAM, logging, criptografia e gestão de credenciais.
+- **OpenSSF OSPS Baseline**: complementa Scorecard e SLSA com controles mínimos de projeto e supply chain mais diretamente auditáveis.
+- **CycloneDX ou SPDX**: se SBOM recebe crédito ou gate, a especificação adotada deve ser citada, não apenas a ferramenta que o gera.
+- **OWASP Software Component Verification Standard**, se a revisão quiser critérios mais concretos para dependências e supply chain.
+
+Eu não adicionaria ISO 27001, NIST 800-53 ou COBIT: seriam excessivos para o estágio e adicionariam governança sem melhorar materialmente a avaliação técnica.
+
+## 4. Rubrica revisada
+
+| Domínio | Peso |
+|---|---:|
+| Code Quality & Maintainability | 10% |
+| Type Safety, Contracts & Correctness | 15% |
+| Testing Engineering | 16% |
+| Continuous Integration | 8% |
+| Release Engineering & Software Supply Chain | 9% |
+| Secure Software Engineering & Privacy Controls | 14% |
+| Infrastructure Engineering / IaC | 8% |
+| Data & State Engineering | 7% |
+| Reliability & Async Processing | 7% |
+| Observability & Operability | 3% |
+| Developer Experience, Documentation & Governance | 2% |
+| Performance & Efficiency | 1% |
+| **Total** | **100%** |
+
+Performance com 1% é aceitável somente porque load/capacity operacional fica fora da Foundation. Ainda assim, devem ser avaliados antipadrões evidentes e testes determinísticos de paginação/batching; não desempenho real.
+
+### Gates revisados
+
+- **G1 — Reproducibilidade limpa:** versão de Node fixada; `npm ci`; typecheck/build; lint; schema validation.
+- **G2 — CI real e obrigatório:** execução remota comprovada em PR/push e required checks comprovados, ou NOT ENOUGH EVIDENCE para a parte remota.
+- **G3 — Suítes críticas verdes:** cross-tenant, GSI restrito, lifecycle, reminder e demais fluxos classificados como críticos.
+- **G4 — Secret scanning:** árvore atual e histórico analisados; nenhum segredo válido não revogado.
+- **G5 — Vulnerabilidades:** nenhuma critical ou high alcançável sem mitigação aceita; exceções não alcançáveis possuem owner e expiração.
+- **G6 — Isolamento e IAM:** cross-tenant negativo, identidade confiável, menor privilégio por capability e índices restritos inacessíveis aos principals indevidos.
+- **G7 — Segurança assíncrona:** retry/DLQ, idempotência, falha parcial e ausência de swallow comprovados nos caminhos críticos.
+- **G8 — IaC válida:** síntese real e assertions das propriedades críticas de segurança, isolamento e persistência.
+- **G9 — Boundaries executáveis:** somente gate se houver enforcement automatizado e critério binário; caso contrário, remover como gate e pontuar em Maintainability.
+- **G10 — Wiring deployável:** componentes declarados prontos possuem entrypoints reais e bundle/configuração validáveis; placeholders não contam como implementação.
+
+### Regra de N/A
+
+A regra atual ainda permite gaming porque redistribuir peso aumenta silenciosamente o valor dos domínios fortes. “Mesmo eixo” também não está formalmente definido.
+
+Eu adotaria:
+
+1. Operational Engineering Evidence é um placar/status separado. Não entra como N/A nem redistribui a Foundation.
+2. N/A na Foundation só pode ser definido antes da inspeção dos resultados, com justificativa e concordância dos dois revisores.
+3. Domínios centrais — correctness, testing, security, IaC, data/state e reliability — não podem ser N/A neste projeto.
+4. Publicar simultaneamente:
+   - nota normalizada;
+   - peso efetivamente avaliado;
+   - lista e peso dos N/A.
+5. Foundation só pode ser APPROVED se ao menos 95% do peso original tiver evidência avaliável.
+6. Ausência temporária de evidência para uma capacidade que o projeto declara possuir é NOT ENOUGH EVIDENCE ou zero no critério, não N/A.
+
+Conclusão: a proposta inicial tem boa base, mas eu não a congelaria. O principal risco é uma rubrica excessivamente fragmentada e personalizada ao repositório, somado a gates vagos — especialmente G6 e G9 — que não produziriam resultados binários defensáveis.

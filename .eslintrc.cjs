@@ -44,5 +44,24 @@ module.exports = {
         "no-console": "off",
       },
     },
+    {
+      // Architecture boundary enforcement (Engineering Maturity Review G10, 2026-08-19):
+      // domain/ layers must stay SDK-agnostic and must not reach into infra/ or sibling
+      // modules' internals. Previously true only by convention (verified by grep, not by
+      // CI) - this makes the boundary a real, automated, required check.
+      files: ["src/modules/*/domain/**/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              { group: ["**/infra/**"], message: "domain/ must not depend on infra/ (architecture boundary)." },
+              { group: ["aws-sdk", "@aws-sdk/*"], message: "domain/ must be AWS-SDK-agnostic (architecture boundary)." },
+              { group: ["**/modules/*/application/**", "**/modules/*/ports/**", "**/modules/*/http/**", "**/modules/*/persistence/**"], message: "domain/ must not import another module's application/ports/http/persistence layers (architecture boundary)." },
+            ],
+          },
+        ],
+      },
+    },
   ],
 };

@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f # v4.0.2
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -63,8 +63,11 @@ jobs:
       - name: Unit + contract tests
         run: npm test
 
-      - name: Dependency audit
-        run: npm audit --audit-level=high || echo "::warning::npm audit reported findings - see log; SLA per implementation-blueprint.md #16.2"
+      - name: Dependency audit (production - blocking)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Dependency audit (dev - informational, known exceptions in docs/engineering/exceptions.md)
+        run: npm audit --audit-level=high || echo "::warning::npm audit found dev-dependency findings - cross-check against docs/engineering/exceptions.md; anything not listed there is a new finding and must be triaged"
 
       - name: Generate SBOM (CycloneDX)
         run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json

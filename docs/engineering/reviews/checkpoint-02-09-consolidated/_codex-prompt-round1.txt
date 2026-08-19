@@ -1,0 +1,48 @@
+Responda em texto puro. Não precisa rodar comandos nem ler arquivos — toda a evidência necessária está neste prompt. Se quiser confirmar algo pontual e pequeno, pode, mas não é necessário.
+
+Você é um engenheiro de software sênior atuando como segundo revisor independente numa Engineering Maturity Review de um micro-SaaS AWS serverless (TypeScript/Node, pré-produção, single-table DynamoDB, repositório privado no GitHub). Rubrica já congelada por acordo prévio Claude+Codex (16 domínios, pesos somando 100%, gates G1-G11, regra N/A vs NOT ENOUGH EVIDENCE distinta). Esta é uma avaliação evidence-first: só conta execução real, teste executável, código; documentação sem enforcement não vale nota.
+
+=== RUBRICA CONGELADA (pesos) ===
+A.Code Quality&Maintainability 10% | B.Type Safety/Contracts/Correctness 11% | C.Testing Engineering 14% | D.Continuous Integration 8% | E.CD&Release Engineering 4% | F.Secure Software Engineering 12% | G.Software Supply Chain 6% | H.Infrastructure Engineering/IaC 7% | I.Reliability Engineering 8% | J.Observability&Operability 6% | K.Developer Experience 2% | L.Documentation Engineering 3% | M.Data&State Engineering 5% | N.Engineering Governance 2% | O.AI-Assisted Engineering 1% | P.Performance&Efficiency 1%
+
+Gates G1-G11 (resumo): G1 build reproduzível; G2 CI executa de fato em todo PR + branch protegida (evidência real do GitHub, não presumida do YAML); G3 testes críticos orientados a risco passam; G4 sem secret no repo; G5 sem vuln crítica não tratada (definição de "tratada" = corrigida/mitigada/aceita formalmente com prazo); G6 autorização/isolamento cross-tenant no caminho real de dados; G7 least privilege de infra/índices nas políticas IAM sintetizadas (distinto de G6); G8 falhas assíncronas terminais observáveis/recuperáveis (DLQ/telemetria/replay testado); G9 infra sintetiza + assertions de segurança; G10 boundaries arquiteturais enforced automaticamente no CI (não só convenção); G11 schemas/contratos válidos verificados no CI.
+
+=== EVIDÊNCIA REAL COLETADA (execução real, não declaração) ===
+
+1. CI NUNCA EXECUTOU COM SUCESSO. O pin `actions/setup-node@60edb5dd545a775178f52524783378180af0d1f` em .github/workflows/ci.yml linha 46 tem 39 caracteres (SHA git válido tem 40 — confirmado por contagem). `gh run view` na única execução real do workflow (rodada 32258273775, único push já feito) mostra falha em "Set up job", ANTES do checkout de código, com erro do GitHub Actions: "Unable to resolve action actions/setup-node@60edb5...f, the provided ref is the shortened version of a commit SHA, which is not supported." Os outros dois pins do mesmo arquivo (`actions/checkout`, `actions/upload-artifact`) têm 40 caracteres corretos — só este está truncado.
+
+2. `gh api repos/.../branches/main/protection` retorna 404 "Branch not protected" — main não tem proteção nenhuma, sem required checks, sem bloqueio de push direto.
+
+3. `npm audit` real (executado agora): 2 critical, 1 high, 2 moderate — todos transitivos via vitest→vite→esbuild, relacionados ao dev-server do Vite (não expostos em runtime de produção; fix disponível via `npm audit fix --force`, que é breaking change de vitest 1.x→4.x). O step de audit no CI é: `npm audit --audit-level=high || echo "::warning::..."` — o `|| echo` garante que esse step NUNCA falha o job, independente do que o audit encontrar.
+
+4. Divergência documentação↔realidade: `NEXT_SESSION_PROMPT.md` (arquivo de estado do projeto) afirma "nada commitado" para os milestones M0-M3; o estado real do git é que M0-M3 JÁ ESTÁ commitado num único commit grande (`154d6e0`, mensagem "Implementation Blueprint... + implementacao real M0-M3"). Registro anterior de sessão também citava "390 testes"; `npm test` real agora mostra 123 testes (19 arquivos), todos passando localmente.
+
+5. Repositório não tem nenhum README.md na raiz. Existem AGENTS.md/CLAUDE.md (orientados a agentes de IA) e vários docs em docs/architecture/, mas nenhum ponto de entrada para um humano novo.
+
+6. Duplicação real: o pipeline de mapeamento de erro HTTP (`STATUS_BY_CATEGORY`, função `toResponse`, função `withErrorMapping`) está copiado quase verbatim em três arquivos: src/modules/expiration/http/item-handlers.ts, src/modules/reminder/http/policy-handlers.ts, src/modules/identity/http/test-route-handler.ts. Comentários no próprio código admitem "mirrors X exactly" — não foi extraído para src/shared/errors/, que já existe e seria o lar natural.
+
+7. Boundaries de módulo: grep confirma ZERO arquivos em */domain/ importando infra/, aws-sdk, ou internals de outro módulo. shared/ é consumido de forma unidirecional. Não há, porém, nenhum teste/lint automatizado que PROÍBA mecanicamente essa violação — hoje está limpo por disciplina, não por enforcement.
+
+8. Zero `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` em src/. Únicos casts são 4 instâncias de `as unknown as Record<string,unknown> & {PK,SK}` — mesmo padrão justificado (adaptar objeto de domínio tipado pro shape genérico do builder de OCC compartilhado).
+
+9. Nenhum secret real encontrado em arquivos versionados via grep (padrões AKIA*, chaves privadas PEM, password=/apiKey=/secret= literais). Único achado é um valor canário de teste (`CANARY_SECRET = "super-secret-token-value-12345"`) em test/unit/redactor.test.ts, usado propositalmente para provar que o redactor de logs funciona.
+
+10. 13 blocos `catch` revisados em src/ — nenhum swallowing silencioso encontrado: todos ou rethrow, ou mapeiam pra AppError tipado, ou tratam race condition nomeada explicitamente (ex.: `isTransactionCanceled`). Três handlers HTTP de borda (item-handlers.ts, policy-handlers.ts, test-route-handler.ts) mapeiam erro pra resposta HTTP tipada mas não foi confirmado se chamam o SecureLogger antes de responder.
+
+11. Bug real de infraestrutura foi encontrado e corrigido numa sessão anterior (M3): `Table.grantReadWriteData`/`grantReadData` do CDK vazavam acesso de query a um GSI restrito (GSI3, usado pelo scheduler de reminders) para QUALQUER função Lambda da tabela, inclusive as tenant-facing — quebrando o isolamento de índice documentado desde M1. Foi corrigido com PolicyStatements explícitos por índice, e há um teste de regressão (`test/infra/stack.test.ts`) que prova via CDK synth que só a função ReminderProducer referencia `/index/GSI3`.
+
+12. `cdk synth` real via CLI da AWS nunca foi executado (o pacote `aws-cdk` CLI não está instalado no ambiente, só a lib `aws-cdk-lib`). A sintetização é verificada só via `aws-cdk-lib/assertions` (`Template.fromStack`) em memória — equivalente para validação estática, mas nunca rodou o comando real.
+
+13. Workers assíncronos (`src/workers/reminder-dispatch/dispatch.ts`, `reminder-producer/producer.ts`, `reminder-reconciliation/reconciliation.ts`) não têm arquivo de teste unitário individual nomeado — a cobertura vem só da suíte de integração `test/integration/reminder-engine.test.ts`, que testa o conjunto, não cada worker isoladamente com fault injection dedicada (timeout de dependência, mensagem poison, etc.).
+
+14. Contract tests de schema existem e passam (`test/contract/schemas.test.ts`, JSON Schema via Ajv, `npm run validate-schemas` também roda fora do test runner). Nenhum destes foi confirmado como executado com sucesso em CI real (só localmente) — mesma ressalva do achado 1.
+
+15. Não há evidência de deploy real, ambiente real, load test real, restore test real, ou métricas/alarmes em execução — projeto é genuinamente pré-produção. `slo.md`/`disaster-recovery.md` existem na fase de arquitetura mas não há instrumentação real correspondente ainda no código revisado.
+
+=== SUA TAREFA (Checkpoint 2-9, Passo B — Codex Blind Review) ===
+
+Dê uma nota independente 0.00-10.00 para CADA um dos 16 domínios (A-P), baseada SOMENTE na evidência acima (não peça mais evidência que não foi fornecida — se faltar, marque NOT ENOUGH EVIDENCE explicitamente para aquele domínio/sub-critério e explique o impacto na nota máxima possível daquele domínio). Para cada gate G1-G11, marque PASS / FAIL / PARCIAL com uma frase de justificativa. Ao final, dê seu veredito para `ENGINEERING FOUNDATION STATUS` (APPROVED/NOT APPROVED) e liste os P0 (bloqueadores) que você identifica, se houver.
+
+Seja rigoroso e busque ativamente razões para reduzir a nota (anti-confirmation-bias) — isto não é uma confirmação da minha avaliação, é uma avaliação independente seguindo a mesma regra de evidência-first do processo. Não vi minha nota nem meu veredito, e você não deve tentar adivinhá-los ou "acertar" com uma segunda opinião — avalie de forma autônoma.
+
+Formato de resposta: (1) tabela ou lista com nota por domínio + uma linha de justificativa por domínio; (2) gates G1-G11 com veredito; (3) ENGINEERING FOUNDATION STATUS + P0s; (4) qualquer coisa que você ache que a evidência fornecida esconde ou não prova o suficiente.

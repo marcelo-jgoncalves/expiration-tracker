@@ -1,5 +1,7 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+**Correção de 2026-08-19 (Engineering Maturity Review, Checkpoint 2-9)**: as seções abaixo (escritas ao longo das sessões de M0-M3) afirmam "nada foi commitado" e citam contagens de teste por marco que, somadas, não batem com a realidade medida agora. Estado real verificado por execução: M0-M3 **já está commitado** num único commit (`154d6e0`), e `npm test` roda **123 testes** no total (19 arquivos), não a soma das contagens individuais citadas abaixo. As seções não foram reescritas (preservadas como histórico de sessão), mas não devem ser lidas como estado de commit/contagem de teste vigente — confiar em `git log`/`npm test` reais, não nesses números. Ver `docs/engineering/03-repository-baseline.md` e `docs/engineering/reviews/checkpoint-02-09-consolidated/` para a análise completa desta divergência.
+
 Projeto: micro-SaaS de controle de vencimentos/renovações. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
 
 Mapa completo de documentação, status vigente e regra de precedência: `docs/architecture/README.md`. Regras de processo e ferramentas: `AGENTS.md`. Log cronológico de sessões: `docs/architecture/session-log.md`.

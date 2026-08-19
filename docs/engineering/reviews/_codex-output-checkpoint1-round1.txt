@@ -1,0 +1,5136 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01a3f-4cc2-7100-918a-0ecc56dbf0db
+--------
+user
+Você é um engenheiro de software sênior, independente, atuando como segundo revisor num processo formal de Engineering Maturity Review do repositório "Expiration Tracker" (c:\Users\Usuario\Desktop\projects\expiration-tracker, micro-SaaS AWS serverless, pré-produção, TypeScript/Node).
+
+Contexto do processo: existe um "Prompt Mestre" completo em "Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md" na raiz do repo — leia-o primeiro, é a especificação normativa deste processo (rubrica, gates, checkpoints, regras anti-gaming, evidence-first).
+
+Já foi produzido:
+1. docs/engineering/00-research-bibliography.md — pesquisa externa sobre padrões de maturidade de engenharia (ISO 25010, NIST SSDF, OWASP SAMM v2, OpenSSF Scorecard, SLSA, AWS Well-Architected, Google SRE, DORA).
+2. docs/engineering/01-engineering-quality-criteria.md — uma proposta DRAFT de rubrica com domínios, pesos (somando 100%), gates eliminatórios (G1-G9) e regra de N/A/redistribuição de peso.
+
+Sua tarefa AGORA (Checkpoint 1, Passo B do protocolo — "Codex Blind Review", AGENTS.md §3 e Prompt Mestre §26):
+
+Faça uma avaliação CRÍTICA e INDEPENDENTE da proposta de rubrica em 01-engineering-quality-criteria.md. Não a "aprove" por padrão. Procure ativamente:
+- pesos desbalanceados ou domínios ausentes/redundantes (ex.: overlap entre "Data & State Engineering" e "Correctness" já foi sinalizado no próprio draft como não resolvido — dê sua opinião);
+- gates insuficientes ou gates desproporcionais para o estágio do projeto;
+- se a pesquisa bibliográfica é suficiente ou tem lacunas relevantes (ex.: alguma fonte reconhecida que ficou de fora);
+- se a regra de N/A e redistribuição de peso é robusta contra gaming;
+- qualquer critério que pareça favorecer artificialmente este projeto específico (ex.: pesos baixos em áreas onde você suspeita que o projeto é fraco).
+
+Não simplesmente concorde. Este é um checkpoint de rubrica — o objetivo é chegar a critérios congelados e defensáveis ANTES de qualquer nota ser dada ao código, não validar minha proposta.
+
+Produza sua resposta como:
+1. Pontos de concordância (breve).
+2. Pontos de discordância / propostas de mudança concretas (pesos, domínios, gates).
+3. Gaps na pesquisa bibliográfica, se houver.
+4. Sua proposta de rubrica revisada (pesos + gates), se divergir materialmente da minha.
+
+Seja direto e crítico. Isto é engenharia real, não teatro de revisão.
+
+codex
+Vou seguir o protocolo como revisão cega: primeiro leio integralmente o Prompt Mestre e os documentos de estado exigidos pelo repositório; depois confronto rubrica e bibliografia sem avaliar o código nem inferir uma nota do projeto.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw -LiteralPath 'NEXT_SESSION_PROMPT.md'; Get-Content -Raw -LiteralPath 'docs/architecture/README.md'; Get-Content -Raw -LiteralPath 'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md'; Get-Content -Raw -LiteralPath 'docs/engineering/00-research-bibliography.md'; Get-Content -Raw -LiteralPath 'docs/engineering/01-engineering-quality-criteria.md'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 489ms:
+# Expiration Tracker â€” Status e PrÃ³xima SessÃ£o
+
+Projeto: micro-SaaS de controle de vencimentos/renovaÃ§Ãµes. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
+
+Mapa completo de documentaÃ§Ã£o, status vigente e regra de precedÃªncia: `docs/architecture/README.md`. Regras de processo e ferramentas: `AGENTS.md`. Log cronolÃ³gico de sessÃµes: `docs/architecture/session-log.md`.
+
+## Status atual
+
+```text
+DESIGN MATURITY STATUS: APPROVED (arquitetura conceitual + Implementation Blueprint)
+ARCHITECTURE STATUS: NOT APPROVED
+```
+
+Todo o processo de design (Fases 0-3 do prompt mestre + os 14 entregÃ¡veis das seÃ§Ãµes 35-52 + threat model seÃ§Ã£o 33 + Implementation Blueprint seÃ§Ã£o 60) estÃ¡ completo e aprovado â€” ver `ARCHITECTURE.md` na raiz para o documento consolidado. `ARCHITECTURE STATUS: NOT APPROVED` Ã© o estado normativo correto atÃ© haver implementaÃ§Ã£o real testada sob falha/carga (rubrica B, `requirements.md` Â§13.1) â€” **nÃ£o Ã© reprovaÃ§Ã£o de mÃ©rito, e nÃ£o muda com a conclusÃ£o do blueprint**: o blueprint Ã© design detalhado, nÃ£o evidÃªncia operacional.
+
+## ConcluÃ­do nesta sessÃ£o â€” Implementation Blueprint (seÃ§Ã£o 60) â€” APPROVED
+
+`docs/architecture/implementation-blueprint.md`. Componentes/mÃ³dulos (Identity, Expiration, Reminder, Notification, Document, Audit + workers assÃ­ncronos), interfaces concretas, eventos/schemas reais (grounded em `data-model.md`), ordem de deploy, milestones M0-M7, critÃ©rios de aceite tÃ©cnicos por componente, e as 7 lacunas do `threat-model.md` incorporadas como requisito desde o inÃ­cio (nÃ£o apÃªndice). Processo: 2 propostas independentes (Claude/Codex) â†’ crÃ­tica cruzada (17 problemas reais encontrados, incluindo um erro tÃ©cnico presente nas duas propostas â€” chave do GSI3 do scheduler nÃ£o era consultÃ¡vel) â†’ convergÃªncia â†’ 5 rodadas de nota cega com correÃ§Ã£o pontual a cada achado (cabeÃ§alho prematuro, contradiÃ§Ã£o de kill switch, tabela incompleta, decisÃµes Type 1 nÃ£o propagadas Ã s seÃ§Ãµes operativas, mapeamento de estado da Step Functions incompleto). **Nota final: Claude 9.20 / Codex 9.2 (exato)** â€” ambos â‰¥9.0 sem arredondar, 8 rodadas totais, nenhum gate violado. DecisÃ£o Type 1 nova registrada: chave global do GSI3 (`GSI3PK=DUE#yyyyMMddHHmm#NN`, exceÃ§Ã£o documentada Ã  regra de toda chave comeÃ§ar por `TENANT#tenantId`) â€” a decisÃ£o estÃ¡ fechada no blueprint; falta sÃ³ o registro mecÃ¢nico em `data-model.md` (nÃ£o bloqueia implementaÃ§Ã£o).
+
+## ConcluÃ­do nesta sessÃ£o â€” M0 "Guardrails e contratos" (implementation-blueprint.md Â§19)
+
+Todas as entregas de M0 implementadas e testadas (53 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): estrutura TypeScript (`src/shared/*`, alinhada a `implementation-blueprint.md` Â§2), schemas JSON (`schemas/{events,queues,api}` + `sensitive-fields.json`, validados via Ajv em `src/shared/contracts/schema-validator.ts`), `SecureLogger`+`Redactor` central (`src/shared/observability/`, corpus de teste com valores canÃ¡rio provando que nada vaza), configuraÃ§Ã£o tipada fail-fast (`src/shared/config/config.ts`), taxonomia de erro normalizada retryable/terminal (`src/shared/errors/app-error.ts`), idempotÃªncia via `PutItem attribute_not_exists(PK)` (`src/shared/idempotency/idempotency.ts`, chaves por operaÃ§Ã£o conforme `data-model.md` Â§4), OCC com `ConditionExpression: version=:expected` (`src/shared/dynamodb/occ.ts`, `data-model.md` Â§5), outbox transacional (`src/shared/outbox/outbox.ts`, shape de `implementation-blueprint.md` Â§5.3), pipeline supply-chain (`.github/workflows/ci.yml`: npm ci imutÃ¡vel, actions pinadas por SHA, SBOM CycloneDX, audit, gate de schema). `AGENTS.md` Â§6 atualizado com comandos/convenÃ§Ãµes. Nada foi commitado (working tree aberto para revisÃ£o).
+
+Judgment calls (blueprint estava silente): Ajv+ajv-formats para validaÃ§Ã£o de JSON Schema; Vitest como test runner; ESLint `no-console` (com exceÃ§Ã£o para `src/shared/observability/**`) como o mecanismo que faz "chamada direta a `console.*` falhar no lint" (`implementation-blueprint.md` Â§14.1); idempotÃªncia/OCC/outbox construÃ­dos como builders puros de parÃ¢metros DynamoDB (sem `@aws-sdk` ainda) para ficarem testÃ¡veis sem tabelas reais, que sÃ³ existem a partir de M1; SLSA/assinatura de artefato adiada para M1+ (nÃ£o hÃ¡ alvo de deploy ainda); SHAs de actions no CI pinados no momento da escrita â€” revisar antes do primeiro run real.
+
+## ConcluÃ­do nesta sessÃ£o â€” M1 "Foundation, Identity e isolamento" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (89 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorizaÃ§Ã£o como cÃ³digo, `IdentityMapping`/`User`/`DeviceSession`/`TenantQuota` via portas SDK-agnÃ³sticas) e `infra/{lib,bin}` (`ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi` com a rota `GET /test/ping`). SuÃ­te cross-tenant negativa em `test/integration/cross-tenant.test.ts` (9 casos, exit criterion do marco) e synth de infra em `test/infra/stack.test.ts` (6 casos, via `aws-cdk-lib/assertions`, sem AWS CLI). Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente ou pendÃªncia externa jÃ¡ conhecida): (1) MFA implementado como prop configurÃ¡vel (`OFF`/`OPTIONAL`/`REQUIRED`, default `OPTIONAL`) pois UNK-006 segue pendente de pesquisa externa â€” nÃ£o bloqueava M1; (2) CSP/CloudFront Response Headers Policy **nÃ£o implementado nesta sessÃ£o** â€” nÃ£o hÃ¡ distribuiÃ§Ã£o CloudFront/frontend ainda no repositÃ³rio, e o texto do blueprint (Â§4.2) coloca CSP no contexto do SPA estÃ¡tico servido por CloudFront; tratado como pertencente ao milestone que introduzir o frontend, nÃ£o forÃ§ado em M1 (revisar se essa leitura estiver errada); (3) sessÃ£o/revogaÃ§Ã£o modelada como campo `globalLogoutAfter` no item `User` + item filho `DeviceSession` (`TENANT#t#USER#u`/`SESSION#<deviceId>`) em vez de uma entidade `Session` de primeira classe â€” `data-model.md` nÃ£o define uma; (4) `ScopedLambdaFunction` mantÃ©m a lista de entidades por capability como metadado/documentaÃ§Ã£o, mas o IAM real concedido Ã© table-level (`grantReadWriteData`) â€” DynamoDB IAM nÃ£o expressa restriÃ§Ã£o por SK/entidade da forma que a sintaxe do blueprint sugere visualmente; per-entity IAM mais fino fica como follow-up; (5) `TenantQuota` implementado como janela fixa (fixed-window), nÃ£o sliding-window/leaky-bucket â€” mais simples e ainda satisfaz "decremento atÃ´mico, sem race condition" do `data-model.md`; (6) BFF de sessÃ£o (`/session/refresh`, `/session/logout`) **nÃ£o implementado como rota HTTP nesta sessÃ£o** â€” o Cognito client jÃ¡ estÃ¡ configurado para o padrÃ£o (client secret, tokens de vida curta), mas os endpoints do BFF em si ficam para quando a Expiration/Notification API skeleton crescer alÃ©m da rota de teste; revisar se isso deveria ter sido parte do exit criterion. `cdk synth` real via CLI nÃ£o foi executado (o pacote `aws-cdk` CLI nÃ£o estÃ¡ instalado, sÃ³ a lib `aws-cdk-lib`); a sintetizaÃ§Ã£o foi verificada programaticamente via `Template.fromStack` nos testes, que Ã© equivalente para fins de validaÃ§Ã£o estÃ¡tica.
+
+## ConcluÃ­do nesta sessÃ£o â€” M2 "Expiration core e Audit" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` â€” CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutaÃ§Ã£o na mesma transaÃ§Ã£o, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; Ã© idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). SuÃ­te de integraÃ§Ã£o `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente): (1) evento `ItemDueDateChanged` segue exatamente o schema jÃ¡ existente desde M0 (`schemas/events/item-due-date-changed.v1.json`: `itemId`/`previousDueDate`/`newDueDate`/`itemVersion`, `additionalProperties: false`) em vez do exemplo mais rico do texto do blueprint Â§8.3 (que inclui `timeZone`/`reminderPolicyId`/`changeReason`) â€” o schema jÃ¡ testado/versionado Ã© a fonte de verdade de contrato per `AGENTS.md` Â§6, o exemplo em prosa nÃ£o; campos adicionais ficam para quando M3 (Reminder) precisar deles, exigindo `.v2` aditivo; (2) `renewItem` tambÃ©m dispara `ItemDueDateChanged` (para o item novo, `previousDueDate: null`) â€” o blueprint sÃ³ descreve esse evento no contexto de `updateItem`, mas renovaÃ§Ã£o tambÃ©m Ã© uma "mudanÃ§a de vencimento" do ponto de vista do futuro `ReminderProducer` (M3), e a alternativa (renovaÃ§Ã£o silenciosa) deixaria o dashboard/scheduler sem sinal de que um novo item precisa de agendamento; (3) `archiveItem` usa a aÃ§Ã£o de autorizaÃ§Ã£o `item:update` (nÃ£o uma aÃ§Ã£o dedicada â€” a matriz de M1 nÃ£o define uma para archive) enquanto `deleteItem` usa `item:delete` (ADMIN_ROLES), seguindo a granularidade que jÃ¡ existe; (4) idempotÃªncia de renovaÃ§Ã£o aceita uma `idempotencyKey` explÃ­cita do chamador (header `Idempotency-Key`) com fallback determinÃ­stico `itemId|expectedVersion|cycle` quando ausente, jÃ¡ que o blueprint define a CHAVE de dedupe mas nÃ£o de onde ela vem por HTTP; (5) `ExpirationStore.transactWrite` foi adicionado ao port (nÃ£o existe em `IdentityStore`) porque nenhuma escrita de M1 precisava de `TransactWriteItems` multi-item â€” a fake em memÃ³ria (`test/unit/expiration/in-memory-store.ts`) sÃ³ entende as duas formas exatas de `ConditionExpression` que este cÃ³digo produz (mesma limitaÃ§Ã£o documentada, mesmo espÃ­rito de `InMemoryIdentityStore`).
+
+## ConcluÃ­do nesta sessÃ£o â€” M3 "Reminder Engine" (implementation-blueprint.md Â§19)
+
+Todas as entregas implementadas e testadas (123 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/reminder/{domain,application,ports,http}` (policies CRUD, `ReminderMaterializer` com conversÃ£o localâ†’UTC IANA-aware â€” DST tratado explicitamente, horÃ¡rio inexistente e ambÃ­guo â€” reagindo a `ItemDueDateChanged` via `cancelStaleOccurrences`) e `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lÃ³gica pura testÃ¡vel com relÃ³gio falso). GSI3 com shard versionado (`shardFnVersion`) e producer com janela de lookback `[M-5min, M]`; dispatch faz `CLAIMEDâ†’TRIGGERED`+`NotificationIntent`+outbox numa Ãºnica transaÃ§Ã£o; reconciliaÃ§Ã£o Ã© um Ãºnico job (claim-expiry + DST). Exit criterion provado end-to-end em `test/integration/reminder-engine.test.ts`. **Bug real de infraestrutura corrigido**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluÃ­am `<tableArn>/index/*`, vazando `dynamodb:Query` no GSI3 para QUALQUER funÃ§Ã£o da tabela (inclusive as tenant-facing de M1/M2) â€” a salvaguarda de isolamento documentada desde M1 nunca foi de fato aplicada. Corrigido em `infra/lib/dynamo-table.ts` com `PolicyStatement`s explÃ­citos; teste de isolamento novo em `test/infra/stack.test.ts` prova via CDK synth que sÃ³ `ReminderProducer` referencia `/index/GSI3`. Detalhe completo em `docs/architecture/session-log.md`.
+
+Judgment calls (blueprint silente): (1) `occurrenceId` derivado deterministicamente (hash da chave de idempotÃªncia de data-model.md Â§4) em vez de UUID + registro `IdempotencyStore` separado â€” o prÃ³prio `putIfAbsent` condicional jÃ¡ garante a idempotÃªncia de materializaÃ§Ã£o, mesmo padrÃ£o que data-model.md documenta para `WebhookInbox`; (2) cancelamento de ocorrÃªncia stale nÃ£o remove `GSI3PK`/`GSI3SK` (o builder de `occ.ts` Ã© SET-only, sem REMOVE) â€” deixa um ponteiro Ã³rfÃ£o no Ã­ndice, mas o `Query` condicional `SCHEDULEDâ†’CLAIMED` do producer falha sobre ele de forma inofensiva; (3) tolerÃ¢ncia de dispatch (`toleranceMs`, default 30min) e TTL de claim (default 2min) nÃ£o estÃ£o fixados no blueprint â€” valores razoÃ¡veis documentados no cÃ³digo, revisar contra dados reais de produÃ§Ã£o; (4) reconciliaÃ§Ã£o DST/claim-expiry recebe os candidatos como parÃ¢metro (batch) em vez de fazer sua prÃ³pria varredura via GSI6 â€” a wiring desse Ã­ndice de "polÃ­ticas ativas"/"claims expirados" real fica como follow-up de infra, o mecanismo de reconciliaÃ§Ã£o em si (o que a tarefa pediu) estÃ¡ implementado e testado; (5) Lambda handlers reais (bundling com `@aws-sdk`) nÃ£o foram escritos â€” mesmo estÃ¡gio que M0-M2, CDK usa cÃ³digo inline placeholder via `ScopedLambdaFunction`; a lÃ³gica testÃ¡vel Ã© o entregÃ¡vel real desta fase, igual Ã s anteriores.
+
+## PrÃ³xima aÃ§Ã£o obrigatÃ³ria
+
+1. **M4 â€” Notification Engine** (`implementation-blueprint.md` Â§19, depende de M3 âœ…): router de `NotificationIntent`â†’canal, delivery workers (email/WhatsApp stub-first), `NotificationAttempt`, resoluÃ§Ã£o de destinatÃ¡rio/template.
+2. Decidir e fechar os itens abaixo (BFF de sessÃ£o como rotas reais, CSP/CloudFront quando o frontend existir) antes de considerar a lacuna de "session theft" do threat model totalmente fechada â€” ainda nÃ£o resolvido, re-flagueado a cada sessÃ£o desde M1 para nÃ£o se perder: M1 fechou o mecanismo de revogaÃ§Ã£o/matriz de autorizaÃ§Ã£o, nÃ£o o endpoint BFF completo; M2/M3 nÃ£o tinham escopo de frontend/sessÃ£o (confirmado no blueprint) entÃ£o tambÃ©m nÃ£o o resolveram.
+3. **Ratificar formalmente em `data-model.md` a exceÃ§Ã£o do GSI3** (chave global do scheduler, jÃ¡ decidida e justificada em `implementation-blueprint.md` Â§9.2/Â§23.3 item 10) â€” passo de manutenÃ§Ã£o documental, nÃ£o nova rodada de debate. M3 jÃ¡ corrigiu o enforcement real do isolamento em IAM; falta sÃ³ o registro mecÃ¢nico no documento.
+4. Wiring real do GSI6 (ou Ã­ndice equivalente) para alimentar a reconciliaÃ§Ã£o de M3 com o batch real de "polÃ­ticas ativas"/"claims a verificar" em produÃ§Ã£o â€” hoje o mecanismo de reconciliaÃ§Ã£o recebe esse batch como parÃ¢metro injetado (testÃ¡vel), a query real fica pendente.
+5. Testes de carga real (cenÃ¡rios de drenagem do pico extremo, `capacity-model.md`, com SLO de drenagem UNK-CAP-006 a formalizar em `slo.md` antes do gate de M7), teste de restore real (gate jÃ¡ definido em `disaster-recovery.md` Â§6), exercÃ­cio do runbook de credencial comprometida.
+6. ReavaliaÃ§Ã£o sob rubrica (B) â€” Operational Evidence â€” sÃ³ entÃ£o `ARCHITECTURE STATUS` pode legitimamente virar `APPROVED`. **NÃ£o declarar isso antes de haver evidÃªncia operacional real.** Implementar M0/M1/M2/M3 nÃ£o Ã© evidÃªncia operacional.
+7. DecisÃµes ainda pendentes de pesquisa externa (nÃ£o bloqueiam M4 estruturalmente, mas bloqueiam habilitar os canais/features especÃ­ficos, ver `implementation-blueprint.md` Â§23.3): provider inicial de e-mail, BSP WhatsApp (pricing real, UNK-003), modelo Bedrock especÃ­fico, regiÃ£o AWS (bloqueante para LGPD/transferÃªncia internacional), MFA obrigatÃ³rio vs. opcional (UNK-006), ferramenta de backup S3 (RPOâ‰¤24h), ferramenta de assinatura/provenance do pipeline de CI.
+
+# docs/architecture/ â€” Ãndice e Mapa de Autoridade
+
+```text
+Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
+Operational architecture: NOT APPROVED
+Current phase:           ImplementaÃ§Ã£o real (cÃ³digo/infra/testes) â€” Implementation Blueprint concluÃ­do
+Last verified:           2026-08-19
+```
+
+Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a prÃ³xima aÃ§Ã£o concreta.
+
+## PrecedÃªncia de fontes (quando houver divergÃªncia)
+
+1. `AGENTS.md` (raiz) â€” processo de trabalho dos agentes, sempre vence sobre conteÃºdo de arquitetura.
+2. ADR aceito em `adr/` â€” decisÃ£o arquitetural especÃ­fica e formal.
+3. Documento temÃ¡tico corrente (tabela abaixo, coluna "normativo atual") â€” especificaÃ§Ã£o detalhada do domÃ­nio.
+4. `ARCHITECTURE.md` â€” visÃ£o consolidada e Ã­ndice executivo; nÃ£o sobrescreve silenciosamente um ADR ou documento temÃ¡tico divergente â€” divergÃªncia entre eles Ã© defeito a corrigir, nÃ£o licenÃ§a para escolher.
+5. `NEXT_SESSION_PROMPT.md` â€” estado de execuÃ§Ã£o, nunca fonte normativa de arquitetura.
+6. `docs/architecture/history/` â€” evidÃªncia histÃ³rica de como se chegou a uma decisÃ£o, nunca normativo.
+
+## Ãndice por documento
+
+| Documento | ClassificaÃ§Ã£o | Do que trata |
+|---|---|---|
+| `../ARCHITECTURE.md` | resumo/Ã­ndice | Documento consolidado final, aponta para todos os outros |
+| `../docs/00-prompt-mestre.md` | histÃ³rico/processo (ciclo concluÃ­do) | Processo Claudeâ†”Codex que produziu o design; nÃ£o Ã© ponto de entrada de sessÃ£o |
+| `quality-criteria.md` | normativo atual | 12 critÃ©rios de qualidade, pesos, gates G1-G6 |
+| `fitness-function.md` | normativo atual | Fitness function derivada dos critÃ©rios |
+| `requirements.md` | normativo atual | Requisitos funcionais/nÃ£o-funcionais, unknowns |
+| `capacity-model.md` | normativo atual | Modelo de capacidade Stage 0-5 |
+| `architecture-fase3-consolidada.md` | normativo atual | Arquitetura AWS conceitual, 14 decisÃµes numeradas |
+| `data-model.md` | normativo atual | Modelo de domÃ­nio/dados, DynamoDB single-table, 6 GSIs |
+| `slo.md` | normativo atual | SLOs, incluindo drenagem de pico extremo |
+| `disaster-recovery.md` | normativo atual | RPO/RTO, teste de restore, runbook |
+| `privacy-lgpd.md` | normativo atual | Classes de retenÃ§Ã£o, direitos do titular |
+| `cost-model.md` | normativo atual | Modelo de custo por estÃ¡gio |
+| `mcp-readiness.md` | normativo atual | ProntidÃ£o de domÃ­nio para MCP futuro |
+| `evolution.md` | normativo atual | TransiÃ§Ãµes de estÃ¡gio, gatilhos |
+| `aws-well-architected-review.md` | normativo atual | RevisÃ£o pelos 6 pilares AWS, riscos conhecidos |
+| `threat-model.md` | normativo atual | Threat model STRIDE, seÃ§Ã£o 33 â€” APPROVED (Claude ~9.05 / Codex 9.002) |
+| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seÃ§Ã£o 60 â€” componentes, interfaces, eventos/schemas, ordem de deploy, milestones â€” APPROVED (Claude 9.20 / Codex 9.2) |
+| `decisions-log.md` | decisÃ£o/ADR (log vivo) | 26 decisÃµes (D-000 a D-025), nota Claude/Codex, status |
+| `adr/` | decisÃ£o/ADR | 8 ADRs formais para decisÃµes Type 1 |
+| `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
+| `diagrams/status-projeto.html` | resumo/Ã­ndice (visual) | Painel visual do status do projeto |
+| `session-log.md` | histÃ³rico | Log cronolÃ³gico compacto por sessÃ£o |
+| `history/` | histÃ³rico/supersedido | Artefatos de rodada (propostas, crÃ­ticas, red team) que produziram os documentos normativos acima â€” ver subseÃ§Ã£o |
+
+## `history/` â€” evidÃªncia de rodada, por tema
+
+Cada subpasta contÃ©m os artefatos de proposta/crÃ­tica/trÃ©plica que antecederam o documento normativo correspondente. Nunca tratar como fonte de decisÃ£o vigente â€” sÃ³ como prova de como o consenso foi alcanÃ§ado.
+
+| Subpasta | Documento normativo correspondente |
+|---|---|
+| `history/quality-criteria/` | `quality-criteria.md` |
+| `history/architecture-fase3/` | `architecture-fase3-consolidada.md` |
+| `history/data-model/` | `data-model.md` |
+| `history/slo/` | `slo.md` |
+| `history/disaster-recovery/` | `disaster-recovery.md` |
+| `history/privacy-lgpd/` | `privacy-lgpd.md` |
+| `history/cost-model/` | `cost-model.md` |
+| `history/threat-model/` | `threat-model.md` |
+| `history/implementation-blueprint/` | `implementation-blueprint.md` |
+
+# PROMPT MESTRE â€” ENGINEERING MATURITY REVIEW
+
+VocÃª estÃ¡ trabalhando no repositÃ³rio **Expiration Tracker**.
+
+Este trabalho Ã© uma continuaÃ§Ã£o natural do processo rigoroso utilizado anteriormente para definir e validar a arquitetura do projeto, mas **o objeto desta revisÃ£o nÃ£o Ã© mais a arquitetura**.
+
+O objetivo agora Ã©:
+
+> **estabelecer, avaliar, implementar e validar um padrÃ£o geral de engenharia de software de nÃ­vel profissional para todo o projeto.**
+
+VocÃª deverÃ¡ trabalhar em conjunto com o **Codex como segundo engenheiro independente**, reproduzindo a disciplina do processo Claude â†” Codex utilizado na fase arquitetural:
+
+**pesquisa â†’ critÃ©rios â†’ proposta/anÃ¡lise independente â†’ crÃ­tica â†’ trÃ©plica â†’ correÃ§Ã£o â†’ nova avaliaÃ§Ã£o â†’ nota independente â†’ aprovaÃ§Ã£o ou nova rodada.**
+
+O processo deve ser baseado principalmente em **evidÃªncias verificÃ¡veis no repositÃ³rio e na execuÃ§Ã£o real de ferramentas**, e nÃ£o em declaraÃ§Ãµes, documentaÃ§Ã£o aspiracional ou percepÃ§Ã£o subjetiva.
+
+---
+
+# 1. OBJETIVO PRINCIPAL
+
+Avaliar e elevar o **Engineering Maturity** do projeto como um todo.
+
+A pergunta central nÃ£o Ã©:
+
+> "A arquitetura Ã© boa?"
+
+Essa questÃ£o pertence ao processo anterior.
+
+A pergunta agora Ã©:
+
+> **"Este projeto estÃ¡ sendo construÃ­do, testado, versionado, protegido, entregue, observado, documentado e mantido de acordo com padrÃµes de engenharia de software suficientemente fortes para sustentar um produto profissional?"**
+
+A avaliaÃ§Ã£o deverÃ¡ cobrir, no mÃ­nimo:
+
+- qualidade e manutenibilidade do cÃ³digo;
+- organizaÃ§Ã£o do repositÃ³rio;
+- boundaries entre mÃ³dulos;
+- aderÃªncia da implementaÃ§Ã£o Ã  arquitetura;
+- type safety e contratos;
+- tratamento de erros;
+- idempotÃªncia e concorrÃªncia;
+- testes;
+- qualidade dos testes;
+- CI;
+- CD;
+- release engineering;
+- reprodutibilidade;
+- dependency management;
+- seguranÃ§a;
+- secure SDLC;
+- software supply chain;
+- IaC;
+- configuraÃ§Ã£o;
+- gerenciamento de secrets;
+- observabilidade;
+- operabilidade;
+- confiabilidade;
+- resiliÃªncia;
+- runbooks;
+- qualidade da documentaÃ§Ã£o;
+- Developer Experience;
+- automaÃ§Ã£o;
+- performance;
+- eficiÃªncia;
+- gestÃ£o de dÃ­vida tÃ©cnica;
+- disciplina de mudanÃ§as;
+- engenharia de dados/persistÃªncia;
+- qualidade de APIs e contratos;
+- governanÃ§a de dependÃªncias;
+- engenharia assistida por IA;
+- rastreabilidade das decisÃµes;
+- capacidade de evoluÃ§Ã£o do projeto.
+
+NÃ£o se limite a essa lista.
+
+A **Fase 0 deve pesquisar na Internet quais dimensÃµes adicionais sÃ£o necessÃ¡rias**.
+
+---
+
+# 2. REGRA FUNDAMENTAL: NÃƒO REFAZER A ARQUITETURA
+
+Antes de iniciar:
+
+1. leia `ARCHITECTURE.md`;
+2. leia os documentos relevantes de `docs/architecture/`;
+3. entenda as decisÃµes arquiteturais existentes;
+4. trate essas decisÃµes como **baseline arquitetural do projeto**.
+
+A arquitetura jÃ¡ passou por processo prÃ³prio de revisÃ£o.
+
+Portanto:
+
+**NÃƒO transforme esta revisÃ£o em uma nova Architecture Review.**
+
+O foco deve ser verificar:
+
+- se o cÃ³digo respeita os boundaries definidos;
+- se a implementaÃ§Ã£o preserva as propriedades arquiteturais;
+- se as abstraÃ§Ãµes escolhidas sÃ£o bem implementadas;
+- se existem violaÃ§Ãµes de arquitetura;
+- se existem dependÃªncias indevidas;
+- se os contratos estÃ£o claros;
+- se as garantias arquiteturais possuem mecanismos reais de enforcement.
+
+Uma mudanÃ§a arquitetural somente pode ser proposta quando:
+
+1. houver evidÃªncia concreta de que uma decisÃ£o existente impede engenharia correta;
+2. a questÃ£o nÃ£o puder ser resolvida no nÃ­vel de implementaÃ§Ã£o;
+3. Claude e Codex concordarem;
+4. a mudanÃ§a for explicitamente marcada como:
+
+`ARCHITECTURE CHANGE REQUIRED`
+
+5. um ADR separado for proposto.
+
+NÃ£o modificar silenciosamente decisÃµes arquiteturais durante uma revisÃ£o de engenharia.
+
+---
+
+# 3. NÃƒO HERDAR AS NOTAS DA ARQUITETURA
+
+As notas obtidas anteriormente no processo arquitetural **nÃ£o tÃªm qualquer influÃªncia sobre esta avaliaÃ§Ã£o**.
+
+Um projeto pode ter:
+
+- arquitetura 9.5;
+- engenharia 5.0.
+
+Ou o contrÃ¡rio.
+
+NÃ£o use os scores anteriores como priors.
+
+NÃ£o tente preservar coerÃªncia com as notas anteriores.
+
+FaÃ§a uma avaliaÃ§Ã£o nova e independente.
+
+---
+
+# 4. FASE 0 â€” PESQUISA EXTERNA OBRIGATÃ“RIA
+
+Antes de criar a rubrica ou avaliar qualquer cÃ³digo, realize uma **pesquisa atualizada na Internet**.
+
+A pesquisa deve responder:
+
+> Quais sÃ£o, atualmente, os principais critÃ©rios reconhecidos para avaliar a maturidade de engenharia de um software moderno, cloud-native/serverless e operado profissionalmente?
+
+Use prioritariamente **fontes primÃ¡rias, normativas ou mantidas pelos responsÃ¡veis pelos frameworks**.
+
+Comece, no mÃ­nimo, investigando:
+
+- ISO/IEC 25010;
+- DORA;
+- NIST Secure Software Development Framework â€” SSDF;
+- OWASP SAMM;
+- OpenSSF Scorecard;
+- SLSA;
+- AWS Well-Architected Framework;
+- AWS Operational Excellence;
+- AWS Security;
+- AWS Reliability;
+- Google SRE;
+- prÃ¡ticas oficiais relacionadas a CI/CD;
+- prÃ¡ticas oficiais relacionadas a software supply chain;
+- prÃ¡ticas oficiais relacionadas a dependency management;
+- prÃ¡ticas oficiais relacionadas a testing;
+- prÃ¡ticas oficiais relacionadas a observability;
+- prÃ¡ticas oficiais relacionadas a secure software development.
+
+Pesquise tambÃ©m outras referÃªncias relevantes caso encontre frameworks ou evidÃªncias melhores.
+
+NÃ£o assuma que uma versÃ£o lembrada pelo modelo ainda Ã© a atual.
+
+Verifique:
+
+- versÃ£o;
+- status;
+- data;
+- se Ã© final, draft ou deprecated;
+- escopo;
+- aplicabilidade ao projeto.
+
+Prefira documentos atuais e oficiais.
+
+Drafts podem complementar a anÃ¡lise, mas nÃ£o devem substituir silenciosamente uma versÃ£o normativa/final.
+
+---
+
+# 5. DOCUMENTO DE PESQUISA
+
+Crie:
+
+`docs/engineering/00-research-bibliography.md`
+
+Para cada fonte utilizada registre:
+
+- organizaÃ§Ã£o;
+- documento/framework;
+- versÃ£o, quando aplicÃ¡vel;
+- data;
+- URL;
+- data da consulta;
+- quais critÃ©rios de engenharia foram derivados dela;
+- limitaÃ§Ãµes;
+- se Ã© normativa, recomendaÃ§Ã£o, pesquisa empÃ­rica ou ferramenta de avaliaÃ§Ã£o.
+
+NÃ£o copie extensivamente os textos das fontes.
+
+Extraia princÃ­pios e critÃ©rios.
+
+---
+
+# 6. CRITÃ‰RIOS DEVEM SER DEFINIDOS ANTES DA AVALIAÃ‡ÃƒO
+
+Esta regra Ã© obrigatÃ³ria.
+
+Primeiro:
+
+1. pesquisar;
+2. definir critÃ©rios;
+3. definir pesos;
+4. definir gates;
+5. Claude revisar;
+6. Codex revisar independentemente;
+7. resolver divergÃªncias;
+8. congelar a rubrica.
+
+**Somente depois disso o repositÃ³rio pode receber uma nota.**
+
+Isso existe para evitar moving goalposts.
+
+Depois da primeira avaliaÃ§Ã£o, os pesos nÃ£o podem ser modificados simplesmente porque determinado resultado ficou baixo.
+
+Se a rubrica precisar ser alterada posteriormente, documente:
+
+- motivo;
+- evidÃªncia nova;
+- impacto;
+- aprovaÃ§Ã£o de Claude;
+- aprovaÃ§Ã£o de Codex.
+
+---
+
+# 7. RUBRICA DE ENGENHARIA
+
+Crie:
+
+`docs/engineering/01-engineering-quality-criteria.md`
+
+A rubrica deverÃ¡ totalizar exatamente:
+
+**100%**
+
+Claude e Codex deverÃ£o discutir e aprovar os pesos.
+
+NÃ£o prescrevo os pesos finais, mas a rubrica deverÃ¡ cobrir materialmente pelo menos os seguintes domÃ­nios.
+
+## A. Code Quality & Maintainability
+
+Avaliar, entre outros:
+
+- modularidade;
+- coesÃ£o;
+- acoplamento;
+- clareza;
+- naming;
+- tamanho e responsabilidade das unidades;
+- abstraÃ§Ãµes;
+- duplicaÃ§Ã£o;
+- complexidade;
+- dead code;
+- organizaÃ§Ã£o;
+- testabilidade;
+- estabilidade dos boundaries;
+- manejo de dependÃªncias;
+- facilidade de alteraÃ§Ã£o;
+- presenÃ§a de hacks ou soluÃ§Ãµes temporÃ¡rias;
+- dÃ­vida tÃ©cnica explÃ­cita versus implÃ­cita.
+
+NÃ£o confundir "cÃ³digo elegante" com engenharia correta.
+
+---
+
+## B. Type Safety, Contracts & Correctness
+
+Avaliar:
+
+- uso adequado do sistema de tipos;
+- propagaÃ§Ã£o de `any`, casts ou equivalentes;
+- validaÃ§Ã£o de entrada;
+- contratos externos;
+- schemas;
+- serializaÃ§Ã£o;
+- parsing;
+- validaÃ§Ã£o runtime;
+- invariantes;
+- estados impossÃ­veis;
+- erros esperados;
+- erros inesperados;
+- concorrÃªncia;
+- idempotÃªncia;
+- controle de versÃ£o de contratos.
+
+Para caminhos crÃ­ticos, verificar se invariantes existem apenas na documentaÃ§Ã£o ou se sÃ£o realmente enforceados.
+
+---
+
+## C. Testing Engineering
+
+NÃ£o avaliar apenas "coverage".
+
+Avaliar:
+
+- unit tests;
+- integration tests;
+- contract tests;
+- API tests;
+- infrastructure tests;
+- end-to-end tests;
+- smoke tests;
+- testes negativos;
+- testes de autorizaÃ§Ã£o;
+- isolamento entre tenants;
+- idempotÃªncia;
+- concorrÃªncia;
+- retry;
+- timeout;
+- falhas parciais;
+- DLQ;
+- race conditions;
+- property-based testing quando apropriado;
+- performance tests;
+- load tests;
+- restore tests;
+- disaster recovery tests;
+- testes de migrations quando aplicÃ¡vel.
+
+Avaliar tambÃ©m:
+
+- qualidade das assertions;
+- brittleness;
+- excesso de mocks;
+- falsos positivos;
+- flaky tests;
+- velocidade;
+- determinismo;
+- capacidade de localizar regressÃµes.
+
+**Coverage alto nÃ£o deve compensar testes ruins.**
+
+---
+
+## D. Continuous Integration
+
+Avaliar:
+
+- build automÃ¡tico;
+- lint;
+- format;
+- type checking;
+- testes;
+- security scanning;
+- IaC validation;
+- dependency scanning;
+- secret scanning;
+- feedback rÃ¡pido;
+- comportamento em falhas;
+- branch checks;
+- proteÃ§Ã£o contra merge quebrado;
+- cache;
+- paralelizaÃ§Ã£o;
+- reproducibilidade;
+- permissÃµes do CI;
+- pinning das Actions;
+- uso de OIDC quando aplicÃ¡vel.
+
+Verifique o que realmente roda em cada PR.
+
+NÃ£o dar pontos por scripts que existem mas nÃ£o sÃ£o executados.
+
+---
+
+## E. Continuous Delivery & Release Engineering
+
+Avaliar:
+
+- capacidade real de deploy;
+- automaÃ§Ã£o;
+- ambientes;
+- promoÃ§Ã£o;
+- rollback;
+- roll-forward;
+- versionamento;
+- artefatos;
+- proveniÃªncia;
+- atomicidade;
+- migrations;
+- deployment safety;
+- approvals;
+- deployment verification;
+- smoke tests;
+- release notes quando apropriado;
+- rastreabilidade commit â†’ build â†’ deploy.
+
+---
+
+## F. Secure Software Engineering
+
+Derivar principalmente de SSDF/SAMM e outras fontes oficiais.
+
+Avaliar:
+
+- secure by default;
+- threat-informed development;
+- secrets;
+- IAM;
+- least privilege;
+- authorization;
+- input validation;
+- dependency vulnerabilities;
+- SAST;
+- SCA;
+- secret scanning;
+- security tests;
+- triagem de vulnerabilidades;
+- seguranÃ§a do CI;
+- seguranÃ§a de artefatos;
+- response process;
+- security policy;
+- logs sensÃ­veis;
+- PII;
+- criptografia;
+- abuse cases;
+- webhook validation;
+- replay;
+- SSRF;
+- injection;
+- supply-chain attacks.
+
+Considere o threat model arquitetural existente quando ele existir.
+
+---
+
+# 8. SOFTWARE SUPPLY CHAIN
+
+Avaliar explicitamente:
+
+- dependency pinning;
+- lockfiles;
+- atualizaÃ§Ã£o automatizada;
+- dependÃªncias abandonadas;
+- vulnerabilidades;
+- origem dos packages;
+- artefatos binÃ¡rios;
+- GitHub Actions pinning;
+- permissÃµes de workflows;
+- branch protection;
+- code review;
+- provenance;
+- SBOM quando justificÃ¡vel;
+- assinaturas;
+- release provenance;
+- reprodutibilidade;
+- OpenSSF Scorecard;
+- conceitos relevantes do SLSA.
+
+NÃ£o exija mecanismos avanÃ§ados apenas para gerar uma nota alta.
+
+O objetivo Ã© **proporcionalidade de risco**.
+
+---
+
+# 9. INFRASTRUCTURE ENGINEERING / IaC
+
+Avaliar:
+
+- qualidade do CDK/Terraform/IaC utilizado;
+- organizaÃ§Ã£o;
+- reutilizaÃ§Ã£o;
+- boundaries;
+- naming;
+- environments;
+- config;
+- secrets;
+- IAM;
+- drift;
+- synth/plan;
+- deploy;
+- rollback;
+- state;
+- lifecycle;
+- destruiÃ§Ã£o acidental;
+- observabilidade dos recursos;
+- seguranÃ§a;
+- tagging;
+- budgets;
+- testabilidade;
+- validaÃ§Ã£o no CI.
+
+A infraestrutura deve ser avaliada como **software**, nÃ£o apenas como configuraÃ§Ã£o.
+
+---
+
+# 10. RELIABILITY ENGINEERING
+
+Verificar se as propriedades descritas na arquitetura realmente existem na implementaÃ§Ã£o.
+
+No contexto deste projeto, dÃª atenÃ§Ã£o especial a:
+
+- idempotÃªncia;
+- retries;
+- backoff;
+- poison messages;
+- DLQs;
+- reconciliation;
+- sweeper;
+- OCC;
+- outbox;
+- duplicate delivery;
+- partial failure;
+- eventual consistency;
+- timeouts;
+- unavailable dependencies;
+- rate limiting;
+- provider failures;
+- clock/timezone handling;
+- reminder correctness;
+- recovery.
+
+Para cada garantia importante, tente responder:
+
+> Qual mecanismo concreto impede que esta garantia seja violada?
+
+---
+
+# 11. OBSERVABILITY & OPERABILITY
+
+Avaliar:
+
+- logs;
+- structured logging;
+- correlation IDs;
+- traces;
+- mÃ©tricas;
+- alarmes;
+- dashboards;
+- SLOs;
+- alertas acionÃ¡veis;
+- cardinalidade;
+- PII nos logs;
+- troubleshooting;
+- runbooks;
+- incident response;
+- DLQ handling;
+- debugging;
+- health information;
+- capacidade de identificar falhas silenciosas.
+
+NÃ£o pontuar observabilidade apenas porque o cÃ³digo chama uma biblioteca de logging.
+
+---
+
+# 12. DEVELOPER EXPERIENCE
+
+Avaliar a experiÃªncia de um engenheiro novo entrando no projeto.
+
+Pergunta prÃ¡tica:
+
+> Um engenheiro competente consegue clonar este repositÃ³rio e trabalhar com seguranÃ§a sem depender de conhecimento tribal?
+
+Avaliar:
+
+- README;
+- bootstrap;
+- setup;
+- requisitos;
+- desenvolvimento local;
+- comandos;
+- seeds/fixtures;
+- mocks;
+- testes;
+- debug;
+- workflows;
+- Makefile/task runner/package scripts;
+- mensagens de erro;
+- documentaÃ§Ã£o;
+- descoberta de componentes;
+- facilidade de localizar cÃ³digo;
+- velocidade de feedback;
+- paridade razoÃ¡vel entre local e CI.
+
+FaÃ§a o teste quando possÃ­vel.
+
+---
+
+# 13. DOCUMENTATION ENGINEERING
+
+Avaliar:
+
+- README;
+- arquitetura;
+- ADRs;
+- engineering docs;
+- runbooks;
+- APIs;
+- schemas;
+- procedimentos operacionais;
+- onboarding;
+- comentÃ¡rios de cÃ³digo;
+- decisÃµes;
+- documentaÃ§Ã£o de trade-offs;
+- links quebrados;
+- divergÃªncia docs â†” cÃ³digo;
+- documentaÃ§Ã£o obsoleta;
+- excesso de documentaÃ§Ã£o inÃºtil.
+
+DocumentaÃ§Ã£o deve ser:
+
+- correta;
+- encontrÃ¡vel;
+- atual;
+- proporcional;
+- orientada a tarefas;
+- Ãºtil tanto a humanos quanto a agentes de IA.
+
+---
+
+# 14. DATA & STATE ENGINEERING
+
+Como o projeto possui estado e usa DynamoDB, analisar tambÃ©m:
+
+- access patterns;
+- invariantes;
+- key construction;
+- isolamento;
+- conditional writes;
+- OCC;
+- idempotency keys;
+- transaction boundaries;
+- pagination;
+- consistency assumptions;
+- GSI behavior;
+- hot partitions;
+- schema evolution;
+- backward compatibility;
+- TTL;
+- retention;
+- deletion;
+- recovery;
+- test fixtures;
+- auditability.
+
+NÃ£o refazer o data model arquitetural.
+
+Avaliar a **qualidade de sua implementaÃ§Ã£o**.
+
+---
+
+# 15. PERFORMANCE & EFFICIENCY ENGINEERING
+
+Avaliar proporcionalmente ao estÃ¡gio do produto:
+
+- hot paths;
+- N+1;
+- chamadas desnecessÃ¡rias;
+- tamanho de payload;
+- memÃ³ria;
+- cold starts;
+- batching;
+- concurrency;
+- caching;
+- Lambda configuration;
+- DynamoDB access;
+- SQS usage;
+- network calls;
+- timeout budgets;
+- custo acidental;
+- testes de performance.
+
+NÃ£o criar premature optimization.
+
+TambÃ©m nÃ£o aceitar ausÃªncia total de mecanismos para detectar regressÃµes importantes.
+
+---
+
+# 16. ENGINEERING GOVERNANCE
+
+Avaliar:
+
+- branch protection;
+- pull requests;
+- code review;
+- CODEOWNERS;
+- commit hygiene;
+- issue templates quando Ãºteis;
+- PR templates;
+- change discipline;
+- releases;
+- semantic versioning quando aplicÃ¡vel;
+- ownership;
+- exceÃ§Ãµes;
+- technical debt registry;
+- critÃ©rios de pronto;
+- polÃ­ticas de seguranÃ§a;
+- dependÃªncias;
+- processo de melhoria contÃ­nua.
+
+Considere o tamanho atual do projeto.
+
+NÃ£o copie processos de uma empresa de 10.000 pessoas para um projeto pequeno.
+
+---
+
+# 17. AI-ASSISTED ENGINEERING
+
+Este projeto Ã© desenvolvido com uso relevante de Claude e Codex.
+
+Isso deve ser considerado explicitamente.
+
+Avalie:
+
+- `CLAUDE.md`;
+- `AGENTS.md`;
+- arquivos de contexto;
+- instruÃ§Ãµes aos agentes;
+- consistÃªncia entre instruÃ§Ãµes e cÃ³digo;
+- proteÃ§Ã£o contra agentes modificarem Ã¡reas erradas;
+- qualidade dos critÃ©rios de aceite;
+- validaÃ§Ã£o automÃ¡tica das mudanÃ§as geradas por IA;
+- capacidade de um humano compreender mudanÃ§as produzidas por IA;
+- revisÃ£o independente;
+- risco de dois agentes confirmarem o mesmo erro;
+- proveniÃªncia das decisÃµes;
+- excesso de documentaÃ§Ã£o feita para agentes e ruim para humanos;
+- mecanismos que impedem "AI slop".
+
+PrincÃ­pio:
+
+> **CÃ³digo gerado por IA deve cumprir exatamente os mesmos gates que cÃ³digo humano.**
+
+Nunca aceitar:
+
+> "Claude analisou e achou correto"
+
+como evidÃªncia de engenharia.
+
+---
+
+# 18. FITNESS FUNCTIONS
+
+Crie:
+
+`docs/engineering/02-engineering-fitness-functions.md`
+
+Transforme os critÃ©rios importantes em verificaÃ§Ãµes executÃ¡veis sempre que possÃ­vel.
+
+Exemplos de categorias:
+
+- build;
+- typecheck;
+- lint;
+- format;
+- unit tests;
+- integration tests;
+- contract tests;
+- architecture boundary tests;
+- IaC synth;
+- IaC validation;
+- secret scanning;
+- SAST;
+- dependency scanning;
+- security checks;
+- license policy quando relevante;
+- lockfile validation;
+- API schema validation;
+- dependency direction;
+- duplicate dependency versions;
+- flaky tests;
+- performance budgets;
+- bundle/package size quando aplicÃ¡vel;
+- documentation validation;
+- smoke tests;
+- deployment validation.
+
+Cada fitness function deve indicar:
+
+- objetivo;
+- risco mitigado;
+- comando;
+- quando roda;
+- comportamento esperado;
+- consequÃªncia em caso de falha;
+- se bloqueia PR;
+- se bloqueia deploy.
+
+---
+
+# 19. GATES ELIMINATÃ“RIOS
+
+Defina Engineering Gates antes da avaliaÃ§Ã£o.
+
+Os gates finais devem ser discutidos por Claude e Codex.
+
+No mÃ­nimo, avalie se devem existir gates relacionados a:
+
+- build reproduzÃ­vel;
+- CI obrigatÃ³rio;
+- testes crÃ­ticos;
+- ausÃªncia de secrets conhecidos no repositÃ³rio;
+- vulnerabilidades crÃ­ticas nÃ£o tratadas;
+- dependÃªncias reproduzÃ­veis;
+- autorizaÃ§Ã£o/isolamento;
+- seguranÃ§a de workflows;
+- rollback/recovery;
+- integridade de dados;
+- tenant isolation;
+- arquitetura crÃ­tica sendo enforceada;
+- paths crÃ­ticos possuindo testes;
+- infraestrutura validÃ¡vel;
+- nenhuma falha silenciosa conhecida em reminder processing.
+
+Um gate nÃ£o pode ser removido posteriormente para aumentar a nota.
+
+---
+
+# 20. EVIDENCE-FIRST
+
+Esta Ã© uma das regras mais importantes de todo o processo.
+
+Hierarquia de evidÃªncia:
+
+1. execuÃ§Ã£o real;
+2. testes executÃ¡veis;
+3. cÃ³digo/configuraÃ§Ã£o;
+4. histÃ³rico CI/CD verificÃ¡vel;
+5. artefatos;
+6. documentaÃ§Ã£o;
+7. declaraÃ§Ã£o.
+
+DocumentaÃ§Ã£o que diz:
+
+> "Todos os endpoints possuem autorizaÃ§Ã£o"
+
+nÃ£o Ã© prova.
+
+Procure:
+
+- middleware;
+- guards;
+- IAM;
+- testes;
+- polÃ­ticas;
+- execuÃ§Ã£o.
+
+DocumentaÃ§Ã£o que diz:
+
+> "PossuÃ­mos restore test"
+
+nÃ£o recebe crÃ©dito se nenhum restore tiver sido executado.
+
+---
+
+# 21. AUSÃŠNCIA DE EVIDÃŠNCIA
+
+**Evidence unavailable â‰  neutral score.**
+
+Se um critÃ©rio exige evidÃªncia e ela nÃ£o existe:
+
+- nÃ£o inventar;
+- nÃ£o presumir;
+- nÃ£o dar nota neutra;
+- marcar `NOT PROVEN`;
+- aplicar a consequÃªncia prevista na rubrica.
+
+"Nunca tivemos incidente" nÃ£o significa:
+
+> incident response = 10.
+
+"Nunca tivemos carga alta" nÃ£o significa:
+
+> scalability = 10.
+
+---
+
+# 22. N/A
+
+`N/A` sÃ³ Ã© permitido quando o critÃ©rio realmente nÃ£o se aplica ao projeto.
+
+Cada N/A deve conter:
+
+- justificativa;
+- impacto;
+- concordÃ¢ncia de Claude;
+- concordÃ¢ncia de Codex.
+
+N/A nÃ£o pode ser usado para esconder uma deficiÃªncia.
+
+Se um peso precisar ser redistribuÃ­do, a regra de redistribuiÃ§Ã£o deve estar definida **antes da primeira avaliaÃ§Ã£o**.
+
+---
+
+# 23. BASELINE CONGELADO
+
+Antes de analisar:
+
+registre:
+
+- commit SHA;
+- branch;
+- timestamp;
+- `git status`;
+- stack identificada;
+- package managers;
+- lockfiles;
+- workflows;
+- IaC;
+- testes;
+- ferramentas.
+
+Crie:
+
+`docs/engineering/03-repository-baseline.md`
+
+A avaliaÃ§Ã£o inicial deve se referir exatamente a esse estado.
+
+Se forem feitas correÃ§Ãµes posteriormente, registre o novo SHA.
+
+Assim serÃ¡ possÃ­vel mostrar:
+
+`BEFORE â†’ AFTER`
+
+---
+
+# 24. NÃƒO MODIFICAR DURANTE A PRIMEIRA AVALIAÃ‡ÃƒO
+
+Primeiro produza um diagnÃ³stico **as-is**.
+
+NÃ£o corrija imediatamente o que encontrar.
+
+Caso contrÃ¡rio perdemos a baseline.
+
+Fluxo:
+
+1. Freeze baseline.
+2. Evaluate.
+3. Score.
+4. Identify gaps.
+5. Prioritize.
+6. Propose remediation.
+7. Peer review.
+8. Implement.
+9. Re-test.
+10. Re-score.
+
+---
+
+# 25. PROCESSO CLAUDE â†” CODEX
+
+O Codex deve atuar como **engenheiro independente**, nÃ£o como assistente subordinado.
+
+Use o mesmo mecanismo real de integraÃ§Ã£o Claude â†” Codex disponÃ­vel no ambiente/repositÃ³rio.
+
+**NÃ£o simule respostas do Codex.**
+
+Se o Codex estiver indisponÃ­vel:
+
+`CODEX REVIEW BLOCKED`
+
+e nÃ£o invente uma segunda avaliaÃ§Ã£o.
+
+---
+
+# 26. INDEPENDÃŠNCIA ENTRE OS REVISORES
+
+Para cada checkpoint relevante:
+
+### Passo A â€” Claude
+
+Claude analisa a evidÃªncia e registra sua conclusÃ£o.
+
+### Passo B â€” Codex Blind Review
+
+Envie ao Codex:
+
+- critÃ©rios congelados;
+- artefato analisado;
+- arquivos relevantes;
+- evidÃªncias.
+
+NÃ£o forneÃ§a:
+
+- a nota de Claude;
+- conclusÃ£o final de Claude;
+- expectativa de nota;
+- instruÃ§Ã£o para "confirmar".
+
+Pergunte ao Codex:
+
+> FaÃ§a uma avaliaÃ§Ã£o independente. Procure ativamente falhas, inconsistÃªncias, riscos e pontos superavaliados.
+
+### Passo C â€” Divergence Analysis
+
+Compare os resultados.
+
+Crie:
+
+- pontos de acordo;
+- pontos de desacordo;
+- evidÃªncias conflitantes;
+- gaps encontrados apenas por um revisor.
+
+### Passo D â€” Cross Critique
+
+Claude deve responder Ã s objeÃ§Ãµes do Codex.
+
+Codex deve poder contestar a trÃ©plica.
+
+### Passo E â€” Corrected Artifact
+
+Produza a versÃ£o corrigida.
+
+### Passo F â€” Independent Score
+
+Claude e Codex avaliam novamente **independentemente**.
+
+---
+
+# 27. ANTI-CONFIRMATION-BIAS
+
+Durante a revisÃ£o, os dois engenheiros devem procurar explicitamente razÃµes para **reduzir** a nota.
+
+Perguntas obrigatÃ³rias:
+
+- O que estamos assumindo sem evidÃªncia?
+- Que falha sÃ³ apareceria em produÃ§Ã£o?
+- Que teste estÃ¡ ausente?
+- Que comportamento parece correto apenas no happy path?
+- HÃ¡ abstraÃ§Ãµes excessivas?
+- HÃ¡ abstraÃ§Ãµes insuficientes?
+- HÃ¡ cÃ³digo difÃ­cil de remover?
+- HÃ¡ dependÃªncia desnecessÃ¡ria?
+- Existe algo que funciona apenas porque os testes mockam demais?
+- Existe seguranÃ§a apenas no edge e nÃ£o no domÃ­nio?
+- Existem claims documentais sem enforcement?
+- O CI realmente impediria esta regressÃ£o?
+- Um novo engenheiro conseguiria alterar isto com seguranÃ§a?
+- Um agente de IA conseguiria quebrar um boundary sem CI perceber?
+- Estamos premiando complexidade em vez de simplicidade?
+
+---
+
+# 28. RED TEAM DE ENGENHARIA
+
+Depois das revisÃµes por domÃ­nio, faÃ§a uma fase especÃ­fica de Red Team.
+
+Claude e Codex devem executar rodadas independentes buscando:
+
+- bypass de validaÃ§Ã£o;
+- bypass de autorizaÃ§Ã£o;
+- tenant escape;
+- missing idempotency;
+- double delivery;
+- race conditions;
+- stale state;
+- partial writes;
+- orphan records;
+- inconsistÃªncia docs â†” cÃ³digo;
+- CI bypass;
+- supply-chain weaknesses;
+- workflow permissions excessivas;
+- unpinned dependencies;
+- secret leakage;
+- logging de dados sensÃ­veis;
+- retry storms;
+- poison messages;
+- DLQ sem tratamento;
+- silent failures;
+- paths sem teste;
+- cÃ³digo morto;
+- complexidade acidental;
+- abstraÃ§Ãµes prematuras;
+- pontos Ãºnicos de manutenÃ§Ã£o difÃ­cil;
+- false-green CI.
+
+Crie:
+
+`docs/engineering/red-team/`
+
+e mantenha as avaliaÃ§Ãµes Claude e Codex separadas antes da consolidaÃ§Ã£o.
+
+---
+
+# 29. FERRAMENTAS
+
+Use as ferramentas adequadas Ã  stack encontrada.
+
+NÃ£o prescreva uma ferramenta apenas porque ela Ã© popular.
+
+Antes de adicionar algo:
+
+1. identificar necessidade;
+2. comparar alternativas;
+3. avaliar custo de manutenÃ§Ã£o;
+4. justificar escolha.
+
+Pode utilizar, quando aplicÃ¡vel:
+
+- ferramentas nativas do ecossistema;
+- linters;
+- type checkers;
+- test frameworks;
+- security scanners;
+- dependency scanners;
+- secret scanners;
+- IaC scanners;
+- OpenSSF Scorecard;
+- ferramentas de coverage;
+- ferramentas de complexity;
+- ferramentas de mutation testing;
+- ferramentas de dependency graph;
+- ferramentas de architecture testing.
+
+Mas:
+
+> **mais ferramentas â‰  melhor engenharia.**
+
+Prefira o conjunto mÃ­nimo que cria feedback forte.
+
+---
+
+# 30. COBERTURA DE TESTES
+
+NÃ£o defina arbitrariamente:
+
+`coverage >= 90%`
+
+e conclua que isso representa qualidade.
+
+Coverage Ã© apenas evidÃªncia auxiliar.
+
+FaÃ§a anÃ¡lises especÃ­ficas de:
+
+- critical paths;
+- branch coverage;
+- mutation resistance quando razoÃ¡vel;
+- fault scenarios;
+- invariants;
+- negative paths.
+
+Uma linha de cÃ³digo extremamente crÃ­tica pode merecer muito mais atenÃ§Ã£o que centenas de linhas triviais.
+
+---
+
+# 31. CODE REVIEW DO REPOSITÃ“RIO INTEIRO
+
+NÃ£o examine apenas os arquivos principais.
+
+FaÃ§a inventÃ¡rio por Ã¡reas:
+
+- application;
+- domain;
+- infrastructure;
+- adapters;
+- API;
+- persistence;
+- notification;
+- document pipeline;
+- AI/OCR;
+- authentication;
+- authorization;
+- IaC;
+- workflows;
+- scripts;
+- tests;
+- config;
+- docs.
+
+Use amostragem somente quando o volume tornar revisÃ£o integral impraticÃ¡vel.
+
+Se usar amostragem, documente claramente:
+
+- mÃ©todo;
+- arquivos;
+- razÃ£o;
+- limitaÃ§Ãµes.
+
+---
+
+# 32. DEPENDENCY GRAPH
+
+Construa ou derive o dependency graph interno.
+
+Procure:
+
+- ciclos;
+- imports atravessando boundaries;
+- domÃ­nio dependendo de infraestrutura;
+- adapters contaminando regras de negÃ³cio;
+- abstraÃ§Ãµes vazando;
+- dependÃªncias "god module";
+- utilitÃ¡rios globais;
+- shared code excessivo.
+
+Compare com o monÃ³lito modular definido arquiteturalmente.
+
+Se possÃ­vel, transforme os boundaries importantes em **fitness functions automatizadas**.
+
+---
+
+# 33. ERROR HANDLING REVIEW
+
+FaÃ§a revisÃ£o explÃ­cita de:
+
+- exception handling;
+- swallowed errors;
+- generic catch;
+- retryability;
+- user-facing errors;
+- logging;
+- correlation;
+- taxonomy;
+- provider errors;
+- timeout;
+- cancellation;
+- dead-letter behavior.
+
+Procure especialmente cÃ³digos do tipo:
+
+```text
+catch {
+  return;
+}
+```
+
+ou equivalentes semanticamente silenciosos.
+
+---
+
+# 34. CONFIGURATION REVIEW
+
+Mapeie:
+
+- environment variables;
+- defaults;
+- feature flags;
+- secrets;
+- stage-specific configuration;
+- AppConfig;
+- runtime configuration;
+- deploy-time configuration.
+
+Verifique:
+
+- tipos;
+- validaÃ§Ã£o;
+- comportamento ausente;
+- fail-open versus fail-closed;
+- documentaÃ§Ã£o;
+- secrets fora de logs;
+- secrets fora do Git.
+
+---
+
+# 35. REMEDIATION ROADMAP
+
+Depois da baseline, produza:
+
+`docs/engineering/remediation-roadmap.md`
+
+Classifique cada gap:
+
+- P0 â€” bloqueador;
+- P1 â€” alto;
+- P2 â€” mÃ©dio;
+- P3 â€” melhoria.
+
+Para cada item:
+
+- problema;
+- evidÃªncia;
+- risco;
+- dimensÃ£o da rubrica;
+- source/reference;
+- correÃ§Ã£o;
+- complexidade;
+- dependÃªncias;
+- critÃ©rio de aceite;
+- teste necessÃ¡rio;
+- fitness function necessÃ¡ria;
+- risco de regressÃ£o.
+
+---
+
+# 36. IMPLEMENTAÃ‡ÃƒO DAS CORREÃ‡Ã•ES
+
+Depois que Claude e Codex concordarem sobre o remediation roadmap, implemente as melhorias de engenharia.
+
+NÃ£o implementar novas funcionalidades de produto simplesmente para aumentar a nota.
+
+Prioridade:
+
+1. correctness;
+2. security;
+3. reliability;
+4. testability;
+5. CI enforcement;
+6. maintainability;
+7. DevEx;
+8. refinements.
+
+Para cada mudanÃ§a:
+
+- manter escopo pequeno;
+- adicionar teste correspondente;
+- atualizar documentaÃ§Ã£o relevante;
+- executar validaÃ§Ãµes;
+- registrar evidÃªncia.
+
+---
+
+# 37. NÃƒO FAZER "QUALITY THEATER"
+
+Exemplos proibidos:
+
+- criar 50 documentos que ninguÃ©m usa;
+- adicionar ferramentas apenas para ganhar checklist;
+- adicionar abstraÃ§Ãµes sem necessidade;
+- exigir 100% coverage;
+- criar microsserviÃ§os;
+- criar processos empresariais desproporcionais;
+- adicionar Kubernetes;
+- adicionar scanners redundantes;
+- usar dashboards como substitutos de confiabilidade;
+- considerar badge como substituto de evidÃªncia.
+
+Cada melhoria deve responder:
+
+> Qual risco real isto reduz?
+
+---
+
+# 38. CRITÃ‰RIO DE SIMPLICIDADE
+
+Simplicidade Ã© parte da nota.
+
+Penalize:
+
+- overengineering;
+- abstraction factories;
+- wrapper sobre wrapper;
+- configuraÃ§Ã£o excessiva;
+- padrÃµes utilizados sem necessidade;
+- frameworks internos prematuros;
+- dependÃªncias evitÃ¡veis;
+- generalizaÃ§Ã£o antes de existir segundo caso de uso.
+
+Pergunta obrigatÃ³ria:
+
+> Esta soluÃ§Ã£o Ã© a mais simples que mantÃ©m as garantias necessÃ¡rias?
+
+---
+
+# 39. PROPORCIONALIDADE
+
+Avalie o projeto como:
+
+- micro-SaaS;
+- equipe pequena;
+- serverless-first;
+- AWS;
+- produto em estÃ¡gio inicial;
+- potencial de crescimento.
+
+NÃ£o compare sua governanÃ§a com:
+
+- banco global;
+- hyperscaler;
+- sistema militar.
+
+Por outro lado:
+
+**estÃ¡gio inicial nÃ£o justifica falhas bÃ¡sicas de engenharia.**
+
+Secrets no Git, testes crÃ­ticos ausentes, CI falso, falta de isolamento ou ausÃªncia de idempotÃªncia continuam sendo graves.
+
+---
+
+# 40. DOIS EIXOS DE MATURIDADE
+
+A avaliaÃ§Ã£o final deve separar explicitamente:
+
+## A. ENGINEERING FOUNDATION
+
+Pode ser avaliada atravÃ©s de:
+
+- cÃ³digo;
+- testes;
+- estrutura;
+- workflows;
+- IaC;
+- documentaÃ§Ã£o;
+- automaÃ§Ã£o;
+- seguranÃ§a;
+- tooling.
+
+## B. OPERATIONAL ENGINEERING EVIDENCE
+
+Exige evidÃªncia como:
+
+- builds reais;
+- pipelines reais;
+- deploys;
+- load tests;
+- recovery tests;
+- restore tests;
+- rollback;
+- incident response;
+- observabilidade em execuÃ§Ã£o;
+- mÃ©tricas reais;
+- behaviour under failure.
+
+Uma fundaÃ§Ã£o excelente nÃ£o autoriza inventar evidÃªncia operacional.
+
+---
+
+# 41. STATUS
+
+Utilize:
+
+```text
+ENGINEERING FOUNDATION STATUS: APPROVED | NOT APPROVED
+OPERATIONAL ENGINEERING STATUS: APPROVED | NOT APPROVED
+```
+
+O segundo pode legitimamente permanecer:
+
+`NOT APPROVED`
+
+enquanto o produto nÃ£o possuir evidÃªncia operacional suficiente.
+
+Isso **nÃ£o reduz artificialmente a nota da fundaÃ§Ã£o**.
+
+---
+
+# 42. SCORING
+
+Cada critÃ©rio recebe nota:
+
+`0.00 â€“ 10.00`
+
+Calcule:
+
+- score Claude;
+- score Codex;
+- weighted score;
+- divergÃªncia.
+
+NÃ£o arredondar um score insuficiente para aprovaÃ§Ã£o.
+
+Exemplo:
+
+`8.996`
+
+continua menor que:
+
+`9.000`
+
+Mesmo que seja exibido como `9.00`.
+
+Use precisÃ£o interna suficiente.
+
+---
+
+# 43. REGRA DE APROVAÃ‡ÃƒO POR CHECKPOINT
+
+Um checkpoint somente Ã© aprovado quando:
+
+```text
+Claude >= 9.0
+AND
+Codex >= 9.0
+AND
+all applicable gates PASS
+AND
+no unresolved P0
+```
+
+NÃ£o use mÃ©dia dos dois para esconder divergÃªncia.
+
+Se:
+
+```text
+Claude = 9.4
+Codex = 8.7
+```
+
+resultado:
+
+`NOT APPROVED`
+
+FaÃ§a nova rodada.
+
+---
+
+# 44. NOTA CONSERVADORA
+
+AlÃ©m das duas notas, calcule:
+
+`CONSERVATIVE SCORE = min(Claude, Codex)`
+
+Essa serÃ¡ a principal nota resumida do checkpoint.
+
+NÃ£o use apenas mÃ©dia.
+
+---
+
+# 45. DISAGREEMENT LOG
+
+Crie:
+
+`docs/engineering/disagreement-log.md`
+
+Para toda divergÃªncia material registre:
+
+- ID;
+- tema;
+- Claude;
+- Codex;
+- evidÃªncia;
+- resoluÃ§Ã£o;
+- mudanÃ§a resultante;
+- status.
+
+NÃ£o esconda divergÃªncias na versÃ£o final.
+
+Elas sÃ£o evidÃªncia de revisÃ£o real.
+
+---
+
+# 46. ENGINEERING DECISION LOG
+
+Crie:
+
+`docs/engineering/decisions-log.md`
+
+IDs:
+
+`E-000`
+
+`E-001`
+
+`E-002`
+
+...
+
+Registre decisÃµes como:
+
+- ferramenta de lint;
+- estratÃ©gia de testes;
+- dependency policy;
+- coverage philosophy;
+- CI gates;
+- supply-chain policy;
+- release strategy;
+- exception policy.
+
+---
+
+# 47. EXCEPTION REGISTRY
+
+Crie:
+
+`docs/engineering/exceptions.md`
+
+Uma regra pode ser conscientemente violada quando houver razÃ£o forte.
+
+Registre:
+
+- regra;
+- justificativa;
+- risco;
+- owner;
+- data;
+- expiry/review date;
+- compensating control.
+
+Evite exceÃ§Ãµes permanentes silenciosas.
+
+---
+
+# 48. CHECKPOINTS
+
+Execute, no mÃ­nimo, os seguintes checkpoints:
+
+### Checkpoint 0
+Research + Evaluation Method
+
+### Checkpoint 1
+Engineering Quality Criteria + Gates + Fitness Functions
+
+### Checkpoint 2
+Repository Baseline + Engineering Structure
+
+### Checkpoint 3
+Code Quality + Maintainability + Architecture Fidelity
+
+### Checkpoint 4
+Testing & Correctness
+
+### Checkpoint 5
+CI/CD + Release Engineering + Reproducibility
+
+### Checkpoint 6
+Security + Secure SDLC + Software Supply Chain
+
+### Checkpoint 7
+Infrastructure Engineering + Configuration
+
+### Checkpoint 8
+Reliability + Observability + Operability
+
+### Checkpoint 9
+Data/State Correctness + Performance/Efficiency
+
+### Checkpoint 10
+Developer Experience + Documentation + Governance
+
+### Checkpoint 11
+AI-Assisted Engineering
+
+### Checkpoint 12
+Engineering Red Team
+
+### Checkpoint 13
+Remediation Implementation
+
+### Checkpoint 14
+Final Engineering Assessment
+
+Cada checkpoint relevante deve passar pelo processo Claude â†” Codex.
+
+---
+
+# 49. FORMATO DAS REVIEWS
+
+Salve reviews em:
+
+```text
+docs/engineering/reviews/
+```
+
+Exemplo:
+
+```text
+checkpoint-04-testing/
+  claude-round1.md
+  codex-round1.md
+  divergence-round1.md
+  corrected-round1.md
+  claude-score-round1.md
+  codex-score-round1.md
+```
+
+Se houver segunda rodada:
+
+```text
+  claude-round2.md
+  codex-round2.md
+  ...
+```
+
+Isso torna o processo auditÃ¡vel.
+
+---
+
+# 50. EVIDENCE MATRIX
+
+Crie:
+
+`docs/engineering/evidence-matrix.md`
+
+Formato aproximado:
+
+| ID | CritÃ©rio | Peso | EvidÃªncia | Arquivo/linha/comando | Claude | Codex | Status |
+|---|---:|---:|---|---|---:|---:|---|
+
+Nenhum score alto deve existir sem evidÃªncia correspondente.
+
+---
+
+# 51. COMANDOS EXECUTADOS
+
+Crie um registro reproduzÃ­vel dos comandos relevantes:
+
+`docs/engineering/verification-log.md`
+
+Registre:
+
+- comando;
+- ambiente;
+- resultado;
+- timestamp;
+- SHA;
+- exit code;
+- observaÃ§Ãµes.
+
+NÃ£o armazene secrets.
+
+---
+
+# 52. HISTÃ“RICO DO GIT
+
+Quando possÃ­vel, utilize tambÃ©m histÃ³rico real para avaliar:
+
+- manutenÃ§Ã£o;
+- tamanho de mudanÃ§as;
+- disciplina;
+- CI;
+- regressÃµes;
+- dependÃªncias;
+- evoluÃ§Ã£o.
+
+Mas nÃ£o penalize automaticamente um repositÃ³rio novo pela ausÃªncia de histÃ³rico longo.
+
+---
+
+# 53. OPENSSF SCORECARD
+
+Quando tecnicamente possÃ­vel, execute OpenSSF Scorecard contra o repositÃ³rio.
+
+Use o resultado como **evidÃªncia auxiliar**, nunca como nota final automÃ¡tica.
+
+Mapeie findings relevantes Ã  rubrica.
+
+---
+
+# 54. DORA
+
+Se existirem dados suficientes, avalie indicadores de delivery.
+
+Se nÃ£o existirem:
+
+`NOT ENOUGH EVIDENCE`
+
+NÃ£o invente deployment frequency, lead time ou failure rates.
+
+Considere instrumentar a capacidade futura de medi-los caso faÃ§a sentido.
+
+---
+
+# 55. DEFECT ESCAPE
+
+Sempre que encontrar um bug real durante a revisÃ£o:
+
+1. registre o bug;
+2. identifique por que os testes existentes nÃ£o detectaram;
+3. adicione teste reproduzindo;
+4. corrija;
+5. adicione mecanismo para evitar classe semelhante de regressÃ£o quando razoÃ¡vel.
+
+Uma correÃ§Ã£o sem aprendizado de engenharia estÃ¡ incompleta.
+
+---
+
+# 56. REGRESSION PREVENTION
+
+Toda correÃ§Ã£o importante deve responder:
+
+> O que impede este problema de voltar?
+
+PossÃ­veis respostas:
+
+- teste;
+- type system;
+- lint rule;
+- CI gate;
+- schema;
+- IAM;
+- architecture test;
+- runtime validation;
+- monitoring;
+- process.
+
+"Documentamos" isoladamente costuma ser insuficiente.
+
+---
+
+# 57. DOCUMENTAÃ‡ÃƒO FINAL
+
+Ao terminar, crie na raiz:
+
+`ENGINEERING.md`
+
+Esse documento deve funcionar como equivalente de engenharia ao `ARCHITECTURE.md`.
+
+Deve conter, no mÃ­nimo:
+
+# Engineering Summary
+
+# Scope
+
+# External Standards Used
+
+# Engineering Principles
+
+# Repository Standards
+
+# Code Quality
+
+# Testing
+
+# CI/CD
+
+# Security
+
+# Software Supply Chain
+
+# Infrastructure Engineering
+
+# Reliability
+
+# Observability
+
+# Developer Experience
+
+# Documentation
+
+# AI-Assisted Engineering
+
+# Engineering Gates
+
+# Fitness Functions
+
+# Known Gaps
+
+# Exceptions
+
+# Engineering Scores
+
+# Operational Evidence
+
+# Status Final
+
+# Next Steps
+
+---
+
+# 58. PRINCÃPIOS DE ENGENHARIA
+
+Durante o processo, derive e formalize princÃ­pios.
+
+Exemplos de espÃ­rito esperado:
+
+- correctness before cleverness;
+- automate repeatable verification;
+- evidence over claims;
+- simple before generic;
+- secure by default;
+- fail explicitly;
+- make invalid states difficult;
+- every critical invariant needs enforcement;
+- every critical failure needs visibility;
+- infrastructure is software;
+- tests are executable specifications;
+- CI is policy enforcement;
+- documentation must match reality;
+- dependencies are part of the product;
+- AI-generated code receives no special trust;
+- architecture boundaries should be executable where possible.
+
+NÃ£o aceite esses exemplos automaticamente.
+
+Claude e Codex devem validar e ajustar.
+
+---
+
+# 59. RESULTADO ESPERADO
+
+O objetivo nÃ£o Ã© produzir:
+
+> "um relatÃ³rio dizendo que o projeto Ã© bom."
+
+O objetivo Ã© produzir um sistema de engenharia capaz de responder continuamente:
+
+> **Como sabemos que uma mudanÃ§a Ã© segura para integrar e entregar?**
+
+Ao final, a qualidade do projeto deve ser verificÃ¡vel atravÃ©s de uma combinaÃ§Ã£o de:
+
+```text
+standards
++ code
++ tests
++ automation
++ CI gates
++ runtime evidence
++ peer review
+```
+
+---
+
+# 60. ANTI-GAMING
+
+Ã‰ expressamente proibido:
+
+- alterar pesos para alcanÃ§ar 9;
+- remover gates porque falharam;
+- marcar problemas como N/A sem justificativa;
+- dar crÃ©dito por intenÃ§Ã£o;
+- considerar documentaÃ§Ã£o equivalente a execuÃ§Ã£o;
+- aceitar nota agregada quando um gate falha;
+- arredondar nota para aprovaÃ§Ã£o;
+- deixar Codex ver a nota do Claude antes da avaliaÃ§Ã£o independente;
+- simular independÃªncia;
+- suavizar crÃ­tica porque o projeto jÃ¡ passou pela Architecture Review;
+- implementar complexidade artificial para parecer "enterprise".
+
+---
+
+# 61. CONDIÃ‡ÃƒO DE PARADA
+
+O processo nÃ£o deve continuar indefinidamente simplesmente para alcanÃ§ar 9.
+
+Se apÃ³s correÃ§Ãµes razoÃ¡veis um checkpoint permanecer abaixo de 9 devido a:
+
+- ausÃªncia de ambiente;
+- ausÃªncia de produÃ§Ã£o;
+- ausÃªncia de carga real;
+- dependÃªncia externa;
+- limitaÃ§Ã£o econÃ´mica;
+- informaÃ§Ã£o indisponÃ­vel;
+- decisÃ£o consciente de produto;
+
+registre honestamente:
+
+`NOT APPROVED`
+
+e explique o blocker.
+
+**Nunca fabrique evidÃªncia para cumprir a meta.**
+
+---
+
+# 62. DIFERENÃ‡A ENTRE TARGET E EVIDENCE
+
+Ã‰ permitido definir:
+
+```text
+TARGET ENGINEERING MATURITY >= 9.0
+```
+
+Mas isso nÃ£o significa:
+
+```text
+CURRENT ENGINEERING MATURITY >= 9.0
+```
+
+A nota deve refletir o estado real.
+
+A meta orienta melhoria.
+
+NÃ£o orienta o avaliador a fabricar aprovaÃ§Ã£o.
+
+---
+
+# 63. PRÃ‰-PRODUÃ‡ÃƒO
+
+Se o sistema ainda nÃ£o estiver em produÃ§Ã£o, nÃ£o penalize a fundaÃ§Ã£o por nÃ£o possuir anos de histÃ³rico operacional.
+
+PorÃ©m:
+
+- testes de falha podem ser executados;
+- restore pode ser testado;
+- rollback pode ser testado;
+- load pode ser simulado;
+- CI pode ser real;
+- security scanning pode ser real;
+- IaC pode ser validado;
+- observability pode ser testada.
+
+Diferencie claramente:
+
+**nÃ£o possÃ­vel ainda**
+
+de:
+
+**possÃ­vel mas nÃ£o fizemos**.
+
+---
+
+# 64. RESULTADO FINAL
+
+O `ENGINEERING.md` deve terminar com algo semelhante a:
+
+```text
+ENGINEERING FOUNDATION STATUS: APPROVED | NOT APPROVED
+OPERATIONAL ENGINEERING STATUS: APPROVED | NOT APPROVED
+
+CLAUDE ENGINEERING SCORE: X.XXXX
+CODEX ENGINEERING SCORE: X.XXXX
+CONSERVATIVE ENGINEERING SCORE: X.XXXX
+```
+
+Depois:
+
+```text
+GATES:
+G1 ...
+G2 ...
+...
+```
+
+E:
+
+```text
+UNRESOLVED:
+P0: ...
+P1: ...
+P2: ...
+```
+
+---
+
+# 65. SUMÃRIO EXECUTIVO FINAL
+
+Ao final do trabalho, apresente ao usuÃ¡rio um resumo curto contendo:
+
+1. nota inicial Claude;
+2. nota inicial Codex;
+3. principais problemas encontrados;
+4. correÃ§Ãµes realizadas;
+5. nota final Claude;
+6. nota final Codex;
+7. Conservative Engineering Score;
+8. gates;
+9. blockers;
+10. arquivos principais gerados;
+11. mudanÃ§as relevantes no repositÃ³rio;
+12. se o projeto pode ou nÃ£o ser considerado engineering-mature.
+
+---
+
+# 66. PRIMEIRA AÃ‡ÃƒO
+
+**NÃ£o comece alterando cÃ³digo.**
+
+Comece agora por:
+
+1. ler `ARCHITECTURE.md`;
+2. compreender o processo Claude â†” Codex anterior;
+3. inventariar `docs/architecture`;
+4. congelar o SHA atual;
+5. pesquisar na Internet as referÃªncias de engenharia;
+6. produzir `00-research-bibliography.md`;
+7. criar uma primeira proposta de rubrica;
+8. enviÃ¡-la ao Codex para crÃ­tica independente;
+9. fazer a trÃ©plica;
+10. congelar critÃ©rios, pesos e gates;
+11. somente entÃ£o iniciar a Engineering Review do repositÃ³rio.
+
+---
+
+# 67. PRINCÃPIO FINAL
+
+Durante toda a execuÃ§Ã£o, mantenha esta regra:
+
+> **NÃ£o tente provar que o projeto possui boa engenharia. Tente falsificar essa hipÃ³tese.**
+
+Se, mesmo depois de procurar sistematicamente falhas, bypasses, gaps, inconsistÃªncias, dÃ­vida, fragilidade, complexidade e ausÃªncia de evidÃªncia, o projeto continuar atingindo os critÃ©rios definidos independentemente por Claude e Codex, entÃ£o a nota alta serÃ¡ merecida.
+
+Esse Ã© o objetivo.
+# Research Bibliography â€” Engineering Maturity Standards
+
+Fase 0 do processo (`Prompt Mestre â€” Engineering Maturity Review`, Â§4-5). Pesquisa realizada em 2026-08-19 via busca na Internet. NÃ£o copia texto extenso das fontes â€” extrai princÃ­pios e critÃ©rios aplicÃ¡veis a este repositÃ³rio (micro-SaaS serverless AWS, estÃ¡gio prÃ©-produÃ§Ã£o, equipe pequena, forte uso de agentes de IA).
+
+Cada entrada: organizaÃ§Ã£o/documento, versÃ£o, status, data de consulta, URL, critÃ©rios derivados, limitaÃ§Ãµes, natureza (normativa/recomendaÃ§Ã£o/pesquisa empÃ­rica/ferramenta).
+
+---
+
+## 1. ISO/IEC 25010:2023 â€” Product Quality Model (SQuaRE)
+
+- **VersÃ£o/status**: 2023, substitui a ediÃ§Ã£o de 2011. Normativa (ISO).
+- **URL**: https://www.iso.org/standard/78176.html
+- **Consultado em**: 2026-08-19.
+- **Natureza**: normativa (mas o texto completo Ã© pago; usamos o Ã­ndice de caracterÃ­sticas publicamente descrito, nÃ£o o texto integral).
+- **CritÃ©rios derivados**: nove caracterÃ­sticas de qualidade de produto â€” *functional suitability, performance efficiency, compatibility, interaction capability, reliability, security, maintainability, flexibility, safety*. MudanÃ§a relevante vs. 2011: *usability*â†’*interaction capability*, *portability*â†’*flexibility*, nova caracterÃ­stica *safety*. Usamos isto para garantir que a rubrica de Code Quality/Maintainability (domÃ­nio A) e Reliability (domÃ­nio J) nÃ£o sejam auto-inventadas, mas ancoradas em um vocabulÃ¡rio padronizado de subcaracterÃ­sticas (ex.: maintainability se subdivide em modularidade, reusabilidade, analisabilidade, modificabilidade, testabilidade â€” mapeia diretamente aos itens do Prompt Mestre Â§7.A).
+- **LimitaÃ§Ãµes**: texto integral nÃ£o acessado (paywall ISO); usamos o modelo de caracterÃ­sticas de fontes secundÃ¡rias que citam a norma. NÃ£o usar para reivindicar conformidade certificada, apenas como vocabulÃ¡rio/estrutura.
+
+## 2. NIST SP 800-218 â€” Secure Software Development Framework (SSDF)
+
+- **VersÃ£o/status**: v1.1 (fevereiro 2022) Ã© a versÃ£o publicada e vigente. v1.2 (SP 800-218r1) estÃ¡ em **draft pÃºblico** com comentÃ¡rios atÃ© 30/01/2026 â€” **nÃ£o Ã© normativa ainda**, tratada apenas como sinal de direÃ§Ã£o futura, nÃ£o como base de exigÃªncia atual. SP 800-218A (jul/2024) Ã© overlay especÃ­fico para IA generativa â€” fora do escopo deste repositÃ³rio (nÃ£o construÃ­mos modelos de IA, apenas usamos IA como ferramenta de engenharia via CLI de agentes).
+- **URL**: https://www.cisa.gov/resources-tools/resources/nist-sp-800-218-secure-software-development-framework-v11-recommendations-mitigating-risk-software ; draft: https://www.nist.gov/news-events/news/2025/12/secure-software-development-framework-ssdf-version-12-available-public
+- **Consultado em**: 2026-08-19.
+- **Natureza**: normativa (referÃªncia federal dos EUA, adotada amplamente na indÃºstria como framework de prÃ¡ticas, nÃ£o certificaÃ§Ã£o obrigatÃ³ria para este projeto).
+- **CritÃ©rios derivados**: as 4 categorias de prÃ¡ticas do SSDF v1.1 â€” *Prepare the Organization (PO)*, *Protect the Software (PS)*, *Produce Well-Secured Software (PW)*, *Respond to Vulnerabilities (RV)* â€” usadas para estruturar o domÃ­nio F (Secure Software Engineering) do Prompt Mestre: PS mapeia a supply-chain/artefatos/secrets; PW mapeia a threat-informed development/input validation/SAST; RV mapeia a vulnerability triage/response process.
+- **LimitaÃ§Ãµes**: framework Ã© abrangente e voltado a organizaÃ§Ãµes maiores; aplicamos com proporcionalidade (Prompt Mestre Â§39) â€” nÃ£o exigir processo formal de RV com SLA se o projeto nÃ£o tem usuÃ¡rios em produÃ§Ã£o ainda.
+
+## 3. OWASP SAMM v2
+
+- **VersÃ£o/status**: v2 Ã© a versÃ£o atual e vigente (release definitiva, nÃ£o beta), publicada e mantida via owaspsamm.org (conteÃºdo em YAML, iterativo).
+- **URL**: https://owaspsamm.org/model/ ; https://owaspsamm.org/release-notes-v2/
+- **Consultado em**: 2026-08-19.
+- **Natureza**: modelo de maturidade (nÃ£o normativo, framework de autoavaliaÃ§Ã£o da OWASP Foundation).
+- **CritÃ©rios derivados**: 5 business functions (*Governance, Design, Implementation, Verification, Operations*), cada uma com 3 security practices avaliadas em maturidade 0-3 tanto por *coverage* quanto por *quality*. Usado para o domÃ­nio F e para calibrar que maturidade de seguranÃ§a nÃ£o Ã© binÃ¡ria â€” hÃ¡ nÃ­veis, e nÃ­vel 1 (higiene bÃ¡sica) jÃ¡ Ã© aceitÃ¡vel para um projeto neste estÃ¡gio, nÃ£o exigimos nÃ­vel 3 em tudo (proporcionalidade).
+- **LimitaÃ§Ãµes**: autoavaliaÃ§Ã£o, sujeita a viÃ©s se aplicada sem revisÃ£o independente â€” por isso o processo Claudeâ†”Codex Ã© ainda mais necessÃ¡rio aqui.
+
+## 4. OpenSSF Scorecard
+
+- **VersÃ£o/status**: v5.5.0 (abr/2026), ativo, mantido pela OpenSSF (Linux Foundation).
+- **URL**: https://github.com/ossf/scorecard/blob/main/docs/checks.md ; https://scorecard.dev/
+- **Consultado em**: 2026-08-19.
+- **Natureza**: ferramenta de avaliaÃ§Ã£o automatizada (18 checks), nÃ£o normativa â€” evidÃªncia auxiliar per Prompt Mestre Â§53.
+- **CritÃ©rios derivados**: checks relevantes ao domÃ­nio de supply-chain (Â§8 do Prompt Mestre) â€” Branch-Protection, Dependency-Update-Tool, Pinned-Dependencies, SAST, Security-Policy, Token-Permissions, Vulnerabilities, Maintained, Dangerous-Workflow, Signed-Releases.
+- **LimitaÃ§Ãµes**: **repositÃ³rio Ã© privado** (`marcelo-jgoncalves/expiration-tracker`) â€” Scorecard requer repo pÃºblico ou execuÃ§Ã£o local/autenticada; disponibilidade real de execuÃ§Ã£o a confirmar no Checkpoint 6. Se nÃ£o for tecnicamente executÃ¡vel, registrar honestamente como `NOT ENOUGH EVIDENCE` / bloqueio tÃ©cnico, e mapear os checks manualmente por inspeÃ§Ã£o onde possÃ­vel (ex.: branch protection Ã© verificÃ¡vel via `gh api`, pinning de actions Ã© verificÃ¡vel por leitura do workflow).
+
+## 5. SLSA (Supply-chain Levels for Software Artifacts)
+
+- **VersÃ£o/status**: v1.0 Ã© o texto especificado estÃ¡vel referenciado publicamente; buscas indicam v1.1 (abr/2025) e v1.2 com Source Track (nov/2025) como evoluÃ§Ãµes recentes â€” tratar v1.2 como a mais atual, mas verificar o texto exato da spec (`slsa.dev/spec/v1.0/` Ã© o link estÃ¡vel canÃ´nico encontrado; versÃµes incrementais podem nÃ£o ter mudado a estrutura de nÃ­veis).
+- **URL**: https://slsa.dev/spec/v1.0/ ; https://openssf.org/projects/slsa/
+- **Consultado em**: 2026-08-19.
+- **Natureza**: normativa/framework de nÃ­veis (OpenSSF), foco em Build Track.
+- **CritÃ©rios derivados**: Build L1 (provenance existe) â†’ L2 (build em plataforma hospedada, provenance assinada automaticamente, ex. GitHub Actions) â†’ L3 (isolamento de plataforma). O CI deste projeto jÃ¡ roda em GitHub Actions hospedado â€” **L1/L2 sÃ£o potencialmente atingÃ­veis a baixo custo** (provenance/attestation via `actions/attest-build-provenance`); L3 Ã© desproporcional ao estÃ¡gio atual. Usado no domÃ­nio Â§8 (supply chain) com proporcionalidade explÃ­cita â€” `AGENTS.md` Â§6 jÃ¡ registra que assinatura/provenance ficou para "quando existir alvo de deploy real", o que Ã© uma leitura razoÃ¡vel mas a ser re-julgada.
+- **LimitaÃ§Ãµes**: v1.2/Source Track Ã© recente e pode nÃ£o ter ferramentas maduras no ecossistema Node/GitHub Actions ainda â€” verificar antes de exigir.
+
+## 6. AWS Well-Architected Framework
+
+- **VersÃ£o/status**: vigente, 6 pilares (Operational Excellence, Security, Reliability, Performance Efficiency, Cost Optimization, Sustainability â€” Sustainability adicionado em 2021), guidance atualizada continuamente (100% dos best practices revisados desde out/2022 per AWS, confirmado nov/2024).
+- **URL**: https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html (Ã­ndice oficial; pÃ¡ginas especÃ­ficas de pilar consultadas via busca)
+- **Consultado em**: 2026-08-19.
+- **Natureza**: normativa/framework de prÃ¡ticas (AWS, fonte primÃ¡ria do provedor de nuvem usado pelo projeto).
+- **CritÃ©rios derivados**: usado principalmente nos domÃ­nios G (IaC), J (Reliability), K (Observability/Operability) â€” o projeto jÃ¡ usa este framework na fase de arquitetura (`docs/architecture/` referencia AWS Well-Architected). Aqui a diferenÃ§a Ã© verificar **enforcement real na implementaÃ§Ã£o**, nÃ£o a intenÃ§Ã£o documentada.
+- **LimitaÃ§Ãµes**: nenhuma crÃ­tica â€” Ã© a fonte primÃ¡ria mais diretamente aplicÃ¡vel dado que o projeto Ã© 100% AWS.
+
+## 7. Google SRE Book / Workbook â€” SLO, SLI, Error Budgets
+
+- **VersÃ£o/status**: livros vivos, mantidos por Google, sem versionamento formal â€” tratado como corpus de prÃ¡ticas consolidadas, nÃ£o uma spec versionada.
+- **URL**: https://sre.google/sre-book/embracing-risk/ ; https://sre.google/workbook/implementing-slos/ ; https://sre.google/workbook/error-budget-policy/
+- **Consultado em**: 2026-08-19.
+- **Natureza**: prÃ¡tica empÃ­rica documentada por uma organizaÃ§Ã£o (nÃ£o normativa formal, mas amplamente adotada como referÃªncia de fato da indÃºstria).
+- **CritÃ©rios derivados**: SLI = medida quantitativa de nÃ­vel de serviÃ§o; SLO = alvo sobre o SLI; error budget = 1 âˆ’ SLO, orienta o trade-off velocidadeÃ—confiabilidade. Usado no domÃ­nio K (Observability/Operability) â€” o projeto jÃ¡ tem `slo.md` na fase de arquitetura; aqui avaliamos se os SLOs tÃªm SLIs realmente instrumentados/mensurÃ¡veis no cÃ³digo (dashboards/mÃ©tricas), nÃ£o apenas documentados.
+- **LimitaÃ§Ãµes**: projeto prÃ©-produÃ§Ã£o â€” nÃ£o hÃ¡ dados reais de error budget consumido; isso Ã© esperado e nÃ£o penaliza a fundaÃ§Ã£o (Prompt Mestre Â§63), mas limita o eixo Operational Evidence (Â§40.B) a `NOT APPROVED`/`NOT ENOUGH EVIDENCE` por padrÃ£o atÃ© haver operaÃ§Ã£o real.
+
+## 8. DORA / Accelerate (Four Keys)
+
+- **VersÃ£o/status**: pesquisa contÃ­nua (DORA State of DevOps reports anuais); mÃ©tricas de 2018 (livro *Accelerate*) seguem sendo as 4 principais: Deployment Frequency, Lead Time for Changes, Change Failure Rate, MTTR. Nota de 2026: geraÃ§Ã£o de cÃ³digo por IA estÃ¡ mudando a interpretabilidade de Deployment Frequency/Lead Time (sinal, nÃ£o ruÃ­do a ignorar) â€” relevante dado que este projeto Ã© fortemente assistido por IA.
+- **URL**: (relatÃ³rios/artigos agregadores consultados; fonte primÃ¡ria Ã© dora.dev / Google Cloud DORA)
+- **Consultado em**: 2026-08-19.
+- **Natureza**: pesquisa empÃ­rica (nÃ£o normativa).
+- **CritÃ©rios derivados**: usado no domÃ­nio E (CD/Release Engineering) apenas como vocabulÃ¡rio â€” per Prompt Mestre Â§54, **sem dados reais de deploy em produÃ§Ã£o, nÃ£o inventar nÃºmeros**; o achado aqui serÃ¡ `NOT ENOUGH EVIDENCE` para os 4 keys reais, mas avaliamos se o pipeline estÃ¡ estruturalmente capaz de produzi-los quando houver deploys (rastreabilidade commitâ†’buildâ†’deploy, rollback).
+- **LimitaÃ§Ãµes**: nÃ£o aplicÃ¡vel para medir hoje; usado sÃ³ para orientar instrumentaÃ§Ã£o futura.
+
+---
+
+## Fontes nÃ£o pesquisadas nesta rodada (justificativa)
+
+O Prompt Mestre tambÃ©m cita AWS Operational Excellence/Security/Reliability como pilares â€” jÃ¡ cobertos como parte do Well-Architected Framework (item 6), nÃ£o sÃ£o documentos separados. CI/CD, dependency management, testing, observability "prÃ¡ticas oficiais" genÃ©ricas nÃ£o tÃªm uma fonte primÃ¡ria Ãºnica â€” tratadas via os frameworks acima (SSDF/SAMM para seguranÃ§a de processo, Well-Architected para operaÃ§Ã£o, DORA/SRE para confiabilidade e delivery) em vez de buscas adicionais redundantes, evitando pesquisa dispersiva sem fonte primÃ¡ria clara.
+
+## Aplicabilidade consolidada ao projeto
+
+Dado o estÃ¡gio (prÃ©-produÃ§Ã£o, micro-SaaS, single-table DynamoDB, serverless AWS, Node/TypeScript, uso intensivo de agentes Claude/Codex), a rubrica do Checkpoint 1 vai ponderar mais pesadamente: correctness/type-safety/testing (ISO 25010 + evidence-first do prÃ³prio Prompt Mestre), secure-by-default e supply-chain proporcional (SSDF+SAMM+Scorecard+SLSA, nÃ­vel 1-2, nÃ£o nÃ­vel mÃ¡ximo), e reliability/data engineering especÃ­fico do domÃ­nio (idempotÃªncia, OCC, outbox â€” jÃ¡ sÃ£o decisÃµes arquiteturais existentes, aqui avaliamos enforcement). Operational Evidence (DORA real, error budgets reais, SLSA L3, restore/rollback exercitados) serÃ¡ necessariamente `NOT ENOUGH EVIDENCE`/`NOT APPROVED` neste momento por ausÃªncia de produÃ§Ã£o â€” isso Ã© esperado, nÃ£o uma falha da fundaÃ§Ã£o (Prompt Mestre Â§40, Â§63).
+
+# Engineering Quality Criteria â€” Rubrica (DRAFT â€” Claude round 1, nÃ£o congelada)
+
+Status: **DRAFT**. Aguardando crÃ­tica independente do Codex antes de congelar (Prompt Mestre Â§6, Â§25). NÃ£o usar para pontuar nada ainda.
+
+Ancorada em `00-research-bibliography.md`. Pesos somam 100%. Proporcional ao estÃ¡gio: micro-SaaS prÃ©-produÃ§Ã£o, equipe pequena, serverless AWS (Prompt Mestre Â§39).
+
+## DomÃ­nios e pesos propostos
+
+| # | DomÃ­nio | Peso | Fonte principal |
+|---|---|---:|---|
+| A | Code Quality & Maintainability | 12% | ISO 25010 (maintainability) |
+| B | Type Safety, Contracts & Correctness | 13% | ISO 25010 (functional suitability, reliability) |
+| C | Testing Engineering | 15% | ISO 25010 + evidence-first |
+| D | Continuous Integration | 8% | SSDF PW, DORA (estrutural) |
+| E | CD & Release Engineering | 6% | DORA, SLSA |
+| F | Secure Software Engineering | 13% | NIST SSDF, OWASP SAMM v2 |
+| G | Software Supply Chain | 7% | OpenSSF Scorecard, SLSA |
+| H | Infrastructure Engineering / IaC | 7% | AWS Well-Architected |
+| I | Reliability Engineering | 9% | AWS Well-Architected (Reliability), Google SRE |
+| J | Observability & Operability | 5% | Google SRE (SLI/SLO) |
+| K | Developer Experience | 2% | â€” |
+| L | Documentation Engineering | 1% | â€” |
+| M | Data & State Engineering | 5% (subset jÃ¡ coberto em B/I, aqui Ã© access-pattern-specific) | â€” |
+| N | Engineering Governance | 1% | â€” |
+| O | AI-Assisted Engineering | 3% | `AGENTS.md`/`CLAUDE.md` prÃ³prios |
+| P | Performance & Efficiency | 1% | proporcional â€” estÃ¡gio inicial nÃ£o pede otimizaÃ§Ã£o |
+| â€” | **Total** | **100%** | |
+
+Nota de peso: M (Data/State) e B (correctness) se sobrepÃµem parcialmente porque o projeto Ã© single-table DynamoDB com invariantes de OCC/idempotÃªncia que sÃ£o tanto "correctness" quanto "data engineering" â€” a rubrica final deve decidir se M absorve isso ou se Ã© redundante com B/I. Marcado explicitamente para a crÃ­tica do Codex, nÃ£o resolvido unilateralmente.
+
+## Gates eliminatÃ³rios propostos (Prompt Mestre Â§19)
+
+Falha em qualquer gate abaixo bloqueia `ENGINEERING FOUNDATION STATUS: APPROVED`, independentemente do score ponderado.
+
+- **G1 â€” Build reproduzÃ­vel**: `npm ci` + `npm run build`/`typecheck` passam em ambiente limpo.
+- **G2 â€” CI obrigatÃ³rio real**: workflow do GitHub Actions realmente executa (nÃ£o apenas existe) typecheck+lint+test+schema-validation em todo PR/push.
+- **G3 â€” Testes crÃ­ticos passam**: suÃ­te cross-tenant, isolamento de GSI3, lifecycle de expiration, reminder engine â€” todas verdes (`npm test` exit 0).
+- **G4 â€” Nenhum secret conhecido no repositÃ³rio**: verificaÃ§Ã£o manual/scanner nos arquivos versionados.
+- **G5 â€” Sem vulnerabilidade crÃ­tica nÃ£o tratada**: `npm audit` sem `critical`/`high` nÃ£o mitigado (ou exceÃ§Ã£o registrada em `exceptions.md`).
+- **G6 â€” Tenant isolation enforced em IAM real**, nÃ£o apenas em cÃ³digo de aplicaÃ§Ã£o (achado de M3 jÃ¡ prova que isso pode falhar silenciosamente).
+- **G7 â€” Nenhuma falha silenciosa conhecida em reminder processing** (catch-and-swallow em paths crÃ­ticos de dispatch/reconciliation).
+- **G8 â€” Infraestrutura sintetizÃ¡vel/validÃ¡vel** (CDK synth, mesmo que sÃ³ via `assertions` em memÃ³ria, sem erro).
+- **G9 â€” Arquitetura crÃ­tica enforced**: boundaries de mÃ³dulo (domain nÃ£o importa infra) verificÃ¡veis, idealmente por lint/teste, nÃ£o sÃ³ por convenÃ§Ã£o.
+
+## Fitness functions propostas (esqueleto â€” detalhado em 02-engineering-fitness-functions.md)
+
+Categorias mÃ­nimas: build, typecheck, lint, test (unit/contract/integration/infra), validate-schemas, npm audit, secret-scan, IaC synth, dependency-direction/architecture-boundary check.
+
+## Regra de N/A
+
+DomÃ­nios/critÃ©rios de Operational Evidence (DORA real, load test real, restore test real) comeÃ§am como **candidatos a N/A por ausÃªncia de produÃ§Ã£o**, mas sÃ³ viram N/A de fato com justificativa registrada e concordÃ¢ncia Claude+Codex (Prompt Mestre Â§22) â€” nÃ£o sÃ£o simplesmente descontados do denominador sem registro.
+
+## Regra de redistribuiÃ§Ã£o de peso
+
+Se um domÃ­nio virar N/A por decisÃ£o conjunta, seu peso Ã© redistribuÃ­do proporcionalmente entre os domÃ­nios restantes do mesmo eixo (Foundation), preservando a soma em 100%. Regra fixada agora, antes da primeira avaliaÃ§Ã£o, per Prompt Mestre Â§22.
+
+---
+
+**PrÃ³ximo passo**: enviar este draft ao Codex via `codex exec` para crÃ­tica independente (sem revelar preferÃªncia do Claude, per protocolo de nota cega do `AGENTS.md` Â§3), sem instruÃ§Ã£o para "confirmar".
+
+
+codex
+A leitura combinada truncou a saída, então vou reler os arquivos normativos em blocos para não perder regras de gates, N/A e separação Foundation/Operational. Esse detalhe importa: parte da fragilidade que já aparece é tratar “pré-produção” como N/A onde o resultado correto pode ser “sem evidência operacional”, preservando o sinal em vez de apagar peso.
+2026-08-19T13:39:28.907576Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p='"'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md'; "'$lines=Get-Content -LiteralPath $p; $lines[0..699]; $lines[700..1399]; $lines[1400..($lines.Length-1)]'` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p='"'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md'; "'$lines=Get-Content -LiteralPath $p; $lines[0..699]; $lines[700..1399]; $lines[1400..($lines.Length-1)]' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ declined in 0ms:
+`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p='"'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md'; "'$lines=Get-Content -LiteralPath $p; $lines[0..699]; $lines[700..1399]; $lines[1400..($lines.Length-1)]'` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md' -TotalCount 800" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md' | Select-Object -Skip 800 -First 800" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md' | Select-Object -Skip 1600" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 553ms:
+# PROMPT MESTRE â€” ENGINEERING MATURITY REVIEW
+
+VocÃª estÃ¡ trabalhando no repositÃ³rio **Expiration Tracker**.
+
+Este trabalho Ã© uma continuaÃ§Ã£o natural do processo rigoroso utilizado anteriormente para definir e validar a arquitetura do projeto, mas **o objeto desta revisÃ£o nÃ£o Ã© mais a arquitetura**.
+
+O objetivo agora Ã©:
+
+> **estabelecer, avaliar, implementar e validar um padrÃ£o geral de engenharia de software de nÃ­vel profissional para todo o projeto.**
+
+VocÃª deverÃ¡ trabalhar em conjunto com o **Codex como segundo engenheiro independente**, reproduzindo a disciplina do processo Claude â†” Codex utilizado na fase arquitetural:
+
+**pesquisa â†’ critÃ©rios â†’ proposta/anÃ¡lise independente â†’ crÃ­tica â†’ trÃ©plica â†’ correÃ§Ã£o â†’ nova avaliaÃ§Ã£o â†’ nota independente â†’ aprovaÃ§Ã£o ou nova rodada.**
+
+O processo deve ser baseado principalmente em **evidÃªncias verificÃ¡veis no repositÃ³rio e na execuÃ§Ã£o real de ferramentas**, e nÃ£o em declaraÃ§Ãµes, documentaÃ§Ã£o aspiracional ou percepÃ§Ã£o subjetiva.
+
+---
+
+# 1. OBJETIVO PRINCIPAL
+
+Avaliar e elevar o **Engineering Maturity** do projeto como um todo.
+
+A pergunta central nÃ£o Ã©:
+
+> "A arquitetura Ã© boa?"
+
+Essa questÃ£o pertence ao processo anterior.
+
+A pergunta agora Ã©:
+
+> **"Este projeto estÃ¡ sendo construÃ­do, testado, versionado, protegido, entregue, observado, documentado e mantido de acordo com padrÃµes de engenharia de software suficientemente fortes para sustentar um produto profissional?"**
+
+A avaliaÃ§Ã£o deverÃ¡ cobrir, no mÃ­nimo:
+
+- qualidade e manutenibilidade do cÃ³digo;
+- organizaÃ§Ã£o do repositÃ³rio;
+- boundaries entre mÃ³dulos;
+- aderÃªncia da implementaÃ§Ã£o Ã  arquitetura;
+- type safety e contratos;
+- tratamento de erros;
+- idempotÃªncia e concorrÃªncia;
+- testes;
+- qualidade dos testes;
+- CI;
+- CD;
+- release engineering;
+- reprodutibilidade;
+- dependency management;
+- seguranÃ§a;
+- secure SDLC;
+- software supply chain;
+- IaC;
+- configuraÃ§Ã£o;
+- gerenciamento de secrets;
+- observabilidade;
+- operabilidade;
+- confiabilidade;
+- resiliÃªncia;
+- runbooks;
+- qualidade da documentaÃ§Ã£o;
+- Developer Experience;
+- automaÃ§Ã£o;
+- performance;
+- eficiÃªncia;
+- gestÃ£o de dÃ­vida tÃ©cnica;
+- disciplina de mudanÃ§as;
+- engenharia de dados/persistÃªncia;
+- qualidade de APIs e contratos;
+- governanÃ§a de dependÃªncias;
+- engenharia assistida por IA;
+- rastreabilidade das decisÃµes;
+- capacidade de evoluÃ§Ã£o do projeto.
+
+NÃ£o se limite a essa lista.
+
+A **Fase 0 deve pesquisar na Internet quais dimensÃµes adicionais sÃ£o necessÃ¡rias**.
+
+---
+
+# 2. REGRA FUNDAMENTAL: NÃƒO REFAZER A ARQUITETURA
+
+Antes de iniciar:
+
+1. leia `ARCHITECTURE.md`;
+2. leia os documentos relevantes de `docs/architecture/`;
+3. entenda as decisÃµes arquiteturais existentes;
+4. trate essas decisÃµes como **baseline arquitetural do projeto**.
+
+A arquitetura jÃ¡ passou por processo prÃ³prio de revisÃ£o.
+
+Portanto:
+
+**NÃƒO transforme esta revisÃ£o em uma nova Architecture Review.**
+
+O foco deve ser verificar:
+
+- se o cÃ³digo respeita os boundaries definidos;
+- se a implementaÃ§Ã£o preserva as propriedades arquiteturais;
+- se as abstraÃ§Ãµes escolhidas sÃ£o bem implementadas;
+- se existem violaÃ§Ãµes de arquitetura;
+- se existem dependÃªncias indevidas;
+- se os contratos estÃ£o claros;
+- se as garantias arquiteturais possuem mecanismos reais de enforcement.
+
+Uma mudanÃ§a arquitetural somente pode ser proposta quando:
+
+1. houver evidÃªncia concreta de que uma decisÃ£o existente impede engenharia correta;
+2. a questÃ£o nÃ£o puder ser resolvida no nÃ­vel de implementaÃ§Ã£o;
+3. Claude e Codex concordarem;
+4. a mudanÃ§a for explicitamente marcada como:
+
+`ARCHITECTURE CHANGE REQUIRED`
+
+5. um ADR separado for proposto.
+
+NÃ£o modificar silenciosamente decisÃµes arquiteturais durante uma revisÃ£o de engenharia.
+
+---
+
+# 3. NÃƒO HERDAR AS NOTAS DA ARQUITETURA
+
+As notas obtidas anteriormente no processo arquitetural **nÃ£o tÃªm qualquer influÃªncia sobre esta avaliaÃ§Ã£o**.
+
+Um projeto pode ter:
+
+- arquitetura 9.5;
+- engenharia 5.0.
+
+Ou o contrÃ¡rio.
+
+NÃ£o use os scores anteriores como priors.
+
+NÃ£o tente preservar coerÃªncia com as notas anteriores.
+
+FaÃ§a uma avaliaÃ§Ã£o nova e independente.
+
+---
+
+# 4. FASE 0 â€” PESQUISA EXTERNA OBRIGATÃ“RIA
+
+Antes de criar a rubrica ou avaliar qualquer cÃ³digo, realize uma **pesquisa atualizada na Internet**.
+
+A pesquisa deve responder:
+
+> Quais sÃ£o, atualmente, os principais critÃ©rios reconhecidos para avaliar a maturidade de engenharia de um software moderno, cloud-native/serverless e operado profissionalmente?
+
+Use prioritariamente **fontes primÃ¡rias, normativas ou mantidas pelos responsÃ¡veis pelos frameworks**.
+
+Comece, no mÃ­nimo, investigando:
+
+- ISO/IEC 25010;
+- DORA;
+- NIST Secure Software Development Framework â€” SSDF;
+- OWASP SAMM;
+- OpenSSF Scorecard;
+- SLSA;
+- AWS Well-Architected Framework;
+- AWS Operational Excellence;
+- AWS Security;
+- AWS Reliability;
+- Google SRE;
+- prÃ¡ticas oficiais relacionadas a CI/CD;
+- prÃ¡ticas oficiais relacionadas a software supply chain;
+- prÃ¡ticas oficiais relacionadas a dependency management;
+- prÃ¡ticas oficiais relacionadas a testing;
+- prÃ¡ticas oficiais relacionadas a observability;
+- prÃ¡ticas oficiais relacionadas a secure software development.
+
+Pesquise tambÃ©m outras referÃªncias relevantes caso encontre frameworks ou evidÃªncias melhores.
+
+NÃ£o assuma que uma versÃ£o lembrada pelo modelo ainda Ã© a atual.
+
+Verifique:
+
+- versÃ£o;
+- status;
+- data;
+- se Ã© final, draft ou deprecated;
+- escopo;
+- aplicabilidade ao projeto.
+
+Prefira documentos atuais e oficiais.
+
+Drafts podem complementar a anÃ¡lise, mas nÃ£o devem substituir silenciosamente uma versÃ£o normativa/final.
+
+---
+
+# 5. DOCUMENTO DE PESQUISA
+
+Crie:
+
+`docs/engineering/00-research-bibliography.md`
+
+Para cada fonte utilizada registre:
+
+- organizaÃ§Ã£o;
+- documento/framework;
+- versÃ£o, quando aplicÃ¡vel;
+- data;
+- URL;
+- data da consulta;
+- quais critÃ©rios de engenharia foram derivados dela;
+- limitaÃ§Ãµes;
+- se Ã© normativa, recomendaÃ§Ã£o, pesquisa empÃ­rica ou ferramenta de avaliaÃ§Ã£o.
+
+NÃ£o copie extensivamente os textos das fontes.
+
+Extraia princÃ­pios e critÃ©rios.
+
+---
+
+# 6. CRITÃ‰RIOS DEVEM SER DEFINIDOS ANTES DA AVALIAÃ‡ÃƒO
+
+Esta regra Ã© obrigatÃ³ria.
+
+Primeiro:
+
+1. pesquisar;
+2. definir critÃ©rios;
+3. definir pesos;
+4. definir gates;
+5. Claude revisar;
+6. Codex revisar independentemente;
+7. resolver divergÃªncias;
+8. congelar a rubrica.
+
+**Somente depois disso o repositÃ³rio pode receber uma nota.**
+
+Isso existe para evitar moving goalposts.
+
+Depois da primeira avaliaÃ§Ã£o, os pesos nÃ£o podem ser modificados simplesmente porque determinado resultado ficou baixo.
+
+Se a rubrica precisar ser alterada posteriormente, documente:
+
+- motivo;
+- evidÃªncia nova;
+- impacto;
+- aprovaÃ§Ã£o de Claude;
+- aprovaÃ§Ã£o de Codex.
+
+---
+
+# 7. RUBRICA DE ENGENHARIA
+
+Crie:
+
+`docs/engineering/01-engineering-quality-criteria.md`
+
+A rubrica deverÃ¡ totalizar exatamente:
+
+**100%**
+
+Claude e Codex deverÃ£o discutir e aprovar os pesos.
+
+NÃ£o prescrevo os pesos finais, mas a rubrica deverÃ¡ cobrir materialmente pelo menos os seguintes domÃ­nios.
+
+## A. Code Quality & Maintainability
+
+Avaliar, entre outros:
+
+- modularidade;
+- coesÃ£o;
+- acoplamento;
+- clareza;
+- naming;
+- tamanho e responsabilidade das unidades;
+- abstraÃ§Ãµes;
+- duplicaÃ§Ã£o;
+- complexidade;
+- dead code;
+- organizaÃ§Ã£o;
+- testabilidade;
+- estabilidade dos boundaries;
+- manejo de dependÃªncias;
+- facilidade de alteraÃ§Ã£o;
+- presenÃ§a de hacks ou soluÃ§Ãµes temporÃ¡rias;
+- dÃ­vida tÃ©cnica explÃ­cita versus implÃ­cita.
+
+NÃ£o confundir "cÃ³digo elegante" com engenharia correta.
+
+---
+
+## B. Type Safety, Contracts & Correctness
+
+Avaliar:
+
+- uso adequado do sistema de tipos;
+- propagaÃ§Ã£o de `any`, casts ou equivalentes;
+- validaÃ§Ã£o de entrada;
+- contratos externos;
+- schemas;
+- serializaÃ§Ã£o;
+- parsing;
+- validaÃ§Ã£o runtime;
+- invariantes;
+- estados impossÃ­veis;
+- erros esperados;
+- erros inesperados;
+- concorrÃªncia;
+- idempotÃªncia;
+- controle de versÃ£o de contratos.
+
+Para caminhos crÃ­ticos, verificar se invariantes existem apenas na documentaÃ§Ã£o ou se sÃ£o realmente enforceados.
+
+---
+
+## C. Testing Engineering
+
+NÃ£o avaliar apenas "coverage".
+
+Avaliar:
+
+- unit tests;
+- integration tests;
+- contract tests;
+- API tests;
+- infrastructure tests;
+- end-to-end tests;
+- smoke tests;
+- testes negativos;
+- testes de autorizaÃ§Ã£o;
+- isolamento entre tenants;
+- idempotÃªncia;
+- concorrÃªncia;
+- retry;
+- timeout;
+- falhas parciais;
+- DLQ;
+- race conditions;
+- property-based testing quando apropriado;
+- performance tests;
+- load tests;
+- restore tests;
+- disaster recovery tests;
+- testes de migrations quando aplicÃ¡vel.
+
+Avaliar tambÃ©m:
+
+- qualidade das assertions;
+- brittleness;
+- excesso de mocks;
+- falsos positivos;
+- flaky tests;
+- velocidade;
+- determinismo;
+- capacidade de localizar regressÃµes.
+
+**Coverage alto nÃ£o deve compensar testes ruins.**
+
+---
+
+## D. Continuous Integration
+
+Avaliar:
+
+- build automÃ¡tico;
+- lint;
+- format;
+- type checking;
+- testes;
+- security scanning;
+- IaC validation;
+- dependency scanning;
+- secret scanning;
+- feedback rÃ¡pido;
+- comportamento em falhas;
+- branch checks;
+- proteÃ§Ã£o contra merge quebrado;
+- cache;
+- paralelizaÃ§Ã£o;
+- reproducibilidade;
+- permissÃµes do CI;
+- pinning das Actions;
+- uso de OIDC quando aplicÃ¡vel.
+
+Verifique o que realmente roda em cada PR.
+
+NÃ£o dar pontos por scripts que existem mas nÃ£o sÃ£o executados.
+
+---
+
+## E. Continuous Delivery & Release Engineering
+
+Avaliar:
+
+- capacidade real de deploy;
+- automaÃ§Ã£o;
+- ambientes;
+- promoÃ§Ã£o;
+- rollback;
+- roll-forward;
+- versionamento;
+- artefatos;
+- proveniÃªncia;
+- atomicidade;
+- migrations;
+- deployment safety;
+- approvals;
+- deployment verification;
+- smoke tests;
+- release notes quando apropriado;
+- rastreabilidade commit â†’ build â†’ deploy.
+
+---
+
+## F. Secure Software Engineering
+
+Derivar principalmente de SSDF/SAMM e outras fontes oficiais.
+
+Avaliar:
+
+- secure by default;
+- threat-informed development;
+- secrets;
+- IAM;
+- least privilege;
+- authorization;
+- input validation;
+- dependency vulnerabilities;
+- SAST;
+- SCA;
+- secret scanning;
+- security tests;
+- triagem de vulnerabilidades;
+- seguranÃ§a do CI;
+- seguranÃ§a de artefatos;
+- response process;
+- security policy;
+- logs sensÃ­veis;
+- PII;
+- criptografia;
+- abuse cases;
+- webhook validation;
+- replay;
+- SSRF;
+- injection;
+- supply-chain attacks.
+
+Considere o threat model arquitetural existente quando ele existir.
+
+---
+
+# 8. SOFTWARE SUPPLY CHAIN
+
+Avaliar explicitamente:
+
+- dependency pinning;
+- lockfiles;
+- atualizaÃ§Ã£o automatizada;
+- dependÃªncias abandonadas;
+- vulnerabilidades;
+- origem dos packages;
+- artefatos binÃ¡rios;
+- GitHub Actions pinning;
+- permissÃµes de workflows;
+- branch protection;
+- code review;
+- provenance;
+- SBOM quando justificÃ¡vel;
+- assinaturas;
+- release provenance;
+- reprodutibilidade;
+- OpenSSF Scorecard;
+- conceitos relevantes do SLSA.
+
+NÃ£o exija mecanismos avanÃ§ados apenas para gerar uma nota alta.
+
+O objetivo Ã© **proporcionalidade de risco**.
+
+---
+
+# 9. INFRASTRUCTURE ENGINEERING / IaC
+
+Avaliar:
+
+- qualidade do CDK/Terraform/IaC utilizado;
+- organizaÃ§Ã£o;
+- reutilizaÃ§Ã£o;
+- boundaries;
+- naming;
+- environments;
+- config;
+- secrets;
+- IAM;
+- drift;
+- synth/plan;
+- deploy;
+- rollback;
+- state;
+- lifecycle;
+- destruiÃ§Ã£o acidental;
+- observabilidade dos recursos;
+- seguranÃ§a;
+- tagging;
+- budgets;
+- testabilidade;
+- validaÃ§Ã£o no CI.
+
+A infraestrutura deve ser avaliada como **software**, nÃ£o apenas como configuraÃ§Ã£o.
+
+---
+
+# 10. RELIABILITY ENGINEERING
+
+Verificar se as propriedades descritas na arquitetura realmente existem na implementaÃ§Ã£o.
+
+No contexto deste projeto, dÃª atenÃ§Ã£o especial a:
+
+- idempotÃªncia;
+- retries;
+- backoff;
+- poison messages;
+- DLQs;
+- reconciliation;
+- sweeper;
+- OCC;
+- outbox;
+- duplicate delivery;
+- partial failure;
+- eventual consistency;
+- timeouts;
+- unavailable dependencies;
+- rate limiting;
+- provider failures;
+- clock/timezone handling;
+- reminder correctness;
+- recovery.
+
+Para cada garantia importante, tente responder:
+
+> Qual mecanismo concreto impede que esta garantia seja violada?
+
+---
+
+# 11. OBSERVABILITY & OPERABILITY
+
+Avaliar:
+
+- logs;
+- structured logging;
+- correlation IDs;
+- traces;
+- mÃ©tricas;
+- alarmes;
+- dashboards;
+- SLOs;
+- alertas acionÃ¡veis;
+- cardinalidade;
+- PII nos logs;
+- troubleshooting;
+- runbooks;
+- incident response;
+- DLQ handling;
+- debugging;
+- health information;
+- capacidade de identificar falhas silenciosas.
+
+NÃ£o pontuar observabilidade apenas porque o cÃ³digo chama uma biblioteca de logging.
+
+---
+
+# 12. DEVELOPER EXPERIENCE
+
+Avaliar a experiÃªncia de um engenheiro novo entrando no projeto.
+
+Pergunta prÃ¡tica:
+
+> Um engenheiro competente consegue clonar este repositÃ³rio e trabalhar com seguranÃ§a sem depender de conhecimento tribal?
+
+Avaliar:
+
+- README;
+- bootstrap;
+- setup;
+- requisitos;
+- desenvolvimento local;
+- comandos;
+- seeds/fixtures;
+- mocks;
+- testes;
+- debug;
+- workflows;
+- Makefile/task runner/package scripts;
+- mensagens de erro;
+- documentaÃ§Ã£o;
+- descoberta de componentes;
+- facilidade de localizar cÃ³digo;
+- velocidade de feedback;
+- paridade razoÃ¡vel entre local e CI.
+
+FaÃ§a o teste quando possÃ­vel.
+
+---
+
+# 13. DOCUMENTATION ENGINEERING
+
+Avaliar:
+
+- README;
+- arquitetura;
+- ADRs;
+- engineering docs;
+- runbooks;
+- APIs;
+- schemas;
+- procedimentos operacionais;
+- onboarding;
+- comentÃ¡rios de cÃ³digo;
+- decisÃµes;
+- documentaÃ§Ã£o de trade-offs;
+- links quebrados;
+- divergÃªncia docs â†” cÃ³digo;
+- documentaÃ§Ã£o obsoleta;
+- excesso de documentaÃ§Ã£o inÃºtil.
+
+DocumentaÃ§Ã£o deve ser:
+
+- correta;
+- encontrÃ¡vel;
+- atual;
+- proporcional;
+- orientada a tarefas;
+- Ãºtil tanto a humanos quanto a agentes de IA.
+
+---
+
+# 14. DATA & STATE ENGINEERING
+
+Como o projeto possui estado e usa DynamoDB, analisar tambÃ©m:
+
+- access patterns;
+- invariantes;
+- key construction;
+- isolamento;
+- conditional writes;
+- OCC;
+- idempotency keys;
+- transaction boundaries;
+- pagination;
+- consistency assumptions;
+- GSI behavior;
+- hot partitions;
+- schema evolution;
+- backward compatibility;
+- TTL;
+- retention;
+- deletion;
+- recovery;
+- test fixtures;
+- auditability.
+
+NÃ£o refazer o data model arquitetural.
+
+Avaliar a **qualidade de sua implementaÃ§Ã£o**.
+
+---
+
+# 15. PERFORMANCE & EFFICIENCY ENGINEERING
+
+Avaliar proporcionalmente ao estÃ¡gio do produto:
+
+- hot paths;
+- N+1;
+- chamadas desnecessÃ¡rias;
+- tamanho de payload;
+- memÃ³ria;
+- cold starts;
+- batching;
+- concurrency;
+- caching;
+- Lambda configuration;
+- DynamoDB access;
+- SQS usage;
+- network calls;
+- timeout budgets;
+- custo acidental;
+- testes de performance.
+
+NÃ£o criar premature optimization.
+
+TambÃ©m nÃ£o aceitar ausÃªncia total de mecanismos para detectar regressÃµes importantes.
+
+---
+
+# 16. ENGINEERING GOVERNANCE
+
+Avaliar:
+
+- branch protection;
+- pull requests;
+- code review;
+- CODEOWNERS;
+- commit hygiene;
+- issue templates quando Ãºteis;
+- PR templates;
+- change discipline;
+- releases;
+- semantic versioning quando aplicÃ¡vel;
+- ownership;
+- exceÃ§Ãµes;
+- technical debt registry;
+- critÃ©rios de pronto;
+- polÃ­ticas de seguranÃ§a;
+- dependÃªncias;
+- processo de melhoria contÃ­nua.
+
+Considere o tamanho atual do projeto.
+
+NÃ£o copie processos de uma empresa de 10.000 pessoas para um projeto pequeno.
+
+---
+
+# 17. AI-ASSISTED ENGINEERING
+
+Este projeto Ã© desenvolvido com uso relevante de Claude e Codex.
+
+Isso deve ser considerado explicitamente.
+
+Avalie:
+
+- `CLAUDE.md`;
+- `AGENTS.md`;
+- arquivos de contexto;
+- instruÃ§Ãµes aos agentes;
+- consistÃªncia entre instruÃ§Ãµes e cÃ³digo;
+- proteÃ§Ã£o contra agentes modificarem Ã¡reas erradas;
+- qualidade dos critÃ©rios de aceite;
+- validaÃ§Ã£o automÃ¡tica das mudanÃ§as geradas por IA;
+- capacidade de um humano compreender mudanÃ§as produzidas por IA;
+- revisÃ£o independente;
+- risco de dois agentes confirmarem o mesmo erro;
+- proveniÃªncia das decisÃµes;
+- excesso de documentaÃ§Ã£o feita para agentes e ruim para humanos;
+- mecanismos que impedem "AI slop".
+
+PrincÃ­pio:
+
+> **CÃ³digo gerado por IA deve cumprir exatamente os mesmos gates que cÃ³digo humano.**
+
+Nunca aceitar:
+
+> "Claude analisou e achou correto"
+
+como evidÃªncia de engenharia.
+
+---
+
+# 18. FITNESS FUNCTIONS
+
+Crie:
+
+`docs/engineering/02-engineering-fitness-functions.md`
+
+Transforme os critÃ©rios importantes em verificaÃ§Ãµes executÃ¡veis sempre que possÃ­vel.
+
+Exemplos de categorias:
+
+- build;
+- typecheck;
+- lint;
+- format;
+- unit tests;
+- integration tests;
+- contract tests;
+- architecture boundary tests;
+- IaC synth;
+- IaC validation;
+- secret scanning;
+- SAST;
+- dependency scanning;
+- security checks;
+- license policy quando relevante;
+- lockfile validation;
+- API schema validation;
+- dependency direction;
+- duplicate dependency versions;
+- flaky tests;
+- performance budgets;
+- bundle/package size quando aplicÃ¡vel;
+- documentation validation;
+- smoke tests;
+- deployment validation.
+
+Cada fitness function deve indicar:
+
+- objetivo;
+- risco mitigado;
+- comando;
+- quando roda;
+- comportamento esperado;
+- consequÃªncia em caso de falha;
+- se bloqueia PR;
+- se bloqueia deploy.
+
+---
+
+# 19. GATES ELIMINATÃ“RIOS
+
+Defina Engineering Gates antes da avaliaÃ§Ã£o.
+
+
+ succeeded in 618ms:
+Repository Baseline + Engineering Structure
+
+### Checkpoint 3
+Code Quality + Maintainability + Architecture Fidelity
+
+### Checkpoint 4
+Testing & Correctness
+
+### Checkpoint 5
+CI/CD + Release Engineering + Reproducibility
+
+### Checkpoint 6
+Security + Secure SDLC + Software Supply Chain
+
+### Checkpoint 7
+Infrastructure Engineering + Configuration
+
+### Checkpoint 8
+Reliability + Observability + Operability
+
+### Checkpoint 9
+Data/State Correctness + Performance/Efficiency
+
+### Checkpoint 10
+Developer Experience + Documentation + Governance
+
+### Checkpoint 11
+AI-Assisted Engineering
+
+### Checkpoint 12
+Engineering Red Team
+
+### Checkpoint 13
+Remediation Implementation
+
+### Checkpoint 14
+Final Engineering Assessment
+
+Cada checkpoint relevante deve passar pelo processo Claude â†” Codex.
+
+---
+
+# 49. FORMATO DAS REVIEWS
+
+Salve reviews em:
+
+```text
+docs/engineering/reviews/
+```
+
+Exemplo:
+
+```text
+checkpoint-04-testing/
+  claude-round1.md
+  codex-round1.md
+  divergence-round1.md
+  corrected-round1.md
+  claude-score-round1.md
+  codex-score-round1.md
+```
+
+Se houver segunda rodada:
+
+```text
+  claude-round2.md
+  codex-round2.md
+  ...
+```
+
+Isso torna o processo auditÃ¡vel.
+
+---
+
+# 50. EVIDENCE MATRIX
+
+Crie:
+
+`docs/engineering/evidence-matrix.md`
+
+Formato aproximado:
+
+| ID | CritÃ©rio | Peso | EvidÃªncia | Arquivo/linha/comando | Claude | Codex | Status |
+|---|---:|---:|---|---|---:|---:|---|
+
+Nenhum score alto deve existir sem evidÃªncia correspondente.
+
+---
+
+# 51. COMANDOS EXECUTADOS
+
+Crie um registro reproduzÃ­vel dos comandos relevantes:
+
+`docs/engineering/verification-log.md`
+
+Registre:
+
+- comando;
+- ambiente;
+- resultado;
+- timestamp;
+- SHA;
+- exit code;
+- observaÃ§Ãµes.
+
+NÃ£o armazene secrets.
+
+---
+
+# 52. HISTÃ“RICO DO GIT
+
+Quando possÃ­vel, utilize tambÃ©m histÃ³rico real para avaliar:
+
+- manutenÃ§Ã£o;
+- tamanho de mudanÃ§as;
+- disciplina;
+- CI;
+- regressÃµes;
+- dependÃªncias;
+- evoluÃ§Ã£o.
+
+Mas nÃ£o penalize automaticamente um repositÃ³rio novo pela ausÃªncia de histÃ³rico longo.
+
+---
+
+# 53. OPENSSF SCORECARD
+
+Quando tecnicamente possÃ­vel, execute OpenSSF Scorecard contra o repositÃ³rio.
+
+Use o resultado como **evidÃªncia auxiliar**, nunca como nota final automÃ¡tica.
+
+Mapeie findings relevantes Ã  rubrica.
+
+---
+
+# 54. DORA
+
+Se existirem dados suficientes, avalie indicadores de delivery.
+
+Se nÃ£o existirem:
+
+`NOT ENOUGH EVIDENCE`
+
+NÃ£o invente deployment frequency, lead time ou failure rates.
+
+Considere instrumentar a capacidade futura de medi-los caso faÃ§a sentido.
+
+---
+
+# 55. DEFECT ESCAPE
+
+Sempre que encontrar um bug real durante a revisÃ£o:
+
+1. registre o bug;
+2. identifique por que os testes existentes nÃ£o detectaram;
+3. adicione teste reproduzindo;
+4. corrija;
+5. adicione mecanismo para evitar classe semelhante de regressÃ£o quando razoÃ¡vel.
+
+Uma correÃ§Ã£o sem aprendizado de engenharia estÃ¡ incompleta.
+
+---
+
+# 56. REGRESSION PREVENTION
+
+Toda correÃ§Ã£o importante deve responder:
+
+> O que impede este problema de voltar?
+
+PossÃ­veis respostas:
+
+- teste;
+- type system;
+- lint rule;
+- CI gate;
+- schema;
+- IAM;
+- architecture test;
+- runtime validation;
+- monitoring;
+- process.
+
+"Documentamos" isoladamente costuma ser insuficiente.
+
+---
+
+# 57. DOCUMENTAÃ‡ÃƒO FINAL
+
+Ao terminar, crie na raiz:
+
+`ENGINEERING.md`
+
+Esse documento deve funcionar como equivalente de engenharia ao `ARCHITECTURE.md`.
+
+Deve conter, no mÃ­nimo:
+
+# Engineering Summary
+
+# Scope
+
+# External Standards Used
+
+# Engineering Principles
+
+# Repository Standards
+
+# Code Quality
+
+# Testing
+
+# CI/CD
+
+# Security
+
+# Software Supply Chain
+
+# Infrastructure Engineering
+
+# Reliability
+
+# Observability
+
+# Developer Experience
+
+# Documentation
+
+# AI-Assisted Engineering
+
+# Engineering Gates
+
+# Fitness Functions
+
+# Known Gaps
+
+# Exceptions
+
+# Engineering Scores
+
+# Operational Evidence
+
+# Status Final
+
+# Next Steps
+
+---
+
+# 58. PRINCÃPIOS DE ENGENHARIA
+
+Durante o processo, derive e formalize princÃ­pios.
+
+Exemplos de espÃ­rito esperado:
+
+- correctness before cleverness;
+- automate repeatable verification;
+- evidence over claims;
+- simple before generic;
+- secure by default;
+- fail explicitly;
+- make invalid states difficult;
+- every critical invariant needs enforcement;
+- every critical failure needs visibility;
+- infrastructure is software;
+- tests are executable specifications;
+- CI is policy enforcement;
+- documentation must match reality;
+- dependencies are part of the product;
+- AI-generated code receives no special trust;
+- architecture boundaries should be executable where possible.
+
+NÃ£o aceite esses exemplos automaticamente.
+
+Claude e Codex devem validar e ajustar.
+
+---
+
+# 59. RESULTADO ESPERADO
+
+O objetivo nÃ£o Ã© produzir:
+
+> "um relatÃ³rio dizendo que o projeto Ã© bom."
+
+O objetivo Ã© produzir um sistema de engenharia capaz de responder continuamente:
+
+> **Como sabemos que uma mudanÃ§a Ã© segura para integrar e entregar?**
+
+Ao final, a qualidade do projeto deve ser verificÃ¡vel atravÃ©s de uma combinaÃ§Ã£o de:
+
+```text
+standards
++ code
++ tests
++ automation
++ CI gates
++ runtime evidence
++ peer review
+```
+
+---
+
+# 60. ANTI-GAMING
+
+Ã‰ expressamente proibido:
+
+- alterar pesos para alcanÃ§ar 9;
+- remover gates porque falharam;
+- marcar problemas como N/A sem justificativa;
+- dar crÃ©dito por intenÃ§Ã£o;
+- considerar documentaÃ§Ã£o equivalente a execuÃ§Ã£o;
+- aceitar nota agregada quando um gate falha;
+- arredondar nota para aprovaÃ§Ã£o;
+- deixar Codex ver a nota do Claude antes da avaliaÃ§Ã£o independente;
+- simular independÃªncia;
+- suavizar crÃ­tica porque o projeto jÃ¡ passou pela Architecture Review;
+- implementar complexidade artificial para parecer "enterprise".
+
+---
+
+# 61. CONDIÃ‡ÃƒO DE PARADA
+
+O processo nÃ£o deve continuar indefinidamente simplesmente para alcanÃ§ar 9.
+
+Se apÃ³s correÃ§Ãµes razoÃ¡veis um checkpoint permanecer abaixo de 9 devido a:
+
+- ausÃªncia de ambiente;
+- ausÃªncia de produÃ§Ã£o;
+- ausÃªncia de carga real;
+- dependÃªncia externa;
+- limitaÃ§Ã£o econÃ´mica;
+- informaÃ§Ã£o indisponÃ­vel;
+- decisÃ£o consciente de produto;
+
+registre honestamente:
+
+`NOT APPROVED`
+
+e explique o blocker.
+
+**Nunca fabrique evidÃªncia para cumprir a meta.**
+
+---
+
+# 62. DIFERENÃ‡A ENTRE TARGET E EVIDENCE
+
+Ã‰ permitido definir:
+
+```text
+TARGET ENGINEERING MATURITY >= 9.0
+```
+
+Mas isso nÃ£o significa:
+
+```text
+CURRENT ENGINEERING MATURITY >= 9.0
+```
+
+A nota deve refletir o estado real.
+
+A meta orienta melhoria.
+
+NÃ£o orienta o avaliador a fabricar aprovaÃ§Ã£o.
+
+---
+
+# 63. PRÃ‰-PRODUÃ‡ÃƒO
+
+Se o sistema ainda nÃ£o estiver em produÃ§Ã£o, nÃ£o penalize a fundaÃ§Ã£o por nÃ£o possuir anos de histÃ³rico operacional.
+
+PorÃ©m:
+
+- testes de falha podem ser executados;
+- restore pode ser testado;
+- rollback pode ser testado;
+- load pode ser simulado;
+- CI pode ser real;
+- security scanning pode ser real;
+- IaC pode ser validado;
+- observability pode ser testada.
+
+Diferencie claramente:
+
+**nÃ£o possÃ­vel ainda**
+
+de:
+
+**possÃ­vel mas nÃ£o fizemos**.
+
+---
+
+# 64. RESULTADO FINAL
+
+O `ENGINEERING.md` deve terminar com algo semelhante a:
+
+```text
+ENGINEERING FOUNDATION STATUS: APPROVED | NOT APPROVED
+OPERATIONAL ENGINEERING STATUS: APPROVED | NOT APPROVED
+
+CLAUDE ENGINEERING SCORE: X.XXXX
+CODEX ENGINEERING SCORE: X.XXXX
+CONSERVATIVE ENGINEERING SCORE: X.XXXX
+```
+
+Depois:
+
+```text
+GATES:
+G1 ...
+G2 ...
+...
+```
+
+E:
+
+```text
+UNRESOLVED:
+P0: ...
+P1: ...
+P2: ...
+```
+
+---
+
+# 65. SUMÃRIO EXECUTIVO FINAL
+
+Ao final do trabalho, apresente ao usuÃ¡rio um resumo curto contendo:
+
+1. nota inicial Claude;
+2. nota inicial Codex;
+3. principais problemas encontrados;
+4. correÃ§Ãµes realizadas;
+5. nota final Claude;
+6. nota final Codex;
+7. Conservative Engineering Score;
+8. gates;
+9. blockers;
+10. arquivos principais gerados;
+11. mudanÃ§as relevantes no repositÃ³rio;
+12. se o projeto pode ou nÃ£o ser considerado engineering-mature.
+
+---
+
+# 66. PRIMEIRA AÃ‡ÃƒO
+
+**NÃ£o comece alterando cÃ³digo.**
+
+Comece agora por:
+
+1. ler `ARCHITECTURE.md`;
+2. compreender o processo Claude â†” Codex anterior;
+3. inventariar `docs/architecture`;
+4. congelar o SHA atual;
+5. pesquisar na Internet as referÃªncias de engenharia;
+6. produzir `00-research-bibliography.md`;
+7. criar uma primeira proposta de rubrica;
+8. enviÃ¡-la ao Codex para crÃ­tica independente;
+9. fazer a trÃ©plica;
+10. congelar critÃ©rios, pesos e gates;
+11. somente entÃ£o iniciar a Engineering Review do repositÃ³rio.
+
+---
+
+# 67. PRINCÃPIO FINAL
+
+Durante toda a execuÃ§Ã£o, mantenha esta regra:
+
+> **NÃ£o tente provar que o projeto possui boa engenharia. Tente falsificar essa hipÃ³tese.**
+
+Se, mesmo depois de procurar sistematicamente falhas, bypasses, gaps, inconsistÃªncias, dÃ­vida, fragilidade, complexidade e ausÃªncia de evidÃªncia, o projeto continuar atingindo os critÃ©rios definidos independentemente por Claude e Codex, entÃ£o a nota alta serÃ¡ merecida.
+
+Esse Ã© o objetivo.
+
+ succeeded in 695ms:
+Os gates finais devem ser discutidos por Claude e Codex.
+
+No mÃ­nimo, avalie se devem existir gates relacionados a:
+
+- build reproduzÃ­vel;
+- CI obrigatÃ³rio;
+- testes crÃ­ticos;
+- ausÃªncia de secrets conhecidos no repositÃ³rio;
+- vulnerabilidades crÃ­ticas nÃ£o tratadas;
+- dependÃªncias reproduzÃ­veis;
+- autorizaÃ§Ã£o/isolamento;
+- seguranÃ§a de workflows;
+- rollback/recovery;
+- integridade de dados;
+- tenant isolation;
+- arquitetura crÃ­tica sendo enforceada;
+- paths crÃ­ticos possuindo testes;
+- infraestrutura validÃ¡vel;
+- nenhuma falha silenciosa conhecida em reminder processing.
+
+Um gate nÃ£o pode ser removido posteriormente para aumentar a nota.
+
+---
+
+# 20. EVIDENCE-FIRST
+
+Esta Ã© uma das regras mais importantes de todo o processo.
+
+Hierarquia de evidÃªncia:
+
+1. execuÃ§Ã£o real;
+2. testes executÃ¡veis;
+3. cÃ³digo/configuraÃ§Ã£o;
+4. histÃ³rico CI/CD verificÃ¡vel;
+5. artefatos;
+6. documentaÃ§Ã£o;
+7. declaraÃ§Ã£o.
+
+DocumentaÃ§Ã£o que diz:
+
+> "Todos os endpoints possuem autorizaÃ§Ã£o"
+
+nÃ£o Ã© prova.
+
+Procure:
+
+- middleware;
+- guards;
+- IAM;
+- testes;
+- polÃ­ticas;
+- execuÃ§Ã£o.
+
+DocumentaÃ§Ã£o que diz:
+
+> "PossuÃ­mos restore test"
+
+nÃ£o recebe crÃ©dito se nenhum restore tiver sido executado.
+
+---
+
+# 21. AUSÃŠNCIA DE EVIDÃŠNCIA
+
+**Evidence unavailable â‰  neutral score.**
+
+Se um critÃ©rio exige evidÃªncia e ela nÃ£o existe:
+
+- nÃ£o inventar;
+- nÃ£o presumir;
+- nÃ£o dar nota neutra;
+- marcar `NOT PROVEN`;
+- aplicar a consequÃªncia prevista na rubrica.
+
+"Nunca tivemos incidente" nÃ£o significa:
+
+> incident response = 10.
+
+"Nunca tivemos carga alta" nÃ£o significa:
+
+> scalability = 10.
+
+---
+
+# 22. N/A
+
+`N/A` sÃ³ Ã© permitido quando o critÃ©rio realmente nÃ£o se aplica ao projeto.
+
+Cada N/A deve conter:
+
+- justificativa;
+- impacto;
+- concordÃ¢ncia de Claude;
+- concordÃ¢ncia de Codex.
+
+N/A nÃ£o pode ser usado para esconder uma deficiÃªncia.
+
+Se um peso precisar ser redistribuÃ­do, a regra de redistribuiÃ§Ã£o deve estar definida **antes da primeira avaliaÃ§Ã£o**.
+
+---
+
+# 23. BASELINE CONGELADO
+
+Antes de analisar:
+
+registre:
+
+- commit SHA;
+- branch;
+- timestamp;
+- `git status`;
+- stack identificada;
+- package managers;
+- lockfiles;
+- workflows;
+- IaC;
+- testes;
+- ferramentas.
+
+Crie:
+
+`docs/engineering/03-repository-baseline.md`
+
+A avaliaÃ§Ã£o inicial deve se referir exatamente a esse estado.
+
+Se forem feitas correÃ§Ãµes posteriormente, registre o novo SHA.
+
+Assim serÃ¡ possÃ­vel mostrar:
+
+`BEFORE â†’ AFTER`
+
+---
+
+# 24. NÃƒO MODIFICAR DURANTE A PRIMEIRA AVALIAÃ‡ÃƒO
+
+Primeiro produza um diagnÃ³stico **as-is**.
+
+NÃ£o corrija imediatamente o que encontrar.
+
+Caso contrÃ¡rio perdemos a baseline.
+
+Fluxo:
+
+1. Freeze baseline.
+2. Evaluate.
+3. Score.
+4. Identify gaps.
+5. Prioritize.
+6. Propose remediation.
+7. Peer review.
+8. Implement.
+9. Re-test.
+10. Re-score.
+
+---
+
+# 25. PROCESSO CLAUDE â†” CODEX
+
+O Codex deve atuar como **engenheiro independente**, nÃ£o como assistente subordinado.
+
+Use o mesmo mecanismo real de integraÃ§Ã£o Claude â†” Codex disponÃ­vel no ambiente/repositÃ³rio.
+
+**NÃ£o simule respostas do Codex.**
+
+Se o Codex estiver indisponÃ­vel:
+
+`CODEX REVIEW BLOCKED`
+
+e nÃ£o invente uma segunda avaliaÃ§Ã£o.
+
+---
+
+# 26. INDEPENDÃŠNCIA ENTRE OS REVISORES
+
+Para cada checkpoint relevante:
+
+### Passo A â€” Claude
+
+Claude analisa a evidÃªncia e registra sua conclusÃ£o.
+
+### Passo B â€” Codex Blind Review
+
+Envie ao Codex:
+
+- critÃ©rios congelados;
+- artefato analisado;
+- arquivos relevantes;
+- evidÃªncias.
+
+NÃ£o forneÃ§a:
+
+- a nota de Claude;
+- conclusÃ£o final de Claude;
+- expectativa de nota;
+- instruÃ§Ã£o para "confirmar".
+
+Pergunte ao Codex:
+
+> FaÃ§a uma avaliaÃ§Ã£o independente. Procure ativamente falhas, inconsistÃªncias, riscos e pontos superavaliados.
+
+### Passo C â€” Divergence Analysis
+
+Compare os resultados.
+
+Crie:
+
+- pontos de acordo;
+- pontos de desacordo;
+- evidÃªncias conflitantes;
+- gaps encontrados apenas por um revisor.
+
+### Passo D â€” Cross Critique
+
+Claude deve responder Ã s objeÃ§Ãµes do Codex.
+
+Codex deve poder contestar a trÃ©plica.
+
+### Passo E â€” Corrected Artifact
+
+Produza a versÃ£o corrigida.
+
+### Passo F â€” Independent Score
+
+Claude e Codex avaliam novamente **independentemente**.
+
+---
+
+# 27. ANTI-CONFIRMATION-BIAS
+
+Durante a revisÃ£o, os dois engenheiros devem procurar explicitamente razÃµes para **reduzir** a nota.
+
+Perguntas obrigatÃ³rias:
+
+- O que estamos assumindo sem evidÃªncia?
+- Que falha sÃ³ apareceria em produÃ§Ã£o?
+- Que teste estÃ¡ ausente?
+- Que comportamento parece correto apenas no happy path?
+- HÃ¡ abstraÃ§Ãµes excessivas?
+- HÃ¡ abstraÃ§Ãµes insuficientes?
+- HÃ¡ cÃ³digo difÃ­cil de remover?
+- HÃ¡ dependÃªncia desnecessÃ¡ria?
+- Existe algo que funciona apenas porque os testes mockam demais?
+- Existe seguranÃ§a apenas no edge e nÃ£o no domÃ­nio?
+- Existem claims documentais sem enforcement?
+- O CI realmente impediria esta regressÃ£o?
+- Um novo engenheiro conseguiria alterar isto com seguranÃ§a?
+- Um agente de IA conseguiria quebrar um boundary sem CI perceber?
+- Estamos premiando complexidade em vez de simplicidade?
+
+---
+
+# 28. RED TEAM DE ENGENHARIA
+
+Depois das revisÃµes por domÃ­nio, faÃ§a uma fase especÃ­fica de Red Team.
+
+Claude e Codex devem executar rodadas independentes buscando:
+
+- bypass de validaÃ§Ã£o;
+- bypass de autorizaÃ§Ã£o;
+- tenant escape;
+- missing idempotency;
+- double delivery;
+- race conditions;
+- stale state;
+- partial writes;
+- orphan records;
+- inconsistÃªncia docs â†” cÃ³digo;
+- CI bypass;
+- supply-chain weaknesses;
+- workflow permissions excessivas;
+- unpinned dependencies;
+- secret leakage;
+- logging de dados sensÃ­veis;
+- retry storms;
+- poison messages;
+- DLQ sem tratamento;
+- silent failures;
+- paths sem teste;
+- cÃ³digo morto;
+- complexidade acidental;
+- abstraÃ§Ãµes prematuras;
+- pontos Ãºnicos de manutenÃ§Ã£o difÃ­cil;
+- false-green CI.
+
+Crie:
+
+`docs/engineering/red-team/`
+
+e mantenha as avaliaÃ§Ãµes Claude e Codex separadas antes da consolidaÃ§Ã£o.
+
+---
+
+# 29. FERRAMENTAS
+
+Use as ferramentas adequadas Ã  stack encontrada.
+
+NÃ£o prescreva uma ferramenta apenas porque ela Ã© popular.
+
+Antes de adicionar algo:
+
+1. identificar necessidade;
+2. comparar alternativas;
+3. avaliar custo de manutenÃ§Ã£o;
+4. justificar escolha.
+
+Pode utilizar, quando aplicÃ¡vel:
+
+- ferramentas nativas do ecossistema;
+- linters;
+- type checkers;
+- test frameworks;
+- security scanners;
+- dependency scanners;
+- secret scanners;
+- IaC scanners;
+- OpenSSF Scorecard;
+- ferramentas de coverage;
+- ferramentas de complexity;
+- ferramentas de mutation testing;
+- ferramentas de dependency graph;
+- ferramentas de architecture testing.
+
+Mas:
+
+> **mais ferramentas â‰  melhor engenharia.**
+
+Prefira o conjunto mÃ­nimo que cria feedback forte.
+
+---
+
+# 30. COBERTURA DE TESTES
+
+NÃ£o defina arbitrariamente:
+
+`coverage >= 90%`
+
+e conclua que isso representa qualidade.
+
+Coverage Ã© apenas evidÃªncia auxiliar.
+
+FaÃ§a anÃ¡lises especÃ­ficas de:
+
+- critical paths;
+- branch coverage;
+- mutation resistance quando razoÃ¡vel;
+- fault scenarios;
+- invariants;
+- negative paths.
+
+Uma linha de cÃ³digo extremamente crÃ­tica pode merecer muito mais atenÃ§Ã£o que centenas de linhas triviais.
+
+---
+
+# 31. CODE REVIEW DO REPOSITÃ“RIO INTEIRO
+
+NÃ£o examine apenas os arquivos principais.
+
+FaÃ§a inventÃ¡rio por Ã¡reas:
+
+- application;
+- domain;
+- infrastructure;
+- adapters;
+- API;
+- persistence;
+- notification;
+- document pipeline;
+- AI/OCR;
+- authentication;
+- authorization;
+- IaC;
+- workflows;
+- scripts;
+- tests;
+- config;
+- docs.
+
+Use amostragem somente quando o volume tornar revisÃ£o integral impraticÃ¡vel.
+
+Se usar amostragem, documente claramente:
+
+- mÃ©todo;
+- arquivos;
+- razÃ£o;
+- limitaÃ§Ãµes.
+
+---
+
+# 32. DEPENDENCY GRAPH
+
+Construa ou derive o dependency graph interno.
+
+Procure:
+
+- ciclos;
+- imports atravessando boundaries;
+- domÃ­nio dependendo de infraestrutura;
+- adapters contaminando regras de negÃ³cio;
+- abstraÃ§Ãµes vazando;
+- dependÃªncias "god module";
+- utilitÃ¡rios globais;
+- shared code excessivo.
+
+Compare com o monÃ³lito modular definido arquiteturalmente.
+
+Se possÃ­vel, transforme os boundaries importantes em **fitness functions automatizadas**.
+
+---
+
+# 33. ERROR HANDLING REVIEW
+
+FaÃ§a revisÃ£o explÃ­cita de:
+
+- exception handling;
+- swallowed errors;
+- generic catch;
+- retryability;
+- user-facing errors;
+- logging;
+- correlation;
+- taxonomy;
+- provider errors;
+- timeout;
+- cancellation;
+- dead-letter behavior.
+
+Procure especialmente cÃ³digos do tipo:
+
+```text
+catch {
+  return;
+}
+```
+
+ou equivalentes semanticamente silenciosos.
+
+---
+
+# 34. CONFIGURATION REVIEW
+
+Mapeie:
+
+- environment variables;
+- defaults;
+- feature flags;
+- secrets;
+- stage-specific configuration;
+- AppConfig;
+- runtime configuration;
+- deploy-time configuration.
+
+Verifique:
+
+- tipos;
+- validaÃ§Ã£o;
+- comportamento ausente;
+- fail-open versus fail-closed;
+- documentaÃ§Ã£o;
+- secrets fora de logs;
+- secrets fora do Git.
+
+---
+
+# 35. REMEDIATION ROADMAP
+
+Depois da baseline, produza:
+
+`docs/engineering/remediation-roadmap.md`
+
+Classifique cada gap:
+
+- P0 â€” bloqueador;
+- P1 â€” alto;
+- P2 â€” mÃ©dio;
+- P3 â€” melhoria.
+
+Para cada item:
+
+- problema;
+- evidÃªncia;
+- risco;
+- dimensÃ£o da rubrica;
+- source/reference;
+- correÃ§Ã£o;
+- complexidade;
+- dependÃªncias;
+- critÃ©rio de aceite;
+- teste necessÃ¡rio;
+- fitness function necessÃ¡ria;
+- risco de regressÃ£o.
+
+---
+
+# 36. IMPLEMENTAÃ‡ÃƒO DAS CORREÃ‡Ã•ES
+
+Depois que Claude e Codex concordarem sobre o remediation roadmap, implemente as melhorias de engenharia.
+
+NÃ£o implementar novas funcionalidades de produto simplesmente para aumentar a nota.
+
+Prioridade:
+
+1. correctness;
+2. security;
+3. reliability;
+4. testability;
+5. CI enforcement;
+6. maintainability;
+7. DevEx;
+8. refinements.
+
+Para cada mudanÃ§a:
+
+- manter escopo pequeno;
+- adicionar teste correspondente;
+- atualizar documentaÃ§Ã£o relevante;
+- executar validaÃ§Ãµes;
+- registrar evidÃªncia.
+
+---
+
+# 37. NÃƒO FAZER "QUALITY THEATER"
+
+Exemplos proibidos:
+
+- criar 50 documentos que ninguÃ©m usa;
+- adicionar ferramentas apenas para ganhar checklist;
+- adicionar abstraÃ§Ãµes sem necessidade;
+- exigir 100% coverage;
+- criar microsserviÃ§os;
+- criar processos empresariais desproporcionais;
+- adicionar Kubernetes;
+- adicionar scanners redundantes;
+- usar dashboards como substitutos de confiabilidade;
+- considerar badge como substituto de evidÃªncia.
+
+Cada melhoria deve responder:
+
+> Qual risco real isto reduz?
+
+---
+
+# 38. CRITÃ‰RIO DE SIMPLICIDADE
+
+Simplicidade Ã© parte da nota.
+
+Penalize:
+
+- overengineering;
+- abstraction factories;
+- wrapper sobre wrapper;
+- configuraÃ§Ã£o excessiva;
+- padrÃµes utilizados sem necessidade;
+- frameworks internos prematuros;
+- dependÃªncias evitÃ¡veis;
+- generalizaÃ§Ã£o antes de existir segundo caso de uso.
+
+Pergunta obrigatÃ³ria:
+
+> Esta soluÃ§Ã£o Ã© a mais simples que mantÃ©m as garantias necessÃ¡rias?
+
+---
+
+# 39. PROPORCIONALIDADE
+
+Avalie o projeto como:
+
+- micro-SaaS;
+- equipe pequena;
+- serverless-first;
+- AWS;
+- produto em estÃ¡gio inicial;
+- potencial de crescimento.
+
+NÃ£o compare sua governanÃ§a com:
+
+- banco global;
+- hyperscaler;
+- sistema militar.
+
+Por outro lado:
+
+**estÃ¡gio inicial nÃ£o justifica falhas bÃ¡sicas de engenharia.**
+
+Secrets no Git, testes crÃ­ticos ausentes, CI falso, falta de isolamento ou ausÃªncia de idempotÃªncia continuam sendo graves.
+
+---
+
+# 40. DOIS EIXOS DE MATURIDADE
+
+A avaliaÃ§Ã£o final deve separar explicitamente:
+
+## A. ENGINEERING FOUNDATION
+
+Pode ser avaliada atravÃ©s de:
+
+- cÃ³digo;
+- testes;
+- estrutura;
+- workflows;
+- IaC;
+- documentaÃ§Ã£o;
+- automaÃ§Ã£o;
+- seguranÃ§a;
+- tooling.
+
+## B. OPERATIONAL ENGINEERING EVIDENCE
+
+Exige evidÃªncia como:
+
+- builds reais;
+- pipelines reais;
+- deploys;
+- load tests;
+- recovery tests;
+- restore tests;
+- rollback;
+- incident response;
+- observabilidade em execuÃ§Ã£o;
+- mÃ©tricas reais;
+- behaviour under failure.
+
+Uma fundaÃ§Ã£o excelente nÃ£o autoriza inventar evidÃªncia operacional.
+
+---
+
+# 41. STATUS
+
+Utilize:
+
+```text
+ENGINEERING FOUNDATION STATUS: APPROVED | NOT APPROVED
+OPERATIONAL ENGINEERING STATUS: APPROVED | NOT APPROVED
+```
+
+O segundo pode legitimamente permanecer:
+
+`NOT APPROVED`
+
+enquanto o produto nÃ£o possuir evidÃªncia operacional suficiente.
+
+Isso **nÃ£o reduz artificialmente a nota da fundaÃ§Ã£o**.
+
+---
+
+# 42. SCORING
+
+Cada critÃ©rio recebe nota:
+
+`0.00 â€“ 10.00`
+
+Calcule:
+
+- score Claude;
+- score Codex;
+- weighted score;
+- divergÃªncia.
+
+NÃ£o arredondar um score insuficiente para aprovaÃ§Ã£o.
+
+Exemplo:
+
+`8.996`
+
+continua menor que:
+
+`9.000`
+
+Mesmo que seja exibido como `9.00`.
+
+Use precisÃ£o interna suficiente.
+
+---
+
+# 43. REGRA DE APROVAÃ‡ÃƒO POR CHECKPOINT
+
+Um checkpoint somente Ã© aprovado quando:
+
+```text
+Claude >= 9.0
+AND
+Codex >= 9.0
+AND
+all applicable gates PASS
+AND
+no unresolved P0
+```
+
+NÃ£o use mÃ©dia dos dois para esconder divergÃªncia.
+
+Se:
+
+```text
+Claude = 9.4
+Codex = 8.7
+```
+
+resultado:
+
+`NOT APPROVED`
+
+FaÃ§a nova rodada.
+
+---
+
+# 44. NOTA CONSERVADORA
+
+AlÃ©m das duas notas, calcule:
+
+`CONSERVATIVE SCORE = min(Claude, Codex)`
+
+Essa serÃ¡ a principal nota resumida do checkpoint.
+
+NÃ£o use apenas mÃ©dia.
+
+---
+
+# 45. DISAGREEMENT LOG
+
+Crie:
+
+`docs/engineering/disagreement-log.md`
+
+Para toda divergÃªncia material registre:
+
+- ID;
+- tema;
+- Claude;
+- Codex;
+- evidÃªncia;
+- resoluÃ§Ã£o;
+- mudanÃ§a resultante;
+- status.
+
+NÃ£o esconda divergÃªncias na versÃ£o final.
+
+Elas sÃ£o evidÃªncia de revisÃ£o real.
+
+---
+
+# 46. ENGINEERING DECISION LOG
+
+Crie:
+
+`docs/engineering/decisions-log.md`
+
+IDs:
+
+`E-000`
+
+`E-001`
+
+`E-002`
+
+...
+
+Registre decisÃµes como:
+
+- ferramenta de lint;
+- estratÃ©gia de testes;
+- dependency policy;
+- coverage philosophy;
+- CI gates;
+- supply-chain policy;
+- release strategy;
+- exception policy.
+
+---
+
+# 47. EXCEPTION REGISTRY
+
+Crie:
+
+`docs/engineering/exceptions.md`
+
+Uma regra pode ser conscientemente violada quando houver razÃ£o forte.
+
+Registre:
+
+- regra;
+- justificativa;
+- risco;
+- owner;
+- data;
+- expiry/review date;
+- compensating control.
+
+Evite exceÃ§Ãµes permanentes silenciosas.
+
+---
+
+# 48. CHECKPOINTS
+
+Execute, no mÃ­nimo, os seguintes checkpoints:
+
+### Checkpoint 0
+Research + Evaluation Method
+
+### Checkpoint 1
+Engineering Quality Criteria + Gates + Fitness Functions
+
+### Checkpoint 2
+
+codex
+Já há divergência material, não cosmética: a proposta fragmenta 16 domínios, mas dá só 1% a documentação, governança e performance enquanto mantém 3% para “AI-Assisted Engineering”; isso cria precisão falsa e favorece artefatos particulares deste repositório. Também há gates formulados de modo circular ou específico da implementação atual, especialmente G3, G6 e G7. Vou verificar nas fontes primárias quais lacunas bibliográficas sustentam a correção.
+web search: 
+web search: site:owasp.org ASVS latest official project requirements verification standard ...
+codex
+## 1. Pontos de concordância
+
+- A rubrica cobre quase todo o espaço exigido pelo Prompt Mestre.
+- Testing, correctness e security merecem pesos altos.
+- Supply chain deve permanecer separada de secure software engineering: os controles e as evidências são diferentes.
+- Data/state precisa de tratamento explícito devido a DynamoDB, concorrência, idempotência, GSIs e consistência eventual.
+- Gates eliminatórios são necessários; score agregado não pode compensar falhas críticas.
+- A distinção entre Engineering Foundation e Operational Engineering Evidence está correta e deve ser preservada.
+
+Minha conclusão, porém, é: **o draft ainda não está pronto para congelamento**.
+
+## 2. Discordâncias e mudanças propostas
+
+### 2.1 Fragmentação excessiva e pesos artificialmente pequenos
+
+Dezesseis domínios produzem falsa precisão. Domínios de 1% dificilmente alteram o resultado e podem virar checklist decorativo.
+
+Os casos mais problemáticos:
+
+- Documentation: 1%
+- Governance: 1%
+- Performance: 1%
+- Developer Experience: 2%
+- AI-Assisted Engineering: 3%
+
+Isso permite engenharia ruim nessas áreas sem consequência material. Ao mesmo tempo, dá mais peso à documentação específica para agentes do que à documentação geral e à governança combinadas. Isso favorece diretamente este repositório, que já investiu extensivamente em `AGENTS.md`, handoffs e revisão Claude/Codex.
+
+**Proposta:** AI-Assisted Engineering não deve ser um domínio pontuado. Deve ser um requisito transversal:
+
+- mudanças de IA passam pelos mesmos gates;
+- instruções não substituem enforcement;
+- mudanças permanecem compreensíveis e revisáveis por humanos;
+- independência de revisores é demonstrável;
+- agentes não conseguem contornar boundaries ou CI.
+
+Em outras palavras: usar IA não gera pontos; controlar os riscos introduzidos por IA evita perda de pontos nos respectivos domínios.
+
+### 2.2 Overlap entre Correctness, Reliability e Data/State
+
+O overlap sinalizado é real e não foi resolvido.
+
+Hoje, OCC, idempotência, concorrência e invariantes aparecem potencialmente em:
+
+- B — Correctness;
+- I — Reliability;
+- M — Data & State;
+- C — Testing, quando se avalia sua verificação.
+
+Isso abre espaço para pontuar quatro vezes a mesma propriedade.
+
+Minha separação recomendada:
+
+- **Correctness & Contracts:** tipos, validação runtime, schemas, API/event contracts, state machines e tratamento semântico de erros.
+- **Data & State:** chaves, transações, conditional writes, OCC, consistência, índices, paginação, TTL, retenção, isolamento no armazenamento e evolução de schema.
+- **Reliability:** comportamento sob falha e no tempo — retries, backoff, deduplicação de entrega, DLQ, reconciliation, timeouts, partial failure e recuperação.
+- **Testing:** qualidade da evidência que tenta falsificar as garantias anteriores; não recebe novamente crédito pela existência do mecanismo.
+
+Idempotência pode tocar Data e Reliability, mas cada item precisa dizer exatamente o que pontua:
+
+- Data: unicidade/atomicidade persistida;
+- Reliability: resultado correto sob retry e entrega duplicada.
+
+### 2.3 Testing com 15% é defensável, mas precisa de subestrutura
+
+O peso não é excessivo, mas “Testing Engineering” mistura:
+
+- desenho e qualidade da suíte;
+- cobertura dos riscos;
+- testes operacionais ainda não realizados;
+- tipos diferentes de execução.
+
+Sem subcritérios congelados, a nota fica subjetiva. Recomendo separar internamente:
+
+- 35%: cobertura de invariantes e critical paths;
+- 25%: falhas, concorrência, retries e casos negativos;
+- 20%: integração/contrato/infra;
+- 10%: qualidade, determinismo e força das assertions;
+- 10%: E2E, smoke, performance, restore, conforme aplicabilidade/eixo.
+
+Coverage de linhas deve ser apenas evidência auxiliar.
+
+### 2.4 CI e CD não estão bem separados
+
+G2 exige CI “realmente executado”, mas D avalia Continuous Integration e E avalia delivery. A rubrica precisa definir:
+
+- CI Foundation: workflow correto, determinístico, seguro e capaz de bloquear integração;
+- CI Evidence: execuções reais e status checks verificados;
+- CD Foundation: pipeline deployável, ambientes, promoção, rollback e artefatos;
+- CD Operational Evidence: deploy, smoke, rollback/roll-forward efetivamente executados.
+
+A ausência de produção não torna CD automaticamente N/A. Uma implantação em ambiente efêmero ou de homologação e um rollback ensaiado são possíveis em pré-produção.
+
+### 2.5 Performance com 1% é baixo demais
+
+Para Lambda, DynamoDB, SQS e scheduler, performance, capacidade e custo são propriedades de correção operacional. Hot partition, fan-out excessivo, ausência de batching ou concorrência sem limite podem inviabilizar o produto.
+
+Não proponho peso alto nem otimização prematura, mas **3%** é o mínimo defensável, com foco em:
+
+- risco de regressão;
+- limites e quotas;
+- comportamento de pico;
+- custo acidental;
+- timeout/concurrency budgets;
+- ausência de padrões obviamente não escaláveis.
+
+### 2.6 Documentation e governance não podem valer só 2% somadas
+
+Este processo depende de ADRs, runbooks, exceptions, decisões, evidência e rastreabilidade. Se isso vale 2%, o próprio processo está declarando que sua auditabilidade quase não importa.
+
+Proponho combinar DevEx, Documentation e Governance em 5%, evitando três notas frágeis de 1–2%. O domínio deve avaliar utilidade e enforcement, não volume documental.
+
+## Gates: problemas concretos
+
+### G1 — Build reproduzível
+
+Direção correta, mas incompleto. Deve incluir:
+
+- versão de runtime/toolchain;
+- lockfile consistente;
+- instalação limpa e imutável;
+- scripts necessários presentes;
+- ausência de dependência de estado local não declarado;
+- build/typecheck/test a partir do checkout congelado.
+
+“`build`/`typecheck`” não pode ser ambíguo. Se não existe artefato de build ainda, o comando aplicável deve ser explicitamente definido.
+
+### G2 — CI obrigatório real
+
+Correto em essência, mas `workflow_dispatch`, PR e push não são equivalentes. O gate deve provar:
+
+1. ao menos uma execução real no SHA ou mudança equivalente;
+2. falha de job propaga falha do workflow;
+3. os checks são obrigatórios no caminho de integração, ou existe controle equivalente verificável;
+4. não há bypass trivial por filtros de paths/branches.
+
+Um workflow verde não prova que merge quebrado está bloqueado.
+
+### G3 — Testes críticos
+
+Está excessivamente acoplado ao estado atual do projeto ao nomear quatro suítes. Isso favorece implementações existentes e ficará obsoleto em M4+.
+
+Substituir por gate baseado em risco:
+
+> Todos os critical paths implementados possuem testes executáveis positivos, negativos e de falha proporcionais, incluindo autorização/tenant isolation, integridade transacional, idempotência/concorrência e processamento assíncrono aplicável.
+
+As suítes atuais podem ser evidência do gate, não sua definição normativa.
+
+### G4 — Secrets
+
+“Secret conhecido” é fraco: permite passar porque ninguém reconheceu o segredo.
+
+Definir:
+
+- scanner automatizado sobre histórico aplicável e working tree;
+- inspeção de padrões de configuração;
+- nenhum segredo confirmado;
+- falso positivo documentado;
+- se houve exposição, rotação/revogação comprovada.
+
+### G5 — Vulnerabilidades
+
+“Critical/high ou exceção” é simultaneamente rígido e fácil de contornar.
+
+Proponho:
+
+- `critical` explorável ou alcançável sem remediação: falha;
+- `high`: falha quando alcançável no runtime/build confiável e sem mitigação;
+- exceção só vale com owner, prazo, análise de alcançabilidade, controle compensatório e aprovação;
+- vulnerabilidade apenas de dev dependency, não alcançável, pode ser aceita com evidência.
+
+Uma entrada arbitrária em `exceptions.md` não pode neutralizar o gate.
+
+### G6 — Tenant isolation
+
+A intenção é correta, mas “enforced em IAM real” é estreito e tecnicamente enganoso. IAM sozinho não garante isolamento por tenant em uma single-table. O gate deve exigir composição de controles:
+
+- identidade confiável;
+- tenant derivado server-side;
+- autorização;
+- construção de chave;
+- condições/transações;
+- IAM de menor privilégio, inclusive GSIs restritos;
+- testes negativos end-to-end.
+
+### G7 — Falha silenciosa em reminders
+
+É específico demais para um gate global. Notification, outbox, audit e futuros workers podem perder dados da mesma forma.
+
+Generalizar para:
+
+> Nenhum caminho assíncrono crítico pode confirmar, descartar ou tornar invisível uma unidade de trabalho após falha sem retry, DLQ/reconciliation ou erro observável apropriado.
+
+### G8 — IaC sintetizável
+
+“Synth em memória” prova estrutura, não deployabilidade. Para Foundation, aceite synth programático, mas exija também:
+
+- assets/handlers resolvíveis;
+- templates sem placeholders incompatíveis com deploy;
+- IAM e políticas críticas validados;
+- configuração obrigatória fail-fast.
+
+Se existem handlers placeholder, o gate deve registrar escopo parcial; não declarar infraestrutura globalmente deployável.
+
+### G9 — Boundaries
+
+A direção é boa, mas “idealmente” torna o gate opcional. Um gate deve ser binário.
+
+Definir um conjunto mínimo explícito de dependências proibidas e exigir verificação automatizada. O restante pode permanecer como critério pontuado.
+
+### Gates ausentes
+
+Faltam gates explícitos para:
+
+- segurança dos workflows e permissões de CI;
+- integridade de dados/transações críticas;
+- dependências reproduzíveis;
+- tratamento de falha em todos os caminhos assíncronos;
+- deployment/rollback/restore no eixo operacional.
+
+Também é necessário classificar gates por eixo. Caso contrário, um projeto pode ter Foundation bloqueada apenas porque não possui evidência operacional — contrariando §§40–41 do Prompt Mestre.
+
+## 3. Gaps na pesquisa bibliográfica
+
+A bibliografia é uma boa base inicial, mas ainda não é suficiente para congelar uma rubrica defensável.
+
+### Problemas na pesquisa existente
+
+- **ISO 25010:** afirma usar fontes secundárias, mas não identifica quais. Isso reduz auditabilidade.
+- **DORA:** não registra URLs primárias concretas, edição do relatório ou definição oficial vigente das métricas.
+- **SLSA:** o texto diz, em essência, “v1.2 parece atual, mas verificar”. Uma bibliografia normativa não pode congelar uma versão ainda incerta.
+- **SSDF:** o estado de versão/draft precisa ser sustentado por link direto do NIST, não apenas por página da CISA ou notícia.
+- A seção “fontes não pesquisadas” encerra cedo demais testing, dependency management, CI/CD e observability, embora o Prompt Mestre as peça explicitamente.
+
+### Fontes que eu adicionaria
+
+1. **OWASP ASVS**, provavelmente com baseline proporcional equivalente a L1, para transformar security de uma lista genérica em requisitos verificáveis. O ASVS existe justamente como base de verificação de controles técnicos de aplicações web. [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
+
+2. **OWASP API Security Top 10**, complementar ao ASVS para autorização por objeto, autenticação, consumo de recursos, SSRF e inventário de APIs.
+
+3. **AWS Well-Architected Serverless Applications Lens**. O framework genérico não é suficiente para este stack; a lens cobre explicitamente deployment, logging estruturado, tracing, limites, mensageria, Lambda, DynamoDB e arquiteturas event-driven. [AWS Serverless Applications Lens](https://docs.aws.amazon.com/wellarchitected/latest/serverless-applications-lens/the-pillars-of-the-well-architected-framework.html)
+
+4. **AWS SaaS Lens**, especialmente para tenant isolation e operações multi-tenant. A própria AWS mantém lenses oficiais específicas para SaaS e serverless. [AWS Lens Catalog](https://docs.aws.amazon.com/wellarchitected/latest/userguide/lens-catalog.html)
+
+5. **OpenTelemetry Specification/Semantic Conventions**, não para obrigar OTel, mas para fundamentar correlação e consistência de logs, traces e métricas. A especificação define sinais e convenções interoperáveis. [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/) e [Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
+
+6. **GitHub Actions security hardening**, branch protection/rulesets, artifact attestations e dependency review, como fontes primárias dos mecanismos concretos usados pelo projeto.
+
+7. **CIS AWS Foundations Benchmark**, aplicado seletivamente. Não deve virar checklist de conta AWS inteira, mas ajuda a avaliar configuração e controles fundamentais quando houver ambiente.
+
+8. **AWS DynamoDB Developer Guide**, sobretudo transações, conditional writes, consistência, GSIs, TTL e adaptive capacity. Para Data & State, uma fonte específica do datastore é melhor que derivar tudo do Well-Architected genérico.
+
+9. **OpenSSF OSPS Baseline** ou equivalente vigente da OpenSSF, caso confirmado como estável, para requisitos mínimos de projeto/supply chain. Scorecard mede sinais; não é, sozinho, uma especificação completa de maturidade.
+
+10. **Fonte oficial de privacidade**, ao menos LGPD/ANPD, porque o sistema manipula dados pessoais e retenção. Privacy não deve ficar diluída apenas em security.
+
+## Regra de N/A: atualmente vulnerável a gaming
+
+A regra proposta não é robusta.
+
+Problemas:
+
+- “ausência de produção” não é razão suficiente para N/A;
+- redistribuir todo o peso entre os demais domínios pode aumentar artificialmente a nota;
+- “mesmo eixo Foundation” não está definido por domínio;
+- não distingue “capacidade não aplicável” de “evidência ausente”;
+- não define granularidade: domínio inteiro ou subcritério;
+- não define limite para quantidade de peso removida.
+
+Regra recomendada:
+
+1. **N/A significa risco/capacidade genuinamente fora do escopo**, não ausência de implementação, ambiente ou evidência.
+2. Ausência de evidência recebe `NOT ENOUGH EVIDENCE`, não N/A.
+3. “Possível, mas não executado” recebe nota correspondente à ausência de evidência.
+4. N/A deve ocorrer preferencialmente no nível de subcritério, nunca apagar um domínio inteiro salvo impossibilidade estrutural.
+5. A decisão deve ser registrada antes do score, com razão, evidência, peso afetado e aprovação dos dois revisores.
+6. Peso de subcritério N/A é redistribuído apenas dentro do mesmo domínio.
+7. Se um domínio inteiro for excepcionalmente N/A, seu peso não deve ser redistribuído silenciosamente. O relatório deve mostrar:
+   - score normalizado aplicável;
+   - percentual de cobertura da rubrica;
+   - peso não avaliado.
+8. Definir um piso de cobertura para aprovação, por exemplo **ao menos 85% do peso total avaliado com evidência**.
+9. Nenhum gate aplicável pode virar N/A apenas por falta de ambiente.
+10. Operational Evidence deve possuir status próprio; não deve ser apagada do cálculo por N/A generalizado.
+
+## 4. Proposta de rubrica revisada
+
+| Domínio | Peso |
+|---|---:|
+| A. Code Quality & Maintainability | 9% |
+| B. Type Safety, Contracts & Correctness | 10% |
+| C. Testing Engineering | 13% |
+| D. Continuous Integration & Reproducibility | 7% |
+| E. Delivery & Release Engineering | 5% |
+| F. Secure Software Engineering & Privacy | 12% |
+| G. Software Supply Chain | 6% |
+| H. Infrastructure Engineering & Configuration | 7% |
+| I. Reliability Engineering | 9% |
+| J. Data & State Engineering | 8% |
+| K. Observability & Operability | 6% |
+| L. Developer Experience, Documentation & Governance | 5% |
+| M. Performance, Capacity & Cost Efficiency | 3% |
+| **Total** | **100%** |
+
+AI-Assisted Engineering seria uma dimensão transversal obrigatória, avaliada dentro de A, C, D, F, G, L e dos gates — sem 3% de crédito próprio.
+
+### Gates de Engineering Foundation
+
+- **F-G1 — Reproducibilidade:** checkout limpo, runtime fixado, lockfile íntegro, instalação imutável e todos os comandos obrigatórios passam.
+- **F-G2 — CI como enforcement:** execução real verificada; checks corretos e obrigatórios no caminho de integração; sem bypass trivial.
+- **F-G3 — Critical-path verification:** caminhos críticos implementados têm testes positivos, negativos e de falha proporcionais.
+- **F-G4 — Secrets:** nenhum segredo confirmado no conteúdo ou histórico aplicável; exposições anteriores foram revogadas.
+- **F-G5 — Vulnerabilidades:** nenhuma vulnerabilidade crítica alcançável e nenhuma high alcançável sem mitigação ou aceitação de risco válida e temporária.
+- **F-G6 — Authorization e tenant isolation:** cadeia completa identidade → autorização → chave/dado → IAM é enforceada e testada negativamente.
+- **F-G7 — Integridade de dados:** mutações críticas preservam atomicidade, concorrência, idempotência e auditabilidade conforme seus contratos.
+- **F-G8 — Processamento assíncrono seguro:** nenhum caminho crítico perde ou confirma silenciosamente trabalho; retry, DLQ/reconciliation e visibilidade são adequados.
+- **F-G9 — IaC validável:** synth/validation passa; recursos, handlers/assets, configuração e políticas críticas são verificáveis.
+- **F-G10 — Boundaries:** dependências arquiteturais críticas possuem regra automatizada bloqueante.
+- **F-G11 — Segurança do CI/supply chain:** permissões mínimas, actions pinadas, dependências reproduzíveis e artefatos não recebem confiança implícita.
+
+### Gates de Operational Engineering Evidence
+
+- **O-G1 — Deploy verificável:** ao menos um deploy real em ambiente representativo com smoke test.
+- **O-G2 — Recovery de mudança:** rollback ou roll-forward exercitado.
+- **O-G3 — Recovery de dados:** backup/restore exercitado com evidência de RPO/RTO aplicável.
+- **O-G4 — Falha e carga:** cenários críticos de retry, indisponibilidade, backlog e capacidade executados.
+- **O-G5 — Observabilidade operacional:** falhas críticas geram telemetria, alarme acionável e fluxo de resposta demonstrável.
+
+Um projeto pode passar todos os F-Gates e continuar com `OPERATIONAL ENGINEERING STATUS: NOT APPROVED` por falhar nos O-Gates. Essa separação é mais fiel ao Prompt Mestre do que misturar execução operacional com qualidade da fundação.
+
+**Parecer do Checkpoint 1, Passo B:** solicitar revisão material. Não congelar o draft atual. As principais mudanças necessárias são eliminar o domínio pontuado de IA, resolver o triple-count de correctness/data/reliability, tornar N/A não manipulável, generalizar gates específicos do código atual e separar formalmente gates de Foundation dos de Operational Evidence.
+tokens used
+46.034
+## 1. Pontos de concordância
+
+- A rubrica cobre quase todo o espaço exigido pelo Prompt Mestre.
+- Testing, correctness e security merecem pesos altos.
+- Supply chain deve permanecer separada de secure software engineering: os controles e as evidências são diferentes.
+- Data/state precisa de tratamento explícito devido a DynamoDB, concorrência, idempotência, GSIs e consistência eventual.
+- Gates eliminatórios são necessários; score agregado não pode compensar falhas críticas.
+- A distinção entre Engineering Foundation e Operational Engineering Evidence está correta e deve ser preservada.
+
+Minha conclusão, porém, é: **o draft ainda não está pronto para congelamento**.
+
+## 2. Discordâncias e mudanças propostas
+
+### 2.1 Fragmentação excessiva e pesos artificialmente pequenos
+
+Dezesseis domínios produzem falsa precisão. Domínios de 1% dificilmente alteram o resultado e podem virar checklist decorativo.
+
+Os casos mais problemáticos:
+
+- Documentation: 1%
+- Governance: 1%
+- Performance: 1%
+- Developer Experience: 2%
+- AI-Assisted Engineering: 3%
+
+Isso permite engenharia ruim nessas áreas sem consequência material. Ao mesmo tempo, dá mais peso à documentação específica para agentes do que à documentação geral e à governança combinadas. Isso favorece diretamente este repositório, que já investiu extensivamente em `AGENTS.md`, handoffs e revisão Claude/Codex.
+
+**Proposta:** AI-Assisted Engineering não deve ser um domínio pontuado. Deve ser um requisito transversal:
+
+- mudanças de IA passam pelos mesmos gates;
+- instruções não substituem enforcement;
+- mudanças permanecem compreensíveis e revisáveis por humanos;
+- independência de revisores é demonstrável;
+- agentes não conseguem contornar boundaries ou CI.
+
+Em outras palavras: usar IA não gera pontos; controlar os riscos introduzidos por IA evita perda de pontos nos respectivos domínios.
+
+### 2.2 Overlap entre Correctness, Reliability e Data/State
+
+O overlap sinalizado é real e não foi resolvido.
+
+Hoje, OCC, idempotência, concorrência e invariantes aparecem potencialmente em:
+
+- B — Correctness;
+- I — Reliability;
+- M — Data & State;
+- C — Testing, quando se avalia sua verificação.
+
+Isso abre espaço para pontuar quatro vezes a mesma propriedade.
+
+Minha separação recomendada:
+
+- **Correctness & Contracts:** tipos, validação runtime, schemas, API/event contracts, state machines e tratamento semântico de erros.
+- **Data & State:** chaves, transações, conditional writes, OCC, consistência, índices, paginação, TTL, retenção, isolamento no armazenamento e evolução de schema.
+- **Reliability:** comportamento sob falha e no tempo — retries, backoff, deduplicação de entrega, DLQ, reconciliation, timeouts, partial failure e recuperação.
+- **Testing:** qualidade da evidência que tenta falsificar as garantias anteriores; não recebe novamente crédito pela existência do mecanismo.
+
+Idempotência pode tocar Data e Reliability, mas cada item precisa dizer exatamente o que pontua:
+
+- Data: unicidade/atomicidade persistida;
+- Reliability: resultado correto sob retry e entrega duplicada.
+
+### 2.3 Testing com 15% é defensável, mas precisa de subestrutura
+
+O peso não é excessivo, mas “Testing Engineering” mistura:
+
+- desenho e qualidade da suíte;
+- cobertura dos riscos;
+- testes operacionais ainda não realizados;
+- tipos diferentes de execução.
+
+Sem subcritérios congelados, a nota fica subjetiva. Recomendo separar internamente:
+
+- 35%: cobertura de invariantes e critical paths;
+- 25%: falhas, concorrência, retries e casos negativos;
+- 20%: integração/contrato/infra;
+- 10%: qualidade, determinismo e força das assertions;
+- 10%: E2E, smoke, performance, restore, conforme aplicabilidade/eixo.
+
+Coverage de linhas deve ser apenas evidência auxiliar.
+
+### 2.4 CI e CD não estão bem separados
+
+G2 exige CI “realmente executado”, mas D avalia Continuous Integration e E avalia delivery. A rubrica precisa definir:
+
+- CI Foundation: workflow correto, determinístico, seguro e capaz de bloquear integração;
+- CI Evidence: execuções reais e status checks verificados;
+- CD Foundation: pipeline deployável, ambientes, promoção, rollback e artefatos;
+- CD Operational Evidence: deploy, smoke, rollback/roll-forward efetivamente executados.
+
+A ausência de produção não torna CD automaticamente N/A. Uma implantação em ambiente efêmero ou de homologação e um rollback ensaiado são possíveis em pré-produção.
+
+### 2.5 Performance com 1% é baixo demais
+
+Para Lambda, DynamoDB, SQS e scheduler, performance, capacidade e custo são propriedades de correção operacional. Hot partition, fan-out excessivo, ausência de batching ou concorrência sem limite podem inviabilizar o produto.
+
+Não proponho peso alto nem otimização prematura, mas **3%** é o mínimo defensável, com foco em:
+
+- risco de regressão;
+- limites e quotas;
+- comportamento de pico;
+- custo acidental;
+- timeout/concurrency budgets;
+- ausência de padrões obviamente não escaláveis.
+
+### 2.6 Documentation e governance não podem valer só 2% somadas
+
+Este processo depende de ADRs, runbooks, exceptions, decisões, evidência e rastreabilidade. Se isso vale 2%, o próprio processo está declarando que sua auditabilidade quase não importa.
+
+Proponho combinar DevEx, Documentation e Governance em 5%, evitando três notas frágeis de 1–2%. O domínio deve avaliar utilidade e enforcement, não volume documental.
+
+## Gates: problemas concretos
+
+### G1 — Build reproduzível
+
+Direção correta, mas incompleto. Deve incluir:
+
+- versão de runtime/toolchain;
+- lockfile consistente;
+- instalação limpa e imutável;
+- scripts necessários presentes;
+- ausência de dependência de estado local não declarado;
+- build/typecheck/test a partir do checkout congelado.
+
+“`build`/`typecheck`” não pode ser ambíguo. Se não existe artefato de build ainda, o comando aplicável deve ser explicitamente definido.
+
+### G2 — CI obrigatório real
+
+Correto em essência, mas `workflow_dispatch`, PR e push não são equivalentes. O gate deve provar:
+
+1. ao menos uma execução real no SHA ou mudança equivalente;
+2. falha de job propaga falha do workflow;
+3. os checks são obrigatórios no caminho de integração, ou existe controle equivalente verificável;
+4. não há bypass trivial por filtros de paths/branches.
+
+Um workflow verde não prova que merge quebrado está bloqueado.
+
+### G3 — Testes críticos
+
+Está excessivamente acoplado ao estado atual do projeto ao nomear quatro suítes. Isso favorece implementações existentes e ficará obsoleto em M4+.
+
+Substituir por gate baseado em risco:
+
+> Todos os critical paths implementados possuem testes executáveis positivos, negativos e de falha proporcionais, incluindo autorização/tenant isolation, integridade transacional, idempotência/concorrência e processamento assíncrono aplicável.
+
+As suítes atuais podem ser evidência do gate, não sua definição normativa.
+
+### G4 — Secrets
+
+“Secret conhecido” é fraco: permite passar porque ninguém reconheceu o segredo.
+
+Definir:
+
+- scanner automatizado sobre histórico aplicável e working tree;
+- inspeção de padrões de configuração;
+- nenhum segredo confirmado;
+- falso positivo documentado;
+- se houve exposição, rotação/revogação comprovada.
+
+### G5 — Vulnerabilidades
+
+“Critical/high ou exceção” é simultaneamente rígido e fácil de contornar.
+
+Proponho:
+
+- `critical` explorável ou alcançável sem remediação: falha;
+- `high`: falha quando alcançável no runtime/build confiável e sem mitigação;
+- exceção só vale com owner, prazo, análise de alcançabilidade, controle compensatório e aprovação;
+- vulnerabilidade apenas de dev dependency, não alcançável, pode ser aceita com evidência.
+
+Uma entrada arbitrária em `exceptions.md` não pode neutralizar o gate.
+
+### G6 — Tenant isolation
+
+A intenção é correta, mas “enforced em IAM real” é estreito e tecnicamente enganoso. IAM sozinho não garante isolamento por tenant em uma single-table. O gate deve exigir composição de controles:
+
+- identidade confiável;
+- tenant derivado server-side;
+- autorização;
+- construção de chave;
+- condições/transações;
+- IAM de menor privilégio, inclusive GSIs restritos;
+- testes negativos end-to-end.
+
+### G7 — Falha silenciosa em reminders
+
+É específico demais para um gate global. Notification, outbox, audit e futuros workers podem perder dados da mesma forma.
+
+Generalizar para:
+
+> Nenhum caminho assíncrono crítico pode confirmar, descartar ou tornar invisível uma unidade de trabalho após falha sem retry, DLQ/reconciliation ou erro observável apropriado.
+
+### G8 — IaC sintetizável
+
+“Synth em memória” prova estrutura, não deployabilidade. Para Foundation, aceite synth programático, mas exija também:
+
+- assets/handlers resolvíveis;
+- templates sem placeholders incompatíveis com deploy;
+- IAM e políticas críticas validados;
+- configuração obrigatória fail-fast.
+
+Se existem handlers placeholder, o gate deve registrar escopo parcial; não declarar infraestrutura globalmente deployável.
+
+### G9 — Boundaries
+
+A direção é boa, mas “idealmente” torna o gate opcional. Um gate deve ser binário.
+
+Definir um conjunto mínimo explícito de dependências proibidas e exigir verificação automatizada. O restante pode permanecer como critério pontuado.
+
+### Gates ausentes
+
+Faltam gates explícitos para:
+
+- segurança dos workflows e permissões de CI;
+- integridade de dados/transações críticas;
+- dependências reproduzíveis;
+- tratamento de falha em todos os caminhos assíncronos;
+- deployment/rollback/restore no eixo operacional.
+
+Também é necessário classificar gates por eixo. Caso contrário, um projeto pode ter Foundation bloqueada apenas porque não possui evidência operacional — contrariando §§40–41 do Prompt Mestre.
+
+## 3. Gaps na pesquisa bibliográfica
+
+A bibliografia é uma boa base inicial, mas ainda não é suficiente para congelar uma rubrica defensável.
+
+### Problemas na pesquisa existente
+
+- **ISO 25010:** afirma usar fontes secundárias, mas não identifica quais. Isso reduz auditabilidade.
+- **DORA:** não registra URLs primárias concretas, edição do relatório ou definição oficial vigente das métricas.
+- **SLSA:** o texto diz, em essência, “v1.2 parece atual, mas verificar”. Uma bibliografia normativa não pode congelar uma versão ainda incerta.
+- **SSDF:** o estado de versão/draft precisa ser sustentado por link direto do NIST, não apenas por página da CISA ou notícia.
+- A seção “fontes não pesquisadas” encerra cedo demais testing, dependency management, CI/CD e observability, embora o Prompt Mestre as peça explicitamente.
+
+### Fontes que eu adicionaria
+
+1. **OWASP ASVS**, provavelmente com baseline proporcional equivalente a L1, para transformar security de uma lista genérica em requisitos verificáveis. O ASVS existe justamente como base de verificação de controles técnicos de aplicações web. [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
+
+2. **OWASP API Security Top 10**, complementar ao ASVS para autorização por objeto, autenticação, consumo de recursos, SSRF e inventário de APIs.
+
+3. **AWS Well-Architected Serverless Applications Lens**. O framework genérico não é suficiente para este stack; a lens cobre explicitamente deployment, logging estruturado, tracing, limites, mensageria, Lambda, DynamoDB e arquiteturas event-driven. [AWS Serverless Applications Lens](https://docs.aws.amazon.com/wellarchitected/latest/serverless-applications-lens/the-pillars-of-the-well-architected-framework.html)
+
+4. **AWS SaaS Lens**, especialmente para tenant isolation e operações multi-tenant. A própria AWS mantém lenses oficiais específicas para SaaS e serverless. [AWS Lens Catalog](https://docs.aws.amazon.com/wellarchitected/latest/userguide/lens-catalog.html)
+
+5. **OpenTelemetry Specification/Semantic Conventions**, não para obrigar OTel, mas para fundamentar correlação e consistência de logs, traces e métricas. A especificação define sinais e convenções interoperáveis. [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/) e [Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
+
+6. **GitHub Actions security hardening**, branch protection/rulesets, artifact attestations e dependency review, como fontes primárias dos mecanismos concretos usados pelo projeto.
+
+7. **CIS AWS Foundations Benchmark**, aplicado seletivamente. Não deve virar checklist de conta AWS inteira, mas ajuda a avaliar configuração e controles fundamentais quando houver ambiente.
+
+8. **AWS DynamoDB Developer Guide**, sobretudo transações, conditional writes, consistência, GSIs, TTL e adaptive capacity. Para Data & State, uma fonte específica do datastore é melhor que derivar tudo do Well-Architected genérico.
+
+9. **OpenSSF OSPS Baseline** ou equivalente vigente da OpenSSF, caso confirmado como estável, para requisitos mínimos de projeto/supply chain. Scorecard mede sinais; não é, sozinho, uma especificação completa de maturidade.
+
+10. **Fonte oficial de privacidade**, ao menos LGPD/ANPD, porque o sistema manipula dados pessoais e retenção. Privacy não deve ficar diluída apenas em security.
+
+## Regra de N/A: atualmente vulnerável a gaming
+
+A regra proposta não é robusta.
+
+Problemas:
+
+- “ausência de produção” não é razão suficiente para N/A;
+- redistribuir todo o peso entre os demais domínios pode aumentar artificialmente a nota;
+- “mesmo eixo Foundation” não está definido por domínio;
+- não distingue “capacidade não aplicável” de “evidência ausente”;
+- não define granularidade: domínio inteiro ou subcritério;
+- não define limite para quantidade de peso removida.
+
+Regra recomendada:
+
+1. **N/A significa risco/capacidade genuinamente fora do escopo**, não ausência de implementação, ambiente ou evidência.
+2. Ausência de evidência recebe `NOT ENOUGH EVIDENCE`, não N/A.
+3. “Possível, mas não executado” recebe nota correspondente à ausência de evidência.
+4. N/A deve ocorrer preferencialmente no nível de subcritério, nunca apagar um domínio inteiro salvo impossibilidade estrutural.
+5. A decisão deve ser registrada antes do score, com razão, evidência, peso afetado e aprovação dos dois revisores.
+6. Peso de subcritério N/A é redistribuído apenas dentro do mesmo domínio.
+7. Se um domínio inteiro for excepcionalmente N/A, seu peso não deve ser redistribuído silenciosamente. O relatório deve mostrar:
+   - score normalizado aplicável;
+   - percentual de cobertura da rubrica;
+   - peso não avaliado.
+8. Definir um piso de cobertura para aprovação, por exemplo **ao menos 85% do peso total avaliado com evidência**.
+9. Nenhum gate aplicável pode virar N/A apenas por falta de ambiente.
+10. Operational Evidence deve possuir status próprio; não deve ser apagada do cálculo por N/A generalizado.
+
+## 4. Proposta de rubrica revisada
+
+| Domínio | Peso |
+|---|---:|
+| A. Code Quality & Maintainability | 9% |
+| B. Type Safety, Contracts & Correctness | 10% |
+| C. Testing Engineering | 13% |
+| D. Continuous Integration & Reproducibility | 7% |
+| E. Delivery & Release Engineering | 5% |
+| F. Secure Software Engineering & Privacy | 12% |
+| G. Software Supply Chain | 6% |
+| H. Infrastructure Engineering & Configuration | 7% |
+| I. Reliability Engineering | 9% |
+| J. Data & State Engineering | 8% |
+| K. Observability & Operability | 6% |
+| L. Developer Experience, Documentation & Governance | 5% |
+| M. Performance, Capacity & Cost Efficiency | 3% |
+| **Total** | **100%** |
+
+AI-Assisted Engineering seria uma dimensão transversal obrigatória, avaliada dentro de A, C, D, F, G, L e dos gates — sem 3% de crédito próprio.
+
+### Gates de Engineering Foundation
+
+- **F-G1 — Reproducibilidade:** checkout limpo, runtime fixado, lockfile íntegro, instalação imutável e todos os comandos obrigatórios passam.
+- **F-G2 — CI como enforcement:** execução real verificada; checks corretos e obrigatórios no caminho de integração; sem bypass trivial.
+- **F-G3 — Critical-path verification:** caminhos críticos implementados têm testes positivos, negativos e de falha proporcionais.
+- **F-G4 — Secrets:** nenhum segredo confirmado no conteúdo ou histórico aplicável; exposições anteriores foram revogadas.
+- **F-G5 — Vulnerabilidades:** nenhuma vulnerabilidade crítica alcançável e nenhuma high alcançável sem mitigação ou aceitação de risco válida e temporária.
+- **F-G6 — Authorization e tenant isolation:** cadeia completa identidade → autorização → chave/dado → IAM é enforceada e testada negativamente.
+- **F-G7 — Integridade de dados:** mutações críticas preservam atomicidade, concorrência, idempotência e auditabilidade conforme seus contratos.
+- **F-G8 — Processamento assíncrono seguro:** nenhum caminho crítico perde ou confirma silenciosamente trabalho; retry, DLQ/reconciliation e visibilidade são adequados.
+- **F-G9 — IaC validável:** synth/validation passa; recursos, handlers/assets, configuração e políticas críticas são verificáveis.
+- **F-G10 — Boundaries:** dependências arquiteturais críticas possuem regra automatizada bloqueante.
+- **F-G11 — Segurança do CI/supply chain:** permissões mínimas, actions pinadas, dependências reproduzíveis e artefatos não recebem confiança implícita.
+
+### Gates de Operational Engineering Evidence
+
+- **O-G1 — Deploy verificável:** ao menos um deploy real em ambiente representativo com smoke test.
+- **O-G2 — Recovery de mudança:** rollback ou roll-forward exercitado.
+- **O-G3 — Recovery de dados:** backup/restore exercitado com evidência de RPO/RTO aplicável.
+- **O-G4 — Falha e carga:** cenários críticos de retry, indisponibilidade, backlog e capacidade executados.
+- **O-G5 — Observabilidade operacional:** falhas críticas geram telemetria, alarme acionável e fluxo de resposta demonstrável.
+
+Um projeto pode passar todos os F-Gates e continuar com `OPERATIONAL ENGINEERING STATUS: NOT APPROVED` por falhar nos O-Gates. Essa separação é mais fiel ao Prompt Mestre do que misturar execução operacional com qualidade da fundação.
+
+**Parecer do Checkpoint 1, Passo B:** solicitar revisão material. Não congelar o draft atual. As principais mudanças necessárias são eliminar o domínio pontuado de IA, resolver o triple-count de correctness/data/reliability, tornar N/A não manipulável, generalizar gates específicos do código atual e separar formalmente gates de Foundation dos de Operational Evidence.
