@@ -1,6 +1,18 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Próxima ação obrigatória (2026-08-19, sessão de implementação M3.5 — mais recente, leia isto primeiro)
+## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+
+**A próxima sessão deve COMEÇAR (antes de qualquer outra coisa, inclusive antes de retomar G8/Camada 3 abaixo) rodando o processo formal de nota do protocolo Claude↔Codex (`AGENTS.md` §4) contra os 9 eixos já formalizados em `docs/engineering/joint-review-criteria.md`** (Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança/AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant — **não** o eixo FinOps, que segue deliberadamente sem critérios).
+
+Para cada eixo: nota inicial cega de ambos (Claude e Codex, sem ver a nota um do outro) contra o estado REAL do repositório (não contra intenção documentada) → proposta de correção pontual para cada achado abaixo de 9.0 → réplica → tréplica → repetir até nota ≥9.0 de ambos em todo eixo, sem arredondar (8.99 não vira 9) — mesmo protocolo já usado em M3.5 (design 9.0/9.3, implementação 5.8→7.4→9.3 em 3 rodadas reais).
+
+**Única exceção ao "chegar a 9.0"**: quando o achado que impede a nota tem um impedimento real e externo que não pode ser resolvido nesta sessão (ex.: Camada 3/G8 abaixo, bloqueada por falta de credenciais AWS — não é falta de esforço, é ausência de um recurso externo). Nesse caso, registrar explicitamente qual achado ficou abaixo de 9.0, por quê, e o que destravaria a correção — nunca arredondar/ignorar/fingir que fechou. Eixos sem esse tipo de impedimento (ex. Contexto, Qualidade de Engenharia, Governança de IA) não têm desculpa para não chegar a 9.0 — se a nota vier baixa, é achado real a corrigir, não celebrar como "descoberta interessante" e deixar aberto.
+
+Registrar o resultado de cada eixo (nota final, achados corrigidos, achados com impedimento real) em `docs/engineering/reviews/full-audit-round1-<eixo>-*` (mesmo padrão de nomenclatura já usado para `security-axis-criteria-round1-*` etc.) e um resumo consolidado no topo deste arquivo ao final.
+
+---
+
+## Histórico (2026-08-19, sessão de implementação M3.5 — superado pela seção acima, preservado como contexto de G8)
 
 Milestone M3.5 (runtime real do Reminder Engine / fechamento de G8): design **APPROVED** (Claude 9.0/Codex 9.3, `docs/architecture/m3.5-runtime-design.md`) e implementação **revisada e aprovada pelo protocolo Claude↔Codex** (`AGENTS.md` §4, 3 rodadas: 5.8 → 7.4 → **9.3/10 final**, achados reais corrigidos a cada rodada — ver `docs/architecture/reviews/m3.5-runtime-design/codex-output-implementation-*.txt`). Tudo mergeado em `main` (PRs #2 e #3): wiring CDK completo (fila+DLQ+Streams+4 EventBridge Schedules, zero placeholder `501`), 8 handlers Lambda reais, 5 adapters DynamoDB reais, outbox relay+sweeper, ciclo de vida completo dos ponteiros GSI6 (`WORKSTATE#CLAIMED`/`WORKSTATE#DST_PENDING`).
 
