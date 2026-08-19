@@ -38,14 +38,9 @@ export class DynamoDbReminderReconciliationCandidateSource implements ReminderRe
           ExclusiveStartKey: input.cursor ? JSON.parse(input.cursor) : undefined,
         }),
       );
-      const items = (result.Items ?? []).map(
-        (row): ExpiredClaimCandidate => ({
-          tenantId: row["tenantId"],
-          occurrenceId: row["occurrenceId"],
-          claimExpiresAt: row["claimExpiresAt"],
-          version: row["version"],
-        }),
-      );
+      // GSI6 is ALL-projected (infra/lib/dynamo-table.ts) - each row already IS the full
+      // ReminderOccurrence item, no separate fetch needed.
+      const items = (result.Items ?? []) as ExpiredClaimCandidate[];
       return { items, cursor: result.LastEvaluatedKey ? JSON.stringify(result.LastEvaluatedKey) : undefined };
     } catch (err) {
       throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listExpiredClaims");
@@ -64,15 +59,8 @@ export class DynamoDbReminderReconciliationCandidateSource implements ReminderRe
           ExclusiveStartKey: input.cursor ? JSON.parse(input.cursor) : undefined,
         }),
       );
-      const items = (result.Items ?? []).map(
-        (row): DstReconciliationCandidate => ({
-          tenantId: row["tenantId"],
-          policyId: row["policyId"],
-          timeZone: row["timeZone"],
-          windowStart: row["windowStart"],
-          windowEnd: row["windowEnd"],
-        }),
-      );
+      // GSI6 is ALL-projected - each row already IS the full ReminderOccurrence item.
+      const items = (result.Items ?? []) as DstReconciliationCandidate[];
       return { items, cursor: result.LastEvaluatedKey ? JSON.stringify(result.LastEvaluatedKey) : undefined };
     } catch (err) {
       throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listDstCandidates");
