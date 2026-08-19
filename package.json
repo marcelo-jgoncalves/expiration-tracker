@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:dynamodb": "vitest run --config vitest.dynamodb.config.ts",
     "validate-schemas": "tsx scripts/validate-schemas.ts"
   },
   "devDependencies": {
@@ -23,6 +24,7 @@
     "@typescript-eslint/eslint-plugin": "^7.16.0",
     "@typescript-eslint/parser": "^7.16.0",
     "@vitest/coverage-v8": "^1.6.0",
+    "aws-cdk": "2.1138.0",
     "aws-cdk-lib": "2.265.0",
     "aws-jwt-verify": "5.2.1",
     "constructs": "10.8.1",

@@ -130,7 +130,39 @@ export async function reconcileDst(
     for (const occurrence of liveExisting) {
       const expected = expectedByTrigger.get(occurrence.triggerId);
       const diverges = !expected || expected.scheduledAtUtc !== occurrence.scheduledAt;
-      if (!diverges) continue;
+      if (!diverges) {
+        // M3.5 (bug found by Codex implementation review round 1 - the original code left
+        // WORKSTATE#DST_PENDING pointers in place forever whenever recomputation confirmed
+        // the schedule was still correct). Round 2 found a race in THIS fix: `liveExisting`
+        // includes CLAIMED occurrences too, and the producer can claim (status->CLAIMED,
+        // GSI6PK->WORKSTATE#CLAIMED, version+1) in the window between GSI6 discovering this
+        // occurrence as a DST candidate and this loop running - `queryByItem` above would
+        // then read the ALREADY-CLAIMED row. The trigger recomputation still "confirms" (the
+        // schedule itself didn't change), so without this guard the code would strip the
+        // CLAIMED pointer via a version-matching OCC update, since the read and the write use
+        // the same fresh version - OCC alone does NOT catch this, only a status/GSI6PK guard
+        // does. Only ever touch a SCHEDULED occurrence that still actually carries the DST
+        // pointer - never CLAIMED (that pointer belongs to the producer/dispatch lifecycle).
+        if (occurrence.status === "SCHEDULED" && occurrence.GSI6PK === "WORKSTATE#DST_PENDING") {
+          try {
+            await deps.store.transactWrite([
+              {
+                Update: buildVersionedUpdate({
+                  tableName: deps.tableName,
+                  key: { PK: occurrence.PK, SK: occurrence.SK },
+                  tenantId: candidate.tenantId,
+                  expectedVersion: occurrence.version,
+                  set: {},
+                  remove: ["GSI6PK", "GSI6SK"],
+                }),
+              },
+            ]);
+          } catch (err) {
+            if (!isTransactionCanceled(err)) throw err; // lost a race - fine, not our job to force it
+          }
+        }
+        continue;
+      }
       divergences += 1;
       try {
         await deps.store.transactWrite([
@@ -141,6 +173,7 @@ export async function reconcileDst(
               tenantId: candidate.tenantId,
               expectedVersion: occurrence.version,
               set: { status: "CANCELLED" },
+              remove: ["GSI6PK", "GSI6SK"],
             }),
           },
         ]);

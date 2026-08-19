@@ -31,6 +31,13 @@ export interface ReminderOccurrence extends EntityKey {
   updatedAt: string;
   GSI3PK?: string; // present only while status === SCHEDULED (or CLAIMED, see note in materializer) - removed once TRIGGERED/CANCELLED so the scheduler index only ever contains live work
   GSI3SK?: string;
+  /** M3.5: WORKSTATE#CLAIMED (set by the producer's claim) or WORKSTATE#DST_PENDING (set
+   * by the materializer for schedules computed at an ambiguous/nonexistent local time) -
+   * mutually overwritten, never both at once. Removed on TRIGGERED/CANCELLED/reverted
+   * SCHEDULED so GSI6 only ever contains live reconciliation work. See
+   * docs/architecture/m3.5-runtime-design.md §"Reconciliação". */
+  GSI6PK?: string;
+  GSI6SK?: string;
 }
 
 export function occurrenceKey(tenantId: string, itemId: string, scheduledAt: string, occurrenceId: string): { PK: string; SK: string } {

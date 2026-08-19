@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { zonedTimeToUtc, addCalendarDays, toCalendarDate, parseDayOffset, parseLocalTime } from "../../../src/modules/reminder/domain/recurrence.js";
+import { zonedTimeToUtc, addCalendarDays, toCalendarDate, parseDayOffset, parseLocalTime, timeZoneObservesDst } from "../../../src/modules/reminder/domain/recurrence.js";
 
 describe("recurrence - IANA timezone-aware local->UTC conversion (implementation-blueprint.md §9.5 DST)", () => {
   it("resolves a normal (non-DST-boundary) local time correctly", () => {
@@ -44,5 +44,26 @@ describe("recurrence - IANA timezone-aware local->UTC conversion (implementation
   it("parseLocalTime parses HH:mm", () => {
     expect(parseLocalTime("09:05")).toEqual({ hour: 9, minute: 5 });
     expect(() => parseLocalTime("9:5")).toThrow();
+  });
+
+  describe("timeZoneObservesDst (M3.5)", () => {
+    it("returns true for a DST-observing zone (America/New_York)", () => {
+      expect(timeZoneObservesDst("America/New_York", 2026)).toBe(true);
+    });
+
+    it("returns false for a fixed-offset zone (America/Sao_Paulo, no DST since 2019)", () => {
+      expect(timeZoneObservesDst("America/Sao_Paulo", 2026)).toBe(false);
+    });
+
+    it("returns false for UTC", () => {
+      expect(timeZoneObservesDst("UTC", 2026)).toBe(false);
+    });
+
+    it("catches a transition NOT visible by comparing only January and July (Codex round 2 finding: monthly sampling, not a two-point comparison)", () => {
+      // Africa/Casablanca observes a short DST pause during Ramadan - its January and July
+      // offsets are typically equal, exactly the false-negative case a two-point Jan/Jul
+      // comparison would miss. Monthly sampling still catches it.
+      expect(timeZoneObservesDst("Africa/Casablanca", 2026)).toBe(true);
+    });
   });
 });

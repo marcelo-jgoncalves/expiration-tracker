@@ -1,0 +1,69 @@
+# Manual deploy pipeline for the throwaway `dev` environment (infra/bin/app.ts,
+# ExpirationTrackerStack-Dev, us-east-1 - explicitly NOT the production region decision,
+# see infra/bin/app.ts's comment and NEXT_SESSION_PROMPT.md item 7). Uses OIDC (no
+# persistent AWS credentials stored in GitHub) per ci.yml's original TODO.
+#
+# SETUP REQUIRED BEFORE THIS WORKFLOW CAN RUN (not done by this file alone):
+#   1. In the target AWS account: create an IAM OIDC identity provider for
+#      token.actions.githubusercontent.com (if the account doesn't already have one).
+#   2. Create an IAM role trusted by that provider, scoped to this repo
+#      (repo:marcelo-jgoncalves/expiration-tracker:*) with permissions for
+#      `cdk deploy` (CloudFormation, IAM PassRole for the CDK bootstrap roles, and the
+#      resources this stack creates - DynamoDB, Lambda, SQS, EventBridge Scheduler,
+#      Cognito, API Gateway).
+#   3. `cdk bootstrap aws://<ACCOUNT_ID>/us-east-1` once, from a machine with real
+#      credentials (this is a one-time, account-level setup step, not part of CI).
+#   4. Set the repository variable AWS_DEPLOY_ROLE_ARN to the role from step 2.
+# Until all four are done, this workflow will fail at the "Configure AWS credentials" step -
+# that failure is expected and informative (says exactly what's missing), not a bug.
+
+name: Deploy (dev environment)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install (immutable, scripts disabled)
+        run: npm ci
+
+      - name: Typecheck + lint + tests (same gates as CI, never deploy on a red build)
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run check-boundaries
+          npm test
+
+      - name: Configure AWS credentials (OIDC, no persistent secret)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: cdk diff (visible in the run log before anything changes)
+        run: npx cdk diff
+
+      - name: cdk deploy
+        run: npx cdk deploy --require-approval never

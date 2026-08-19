@@ -21,6 +21,7 @@ import {
   addCalendarDays,
   parseDayOffset,
   parseLocalTime,
+  timeZoneObservesDst,
 } from "../domain/recurrence.js";
 import { gsi3Keys, occurrenceKey, stableHash, type ReminderOccurrence } from "../domain/reminder-occurrence.js";
 import type { ReminderPolicy, QuietHours } from "../domain/reminder-policy.js";
@@ -28,6 +29,7 @@ import type { ShardConfig } from "../domain/shard-config.js";
 import { activeGenerations } from "../domain/shard-config.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../ports/reminder-store.js";
+import { GSI6PK_WORKSTATE_DST_PENDING, buildDstCandidateGsi6Sk } from "../ports/reconciliation-candidate-source.js";
 
 export interface MaterializeInput {
   tenantId: string;
@@ -156,6 +158,23 @@ export class ReminderMaterializer {
         shardCount: generation.shardCount,
       });
 
+      // M3.5 (docs/architecture/m3.5-runtime-design.md §"Reconciliação"; broadened after
+      // Codex's implementation review found the original AMBIGUOUS/NONEXISTENT-only trigger
+      // too narrow): a GSI6 WORKSTATE#DST_PENDING pointer is set whenever EITHER the
+      // schedule was computed at an ambiguous/nonexistent local time (dstKind !== "NORMAL")
+      // OR the policy's timeZone observes DST at all in the occurrence's target year - a
+      // plain 09:00 reminder in a DST-observing zone can still need re-evaluation after an
+      // offset change even though its own computed instant was never ambiguous. Occurrences
+      // in a fixed-offset timeZone (e.g. America/Sao_Paulo since 2019) never get the pointer.
+      const dstRelevant =
+        schedule.dstKind !== "NORMAL" || timeZoneObservesDst(input.policy.timeZone, toCalendarDate(schedule.scheduledAtUtc).year);
+      const dstPending = dstRelevant
+        ? {
+            GSI6PK: GSI6PK_WORKSTATE_DST_PENDING,
+            GSI6SK: buildDstCandidateGsi6Sk(schedule.scheduledAtUtc, input.tenantId, occurrenceId),
+          }
+        : {};
+
       const occurrence: ReminderOccurrence = {
         ...occurrenceKey(input.tenantId, input.itemId, schedule.scheduledAtUtc, occurrenceId),
         entityType: "ReminderOccurrence",
@@ -178,6 +197,7 @@ export class ReminderMaterializer {
         updatedAt: now,
         GSI3PK: gsi3.GSI3PK,
         GSI3SK: gsi3.GSI3SK,
+        ...dstPending,
       };
 
       const wasCreated = await this.store.putIfAbsent(occurrence);
@@ -217,8 +237,12 @@ export class ReminderMaterializer {
               // SET-only, no REMOVE) - the scheduler index keeps a stale pointer, but the
               // producer's own SCHEDULED->CLAIMED condition (§9.3) will simply fail for a
               // CANCELLED row, so it is skipped as a harmless no-op claim attempt, not a
-              // false trigger. Documented judgment call, see report.
+              // false trigger. Documented judgment call, see report. GSI6PK/GSI6SK (M3.5),
+              // unlike GSI3, ARE actively queried by reconciliation, so a stale
+              // WORKSTATE#DST_PENDING pointer on a CANCELLED occurrence would be a real bug
+              // (reconciliation would keep re-evaluating dead work) - removed here.
               set: { status: "CANCELLED" },
+              remove: ["GSI6PK", "GSI6SK"],
             }),
           },
         ]);

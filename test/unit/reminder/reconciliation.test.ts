@@ -14,6 +14,7 @@ import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-c
 import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
 import { occurrenceKey, gsi3Keys, type ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
+import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
 function contextFor(tenantId: string, userId: string): RequestContext {
@@ -228,6 +229,97 @@ describe("reconciliation.ts", () => {
       expect(result.divergences).toBe(0);
       expect(result.cancelled).toBe(0);
       expect(result.created).toBe(0);
+    });
+
+    it("M3.5: removes the GSI6 WORKSTATE#DST_PENDING pointer once recomputation CONFIRMS the schedule is still correct (bug found by Codex implementation review - the pointer used to stay forever in this case, causing daily re-evaluation indefinitely)", async () => {
+      const policy = await policies.createPolicy(ctx, {
+        scope: "ITEM",
+        itemId: ITEM_ID,
+        rule: {
+          name: "same day 09:00",
+          triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "09:00" }],
+          timeZone: "America/New_York", // DST-observing zone -> materializer sets the pointer
+          channels: ["EMAIL"],
+        },
+      });
+      const materializer = new ReminderMaterializer(store, TABLE, now);
+      const materialized = await materializer.materialize({
+        tenantId: TENANT,
+        itemId: ITEM_ID,
+        itemVersion: 1,
+        itemDueDate: "2026-09-10T00:00:00.000Z",
+        policy,
+        shardConfig: defaultShardConfig(),
+      });
+      const occ = materialized.created[0]!;
+      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING"); // sanity: the pointer IS present before reconciliation
+
+      clock.current = "2026-09-05T00:00:00.000Z"; // within the 7-day window, schedule unchanged since materialization
+
+      const result = await reconcileDst(
+        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
+        [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
+      );
+
+      expect(result.divergences).toBe(0);
+      expect(result.cancelled).toBe(0);
+
+      const confirmed = await store.get<ReminderOccurrence>({ PK: occ.PK, SK: occ.SK });
+      expect(confirmed?.status).toBe("SCHEDULED"); // still live, only the pointer was cleared
+      expect(confirmed?.GSI6PK).toBeUndefined();
+      expect(confirmed?.GSI6SK).toBeUndefined();
+    });
+
+    it("M3.5: NEVER touches the WORKSTATE#CLAIMED pointer of an occurrence the producer claimed between GSI6 discovery and this reconciliation pass (race found by Codex implementation review round 2 - a naive OCC-only guard does not catch this, since queryByItem reads the ALREADY-CLAIMED row with a fresh version)", async () => {
+      const policy = await policies.createPolicy(ctx, {
+        scope: "ITEM",
+        itemId: ITEM_ID,
+        rule: {
+          name: "same day 09:00",
+          triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "09:00" }],
+          timeZone: "America/New_York",
+          channels: ["EMAIL"],
+        },
+      });
+      const materializer = new ReminderMaterializer(store, TABLE, now);
+      const materialized = await materializer.materialize({
+        tenantId: TENANT,
+        itemId: ITEM_ID,
+        itemVersion: 1,
+        itemDueDate: "2026-09-10T00:00:00.000Z",
+        policy,
+        shardConfig: defaultShardConfig(),
+      });
+      const occ = materialized.created[0]!;
+
+      // Simulate the producer claiming this occurrence BEFORE reconcileDst's own read runs -
+      // status->CLAIMED, GSI6PK->WORKSTATE#CLAIMED, version bumped, exactly like producer.ts's
+      // real claim transaction (occ.ts's buildVersionedUpdate SET path).
+      await store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: TABLE,
+            key: { PK: occ.PK, SK: occ.SK },
+            tenantId: TENANT,
+            expectedVersion: occ.version,
+            set: { status: "CLAIMED", GSI6PK: "WORKSTATE#CLAIMED" },
+          }),
+        },
+      ]);
+
+      clock.current = "2026-09-05T00:00:00.000Z";
+
+      const result = await reconcileDst(
+        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
+        [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
+      );
+
+      expect(result.divergences).toBe(0);
+      expect(result.cancelled).toBe(0);
+
+      const afterReconciliation = await store.get<ReminderOccurrence>({ PK: occ.PK, SK: occ.SK });
+      expect(afterReconciliation?.status).toBe("CLAIMED");
+      expect(afterReconciliation?.GSI6PK).toBe("WORKSTATE#CLAIMED"); // untouched - NOT stripped by DST reconciliation
     });
 
     it("skips a disabled policy entirely (no cancellation, no materialization)", async () => {
