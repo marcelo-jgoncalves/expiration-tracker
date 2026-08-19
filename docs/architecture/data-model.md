@@ -66,7 +66,13 @@ Soft delete: `deletedAt` + status + nova versão; leituras normais excluem tombs
 
 Leitura da PK base é fortemente consistente quando necessário (autorização, edição, pré-envio de notificação — a revalidação de versão do Red Team cenário 13 depende disso). GSIs são eventualmente consistentes: dashboards podem atrasar brevemente; nenhuma decisão crítica (cancelamento, disparo, aplicação de extração) depende exclusivamente de um GSI. Scheduler, inbox, upload e outbox toleram duplicação por condições/idempotência e são cobertos por reconciliação periódica (mesmo padrão em todos os casos).
 
-## Rodada 2 — correções pós-revisão do Codex
+## Governança do single-table (adicionado após revisão externa pós-aprovação)
+
+Single-table design com 17 entidades e 6 GSIs é elegante hoje, mas é também o componente com maior risco de degradação silenciosa ao longo da vida do produto — cada novo padrão de acesso (novo relatório, nova tela, nova integração) tenta "aproveitar" um GSI existente de forma não prevista, e depois de alguns anos a tabela pode ficar difícil de raciocinar sem que nenhuma decisão individual pareça errada no momento em que foi tomada. Regra de processo, não de schema:
+
+> **Nenhum novo access pattern entra em produção sem revisão explícita do modelo de dados** — mesmo que "caiba" tecnicamente num GSI existente. A revisão deve responder: este padrão pertence a um GSI já existente pelo motivo certo, ou está sendo espremido ali por conveniência? Se a resposta for a segunda, criar novo GSI (até o limite prático de ~20 por tabela) ou reconsiderar particionamento, nunca sobrecarregar um índice com um propósito que ele não foi desenhado para servir.
+
+Isso não é uma decisão de arquitetura nova — é uma prática operacional a manter, com o mesmo peso de um requisito não-funcional, registrada aqui para não se perder na passagem do design para a implementação.
 
 **GSI1 hot partition — correção de erro técnico real**: a mitigação original ("aplicar shard ao `GSI1SK`") estava errada — a partição física do DynamoDB é determinada pela **PK**, não pela SK; adicionar shard à SK não distribui carga nenhuma. Corrigido: se o volume por tenant/status justificar (critério quantitativo a extrair do capacity model, não decidido a priori), o shard entra na **PK**: `GSI1PK=TENANT#t#ITEMSTATUS#<status>#SHARD#<NN>`, exigindo fan-out de leitura (consultar todos os shards e mesclar) no lado da aplicação. **Para o MVP, não shardar é a decisão correta** — volume por tenant é baixo (`capacity-model.md`, Stage 0–2) e a complexidade de fan-out não se justifica ainda; gatilho de ativação: mesmo padrão de alarme de `ConsumedReadCapacity` já usado no GSI3 (scheduler, decisão Fase 3 Rodada 4).
 
