@@ -93,7 +93,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
 
     // A producer tick BEFORE the scheduled minute claims nothing.
     const earlyTick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-03T11:59:00.000Z"),
     );
     expect(earlyTick.claimed).toHaveLength(0);
@@ -101,7 +101,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     // Fake clock advances to the exact scheduled minute - no real wall-clock waiting.
     clock.current = "2026-09-03T12:00:30.000Z";
     const tick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-03T12:00:00.000Z"),
     );
     expect(tick.claimed).toHaveLength(1);
@@ -116,7 +116,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     // A duplicate producer tick for the SAME minute must NOT claim it a second time (it's
     // no longer SCHEDULED).
     const duplicateTick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-03T12:00:00.000Z"),
     );
     expect(duplicateTick.claimed).toHaveLength(0);
@@ -148,10 +148,15 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     const allIntents = store.allItems().filter((i) => i["entityType"] === "NotificationIntent");
     expect(allIntents).toHaveLength(1);
 
-    // Outbox: exactly one notification.intent-created.v1 event.
+    // Outbox: exactly one durable ReminderDispatchRequested (M3.5, written by the producer's
+    // claim) and exactly one notification.intent-created.v1 (M3, written by dispatch).
     const outboxEvents = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
-    expect(outboxEvents).toHaveLength(1);
-    expect(outboxEvents[0]?.["eventType"]).toBe("notification.intent-created.v1");
+    expect(outboxEvents).toHaveLength(2);
+    const dispatchRequested = outboxEvents.filter((e) => e["eventType"] === "ReminderDispatchRequested");
+    expect(dispatchRequested).toHaveLength(1);
+    expect(dispatchRequested[0]?.["destination"]).toBe("SQS_REMINDER_DISPATCH_V1");
+    const intentCreated = outboxEvents.filter((e) => e["eventType"] === "notification.intent-created.v1");
+    expect(intentCreated).toHaveLength(1);
   });
 
   it("lookback window: a producer tick that missed minute M still claims it a few minutes later", async () => {
@@ -182,7 +187,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     // recovery happens 3 minutes later, well inside the default 5-minute lookback.
     clock.current = "2026-09-09T08:03:30.000Z";
     const recoveryTick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-09T08:03:00.000Z"),
     );
     expect(recoveryTick.claimed).toHaveLength(1);
@@ -214,7 +219,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
 
     clock.current = "2026-09-10T08:00:30.000Z";
     const tick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, claimTtlMs: 60_000 },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, claimTtlMs: 60_000, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-10T08:00:00.000Z"),
     );
     expect(tick.claimed).toHaveLength(1);
@@ -232,7 +237,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
 
     // The next producer tick (still within lookback of the original scheduled minute) re-claims it.
     const secondTick = await runProducerTick(
-      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-10T08:03:00.000Z"),
     );
     expect(secondTick.claimed).toHaveLength(1);
@@ -263,7 +268,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     const occurrence = materialized.created[0]!;
 
     clock.current = "2026-09-10T08:00:30.000Z";
-    const tick = await runProducerTick({ store, shardConfig: defaultShardConfig(), tableName: TABLE, now }, new Date("2026-09-10T08:00:00.000Z"));
+    const tick = await runProducerTick({ store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" }, new Date("2026-09-10T08:00:00.000Z"));
     const command = tick.claimed[0]!;
 
     // Item's dueDate changed (version bumped) after the occurrence was already claimed.

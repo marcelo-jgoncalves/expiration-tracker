@@ -18,7 +18,41 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Duration } from "aws-cdk-lib";
 import { Construct } from "constructs";
+import * as esbuild from "esbuild";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import type { ExpirationTrackerTable } from "./dynamo-table.js";
+
+/**
+ * M3.5: real bundling for handler entrypoints, replacing `lambda.Code.fromInline`
+ * placeholders (docs/architecture/m3.5-runtime-design.md, "Handlers Lambda reais" /
+ * "Bundling"). Invokes esbuild directly (target node20, one bundle per function, sourcemap
+ * external, no minify - stack traces stay auditable, per the design doc) rather than
+ * aws-cdk-lib's NodejsFunction, so ScopedLambdaFunction remains the single Lambda
+ * construction point (no second construct with its own bundling path to keep in sync).
+ * AWS SDK v3 is bundled IN (not left to the Lambda runtime-provided version), per design.
+ */
+function bundleEntry(entry: string, handlerExport: string): lambda.Code {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "expiration-tracker-lambda-"));
+  const outFile = path.join(outDir, "index.js");
+  // CJS output (not ESM, despite the project being "type": "module") so the bundle needs
+  // no package.json/extension gymnastics inside the Lambda zip - just index.js + index.handler.
+  esbuild.buildSync({
+    entryPoints: [entry],
+    outfile: outFile,
+    bundle: true,
+    platform: "node",
+    target: "node20",
+    format: "cjs",
+    sourcemap: "external",
+    minify: false,
+  });
+  if (handlerExport !== "handler") {
+    throw new Error(`bundleEntry: only "handler" export name is wired into index.handler; got "${handlerExport}"`);
+  }
+  return lambda.Code.fromAsset(outDir);
+}
 
 export interface AccessCapability {
   readonly kind: string;
@@ -58,6 +92,17 @@ export function tableAccessFor(table: ExpirationTrackerTable) {
         kind: "table:gsi3-read",
         description: "GSI3 (scheduler) read-only - ReminderProducer only",
         grant: (fn) => table.grantGsi3ReadTo(fn),
+      };
+    },
+    /** GSI6 (reconciliation/retention) read-only - reserved EXCLUSIVELY for
+     * ReminderReconciliation and OutboxSweeperReminderDispatch
+     * (docs/architecture/m3.5-runtime-design.md). Routed through
+     * ExpirationTrackerTable.grantGsi6ReadTo, never table.grantReadData. */
+    gsi6Read(): AccessCapability {
+      return {
+        kind: "table:gsi6-read",
+        description: "GSI6 (reconciliation) read-only - ReminderReconciliation/OutboxSweeperReminderDispatch only",
+        grant: (fn) => table.grantGsi6ReadTo(fn),
       };
     },
   };
@@ -105,14 +150,23 @@ const KNOWN_CAPABILITY_KINDS = new Set([
   "table:read",
   "table:create",
   "table:gsi3-read",
+  "table:gsi6-read",
   "queue:consume",
   "queue:send",
   "appconfig:read",
 ]);
 
-export interface ScopedLambdaFunctionProps extends Omit<lambda.FunctionProps, "code"> {
+export interface ScopedLambdaFunctionProps extends Omit<lambda.FunctionProps, "code" | "handler"> {
   access: AccessCapability[];
-  /** Defaults to bundling entryFile via NodejsFunction-equivalent asset if provided; else code must be set via `code` prop override (tests use inline code). */
+  /** Real bundling path (M3.5): TS/JS entrypoint, bundled via esbuild (see bundleEntry above)
+   * into a CJS asset. Mutually exclusive with `code` (tests use `code` for inline synthetic
+   * bodies; production handlers use `entry`). */
+  entry?: string;
+  /** Exported handler function name inside `entry`. Only "handler" is currently supported
+   * (bundleEntry throws otherwise) - kept as an explicit prop rather than hardcoded so a
+   * synth-time error names the mismatch instead of silently invoking the wrong export. */
+  handlerExport?: string;
+  /** Test-only escape hatch for inline/synthetic Lambda code. Mutually exclusive with `entry`. */
   code?: lambda.Code;
 }
 
@@ -137,14 +191,23 @@ export class ScopedLambdaFunction extends Construct {
       }
     }
 
-    const { access, code, ...rest } = props;
+    const { access, code, entry, handlerExport, ...rest } = props;
+
+    if (entry && code) {
+      throw new Error(`ScopedLambdaFunction(${id}): "entry" and "code" are mutually exclusive.`);
+    }
+
+    const resolvedCode = entry
+      ? bundleEntry(entry, handlerExport ?? "handler")
+      : (code ?? lambda.Code.fromInline("exports.handler = async () => ({ statusCode: 501 });"));
 
     this.function = new lambda.Function(this, "Function", {
       timeout: Duration.seconds(10),
       memorySize: 256,
       tracing: lambda.Tracing.ACTIVE,
       ...rest,
-      code: code ?? lambda.Code.fromInline("exports.handler = async () => ({ statusCode: 501 });"),
+      handler: "index.handler",
+      code: resolvedCode,
     });
 
     for (const capability of access) {

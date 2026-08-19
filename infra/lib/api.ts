@@ -20,6 +20,9 @@ export interface ExpirationTrackerApiProps {
    * least-privilege construct - it's the routing table, not the IAM boundary, that's
    * per-module. */
   itemsHandler?: ScopedLambdaFunction;
+  /** M3.5: policy CRUD routes, wired the moment the handler is real (was unreachable while
+   * the handler was still an inline 501 placeholder). */
+  remindersHandler?: ScopedLambdaFunction;
 }
 
 export class ExpirationTrackerApi extends Construct {
@@ -63,6 +66,15 @@ export class ExpirationTrackerApi extends Construct {
       this.httpApi.addRoutes({ path: "/items/{itemId}", methods: [apigwv2.HttpMethod.DELETE], integration: itemsIntegration, authorizer });
       this.httpApi.addRoutes({ path: "/items/{itemId}/archive", methods: [apigwv2.HttpMethod.POST], integration: itemsIntegration, authorizer });
       this.httpApi.addRoutes({ path: "/items/{itemId}/renew", methods: [apigwv2.HttpMethod.POST], integration: itemsIntegration, authorizer });
+    }
+
+    if (props.remindersHandler) {
+      const remindersIntegration = new integrations.HttpLambdaIntegration("RemindersIntegration", props.remindersHandler.function);
+
+      this.httpApi.addRoutes({ path: "/reminders/policies", methods: [apigwv2.HttpMethod.POST], integration: remindersIntegration, authorizer });
+      this.httpApi.addRoutes({ path: "/reminders/policies/{policyId}", methods: [apigwv2.HttpMethod.GET], integration: remindersIntegration, authorizer });
+      this.httpApi.addRoutes({ path: "/reminders/policies/{policyId}", methods: [apigwv2.HttpMethod.PUT], integration: remindersIntegration, authorizer });
+      this.httpApi.addRoutes({ path: "/reminders/policies/{policyId}/disable", methods: [apigwv2.HttpMethod.POST], integration: remindersIntegration, authorizer });
     }
   }
 }

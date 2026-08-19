@@ -61,7 +61,6 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
       () =>
         new ScopedLambdaFunction(stack, "Bad", {
           runtime: lambda.Runtime.NODEJS_20_X,
-          handler: "index.handler",
           access: [{ kind: "table:delete-everything", description: "nope", grant: () => {} }],
         }),
     ).toThrow(/unknown access capability kind/);
@@ -113,6 +112,60 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
     for (const [, def] of nonProducerPolicies) {
       expect(JSON.stringify(def.Properties.PolicyDocument)).not.toContain("/index/GSI3");
     }
+  });
+
+  it("M3.5 isolation: GSI6 dynamodb:Query permission is granted to EXACTLY the ReminderReconciliation and OutboxSweeperReminderDispatch roles - no other function's IAM policy references the GSI6 index", () => {
+    const template = synthTemplate();
+    const policies = template.findResources("AWS::IAM::Policy");
+    const grantingPolicies = Object.entries(policies).filter(([, def]) =>
+      JSON.stringify(def.Properties.PolicyDocument).includes("/index/GSI6"),
+    );
+    const grantingLogicalIds = grantingPolicies.map(([logicalId]) => logicalId);
+    expect(grantingLogicalIds.some((id) => id.startsWith("ReminderReconciliation"))).toBe(true);
+    expect(grantingLogicalIds.some((id) => id.startsWith("OutboxSweeperReminderDispatch"))).toBe(true);
+    for (const logicalId of grantingLogicalIds) {
+      expect(logicalId.startsWith("ReminderReconciliation") || logicalId.startsWith("OutboxSweeperReminderDispatch")).toBe(true);
+    }
+    const otherPolicies = Object.entries(policies).filter(
+      ([logicalId]) => !logicalId.startsWith("ReminderReconciliation") && !logicalId.startsWith("OutboxSweeperReminderDispatch"),
+    );
+    for (const [, def] of otherPolicies) {
+      expect(JSON.stringify(def.Properties.PolicyDocument)).not.toContain("/index/GSI6");
+    }
+  });
+
+  it("M3.5: no Lambda function is left as an inline 501 placeholder - every function has a real asset bundle", () => {
+    const template = synthTemplate();
+    const functions = template.findResources("AWS::Lambda::Function");
+    const functionNames = Object.keys(functions);
+    expect(functionNames.length).toBe(8); // TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper
+    for (const [logicalId, def] of Object.entries(functions)) {
+      const code = def.Properties.Code as { ZipFile?: string; S3Bucket?: string };
+      if (code.ZipFile) {
+        expect(code.ZipFile, `${logicalId} is still inline code`).not.toContain("statusCode: 501");
+      } else {
+        // Real bundle: an S3 asset, never inline.
+        expect(code.S3Bucket, `${logicalId} has neither S3 asset nor inline code`).toBeTruthy();
+      }
+    }
+  });
+
+  it("M3.5: ReminderDispatchQueue has a DLQ with maxReceiveCount=5 and the DLQ has an age alarm", () => {
+    const template = synthTemplate();
+    const queues = template.findResources("AWS::SQS::Queue");
+    const mainQueue = Object.values(queues).find((q) => (q.Properties.RedrivePolicy as { deadLetterTargetArn?: unknown } | undefined)?.deadLetterTargetArn);
+    expect(mainQueue).toBeTruthy();
+    expect((mainQueue?.Properties.RedrivePolicy as { maxReceiveCount: number }).maxReceiveCount).toBe(5);
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 1);
+  });
+
+  it("M3.5: exactly two EventBridge Scheduler schedules invoke ReminderReconciliation (CLAIMS every 5 min, DST daily), each with a distinct mode", () => {
+    const template = synthTemplate();
+    const schedules = template.findResources("AWS::Scheduler::Schedule");
+    expect(Object.keys(schedules).length).toBe(4); // producer, claims-reconciliation, dst-reconciliation, sweeper
+    const withInput = Object.values(schedules).filter((s) => typeof (s.Properties.Target as { Input?: string }).Input === "string");
+    const modes = withInput.map((s) => (JSON.parse((s.Properties.Target as { Input: string }).Input) as { mode: string }).mode);
+    expect(modes.sort()).toEqual(["CLAIMS", "DST"]);
   });
 
   it("GSI3 exists with a global (non-tenant-prefixed) key shape and minimal projection", () => {

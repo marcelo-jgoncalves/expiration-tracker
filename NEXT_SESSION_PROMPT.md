@@ -1,6 +1,18 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+## Próxima ação obrigatória (2026-08-19, sessão de implementação M3.5 — mais recente, leia isto primeiro)
+
+Design do milestone M3.5 (runtime real do Reminder Engine / fechamento de G8) **APPROVED** (Claude 9.0/Codex 9.3, `docs/architecture/m3.5-runtime-design.md`). **Implementação em andamento nesta sessão — não concluída.** Commits em `develop` (mais recente primeiro): wiring real na stack CDK (fila+DLQ+Streams+4 schedules, zero placeholders `501`), handlers Lambda reais (7 funções, composition roots), adapters DynamoDB reais (5 ports), outbox relay+sweeper com teste de concorrência real, outbox durável no claim do producer + ciclo de vida do ponteiro GSI6. `npm test` com 136+ testes verdes, `typecheck`/`lint`/`check-boundaries` limpos, stack CDK sintetiza 8 Lambdas com bundle esbuild real (não mais inline).
+
+**Ambiente desta sessão não tinha Docker nem credenciais AWS** (só registry npm) — isso bloqueou a Camada 2 (DynamoDB Local/LocalStack) e a Camada 3 (sandbox AWS efêmero) do plano de testes do design, que são gates obrigatórios antes de declarar G8 fechado. O que foi executado e verificado nesta sessão é só a Camada 1 (unit/contract/synth CDK, incluindo isolamento de IAM do GSI6 e proibição de placeholder inline).
+
+**Gap conhecido e não escondido**: `ReminderMaterializer` (M3) ainda não escreve o ponteiro `WORKSTATE#DST_PENDING` no GSI6 quando uma ocorrência materializada cruza uma transição DST conhecida — o caminho de leitura (adapter + handler de reconciliação) existe e está correto, mas a reconciliação de DST é hoje um no-op correto (página vazia), não uma cobertura real. Comentado no código (`reminder-reconciliation-handler.ts`), não fingido como pronto.
+
+**Próxima ação real**: (1) rodar Camada 2 (DynamoDB Local + LocalStack/Testcontainers) e Camada 3 (sandbox AWS efêmero) num ambiente com Docker/credenciais reais — nenhuma delas foi executada ainda; (2) fechar o gap do `ReminderMaterializer`/GSI6 DST acima; (3) revisão final Claude+Codex do milestone completo (ainda não feita — só o design passou pelo protocolo, a implementação não). Não declarar G8 fechado antes dessas três coisas.
+
+---
+
+## Próxima ação obrigatória (histórico — superada pela seção acima, preservada como contexto de G8)
 
 Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEERING.md` na raiz para o relatório completo). Veredito: `ENGINEERING FOUNDATION STATUS: NOT APPROVED`, bloqueador único e conhecido: **G8 (recuperação real de falha assíncrona)**.
 

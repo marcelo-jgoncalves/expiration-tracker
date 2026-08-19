@@ -70,6 +70,9 @@ export async function reconcileExpiredClaims(
             tenantId: occurrence.tenantId,
             expectedVersion: occurrence.version,
             set: { status: "SCHEDULED" },
+            // M3.5: this claim is resolved (reverted) - its WORKSTATE#CLAIMED GSI6 pointer
+            // must go too, or the next reconciliation pass would find it again forever.
+            remove: ["GSI6PK", "GSI6SK"],
           }),
         },
       ]);

@@ -8,6 +8,15 @@
  * exclusivamente ao ReminderProducer"). This construct exposes a narrow
  * `grantGsi3ReadTo` method instead of a general grantReadData-on-GSI3 path, so callers
  * cannot accidentally give a tenant-facing function access to it.
+ *
+ * M3.5: GSI6 gains the same treatment for two specific global (non-tenant-prefixed) key
+ * families - `WORKSTATE#CLAIMED`/`WORKSTATE#DST_PENDING` (reminder reconciliation
+ * candidates) and `RECON#OUTBOX#PENDING` (outbox sweeper) - alongside its existing
+ * tenant-scoped uses (retention/purge, upload slots, per docs/architecture/data-model.md
+ * §"GSI6"). `docs/architecture/m3.5-runtime-design.md` fixes exactly two roles allowed to
+ * query it: `ReminderReconciliation` and `OutboxSweeperReminderDispatch`. GSI6 is therefore
+ * EXCLUDED from `tenantFacingResources()`/`grantReadWriteData`/`grantReadData` (same
+ * treatment as GSI3) and exposed only via `grantGsi6ReadTo`.
  */
 import { RemovalPolicy } from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -34,6 +43,10 @@ export class ExpirationTrackerTable extends Construct {
       encryption: dynamodb.TableEncryption.AWS_MANAGED, // CMK upgrade tracked as infra follow-up, see report
       removalPolicy: props.removalPolicy ?? RemovalPolicy.RETAIN,
       timeToLiveAttribute: "purgeAfterTtl", // auxiliary cleanup only, never operational trigger (data-model.md §3)
+      // M3.5: NEW_IMAGE stream feeds DispatchOutboxRelay (docs/architecture/
+      // m3.5-runtime-design.md "Decisão central: outbox durável") - it only needs the
+      // post-write item shape, never the old image.
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
     });
 
     // GSI1 - vencimentos/dashboard: PK=TENANT#t#ITEMSTATUS#<status>, SK=DUE#<dueDate>#ITEM#i
@@ -94,7 +107,7 @@ export class ExpirationTrackerTable extends Construct {
    * instead of delegating to those helpers.
    */
   private tenantFacingResources(): string[] {
-    const indexNames = ["GSI1", "GSI2", "GSI4", "GSI5", "GSI6"];
+    const indexNames = ["GSI1", "GSI2", "GSI4", "GSI5"];
     return [
       this.table.tableArn,
       ...indexNames.map((name) => `${this.table.tableArn}/index/${name}`),
@@ -105,7 +118,11 @@ export class ExpirationTrackerTable extends Construct {
     return `${this.table.tableArn}/index/GSI3`;
   }
 
-  /** General read/write grant on the base table + GSI1/GSI2/GSI4/GSI5/GSI6 (tenant-scoped indexes). Never includes GSI3 - see tenantFacingResources() above. */
+  private gsi6Resource(): string {
+    return `${this.table.tableArn}/index/GSI6`;
+  }
+
+  /** General read/write grant on the base table + GSI1/GSI2/GSI4/GSI5 (tenant-scoped indexes). Never includes GSI3/GSI6 - see tenantFacingResources() above. */
   grantReadWriteData(grantee: IGrantable) {
     grantee.grantPrincipal.addToPrincipalPolicy(
       new iam.PolicyStatement({
@@ -147,6 +164,23 @@ export class ExpirationTrackerTable extends Construct {
       new iam.PolicyStatement({
         actions: ["dynamodb:Query", "dynamodb:GetItem"],
         resources: [this.gsi3Resource()],
+      }),
+    );
+    if (this.table.encryptionKey) {
+      this.table.encryptionKey.grantDecrypt(grantee);
+    }
+  }
+
+  /** The ONLY sanctioned way to read GSI6 - resource is the GSI6 index ARN exclusively.
+   * `docs/architecture/m3.5-runtime-design.md` fixes exactly two callers:
+   * `ReminderReconciliation` (WORKSTATE#CLAIMED/WORKSTATE#DST_PENDING candidates) and
+   * `OutboxSweeperReminderDispatch` (RECON#OUTBOX#PENDING). test/infra/stack.test.ts's
+   * isolation test asserts no other function's synthesized IAM policy references this index. */
+  grantGsi6ReadTo(grantee: IGrantable) {
+    grantee.grantPrincipal.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:GetItem"],
+        resources: [this.gsi6Resource()],
       }),
     );
     if (this.table.encryptionKey) {

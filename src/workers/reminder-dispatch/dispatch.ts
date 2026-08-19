@@ -105,6 +105,10 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
             tenantId,
             expectedVersion: occurrence.version,
             set: { status: "CANCELLED" },
+            // M3.5: the claim's WORKSTATE#CLAIMED GSI6 pointer (written by the producer)
+            // stops applying the moment this claim is resolved - leaving it would make the
+            // reconciliation job find a claim that's already been handled.
+            remove: ["GSI6PK", "GSI6SK"],
           }),
         },
       ]);
@@ -146,6 +150,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         tenantId,
         expectedVersion: occurrence.version,
         set: { status: "TRIGGERED" },
+        remove: ["GSI6PK", "GSI6SK"],
       }),
     },
   ];

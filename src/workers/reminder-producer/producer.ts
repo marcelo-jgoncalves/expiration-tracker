@@ -22,6 +22,9 @@ import { activeGenerations, type ShardConfig } from "../../modules/reminder/doma
 import { isTransactionCanceled } from "../../modules/reminder/ports/reminder-store.js";
 import type { ReminderProducerStore } from "../../modules/reminder/ports/reminder-store.js";
 import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
+import { appendToTransaction, type DynamoTransactPutEntry } from "../../shared/outbox/outbox.js";
+import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
+import type { DomainEvent } from "../../shared/contracts/events.js";
 
 export interface DispatchCommand {
   commandType: "reminder.dispatch.v1";
@@ -46,6 +49,10 @@ export interface ProducerDeps {
   claimTtlMs?: number;
   /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md §9.3 example: [M-5min, M]). */
   lookbackMinutes?: number;
+  /** Deterministic-in-tests ID generator for the durable outbox event written in the same
+   * transaction as the claim (M3.5 "Decisão central: outbox durável" - see runProducerTick). */
+  newEventId: () => string;
+  correlationId: () => string;
 }
 
 export interface ProducerTickResult {
@@ -101,6 +108,47 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
             }
 
             const claimExpiresAt = new Date(Date.parse(deps.now()) + claimTtlMs).toISOString();
+            const newVersion = occurrence.version + 1;
+
+            const command: DispatchCommand = {
+              commandType: "reminder.dispatch.v1",
+              tenantId,
+              deduplicationKey: `${tenantId}|${occurrenceId}|${newVersion}`,
+              data: {
+                itemId: occurrence.itemId,
+                occurrenceId,
+                occurrenceVersion: newVersion,
+                scheduledAt: occurrence.scheduledAt,
+                itemVersion: occurrence.itemVersion,
+                policyVersion: occurrence.policyVersion,
+              },
+            };
+
+            // M3.5 "Decisão central: outbox durável": TransactWrite(claim) followed by a
+            // direct SendMessage in the handler is NOT atomic (Lambda can die between the
+            // two steps, leaving a CLAIMED occurrence with no queued command - neither the
+            // producer's own lookback window nor the daily DST reconciliation reliably
+            // covers that gap). The fix: write a durable OutboxEvent
+            // (destination=SQS_REMINDER_DISPATCH_V1) in the SAME transaction as the claim;
+            // DispatchOutboxRelay (DynamoDB Streams) publishes it to SQS, a sweeper recovers
+            // publication failures. Also set the GSI6 WORKSTATE#CLAIMED pointer so the
+            // reconciliation job can find this claim if it expires unrecovered - removed
+            // when ReminderDispatch advances to TRIGGERED or reconciliation reverts it.
+            const event: DomainEvent = {
+              specVersion: "1.0",
+              eventId: deps.newEventId(),
+              eventType: "ReminderDispatchRequested",
+              source: "expiration-tracker.reminder-producer",
+              occurredAt: deps.now(),
+              correlationId: deps.correlationId(),
+              tenantId,
+              actor: { type: "SYSTEM" },
+              aggregate: { type: "ReminderOccurrence", id: occurrenceId, version: newVersion },
+              data: command as unknown as Record<string, unknown>,
+            };
+            const outboxEntries: DynamoTransactPutEntry[] = [];
+            appendToTransaction(outboxEntries, deps.tableName, event, "SQS_REMINDER_DISPATCH_V1");
+
             await deps.store.transactWrite([
               {
                 Update: buildVersionedUpdate({
@@ -108,24 +156,19 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
                   key: { PK: row.PK, SK: row.SK },
                   tenantId,
                   expectedVersion: occurrence.version,
-                  set: { status: "CLAIMED", claimedAt: deps.now(), claimExpiresAt },
+                  set: {
+                    status: "CLAIMED",
+                    claimedAt: deps.now(),
+                    claimExpiresAt,
+                    GSI6PK: GSI6PK_WORKSTATE_CLAIMED,
+                    GSI6SK: buildExpiredClaimGsi6Sk(claimExpiresAt, tenantId, occurrenceId),
+                  },
                 }),
               },
+              ...outboxEntries,
             ]);
 
-            claimed.push({
-              commandType: "reminder.dispatch.v1",
-              tenantId,
-              deduplicationKey: `${tenantId}|${occurrenceId}|${occurrence.version + 1}`,
-              data: {
-                itemId: occurrence.itemId,
-                occurrenceId,
-                occurrenceVersion: occurrence.version + 1,
-                scheduledAt: occurrence.scheduledAt,
-                itemVersion: occurrence.itemVersion,
-                policyVersion: occurrence.policyVersion,
-              },
-            });
+            claimed.push(command);
           } catch (err) {
             if (isTransactionCanceled(err)) {
               // Lost the claim race to a concurrent producer tick - not a failure to retry.
