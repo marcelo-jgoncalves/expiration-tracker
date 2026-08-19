@@ -15,7 +15,11 @@ Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. 
 3. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
 4. Não carregar todo `docs/architecture/history/` por padrão — é evidência histórica, consultar sob demanda.
 
-## 3. Protocolo de debate Claude ↔ Codex
+## 3. Estratégia de branch (padrão a partir de 2026-08-19)
+
+`develop` é o branch de trabalho ativo — todo commit de sessão (implementação, remediação, docs) vai para `develop`, nunca direto em `main`. `main` é protegido no GitHub (required status check `guardrails`/CI, sem force-push, sem deleção) e só recebe merge via PR de `develop` quando um marco está estável e verificado (CI verde, gates relevantes revisados). Antes de começar qualquer trabalho de código, confirmar `git branch --show-current` = `develop` (ou uma branch de feature a partir dele, se a tarefa justificar); se estiver em `main`, trocar para `develop` antes de commitar. Abrir o PR `develop→main` é uma ação visível/compartilhada — confirmar com Marcelo antes de merjar, mesmo que o push para `develop` em si não precise de confirmação a cada commit.
+
+## 4. Protocolo de debate Claude ↔ Codex
 
 Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada — aplicar bom senso de engenharia nesses casos.
 
@@ -23,11 +27,11 @@ Quando aplicável: mínimo 3 rodadas (proposta → crítica → tréplica), nota
 
 Invocação do Codex: `codex exec --skip-git-repo-check "<prompt>"`, rodar em background. **Nunca usar crases (`` ` ``) dentro de um prompt passado por Bash com aspas duplas** — o shell interpreta como substituição de comando e corrompe a entrada silenciosamente (o processo trava esperando stdin, CPU ~0). Para prompts com crases/markdown, escrever em arquivo e usar `codex exec --skip-git-repo-check - < arquivo.txt`. Se um processo `codex` rodar muito mais que rodadas comparáveis com CPU quase zero, está travado — matar e relançar, não esperar. **Não combinar `- < arquivo.txt` com backgrounding (`&`)** — essa combinação já produziu duas falhas silenciosas (processo travado relendo arquivo grande e bloqueado por política de sandbox; depois saída vazia sem erro) mesmo com prompt correto. Rodar `codex exec --skip-git-repo-check - < arquivo.txt > saida.txt 2>&1` em primeiro plano (sem `&`) é o padrão confiável verificado; só background se o prompt for curto o bastante para passar inline sem stdin.
 
-## 4. Precedência de fontes
+## 5. Precedência de fontes
 
 Ver tabela completa em `docs/architecture/README.md`. Resumo: `AGENTS.md` (processo) > ADR aceito (decisão específica) > documento temático corrente (`docs/architecture/*.md`) > `ARCHITECTURE.md` (visão consolidada) > `NEXT_SESSION_PROMPT.md` (estado, nunca normativo) > `docs/architecture/history/` (nunca normativo).
 
-## 5. Manutenção de contexto — checklist por marco
+## 6. Manutenção de contexto — checklist por marco
 
 Ao concluir uma fase/marco relevante (ex.: fim do Implementation Blueprint, fim de cada fase de implementação), verificar:
 
@@ -37,12 +41,12 @@ Ao concluir uma fase/marco relevante (ex.: fim do Implementation Blueprint, fim 
 - Arquivos novos em `docs/architecture/` aparecem no índice.
 - Referências a caminhos de arquivo (`docs/architecture/...`) continuam válidas.
 - Regras duráveis não foram duplicadas entre `AGENTS.md`, working-memory e handoff.
-- Este `AGENTS.md` continua dentro do limite de tamanho (ver §6).
+- Este `AGENTS.md` continua dentro do limite de tamanho (ver §8).
 - Fatos temporários foram removidos de `NEXT_SESSION_PROMPT.md` ou promovidos ao lugar correto.
 
 Não há automação disso ainda — é proporcional ao estágio (projeto sem código/CI real). Reavaliar automação (ex.: verificador de links, ou uma skill dedicada como a de um projeto irmão do mesmo usuário) quando: (a) existir CI real, ou (b) houver reincidência de link quebrado/drift documental.
 
-## 6. Código real (M0 em diante)
+## 7. Código real (M0 em diante)
 
 M0 ("guardrails e contratos", `implementation-blueprint.md` §19) está implementado: `src/shared/{errors,observability,config,idempotency,dynamodb,outbox,contracts}`, schemas em `schemas/`, testes em `test/{unit,contract}`. M1 ("Foundation, Identity e isolamento") adicionou `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorização, quotas — todos SDK-agnostic via portas injetáveis, mesmo padrão de `src/shared`) e `infra/{lib,bin}` (constructs CDK: `ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi`). M2 ("Expiration core e Audit") adicionou `src/modules/expiration/{domain,application,ports,http}` no mesmo padrão; seu port (`ExpirationStore`) introduz `transactWrite` porque a regra de data-model.md §5 (item + outbox + audit numa única `TransactWriteItems`) exige múltiplos itens condicionais atômicos — qualquer módulo futuro com a mesma necessidade deve reusar esse formato de port, não inventar um novo (M3's `ReminderStore` já faz isso). M3 ("Reminder Engine") adicionou `src/modules/reminder/{domain,application,ports,http}` + `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lógica pura, testável com relógio injetado — nenhum worker tem runtime Lambda real ainda, mesmo estágio de M0-M2). **Regra de isolamento de índice descoberta em M3, válida para qualquer GSI restrito no futuro**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluem `<tableArn>/index/*` (todos os índices) quando a tabela tem qualquer GSI — não usar esses helpers para uma tabela com índice restrito (como GSI3); `ExpirationTrackerTable` (`infra/lib/dynamo-table.ts`) já constrói `PolicyStatement`s com lista explícita de recursos por isso. M4+ segue o mesmo layout (`src/modules/<módulo>/...`, `src/workers/<worker>`) descrito em `implementation-blueprint.md` §2. Testes de infra (`test/infra/`) sintetizam a stack via `aws-cdk-lib`/`aws-cdk-lib/assertions` em memória — não exigem AWS CLI/credenciais nem a instalação do binário `aws-cdk`. Suíte cross-tenant negativa (exit criterion de M1) vive em `test/integration/cross-tenant.test.ts`; suíte de isolamento do GSI3 (exit criterion de M3) vive em `test/infra/stack.test.ts`.
 
@@ -52,8 +56,8 @@ Convenções: TypeScript estrito (`tsconfig.json`, `noUncheckedIndexedAccess`); 
 
 Pendências não bloqueantes registradas no pipeline: assinatura/provenance de artefato (SLSA) fica para M1+ quando existir um alvo de deploy real; SHAs das actions pinadas no CI devem ser reverificados periodicamente (comentário no próprio workflow).
 
-Reavaliar automação da checklist §5 (verificador de links, skill de auditoria) quando o volume de módulos M1+ justificar.
+Reavaliar automação da checklist §6 (verificador de links, skill de auditoria) quando o volume de módulos M1+ justificar.
 
-## 7. Manutenção do próprio AGENTS.md
+## 8. Manutenção do próprio AGENTS.md
 
 Meta: 60-100 linhas. Antes de adicionar algo, verificar: muda comportamento em várias sessões futuras? É estável, não temporário? Não é derivável do código/Git/decisions-log? Não pertence a `NEXT_SESSION_PROMPT.md`, `working-memory.md` ou a um documento de arquitetura? Se alguma resposta for não, não pertence aqui.
