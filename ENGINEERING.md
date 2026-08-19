@@ -62,41 +62,39 @@ Divergência real doc↔realidade encontrada e corrigida: `NEXT_SESSION_PROMPT.m
 
 Processo Claude↔Codex real, com Codex genuinamente rejeitando o draft inicial da rubrica e a primeira leitura de vários domínios de código — não houve confirmação automática. Achado do próprio Codex: documentação gerada por sessões anteriores (contagem de testes, status de commit) não foi reverificada contra execução real antes de ser registrada — exatamente o padrão de risco que este domínio existe para vigiar.
 
-## Engineering Gates (estado após remediação desta sessão)
+## Engineering Gates (estado atual, pós Checkpoint 12)
 
 ```text
-G1 (build reproduzível)              PASS — confirmado: run real 32262099908 (commit 6d541a0) verde em runner limpo do GitHub Actions, 45s, incluindo build/typecheck/lint/test
-G2 (CI enforced)                     PARCIAL → CI agora executa com sucesso de verdade (confirmado em produção, primeira vez desde a criação do workflow); falta só branch protection para virar PASS pleno
-G3 (testes críticos)                 PASS — confirmado em CI real, não só local
+G1 (build reproduzível)              PASS — confirmado em 4 execuções reais de CI (a mais recente: run 32282973596)
+G2 (CI enforced)                     PARCIAL — CI real verde de forma consistente + branch protection real confirmada via API (required check "guardrails", sem force-push/deleção); reserva: enforce_admins=false
+G3 (testes críticos)                 PASS — confirmado em CI real, 130 testes
 G4 (sem secret)                      PASS
-G5 (sem vuln crítica não tratada)    PASS agora (produção limpa; dev com exceção formal EX-001, não mais "tratada" por omissão) — warning informacional do audit de dev apareceu na run real como desenhado, sem bloquear
+G5 (sem vuln crítica não tratada)    PASS — produção 0 vulns (confirmado de novo após reverter o upgrade do Vitest); dev com exceção formal EX-001, não "tratada" por omissão
 G6 (autorização cross-tenant)        PASS
 G7 (least privilege de índice)       PASS
-G8 (falhas assíncronas recuperáveis) FAIL (sem mudança nesta sessão — requer Lambda/fila real)
+G8 (falhas assíncronas recuperáveis) FAIL — replay/reconciliação agora testados (E-007), mas observabilidade/recuperação em runtime real segue ausente. Ver decisão pendente abaixo.
 G9 (infra sintetizável)              PASS
-G10 (boundaries enforced automaticamente) PASS agora (ESLint no-restricted-imports adicionado e verificado, antes era só convenção) — confirmado também em CI real
+G10 (boundaries enforced automaticamente) PASS — agora com enforcement AUTORITATIVO real (dependency-cruiser, `npm run check-boundaries`, resolve o grafo transitivo de verdade, não só texto de import), não apenas o ESLint anterior que só comparava string literal. Achado e corrigido no processo: 2 violações genuínas pré-existentes (E-008) + uma dependência acidental ports→ports entre módulos irmãos.
 G11 (contratos no CI)                PASS — confirmado em CI real
 ```
 
-Confirmação: commit `6d541a0` pushado para `main`, run `32262099908` (https://github.com/marcelo-jgoncalves/expiration-tracker/actions/runs/32262099908) — job `guardrails` completo com sucesso em 45s, SBOM gerado como artefato, warning informacional do audit de dev apareceu exatamente como desenhado (não bloqueou). Dois achados novos não-críticos da run real: (1) as três Actions pinadas visam Node 20, que o runner do GitHub já força para Node 24 (deprecation warning, não erro — pins funcionam mas merecem atualização numa manutenção futura); (2) uma falha transitória de infraestrutura do GitHub ("services aren't available"/cache 400) apareceu como anotação, não relacionada ao código deste repositório.
+Confirmações reais desta sessão, em ordem: run `32262099908` (CI corrigido, primeira vez verde) → run do PR #1 (`develop→main`, fluxo exercitado pela primeira vez) → run `32278097688`/`32279889556` (upgrade do Vitest quebrou CI real, revertido) → run `32281955305` (dependency-cruiser 18.x incompatível com Node 20 do `.nvmrc`, fixado em 17.4.3) → run `32282973596` (verde, estado atual). Padrão que se repetiu 3 vezes nesta sessão: uma mudança passava limpa localmente e só falhava na execução real de CI — exatamente a razão de existir o próprio processo evidence-first.
 
 ## Fitness Functions
 
-`docs/engineering/02-engineering-fitness-functions.md` — 9 fitness functions definidas, FF5 corrigida nesta sessão (era decorativa) e confirmada em execução real, FF9 (secret scan automatizado) ainda não implementada.
+`docs/engineering/02-engineering-fitness-functions.md` — 9 fitness functions definidas. FF5 (audit) corrigida (era decorativa) e confirmada em execução real. FF9 (secret scan automatizado) ainda não implementada. Nova: `check-boundaries` (dependency-cruiser) — boundary de arquitetura com enforcement real de grafo, wired no CI.
 
 ## Known Gaps
 
-- **G2 falta só branch protection para virar PASS pleno** — o CI já executa com sucesso de verdade (confirmado em produção, run `32262099908`), mas `main` continua sem proteção nenhuma no GitHub.
-- **Branch protection não foi habilitada** — decisão deliberadamente deixada para o usuário confirmar (muda o fluxo de trabalho atual de push direto). Recomendação concreta: exigir PR + pelo menos o job `guardrails` como required status check.
-- **G8 (recuperação de falhas assíncronas) segue FAIL** — não é uma correção de arquivo, é trabalho de M4+ (Lambda real, DLQ real, telemetria real).
-- **Vulnerabilidade de devDependency (EX-001)** não corrigida (requer upgrade major do Vitest) — prazo de revisão de 30 dias registrado.
-- **Sem secret scanner automatizado no CI** (FF9) — verificação manual dirigida feita nesta sessão, sem achado real, mas não é um mecanismo contínuo.
-- **Red team formal (Checkpoint 12 do Prompt Mestre) não foi executado como exercício separado** nesta sessão — os achados equivalentes (CI quebrado, gate decorativo, ausência de branch protection, commit único de 4 milestones) emergiram organicamente da avaliação evidence-first, mas uma rodada dedicada de red team (bypass de autorização, race conditions, poison messages, etc., Prompt Mestre §28) fica como trabalho futuro explícito, não fabricada como concluída.
+- **G8 (recuperação de falhas assíncronas) segue FAIL de verdade** — não é uma correção de arquivo. Red team formal (Checkpoint 12) confirmou: handlers Lambda ainda são placeholder (`501`), sem SQS/DLQ/EventBridge wired, sem adapter DynamoDB real para os ports. Fechar isso completamente exige a mesma disciplina de M0-M3 (milestone dedicado, não remediação de sessão) — **decisão de escopo pendente do usuário**, ver seção final.
+- **Vulnerabilidade de devDependency (EX-001)** não corrigida — tentativa de upgrade do Vitest feita e **revertida** nesta sessão por quebrar CI real (bug upstream conhecido do npm com optional dependencies, `npm/cli#4828`). Prazo de revisão mantido, condicionado à correção do bug upstream.
+- **Sem secret scanner automatizado no CI** (FF9) — verificação manual dirigida feita, sem achado real, mas não é mecanismo contínuo.
 - **Duplicação de HTTP error-mapping** (domínio A) não extraída para `shared/` — P2, não bloqueante.
-- **Boundary enforcement do ESLint é parcial, não à prova de bypass** (achado do red team leve da rodada 2, ver abaixo) — cobre import direto proibido, não cobre import transitivo via um arquivo-ponte dentro do próprio `domain/`, `import()` dinâmico, ou alias de `tsconfig` fora do padrão bloqueado.
-- **Gate de audit de produção confia na classificação `dependencies`/`devDependencies` do `package.json`** — uma dependência de runtime movida deliberadamente para `devDependencies` escaparia do gate bloqueante (achado do red team).
-- **`enforce_admins: false` na proteção de `main`** — o dono do repo pode fazer bypass da proteção como admin; decisão consciente e proporcional ao tamanho do time, não um descuido, mas é um bypass real.
-- **Fluxo `develop`→PR→`main` documentado mas não exercitado** — nenhum PR real foi aberto/mergeado ainda para provar o processo na prática (a run verde do CI foi disparada por push direto em `main`, antes da nova estratégia de branch).
+- **Gate de audit de produção confia na classificação `dependencies`/`devDependencies` do `package.json`** — uma dependência de runtime movida deliberadamente para `devDependencies` escaparia do gate bloqueante (achado do red team formal).
+- **`enforce_admins: false` na proteção de `main`** — bypass admin consciente, proporcional ao tamanho do time.
+- **Idempotência não provada no limite do efeito externo** (achado do red team formal, P1) — claim determinístico protege contra parte das duplicatas, mas não o cenário "efeito externo realizado, confirmação perdida" (clássico de sistemas at-least-once) — sem runtime real, não há como testar isso ainda.
+- **Concorrência entre renew/cancel, materialização, dispatch e reconciliation** (achado do red team formal, P1) — OCC protege o agregado, sem evidência de fencing antes do efeito externo.
+- **Blast radius cross-tenant do GSI3 via workers privilegiados** (achado do red team formal, P1) — IAM limita quem acessa o índice global, mas falta teste negativo no adapter real (que ainda não existe).
 - **`EX-001` depende de disciplina humana** — sem checagem automatizada, o prazo de revisão de 30 dias pode expirar silenciosamente.
 
 ## Exceptions
@@ -140,9 +138,16 @@ Nenhum desses é um P0 (nenhum já foi explorado, e todos exigem ação delibera
 
 ## Next Steps
 
-1. ~~Push das correções e observar a run real do CI~~ — feito, confirmado (run 32262099908).
+1. ~~Push das correções e observar a run real do CI~~ — feito, confirmado.
 2. ~~Decidir sobre branch protection~~ — feito e confirmado via API.
-3. ~~Rodada 2 de notas pós-remediação~~ — feito (ver acima); refazer com a tabela completa anexada ao prompt do Codex, se um número exato conservador for necessário.
-4. Abrir e mergear o primeiro PR real `develop`→`main` para exercitar o processo documentado (hoje só existe no papel).
-5. Fechar G8 de verdade exige runtime real (Lambda + fila + telemetria) — trabalho de M4+, não uma correção de arquivo. Decidir a prioridade relativa entre isso e feature work (M4 Notification Engine) antes de prosseguir.
-6. P1s do red team, quando fizer sentido pelo tamanho do time: `dependency-cruiser`/`madge` para checar boundary transitivamente; checagem automatizada de exceções vencidas (`EX-001`); `cdk synth` real via CLI.
+3. ~~Rodada 2 de notas pós-remediação~~ — feito.
+4. ~~Abrir e exercitar o fluxo `develop`→PR→`main`~~ — feito, PR #1 aberto, CI real verde nele.
+5. ~~Red team formal (Checkpoint 12)~~ — feito via Codex, achado central: false-green CI (ver `docs/engineering/reviews/checkpoint-12-redteam/summary.md`).
+6. ~~Boundary transitivo real (`dependency-cruiser`)~~ — feito, achou e corrigiu 2 violações genuínas pré-existentes (E-008).
+7. ~~Tentativa de fechar EX-001 via upgrade do Vitest~~ — tentado, revertido por quebrar CI real (bug upstream). Não repetir sem verificar se foi corrigido.
+8. **Pendente, decisão do usuário**: escopo de fechamento pleno de G8. Ver seção final.
+9. P2s remanescentes, quando fizer sentido pelo tamanho do time: checagem automatizada de exceções vencidas, `cdk synth` real via CLI, atualizar pins de Actions para Node 24, extrair duplicação de HTTP error-mapping.
+
+## Decisão pendente: escopo de G8
+
+G8 exige, para fechar de verdade: adapters DynamoDB/SQS reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real; handlers Lambda reais substituindo os placeholders `501`; filas SQS + DLQ com redrive policy; EventBridge Scheduled Rule disparando o producer periodicamente; testes de fault injection contra esse runtime real. Isso é um milestone completo do porte de M0-M3 (pesquisa/design → implementação → teste real → revisão Claude+Codex dedicada), não uma remediação de sessão — o próprio red team formal apontou que construir isso às pressas, sem a mesma disciplina, seria "false-green" (a CI pareceria provar recuperação assíncrona sem realmente provar). Não implementado nesta sessão por essa razão, não por limitação de tempo apenas.
