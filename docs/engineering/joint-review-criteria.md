@@ -12,7 +12,7 @@ Adaptado (não copiado) do padrão equivalente do projeto irmão `event-discover
 
 Cada eixo evolui apenas se o próprio critério se mostrar mal calibrado em uso real — registrar por que, junto com a mudança, e não reabrir a cada nova revisão sobre o mesmo eixo.
 
-**Eixos existentes**: Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança da Informação e AppSec. **Consenso sobre quais eixos formais este projeto deveria ter** (2026-08-19, pesquisa independente Claude+Codex + rodada de convergência — `docs/engineering/reviews/audit-areas-research-*` e `audit-areas-convergence-*`): 9 eixos totais — os 4 acima, mais Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant (com FinOps como eixo próprio, decidido pelo usuário, mas **não formalizado ainda** — sem critérios definidos, não usar até existir uma seção própria aqui). Os 5 eixos aprovados mas não formalizados ficam como trabalho futuro, não implícitos no protocolo até ganharem seção própria.
+**Eixos formalizados (9)**: Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança da Informação e AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant. **FinOps fica como 10º eixo, aprovado por decisão do usuário mas ainda sem critérios definidos** — não usar até ganhar seção própria aqui; economia unitária hoje é só um critério dentro de Produto/Serviço Multi-tenant, não um substituto do eixo.
 
 ---
 
@@ -87,6 +87,81 @@ Pesos calibrados pelo risco real já observado neste projeto: GSI3/GSI6 são exc
 | 8 | Configuração Segura da Plataforma & Superfície Exposta | 6% | API Gateway/Cognito/Lambda/DynamoDB/SQS/EventBridge/Streams com defaults seguros, exposição mínima, retenção adequada. Mudanças de CDK devem ser capazes de detectar regressão (wildcard de índice, grant excessivo, handler placeholder — já aconteceu nesta sessão). |
 | 9 | Resistência a Abuso, DoS & Exaustão de Custo | 5% | Rate limits, quotas por tenant, concorrência reservada, limites de batch/paginação impedem que um tenant, poison message ou evento amplificado degrade outros tenants ou gere custo descontrolado; retries/reconciliação não podem virar multiplicador de ataque. |
 | 10 | Verificação Adversarial & Gestão Contínua de Risco | 6% | Evidência específica de segurança (threat model vivo, testes de abuso/cross-tenant/replay, assertions de IAM/IaC) — inclusive teste em AWS real quando emulação não prova o controle (Camada 3). Achados com severidade/dono/prazo; nova superfície (upload, provedor externo, frontend, webhook) reabre a análise antes da implementação. |
+
+## Eixo: Privacidade e Governança de Dados
+
+Convergido em 2026-08-19 (fontes: LGPD/orientações ANPD sobre RIPD/direitos/incidentes/transferências, DAMA-DMBOK). Rodada completa em `docs/engineering/reviews/remaining-axes-round1-{claude,codex-prompt,codex-output}.*`. Avalia licitude, finalidade, governança e ciclo de vida dos dados — não controles técnicos de acesso (isolamento multi-tenant/IAM já pertencem ao eixo de Segurança, não duplicado aqui). Maior peso do eixo em Retenção/Exclusão porque é o workflow mais greenfield e envolve múltiplos stores (DynamoDB, S3, filas, backups, providers).
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | Inventário, Classificação, Ownership & Linhagem de Dados | 15% | Inventário versionado de dados pessoais, sensíveis, documentos, metadados, logs, eventos e backups; finalidade, origem, destino, responsável e `retentionClass` rastreáveis. Nova entidade/campo/integração não entra sem classificação. |
+| 2 | Base Legal, Finalidade & Minimização | 16% | Base legal e finalidade definidas por tratamento, com teste de necessidade/proporcionalidade. Uso secundário exige reavaliação, não reutilização implícita. |
+| 3 | Direitos do Titular & Portabilidade Efetiva | 16% | Confirmação/acesso/correção/exportação/oposição/exclusão com fluxo autenticado, prazos, estados e evidência de conclusão. |
+| 4 | Retenção, Legal Hold, Exclusão Verificável & Backups | 17% | Prazo por classe com evento inicial, prazo final e mecanismo executável. Exclusão alcança DynamoDB/S3/índices/filas/providers/restores; testes provam que dado excluído não ressurge após restore. |
+| 5 | Localização, Transferência Internacional & Subprocessamento | 14% | Região de produção, países de tratamento, subprocessadores e mecanismos jurídicos de transferência decididos antes de produção — decisão hoje pendente por LGPD, não drift silencioso. |
+| 6 | RIPD, Risco aos Titulares & Privacy by Design | 10% | Critérios objetivos de quando elaborar/atualizar RIPD; tratamento de alto risco exige decisão humana registrada. |
+| 7 | Qualidade, Correção & Proveniência dos Dados | 7% | Dados exatos/completos/atuais vinculados à origem/versão; inferência de IA distinguível de dado confirmado pelo usuário. |
+| 8 | Accountability, Evidência & Monitoramento de Privacidade | 5% | Responsáveis, aprovações, DSRs, holds e exceções produzem evidência auditável, sem virar telemetria excessiva de dado pessoal. |
+
+## Eixo: Operações, SRE e Continuidade de Negócio
+
+Convergido em 2026-08-19 (fontes: Google SRE Book — SLO/error budget dirige decisão operacional, não só relatório —, AWS Well-Architected SaaS Lens §Operate). Avalia capacidade de operar/detectar/responder/recuperar o serviço real — o desenho de SLO/DR já existe (`slo.md`/`disaster-recovery.md`) mas nunca foi operacionalizado com dado de produção real. Maior peso em Backup/Restore porque "documentado mas nunca testado" é o padrão de risco mais repetido observado neste projeto (G8 só fechou depois de testar de verdade).
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | SLIs, SLOs & Error Budgets Acionáveis | 16% | SLIs representam resultado percebido (API, reminder freshness, backlog, reconciliação); consumo de error budget condiciona release/priorização, não só relatório. |
+| 2 | Observabilidade Operacional & Visão por Tenant | 11% | Detecta impacto agregado e noisy neighbor entre tenants — `SecureLogger` maduro não basta sem dashboard/sinal real. |
+| 3 | Detecção, Resposta & Comunicação de Incidentes | 15% | Alertas com threshold acionável/dono/escalonamento/runbook; comunicação a tenants/titulares/ANPD quando aplicável; exercícios comprovam funcionamento sob pressão. |
+| 4 | Saúde do Pipeline Assíncrono & Recuperação de Backlog | 14% | Idade/profundidade de fila, DLQ, outbox, claims, sweeper monitorados; redrive/replay idempotentes e limitados. Peso alto pela criticidade do produto + Camada 3 ainda pendente. |
+| 5 | Backup, Restore, RTO/RPO & Continuidade | 18% | PITR/backup configurado não basta — nota depende de restore real periódico com RTO/RPO observado. Falha regional é risco aceito explicitamente (região única, Stage 0-2), não ignorado. |
+| 6 | Prontidão de Deploy, Rollback & Mudança Operacional | 10% | Deploy com artefato identificável, checks pré/pós, rollback/roll-forward; mudança de schema/GSI/KMS/provider aciona validação proporcional. |
+| 7 | Capacidade, Dependências & Degradação Controlada | 9% | Limites AWS/providers/concorrência/custo conhecidos e testados; kill switches preservam trabalho recuperável. |
+| 8 | Post-mortem, Exercícios & Melhoria Contínua | 7% | Post-mortem sem culpa com ação/dono/prazo; falha recorrente ou ação vencida reduz nota. |
+
+## Eixo: Governança de IA e Controles Internos
+
+Convergido em 2026-08-19 (fontes: NIST AI RMF — ciclo Govern/Map/Measure/Manage —, ISO/IEC 42001). Abrange Claude/Codex construindo e operando o projeto, e futuros componentes de IA/OCR do produto. Avalia autoridade, supervisão, independência, proveniência e gestão de risco — não a qualidade genérica do código gerado (eixo de Engenharia). Maior peso em Independência da Revisão porque é o controle interno central deste projeto (protocolo `AGENTS.md` §4).
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | Limites de Autoridade, Permissões & Supervisão Humana | 18% | Ações permitidas/proibidas/sujeitas a aprovação humana por agente; deploy/merge/exclusão/produção/Type-1/comunicação externa seguem least authority e fail-closed. |
+| 2 | Atribuição, Proveniência & Reprodutibilidade das Ações | 15% | Toda mudança relevante atribuível a agente/modelo/sessão/diff/teste/aprovador — reconstruível sem exigir armazenamento indiscriminado de prompt sensível. |
+| 3 | Independência da Revisão & Segregação de Funções | 15% | Nota cega, mínimo de rodadas, mesmo agente nunca simula aprovação independente de si mesmo. Controle interno central do projeto — sem ele, "revisão Claude↔Codex" viraria teatro. |
+| 4 | Inventário de Casos de Uso & Gestão do Risco de IA | 13% | Usos de IA inventariados por finalidade/impacto/dado/autonomia/reversibilidade; mudança relevante reabre avaliação (Govern-Map-Measure-Manage). |
+| 5 | Avaliação de Correção, Limitações & Impacto | 12% | Nota alta sem evidência de arquivo:linha concreta não fecha revisão (já é a prática deste projeto — formalizado aqui como critério). |
+| 6 | Proteção de Contexto, Dados & Segredos no Uso de IA | 10% | Apenas contexto necessário enviado a modelo/ferramenta; segredos/dado pessoal/documento de tenant obedecem classificação e retenção. |
+| 7 | Gestão de Modelos, Ferramentas, Fornecedores & Mudanças | 9% | Versão/capacidade de modelo/CLI conhecida; upgrade tem avaliação de regressão e impacto — comportamento de fornecedor não é controle interno garantido. |
+| 8 | Incidentes de IA, Exceções & Melhoria Contínua | 8% | Mecanismo de suspender uso/reverter/registrar falha; bypass/exceção com fundamento, prazo e aprovação. |
+
+## Eixo: Governança Jurídica, Contratual e de Terceiros
+
+Convergido em 2026-08-19 (fontes: SOC 2 Trust Services Criteria — gestão de fornecedor, não certificação prematura —, licenciamento OSS). Avalia obrigação/licença/contrato/responsabilidade/risco de dependência externa — SBOM, pinning e integridade técnica de build continuam nos eixos de Engenharia/Segurança, não duplicados aqui.
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | Papéis Jurídicos, Responsabilidades & Modelo Contratual | 16% | Define quando o serviço é controlador/operador/ambos; decisão pendente recebe dono e gate antes do lançamento. |
+| 2 | Inventário, Due Diligence & Monitoramento de Terceiros | 16% | Registro de AWS/modelos de IA/OCR/mensageria/CI com serviço, dados, criticidade, região, certificação, lock-in e responsável. |
+| 3 | Licenciamento OSS, Propriedade Intelectual & Uso de Conteúdo | 14% | Dependências/código gerado com licença/proveniência compatível com operação comercial; autoria por IA não presume ausência de risco de licença. |
+| 4 | Termos de Uso, Aviso de Privacidade & Consentimentos | 14% | Termos/avisos compatíveis com comportamento real do produto — não existem ainda, pré-requisito antes do primeiro usuário real. |
+| 5 | DPAs, Transferências, Incidentes & Obrigações de Fornecedor | 13% | Contrato com operador/suboperador cobre instruções, segurança, localização, exclusão e comunicação tempestiva de incidente (LGPD art. 39). |
+| 6 | Compromissos Comerciais, SLA & Proteção do Consumidor | 13% | Não prometer entrega de mensagem quando só há tentativa do provider, nem disponibilidade sem arquitetura correspondente. |
+| 7 | Aprovação, Evidência, Exceções & Mudança Regulatória | 7% | Gatilho de reavaliação em mudança regulatória/produto/região/provider; aprovação sem dono não pontua como controle. |
+| 8 | Continuidade, Portabilidade & Saída de Fornecedor | 7% | Dependência crítica tem estratégia proporcional de substituição/exportação — dado não fica irrecuperavelmente preso sem risco aceito e documentado. |
+
+## Eixo: Governança de Produto e Serviço Multi-tenant
+
+Convergido em 2026-08-19 (fontes: AWS Well-Architected SaaS Lens — onboarding automatizado no control plane, crypto-shredding no offboarding, tenant como conceito de primeira classe). Avalia o serviço percebido/administrado pelo tenant ao longo do ciclo de vida — não reavalia isolamento/IAM técnico (eixo de Segurança). **FinOps fica como eixo próprio por decisão do usuário, não formalizado ainda** — economia unitária aqui é só um critério de produto, não compete em peso com esse eixo futuro.
+
+| # | Critério | Peso | Definição |
+|---:|---|---:|---|
+| 1 | Lifecycle Automatizado de Tenant | 18% | Onboarding/ativação/convite/mudança de plano/suspensão/offboarding como estados explícitos, idempotentes, auditáveis — hoje o tenant nasce implicitamente no primeiro login (MVP `tenantId=userId`), sem control plane dedicado. |
+| 2 | Offboarding, Exportação & Destruição Criptográfica | 16% | "Não conseguimos deletar um tenant" é falha de compliance, não só técnica; crypto-shredding coordenado com retenção/backup/legal hold. |
+| 3 | Planos, Entitlements, Quotas & Fairness | 13% | Capacidades/limites como política centralizada e versionada; `TenantQuota` já existe (M1), falta plano de billing real. Não duplica rate-limiting de segurança — mede correção da oferta do produto. |
+| 4 | Correção do Serviço de Lembretes & Proteção do Usuário | 15% | Timezone/DST/opt-out/quiet hours/renovação corrigíveis; lembrete perdido/duplicado/obsoleto tem detecção e reparo — é a falha mais grave possível do produto. |
+| 5 | Transparência, Usabilidade & Acessibilidade | 10% | Estado/erro/atraso comunicado em linguagem clara; ainda não se aplica plenamente (sem frontend), mas entra no radar em M4+. |
+| 6 | Administração, Suporte & Operação sob a Ótica do Tenant | 10% | Suporte autorizado diagnostica saúde/uso/config por tenant com trilha de auditoria, sem acesso informal a conteúdo. |
+| 7 | Métricas de Valor, Consumo & Economia Unitária | 10% | Adoção/sucesso de lembrete/consumo atribuível por tenant de forma privacy-safe — germe do futuro eixo FinOps, não o eixo em si. |
+| 8 | Evolução Unificada & Controle de Customização | 8% | Nenhuma feature cria "fork" por tenant; variação por plano usa mecanismo governado (mesmo princípio já aplicado ao reshard versionado do GSI3). |
 
 ## Como adicionar um novo eixo
 
