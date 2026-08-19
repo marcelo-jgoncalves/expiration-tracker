@@ -88,3 +88,29 @@ jobs:
           name: sbom
           path: sbom.cdx.json
           retention-days: 90
+
+  # M3.5 Camada 2 (docs/architecture/m3.5-runtime-design.md): DynamoDB Local via
+  # Testcontainers, separate from `guardrails` per the design ("mais pesado, job separado,
+  # nao bloqueante do npm test rapido de todo dia") - ubuntu-latest has Docker natively, no
+  # extra setup needed.
+  dynamodb-integration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install (immutable, scripts disabled)
+        run: npm ci
+
+      - name: DynamoDB Local integration tests
+        run: npm run test:dynamodb

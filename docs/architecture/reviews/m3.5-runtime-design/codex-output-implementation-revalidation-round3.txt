@@ -1,0 +1,637 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a01c29-1fb0-7af0-bd96-a1a91a7a0a46
+--------
+user
+Revalidacao (Rodada 3) da implementacao M3.5, expiration-tracker. Na Rodada 2 voce apontou nota 7,4/10 com 2 problemas: (P1) reconcileDst's caminho de limpeza do ponteiro DST aceitava ocorrencias SCHEDULED ou CLAIMED, permitindo remover o ponteiro WORKSTATE#CLAIMED de uma ocorrencia que o producer claimou entre a descoberta via GSI6 e a leitura do proprio reconcileDst (OCC sozinho nao protege porque queryByItem le a versao ja atualizada); (P2) timeZoneObservesDst comparava so janeiro e julho, com falso negativo para fusos com transicoes curtas fora dessa janela (ex. Africa/Casablanca).
+
+Commit e13458d (branch develop, HEAD) corrige os dois: (1) o caminho de limpeza do ponteiro DST em reconciliation.ts agora exige occurrence.status === "SCHEDULED" && occurrence.GSI6PK === "WORKSTATE#DST_PENDING" antes de remover - nunca mais toca uma ocorrencia CLAIMED, mesmo com versao fresca. Teste de regressao novo em reconciliation.test.ts simula exatamente a sequencia do bug (materializa -> claim real via buildVersionedUpdate -> reconcileDst) e prova que o ponteiro CLAIMED sobrevive intacto. (2) timeZoneObservesDst em recurrence.ts agora amostra o dia 15 de todos os 12 meses do ano (nao so jan/jul) e retorna true se houver qualquer offset diferente entre eles. 4 testes novos incluindo Africa/Casablanca.
+
+Rode `git show e13458d -- src/workers/reminder-reconciliation/reconciliation.ts src/modules/reminder/domain/recurrence.ts test/unit/reminder/reconciliation.test.ts test/unit/reminder/recurrence.test.ts` para ver o diff completo, ou leia os arquivos atuais direto.
+
+Verifique se as duas correcoes realmente fecham os problemas apontados, sem reintroduzir bug novo. 150 testes totais, typecheck/lint/check-boundaries limpos (pode conferir se quiser, mas nao precisa rodar rebuild completo).
+
+De uma nota final 0-10 na implementacao como pronta para as Camadas 2/3 de teste (que estao comecando a rodar agora nesta sessao - Docker Desktop acabou de ficar disponivel). Responda em portugues, direto ao ponto - se >=9.0 pode ser uma confirmacao curta.
+
+codex
+Vou revisar o diff do commit e o contexto imediato das duas funções/testes, focando nas invariantes de concorrência e na detecção de DST. Como é revalidação de implementação já decidida, o protocolo de debate não precisa ser reaberto.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'git branch --show-current; git status --short; git show --stat --oneline e13458d; git show --format=fuller e13458d -- src/workers/reminder-reconciliation/reconciliation.ts src/modules/reminder/domain/recurrence.ts test/unit/reminder/reconciliation.test.ts test/unit/reminder/recurrence.test.ts' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 459ms:
+develop
+?? docs/architecture/reviews/m3.5-runtime-design/codex-output-implementation-revalidation-round3.txt
+?? docs/architecture/reviews/m3.5-runtime-design/codex-prompt-implementation-revalidation-round3.txt
+e13458d M3.5: corrigir race condition DST + falso-negativo do detector (Codex round 2)
+ .claude/settings.json                              |    3 +-
+ .github/workflows/deploy-dev.yml                   |   69 +
+ cdk.json                                           |   10 +
+ .../codex-output-implementation-revalidation.txt   | 2377 ++++++++++++++++++++
+ .../codex-prompt-implementation-revalidation.txt   |    9 +
+ infra/bin/app.ts                                   |   15 +-
+ package-lock.json                                  |   14 +
+ package.json                                       |    1 +
+ src/modules/reminder/domain/recurrence.ts          |   16 +-
+ .../reminder-reconciliation/reconciliation.ts      |   18 +-
+ test/unit/reminder/reconciliation.test.ts          |   53 +
+ test/unit/reminder/recurrence.test.ts              |   23 +-
+ 12 files changed, 2593 insertions(+), 15 deletions(-)
+commit e13458d890d68d0af92f1843065a18f279dfd8fc
+Author:     marcelo-jgoncalves <243885363+marcelo-jgoncalves@users.noreply.github.com>
+AuthorDate: Wed Aug 19 19:29:00 2026 -0300
+Commit:     marcelo-jgoncalves <243885363+marcelo-jgoncalves@users.noreply.github.com>
+CommitDate: Wed Aug 19 19:29:00 2026 -0300
+
+    M3.5: corrigir race condition DST + falso-negativo do detector (Codex round 2)
+    
+    Revalidacao Codex (rodada 2) da implementacao encontrou 2 problemas
+    reais nas correcoes da rodada 1, confianca 7,4/10:
+    
+    - P1 CRITICO: reconcileDst's "confirmed, remove pointer" path aceitava
+      status SCHEDULED OU CLAIMED. Cenario real: GSI6 descobre a ocorrencia
+      como candidata DST_PENDING; antes do proprio queryByItem rodar, o
+      producer faz claim (status->CLAIMED, GSI6PK->WORKSTATE#CLAIMED,
+      versao incrementada); queryByItem le essa versao JA CLAIMADA; o
+      trigger recomputado ainda "confirma" (schedule nao mudou); o codigo
+      removeria o ponteiro WORKSTATE#CLAIMED usando a versao atual (fresca,
+      entao OCC sozinho nao pega essa corrida). Corrigido: o caminho de
+      limpeza so age quando status===SCHEDULED E GSI6PK===WORKSTATE#DST_PENDING,
+      nunca toca uma ocorrencia CLAIMED. Teste de regressao novo simula
+      exatamente essa sequencia (claim real via buildVersionedUpdate entre
+      materializacao e reconciliacao).
+    
+    - P2: timeZoneObservesDst comparava so janeiro e julho - falso negativo
+      para fusos com transicoes curtas/irregulares fora dessa janela (ex.
+      Africa/Casablanca, pausa de DST no Ramadã). Corrigido para amostrar
+      os 15 dias de todos os 12 meses. 4 testes novos no helper (America/
+      New_York, America/Sao_Paulo, UTC, Africa/Casablanca).
+    
+    150 testes totais, typecheck/lint/check-boundaries limpos.
+    
+    Tambem nesta sessao (preparacao para deploy real, ainda nao executado):
+    cdk.json + infra/bin/app.ts com stack "ExpirationTrackerStack-Dev"
+    explicitamente separada da decisao de regiao de producao (pendente por
+    LGPD) - us-east-1 confirmado pelo usuario como escolha de ambiente dev
+    descartavel, nao a decisao definitiva. aws-cdk CLI instalado como
+    devDependency. .github/workflows/deploy-dev.yml (pipeline manual via
+    OIDC, com os 4 passos de setup de conta AWS documentados como
+    pre-requisito, nao fingidos como prontos). .claude/settings.json
+    ganhou allowlist para `codex exec` (Bash(codex exec:*)), evitando
+    prompt de permissao a cada rodada do protocolo Claude<->Codex.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+diff --git a/src/modules/reminder/domain/recurrence.ts b/src/modules/reminder/domain/recurrence.ts
+index 3e4799b..ed827b4 100644
+--- a/src/modules/reminder/domain/recurrence.ts
++++ b/src/modules/reminder/domain/recurrence.ts
+@@ -173,7 +173,17 @@ export function parseLocalTime(hhmm: string): { hour: number; minute: number } {
+  * offset change even though its own computed instant was never ambiguous.
+  */
+ export function timeZoneObservesDst(timeZone: string, year: number): boolean {
+-  const januaryOffset = offsetMinutesAt(Date.UTC(year, 0, 15, 12, 0, 0), timeZone);
+-  const julyOffset = offsetMinutesAt(Date.UTC(year, 6, 15, 12, 0, 0), timeZone);
+-  return januaryOffset !== julyOffset;
++  // Codex implementation review (round 2): comparing only Jan/Jul is not sufficient -
++  // zones with short/irregular DST windows (e.g. Africa/Casablanca, suspended around
++  // Ramadan) can have equal offsets in January and July while still transitioning
++  // elsewhere in the year. Sample the 15th of every month instead - still not a
++  // mathematical proof against a transition entirely contained within a single
++  // sampling gap (<1 month), but IANA DST transitions are structurally at least ~1
++  // month apart in every zone this system targets, so monthly sampling catches every
++  // real-world case without needing a full day-by-day scan.
++  const offsets = new Set<number>();
++  for (let month = 0; month < 12; month++) {
++    offsets.add(offsetMinutesAt(Date.UTC(year, month, 15, 12, 0, 0), timeZone));
++  }
++  return offsets.size > 1;
+ }
+diff --git a/src/workers/reminder-reconciliation/reconciliation.ts b/src/workers/reminder-reconciliation/reconciliation.ts
+index 28e78e1..ce65607 100644
+--- a/src/workers/reminder-reconciliation/reconciliation.ts
++++ b/src/workers/reminder-reconciliation/reconciliation.ts
+@@ -131,13 +131,19 @@ export async function reconcileDst(
+       const expected = expectedByTrigger.get(occurrence.triggerId);
+       const diverges = !expected || expected.scheduledAtUtc !== occurrence.scheduledAt;
+       if (!diverges) {
+-        // M3.5 (bug found by Codex implementation review - the original code left
++        // M3.5 (bug found by Codex implementation review round 1 - the original code left
+         // WORKSTATE#DST_PENDING pointers in place forever whenever recomputation confirmed
+-        // the schedule was still correct, so confirmed-correct occurrences were
+-        // re-evaluated on every single daily run indefinitely). The window is processed for
+-        // this occurrence either way - clear the pointer once confirmed, not only on
+-        // cancellation.
+-        if (occurrence.GSI6PK) {
++        // the schedule was still correct). Round 2 found a race in THIS fix: `liveExisting`
++        // includes CLAIMED occurrences too, and the producer can claim (status->CLAIMED,
++        // GSI6PK->WORKSTATE#CLAIMED, version+1) in the window between GSI6 discovering this
++        // occurrence as a DST candidate and this loop running - `queryByItem` above would
++        // then read the ALREADY-CLAIMED row. The trigger recomputation still "confirms" (the
++        // schedule itself didn't change), so without this guard the code would strip the
++        // CLAIMED pointer via a version-matching OCC update, since the read and the write use
++        // the same fresh version - OCC alone does NOT catch this, only a status/GSI6PK guard
++        // does. Only ever touch a SCHEDULED occurrence that still actually carries the DST
++        // pointer - never CLAIMED (that pointer belongs to the producer/dispatch lifecycle).
++        if (occurrence.status === "SCHEDULED" && occurrence.GSI6PK === "WORKSTATE#DST_PENDING") {
+           try {
+             await deps.store.transactWrite([
+               {
+diff --git a/test/unit/reminder/reconciliation.test.ts b/test/unit/reminder/reconciliation.test.ts
+index 1ec7cf2..39e5fe1 100644
+--- a/test/unit/reminder/reconciliation.test.ts
++++ b/test/unit/reminder/reconciliation.test.ts
+@@ -14,6 +14,7 @@ import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-c
+ import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
+ import { occurrenceKey, gsi3Keys, type ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
+ import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
++import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
+ import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+ 
+ function contextFor(tenantId: string, userId: string): RequestContext {
+@@ -269,6 +270,58 @@ describe("reconciliation.ts", () => {
+       expect(confirmed?.GSI6SK).toBeUndefined();
+     });
+ 
++    it("M3.5: NEVER touches the WORKSTATE#CLAIMED pointer of an occurrence the producer claimed between GSI6 discovery and this reconciliation pass (race found by Codex implementation review round 2 - a naive OCC-only guard does not catch this, since queryByItem reads the ALREADY-CLAIMED row with a fresh version)", async () => {
++      const policy = await policies.createPolicy(ctx, {
++        scope: "ITEM",
++        itemId: ITEM_ID,
++        rule: {
++          name: "same day 09:00",
++          triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "09:00" }],
++          timeZone: "America/New_York",
++          channels: ["EMAIL"],
++        },
++      });
++      const materializer = new ReminderMaterializer(store, TABLE, now);
++      const materialized = await materializer.materialize({
++        tenantId: TENANT,
++        itemId: ITEM_ID,
++        itemVersion: 1,
++        itemDueDate: "2026-09-10T00:00:00.000Z",
++        policy,
++        shardConfig: defaultShardConfig(),
++      });
++      const occ = materialized.created[0]!;
++
++      // Simulate the producer claiming this occurrence BEFORE reconcileDst's own read runs -
++      // status->CLAIMED, GSI6PK->WORKSTATE#CLAIMED, version bumped, exactly like producer.ts's
++      // real claim transaction (occ.ts's buildVersionedUpdate SET path).
++      await store.transactWrite([
++        {
++          Update: buildVersionedUpdate({
++            tableName: TABLE,
++            key: { PK: occ.PK, SK: occ.SK },
++            tenantId: TENANT,
++            expectedVersion: occ.version,
++            set: { status: "CLAIMED", GSI6PK: "WORKSTATE#CLAIMED" },
++          }),
++        },
++      ]);
++
++      clock.current = "2026-09-05T00:00:00.000Z";
++
++      const result = await reconcileDst(
++        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
++        [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
++      );
++
++      expect(result.divergences).toBe(0);
++      expect(result.cancelled).toBe(0);
++
++      const afterReconciliation = await store.get<ReminderOccurrence>({ PK: occ.PK, SK: occ.SK });
++      expect(afterReconciliation?.status).toBe("CLAIMED");
++      expect(afterReconciliation?.GSI6PK).toBe("WORKSTATE#CLAIMED"); // untouched - NOT stripped by DST reconciliation
++    });
++
+     it("skips a disabled policy entirely (no cancellation, no materialization)", async () => {
+       const enabled = await policies.createPolicy(ctx, {
+         scope: "ITEM",
+diff --git a/test/unit/reminder/recurrence.test.ts b/test/unit/reminder/recurrence.test.ts
+index 1c8cfd5..1e1e42b 100644
+--- a/test/unit/reminder/recurrence.test.ts
++++ b/test/unit/reminder/recurrence.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { zonedTimeToUtc, addCalendarDays, toCalendarDate, parseDayOffset, parseLocalTime } from "../../../src/modules/reminder/domain/recurrence.js";
++import { zonedTimeToUtc, addCalendarDays, toCalendarDate, parseDayOffset, parseLocalTime, timeZoneObservesDst } from "../../../src/modules/reminder/domain/recurrence.js";
+ 
+ describe("recurrence - IANA timezone-aware local->UTC conversion (implementation-blueprint.md §9.5 DST)", () => {
+   it("resolves a normal (non-DST-boundary) local time correctly", () => {
+@@ -45,4 +45,25 @@ describe("recurrence - IANA timezone-aware local->UTC conversion (implementation
+     expect(parseLocalTime("09:05")).toEqual({ hour: 9, minute: 5 });
+     expect(() => parseLocalTime("9:5")).toThrow();
+   });
++
++  describe("timeZoneObservesDst (M3.5)", () => {
++    it("returns true for a DST-observing zone (America/New_York)", () => {
++      expect(timeZoneObservesDst("America/New_York", 2026)).toBe(true);
++    });
++
++    it("returns false for a fixed-offset zone (America/Sao_Paulo, no DST since 2019)", () => {
++      expect(timeZoneObservesDst("America/Sao_Paulo", 2026)).toBe(false);
++    });
++
++    it("returns false for UTC", () => {
++      expect(timeZoneObservesDst("UTC", 2026)).toBe(false);
++    });
++
++    it("catches a transition NOT visible by comparing only January and July (Codex round 2 finding: monthly sampling, not a two-point comparison)", () => {
++      // Africa/Casablanca observes a short DST pause during Ramadan - its January and July
++      // offsets are typically equal, exactly the false-negative case a two-point Jan/Jul
++      // comparison would miss. Monthly sampling still catches it.
++      expect(timeZoneObservesDst("Africa/Casablanca", 2026)).toBe(true);
++    });
++  });
+ });
+
+codex
+O guard de produção parece correto no código. Estou checando agora se o teste realmente reproduz a janela “descoberta no GSI6 → leitura atualizada”, pois isso é essencial para validar a regressão e não apenas o estado final.
+2026-08-19T22:34:25.979926Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$f='"'src/workers/reminder-reconciliation/reconciliation.ts'; Get-Content "'$f | Select-Object -First 240; rg -n "queryByWorkState|queryByItem|reconcileDst|class.*Store|GSI6" test/unit/reminder/reconciliation.test.ts src test -g '"'*.ts'"` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$f='"'src/workers/reminder-reconciliation/reconciliation.ts'; Get-Content "'$f | Select-Object -First 240; rg -n "queryByWorkState|queryByItem|reconcileDst|class.*Store|GSI6" test/unit/reminder/reconciliation.test.ts src test -g '"'*.ts'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ declined in 0ms:
+`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$f='"'src/workers/reminder-reconciliation/reconciliation.ts'; Get-Content "'$f | Select-Object -First 240; rg -n "queryByWorkState|queryByItem|reconcileDst|class.*Store|GSI6" test/unit/reminder/reconciliation.test.ts src test -g '"'*.ts'"` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg -n 'queryByWorkState|queryByItem|reconcileDst|class.*Store|GSI6' test/unit/reminder/reconciliation.test.ts src test -g '*.ts'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content src/workers/reminder-reconciliation/reconciliation.ts | Select-Object -First 240' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 317ms:
+test/unit/reminder/reconciliation.test.ts:5: * `reconcileDst` (the DST-affected re-evaluation pass) had ZERO coverage anywhere, direct or
+test/unit/reminder/reconciliation.test.ts:14:import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
+test/unit/reminder/reconciliation.test.ts:130:  describe("reconcileDst", () => {
+test/unit/reminder/reconciliation.test.ts:178:      // reconcileDst's window is [now, now+7d] - advance the clock to within 7 days of the
+test/unit/reminder/reconciliation.test.ts:183:      const result = await reconcileDst(
+test/unit/reminder/reconciliation.test.ts:195:      const live = (await store.queryByItem<ReminderOccurrence>(TENANT, ITEM_ID)).filter((o) => o.status === "SCHEDULED");
+test/unit/reminder/reconciliation.test.ts:224:      const result = await reconcileDst(
+test/unit/reminder/reconciliation.test.ts:234:    it("M3.5: removes the GSI6 WORKSTATE#DST_PENDING pointer once recomputation CONFIRMS the schedule is still correct (bug found by Codex implementation review - the pointer used to stay forever in this case, causing daily re-evaluation indefinitely)", async () => {
+test/unit/reminder/reconciliation.test.ts:255:      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING"); // sanity: the pointer IS present before reconciliation
+test/unit/reminder/reconciliation.test.ts:259:      const result = await reconcileDst(
+test/unit/reminder/reconciliation.test.ts:269:      expect(confirmed?.GSI6PK).toBeUndefined();
+test/unit/reminder/reconciliation.test.ts:270:      expect(confirmed?.GSI6SK).toBeUndefined();
+test/unit/reminder/reconciliation.test.ts:273:    it("M3.5: NEVER touches the WORKSTATE#CLAIMED pointer of an occurrence the producer claimed between GSI6 discovery and this reconciliation pass (race found by Codex implementation review round 2 - a naive OCC-only guard does not catch this, since queryByItem reads the ALREADY-CLAIMED row with a fresh version)", async () => {
+test/unit/reminder/reconciliation.test.ts:295:      // Simulate the producer claiming this occurrence BEFORE reconcileDst's own read runs -
+test/unit/reminder/reconciliation.test.ts:296:      // status->CLAIMED, GSI6PK->WORKSTATE#CLAIMED, version bumped, exactly like producer.ts's
+test/unit/reminder/reconciliation.test.ts:305:            set: { status: "CLAIMED", GSI6PK: "WORKSTATE#CLAIMED" },
+test/unit/reminder/reconciliation.test.ts:312:      const result = await reconcileDst(
+test/unit/reminder/reconciliation.test.ts:322:      expect(afterReconciliation?.GSI6PK).toBe("WORKSTATE#CLAIMED"); // untouched - NOT stripped by DST reconciliation
+test/unit/reminder/reconciliation.test.ts:347:      const result = await reconcileDst(
+test\unit\reminder\reminder-materializer.test.ts:105:    const all = (await store.queryByItem<ReminderOccurrence>("t1", "item1")) as ReminderOccurrence[];
+test\unit\reminder\reminder-materializer.test.ts:112:  describe("M3.5: GSI6 WORKSTATE#DST_PENDING pointer lifecycle", () => {
+test\unit\reminder\reminder-materializer.test.ts:113:    it("sets a GSI6 pointer only for a trigger whose schedule lands on a DST-ambiguous/nonexistent local time", async () => {
+test\unit\reminder\reminder-materializer.test.ts:128:      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING");
+test\unit\reminder\reminder-materializer.test.ts:129:      expect(occ.GSI6SK).toBe(`${occ.scheduledAt}#TENANT#t1#OCCURRENCE#${occ.occurrenceId}`);
+test\unit\reminder\reminder-materializer.test.ts:132:    it("does NOT set a GSI6 pointer for a normal (non-DST-boundary) schedule", async () => {
+test\unit\reminder\reminder-materializer.test.ts:142:      expect(occ.GSI6PK).toBeUndefined();
+test\unit\reminder\reminder-materializer.test.ts:143:      expect(occ.GSI6SK).toBeUndefined();
+test\unit\reminder\reminder-materializer.test.ts:146:    it("removes the GSI6 pointer when cancelStaleOccurrences cancels the occurrence", async () => {
+test\unit\reminder\reminder-materializer.test.ts:170:      const all = (await store.queryByItem<ReminderOccurrence>("t1", "item1")) as ReminderOccurrence[];
+test\unit\reminder\reminder-materializer.test.ts:173:      expect(cancelled.GSI6PK).toBeUndefined();
+test\unit\reminder\reminder-materializer.test.ts:174:      expect(cancelled.GSI6SK).toBeUndefined();
+test\unit\reminder\reconciliation.test.ts:5: * `reconcileDst` (the DST-affected re-evaluation pass) had ZERO coverage anywhere, direct or
+test\unit\reminder\reconciliation.test.ts:14:import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
+test\unit\reminder\reconciliation.test.ts:130:  describe("reconcileDst", () => {
+test\unit\reminder\reconciliation.test.ts:178:      // reconcileDst's window is [now, now+7d] - advance the clock to within 7 days of the
+test\unit\reminder\reconciliation.test.ts:183:      const result = await reconcileDst(
+test\unit\reminder\reconciliation.test.ts:195:      const live = (await store.queryByItem<ReminderOccurrence>(TENANT, ITEM_ID)).filter((o) => o.status === "SCHEDULED");
+test\unit\reminder\reconciliation.test.ts:224:      const result = await reconcileDst(
+test\unit\reminder\reconciliation.test.ts:234:    it("M3.5: removes the GSI6 WORKSTATE#DST_PENDING pointer once recomputation CONFIRMS the schedule is still correct (bug found by Codex implementation review - the pointer used to stay forever in this case, causing daily re-evaluation indefinitely)", async () => {
+test\unit\reminder\reconciliation.test.ts:255:      expect(occ.GSI6PK).toBe("WORKSTATE#DST_PENDING"); // sanity: the pointer IS present before reconciliation
+test\unit\reminder\reconciliation.test.ts:259:      const result = await reconcileDst(
+test\unit\reminder\reconciliation.test.ts:269:      expect(confirmed?.GSI6PK).toBeUndefined();
+test\unit\reminder\reconciliation.test.ts:270:      expect(confirmed?.GSI6SK).toBeUndefined();
+test\unit\reminder\reconciliation.test.ts:273:    it("M3.5: NEVER touches the WORKSTATE#CLAIMED pointer of an occurrence the producer claimed between GSI6 discovery and this reconciliation pass (race found by Codex implementation review round 2 - a naive OCC-only guard does not catch this, since queryByItem reads the ALREADY-CLAIMED row with a fresh version)", async () => {
+test\unit\reminder\reconciliation.test.ts:295:      // Simulate the producer claiming this occurrence BEFORE reconcileDst's own read runs -
+test\unit\reminder\reconciliation.test.ts:296:      // status->CLAIMED, GSI6PK->WORKSTATE#CLAIMED, version bumped, exactly like producer.ts's
+test\unit\reminder\reconciliation.test.ts:305:            set: { status: "CLAIMED", GSI6PK: "WORKSTATE#CLAIMED" },
+test\unit\reminder\reconciliation.test.ts:312:      const result = await reconcileDst(
+test\unit\reminder\reconciliation.test.ts:322:      expect(afterReconciliation?.GSI6PK).toBe("WORKSTATE#CLAIMED"); // untouched - NOT stripped by DST reconciliation
+test\unit\reminder\reconciliation.test.ts:347:      const result = await reconcileDst(
+test\unit\reminder\producer.test.ts:25:class PoisonOnceStore implements ReminderProducerStore {
+test\unit\outbox.test.ts:26:    expect(record.GSI6PK).toBe("RECON#OUTBOX#PENDING");
+src\workers\reminder-reconciliation\reconciliation.ts:36: * from a GSI6-style "active reminder policies" index (left as infra follow-up, see report
+src\workers\reminder-reconciliation\reconciliation.ts:73:            // M3.5: this claim is resolved (reverted) - its WORKSTATE#CLAIMED GSI6 pointer
+src\workers\reminder-reconciliation\reconciliation.ts:75:            remove: ["GSI6PK", "GSI6SK"],
+src\workers\reminder-reconciliation\reconciliation.ts:88:export async function reconcileDst(
+src\workers\reminder-reconciliation\reconciliation.ts:103:    const existing = await deps.store.queryByItem<ReminderOccurrence>(candidate.tenantId, candidate.itemId);
+src\workers\reminder-reconciliation\reconciliation.ts:138:        // GSI6PK->WORKSTATE#CLAIMED, version+1) in the window between GSI6 discovering this
+src\workers\reminder-reconciliation\reconciliation.ts:139:        // occurrence as a DST candidate and this loop running - `queryByItem` above would
+src\workers\reminder-reconciliation\reconciliation.ts:143:        // the same fresh version - OCC alone does NOT catch this, only a status/GSI6PK guard
+src\workers\reminder-reconciliation\reconciliation.ts:146:        if (occurrence.status === "SCHEDULED" && occurrence.GSI6PK === "WORKSTATE#DST_PENDING") {
+src\workers\reminder-reconciliation\reconciliation.ts:156:                  remove: ["GSI6PK", "GSI6SK"],
+src\workers\reminder-reconciliation\reconciliation.ts:176:              remove: ["GSI6PK", "GSI6SK"],
+src\workers\reminder-reconciliation\reconciliation.ts:215:  const dst = await reconcileDst(deps, input.dstCandidates);
+test\unit\expiration\in-memory-store.ts:16:export class InMemoryExpirationStore implements ExpirationStore {
+src\workers\reminder-dispatch\dispatch.ts:51:  const rows = await store.queryByItem<ReminderOccurrence>(tenantId, itemId);
+src\workers\reminder-dispatch\dispatch.ts:108:            // M3.5: the claim's WORKSTATE#CLAIMED GSI6 pointer (written by the producer)
+src\workers\reminder-dispatch\dispatch.ts:111:            remove: ["GSI6PK", "GSI6SK"],
+src\workers\reminder-dispatch\dispatch.ts:153:        remove: ["GSI6PK", "GSI6SK"],
+test\unit\reminder\in-memory-store.ts:15:export class InMemoryReminderStore implements ReminderStore, ReminderProducerStore {
+test\unit\reminder\in-memory-store.ts:77:            // delete, e.g. GSI6PK/GSI6SK when a claim/DST pointer stops applying.
+test\unit\reminder\in-memory-store.ts:86:  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]> {
+src\workers\reminder-producer\producer.ts:26:import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
+src\workers\reminder-producer\producer.ts:134:            // publication failures. Also set the GSI6 WORKSTATE#CLAIMED pointer so the
+src\workers\reminder-producer\producer.ts:163:                    GSI6PK: GSI6PK_WORKSTATE_CLAIMED,
+src\workers\reminder-producer\producer.ts:164:                    GSI6SK: buildExpiredClaimGsi6Sk(claimExpiresAt, tenantId, occurrenceId),
+test\unit\dispatch-outbox-relay\relay.test.ts:22:    GSI6PK: "RECON#OUTBOX#PENDING",
+test\unit\dispatch-outbox-relay\relay.test.ts:23:    GSI6SK: "2026-08-19T10:00:00.000Z#evt-1",
+test\unit\dispatch-outbox-relay\relay.test.ts:29:class FakeRelayStore implements OutboxRelayStore {
+test\unit\dispatch-outbox-relay\relay.test.ts:133:    store.pending = [makeRecord({ SK: "EVENT#...#evt-1", eventId: "evt-1" }), makeRecord({ SK: "EVENT#...#evt-2", eventId: "evt-2", GSI6SK: "x2" })];
+test\unit\identity\in-memory-store.ts:10:export class InMemoryIdentityStore implements IdentityStore {
+test\infra\stack.test.ts:117:  it("M3.5 isolation: GSI6 dynamodb:Query permission is granted to EXACTLY the ReminderReconciliation and OutboxSweeperReminderDispatch roles - no other function's IAM policy references the GSI6 index", () => {
+test\infra\stack.test.ts:121:      JSON.stringify(def.Properties.PolicyDocument).includes("/index/GSI6"),
+test\infra\stack.test.ts:133:      expect(JSON.stringify(def.Properties.PolicyDocument)).not.toContain("/index/GSI6");
+src\shared\dynamodb\occ.ts:23:   * GSI6PK/GSI6SK when a reconciliation-candidate pointer (M3.5) stops applying. Gap noted
+src\shared\dynamodb\occ.ts:25:   * nothing actively queried them); M3.5 needs REMOVE for real because GSI6 pointers ARE
+src\shared\idempotency\idempotency.ts:69:export class IdempotencyStore {
+src\shared\outbox\outbox.ts:37:  GSI6PK: string;
+src\shared\outbox\outbox.ts:38:  GSI6SK: string;
+src\shared\outbox\outbox.ts:64:    GSI6PK: "RECON#OUTBOX#PENDING",
+src\shared\outbox\outbox.ts:65:    GSI6SK: `${event.occurredAt}#${event.eventId}`,
+src\runtime\aws\handlers\reminder-reconciliation-handler.ts:46:    // GSI6 is ALL-projected - each candidate row already IS the full ReminderOccurrence
+src\runtime\aws\handlers\reminder-reconciliation-handler.ts:60:    // ReminderMaterializer (M3.5) writes a WORKSTATE#DST_PENDING GSI6 pointer whenever a
+src\shared\outbox\relay-store.ts:16:  /** Sweeper only: GSI6PK=RECON#OUTBOX#PENDING, filtered by `destination` and age. */
+src\shared\outbox\persistence\dynamodb-outbox-relay-store.ts:11:export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
+src\shared\outbox\persistence\dynamodb-outbox-relay-store.ts:41:          // Bug found by Codex implementation review: without also removing GSI6PK/GSI6SK,
+src\shared\outbox\persistence\dynamodb-outbox-relay-store.ts:46:          UpdateExpression: "SET #status = :published REMOVE leaseOwner, leaseExpiresAt, GSI6PK, GSI6SK",
+src\shared\outbox\persistence\dynamodb-outbox-relay-store.ts:64:            IndexName: "GSI6",
+src\shared\outbox\persistence\dynamodb-outbox-relay-store.ts:65:            KeyConditionExpression: "GSI6PK = :pk AND GSI6SK < :before",
+src\modules\reminder\ports\reminder-store.ts:6: * plus one addition this module needs and Expiration didn't - `queryByItem`, to list an
+src\modules\reminder\ports\reminder-store.ts:33:  queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]>;
+src\modules\reminder\ports\reconciliation-candidate-source.ts:8: * Backed by GSI6 with GLOBAL (non-tenant-prefixed) partition keys - same structural
+src\modules\reminder\ports\reconciliation-candidate-source.ts:11: * preserved in GSI6SK for context reconstruction. Exactly two IAM roles may query GSI6:
+src\modules\reminder\ports\reconciliation-candidate-source.ts:16:/** GSI6 has ALL projection (unlike GSI3's KEYS_ONLY) - a queried row already IS the full
+src\modules\reminder\ports\reconciliation-candidate-source.ts:49:  /** GSI6PK="WORKSTATE#CLAIMED" (global), GSI6SK=<claimExpiresAt>#TENANT#<tenantId>#OCCURRENCE#<occurrenceId>. */
+src\modules\reminder\ports\reconciliation-candidate-source.ts:51:  /** GSI6PK="WORKSTATE#DST_PENDING" (global), GSI6SK=<windowStart>#TENANT#<tenantId>#OCCURRENCE#<occurrenceId>. */
+src\modules\reminder\ports\reconciliation-candidate-source.ts:55:export const GSI6PK_WORKSTATE_CLAIMED = "WORKSTATE#CLAIMED";
+src\modules\reminder\ports\reconciliation-candidate-source.ts:56:export const GSI6PK_WORKSTATE_DST_PENDING = "WORKSTATE#DST_PENDING";
+src\modules\reminder\application\reminder-materializer.ts:32:import { GSI6PK_WORKSTATE_DST_PENDING, buildDstCandidateGsi6Sk } from "../ports/reconciliation-candidate-source.js";
+src\modules\reminder\application\reminder-materializer.ts:163:      // too narrow): a GSI6 WORKSTATE#DST_PENDING pointer is set whenever EITHER the
+src\modules\reminder\application\reminder-materializer.ts:173:            GSI6PK: GSI6PK_WORKSTATE_DST_PENDING,
+src\modules\reminder\application\reminder-materializer.ts:174:            GSI6SK: buildDstCandidateGsi6Sk(schedule.scheduledAtUtc, input.tenantId, occurrenceId),
+src\modules\reminder\application\reminder-materializer.ts:223:    const occurrences = await this.store.queryByItem<ReminderOccurrence>(input.tenantId, input.itemId);
+src\modules\reminder\application\reminder-materializer.ts:240:              // false trigger. Documented judgment call, see report. GSI6PK/GSI6SK (M3.5),
+src\modules\reminder\application\reminder-materializer.ts:245:              remove: ["GSI6PK", "GSI6SK"],
+src\modules\reminder\domain\reminder-occurrence.ts:37:   * SCHEDULED so GSI6 only ever contains live reconciliation work. See
+src\modules\reminder\domain\reminder-occurrence.ts:39:  GSI6PK?: string;
+src\modules\reminder\domain\reminder-occurrence.ts:40:  GSI6SK?: string;
+src\modules\identity\persistence\dynamodb-identity-store.ts:13:export class DynamoDbIdentityStore implements IdentityStore {
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:4: * principle as DynamoDbReminderProducerStore. Queries GSI6's global (non-tenant-prefixed)
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:12:  GSI6PK_WORKSTATE_CLAIMED,
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:13:  GSI6PK_WORKSTATE_DST_PENDING,
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:34:          IndexName: "GSI6",
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:35:          KeyConditionExpression: "GSI6PK = :pk AND GSI6SK < :before",
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:36:          ExpressionAttributeValues: { ":pk": GSI6PK_WORKSTATE_CLAIMED, ":before": input.before },
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:41:      // GSI6 is ALL-projected (infra/lib/dynamo-table.ts) - each row already IS the full
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:55:          IndexName: "GSI6",
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:56:          KeyConditionExpression: "GSI6PK = :pk AND GSI6SK BETWEEN :start AND :end",
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:57:          ExpressionAttributeValues: { ":pk": GSI6PK_WORKSTATE_DST_PENDING, ":start": input.window.start, ":end": input.window.end },
+src\modules\reminder\persistence\dynamodb-reconciliation-candidate-source.ts:62:      // GSI6 is ALL-projected - each row already IS the full ReminderOccurrence item.
+src\modules\reminder\persistence\dynamodb-reminder-producer-store.ts:13:export class DynamoDbReminderProducerStore implements ReminderProducerStore {
+src\modules\reminder\persistence\dynamodb-reminder-store.ts:8:export class DynamoDbReminderStore implements ReminderStore {
+src\modules\reminder\persistence\dynamodb-reminder-store.ts:61:  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]> {
+src\modules\reminder\persistence\dynamodb-reminder-store.ts:80:      throw mapDynamoError(err, "ReminderStore.queryByItem");
+src\modules\expiration\persistence\dynamodb-expiration-store.ts:13:export class DynamoDbExpirationStore implements ExpirationStore {
+
+ succeeded in 442ms:
+/**
+ * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
+ * purposes (per the task brief: "don't build two separate reconciliation paths"), both
+ * documented in Â§9.3 point 4 ("claims expirados... via reconciliaÃ§Ã£o, mesmo job da Â§9.5")
+ * and Â§9.5 itself (DST):
+ *
+ *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its
+ *      `claimExpiresAt` (dispatch worker crashed/timed out before completing) reverts to
+ *      SCHEDULED, conditionally, so the next producer tick's lookback window picks it up
+ *      again;
+ *  (b) DST-affected re-evaluation (Â§9.5 steps 1-6): for each (item, enabled policy) pair
+ *      in the reconciliation batch, recompute the expected schedule from the policy's
+ *      IANA timeZone + rule against a `[now, now+7d]` window, compare to what's actually
+ *      materialized, cancel divergent SCHEDULED occurrences and materialize missing ones
+ *      idempotently - TRIGGERED/ACKED history is never touched.
+ *
+ * Both passes reuse the same store/materializer/clock and are invoked together by
+ * `runReconciliation`, in the order claim-expiry -> DST (claim-expiry is cheaper and
+ * unblocks the producer sooner).
+ */
+import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
+import { isTransactionCanceled, type ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
+import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
+import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
+import type { ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
+import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
+
+export interface ReconciliationDeps {
+  store: ReminderStore;
+  tableName: string;
+  now: () => string;
+  shardConfig: ShardConfig;
+}
+
+/** One (item, active policy) pair the DST pass evaluates. In production this batch comes
+ * from a GSI6-style "active reminder policies" index (left as infra follow-up, see report
+ * - M3's scope per the task brief is the reconciliation MECHANISM, not that index's
+ * wiring); tests/callers supply the batch directly. */
+export interface DstReconciliationCandidate {
+  tenantId: string;
+  itemId: string;
+  itemVersion: number;
+  itemDueDate: string;
+  policy: ReminderPolicy;
+}
+
+export interface ReconciliationResult {
+  claimsReverted: number;
+  dstCancelled: number;
+  dstCreated: number;
+  dstDivergences: number;
+}
+
+/** Pass (a): any CLAIMED occurrence whose claimExpiresAt is in the past reverts to SCHEDULED. */
+export async function reconcileExpiredClaims(
+  deps: ReconciliationDeps,
+  candidateOccurrences: ReminderOccurrence[],
+): Promise<number> {
+  let reverted = 0;
+  const now = deps.now();
+  for (const occurrence of candidateOccurrences) {
+    if (occurrence.status !== "CLAIMED") continue;
+    if (!occurrence.claimExpiresAt || occurrence.claimExpiresAt > now) continue;
+    try {
+      await deps.store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: deps.tableName,
+            key: { PK: occurrence.PK, SK: occurrence.SK },
+            tenantId: occurrence.tenantId,
+            expectedVersion: occurrence.version,
+            set: { status: "SCHEDULED" },
+            // M3.5: this claim is resolved (reverted) - its WORKSTATE#CLAIMED GSI6 pointer
+            // must go too, or the next reconciliation pass would find it again forever.
+            remove: ["GSI6PK", "GSI6SK"],
+          }),
+        },
+      ]);
+      reverted += 1;
+    } catch (err) {
+      if (!isTransactionCanceled(err)) throw err;
+    }
+  }
+  return reverted;
+}
+
+/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (Â§9.5 steps 1-6). */
+export async function reconcileDst(
+  deps: ReconciliationDeps,
+  candidates: DstReconciliationCandidate[],
+): Promise<{ cancelled: number; created: number; divergences: number }> {
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const windowStart = Date.parse(deps.now());
+  const windowEnd = windowStart + 7 * 24 * 60 * 60_000;
+
+  let cancelled = 0;
+  let created = 0;
+  let divergences = 0;
+
+  for (const candidate of candidates) {
+    if (!candidate.policy.enabled) continue;
+
+    const existing = await deps.store.queryByItem<ReminderOccurrence>(candidate.tenantId, candidate.itemId);
+    const liveExisting = existing.filter(
+      (o) =>
+        o.policyId === candidate.policy.policyId &&
+        o.itemVersion === candidate.itemVersion &&
+        o.policyVersion === candidate.policy.version &&
+        (o.status === "SCHEDULED" || o.status === "CLAIMED"),
+    );
+
+    // Expected schedule per trigger, recomputed fresh from the IANA rule (never a frozen offset).
+    const expectedByTrigger = new Map<string, { scheduledAtUtc: string }>();
+    for (const trigger of candidate.policy.triggers) {
+      const schedule = materializer.computeSchedule({
+        itemDueDate: candidate.itemDueDate,
+        offsetIso: trigger.offsetIso,
+        localTime: trigger.localTime,
+        timeZone: candidate.policy.timeZone,
+        quietHours: candidate.policy.quietHours,
+      });
+      const t = Date.parse(schedule.scheduledAtUtc);
+      if (t < windowStart || t > windowEnd) continue; // out of the 7-day reconciliation window
+      expectedByTrigger.set(trigger.triggerId, { scheduledAtUtc: schedule.scheduledAtUtc });
+    }
+
+    // Cancel occurrences whose triggerId is no longer expected, or whose scheduledAt now
+    // diverges from a fresh DST-aware recomputation (history TRIGGERED/ACKED untouched -
+    // liveExisting already excludes those statuses).
+    for (const occurrence of liveExisting) {
+      const expected = expectedByTrigger.get(occurrence.triggerId);
+      const diverges = !expected || expected.scheduledAtUtc !== occurrence.scheduledAt;
+      if (!diverges) {
+        // M3.5 (bug found by Codex implementation review round 1 - the original code left
+        // WORKSTATE#DST_PENDING pointers in place forever whenever recomputation confirmed
+        // the schedule was still correct). Round 2 found a race in THIS fix: `liveExisting`
+        // includes CLAIMED occurrences too, and the producer can claim (status->CLAIMED,
+        // GSI6PK->WORKSTATE#CLAIMED, version+1) in the window between GSI6 discovering this
+        // occurrence as a DST candidate and this loop running - `queryByItem` above would
+        // then read the ALREADY-CLAIMED row. The trigger recomputation still "confirms" (the
+        // schedule itself didn't change), so without this guard the code would strip the
+        // CLAIMED pointer via a version-matching OCC update, since the read and the write use
+        // the same fresh version - OCC alone does NOT catch this, only a status/GSI6PK guard
+        // does. Only ever touch a SCHEDULED occurrence that still actually carries the DST
+        // pointer - never CLAIMED (that pointer belongs to the producer/dispatch lifecycle).
+        if (occurrence.status === "SCHEDULED" && occurrence.GSI6PK === "WORKSTATE#DST_PENDING") {
+          try {
+            await deps.store.transactWrite([
+              {
+                Update: buildVersionedUpdate({
+                  tableName: deps.tableName,
+                  key: { PK: occurrence.PK, SK: occurrence.SK },
+                  tenantId: candidate.tenantId,
+                  expectedVersion: occurrence.version,
+                  set: {},
+                  remove: ["GSI6PK", "GSI6SK"],
+                }),
+              },
+            ]);
+          } catch (err) {
+            if (!isTransactionCanceled(err)) throw err; // lost a race - fine, not our job to force it
+          }
+        }
+        continue;
+      }
+      divergences += 1;
+      try {
+        await deps.store.transactWrite([
+          {
+            Update: buildVersionedUpdate({
+              tableName: deps.tableName,
+              key: { PK: occurrence.PK, SK: occurrence.SK },
+              tenantId: candidate.tenantId,
+              expectedVersion: occurrence.version,
+              set: { status: "CANCELLED" },
+              remove: ["GSI6PK", "GSI6SK"],
+            }),
+          },
+        ]);
+        cancelled += 1;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+      }
+    }
+
+    // Materialize any expected trigger missing a live (SCHEDULED/CLAIMED) occurrence -
+    // materialize() itself is idempotent (putIfAbsent keyed by the deterministic
+    // occurrenceId hash), so re-running it for triggers that already matched is a safe no-op.
+    const stillMissing = candidate.policy.triggers.some((t) => {
+      const expected = expectedByTrigger.get(t.triggerId);
+      if (!expected) return false;
+      return !liveExisting.some((o) => o.triggerId === t.triggerId && o.scheduledAt === expected.scheduledAtUtc);
+    });
+    if (stillMissing) {
+      const result = await materializer.materialize({
+        tenantId: candidate.tenantId,
+        itemId: candidate.itemId,
+        itemVersion: candidate.itemVersion,
+        itemDueDate: candidate.itemDueDate,
+        policy: candidate.policy,
+        shardConfig: deps.shardConfig,
+      });
+      created += result.created.length;
+    }
+  }
+
+  return { cancelled, created, divergences };
+}
+
+export async function runReconciliation(
+  deps: ReconciliationDeps,
+  input: { expiredClaimCandidates: ReminderOccurrence[]; dstCandidates: DstReconciliationCandidate[] },
+): Promise<ReconciliationResult> {
+  const claimsReverted = await reconcileExpiredClaims(deps, input.expiredClaimCandidates);
+  const dst = await reconcileDst(deps, input.dstCandidates);
+  return { claimsReverted, dstCancelled: dst.cancelled, dstCreated: dst.created, dstDivergences: dst.divergences };
+}
+
+codex
+Nota final: **9,3/10 — aprovada para as Camadas 2/3.**
+
+- **P1 fechado:** o caminho de limpeza agora exige simultaneamente `SCHEDULED` e `WORKSTATE#DST_PENDING`. Uma ocorrência `CLAIMED` permanece intacta; OCC protege mudanças posteriores à leitura.
+- **P2 fechado:** a amostragem mensal cobre o falso negativo de `Africa/Casablanca` e os testes abrangem zonas com DST, sem DST e UTC.
+- Não identifiquei regressão nova relevante no diff.
+
+O teste de concorrência representa corretamente o cenário: o candidato já foi descoberto externamente, o claim acontece antes da leitura autoritativa de `reconcileDst`, e o ponteiro `CLAIMED` sobrevive.
+tokens used
+20.607
+Nota final: **9,3/10 — aprovada para as Camadas 2/3.**
+
+- **P1 fechado:** o caminho de limpeza agora exige simultaneamente `SCHEDULED` e `WORKSTATE#DST_PENDING`. Uma ocorrência `CLAIMED` permanece intacta; OCC protege mudanças posteriores à leitura.
+- **P2 fechado:** a amostragem mensal cobre o falso negativo de `Africa/Casablanca` e os testes abrangem zonas com DST, sem DST e UTC.
+- Não identifiquei regressão nova relevante no diff.
+
+O teste de concorrência representa corretamente o cenário: o candidato já foi descoberto externamente, o claim acontece antes da leitura autoritativa de `reconcileDst`, e o ponteiro `CLAIMED` sobrevive.

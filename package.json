@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:dynamodb": "vitest run --config vitest.dynamodb.config.ts",
     "validate-schemas": "tsx scripts/validate-schemas.ts"
   },
   "devDependencies": {
