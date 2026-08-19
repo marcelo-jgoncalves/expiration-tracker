@@ -1,5 +1,23 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+
+Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEERING.md` na raiz para o relatório completo). Veredito: `ENGINEERING FOUNDATION STATUS: NOT APPROVED`, bloqueador único e conhecido: **G8 (recuperação real de falha assíncrona)**.
+
+**Decisão do usuário (2026-08-19)**: tratar o fechamento pleno de G8 como **novo milestone dedicado** (mesma disciplina de M0-M3: pesquisa/design → implementação → teste real → revisão Claude+Codex), não como remediação de sessão. Escopo desse milestone, per `ENGINEERING.md` (seção "Decisão pendente: escopo de G8"):
+
+- Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
+- Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
+- EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
+- Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
+
+Antes de começar esse milestone: ler `docs/engineering/reviews/checkpoint-12-redteam/summary.md` (red team formal já identificou 5 P1 relacionados: pipeline sem recuperação, idempotência não provada no limite do efeito externo, false-green CI, concorrência/estado obsoleto entre renew/cancel/materialização/dispatch/reconciliation, blast radius cross-tenant do GSI3 via workers privilegiados) — usar como input de design, não redescobrir do zero.
+
+Trabalho já feito nesta sessão de engenharia (não repetir): CI real corrigido e confirmado verde em 5 execuções; branch `develop` estabelecida como padrão de trabalho (`AGENTS.md` §3), `main` protegida; `dependency-cruiser` como enforcement real de boundary (achou e corrigiu 2 violações genuínas de arquitetura); testes de `reconciliation.ts`/`producer.ts` que não existiam; tentativa de fechar a vulnerabilidade de devDependency (EX-001) via upgrade do Vitest foi revertida por quebrar CI real (bug upstream do npm, não repetir sem verificar correção).
+
+---
+
 **Correção de 2026-08-19 (Engineering Maturity Review, Checkpoint 2-9)**: as seções abaixo (escritas ao longo das sessões de M0-M3) afirmam "nada foi commitado" e citam contagens de teste por marco que, somadas, não batem com a realidade medida agora. Estado real verificado por execução: M0-M3 **já está commitado** num único commit (`154d6e0`), e `npm test` roda **123 testes** no total (19 arquivos), não a soma das contagens individuais citadas abaixo. As seções não foram reescritas (preservadas como histórico de sessão), mas não devem ser lidas como estado de commit/contagem de teste vigente — confiar em `git log`/`npm test` reais, não nesses números. Ver `docs/engineering/03-repository-baseline.md` e `docs/engineering/reviews/checkpoint-02-09-consolidated/` para a análise completa desta divergência.
 
 Projeto: micro-SaaS de controle de vencimentos/renovações. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
@@ -43,7 +61,9 @@ Todas as entregas implementadas e testadas (123 testes, `npm test`/`typecheck`/`
 
 Judgment calls (blueprint silente): (1) `occurrenceId` derivado deterministicamente (hash da chave de idempotência de data-model.md §4) em vez de UUID + registro `IdempotencyStore` separado — o próprio `putIfAbsent` condicional já garante a idempotência de materialização, mesmo padrão que data-model.md documenta para `WebhookInbox`; (2) cancelamento de ocorrência stale não remove `GSI3PK`/`GSI3SK` (o builder de `occ.ts` é SET-only, sem REMOVE) — deixa um ponteiro órfão no índice, mas o `Query` condicional `SCHEDULED→CLAIMED` do producer falha sobre ele de forma inofensiva; (3) tolerância de dispatch (`toleranceMs`, default 30min) e TTL de claim (default 2min) não estão fixados no blueprint — valores razoáveis documentados no código, revisar contra dados reais de produção; (4) reconciliação DST/claim-expiry recebe os candidatos como parâmetro (batch) em vez de fazer sua própria varredura via GSI6 — a wiring desse índice de "políticas ativas"/"claims expirados" real fica como follow-up de infra, o mecanismo de reconciliação em si (o que a tarefa pediu) está implementado e testado; (5) Lambda handlers reais (bundling com `@aws-sdk`) não foram escritos — mesmo estágio que M0-M2, CDK usa código inline placeholder via `ScopedLambdaFunction`; a lógica testável é o entregável real desta fase, igual às anteriores.
 
-## Próxima ação obrigatória
+## Próxima ação obrigatória (histórico — superada pela seção do topo)
+
+**Superada em 2026-08-19**: a Engineering Maturity Review identificou G8 (recuperação real de falha assíncrona) como bloqueador de engenharia — o milestone de runtime real (adapters/handlers/filas/EventBridge, ver seção do topo) é pré-requisito antes de M4 fazer sentido operacionalmente, ainda que M4 não dependa dele estruturalmente. Lista original preservada abaixo como histórico, não como próxima ação vigente.
 
 1. **M4 — Notification Engine** (`implementation-blueprint.md` §19, depende de M3 ✅): router de `NotificationIntent`→canal, delivery workers (email/WhatsApp stub-first), `NotificationAttempt`, resolução de destinatário/template.
 2. Decidir e fechar os itens abaixo (BFF de sessão como rotas reais, CSP/CloudFront quando o frontend existir) antes de considerar a lacuna de "session theft" do threat model totalmente fechada — ainda não resolvido, re-flagueado a cada sessão desde M1 para não se perder: M1 fechou o mecanismo de revogação/matriz de autorização, não o endpoint BFF completo; M2/M3 não tinham escopo de frontend/sessão (confirmado no blueprint) então também não o resolveram.
