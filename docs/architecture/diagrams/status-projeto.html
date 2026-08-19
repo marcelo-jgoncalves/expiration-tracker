@@ -172,13 +172,13 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · Fase 3 em andamento</p>
-  <h1>Fundação aprovada, arquitetura AWS em rodada de consenso e nota</h1>
-  <p class="lede">Requisitos (Fase 1) e capacity model (Fase 2) já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos. A Fase 3 já tem uma arquitetura AWS conceitual consolidada — Lambda, DynamoDB on-demand, S3, SQS, EventBridge, Cognito — construída por propostas independentes, crítica cruzada e tréplica, mas ainda não atingiu nota ≥9.0 de ambos: a primeira avaliação expôs um problema real no processo (a rubrica de nota exigia evidência de implementação, impossível antes da arquitetura ser aprovada) e foi corrigida com duas rubricas formais. Rodadas de fechamento de ADRs e reavaliação continuam.</p>
+  <p class="eyebrow">Controle de Vencimentos · Fase 3 aprovada (Design Maturity)</p>
+  <h1>Arquitetura AWS conceitual aprovada — Red Team e implementação são os próximos portões</h1>
+  <p class="lede">Requisitos (Fase 1), capacity model (Fase 2) e arquitetura AWS conceitual (Fase 3) já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos em todas. A Fase 3 levou 5 rodadas: propostas independentes, crítica cruzada, tréplica, fechamento de 7 ADRs materialmente relevantes e uma correção metodológica real no meio do caminho — a primeira rubrica de nota exigia evidência de implementação, impossível antes da arquitetura ser aprovada, e foi corrigida com duas rubricas formais (Design Maturity para checkpoints conceituais, Operational Evidence para o gate final pós-implementação).</p>
 
   <div class="callout">
     <span class="dot" aria-hidden="true"></span>
-    <p><strong>Serviços AWS já propostos (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock + CDK. Todas as decisões têm justificativa rastreada a requisitos e ao capacity model, com trade-offs e alternativas rejeitadas registrados — nada foi escolhido "porque é óbvio".</p>
+    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. Claude 9.10 / Codex 9.04, sem arredondamento. Todas as decisões têm justificativa rastreada a requisitos e ao capacity model, com trade-offs e alternativas rejeitadas registrados — nada foi escolhido "porque é óbvio".</p>
   </div>
 
   <section>
@@ -289,18 +289,20 @@ footer code{
             <rect x="700" y="148" width="90" height="24" rx="12" fill="var(--done-bg)"/>
             <text x="745" y="164" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Fase 3 in progress -->
-            <circle cx="80" cy="240" r="9" fill="var(--next)"/>
-            <text x="104" y="226" fill="currentColor" font-weight="600" font-size="13">Fase 3 — Propostas arquiteturais independentes</text>
-            <text x="104" y="243" fill="var(--ink-dim)" font-size="11">Lambda · DynamoDB · S3 · SQS · EventBridge · Cognito propostos</text>
-            <text x="104" y="258" fill="var(--ink-dim)" font-size="11">4 rodadas: convergência → crítica cruzada → tréplica → ADRs fechados</text>
-            <rect x="700" y="222" width="90" height="24" rx="12" fill="var(--next-bg)"/>
-            <text x="745" y="238" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">EM ROD.</text>
+            <!-- Fase 3 done -->
+            <circle cx="80" cy="240" r="9" fill="var(--done)"/>
+            <text x="104" y="226" fill="currentColor" font-weight="600" font-size="13">Fase 3 — Arquitetura AWS conceitual</text>
+            <text x="104" y="243" fill="var(--ink-dim)" font-size="11">Lambda · DynamoDB · S3 · SQS · EventBridge · Cognito aprovados</text>
+            <text x="104" y="258" fill="var(--ink-dim)" font-size="11">Claude 9.10 · Codex 9.04 · 5 rodadas, incluindo correção metodológica</text>
+            <rect x="700" y="222" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="238" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Red team -->
-            <circle cx="80" cy="336" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="326" fill="var(--ink-dim)" font-size="13">Architecture Red Team</text>
+            <!-- Red team next -->
+            <circle cx="80" cy="336" r="9" fill="var(--next)"/>
+            <text x="104" y="326" fill="currentColor" font-weight="600" font-size="13">Architecture Red Team</text>
             <text x="104" y="343" fill="var(--ink-dim)" font-size="11">20 cenários de falha (WhatsApp fora do ar, PDF malicioso, 1M lembretes juntos...)</text>
+            <rect x="700" y="316" width="90" height="24" rx="12" fill="var(--next-bg)"/>
+            <text x="745" y="332" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
 
             <!-- Implementation blueprint -->
             <circle cx="80" cy="392" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
@@ -324,6 +326,6 @@ footer code{
   </section>
 
   <footer>
-    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>controle-vencimentos/</code>. Serviços AWS já propostos (Fase 3), mas arquitetura ainda não aprovada — nota final pendente.
+    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. Fase 3 (arquitetura conceitual AWS) aprovada em nível de Design Maturity (Claude 9.10 / Codex 9.04) — Architecture Red Team e implementação ainda pendentes.
   </footer>
 </div>
