@@ -12,6 +12,7 @@ Registro vivo de decisões, mantido atualizado a cada rodada relevante (conforme
 | D-005 | Architecture Red Team (20 cenários, seção 58) — 6 lacunas críticas fechadas + 2 refinamentos | Processo | 9.13 | 9.20 | **APPROVED** | `red-team-claude-round1.md`, `red-team-codex-round1.md`, `architecture-fase3-consolidada.md` §Rodada 6 | 2026-08-19 |
 | D-006 | Domain Model + Data Model (seção 25) — 13 entidades, DynamoDB single-table, GSIs, idempotência, OCC | Type 1 | ~9.05 | 9.10 | **APPROVED** | `data-model.md` | 2026-08-19 |
 | D-007 | SLOs (seção 39) — metas por estágio, fecha UNK-CAP-006 (drenagem em 5min) | Processo | ~9.08 | 9.001 | **APPROVED** | `slo.md` | 2026-08-19 |
+| D-008 | Disaster Recovery (seção 43) — RPO/RTO por componente, teste de restore, runbook de credencial, reparo seletivo, retentionClass | Type 1 | ~9.10 | 9.10 | **APPROVED** | `disaster-recovery.md` | 2026-08-19 |
 | D-010 | Compute — Lambda + monólito modular | Type 2 | 9.13 | 9.20 | **APPROVED** (Design Maturity, pós-Red-Team R6) | `architecture-fase3-consolidada.md` §1 | 2026-08-19 |
 | D-011 | API — API Gateway HTTP API + quota por tenant via DynamoDB token bucket | Type 2 | 9.13 | 9.20 | **APPROVED** (Design Maturity, pós-Red-Team R6) | `architecture-fase3-consolidada.md` §2 | 2026-08-19 |
 | D-012 | Frontend — S3 + CloudFront | Type 2 | 9.13 | 9.20 | **APPROVED** (Design Maturity, pós-Red-Team R6) | `architecture-fase3-consolidada.md` §3 | 2026-08-19 |
