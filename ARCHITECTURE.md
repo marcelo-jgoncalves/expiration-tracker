@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Expiration Tracker
 
-Documento final consolidado conforme seção 61 do prompt mestre (`docs/00-prompt-mestre.md`). Produzido ao final de um processo Claude↔Codex de proposta → crítica → tréplica → nota independente às cegas, repetido em 14 entregáveis, todos aprovados com nota ≥9.0 de ambos os "engenheiros" (Design Maturity Score, rubrica A — ver seção "Status Final" abaixo para o que isso significa e o que ainda falta).
+Documento final consolidado conforme seção 61 do prompt mestre (`docs/00-prompt-mestre.md`). Produzido ao final de um processo Claude↔Codex de proposta → crítica → tréplica → nota independente às cegas, repetido em 16 entregáveis (14 originais + Threat Model + Implementation Blueprint), todos aprovados com nota ≥9.0 de ambos os "engenheiros" (Design Maturity Score, rubrica A — ver seção "Status Final" abaixo para o que isso significa e o que ainda falta).
 
 ## Executive Summary
 Expiration Tracker é um micro-SaaS de controle de vencimentos, renovações e obrigações recorrentes ("Cadastre o que não pode vencer. Nós lembramos você."), voltado a pessoas físicas, autônomos, MEIs e pequenas empresas. A arquitetura é serverless-first na AWS: Lambda em monólito modular, DynamoDB on-demand single-table, S3 com quarentena de documentos, notificações por e-mail/Telegram/WhatsApp desacopladas por adapter, extração de dados por IA/OCR com confirmação humana obrigatória em baixa confiança. Toda decisão foi debatida independentemente por dois "engenheiros" (Claude e Codex), com pelo menos uma rodada de crítica real e correção em praticamente todo entregável.
@@ -99,23 +99,24 @@ Ver `docs/architecture/decisions-log.md` — 26 decisões registradas (D-000 a D
 | Privacy/LGPD | ~9.15 | 9.10 | 1 |
 | Cost Model | ~9.15 | 9.20 | 2 |
 | MCP/Evolution/WAR | ~9.25 | 9.30 | 2 |
+| Threat Model (seção 33) | ~9.05 | 9.00 (exato 9.002) | 2 |
+| Implementation Blueprint (seção 60) | 9.20 | 9.2 (exato) | 8 |
 
-**Todos os 10 checkpoints efetivamente pontuados ≥9.0 de ambos, sem exceção, sem arredondamento** (Quality Criteria e Fitness Function, na Fase 0, foram aprovados por consenso de conteúdo em 3 rodadas sem nota numérica formal — não fazem parte da contagem acima).
+**Todos os 12 checkpoints efetivamente pontuados ≥9.0 de ambos, sem exceção, sem arredondamento** (Quality Criteria e Fitness Function, na Fase 0, foram aprovados por consenso de conteúdo em 3 rodadas sem nota numérica formal — não fazem parte da contagem acima).
 
 ## Status Final
 
 ```text
-DESIGN MATURITY STATUS: APPROVED
+DESIGN MATURITY STATUS: APPROVED (arquitetura conceitual + Implementation Blueprint)
 ARCHITECTURE STATUS: NOT APPROVED
 ```
 
-Todos os 10 checkpoints de conteúdo pontuados (Fases 1-3, Red Team, Data Model, SLOs, DR, LGPD, Cost Model, MCP/Evolution/WAR) atingiram nota ≥9.0 de Claude e Codex independentemente, sem arredondamento, sob a rubrica (A) Design Maturity Score (`requirements.md` §13.1) — desenho coerente, rastreável a requisitos, com trade-offs e alternativas explicitados, ADRs materialmente relevantes fechados, Architecture Red Team executado.
+Todos os 12 checkpoints de conteúdo pontuados (Fases 1-3, Red Team, Data Model, SLOs, DR, LGPD, Cost Model, MCP/Evolution/WAR, Threat Model, Implementation Blueprint) atingiram nota ≥9.0 de Claude e Codex independentemente, sem arredondamento, sob a rubrica (A) Design Maturity Score (`requirements.md` §13.1) — desenho coerente, rastreável a requisitos, com trade-offs e alternativas explicitados, ADRs materialmente relevantes fechados, Architecture Red Team executado, e — agora com o Implementation Blueprint — componentes/interfaces/eventos/ordem de deploy especificados a nível executável.
 
-A seção 62 do prompt mestre só admite dois valores para `ARCHITECTURE STATUS`: `APPROVED` ou `NOT APPROVED` — não existe um terceiro estado "pendente". `requirements.md` §13.1 é explícito: evidência indisponível **não recebe nota neutra**, equivale a nota insuficiente. Como a rubrica (B) — Operational Evidence, que exige sistema **construído e testado sob falha/carga** — nunca foi avaliada (nada foi implementado; o Implementation Blueprint, seção 60, só começa *depois* desta aprovação de Design Maturity), o valor correto e formalmente exigido é `NOT APPROVED`, não um valor alternativo que abrandasse essa regra. Isso não é uma reprovação de mérito — é o estado normativo correto de um sistema ainda não construído, e a distinção entre os dois status acima é o que preserva o rigor do processo em vez de escapar dele.
+A seção 62 do prompt mestre só admite dois valores para `ARCHITECTURE STATUS`: `APPROVED` ou `NOT APPROVED` — não existe um terceiro estado "pendente". `requirements.md` §13.1 é explícito: evidência indisponível **não recebe nota neutra**, equivale a nota insuficiente. Como a rubrica (B) — Operational Evidence, que exige sistema **construído e testado sob falha/carga** — nunca foi avaliada (nada foi implementado; o Implementation Blueprint, seção 60, já está aprovado, mas é design detalhado, não implementação), o valor correto e formalmente exigido continua `NOT APPROVED`. Isso não é uma reprovação de mérito — é o estado normativo correto de um sistema ainda não construído, e a distinção entre os dois status acima é o que preserva o rigor do processo em vez de escapar dele.
 
 ### Próximos passos (fora do escopo deste documento)
-1. Implementation Blueprint (seção 60) — componentes, interfaces, eventos, schemas, ordem de deploy.
-2. Implementação real seguindo as decisões aqui consolidadas.
-3. Threat model formal (risco Alta, `aws-well-architected-review.md`).
-4. Testes de carga real, teste de restore real, exercício de runbook de credencial comprometida.
-5. Reavaliação sob rubrica (B) — só então a seção 62 pode ser respondida.
+1. Ratificar formalmente em `data-model.md` a exceção do GSI3 (chave global do scheduler) decidida em `implementation-blueprint.md` §9.2.
+2. Implementação real seguindo as decisões consolidadas em `decisions-log.md` e a sequência de milestones M0-M7 de `implementation-blueprint.md`.
+3. Testes de carga real, teste de restore real, exercício de runbook de credencial comprometida.
+4. Reavaliação sob rubrica (B) — só então a seção 62 pode ser respondida como `APPROVED`.

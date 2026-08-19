@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/webhook-inbox.v1.json",
+  "title": "WebhookInbox v1",
+  "description": "Persisted shape for provider webhook callbacks (implementation-blueprint.md #11.1, data-model.md). PK+SK is the idempotency key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entityType",
+    "provider",
+    "providerAccountId",
+    "providerEventId",
+    "eventKind",
+    "signatureVerified",
+    "signatureTimestamp",
+    "nonceHash",
+    "receivedAt",
+    "normalizedPayload",
+    "processingStatus",
+    "version"
+  ],
+  "properties": {
+    "entityType": { "const": "WebhookInbox" },
+    "provider": { "type": "string", "minLength": 1 },
+    "providerAccountId": { "type": "string", "minLength": 1 },
+    "providerEventId": { "type": "string", "minLength": 1 },
+    "eventKind": { "type": "string", "minLength": 1 },
+    "signatureVerified": { "const": true },
+    "signatureTimestamp": { "type": "string", "format": "date-time" },
+    "nonceHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "receivedAt": { "type": "string", "format": "date-time" },
+    "payloadObjectKey": { "type": ["string", "null"] },
+    "normalizedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerMessageId", "status", "occurredAt", "failureCode"],
+      "properties": {
+        "providerMessageId": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "minLength": 1 },
+        "occurredAt": { "type": "string", "format": "date-time" },
+        "failureCode": { "type": ["string", "null"] }
+      }
+    },
+    "processingStatus": { "enum": ["PENDING", "PROCESSED", "FAILED"] },
+    "version": { "type": "integer", "minimum": 1 }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/domain-event-envelope.v1.json",
+  "title": "DomainEventEnvelope v1",
+  "description": "Common envelope for all EventBridge domain events (implementation-blueprint.md #6.1). Payload-specific schemas extend this by constraining `data` and pinning `eventType`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specVersion",
+    "eventId",
+    "eventType",
+    "source",
+    "occurredAt",
+    "correlationId",
+    "tenantId",
+    "actor",
+    "aggregate",
+    "data"
+  ],
+  "properties": {
+    "specVersion": { "const": "1.0" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": {
+      "type": "string",
+      "pattern": "^[a-z-]+\\.[a-z-]+\\.v[0-9]+$"
+    },
+    "source": { "type": "string", "minLength": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "minLength": 1 },
+    "causationId": { "type": "string" },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["USER", "SYSTEM"] },
+        "userId": { "type": "string" }
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "version"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "data": { "type": "object" }
+  }
+}

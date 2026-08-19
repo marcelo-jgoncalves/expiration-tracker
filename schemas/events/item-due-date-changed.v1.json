@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/item-due-date-changed.v1.json",
+  "title": "expiration.item-due-date-changed.v1",
+  "description": "Critical domain event published via the transactional outbox (implementation-blueprint.md #5.3, #8.3) when an ExpirationItem due date changes.",
+  "allOf": [{ "$ref": "../events/domain-event-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "eventType": { "const": "expiration.item-due-date-changed.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "previousDueDate", "newDueDate", "itemVersion"],
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1 },
+        "previousDueDate": { "type": ["string", "null"], "format": "date-time" },
+        "newDueDate": { "type": "string", "format": "date-time" },
+        "itemVersion": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

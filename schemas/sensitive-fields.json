@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/sensitive-fields.json",
+  "description": "Central denylist consumed by src/shared/observability/redactor.ts (implementation-blueprint.md #14.1, threat-model.md redactor central gap). Field names are matched case-insensitively against object keys at any nesting depth.",
+  "version": 1,
+  "redactedFieldNames": [
+    "password",
+    "token",
+    "accessToken",
+    "refreshToken",
+    "idToken",
+    "authorization",
+    "cookie",
+    "setCookie",
+    "sessionId",
+    "cognitoSubject",
+    "signature",
+    "hmac",
+    "secret",
+    "apiKey",
+    "clientSecret",
+    "email",
+    "emailAddress",
+    "phone",
+    "phoneNumber",
+    "whatsappNumber",
+    "fileName",
+    "filename",
+    "documentContent",
+    "ocrText",
+    "extractedText",
+    "prompt",
+    "llmPrompt",
+    "llmResponse",
+    "rawBody",
+    "rawPayload",
+    "webhookBody",
+    "address",
+    "cpf",
+    "cnpj",
+    "cardNumber",
+    "authorizationHeader"
+  ],
+  "redactedValuePatterns": [
+    {
+      "name": "bearerToken",
+      "pattern": "Bearer\\s+[A-Za-z0-9\\-_.]+",
+      "description": "Authorization header values that leak into free-text fields (e.g. sanitized SDK error messages)."
+    },
+    {
+      "name": "email",
+      "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+      "description": "Catches emails embedded in unstructured strings, e.g. provider SDK exception messages."
+    },
+    {
+      "name": "inlineKeyValueSecret",
+      "pattern": "(token|password|secret|apikey|api_key|authorization)\\s*[:=]\\s*[^\\s,;]+",
+      "description": "Catches key=value / key: value secrets embedded in free-text exception messages (e.g. \"token=abc123 rejected\")."
+    }
+  ],
+  "limits": {
+    "maxDepth": 6,
+    "maxStringLength": 2048,
+    "maxArrayLength": 50,
+    "maxObjectKeys": 100
+  },
+  "redactedValuePlaceholder": "[REDACTED]"
+}

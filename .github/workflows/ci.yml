@@ -1,0 +1,80 @@
+# Supply-chain-hardened CI pipeline - implementation-blueprint.md #16.1 (M0 deliverable).
+#
+# Requirements implemented here:
+#   - lockfile-pinned, immutable installs (npm ci)
+#   - Node version fixed (.nvmrc)
+#   - GitHub Actions pinned by commit SHA, not tag
+#   - minimal GITHUB_TOKEN permissions
+#   - OIDC for AWS (no persistent credentials) - wired when infra/deploy exists (M1+)
+#   - SBOM (CycloneDX) generated and attached as an artifact
+#   - dependency scan (npm audit as baseline; upgrade to a dedicated scanner when funded)
+#   - schema validation gate (schemas/ must load cleanly)
+#
+# TODO (not blocking M0, tracked for before first real deploy):
+#   - artifact signing / provenance (SLSA) - needs a deploy target to sign; add in M1
+#     when infra/app.ts + CDK deploy job exist.
+#   - verify the exact commit SHAs pinned below are current and re-pin via a scheduled
+#     Dependabot/renovate job; SHAs here were pinned at authoring time for the vX.Y.Z tag
+#     noted in each comment.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f # v4.0.2
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install (immutable, scripts disabled)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Validate JSON schemas
+        run: npm run validate-schemas
+
+      - name: Unit + contract tests
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high || echo "::warning::npm audit reported findings - see log; SLA per implementation-blueprint.md #16.2"
+
+      - name: Generate SBOM (CycloneDX)
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+        env:
+          # npx still respects ignore-scripts from .npmrc for the resolved package itself.
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 90

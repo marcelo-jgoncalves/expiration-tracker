@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/command-envelope.v1.json",
+  "title": "SqsCommandEnvelope v1",
+  "description": "Common envelope for all SQS command messages (implementation-blueprint.md #6.2). SQS Standard may duplicate/reorder; consumers must validate schema, register idempotency before external effects, and classify failures as retryable vs terminal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "messageVersion",
+    "messageId",
+    "commandType",
+    "createdAt",
+    "correlationId",
+    "tenantId",
+    "deduplicationKey",
+    "data"
+  ],
+  "properties": {
+    "messageVersion": { "const": 1 },
+    "messageId": { "type": "string", "minLength": 1 },
+    "commandType": {
+      "type": "string",
+      "pattern": "^[a-z-]+\\.[a-z-]+\\.v[0-9]+$"
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "minLength": 1 },
+    "causationId": { "type": "string" },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "deduplicationKey": { "type": "string", "minLength": 1 },
+    "data": { "type": "object" }
+  }
+}

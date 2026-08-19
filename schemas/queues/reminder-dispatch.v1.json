@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/reminder-dispatch.v1.json",
+  "title": "reminder.dispatch.v1",
+  "description": "SQS command emitted by ReminderProducer (implementation-blueprint.md #9.3) after the SCHEDULED->CLAIMED transition, consumed by the ReminderDispatch worker (#9.4).",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "reminder.dispatch.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "occurrenceId", "occurrenceVersion", "scheduledAt", "itemVersion", "policyVersion"],
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1 },
+        "occurrenceId": { "type": "string", "minLength": 1 },
+        "occurrenceVersion": { "type": "integer", "minimum": 1 },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "itemVersion": { "type": "integer", "minimum": 1 },
+        "policyVersion": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

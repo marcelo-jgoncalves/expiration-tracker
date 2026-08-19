@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/notification-intent-created.v1.json",
+  "title": "notification.intent-created.v1",
+  "description": "Domain event data payload for NotificationIntent creation (implementation-blueprint.md #10.1). Never carries email/phone/rendered content - only business references.",
+  "allOf": [{ "$ref": "../events/domain-event-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "eventType": { "const": "notification.intent-created.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intentId",
+        "kind",
+        "itemId",
+        "occurrenceId",
+        "itemVersion",
+        "policyId",
+        "policyVersion",
+        "scheduledAt",
+        "requestedChannels",
+        "status",
+        "supersedesIntentId",
+        "correctionReason"
+      ],
+      "properties": {
+        "intentId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["EXPIRATION_REMINDER", "CORRECTIVE"] },
+        "itemId": { "type": "string", "minLength": 1 },
+        "occurrenceId": { "type": "string", "minLength": 1 },
+        "itemVersion": { "type": "integer", "minimum": 1 },
+        "policyId": { "type": "string", "minLength": 1 },
+        "policyVersion": { "type": "integer", "minimum": 1 },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "requestedChannels": {
+          "type": "array",
+          "items": { "enum": ["EMAIL", "WHATSAPP"] },
+          "minItems": 1
+        },
+        "status": { "enum": ["PENDING", "CANCELLED", "CORRECTIVE"] },
+        "supersedesIntentId": { "type": ["string", "null"] },
+        "correctionReason": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 <title>Controle de Vencimentos — Estado da Arquitetura</title>
-<meta name="description" content="Onde o projeto está no processo Claude↔Codex: Fases 0–2 aprovadas, Fase 3 (arquitetura AWS) em rodada de consenso e nota." />
+<meta name="description" content="Onde o projeto está no processo Claude↔Codex: Design Maturity aprovado por completo (14 documentos + Threat Model + Implementation Blueprint), M0 implementado, M1 é a próxima ação." />
 <style>
 :root{
   --bg:#f5f4f0;
@@ -172,13 +172,13 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · DESIGN MATURITY: APPROVED</p>
-  <h1>Arquitetura conceitual completa e aprovada — ARCHITECTURE.md publicado</h1>
-  <p class="lede">14 documentos de arquitetura, 8 ADRs formais e 14 diagramas Mermaid, todos passados por debate Claude↔Codex e avaliação independente às cegas — 10 checkpoints pontuados, todos ≥9.0 de ambos, sem arredondamento. O processo corrigiu a si mesmo várias vezes de forma real ao longo do caminho: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais — Design Maturity e Operational Evidence), um erro técnico de sharding pego pelo Codex no data model, e uma correção final do próprio status: <code>ARCHITECTURE STATUS</code> (seção 62) é formalmente <code>NOT APPROVED</code> até haver implementação real testada — <code>DESIGN MATURITY STATUS: APPROVED</code> é o que este processo entrega, não o gate final de produção.</p>
+  <p class="eyebrow">Controle de Vencimentos · DESIGN MATURITY: APPROVED · ARCHITECTURE STATUS: NOT APPROVED · IMPLEMENTAÇÃO EM PAUSA (M0–M3 concluídos)</p>
+  <h1>Design completo e aprovado; implementação real em pausa após M0–M3</h1>
+  <p class="lede">14 documentos de arquitetura, Threat Model (seção 33) e Implementation Blueprint (seção 60), 8 ADRs formais e 14 diagramas Mermaid, todos passados por debate Claude↔Codex e avaliação independente às cegas — agora 12 checkpoints pontuados, todos ≥9.0 de ambos, sem arredondamento (Threat Model: Claude ~9.05 / Codex 9.0 exato; Implementation Blueprint: Claude 9.20 / Codex 9.2 exato, 8 rodadas). O processo corrigiu a si mesmo várias vezes de forma real ao longo do caminho: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais — Design Maturity e Operational Evidence), um erro técnico de sharding pego pelo Codex no data model, um segundo erro técnico real presente nas <em>duas</em> propostas independentes do blueprint (chave do GSI3 do scheduler não era consultável — corrigido e ratificado em <code>data-model.md</code>), e uma correção final do próprio status: <code>ARCHITECTURE STATUS</code> (seção 62) segue formalmente <code>NOT APPROVED</code> até haver implementação real testada sob carga/falha — <code>DESIGN MATURITY STATUS: APPROVED</code> é o que o processo de design entrega, não o gate final de produção.</p>
 
   <div class="callout">
     <span class="dot" aria-hidden="true"></span>
-    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (17 entidades, 6 GSIs) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. SLO de drenagem do pico extremo (1M lembretes) fixado em 5 minutos. WhatsApp identificado como maior driver de custo (76-94% em qualquer cenário). Ver <code>ARCHITECTURE.md</code> na raiz do repositório para o documento consolidado final.</p>
+    <p><strong>Implementação real: M0–M3 concluídos e testados (390 testes), nada commitado — pausa a pedido do usuário, M4 é a próxima ação quando retomado.</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (17 entidades, 6 GSIs, incluindo a exceção documentada de particionamento do GSI3 do scheduler) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. M0 (guardrails/contratos), M1 (Foundation/Identity/isolamento, com suíte negativa cross-tenant), M2 (Expiration core/Audit, CRUD+renew+outbox transacional) e M3 (Reminder Engine, producer/dispatch/reconciliação com relógio injetável) entregues — o processo pegou e corrigiu bugs reais ao longo do caminho, incluindo uma falha de isolamento IAM no GSI3 introduzida silenciosamente pelo CDK (<code>grantReadWriteData</code> versus wildcard de índice). Pendências em aberto, não resolvidas: endpoints de sessão BFF (<code>/session/refresh</code>, <code>/session/logout</code>) e CSP/CloudFront (adiado para o milestone de frontend). SLO de drenagem do pico extremo (1M lembretes) fixado em 5 minutos. WhatsApp identificado como maior driver de custo (76-94% em qualquer cenário). Ver <code>ARCHITECTURE.md</code> na raiz do repositório e <code>docs/architecture/implementation-blueprint.md</code> para os documentos consolidados.</p>
   </div>
 
   <section>
@@ -258,7 +258,7 @@ footer code{
     <h3>Onde o projeto está agora e o que falta antes de "Architecture Status: Approved"</h3>
     <figure>
       <div class="diagram-frame">
-        <svg viewBox="0 0 900 780" role="img" aria-label="Linha do tempo vertical: Fase 0 a 3, Architecture Red Team, Domain/Data Model e SLOs concluídos e aprovados; ADRs formais, disaster recovery, privacidade LGPD e cost model como próxima ação; Implementation Blueprint e aprovação final pendentes.">
+        <svg viewBox="0 0 900 1250" role="img" aria-label="Linha do tempo vertical: Fase 0 a 3, Architecture Red Team, Domain/Data Model, SLOs, Disaster Recovery, Privacy/LGPD, Cost Model, ADRs formais, MCP/AWS review/Evolution, Threat Model e Implementation Blueprint concluídos e aprovados; M0, M1, M2 e M3 implementados e testados; implementação em pausa aguardando instrução do usuário; M4 a M7 e aprovação final da arquitetura operacional pendentes.">
           <defs>
             <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -266,7 +266,7 @@ footer code{
           </defs>
           <g font-size="12.5">
             <!-- vertical spine -->
-            <line x1="80" y1="34" x2="80" y2="746" stroke="var(--line)" stroke-width="2"/>
+            <line x1="80" y1="34" x2="80" y2="1216" stroke="var(--line)" stroke-width="2"/>
 
             <!-- Fase 0 done -->
             <circle cx="80" cy="40" r="9" fill="var(--done)"/>
@@ -329,27 +329,84 @@ footer code{
             <rect x="700" y="484" width="90" height="24" rx="12" fill="var(--done-bg)"/>
             <text x="745" y="500" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Next: LGPD/Cost/ADRs -->
-            <circle cx="80" cy="562" r="9" fill="var(--next)"/>
+            <!-- Privacy/LGPD/Cost/ADRs done -->
+            <circle cx="80" cy="562" r="9" fill="var(--done)"/>
             <text x="104" y="552" fill="currentColor" font-weight="600" font-size="13">Privacy/LGPD · Cost Model · ADRs formais</text>
-            <text x="104" y="569" fill="var(--ink-dim)" font-size="11">Mapa de dados pessoais, custo por estágio, modelo da seção 24</text>
-            <rect x="700" y="544" width="90" height="24" rx="12" fill="var(--next-bg)"/>
-            <text x="745" y="560" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
+            <text x="104" y="569" fill="var(--ink-dim)" font-size="11">Mapa de dados pessoais, custo por estágio, 8 ADRs formais (seção 24)</text>
+            <rect x="700" y="544" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="560" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- MCP/AWS review/evolution -->
-            <circle cx="80" cy="622" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="612" fill="var(--ink-dim)" font-size="13">MCP readiness · AWS Well-Architected Review · Evolution</text>
-            <text x="104" y="629" fill="var(--ink-dim)" font-size="11">8 diagramas Mermaid restantes da seção 52</text>
+            <!-- MCP/AWS review/evolution done -->
+            <circle cx="80" cy="622" r="9" fill="var(--done)"/>
+            <text x="104" y="612" fill="currentColor" font-weight="600" font-size="13">MCP readiness · AWS Well-Architected Review · Evolution</text>
+            <text x="104" y="629" fill="var(--ink-dim)" font-size="11">14 diagramas Mermaid da seção 52 completos</text>
+            <rect x="700" y="604" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="620" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Implementation blueprint -->
-            <circle cx="80" cy="682" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="672" fill="var(--ink-dim)" font-size="13">Implementation Blueprint</text>
-            <text x="104" y="689" fill="var(--ink-dim)" font-size="11">só depois da arquitetura aprovada — não antes</text>
+            <!-- Threat Model done -->
+            <circle cx="80" cy="682" r="9" fill="var(--done)"/>
+            <text x="104" y="672" fill="currentColor" font-weight="600" font-size="13">Threat Model (seção 33)</text>
+            <text x="104" y="689" fill="var(--ink-dim)" font-size="11">STRIDE · 22 ameaças, 6 Alta · 7 lacunas para a implementação</text>
+            <text x="104" y="704" fill="var(--ink-dim)" font-size="11">Claude ~9.05 · Codex 9.0 (exato) · 2 rodadas</text>
+            <rect x="700" y="664" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="680" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+
+            <!-- Implementation blueprint done -->
+            <circle cx="80" cy="754" r="9" fill="var(--done)"/>
+            <text x="104" y="744" fill="currentColor" font-weight="600" font-size="13">Implementation Blueprint (seção 60)</text>
+            <text x="104" y="761" fill="var(--ink-dim)" font-size="11">Módulos, interfaces, eventos/schemas, deploy, milestones M0–M7</text>
+            <text x="104" y="776" fill="var(--ink-dim)" font-size="11">Claude 9.20 · Codex 9.2 (exato) · 8 rodadas, erro de GSI3 corrigido</text>
+            <rect x="700" y="736" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="752" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+
+            <!-- M0 done -->
+            <circle cx="80" cy="826" r="9" fill="var(--done)"/>
+            <text x="104" y="816" fill="currentColor" font-weight="600" font-size="13">M0 — Guardrails e contratos</text>
+            <text x="104" y="833" fill="var(--ink-dim)" font-size="11">Schemas, logger/redactor, idempotência, OCC, outbox, pipeline supply-chain</text>
+            <text x="104" y="848" fill="var(--ink-dim)" font-size="11">53 testes — biblioteca comum aprovada antes de funcionalidades</text>
+            <rect x="700" y="808" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="824" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
+
+            <!-- M1 done -->
+            <circle cx="80" cy="886" r="9" fill="var(--done)"/>
+            <text x="104" y="876" fill="currentColor" font-weight="600" font-size="13">M1 — Foundation, Identity, isolamento</text>
+            <text x="104" y="893" fill="var(--ink-dim)" font-size="11">Cognito, resolver central, matriz de autorização, DynamoDB, API skeleton</text>
+            <text x="104" y="908" fill="var(--ink-dim)" font-size="11">89 testes — suíte negativa cross-tenant passando</text>
+            <rect x="700" y="868" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="884" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
+
+            <!-- M2 done -->
+            <circle cx="80" cy="946" r="9" fill="var(--done)"/>
+            <text x="104" y="936" fill="currentColor" font-weight="600" font-size="13">M2 — Expiration core e Audit</text>
+            <text x="104" y="953" fill="var(--ink-dim)" font-size="11">CRUD/renew, dashboard GSI1, OCC, audit append-only, outbox transacional</text>
+            <text x="104" y="968" fill="var(--ink-dim)" font-size="11">105 testes — item gerenciado end-to-end sem reminders</text>
+            <rect x="700" y="928" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="944" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
+
+            <!-- M3 done -->
+            <circle cx="80" cy="1006" r="9" fill="var(--done)"/>
+            <text x="104" y="996" fill="currentColor" font-weight="600" font-size="13">M3 — Reminder Engine</text>
+            <text x="104" y="1013" fill="var(--ink-dim)" font-size="11">Policies, materialização, GSI3 producer/dispatch, reconciliação DST</text>
+            <text x="104" y="1028" fill="var(--ink-dim)" font-size="11">123 testes — falha de isolamento IAM no GSI3 pega e corrigida</text>
+            <rect x="700" y="988" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="1004" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
+
+            <!-- Pause marker -->
+            <circle cx="80" cy="1056" r="9" fill="var(--surface)" stroke="var(--next)" stroke-width="2" stroke-dasharray="3 2"/>
+            <text x="104" y="1046" fill="currentColor" font-weight="600" font-size="13">Pausa — aguardando instrução do usuário</text>
+            <text x="104" y="1063" fill="var(--ink-dim)" font-size="11">390 testes no total, nada commitado; endpoints de sessão BFF e CSP/CloudFront em aberto</text>
+            <rect x="700" y="1038" width="90" height="24" rx="12" fill="var(--next-bg)"/>
+            <text x="745" y="1054" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">EM PAUSA</text>
+
+            <!-- M4-M7 pending -->
+            <circle cx="80" cy="1116" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+            <text x="104" y="1106" fill="var(--ink-dim)" font-size="13">M4–M7 — Notification, Document/AI, observabilidade, evidência operacional</text>
+            <text x="104" y="1123" fill="var(--ink-dim)" font-size="11">Próxima ao retomar: M4 (Notification Engine)</text>
 
             <!-- Final gate -->
-            <circle cx="80" cy="740" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-            <text x="104" y="736" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
-            <text x="104" y="753" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, e todos os gates passarem</text>
+            <circle cx="80" cy="1180" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="104" y="1176" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
+            <text x="104" y="1193" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, sob rubrica (B) Operational Evidence — não antes de M7</text>
           </g>
         </svg>
       </div>
@@ -363,6 +420,6 @@ footer code{
   </section>
 
   <footer>
-    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code>, <code>docs/architecture/data-model.md</code>, <code>docs/architecture/slo.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. 7 entregáveis aprovados em nível de Design Maturity — Disaster Recovery, LGPD, Cost Model, ADRs formais e implementação ainda pendentes.
+    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code>, <code>docs/architecture/data-model.md</code>, <code>docs/architecture/slo.md</code>, <code>docs/architecture/threat-model.md</code>, <code>docs/architecture/implementation-blueprint.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. Design Maturity 100% aprovado (todos os entregáveis das seções 35–52 + 33 + 60). Implementação real: M0–M3 concluídos (390 testes), em pausa a pedido do usuário. Faltam: M4–M7, testes de carga/restore reais e exercício do runbook de credencial comprometida antes de <code>ARCHITECTURE STATUS: APPROVED</code>.
   </footer>
 </div>

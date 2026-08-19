@@ -1,9 +1,9 @@
 # docs/architecture/ — Índice e Mapa de Autoridade
 
 ```text
-Design maturity:        APPROVED
+Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
-Current phase:           Implementation Blueprint (não iniciado)
+Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
 Last verified:           2026-08-19
 ```
 
@@ -38,6 +38,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `evolution.md` | normativo atual | Transições de estágio, gatilhos |
 | `aws-well-architected-review.md` | normativo atual | Revisão pelos 6 pilares AWS, riscos conhecidos |
 | `threat-model.md` | normativo atual | Threat model STRIDE, seção 33 — APPROVED (Claude ~9.05 / Codex 9.002) |
+| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seção 60 — componentes, interfaces, eventos/schemas, ordem de deploy, milestones — APPROVED (Claude 9.20 / Codex 9.2) |
 | `decisions-log.md` | decisão/ADR (log vivo) | 26 decisões (D-000 a D-025), nota Claude/Codex, status |
 | `adr/` | decisão/ADR | 8 ADRs formais para decisões Type 1 |
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
@@ -59,7 +60,4 @@ Cada subpasta contém os artefatos de proposta/crítica/tréplica que antecedera
 | `history/privacy-lgpd/` | `privacy-lgpd.md` |
 | `history/cost-model/` | `cost-model.md` |
 | `history/threat-model/` | `threat-model.md` |
-
-## Planejado, ainda inexistente
-
-- `implementation-blueprint.md` (seção 60 do prompt mestre) — próxima ação obrigatória, ver `NEXT_SESSION_PROMPT.md`.
+| `history/implementation-blueprint/` | `implementation-blueprint.md` |
