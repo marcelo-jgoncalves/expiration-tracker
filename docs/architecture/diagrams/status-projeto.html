@@ -172,13 +172,13 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · Fase 3 aprovada (Design Maturity)</p>
-  <h1>Arquitetura AWS conceitual aprovada — Red Team e implementação são os próximos portões</h1>
-  <p class="lede">Requisitos (Fase 1), capacity model (Fase 2) e arquitetura AWS conceitual (Fase 3) já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos em todas. A Fase 3 levou 5 rodadas: propostas independentes, crítica cruzada, tréplica, fechamento de 7 ADRs materialmente relevantes e uma correção metodológica real no meio do caminho — a primeira rubrica de nota exigia evidência de implementação, impossível antes da arquitetura ser aprovada, e foi corrigida com duas rubricas formais (Design Maturity para checkpoints conceituais, Operational Evidence para o gate final pós-implementação).</p>
+  <p class="eyebrow">Controle de Vencimentos · 7 entregáveis aprovados</p>
+  <h1>Fundação, arquitetura, Red Team, dados e SLOs aprovados — faltam DR, LGPD, custo e ADRs formais</h1>
+  <p class="lede">Requirements, capacity model, arquitetura AWS conceitual, Architecture Red Team, Domain/Data Model e SLOs já passaram por debate Claude↔Codex e avaliação independente às cegas, com nota ≥9.0 de ambos em todas as sete rodadas. No caminho, o processo corrigiu a si mesmo pelo menos duas vezes de forma real: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais), e um erro técnico de sharding do Claude pego pelo Codex no data model (shard precisa estar na PK, não na SK, para distribuir carga).</p>
 
   <div class="callout">
     <span class="dot" aria-hidden="true"></span>
-    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. Claude 9.10 / Codex 9.04, sem arredondamento. Todas as decisões têm justificativa rastreada a requisitos e ao capacity model, com trade-offs e alternativas rejeitadas registrados — nada foi escolhido "porque é óbvio".</p>
+    <p><strong>Serviços AWS aprovados em nível conceitual (não implementados).</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (13 entidades, 6 GSIs) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal + Textract/Bedrock (Step Functions Standard) + CDK. SLO de drenagem do pico extremo (1M lembretes) fixado em 5 minutos. Todas as decisões têm justificativa rastreada a requisitos e ao capacity model, com trade-offs e alternativas rejeitadas registrados — nada foi escolhido "porque é óbvio".</p>
   </div>
 
   <section>
@@ -258,7 +258,7 @@ footer code{
     <h3>Onde o projeto está agora e o que falta antes de "Architecture Status: Approved"</h3>
     <figure>
       <div class="diagram-frame">
-        <svg viewBox="0 0 900 480" role="img" aria-label="Linha do tempo vertical de fases: Fase 0, 1 e 2 concluídas e aprovadas; Fase 3 (propostas arquiteturais independentes) em rodada de consenso e nota, ainda não aprovada; Red Team e aprovação final pendentes.">
+        <svg viewBox="0 0 900 780" role="img" aria-label="Linha do tempo vertical: Fase 0 a 3, Architecture Red Team, Domain/Data Model e SLOs concluídos e aprovados; ADRs formais, disaster recovery, privacidade LGPD e cost model como próxima ação; Implementation Blueprint e aprovação final pendentes.">
           <defs>
             <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -266,7 +266,7 @@ footer code{
           </defs>
           <g font-size="12.5">
             <!-- vertical spine -->
-            <line x1="80" y1="34" x2="80" y2="446" stroke="var(--line)" stroke-width="2"/>
+            <line x1="80" y1="34" x2="80" y2="746" stroke="var(--line)" stroke-width="2"/>
 
             <!-- Fase 0 done -->
             <circle cx="80" cy="40" r="9" fill="var(--done)"/>
@@ -276,43 +276,77 @@ footer code{
             <text x="745" y="36" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
             <!-- Fase 1 done -->
-            <circle cx="80" cy="104" r="9" fill="var(--done)"/>
-            <text x="104" y="94" fill="currentColor" font-weight="600" font-size="13">Fase 1 — Requirements</text>
-            <text x="104" y="111" fill="var(--ink-dim)" font-size="11">Claude 9.16 · Codex 9.03 · 4 rodadas de debate</text>
-            <rect x="700" y="84" width="90" height="24" rx="12" fill="var(--done-bg)"/>
-            <text x="745" y="100" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+            <circle cx="80" cy="98" r="9" fill="var(--done)"/>
+            <text x="104" y="88" fill="currentColor" font-weight="600" font-size="13">Fase 1 — Requirements</text>
+            <text x="104" y="105" fill="var(--ink-dim)" font-size="11">Claude 9.16 · Codex 9.03 · 4 rodadas de debate</text>
+            <rect x="700" y="78" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="94" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
             <!-- Fase 2 done -->
-            <circle cx="80" cy="168" r="9" fill="var(--done)"/>
-            <text x="104" y="158" fill="currentColor" font-weight="600" font-size="13">Fase 2 — Capacity model</text>
-            <text x="104" y="175" fill="var(--ink-dim)" font-size="11">Claude ~9.3 · Codex 9.1 · Stage 0 a Stage 5, 9 rodadas de debate</text>
-            <rect x="700" y="148" width="90" height="24" rx="12" fill="var(--done-bg)"/>
-            <text x="745" y="164" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+            <circle cx="80" cy="156" r="9" fill="var(--done)"/>
+            <text x="104" y="146" fill="currentColor" font-weight="600" font-size="13">Fase 2 — Capacity model</text>
+            <text x="104" y="163" fill="var(--ink-dim)" font-size="11">Claude ~9.3 · Codex 9.1 · Stage 0 a Stage 5, 9 rodadas de debate</text>
+            <rect x="700" y="136" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="152" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
             <!-- Fase 3 done -->
-            <circle cx="80" cy="240" r="9" fill="var(--done)"/>
-            <text x="104" y="226" fill="currentColor" font-weight="600" font-size="13">Fase 3 — Arquitetura AWS conceitual</text>
-            <text x="104" y="243" fill="var(--ink-dim)" font-size="11">Lambda · DynamoDB · S3 · SQS · EventBridge · Cognito aprovados</text>
-            <text x="104" y="258" fill="var(--ink-dim)" font-size="11">Claude 9.10 · Codex 9.04 · 5 rodadas, incluindo correção metodológica</text>
-            <rect x="700" y="222" width="90" height="24" rx="12" fill="var(--done-bg)"/>
-            <text x="745" y="238" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+            <circle cx="80" cy="214" r="9" fill="var(--done)"/>
+            <text x="104" y="204" fill="currentColor" font-weight="600" font-size="13">Fase 3 — Arquitetura AWS conceitual</text>
+            <text x="104" y="221" fill="var(--ink-dim)" font-size="11">Lambda · DynamoDB · S3 · SQS · EventBridge · Cognito propostos</text>
+            <text x="104" y="236" fill="var(--ink-dim)" font-size="11">Claude 9.10 · Codex 9.04 · 5 rodadas, incluindo correção metodológica</text>
+            <rect x="700" y="196" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="212" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
 
-            <!-- Red team next -->
-            <circle cx="80" cy="336" r="9" fill="var(--next)"/>
-            <text x="104" y="326" fill="currentColor" font-weight="600" font-size="13">Architecture Red Team</text>
-            <text x="104" y="343" fill="var(--ink-dim)" font-size="11">20 cenários de falha (WhatsApp fora do ar, PDF malicioso, 1M lembretes juntos...)</text>
-            <rect x="700" y="316" width="90" height="24" rx="12" fill="var(--next-bg)"/>
-            <text x="745" y="332" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
+            <!-- Red Team done -->
+            <circle cx="80" cy="286" r="9" fill="var(--done)"/>
+            <text x="104" y="276" fill="currentColor" font-weight="600" font-size="13">Architecture Red Team</text>
+            <text x="104" y="293" fill="var(--ink-dim)" font-size="11">20 cenários · 6 lacunas críticas fechadas (upload/quota, webhook, OCC...)</text>
+            <text x="104" y="308" fill="var(--ink-dim)" font-size="11">Claude 9.13 · Codex 9.20</text>
+            <rect x="700" y="268" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="284" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+
+            <!-- Data Model done -->
+            <circle cx="80" cy="358" r="9" fill="var(--done)"/>
+            <text x="104" y="348" fill="currentColor" font-weight="600" font-size="13">Domain Model + Data Model</text>
+            <text x="104" y="365" fill="var(--ink-dim)" font-size="11">13 entidades · DynamoDB single-table · 6 GSIs · idempotência</text>
+            <text x="104" y="380" fill="var(--ink-dim)" font-size="11">Claude ~9.05 · Codex 9.10 · erro de sharding pego e corrigido</text>
+            <rect x="700" y="340" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="356" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+
+            <!-- SLOs done -->
+            <circle cx="80" cy="430" r="9" fill="var(--done)"/>
+            <text x="104" y="420" fill="currentColor" font-weight="600" font-size="13">SLOs por estágio</text>
+            <text x="104" y="437" fill="var(--ink-dim)" font-size="11">Fecha o SLO de drenagem do pico extremo = 5 minutos</text>
+            <text x="104" y="452" fill="var(--ink-dim)" font-size="11">Claude ~9.08 · Codex 9.001</text>
+            <rect x="700" y="412" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="428" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">APROVADA</text>
+
+            <!-- Next: DR/LGPD/Cost/ADRs -->
+            <circle cx="80" cy="502" r="9" fill="var(--next)"/>
+            <text x="104" y="492" fill="currentColor" font-weight="600" font-size="13">Disaster Recovery · Privacy/LGPD · Cost Model</text>
+            <text x="104" y="509" fill="var(--ink-dim)" font-size="11">RTO/RPO com teste real, mapa de dados pessoais, custo por estágio</text>
+            <rect x="700" y="484" width="90" height="24" rx="12" fill="var(--next-bg)"/>
+            <text x="745" y="500" text-anchor="middle" fill="var(--next)" font-weight="600" font-size="10.5">PRÓXIMA</text>
+
+            <!-- ADRs formais -->
+            <circle cx="80" cy="562" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+            <text x="104" y="552" fill="var(--ink-dim)" font-size="13">ADRs formais individuais</text>
+            <text x="104" y="569" fill="var(--ink-dim)" font-size="11">Modelo da seção 24 para cada decisão já em decisions-log.md</text>
+
+            <!-- MCP/AWS review/evolution -->
+            <circle cx="80" cy="622" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+            <text x="104" y="612" fill="var(--ink-dim)" font-size="13">MCP readiness · AWS Well-Architected Review · Evolution</text>
+            <text x="104" y="629" fill="var(--ink-dim)" font-size="11">8 diagramas Mermaid restantes da seção 52</text>
 
             <!-- Implementation blueprint -->
-            <circle cx="80" cy="392" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="382" fill="var(--ink-dim)" font-size="13">Implementation Blueprint</text>
-            <text x="104" y="399" fill="var(--ink-dim)" font-size="11">só depois da arquitetura aprovada — não antes</text>
+            <circle cx="80" cy="682" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+            <text x="104" y="672" fill="var(--ink-dim)" font-size="13">Implementation Blueprint</text>
+            <text x="104" y="689" fill="var(--ink-dim)" font-size="11">só depois da arquitetura aprovada — não antes</text>
 
             <!-- Final gate -->
-            <circle cx="80" cy="440" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-            <text x="104" y="436" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
-            <text x="104" y="453" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, e todos os gates passarem</text>
+            <circle cx="80" cy="740" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="104" y="736" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
+            <text x="104" y="753" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, e todos os gates passarem</text>
           </g>
         </svg>
       </div>
@@ -326,6 +360,6 @@ footer code{
   </section>
 
   <footer>
-    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. Fase 3 (arquitetura conceitual AWS) aprovada em nível de Design Maturity (Claude 9.10 / Codex 9.04) — Architecture Red Team e implementação ainda pendentes.
+    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code>, <code>docs/architecture/data-model.md</code>, <code>docs/architecture/slo.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. 7 entregáveis aprovados em nível de Design Maturity — Disaster Recovery, LGPD, Cost Model, ADRs formais e implementação ainda pendentes.
   </footer>
 </div>
