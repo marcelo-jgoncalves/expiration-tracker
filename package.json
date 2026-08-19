@@ -24,6 +24,7 @@
     "aws-cdk-lib": "2.265.0",
     "aws-jwt-verify": "5.2.1",
     "constructs": "10.8.1",
+    "dependency-cruiser": "18.2.0",
     "eslint": "^8.57.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
