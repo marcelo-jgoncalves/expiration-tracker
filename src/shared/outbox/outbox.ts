@@ -9,6 +9,16 @@ import type { DomainEvent } from "../contracts/events.js";
 
 export type OutboxStatus = "PENDING" | "PUBLISHED";
 
+/**
+ * M3.5 (docs/architecture/m3.5-runtime-design.md, "Decisão central: outbox durável"):
+ * routing discriminator so `OutboxPublisher` (generic, -> EventBridge) and
+ * `DispatchOutboxRelay` (new, -> SQS ReminderDispatchQueue) never both claim the same
+ * record. `undefined`/absent means "OutboxPublisher's default EventBridge path" (every
+ * M2/M3 caller today) - `OutboxPublisher` must explicitly skip any record whose
+ * `destination` it doesn't recognize as its own default, never process-by-omission.
+ */
+export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1";
+
 export interface OutboxRecord {
   PK: string;
   SK: string;
@@ -26,6 +36,7 @@ export interface OutboxRecord {
   createdAt: string;
   GSI6PK: string;
   GSI6SK: string;
+  destination?: OutboxDestination;
 }
 
 /** Monthly shard for the outbox partition, matching #5.3's `TENANT#t#OUTBOX#202608` example. */
@@ -33,7 +44,7 @@ function monthShard(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 7).replace("-", "");
 }
 
-export function buildOutboxRecord(event: DomainEvent): OutboxRecord {
+export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestination): OutboxRecord {
   const shard = monthShard(event.occurredAt);
   return {
     PK: `TENANT#${event.tenantId}#OUTBOX#${shard}`,
@@ -52,6 +63,7 @@ export function buildOutboxRecord(event: DomainEvent): OutboxRecord {
     createdAt: event.occurredAt,
     GSI6PK: "RECON#OUTBOX#PENDING",
     GSI6SK: `${event.occurredAt}#${event.eventId}`,
+    ...(destination ? { destination } : {}),
   };
 }
 
@@ -72,8 +84,9 @@ export function appendToTransaction(
   tx: DynamoTransactPutEntry[],
   tableName: string,
   event: DomainEvent,
+  destination?: OutboxDestination,
 ): void {
-  const record = buildOutboxRecord(event);
+  const record = buildOutboxRecord(event, destination);
   tx.push({
     Put: {
       TableName: tableName,

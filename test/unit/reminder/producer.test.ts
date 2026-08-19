@@ -110,7 +110,7 @@ describe("producer.ts - partial batch failure", () => {
     const poisonStore = new PoisonOnceStore(store, occurrence.SK);
 
     const tick = await runProducerTick(
-      { store: poisonStore, shardConfig: defaultShardConfig(), tableName: TABLE, now },
+      { store: poisonStore, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "c" },
       new Date("2026-09-10T08:00:00.000Z"),
     );
 
