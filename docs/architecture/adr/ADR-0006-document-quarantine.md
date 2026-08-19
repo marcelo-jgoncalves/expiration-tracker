@@ -26,4 +26,4 @@ Fail-closed explícito: `UNSUPPORTED`/`TIMEOUT` não ficam disponíveis por omis
 Conforme `architecture-fase3-consolidada.md` §7, com GuardDuty Malware Protection como mecanismo principal e Fargate scanner como fallback.
 
 ## References
-`architecture-fase3-consolidada.md` §7, `red-team-claude-round1.md` cenário 7, `slo.md` §4 (SLA de latência quarantine→clean).
+`architecture-fase3-consolidada.md` §7, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md` cenário 7, `slo.md` §4 (SLA de latência quarantine→clean).

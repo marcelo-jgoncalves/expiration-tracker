@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../architecture-fase3-consolidada.md`.
+
 # RODADA 3 — Tréplica e Consenso
 
 ## Divergências resolvidas

@@ -24,4 +24,4 @@ Outbox aplicado seletivamente (não a telemetria/eventos reconstruíveis) evita 
 EventBridge para distribuição, outbox pattern com registro `PENDING`+sweeper para eventos críticos, nunca dependência exclusiva de Streams.
 
 ## References
-`architecture-fase3-consolidada.md` §11, `red-team-claude-round1.md` cenário 10.
+`architecture-fase3-consolidada.md` §11, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md` cenário 10.

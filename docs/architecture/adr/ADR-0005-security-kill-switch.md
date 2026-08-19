@@ -26,4 +26,4 @@ AppConfig adiciona uma dependência de serviço a mais comparado a SSM puro — 
 AppConfig para os 3 kill switches de emergência; SSM aceitável para flags simples não-emergenciais.
 
 ## References
-`architecture-fase3-consolidada.md` §14, `red-team-claude-round1.md`/`red-team-codex-round1.md` cenário 20, `cost-model.md` (controles de G6).
+`architecture-fase3-consolidada.md` §14, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md`/`docs/architecture/history/architecture-fase3/red-team-codex-round1.md` cenário 20, `cost-model.md` (controles de G6).

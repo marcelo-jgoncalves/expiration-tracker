@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../architecture-fase3-consolidada.md`.
+
 # Crítica do Claude à Proposta do Codex — Fase 3, Rodada 2
 
 Esta é a análise crítica independente do Claude à proposta do Codex (`codex-architecture-proposal.md`), separada das perguntas de convergência já enviadas. Objetivo: aplicar o princípio anti-sycophancy da seção 57 — a proposta do Codex é tecnicamente forte, mas isso não isenta de escrutínio.

@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../quality-criteria.md`.
+
 # CODEX PROPOSAL — Quality Criteria (Fase 0, Rodada 1)
 
 Pesquisa independente produzida pelo Codex (CLI local, `codex exec`), sem acesso prévio à proposta do Claude — regra anti-anchoring aplicada.

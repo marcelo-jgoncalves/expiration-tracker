@@ -24,4 +24,4 @@ Contract test por adapter garante que trocar provedor de e-mail (ex.: SES→outr
 Conforme `architecture-fase3-consolidada.md` §9.
 
 ## References
-`architecture-fase3-consolidada.md` §9, `data-model.md` §2, `red-team-claude-round1.md` cenários 3-5 e 13.
+`architecture-fase3-consolidada.md` §9, `data-model.md` §2, `docs/architecture/history/architecture-fase3/red-team-claude-round1.md` cenários 3-5 e 13.

@@ -18,7 +18,7 @@ Serverless-first, pay-per-use, sem compute/banco always-on (seção 8 do prompt 
 4. DynamoDB provisionado (não on-demand) — rejeitada: exige estimar capacidade antecipadamente, inadequado ao Stage 0-1 de baixo volume imprevisível.
 
 ## Claude Proposal / Codex Proposal
-Convergência independente na Rodada 1 da Fase 3 (`claude-architecture-proposal.md` §5, `codex-architecture-proposal.md` §4) — ambos chegaram a DynamoDB on-demand single-table sem se copiar.
+Convergência independente na Rodada 1 da Fase 3 (`docs/architecture/history/architecture-fase3/claude-architecture-proposal.md` §5, `docs/architecture/history/architecture-fase3/codex-architecture-proposal.md` §4) — ambos chegaram a DynamoDB on-demand single-table sem se copiar.
 
 ## Claude Critique / Codex Critique / Rebuttals
 Nenhuma divergência entre as duas propostas neste ponto específico. Refinamentos posteriores (não desacordos): padrão de co-localização de entidades sob a PK do item pai (adotado do Codex, `data-model.md`); correção de um erro técnico do Claude sobre sharding de partição quente (shard deve estar na PK, não na SK — pego pelo Codex na Rodada 1 de nota do data model).

@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../slo.md`.
+
 # SLOs — Codex, Rodada 1 (Proposta Independente)
 
 Status: proposta independente do Codex, sem acesso à proposta do Claude.

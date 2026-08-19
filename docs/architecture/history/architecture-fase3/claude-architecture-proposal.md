@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../architecture-fase3-consolidada.md`.
+
 # Proposta de Arquitetura — Claude (Fase 3, Rodada 1, Independente)
 
 Status: proposta independente do Claude, **antes** de ver a proposta do Codex, conforme protocolo da seção 18/21 do prompt mestre.

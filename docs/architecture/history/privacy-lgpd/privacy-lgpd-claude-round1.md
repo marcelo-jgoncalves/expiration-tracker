@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../privacy-lgpd.md`.
+
 # Privacy / LGPD — Claude, Rodada 1 (Proposta Independente)
 
 Status: proposta independente do Claude, antes de ver a do Codex.

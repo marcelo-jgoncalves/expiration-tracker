@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../disaster-recovery.md`.
+
 # Disaster Recovery — Claude, Rodada 1 (Proposta Independente)
 
 Status: proposta independente do Claude, antes de ver a do Codex.

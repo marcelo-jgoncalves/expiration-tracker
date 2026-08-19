@@ -1,6 +1,6 @@
 # Quality Criteria — Plataforma de Controle de Vencimentos
 
-Status: consenso Claude ↔ Codex após 3 rodadas (Fase 0). Ver histórico completo em `claude-quality-criteria-proposal.md`, `codex-quality-criteria-proposal.md`, `round2-claude-critique.md`, `round3-treplica.md`.
+Status: consenso Claude ↔ Codex após 3 rodadas (Fase 0). Ver histórico completo em `docs/architecture/history/quality-criteria/claude-quality-criteria-proposal.md`, `docs/architecture/history/quality-criteria/codex-quality-criteria-proposal.md`, `docs/architecture/history/architecture-fase3/round2-claude-critique.md`, `docs/architecture/history/architecture-fase3/round3-treplica.md`.
 
 ## Fontes
 AWS Well-Architected Framework (6 pilares), AWS Serverless Applications Lens, FinOps Foundation Framework, OWASP Top 10/ASVS, NIST CSF 2.0, NIST Privacy Framework, LGPD (Lei 13.709/2018), orientações da ANPD.
@@ -40,4 +40,4 @@ SE Governança de Confiança de IA (fail-closed) ausente E IA cria/altera vencim
 - **Rodada 3** — tréplica e consenso. Codex recuou de 5→3 gates (trocando Cost e Multi-tenant/Abuso por Correção/Confiabilidade); Claude incorporou Correção como critério próprio, custo por unidade, e gate condicional por estágio para Multi-tenant. Convergência total nos demais pontos.
 
 ## Divergências mantidas explicitamente (nenhuma)
-Todas as divergências relevantes da Rodada 1 foram resolvidas por consenso na Rodada 3 (ver `round3-treplica.md` para a tabela completa de resolução).
+Todas as divergências relevantes da Rodada 1 foram resolvidas por consenso na Rodada 3 (ver `docs/architecture/history/architecture-fase3/round3-treplica.md` para a tabela completa de resolução).

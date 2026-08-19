@@ -1,0 +1,49 @@
+# Threat Model — Codex, Rodada 1 (Proposta Independente)
+
+Status: proposta independente do Codex, sem acesso à proposta do Claude.
+Base: `ARCHITECTURE.md`, `architecture-fase3-consolidada.md`, `data-model.md`, `disaster-recovery.md`.
+
+**Escopo:** arquitetura projetada, ainda não implementada. Severidade representa o risco **residual após os controles já definidos**, não o impacto sem controles. Categorias STRIDE: **S**poofing, **T**ampering, **R**epudiation, **I**nformation Disclosure, **D**enial of Service, **E**levation of Privilege.
+
+## Análise por ameaça
+
+| Ameaça / STRIDE | Vetor | Mitigação existente | Risco residual / severidade |
+|---|---|---|---|
+| **Account takeover — S/E** | Credential stuffing, reset de conta, comprometimento do e-mail. | Cognito; rate limit e proteção contra credential stuffing; MFA ao menos opcional (`requirements.md` SEC-001); revogação de sessões no runbook (`disaster-recovery.md` §7). | MFA obrigatório permanece indefinido; recuperação de conta não foi detalhada. **Média**. |
+| **Password abuse — S/D** | Brute force, senhas reutilizadas ou fracas, enumeração de usuários. | Cognito e rate limiting de login (`requirements.md` SEC-001); WAF antes de produção pública (`architecture-fase3-consolidada.md` §14). | Política de senha, respostas anti-enumeração e proteção adaptativa não especificadas. **Média**. |
+| **Session theft — S/E** | Roubo de JWT/refresh token via XSS, dispositivo comprometido ou armazenamento inseguro. | JWT validado pelo API Gateway; autorização fina no domínio; procedimento de revogação (`architecture-fase3-consolidada.md` §4; `disaster-recovery.md` §7). | Armazenamento do token, duração, rotação, CSP e revogação por dispositivo ausentes. **Alta**. |
+| **Document malware — T/D** | Upload de executável, arquivo infectado ou formato disfarçado. | Magic bytes, GuardDuty Malware Protection, dois buckets, estados fail-closed e promoção apenas de `CLEAN` (`architecture-fase3-consolidada.md` §7). | Falsos negativos e formatos não cobertos; fallback ainda condicional. **Média**. |
+| **Malicious PDF — T/D/E** | Parser exploit, PDF poliglota, zip/decompression bomb, consumo extremo de CPU/memória. | Quarentena, tamanho máximo e GuardDuty; somente arquivos limpos seguem para OCR (`architecture-fase3-consolidada.md` §7/Red Team). | Antimalware não substitui sandbox de parser; limites de páginas, complexidade e recursos não definidos. **Alta**. |
+| **Prompt injection — T/E** | Texto no documento tenta comandar o LLM ou adulterar campos extraídos. | Conteúdo tratado como dado; schema validation, comparação de extratores, versionamento e `PENDING_CONFIRMATION` fail-closed (`architecture-fase3-consolidada.md` §10; `data-model.md` §2). | Testes adversariais e política de isolamento do prompt continuam pendentes. Alteração automática é bloqueada, reduzindo impacto. **Média**. |
+| **SSRF — S/I** | URL ou referência embutida induz Lambda/parser a acessar rede interna ou metadados. | Pipeline trabalha sobre objeto S3 conhecido; não existe funcionalidade documentada de fetch arbitrário. | Egress allowlist e bloqueio explícito de redirects/URLs internas não definidos. Superfície atual pequena. **Baixa**. |
+| **Injection — T/E** | NoSQL expression, command, template, header ou log injection por campos do usuário/webhooks. | DynamoDB elimina SQL; schemas versionados, WAF e validação de payload de IA (`architecture-fase3-consolidada.md` §§10,14). | Codificação contextual, construção segura de expressions e testes de fuzzing não especificados. **Média**. |
+| **Privilege escalation — E** | Manipular IDs, claims ou papéis para executar operação fora do escopo. | Autorização fina no domínio, leitura consistente para autorização, IAM por função e testes negativos (`architecture-fase3-consolidada.md` §§4,14; `data-model.md` §5). | Matriz de autorização por operação ainda não existe; RBAC futuro amplia a superfície. **Média**. |
+| **Tenant escape — I/E/T** | IDOR, chave sem tenant, evento ou worker processando tenant errado. | `tenantId` obrigatório em chaves, GSIs, S3, mensagens, eventos e idempotência; testes negativos inclusive em restore (`architecture-fase3-consolidada.md` §6; `disaster-recovery.md` §6). | Um erro no middleware/repositório ainda pode atravessar tenants; enforcement estrutural em código não definido. **Média**. |
+| **Webhook spoofing — S/T/R** | Callback forjado, replay ou colisão de event ID. | Assinatura em tempo constante, timestamp/nonce, janela de aceitação, chave composta e inbox idempotente/reconciliável (Red Team; `data-model.md` §§2,4). | Rotação de segredos e peculiaridades de cada provedor dependem da implementação. **Média**. |
+| **Leaked WhatsApp numbers — I** | Número aparece em payload, DynamoDB, logs, DLQ ou suporte. | KMS, logs sem PII, isolamento por tenant, retenção/purge e adapter por canal (`architecture-fase3-consolidada.md` §§9,13; `data-model.md` §§2,5). | Redação específica de payloads, DLQs e consoles de suporte não definida. **Média**. |
+| **Leaked emails — I** | Exposição por logs, bounce webhooks, enumeração ou acesso cross-tenant. | Mesmos controles anteriores; webhook inbox isolado e auditável. | Mascaramento em interfaces administrativas e minimização de bounce payload não especificados. **Média**. |
+| **Leaked documents — I** | Acesso indevido pelo app, credencial AWS, backup, URL ou bucket. | Dois buckets privados, SSE-KMS, IAM separado, tenant no object key, versionamento e testes negativos de restore (`architecture-fase3-consolidada.md` §§6–7; `disaster-recovery.md` §§4,6). | Documentos possuem alta sensibilidade; autorização de download e acesso operacional ainda não estão detalhados. **Alta**. |
+| **Compromised provider — S/I/T** | SES/BSP/Textract/Bedrock ou credencial do fornecedor é comprometido. | Adapters substituíveis, filas isoladas, Secrets Manager, kill switch, retenção local do trabalho e rotação (`architecture-fase3-consolidada.md` §§9,14; `disaster-recovery.md` §§5,7). | Provedor pode exfiltrar conteúdo já recebido; critérios de minimização, detecção e failover não definidos. **Alta**. |
+| **Exposed presigned URLs — I/T** | URL vazada permite upload/download por terceiro durante sua validade. | Expiração em minutos, objeto/operação únicos, slot atômico, chave exata e `content-length-range` (Red Team; `data-model.md` §4). | URL continua sendo bearer credential; TTL exato, download policy e resposta a vazamento não definidos. **Média**. |
+| **S3 misconfiguration — I/T** | Bucket público, policy/KMS/OAC incorretos ou promoção indevida. | Block Public Access, OAC, SSE-KMS, papéis separados, CDK, scans IaC e restore fail-closed (`architecture-fase3-consolidada.md` §§3,7,12; `disaster-recovery.md` §4). | Drift/configuração manual deve ser detectado operacionalmente; desenho é forte. **Baixa**. |
+| **Logging sensitive content — I/R** | PII, tokens, documentos ou payloads completos enviados a logs/traces. | Logs JSON explicitamente sem PII; auditoria com mudanças redigidas; `tenantId` não é dimensão de métrica (`architecture-fase3-consolidada.md` §13; `data-model.md` §2). | Lista de campos proibidos, redactor central e testes automatizados não definidos. **Média**. |
+| **Secrets leakage — I/E** | Segredo em Git, variável, log, artefato ou role excessiva. | Secrets Manager, GitHub Actions via OIDC, IAM least privilege, scans e runbook de rotação (`architecture-fase3-consolidada.md` §§12,14; `disaster-recovery.md` §§5,7). | TTL/rotação por segredo, secret scanning pré-commit e contenção automatizada ausentes. **Média**. |
+| **Supply-chain attack — T/E** | Workflow, action, registry, build runner ou artefato adulterado. | SAST/dependency/IaC scans, aprovação manual, deploy canário e tag imutável (`architecture-fase3-consolidada.md` §12). | Sem pin por digest, proveniência assinada, SBOM ou verificação de artefato. **Alta**. |
+| **Dependency compromise — T/E/D** | Pacote npm malicioso, typosquatting ou atualização comprometida. | Dependency scan e pipeline de testes (`architecture-fase3-consolidada.md` §12). | Lockfile não basta; política de atualização, allowlist, análise de scripts e resposta a CVE não definidas. **Alta**. |
+| **Cost abuse — D** | Flood de API/uploads, reprocessamento OCR/IA, webhook storm ou disparos WhatsApp. | Token bucket `TenantQuota`, slot de upload, reserved concurrency, quotas por canal, Budgets 80/100%, anomaly detection e kill switches (Red Team; `data-model.md`). | Ataque distribuído entre contas e custo antes do alarme permanecem; WAF só entra na exposição pública. **Média**. |
+
+## Resumo residual
+| Severidade | Quantidade | Ameaças |
+|---|---:|---|
+| **Alta** | 6 | session theft, malicious PDF, leaked documents, compromised provider, supply-chain, dependency compromise |
+| **Média** | 14 | takeover, password abuse, malware, prompt injection, injection, privilege escalation, tenant escape, webhook spoofing, números, e-mails, presigned URLs, logs, secrets, cost abuse |
+| **Baixa** | 2 | SSRF, S3 misconfiguration |
+
+## Lacunas novas
+1. Definir arquitetura de sessão: armazenamento browser, TTL, refresh rotation, logout global/dispositivo e CSP.
+2. Executar parsing/renderização de PDF em sandbox sem rede, com limites de páginas, memória, CPU e expansão.
+3. Criar matriz explícita de autorização por ação/recurso e um componente único que derive `tenantId` da identidade — nunca do request.
+4. Adotar política de egress: nenhum fetch arbitrário, bloqueio de metadata/private ranges e allowlist para integrações.
+5. Implementar redactor central com schema de campos sensíveis e testes que inspecionem logs, traces, DLQs e eventos.
+6. Endurecer supply chain: actions e imagens fixadas por digest, SBOM, assinatura/proveniência do artefato e verificação no deploy.
+7. Formalizar gestão de dependências: lockfile obrigatório, scripts de instalação restritos, allowlist de pacotes críticos e SLA de CVEs.

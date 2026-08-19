@@ -1,3 +1,5 @@
+> **Status: histórico/supersedido.** Artefato de rodada do processo Claude↔Codex; não é normativo. Documento sucessor: `../../architecture-fase3-consolidada.md`.
+
 # Architecture Red Team — Claude, Rodada 1 (Proposta Independente)
 
 Status: análise independente do Claude, antes de ver a análise do Codex, conforme protocolo de propostas independentes já usado nas fases anteriores.
