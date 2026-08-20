@@ -2,7 +2,7 @@
 
 Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 20, DynamoDB single-table.
 
-**Status**: pré-produção. Design maturity aprovado; implementação real em andamento (M0-M3 concluídos). Ver `ARCHITECTURE.md` e `ENGINEERING.md` (quando existir) para o estado normativo vigente — este README é só o ponto de entrada, não a fonte de verdade.
+**Status**: pré-produção. Design maturity aprovado; implementação real M0-M3 concluída; infraestrutura provisionada via Terraform/GitHub Actions (ADR-0009); full-audit round1 dos 9 eixos formais de `docs/engineering/joint-review-criteria.md` concluído em 2026-08-20 (só o eixo Engenharia de Contexto bateu o gate de nota ≥9,0 dos dois lados; os outros 8 ficaram honestamente abaixo, cada achado remanescente classificado como impedimento externo real ou escopo maior — ver `docs/engineering/reviews/full-audit-round1-*-summary.md` e `NEXT_SESSION_PROMPT.md`). Ver `ARCHITECTURE.md` e `ENGINEERING.md` (histórico, pré-M3.5) para o estado normativo vigente — este README é só o ponto de entrada, não a fonte de verdade.
 
 ## Começando
 
