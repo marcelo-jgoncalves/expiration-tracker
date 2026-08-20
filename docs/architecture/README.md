@@ -32,6 +32,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `data-model.md` | normativo atual | Modelo de domínio/dados, DynamoDB single-table, 6 GSIs |
 | `slo.md` | normativo atual | SLOs, incluindo drenagem de pico extremo |
 | `disaster-recovery.md` | normativo atual | RPO/RTO, teste de restore, runbook |
+| `incident-runbooks.md` | normativo atual (draft operacional) | Runbooks OPS-006 (falha de disparo, DLQ, provedor, IA), matriz de severidade/escalonamento, template de post-mortem, registro de exercícios |
 | `privacy-lgpd.md` | normativo atual | Classes de retenção, direitos do titular |
 | `cost-model.md` | normativo atual | Modelo de custo por estágio |
 | `mcp-readiness.md` | normativo atual | Prontidão de domínio para MCP futuro |

@@ -261,7 +261,7 @@ Estes três números descrevem a **capacidade de agendamento** (colocar o job na
 - **fan-out por canal** — cada agendamento pode gerar até 1,5 notificações em média (fator de canais definido acima), logo o throughput de *notificação* é até 1,5× o throughput de agendamento;
 - **entrega externa** — a capacidade de absorção de cada provedor (SES, WhatsApp Business API, Telegram Bot API) é um limite adicional, tipicamente mais restritivo que o scheduler interno, a levantar na Fase 3 (seção 30–32 do prompt mestre).
 
-Nota de consistência: o cenário de drenagem em 60 minutos (~278 agendamentos/s) é **maior** que o pico de alertas "orgânico" já modelado para o Stage 5 (~7,7/s) — não há alinhamento entre os dois números; são cenários distintos (evento coincidente/adversarial vs. operação diária) e a arquitetura deve suportar ambos, sendo o primeiro o dimensionante. O SLO de drenagem aceitável (qual dos três cenários — ou intermediário — o produto vai garantir) é **UNK-CAP-006**, decisão de produto/arquitetura pendente para a Fase 3.
+Nota de consistência: o cenário de drenagem em 60 minutos (~278 agendamentos/s) é **maior** que o pico de alertas "orgânico" já modelado para o Stage 5 (~7,7/s) — não há alinhamento entre os dois números; são cenários distintos (evento coincidente/adversarial vs. operação diária) e a arquitetura deve suportar ambos, sendo o primeiro o dimensionante. O SLO de drenagem aceitável era **UNK-CAP-006** — **fechado em `slo.md` §3**: decisão de drenar o pico extremo em 5 minutos (~3.333 agendamentos/s), com justificativa registrada lá. Mantido aqui apenas como referência cruzada; `slo.md` é a fonte normativa da decisão (achado corrigido em `full-audit-round1-operacoes-*`, 2026-08-20 — este documento ainda descrevia UNK-CAP-006 como pendente depois de `slo.md` já tê-lo fechado).
 
 ---
 
@@ -338,7 +338,7 @@ Para validar FR-033 (contract test por adapter/provider) na Fase 3+, o teste de 
 - **UNK-CAP-003** — Adoção real de WhatsApp/Telegram por fração de usuários é hipótese de produto, não medição; pricing/quota reais de WhatsApp Business API ainda não pesquisados (ver UNK-003 em `requirements.md`). A política de fan-out (todo canal configurado recebe, vs. fallback sequencial) também não está decidida — impacta diretamente o fator 1,5 usado aqui.
 - **UNK-CAP-004** — Momento e magnitude de adoção de multi-tenant (organizações) é UNKNOWN em todos os estágios ≥ Stage 2 — capacity model não assume multi-tenant habilitado, mas a arquitetura deve permanecer pronta (NFR-020).
 - **UNK-CAP-005** — Taxas de retry/erro de OCR (10%) e LLM (20%) não medidas; podem ser subestimadas para documentos de baixa qualidade (fotos de celular), especialmente o retry de LLM que depende de disponibilidade de provedor externo.
-- **UNK-CAP-006** — SLO de drenagem para o cenário de pico extremo (1/5/60 min) não definido — decisão pendente para Fase 3/`slo.md`.
+- **UNK-CAP-006** — **FECHADO** (`slo.md` §3): SLO de drenagem do pico extremo definido em 5 minutos.
 - **UNK-CAP-007** — Retenção de logs (30 dias assumido) e política de amostragem/agregação não decididas — impacta diretamente o volume de storage de logs em todos os estágios.
 - **UNK-CAP-008** — Concorrência de varredura antimalware ("até 5/s") ainda não derivada estritamente do pico de uploads/min já calculado — a refinar na Fase 3 junto ao dimensionamento do pool de varredura.
 - **UNK-CAP-009** — Throughput/duração-alvo da execução de reconciliação diária (8M itens no Stage 5) não definido — depende da escolha de mecanismo de processamento em lote na Fase 3.
