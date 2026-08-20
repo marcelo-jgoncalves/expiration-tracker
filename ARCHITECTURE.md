@@ -45,7 +45,7 @@ Presigned upload → quarentena (2 buckets, GuardDuty) → CLEAN → OCR (Textra
 Fail-closed obrigatório (FR-043): confidence baixa/ausente, timeout, tipo desconhecido ou divergência entre extratores nunca aplicam valor automaticamente — gate G4. Step Functions Standard desde o Stage 1 para auditabilidade nativa.
 
 ## Security
-IAM least privilege (`ScopedLambdaFunction`), KMS, Secrets Manager, kill switch (AppConfig), WAF condicional, quarentena fail-closed, inbox de webhook anti-replay, optimistic concurrency contra corrida de dados — `docs/architecture/architecture-fase3-consolidada.md` §14, `docs/architecture/aws-well-architected-review.md` pilar 2. **Threat model formal (seção 33) ainda não produzido — risco Alta severidade registrado, próximo item recomendado.**
+IAM least privilege (`ScopedLambdaFunction`), KMS, Secrets Manager, kill switch (AppConfig), WAF condicional, quarentena fail-closed, inbox de webhook anti-replay, optimistic concurrency contra corrida de dados — `docs/architecture/architecture-fase3-consolidada.md` §14, `docs/architecture/aws-well-architected-review.md` pilar 2. **Threat model formal (seção 33) produzido e `APPROVED`** (`docs/architecture/threat-model.md`, Claude ~9.05 / Codex 9.002) — esta frase ficou desatualizada por uma sessão inteira depois da aprovação real (achado de auditoria, `docs/engineering/reviews/full-audit-round1-contexto-summary.md`); corrigida aqui, não é mais risco Alta em aberto.
 
 ## LGPD
 Mapa de dados pessoais, 8 classes de retenção (`retentionClass`/`legalHold`), state machine de exclusão, região AWS/transferência internacional sinalizada como bloqueante pré-produção — `docs/architecture/privacy-lgpd.md`. **Não substitui parecer jurídico.**
@@ -72,7 +72,7 @@ Domínio não bloqueia MCP futuro, mas "não bloquear" ≠ "pronto para implemen
 6 transições de estágio com gatilho numérico/operacional, custo estimado, risco e fases de migração (incluindo dual-write/backfill/cutover para Organizations e multi-region) — `docs/architecture/evolution.md`.
 
 ## Known Risks
-Ver tabela de severidade em `docs/architecture/aws-well-architected-review.md` — 2 riscos Alta (threat model ausente, custo de WhatsApp), 2 Média, 3 Baixa. Nenhum é surpresa desta revisão — todos já registrados em documentos-fonte.
+Ver tabela de severidade em `docs/architecture/aws-well-architected-review.md` — essa tabela foi escrita antes do threat model formal existir e ainda lista "threat model ausente" como 1 dos 2 riscos Alta originais; o threat model (seção 33) foi produzido e `APPROVED` depois (`docs/architecture/threat-model.md`), então esse risco específico está fechado — o registro na fonte (`aws-well-architected-review.md`) não foi atualizado retroativamente (achado de auditoria, `docs/engineering/reviews/full-audit-round1-contexto-summary.md`). Risco Alta restante da tabela original: custo de WhatsApp (produto, não arquitetura). 2 Média, 3 Baixa continuam válidos.
 
 ## Open Questions
 BSP WhatsApp (pricing real), modelo Bedrock específico, região AWS (bloqueante para LGPD), MFA obrigatório vs. opcional (UNK-006) — ver `requirements.md` seção 11 (Unknowns) para lista completa.
@@ -81,7 +81,7 @@ BSP WhatsApp (pricing real), modelo Bedrock específico, região AWS (bloqueante
 Ver `docs/architecture/adr/README.md` — 8 ADRs formais para decisões Type 1.
 
 ## Decision Log
-Ver `docs/architecture/decisions-log.md` — 26 decisões registradas (D-000 a D-025), todas com nota Claude/Codex e status.
+Ver `docs/architecture/decisions-log.md` — 29 decisões registradas (D-000 a D-028), todas com nota Claude/Codex e status.
 
 ---
 

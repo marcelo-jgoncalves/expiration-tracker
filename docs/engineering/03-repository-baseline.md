@@ -80,4 +80,4 @@ Comandos ainda não executados neste freeze (serão no Checkpoint 5/registrados 
 
 ## Workflows de CI
 
-`.github/workflows/ci.yml` presente (não auditado em detalhe neste documento — auditoria completa pertence ao Checkpoint 5). Descrito em `AGENTS.md` §6 como executando: typecheck, lint, test, validate-schemas, audit, SBOM (CycloneDX), actions pinadas por SHA. A verificar contra o arquivo real, não contra a descrição.
+`.github/workflows/ci.yml` presente (não auditado em detalhe neste documento — auditoria completa pertence ao Checkpoint 5). Descrito em `AGENTS.md` §7 (número de seção corrigido em auditoria posterior) como executando: typecheck, lint, test, validate-schemas, audit, SBOM (CycloneDX), actions pinadas por SHA. A verificar contra o arquivo real, não contra a descrição.
