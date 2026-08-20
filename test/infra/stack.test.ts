@@ -172,6 +172,17 @@ describe("ExpirationTrackerStack (M1 infra synth)", () => {
     expect(descriptions.some((d) => d.includes("falling behind producer"))).toBe(true);
   });
 
+  it("Full-audit round2 (Arquitetura, Cost & Resource Governance): a monthly cost budget is synthesized", () => {
+    const template = synthTemplate();
+    const budgets = template.findResources("AWS::Budgets::Budget");
+    const budgetIds = Object.keys(budgets);
+    expect(budgetIds.length).toBe(1);
+    const budgetProps = budgets[budgetIds[0] as string]?.Properties.Budget as { BudgetLimit: { Amount: number; Unit: string }; TimeUnit: string };
+    expect(budgetProps.TimeUnit).toBe("MONTHLY");
+    expect(budgetProps.BudgetLimit.Unit).toBe("USD");
+    expect(budgetProps.BudgetLimit.Amount).toBeGreaterThan(0);
+  });
+
   it("M3.5: exactly two EventBridge Scheduler schedules invoke ReminderReconciliation (CLAIMS every 5 min, DST daily), each with a distinct mode", () => {
     const template = synthTemplate();
     const schedules = template.findResources("AWS::Scheduler::Schedule");

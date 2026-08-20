@@ -14,11 +14,15 @@ import { ExpirationTrackerApi } from "./api.js";
 import { ReminderDispatchQueue } from "./reminder-queue.js";
 import { ReminderSchedule } from "./reminder-schedule.js";
 import { ReminderObservability } from "./reminder-observability.js";
+import { CostBudget } from "./cost-budget.js";
 
 export interface ExpirationTrackerStackProps extends StackProps {
   mfaPolicy?: MfaPolicy;
   /** M3.5 kill switch - see ReminderSchedule. Defaults to enabled. */
   schedulesEnabled?: boolean;
+  /** Full-audit round1/round2 (Cost & Resource Governance) - see CostBudget. */
+  monthlyBudgetUsd?: number;
+  budgetNotificationEmails?: string[];
 }
 
 const HANDLERS_DIR = "src/runtime/aws/handlers";
@@ -188,6 +192,14 @@ export class ExpirationTrackerStack extends Stack {
       dispatchOutboxRelay: this.dispatchOutboxRelay.function,
       outboxSweeper: this.outboxSweeper.function,
       dispatchQueue: this.dispatchQueue.queue,
+    });
+
+    // Full-audit round1/round2 (Arquitetura, Cost & Resource Governance): monthly cost
+    // ceiling alarm, complementing the structural cost choices already in place
+    // (on-demand DynamoDB, reservedConcurrentExecutions, SQS long polling).
+    new CostBudget(this, "CostBudget", {
+      monthlyLimitUsd: props.monthlyBudgetUsd,
+      notificationEmails: props.budgetNotificationEmails,
     });
   }
 }
