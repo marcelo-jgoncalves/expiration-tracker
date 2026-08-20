@@ -28,6 +28,10 @@ import notificationIntentCreatedV1 from "../../../schemas/events/notification-in
 import itemDueDateChangedV1 from "../../../schemas/events/item-due-date-changed.v1.json";
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
+import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
+import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
+import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
+import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -89,4 +93,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   itemDueDateChangedV1,
   notificationEmailDeliverV1,
   reminderDispatchV1,
+  createItemRequestV1,
+  updateItemRequestV1,
+  renewItemRequestV1,
+  putPolicyRequestV1,
 ]);

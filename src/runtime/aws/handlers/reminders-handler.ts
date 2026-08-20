@@ -17,9 +17,9 @@ import { toAppError, ValidationError } from "../../../shared/errors/app-error.js
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
-const { resolver } = buildIdentityDeps(client, tableName);
+const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { policies } = buildReminderHttpDeps(client, tableName);
-const deps: ReminderHttpDeps = { resolver, policies };
+const deps: ReminderHttpDeps = { resolver, policies, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   const claims = extractClaims(event);

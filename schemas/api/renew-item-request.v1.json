@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/renew-item-request.v1.json",
+  "title": "RenewItemRequest v1",
+  "description": "POST /items/{itemId}/renew request body (src/modules/expiration/domain/expiration-item.ts RenewItemInput).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["newDueDate"],
+  "properties": {
+    "newDueDate": { "type": "string", "format": "date-time" },
+    "cycle": { "type": "string", "maxLength": 100 }
+  }
+}
