@@ -80,6 +80,12 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
+      # aws_account_id is only used to build deterministic ARNs (dynamo-table/reminder-queue
+      # modules) so IAM policy documents are plan-time-known - derived here, never hardcoded.
+      - name: Resolve AWS account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
       - name: Terraform init (dev)
         run: |
           terraform init \
@@ -93,10 +99,10 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan (visible in the run log before anything changes)
-        run: terraform plan -input=false -var-file=env/dev.tfvars
+        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
 
       - name: Terraform apply (dev)
-        run: terraform apply -auto-approve -input=false -var-file=env/dev.tfvars
+        run: terraform apply -auto-approve -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
 
       - name: Get Terraform outputs
         id: tf

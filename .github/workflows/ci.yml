@@ -166,6 +166,13 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
           aws-region: us-east-1
 
+      # aws_account_id is only used to build deterministic ARNs (dynamo-table/reminder-queue
+      # modules) so IAM policy documents are plan-time-known - derived here, never hardcoded,
+      # so this workflow works unmodified if the target account ever changes.
+      - name: Resolve AWS account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
       - name: Terraform init (dev)
         run: |
           terraform init \
@@ -179,7 +186,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform test (recreates test/infra/stack.test.ts's assertions - see ADR-0009)
-        run: terraform test -var-file=env/dev.tfvars
+        run: terraform test -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
 
       - name: Terraform plan (dev) — never apply here
-        run: terraform plan -input=false -var-file=env/dev.tfvars -lock-timeout=60s
+        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}" -lock-timeout=60s
