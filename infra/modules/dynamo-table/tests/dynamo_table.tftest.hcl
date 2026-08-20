@@ -15,7 +15,7 @@ run "creates_one_table_with_six_gsis" {
   # command = apply here (not plan): with the mocked provider, the
   # global_secondary_index set's identity can't be resolved from an unapplied plan alone.
   # mock_provider means no real AWS resources are ever created — safe, same as `terraform
-  # test`'s other ephemeral ad-hoc plans (see infra-terraform task brief / repo safety rule).
+  # test`'s other ephemeral ad-hoc plans (see infra task brief / repo safety rule).
   command = apply
 
   variables {
