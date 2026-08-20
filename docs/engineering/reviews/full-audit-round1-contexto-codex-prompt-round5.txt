@@ -1,0 +1,20 @@
+Voce e o revisor independente Codex no protocolo de debate Claude<->Codex deste repositorio (AGENTS.md secao 4), continuando a rodada 5 (potencialmente final) da revisao do eixo "Engenharia de Contexto" (docs/engineering/joint-review-criteria.md). Branch develop, repositorio expiration-tracker.
+
+Na rodada 4 voce deu nota final ponderada 8,855/10, com 5 dos 9 criterios abaixo de 9.0 (numeros 4,5,6,7,9). Desde entao, duas correcoes reais foram aplicadas (commits f761791 e c984bed):
+
+1. Mojibake residual real (padrao "â€." que a checagem anterior nao cobria, so "Ã/Â") foi corrigido de verdade nos arquivos afetados - deteccao alargada e reaplicada. scripts/check-doc-drift.ts teve a docstring corrigida para nao citar texto ja substituido de AGENTS.md secao 6 como se fosse atual.
+2. 6 arquivos .md de docs/engineering/reviews/ que nao tinham frontmatter (status/owner/authority) ganharam - 3 propostas de convergencia de eixo (joint-review-criteria-round1-claude.md, remaining-axes-round1-claude.md, security-axis-criteria-round1-claude.md) e os 3 checkpoints da Engineering Maturity Review. docs/engineering/README.md agora declara explicitamente a politica de proveniencia: .md carregam frontmatter, .txt brutos herdam proveniencia do .md companheiro por convencao (decisao de design documentada, nao lacuna silenciosa).
+
+Tarefa: rode voce mesmo, de novo, sem confiar em nada da sessao anterior:
+- npm run check-docs
+- npm run typecheck
+- npm run lint
+- Verifique voce mesmo se ainda ha mojibake real (nao falso-positivo tipo string de regex ecoada em log) em pelo menos 4 arquivos de docs/engineering/reviews/*.txt e docs/architecture/reviews/m3.5-runtime-design/*.txt a sua escolha - procure padroes "Ã" ou "â€" seguidos de caractere nao-ASCII.
+- Leia docs/engineering/README.md e scripts/check-doc-drift.ts de verdade.
+- Confira se os 6 arquivos .md citados agora tem frontmatter.
+
+Releia os 9 criterios do eixo em docs/engineering/joint-review-criteria.md. Reavalie CADA UM dos 9 criterios. De uma nota cega nova (0-10, uma casa decimal, sem arredondar), com evidencia concreta arquivo:linha. Calcule a nota ponderada final.
+
+Esta pode ser a rodada final do eixo. Se restar algum criterio abaixo de 9.0, classifique honestamente como impedimento externo real, escopo maior nao feito, ou limite estrutural proporcional ja documentado (ex: o criterio 6, que so prova existencia de secao, nao correcao semantica - decisao consciente de nao construir NLP/revisao semantica automatica por desproporcionalidade). Nao arredonde 8.99 para 9, mas tambem nao invente achados nao-existentes so para manter alguma nota abaixo de 9 - se um criterio realmente atingiu o padrao, diga isso.
+
+Formato de saida: tabela criterio/peso/nota/evidencia + nota ponderada final + classificacao de qualquer criterio abaixo de 9.0.
