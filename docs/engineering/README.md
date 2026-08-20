@@ -41,6 +41,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `exceptions.md` | normativo atual (registro vivo) | Exceções/vulnerabilidades aceitas com owner e prazo |
 | `decisions-log.md` | decisão (log vivo) | Decisões de engenharia/processo, E-000 em diante |
 | `disagreement-log.md` | histórico/registro vivo | Divergências materiais Claude↔Codex e como foram resolvidas |
+| `ai-governance.md` | normativo atual (registro vivo) | Matriz de autoridade por agente, regra de quando `AGENTS.md` §4 pode ser dispensado, inventário de casos de uso de IA, registro de modelo/fornecedor, incidentes causados pelo próprio agente (distinto de `exceptions.md`) |
 | `01-engineering-quality-criteria.md` | histórico (CONGELADA) | Rubrica original de 12 critérios/gates G1-G6 da Engineering Maturity Review — antecessora conceitual de `joint-review-criteria.md`, não superseded formalmente mas escopo majoritariamente absorvido pelos 9 eixos |
 | `02-engineering-fitness-functions.md` | normativo atual | Verificações executáveis derivadas da rubrica CONGELADA |
 | `00-research-bibliography.md` | histórico/fundamentação | Fontes de pesquisa que embasam a rubrica original |
