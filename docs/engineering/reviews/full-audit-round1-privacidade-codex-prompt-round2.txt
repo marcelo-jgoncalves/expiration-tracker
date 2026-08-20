@@ -1,0 +1,11 @@
+Continuacao da avaliacao cega do eixo "Privacidade e Governanca de Dados" (docs/engineering/joint-review-criteria.md) no repositorio expiration-tracker. Na rodada 1 voce deu nota ponderada final 3,82/10, com criterio 1 (Inventario/Classificacao) 5,0 e criterio 6 (RIPD/Privacy by Design) 3,0 como os mais afetados por lacunas de documentacao (nao de codigo).
+
+Desde entao foram aplicados os seguintes point-fixes reais de documentacao (nenhum codigo de produto mudou - DSR endpoints e purge worker continuam nao implementados de proposito, fora de escopo desta sessao):
+
+1. docs/architecture/data-model.md secao 1: adicionado paragrafo "Status de implementacao" logo apos a frase que lista retentionClass/purgeAfter como atributo comum, deixando explicito que sao design-target ainda nao materializado em nenhuma entidade de src/, e que o GSI6 fisico esta restrito por IAM a ReminderReconciliation/OutboxSweeperReminderDispatch, sem papel de purge.
+
+2. docs/architecture/privacy-lgpd.md ganhou duas secoes novas:
+   - Secao 6 "Criterio objetivo de RIPD (PRIV-008)": lista 6 gatilhos concretos (primeiro tenant de producao, nova finalidade de dado sensivel/crianca/terceiro, novo subprocessador/regiao fora da allowlist, uso de IA/OCR sobre documento de titular antes de producao, incidente de seguranca/privacidade, mudanca relevante na matriz de retencao) que tornam RIPD obrigatorio, com decisao humana registrada em decisions-log.md a cada acionamento (mesmo que a conclusao seja "nao requer RIPD nesta versao").
+   - Secao 7 "Nota de status de implementacao": lista explicitamente o que esta implementado (redactor.ts, audit-event.ts) vs design-only (DataSubjectRequest/DSR endpoints, retentionClass/purgeAfter, allowlist/SCP de regiao), com classificacao escopo-maior vs impedimento-externo.
+
+Reavalie SOMENTE os criterios 1 e 6 (os demais nao foram tocados por codigo ou doc e devem permanecer como na rodada 1, a menos que voce discorde da nota original com base em nova leitura). De uma nova nota 0-10 para os criterios 1 e 6 com evidencia arquivo:linha das secoes novas, e recalcule a nota ponderada final do eixo usando as notas de R1 para os criterios 2,3,4,5,7,8 e as novas notas para 1 e 6. Responda em portugues, mostrando a conta.
