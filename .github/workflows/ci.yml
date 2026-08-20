@@ -67,6 +67,13 @@ jobs:
       - name: Validate JSON schemas
         run: npm run validate-schemas
 
+      - name: Check doc drift (broken links, stale AGENTS.md section refs)
+        # full-audit round1 (eixo Engenharia de Contexto, criterio "Auditabilidade &
+        # Enforcement"): manual review found 10+ broken AGENTS.md section references across
+        # three separate audit rounds before this check existed - deterministic enforcement,
+        # not relying on a 4th human pass to catch the next one.
+        run: npm run check-docs
+
       - name: Unit + contract tests
         run: npm test
 

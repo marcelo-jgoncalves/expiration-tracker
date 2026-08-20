@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:dynamodb": "vitest run --config vitest.dynamodb.config.ts",
-    "validate-schemas": "tsx scripts/validate-schemas.ts"
+    "validate-schemas": "tsx scripts/validate-schemas.ts",
+    "check-docs": "tsx scripts/check-doc-drift.ts"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.145",

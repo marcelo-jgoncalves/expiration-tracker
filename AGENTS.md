@@ -13,9 +13,10 @@ Princípios de engenharia, tiers de gate de qualidade, escala de risco que calib
 ## 2. Início de sessão
 
 1. Ler `NEXT_SESSION_PROMPT.md` (estado atual + próxima ação).
-2. Ler `docs/architecture/README.md` (mapa de fontes, status vigente, regra de precedência).
-3. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
-4. Não carregar todo `docs/architecture/history/` por padrão — é evidência histórica, consultar sob demanda.
+2. Ler `docs/architecture/README.md` (mapa de fontes de arquitetura/sistema, status vigente, regra de precedência).
+3. Se a tarefa envolver processo de qualidade/revisão (rubrica, protocolo Claude↔Codex, achados de auditoria por eixo), ler `docs/engineering/README.md` em vez de navegar `docs/engineering/` às cegas.
+4. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
+5. Não carregar todo `docs/architecture/history/` (nem `docs/engineering/reviews/`) por padrão — é evidência histórica, consultar sob demanda.
 
 ## 3. Estratégia de branch (padrão a partir de 2026-08-19)
 
@@ -46,7 +47,7 @@ Ao concluir uma fase/marco relevante (ex.: fim do Implementation Blueprint, fim 
 - Este `AGENTS.md` continua dentro do limite de tamanho (ver §8).
 - Fatos temporários foram removidos de `NEXT_SESSION_PROMPT.md` ou promovidos ao lugar correto.
 
-Não há automação disso ainda — é proporcional ao estágio (projeto sem código/CI real). Reavaliar automação (ex.: verificador de links, ou uma skill dedicada como a de um projeto irmão do mesmo usuário) quando: (a) existir CI real, ou (b) houver reincidência de link quebrado/drift documental.
+`npm run check-docs` (`scripts/check-doc-drift.ts`, bloqueante no CI desde full-audit round1/eixo Engenharia de Contexto) automatiza parte desta checklist: link relativo quebrado entre qualquer `.md` do repo, e referência `AGENTS.md §N` que não corresponde a um `## N.` real neste arquivo. Não cobre as checagens semânticas acima (status concordante entre documentos, `history/` tratado como normativo) — essas continuam manuais.
 
 ## 7. Código real (M0 em diante)
 
