@@ -29,6 +29,19 @@ export class InMemoryIdentityStore implements IdentityStore {
     this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
   }
 
+  async updateConditional<T extends EntityKey>(
+    item: T,
+    expected: { count: number; resetAt: string },
+  ): Promise<boolean> {
+    const k = this.k(item);
+    const stored = this.items.get(k) as (Record<string, unknown> & EntityKey) | undefined;
+    const currentCount = stored?.["count"];
+    const currentResetAt = stored?.["resetAt"];
+    if (currentCount !== expected.count || currentResetAt !== expected.resetAt) return false;
+    this.items.set(k, item as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
   /** Test-only helper to list raw keys, for cross-tenant leakage assertions. */
   allKeys(): string[] {
     return [...this.items.keys()];

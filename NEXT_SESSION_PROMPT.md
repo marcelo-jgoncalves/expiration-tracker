@@ -1,6 +1,39 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+## Status mais recente (2026-08-20 — leia isto primeiro, supera tudo abaixo)
+
+**Os 9 eixos formais do full-audit round1 (`docs/engineering/joint-review-criteria.md`) estão TODOS concluídos.** Resultado real (nota cega Claude↔Codex, `AGENTS.md` §4, sem arredondar):
+
+| Eixo | Nota final (mais baixa dos dois lados) | Gate ≥9.0? | Classificação do que falta |
+|---|---:|---|---|
+| Engenharia de Contexto | Claude 9,08 / Codex 9,09 | **Sim** (5 rodadas reais) | — fechado |
+| Arquitetura | ver `full-audit-round1-arquitetura-summary.md` | Não | acompanhar summary — achado real de cold-start corrigido |
+| Qualidade de Engenharia | ver `full-audit-round1-qualidade-summary.md` | Não | acompanhar summary |
+| Segurança da Informação e AppSec | ver `full-audit-round1-seguranca-summary.md` | Não | acompanhar summary |
+| Privacidade e Governança de Dados | ver `full-audit-round1-privacidade-summary.md` | Não | endpoints DSR/purge são escopo M4+ |
+| Operações/SRE e Continuidade | ver `full-audit-round1-operacoes-summary.md` | Não | acompanhar summary |
+| Governança de IA e Controles Internos | ver `full-audit-round1-governanca-ia-summary.md` | Não | acompanhar summary |
+| Governança Jurídica, Contratual e de Terceiros | Codex 5,015/10 | Não | 2/8 critérios são impedimento externo genuíno (parecer jurídico, DPA de fornecedor não contratado); os demais são escopo de produto/processo maior. 2 fixes reais aplicados nesta sessão (LICENSE + `docs/engineering/third-party-inventory.md`). |
+| Governança de Produto e Serviço Multi-tenant | Codex 4,65/10 | Não | 1 achado de concorrência real corrigido (`TenantQuotaService` tinha lost-update sob consumo concorrente — ver `full-audit-round1-produto-summary.md`); o resto é feature de produto ainda não construída (control plane de tenant, DSR/purge, ferramenta de suporte, métricas), consistente com o estágio pré-produção. |
+
+Só o eixo Contexto bateu o gate formal de 9.0 dos dois lados. Os outros 8 ficaram honestamente abaixo, cada achado remanescente classificado como impedimento externo real ou escopo maior — **não é falha do protocolo, é o resultado esperado de auditar um projeto pré-produção sem usuários reais, sem parecer jurídico contratado e sem frontend**: a maior parte das lacunas exige trabalho que não é ponto-fix de uma sessão de engenharia (feature de produto, contrato real, decisão de negócio). Não reabrir rodadas adicionais desses 8 eixos só para tentar empurrar a nota — só reabrir se houver achado NOVO e real, ou se o projeto avançar de estágio (ex. primeiro usuário real destrava reavaliar Privacidade/Jurídico/Produto).
+
+**Trabalho real aplicado nesta sessão além de nota/documentação** (não apenas avaliação):
+- `LICENSE` + `package.json` (`license: UNLICENSED`) — antes inexistentes.
+- `docs/engineering/third-party-inventory.md` — inventário versionado de fornecedores, novo.
+- **Bug de concorrência real corrigido**: `TenantQuotaService.consume()` (`src/modules/identity/application/quota.ts`) fazia read-modify-write sobre um `PutCommand` incondicional, permitindo lost-update sob consumo concorrente da mesma quota. Corrigido com `IdentityStore.updateConditional()` (CAS via `ConditionExpression`) + loop de retry limitado (20 tentativas). Teste de regressão novo prova a propriedade (25 chamadas concorrentes, `limit=10` → exatamente 10 passam). Suite: 137/137 (era 136/136), typecheck/lint/check-boundaries limpos.
+
+**Migração CDK→Terraform (ADR-0009) e primeiro deploy AWS real já concluídos numa sessão anterior a esta** (ver `docs/architecture/adr/ADR-0009-cdk-to-terraform-migration.md`, `infra-terraform/`, `.github/workflows/{ci,cd}.yml`) — CDK removido, 95 recursos reais provisionados na conta `975707451904`/`us-east-1` via pipeline (nunca `apply` local). As seções "Mudança de rumo em G8/deploy" e "Próxima ação obrigatória (histórico)" abaixo descrevem esse trabalho como pendente — **estão desatualizadas nesse ponto específico**, preservadas como histórico de como a decisão foi tomada, não como próximo passo.
+
+### Possíveis próximas ações reais (nenhuma delas obrigatória — julgamento do usuário)
+
+1. Retomar M4 (Notification Engine) — é o próximo marco estrutural de produto (`implementation-blueprint.md` §19), e resolveria diretamente vários achados abaixo do gate nos eixos Produto/Privacidade (endpoints DSR, control plane de tenant, ferramenta de suporte dependem de mais superfície HTTP/produto existir).
+2. Fechar os 2 fixes documentais restantes do eixo Jurídico que ainda são corrigíveis sem parecer jurídico (ex. matriz de responsabilidades regulatória, calendário de revisão) — impacto pequeno na nota, mas genuinamente ponto-fix.
+3. Se o usuário quiser badge/relatório consolidado do full-audit (nota por eixo, achados corrigidos, achados pendentes) num único documento novo — ainda não existe um `docs/engineering/reviews/full-audit-round1-CONSOLIDATED.md`, só os 9 summaries individuais.
+
+---
+
+## Próxima ação obrigatória (2026-08-19, superada pela seção acima quanto ao full-audit — preservada como histórico da decisão original)
 
 **A próxima sessão deve COMEÇAR (antes de qualquer outra coisa, inclusive antes de retomar G8/Camada 3 abaixo) rodando o processo formal de nota do protocolo Claude↔Codex (`AGENTS.md` §4) contra os 9 eixos já formalizados em `docs/engineering/joint-review-criteria.md`** (Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança/AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant — **não** o eixo FinOps, que segue deliberadamente sem critérios).
 

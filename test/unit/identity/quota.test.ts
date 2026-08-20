@@ -60,4 +60,20 @@ describe("TenantQuotaService", () => {
       quota.consume({ tenantId: "tenant-a", quotaType: "AI_CALL", window: "w1", limit: 100, windowSeconds: 60 }),
     ).rejects.toBeInstanceOf(QuotaExceededError);
   });
+
+  it("does not lose updates under concurrent consume() for the same tenant/quotaType (full-audit round1, eixo Produto, critério 3)", async () => {
+    const store = new InMemoryIdentityStore();
+    const quota = new TenantQuotaService(store);
+    const input = { tenantId: "tenant-a", quotaType: "API_REQUEST" as const, window: "w1", limit: 10, windowSeconds: 60 };
+
+    const results = await Promise.allSettled(Array.from({ length: 25 }, () => quota.consume(input)));
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const rejected = results.filter((r) => r.status === "rejected").length;
+
+    // The unconditional store.update() this replaced allowed concurrent readers to overwrite
+    // each other's increment, so more than `limit` requests could succeed (lost updates) - the
+    // fixed conditional write must let exactly `limit` through, never more.
+    expect(fulfilled).toBe(input.limit);
+    expect(rejected).toBe(25 - input.limit);
+  });
 });

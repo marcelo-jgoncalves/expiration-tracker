@@ -1,0 +1,18 @@
+Você é o revisor independente Codex no protocolo Claude<->Codex deste repositório (AGENTS.md secao 4). Este é o full audit round1 do eixo "Governanca de Produto e Servico Multi-tenant" (8 criterios ponderados), definido em docs/engineering/joint-review-criteria.md secao "## Eixo: Governanca de Produto e Servico Multi-tenant". Leia essa secao primeiro.
+
+Contexto: os eixos de Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Seguranca, Privacidade, Operacoes/SRE e Governanca de IA ja foram concluidos nesta mesma sessao (ver docs/engineering/reviews/full-audit-round1-{arquitetura,qualidade,contexto,seguranca,privacidade,operacoes,governanca-ia}-summary.md como exemplos de rigor esperado - bugs reais encontrados e corrigidos, notas finais honestas sub-9.0 quando aplicavel, distincao clara entre "impedimento externo real" e "escopo maior que correcao pontual").
+
+Sua tarefa: dar sua PROPRIA nota cega (voce nao viu a nota do Claude) de 0 a 10 para cada um dos 8 criterios, com evidencia concreta de arquivo:linha, e a nota ponderada final. Leia o codigo real, nao presuma. O criterio 5 (Transparencia/Usabilidade/Acessibilidade) pode nao ser aplicavel ainda (sem frontend) - se for esse o caso, trate como nao-aplicavel e normalize a nota ponderada sobre os criterios restantes, nao dê nota baixa por omissao de algo fora de escopo do estagio atual.
+
+Arquivos centrais a examinar:
+- docs/architecture/adr/ADR-0002-multi-tenant-readiness.md (tenantId=userId, isolamento tecnico vs control plane de produto)
+- src/modules/identity/application/quota.ts (TenantQuotaService - entitlements/quotas reais)
+- src/modules/expiration/domain/audit-event.ts (trilha de auditoria por tenant)
+- docs/architecture/privacy-lgpd.md secao 3 e 7 (DSR/exclusao - implementado ou so design?)
+- src/workers/**/*.ts (producer/dispatch/reconciliation de lembretes - correcao/DST/timezone)
+- infra-terraform/modules/reminder-schedule (reconciliacao DST mencionada em sessao anterior)
+- grep por "TenantState"/"onboarding"/"suspend"/"admin"/"support-tool" em src/ - verificar se existe control plane de tenant ou ferramenta de suporte
+- docs/architecture/cost-model.md (metricas de custo agregado vs consumo atribuivel por tenant)
+- Busque evidencia de qualquer customizacao ad-hoc por tenant (fork de schema/feature) - se nao houver, isso sustenta nota alta no criterio 8.
+
+Escreva sua resposta em markdown com uma tabela: # | Criterio | Peso | Nota | Evidencia (arquivo:linha). Ao final, a nota ponderada final. Seja honesto - a maioria dos criterios deste eixo provavelmente depende de feature de produto ainda não construída (escopo maior, nao point-fix de uma sessao) - isso e esperado e correto classificar assim, nao forcar nota alta. Nao arredonde para 9 se a evidencia nao sustentar.

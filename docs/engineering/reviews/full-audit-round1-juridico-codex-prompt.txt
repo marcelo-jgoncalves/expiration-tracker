@@ -1,0 +1,18 @@
+Você é o revisor independente Codex no protocolo Claude<->Codex deste repositório (AGENTS.md secao 4). Este é o full audit round1 do eixo "Governanca Juridica, Contratual e de Terceiros" (8 criterios ponderados), definido em docs/engineering/joint-review-criteria.md secao "## Eixo: Governanca Juridica, Contratual e de Terceiros". Leia essa secao primeiro.
+
+Contexto: os eixos de Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Seguranca, Privacidade, Operacoes/SRE e Governanca de IA ja foram concluidos nesta mesma sessao (ver docs/engineering/reviews/full-audit-round1-{arquitetura,qualidade,contexto,seguranca,privacidade,operacoes,governanca-ia}-summary.md como exemplos de rigor esperado). Nesta sessao (retomada apos pausa por limite de sessao da ferramenta), dois fixes reais ja foram aplicados ANTES desta rodada, especificamente para o criterio 3 (Licenciamento) e criterio 2 (Inventario) deste eixo:
+- LICENSE (raiz do repo, "All rights reserved" proprietario) + package.json ganhou "license": "UNLICENSED".
+- docs/engineering/third-party-inventory.md criado, inventario versionado de fornecedores com colunas fornecedor/servico/dados/criticidade/regiao/certificacao/lock-in/responsavel/DPA.
+
+Sua tarefa: dar sua PROPRIA nota cega (voce nao viu a nota do Claude) de 0 a 10 para cada um dos 8 criterios, com evidencia concreta de arquivo:linha, e a nota ponderada final. Leia os arquivos reais, nao presuma - inclusive verifique se os dois fixes acima sao reais e suficientes, ou se tem gap.
+
+Arquivos centrais a examinar:
+- docs/architecture/privacy-lgpd.md (secoes 5, 6, 7 - subprocessadores, RIPD, status de implementacao)
+- docs/engineering/third-party-inventory.md (novo, verificar se cobre o criterio 2 de verdade)
+- LICENSE, package.json (verificar se o fix do criterio 3 e real)
+- docs/architecture/decisions-log.md e docs/engineering/decisions-log.md (padrao de decisao-com-dono-e-gatilho, relevante para criterio 1 e 7)
+- docs/architecture/disaster-recovery.md, docs/architecture/evolution.md (relevante para criterio 8, continuidade/portabilidade)
+- docs/architecture/architecture-fase3-consolidada.md (linha ~102, itens abertos de troca de provedor)
+- Busque por qualquer Termos de Uso/Aviso de Privacidade voltado ao usuario final (criterio 4) - se nao existir, isso e gap real, nao hipotetico.
+
+Escreva sua resposta em markdown com uma tabela: # | Criterio | Peso | Nota | Evidencia (arquivo:linha). Ao final, a nota ponderada final (soma peso*nota). Seja honesto - se um criterio depende de parecer juridico real ou de fornecedor ainda nao contratado, isso e impedimento externo genuino (nota baixa correta, nao "desconto injusto"), mas se for algo que poderia ter sido documentado/corrigido nesta sessao e nao foi, aponte isso. Nao arredonde para 9 se a evidencia nao sustentar.

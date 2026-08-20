@@ -3,7 +3,7 @@
 ```text
 Rubrica de qualidade:     CONGELADA (01-engineering-quality-criteria.md)
 Fitness functions:        ativas (02-engineering-fitness-functions.md), enforcement real em CI
-Full-audit 9 eixos:       em andamento (ver NEXT_SESSION_PROMPT.md para o eixo/rodada atual)
+Full-audit 9 eixos:       CONCLUÍDO — 9/9 avaliados (ver NEXT_SESSION_PROMPT.md, só Contexto bateu o gate ≥9.0; os outros 8 ficaram honestamente abaixo, classificados)
 Last verified:            2026-08-20
 ```
 
