@@ -43,6 +43,11 @@ export interface NotificationAttempt extends EntityKey {
   completedAt?: string;
   lastProviderEventAt?: string;
   normalizedFailureCode?: string;
+  /** Set when status transitions to SUBMITTING - decideSendAction (email-delivery.ts) uses
+   * this to distinguish "another invocation is actively sending right now" (lease still
+   * valid, SKIP_IN_PROGRESS) from "a prior attempt crashed mid-send" (lease expired,
+   * RECONCILE_UNKNOWN - never resend blindly). Same lease concept as the outbox relay. */
+  leaseExpiresAt?: string;
   version: number;
   createdAt: string;
   updatedAt: string;

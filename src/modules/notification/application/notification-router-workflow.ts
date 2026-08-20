@@ -139,8 +139,33 @@ async function applyDecision(
   return applyRoutedDecision(deps, intent, decision, now);
 }
 
+/** Minimal shape applyStaleDecision needs - structurally satisfied by both
+ * NotificationRouterWorkflowDeps and EmailDeliveryWorkflowDeps, so the delivery worker (which
+ * also detects staleness, immediately before the external call) can reuse the exact same
+ * REPLACEMENT/CORRECTIVE construction logic instead of a second implementation. */
+export interface CorrectiveIntentDeps {
+  store: NotificationStore;
+  tableName: string;
+  newIntentId: () => string;
+}
+
+/** Exported for email-delivery-workflow.ts's own staleness check (design: "a mudança de
+ * versão pode acontecer entre o router e o delivery worker também"). Returns the
+ * corrective kind actually applied, alongside the same RouterWorkflowOutcome the router uses. */
+export async function applyStaleDeliveryDecision(
+  deps: CorrectiveIntentDeps,
+  intent: NotificationIntent,
+  correctiveKind: "REPLACEMENT" | "CORRECTIVE",
+  now: string,
+  currentItemVersion: number,
+  currentPolicyVersion: number,
+): Promise<{ correctiveKind: "REPLACEMENT" | "CORRECTIVE" }> {
+  await applyStaleDecision(deps, intent, correctiveKind, now, currentItemVersion, currentPolicyVersion);
+  return { correctiveKind };
+}
+
 async function applyStaleDecision(
-  deps: NotificationRouterWorkflowDeps,
+  deps: CorrectiveIntentDeps,
   intent: NotificationIntent,
   correctiveKind: "REPLACEMENT" | "CORRECTIVE",
   now: string,
@@ -329,6 +354,7 @@ function buildEmailOutboxRecord(intent: NotificationIntent, attempt: Notificatio
       deduplicationKey: `${intent.tenantId}|${intent.intentId}|EMAIL|${attempt.templateId}|${attempt.attemptNumber}`,
       data: {
         intentId: intent.intentId,
+        attemptId: attempt.attemptId,
         itemId: intent.itemId,
         expectedItemVersion: intent.itemVersion,
         channelId: "email-default",
