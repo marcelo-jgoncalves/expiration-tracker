@@ -16,3 +16,12 @@ mfa_policy        = "OPTIONAL"
 # 10-execution account can't spare. External impediment (AWS quota, not code) - revert to
 # true (or remove this line) once AWS raises the account's quota. See variables.tf.
 enable_reserved_concurrency = false
+
+# M4 (2026-08-20): placeholder pending the real SES sandbox identity verification spike
+# (docs/architecture/m4-notification-engine-design.md, item aberto do fechamento de rodada
+# 3) - safe as a placeholder because this value is never used by any Terraform resource
+# itself (SES identity verification is a manual, out-of-band step, not Terraform-managed
+# here); it only becomes the EmailDelivery Lambda's SES_FROM_ADDRESS env var, so a
+# `terraform plan`/`test` against this placeholder never actually attempts to send e-mail.
+# Update to the real verified address before EmailDelivery is exercised against live SES.
+ses_from_address = "noreply@example.com"
