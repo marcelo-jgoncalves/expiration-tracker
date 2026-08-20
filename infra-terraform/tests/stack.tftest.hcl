@@ -240,6 +240,14 @@ run "gsi3_has_keys_only_projection" {
 run "reserved_concurrency_matches_cdk_stack" {
   command = plan
 
+  # Forces enable_reserved_concurrency=true regardless of what env/dev.tfvars says, so this
+  # test keeps proving the CDK-parity design is correct even though the real dev account
+  # can't use it yet (its Lambda concurrency quota is only 10 - see variables.tf and
+  # env/dev.tfvars for the real finding from the first terraform apply, 2026-08-20).
+  variables {
+    enable_reserved_concurrency = true
+  }
+
   # infra/lib/expiration-tracker-stack.ts: producer=2, dispatch=10, reconciliation=1,
   # relay=2, sweeper=2.
   assert {

@@ -8,3 +8,11 @@ environment       = "dev"
 aws_region        = "us-east-1"
 schedules_enabled = true
 mfa_policy        = "OPTIONAL"
+
+# Real finding from the first `terraform apply` against this account (2026-08-20): the
+# claude-dev account's Lambda concurrent execution limit is only 10 total (new/unverified-
+# account default), so reserving the CDK-parity values (summing to 17) fails outright -
+# PutFunctionConcurrency requires the account to keep a minimum unreserved buffer that a
+# 10-execution account can't spare. External impediment (AWS quota, not code) - revert to
+# true (or remove this line) once AWS raises the account's quota. See variables.tf.
+enable_reserved_concurrency = false
