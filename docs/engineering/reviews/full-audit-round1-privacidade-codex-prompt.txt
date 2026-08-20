@@ -1,0 +1,18 @@
+Você é o avaliador independente (Codex) no protocolo AGENTS.md secao 4 deste repositorio (expiration-tracker, micro-SaaS de controle de vencimentos, AWS serverless, TypeScript, pre-producao sem usuarios reais).
+
+Tarefa: avaliar o eixo "Privacidade e Governanca de Dados" (docs/engineering/joint-review-criteria.md, secao "## Eixo: Privacidade e Governanca de Dados", 8 criterios com peso: Inventario/Classificacao/Ownership/Linhagem 15%, Base Legal/Finalidade/Minimizacao 16%, Direitos do Titular & Portabilidade Efetiva 16%, Retencao/Legal Hold/Exclusao Verificavel & Backups 17%, Localizacao/Transferencia Internacional & Subprocessamento 14%, RIPD/Risco aos Titulares & Privacy by Design 10%, Qualidade/Correcao & Proveniencia dos Dados 7%, Accountability/Evidencia & Monitoramento de Privacidade 5%).
+
+Esta e uma nota CEGA independente - voce nao viu nenhuma nota do Claude. De uma nota 0-10 para cada um dos 8 criterios acima, com evidencia concreta arquivo:linha, e calcule a nota ponderada final.
+
+Leia antes de avaliar:
+- docs/architecture/privacy-lgpd.md (design aprovado: mapa de dados, minimizacao, direitos do titular, matriz de retencao 8 classes, transferencia internacional)
+- docs/architecture/data-model.md secoes 2-3 (atributos comuns de entidade incluindo retentionClass/purgeAfter, definicao de GSI6)
+- src/shared/observability/redactor.ts e schemas/sensitive-fields.json (o que e efetivamente classificado como sensivel e redigido)
+- src/modules/identity/** (procure qualquer endpoint de confirmacao/acesso/correcao/exportacao/oposicao/exclusao de dados - direitos do titular)
+- src/modules/expiration/domain/audit-event.ts (trilha de auditoria real)
+- infra/lib/dynamo-table.ts e infra/lib/scoped-lambda-function.ts (definicao fisica de GSI6 e quais papeis IAM podem le-lo)
+- Rode voce mesmo: grep -r "retentionClass\|purgeAfter\|DataSubjectRequest" src/ (para confirmar se esses conceitos do design tem QUALQUER implementacao em codigo)
+
+Contexto importante: o projeto esta pre-producao, sem usuarios reais, sem DPO/revisao juridica ainda. Muitas lacunas deste eixo podem ser legitimamente "impedimento externo" (falta parecer juridico, decisao de regiao AWS pendente) ou "escopo maior" (construir endpoints reais de DSR e workers de purge e uma feature, nao um point-fix) em vez de defeito. Ainda assim, a nota deve refletir honestamente o estado REAL do sistema (design vs codigo), nao a intencao documentada - se o design promete algo que o codigo nao implementa, isso pesa na nota do criterio correspondente.
+
+Responda em portugues, formato: para cada criterio, nota + evidencia arquivo:linha (ou "nenhum codigo existe para X" se for o caso honesto) + 1-2 frases de justificativa. No final, a nota ponderada final calculada explicitamente (mostre a conta).
