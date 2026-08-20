@@ -1,22 +1,26 @@
 /**
- * Ajv-backed loader/validator for schemas/**. implementation-blueprint.md #6.3 requires
+ * Ajv-backed schema registry for schemas/**. implementation-blueprint.md #6.3 requires
  * "Schemas JSON ficam em schemas/, com testes de exemplos válidos e inválidos" - this is
- * the shared loader both production code (validating inbound SQS/webhook payloads per #6.2)
- * and tests use, so there's one source of truth for how $ref resolution / formats work.
+ * the shared validator both production code (validating inbound SQS/webhook payloads per
+ * #6.2) and tests use, so there's one source of truth for how $ref resolution / formats work.
  *
  * Judgment call: ajv + ajv-formats chosen for JSON Schema validation - the blueprint names
  * the schema format (JSON Schema under schemas/) but not a library; ajv is the de facto
  * standard, actively maintained, zero-install-script.
+ *
+ * This module deliberately has NO filesystem/`import.meta.url` access (full-audit
+ * round1/qualidade, 2026-08-19 - same bug class as the Redactor fix, commit 494f4e5):
+ * `import.meta.url` is empty under esbuild's "cjs" bundle format
+ * (infra/lib/scoped-lambda-function.ts's bundleEntry), and even unreachable code that
+ * references it still gets bundled and still trips esbuild's warning for every handler that
+ * imports anything from this file. Dynamic disk discovery (walking every file under
+ * schemas/, used by `npm run validate-schemas` and contract tests, never by a Lambda) lives
+ * in the separate `schema-registry-disk.ts` instead, which this file never imports.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
-// Statically imported schema modules for `defaultSchemaRegistry` (production runtime path -
-// see comment on that export below for why this list exists separately from the dynamic
-// directory walk used by `new SchemaRegistry()`).
+// Statically imported schema modules for `defaultSchemaRegistry` (production runtime path).
 import domainEventEnvelopeV1 from "../../../schemas/events/domain-event-envelope.v1.json";
 import commandEnvelopeV1 from "../../../schemas/queues/command-envelope.v1.json";
 import webhookInboxV1 from "../../../schemas/api/webhook-inbox.v1.json";
@@ -25,75 +29,24 @@ import itemDueDateChangedV1 from "../../../schemas/events/item-due-date-changed.
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
 
-function repoRoot(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, "../../../");
-}
-
-export function schemasDir(): string {
-  return path.join(repoRoot(), "schemas");
-}
-
-function walkJsonFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry);
-    const stat = statSync(full);
-    if (stat.isDirectory()) {
-      out.push(...walkJsonFiles(full));
-    } else if (entry.endsWith(".json")) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
   private readonly compiled = new Map<string, ValidateFunction>();
 
-  /**
-   * Two construction paths (full-audit round1/qualidade, 2026-08-19 - same class of bug as
-   * the Redactor fix in the Arquitetura axis, commit 494f4e5):
-   *  - `new SchemaRegistry()` (default, dynamic directory walk via `import.meta.url` +
-   *    `readdirSync`) - safe ONLY when running as real ESM under Node directly (tests via
-   *    Vitest, `npm run validate-schemas` via tsx). `import.meta.url` resolves correctly
-   *    there and picking up every file under schemas/ automatically (including ones not yet
-   *    wired into any handler) is exactly what "validate every schema" needs.
-   *  - `new SchemaRegistry(preloadedSchemas)` - explicit list of already-imported schema
-   *    objects, no filesystem/import.meta.url access at all. Required for any registry that
-   *    ends up inside a Lambda bundle (esbuild "cjs" output, `infra/lib/scoped-lambda-
-   *    function.ts`): `import.meta.url` is empty under cjs, which silently breaks
-   *    `repoRoot()`/`readdirSync()` at cold start - this is what `defaultSchemaRegistry`
-   *    (the one production handlers import) now uses.
-   */
-  constructor(preloadedSchemas?: object[]) {
+  /** Takes an explicit list of already-loaded schema objects - no filesystem access. Callers
+   * that need "every schema under schemas/" (CLI/tests) use
+   * `schema-registry-disk.ts#loadAllSchemasFromDisk()` instead of constructing this directly
+   * with an empty/missing list. */
+  constructor(schemas: object[]) {
     this.ajv = new Ajv2020({ strict: true, allErrors: true });
     addFormats(this.ajv);
-    if (preloadedSchemas) {
-      this.loadFromMemory(preloadedSchemas);
-    } else {
-      this.loadFromDisk(schemasDir());
-    }
-  }
-
-  private loadFromMemory(schemas: object[]): void {
+    // Two passes not needed here since all schemas are added before any compile() call below
+    // (compile is lazy, triggered by the first validate() per schemaId) - $ref between
+    // schemas resolves correctly regardless of list order.
     for (const schema of schemas) {
       const withId = schema as { $id?: string };
       if (withId.$id) {
         this.ajv.addSchema(schema, withId.$id);
-      }
-    }
-  }
-
-  private loadFromDisk(dir: string): void {
-    const files = walkJsonFiles(dir);
-    // Two passes: add all schemas by $id first (so $ref between files resolves),
-    // then compile.
-    for (const file of files) {
-      const schema = JSON.parse(readFileSync(file, "utf-8"));
-      if (schema.$id) {
-        this.ajv.addSchema(schema, schema.$id);
       }
     }
   }

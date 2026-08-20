@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SchemaRegistry } from "../../src/shared/contracts/schema-validator.js";
+import { loadAllSchemasFromDisk } from "../../src/shared/contracts/schema-registry-disk.js";
 
 describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () => {
-  const registry = new SchemaRegistry();
+  const registry = loadAllSchemasFromDisk();
 
   it("loads every schema under schemas/ without $ref resolution errors", () => {
-    expect(() => new SchemaRegistry()).not.toThrow();
+    expect(() => loadAllSchemasFromDisk()).not.toThrow();
   });
 
   it("accepts a valid domain event envelope", () => {
