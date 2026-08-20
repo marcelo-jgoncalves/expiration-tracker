@@ -45,7 +45,7 @@ Presigned upload → quarentena (2 buckets, GuardDuty) → CLEAN → OCR (Textra
 Fail-closed obrigatório (FR-043): confidence baixa/ausente, timeout, tipo desconhecido ou divergência entre extratores nunca aplicam valor automaticamente — gate G4. Step Functions Standard desde o Stage 1 para auditabilidade nativa.
 
 ## Security
-IAM least privilege (`ScopedLambdaFunction`), KMS, Secrets Manager, kill switch (AppConfig), WAF condicional, quarentena fail-closed, inbox de webhook anti-replay, optimistic concurrency contra corrida de dados — `docs/architecture/architecture-fase3-consolidada.md` §14, `docs/architecture/aws-well-architected-review.md` pilar 2. **Threat model formal (seção 33) ainda não produzido — risco Alta severidade registrado, próximo item recomendado.**
+IAM least privilege (`ScopedLambdaFunction`), KMS, Secrets Manager, kill switch (AppConfig), WAF condicional, quarentena fail-closed, inbox de webhook anti-replay, optimistic concurrency contra corrida de dados — `docs/architecture/architecture-fase3-consolidada.md` §14, `docs/architecture/aws-well-architected-review.md` pilar 2. **Threat model formal (seção 33) produzido e `APPROVED`** (`docs/architecture/threat-model.md`, Claude ~9.05 / Codex 9.002) — esta frase ficou desatualizada por uma sessão inteira depois da aprovação real (achado de auditoria, `docs/engineering/reviews/full-audit-round1-contexto-summary.md`); corrigida aqui, não é mais risco Alta em aberto.
 
 ## LGPD
 Mapa de dados pessoais, 8 classes de retenção (`retentionClass`/`legalHold`), state machine de exclusão, região AWS/transferência internacional sinalizada como bloqueante pré-produção — `docs/architecture/privacy-lgpd.md`. **Não substitui parecer jurídico.**
@@ -72,7 +72,7 @@ Domínio não bloqueia MCP futuro, mas "não bloquear" ≠ "pronto para implemen
 6 transições de estágio com gatilho numérico/operacional, custo estimado, risco e fases de migração (incluindo dual-write/backfill/cutover para Organizations e multi-region) — `docs/architecture/evolution.md`.
 
 ## Known Risks
-Ver tabela de severidade em `docs/architecture/aws-well-architected-review.md` — 2 riscos Alta (threat model ausente, custo de WhatsApp), 2 Média, 3 Baixa. Nenhum é surpresa desta revisão — todos já registrados em documentos-fonte.
+Ver tabela de severidade em `docs/architecture/aws-well-architected-review.md` — essa tabela foi escrita antes do threat model formal existir e originalmente listava "threat model ausente" como 1 dos 2 riscos Alta; o threat model (seção 33) foi produzido e `APPROVED` depois (`docs/architecture/threat-model.md`), então esse risco específico está fechado — a fonte (`aws-well-architected-review.md`) já reflete isso (linha marcada `FECHADO` na tabela e no parágrafo do pilar de Segurança), achado e corrigido na auditoria do eixo Engenharia de Contexto (`docs/engineering/reviews/full-audit-round1-contexto-summary.md`). Risco Alta restante da tabela original: custo de WhatsApp (produto, não arquitetura). 2 Média, 3 Baixa continuam válidos.
 
 ## Open Questions
 BSP WhatsApp (pricing real), modelo Bedrock específico, região AWS (bloqueante para LGPD), MFA obrigatório vs. opcional (UNK-006) — ver `requirements.md` seção 11 (Unknowns) para lista completa.
@@ -81,7 +81,7 @@ BSP WhatsApp (pricing real), modelo Bedrock específico, região AWS (bloqueante
 Ver `docs/architecture/adr/README.md` — 8 ADRs formais para decisões Type 1.
 
 ## Decision Log
-Ver `docs/architecture/decisions-log.md` — 26 decisões registradas (D-000 a D-025), todas com nota Claude/Codex e status.
+Ver `docs/architecture/decisions-log.md` — 30 decisões registradas (D-000 a D-029), todas com nota Claude/Codex e status.
 
 ---
 
@@ -113,7 +113,7 @@ ARCHITECTURE STATUS: NOT APPROVED
 
 Todos os 12 checkpoints de conteúdo pontuados (Fases 1-3, Red Team, Data Model, SLOs, DR, LGPD, Cost Model, MCP/Evolution/WAR, Threat Model, Implementation Blueprint) atingiram nota ≥9.0 de Claude e Codex independentemente, sem arredondamento, sob a rubrica (A) Design Maturity Score (`requirements.md` §13.1) — desenho coerente, rastreável a requisitos, com trade-offs e alternativas explicitados, ADRs materialmente relevantes fechados, Architecture Red Team executado, e — agora com o Implementation Blueprint — componentes/interfaces/eventos/ordem de deploy especificados a nível executável.
 
-A seção 62 do prompt mestre só admite dois valores para `ARCHITECTURE STATUS`: `APPROVED` ou `NOT APPROVED` — não existe um terceiro estado "pendente". `requirements.md` §13.1 é explícito: evidência indisponível **não recebe nota neutra**, equivale a nota insuficiente. Como a rubrica (B) — Operational Evidence, que exige sistema **construído e testado sob falha/carga** — nunca foi avaliada (nada foi implementado; o Implementation Blueprint, seção 60, já está aprovado, mas é design detalhado, não implementação), o valor correto e formalmente exigido continua `NOT APPROVED`. Isso não é uma reprovação de mérito — é o estado normativo correto de um sistema ainda não construído, e a distinção entre os dois status acima é o que preserva o rigor do processo em vez de escapar dele.
+A seção 62 do prompt mestre só admite dois valores para `ARCHITECTURE STATUS`: `APPROVED` ou `NOT APPROVED` — não existe um terceiro estado "pendente". `requirements.md` §13.1 é explícito: evidência indisponível **não recebe nota neutra**, equivale a nota insuficiente. Como a rubrica (B) — Operational Evidence, que exige sistema **construído e testado sob falha/carga** — nunca foi avaliada (implementação real existe desde então — M0-M3.5, ver `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` para o estado vigente de código — mas "construído" não é "testado sob falha/carga real"; este próprio documento, `ARCHITECTURE.md`, é o registro do checkpoint de design e não foi reescrito para acompanhar a implementação posterior), o valor correto e formalmente exigido continua `NOT APPROVED`. Isso não é uma reprovação de mérito — é o estado normativo correto de um sistema ainda não construído, e a distinção entre os dois status acima é o que preserva o rigor do processo em vez de escapar dele.
 
 ### Próximos passos (fora do escopo deste documento)
 1. Ratificar formalmente em `data-model.md` a exceção do GSI3 (chave global do scheduler) decidida em `implementation-blueprint.md` §9.2.

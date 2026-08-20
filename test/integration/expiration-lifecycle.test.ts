@@ -11,6 +11,7 @@ import { InMemoryExpirationStore, makeExpirationIdGenerator } from "../unit/expi
 import { IdentityMappingRepository } from "../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
+import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
 import { ExpirationService } from "../../src/modules/expiration/application/expiration-service.js";
 import {
   handleArchiveItem,
@@ -34,17 +35,18 @@ function claims(sub: string): ValidatedClaims {
 describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)", () => {
   let resolver: RequestContextResolver;
   let expirationStore: InMemoryExpirationStore;
-  let deps: { resolver: RequestContextResolver; expiration: ExpirationService };
+  let deps: { resolver: RequestContextResolver; expiration: ExpirationService; quota: TenantQuotaService };
 
   beforeEach(() => {
     const identityStore = new InMemoryIdentityStore();
     const mappings = new IdentityMappingRepository(identityStore);
     const users = new UserRepository(identityStore);
     resolver = new RequestContextResolver(mappings, users, makeIdGenerator());
+    const quota = new TenantQuotaService(identityStore);
 
     expirationStore = new InMemoryExpirationStore();
     const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator() });
-    deps = { resolver, expiration };
+    deps = { resolver, expiration, quota };
   });
 
   it("create -> read -> update (due-date change produces the outbox event) -> renew -> soft-delete, all via HTTP handlers, with an audit trail and no ReminderOccurrence/NotificationIntent writes anywhere", async () => {

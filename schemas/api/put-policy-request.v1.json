@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/put-policy-request.v1.json",
+  "title": "PutPolicyRequest v1",
+  "description": "POST /reminders/policies and PUT /reminders/policies/{policyId} request body (src/modules/reminder/domain/reminder-policy.ts PutPolicyInput).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope", "rule"],
+  "properties": {
+    "scope": { "enum": ["TEMPLATE", "ITEM"] },
+    "itemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "enabled": { "type": "boolean" },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "triggers", "timeZone", "channels"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "timeZone": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "triggers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["triggerId", "offsetIso", "localTime"],
+            "properties": {
+              "triggerId": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "offsetIso": { "type": "string", "minLength": 1, "maxLength": 20 },
+              "localTime": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+            }
+          }
+        },
+        "quietHours": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["startLocalTime", "endLocalTime"],
+          "properties": {
+            "startLocalTime": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+            "endLocalTime": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+          }
+        },
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "enum": ["EMAIL", "WHATSAPP"] }
+        },
+        "optOutChannels": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "enum": ["EMAIL", "WHATSAPP"] }
+        }
+      }
+    }
+  }
+}

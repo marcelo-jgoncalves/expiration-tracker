@@ -172,6 +172,10 @@ describe("ReminderMaterializer (implementation-blueprint.md §9.2)", () => {
       expect(cancelled.status).toBe("CANCELLED");
       expect(cancelled.GSI6PK).toBeUndefined();
       expect(cancelled.GSI6SK).toBeUndefined();
+      // Full-audit round1 (Arquitetura, Data Model & Consistency) fix: GSI3 pointer must
+      // also be removed on cancellation, not just GSI6 - see reminder-materializer.ts.
+      expect(cancelled.GSI3PK).toBeUndefined();
+      expect(cancelled.GSI3SK).toBeUndefined();
     });
   });
 });

@@ -401,16 +401,16 @@ src\modules\expiration\persistence\dynamodb-expiration-store.ts:13:export class 
 
  succeeded in 442ms:
 /**
- * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
+ * Reconciliation - implementation-blueprint.md §9.5, run as ONE job/Lambda serving TWO
  * purposes (per the task brief: "don't build two separate reconciliation paths"), both
- * documented in Â§9.3 point 4 ("claims expirados... via reconciliaÃ§Ã£o, mesmo job da Â§9.5")
- * and Â§9.5 itself (DST):
+ * documented in §9.3 point 4 ("claims expirados... via reconciliação, mesmo job da §9.5")
+ * and §9.5 itself (DST):
  *
  *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its
  *      `claimExpiresAt` (dispatch worker crashed/timed out before completing) reverts to
  *      SCHEDULED, conditionally, so the next producer tick's lookback window picks it up
  *      again;
- *  (b) DST-affected re-evaluation (Â§9.5 steps 1-6): for each (item, enabled policy) pair
+ *  (b) DST-affected re-evaluation (§9.5 steps 1-6): for each (item, enabled policy) pair
  *      in the reconciliation batch, recompute the expected schedule from the policy's
  *      IANA timeZone + rule against a `[now, now+7d]` window, compare to what's actually
  *      materialized, cancel divergent SCHEDULED occurrences and materialize missing ones
@@ -486,7 +486,7 @@ export async function reconcileExpiredClaims(
   return reverted;
 }
 
-/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (Â§9.5 steps 1-6). */
+/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (§9.5 steps 1-6). */
 export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],

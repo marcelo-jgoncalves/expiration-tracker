@@ -6,18 +6,20 @@ Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, ap�
 
 ## Começando
 
-Pré-requisitos: Node 20.x (fixado em `.nvmrc`), npm.
+Pré-requisitos: Node 20.x (fixado em `.nvmrc`), npm. Docker é necessário só para `npm run test:dynamodb` (Testcontainers sobe DynamoDB Local) — não é pré-requisito dos demais comandos.
 
 ```bash
 npm ci                  # install imutável (scripts de terceiros desabilitados via .npmrc)
 npm run typecheck       # TypeScript estrito
-npm run lint            # ESLint (max-warnings=0, inclui enforcement de boundaries de arquitetura)
+npm run lint            # ESLint (max-warnings=0) - feedback rápido de boundary só no caso de import direto, não autoritativo (ver check-boundaries)
+npm run check-boundaries # dependency-cruiser - enforcement AUTORITATIVO de boundary de arquitetura (grafo real, não só texto do import)
 npm test                # Vitest: unit + contract + integration + infra
+npm run test:dynamodb   # Vitest contra DynamoDB Local via Testcontainers (requer Docker) - não roda em `npm test`, job de CI separado (dynamodb-integration)
 npm run validate-schemas # valida schemas/ (JSON Schema via Ajv)
 npm run build           # compila para dist/
 ```
 
-Todos os comandos acima devem rodar limpos localmente antes de qualquer PR — são os mesmos que o CI executa (`.github/workflows/ci.yml`).
+Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado) devem rodar limpos localmente antes de qualquer PR — são os mesmos que o job `guardrails` do CI executa (`.github/workflows/ci.yml`).
 
 ## Estrutura do repositório
 
@@ -42,4 +44,4 @@ Leia `AGENTS.md` na raiz primeiro — é a fonte canônica de regras de processo
 - Toda escrita mutável usa os builders de `src/shared/dynamodb/occ.ts` (nunca `UpdateItem`/`PutItem` cru).
 - Eventos críticos usam o outbox transacional (`src/shared/outbox/outbox.ts`) na mesma `TransactWriteItems` do agregado.
 - `console.*` é proibido fora de `src/shared/observability/**` (ESLint `no-console`) — todo handler usa `SecureLogger`.
-- `domain/` de cada módulo não pode importar `infra/`, `aws-sdk`, ou internals de outro módulo — enforced por ESLint (`no-restricted-imports`), não só por convenção.
+- `domain/` de cada módulo não pode importar `infra/`, `aws-sdk`, ou internals de outro módulo — enforced pelo grafo real de imports via `dependency-cruiser` (`npm run check-boundaries`), não só por convenção; ESLint sozinho não pega import transitivo cross-módulo (ver `decisions-log.md`).

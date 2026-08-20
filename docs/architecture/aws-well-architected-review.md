@@ -11,7 +11,7 @@ Para cada pilar: pontos fortes (evidência concreta), **riscos identificados** (
 
 ## 2. Segurança
 **Forte**: IAM least privilege via `ScopedLambdaFunction`; KMS/Secrets Manager; quarentena de 2 buckets fail-closed; WAF condicional; kill switch; SEC-004 (prompt injection como dado); inbox de webhook anti-replay.
-**Risco (Alta)**: threat model formal (seção 33 do prompt mestre) **não foi produzido** — os controles acima cobrem ameaças específicas já identificadas ad-hoc (Red Team), mas não há uma varredura sistemática STRIDE ou equivalente contra a arquitetura completa. **Responsável**: Arquiteto-Chefe + Segundo Engenheiro (mesmo papel do processo Claude↔Codex). **Prazo**: antes do primeiro lançamento em produção pública — mais urgente que a maioria das lacunas deste documento, dado o peso de Segurança na fitness function (15%, o maior peso individual).
+**Risco (Alta) — FECHADO**: threat model formal (seção 33 do prompt mestre) foi produzido e `APPROVED` numa sessão posterior a esta revisão (`docs/architecture/threat-model.md`, Claude ~9.05 / Codex 9.002, STRIDE completo, 22 ameaças) — este parágrafo não foi atualizado quando isso aconteceu, achado e corrigido só na auditoria do eixo Engenharia de Contexto (`docs/engineering/reviews/full-audit-round1-contexto-summary.md`). Preservado abaixo como registro do risco original identificado nesta revisão, não como estado vigente.
 
 ## 3. Confiabilidade
 **Forte**: idempotência em toda operação crítica; optimistic concurrency control; outbox com sweeper; DLQ com SLA; reconciliação diária; RPO/RTO definidos com teste de restore como gate de produção.
@@ -36,7 +36,7 @@ Monólito modular em Lambda (não microsserviços prematuros); EventBridge+SQS c
 ## Resumo de riscos por severidade
 | Severidade | Risco | Responsável | Prazo |
 |---|---|---|---|
-| **Alta** | Threat model formal ausente | Arquiteto-Chefe + Segundo Engenheiro | Antes do lançamento público |
+| ~~Alta~~ **FECHADO** | ~~Threat model formal ausente~~ — produzido e `APPROVED` numa sessão posterior (`threat-model.md`) | Arquiteto-Chefe + Segundo Engenheiro | Concluído |
 | **Alta** | Custo de WhatsApp domina o modelo financeiro | Produto/negócio | Antes de habilitar WhatsApp |
 | **Média** | Runbooks não exercitados | Operações | Antes do primeiro deploy em produção |
 | **Média (aceita)** | Falha de região não coberta | — | Condicional a gatilho de `evolution.md` |

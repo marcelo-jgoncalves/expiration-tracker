@@ -21,7 +21,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 permissions:
@@ -66,6 +66,13 @@ jobs:
 
       - name: Validate JSON schemas
         run: npm run validate-schemas
+
+      - name: Check doc drift (broken links, stale AGENTS.md section refs)
+        # full-audit round1 (eixo Engenharia de Contexto, criterio "Auditabilidade &
+        # Enforcement"): manual review found 10+ broken AGENTS.md section references across
+        # three separate audit rounds before this check existed - deterministic enforcement,
+        # not relying on a 4th human pass to catch the next one.
+        run: npm run check-docs
 
       - name: Unit + contract tests
         run: npm test
@@ -114,3 +121,72 @@ jobs:
 
       - name: DynamoDB Local integration tests
         run: npm run test:dynamodb
+
+  # ADR-0009: CDK replaced by Terraform. Plan-only here (Tier A/every PR) - apply only
+  # happens in cd.yml on push to main, never in this workflow.
+  infra:
+    name: Validate Infra (Terraform)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for OIDC
+    defaults:
+      run:
+        working-directory: infra-terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install (immutable, scripts disabled)
+        run: npm ci
+
+      - name: Build Lambda bundles (terraform plan needs the zip artifacts to exist)
+        run: npm run build:lambdas
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Configure AWS credentials (OIDC, no persistent secret)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+          aws-region: us-east-1
+
+      # aws_account_id is only used to build deterministic ARNs (dynamo-table/reminder-queue
+      # modules) so IAM policy documents are plan-time-known - derived here, never hardcoded,
+      # so this workflow works unmodified if the target account ever changes.
+      - name: Resolve AWS account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform init (dev)
+        run: |
+          terraform init \
+            -backend-config="bucket=expiration-tracker-dev-tfstate" \
+            -backend-config="key=exptrk/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform test (recreates test/infra/stack.test.ts's assertions - see ADR-0009)
+        run: terraform test -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
+
+      - name: Terraform plan (dev) — never apply here
+        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}" -lock-timeout=60s

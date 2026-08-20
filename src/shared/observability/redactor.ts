@@ -6,8 +6,7 @@
  * events.
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import defaultSensitiveFieldsConfig from "../../../schemas/sensitive-fields.json";
 
 interface SensitiveFieldsConfig {
   redactedFieldNames: string[];
@@ -24,16 +23,21 @@ interface SensitiveFieldsConfig {
 const PLACEHOLDER_FALLBACK = "[REDACTED]";
 const TRUNCATED_SUFFIX = "…[TRUNCATED]";
 
-function resolveSchemaPath(): string {
-  // src/shared/observability -> repo root/schemas/sensitive-fields.json
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, "../../../schemas/sensitive-fields.json");
-}
-
+// Statically imported (not read via fs+import.meta.url at runtime): esbuild inlines JSON
+// imports as a JS object literal into the Lambda bundle at build time
+// (infra/lib/scoped-lambda-function.ts's bundleEntry), which fixes two real bugs found in
+// the M3.5 architecture review round 1: (1) `import.meta.url` is empty under the esbuild
+// "cjs" output format, so `fileURLToPath(import.meta.url)` used to throw at module load in
+// every real Lambda's cold start; (2) `schemas/` was never copied into the deployed bundle
+// (`lambda.Code.fromAsset(outDir)` only contains the bundled index.js), so even a fixed
+// path would have failed with ENOENT in AWS. Static import removes the runtime file
+// dependency entirely - the config travels inside the bundle like any other imported module.
 function loadConfig(explicitPath?: string): SensitiveFieldsConfig {
-  const configPath = explicitPath ?? resolveSchemaPath();
-  const raw = readFileSync(configPath, "utf-8");
-  return JSON.parse(raw) as SensitiveFieldsConfig;
+  if (explicitPath) {
+    const raw = readFileSync(explicitPath, "utf-8");
+    return JSON.parse(raw) as SensitiveFieldsConfig;
+  }
+  return defaultSensitiveFieldsConfig as SensitiveFieldsConfig;
 }
 
 export interface RedactorOptions {

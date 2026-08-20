@@ -1,3 +1,9 @@
+---
+status: historical
+owner: claude
+authority: evidence-round (not normative — Engineering Maturity Review checkpoint, superseded by full-audit round1)
+---
+
 # Checkpoints 2-9 — Claude Evaluation (Round 1)
 
 Avaliação as-is contra o commit baseline `154d6e0` (não modificar durante a primeira avaliação, Prompt Mestre §24). Evidência coletada via inspeção direta de código, execução real de comandos (`npm test`, `npm audit`, `gh api`, `gh run view`) e um agente Explore de inventário (`_explore-inventory.md` teria sido o output — preservado nesta conversa, resumo incorporado abaixo com citações).

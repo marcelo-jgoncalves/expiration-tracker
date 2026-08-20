@@ -74,10 +74,10 @@ Comandos ainda não executados neste freeze (serão no Checkpoint 5/registrados 
 
 - Node/npm: presentes (script executou).
 - `git`: presente.
-- `codex` CLI: uso obrigatório para revisão independente per `AGENTS.md` §3 — disponibilidade a confirmar no Checkpoint 1.
+- `codex` CLI: uso obrigatório para revisão independente per `AGENTS.md` §4 (número de seção corrigido em auditoria posterior; o conteúdo/decisão original congelada neste baseline não muda) — disponibilidade a confirmar no Checkpoint 1.
 - `aws-cdk` CLI: **não instalado** (achado de DevEx/CI — sintetização real de infraestrutura nunca foi exercitada fora de testes em memória).
 - OpenSSF Scorecard: disponibilidade a verificar quando necessário (Checkpoint 6/Prompt Mestre §53) — requer repositório público ou GH token; repo é privado, pode ser `NOT ENOUGH EVIDENCE`/bloqueio técnico a registrar honestamente, não simulado.
 
 ## Workflows de CI
 
-`.github/workflows/ci.yml` presente (não auditado em detalhe neste documento — auditoria completa pertence ao Checkpoint 5). Descrito em `AGENTS.md` §6 como executando: typecheck, lint, test, validate-schemas, audit, SBOM (CycloneDX), actions pinadas por SHA. A verificar contra o arquivo real, não contra a descrição.
+`.github/workflows/ci.yml` presente (não auditado em detalhe neste documento — auditoria completa pertence ao Checkpoint 5). Descrito em `AGENTS.md` §7 (número de seção corrigido em auditoria posterior) como executando: typecheck, lint, test, validate-schemas, audit, SBOM (CycloneDX), actions pinadas por SHA. A verificar contra o arquivo real, não contra a descrição.

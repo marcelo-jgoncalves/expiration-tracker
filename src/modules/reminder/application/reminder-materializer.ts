@@ -233,16 +233,19 @@ export class ReminderMaterializer {
               key: { PK: occurrence.PK, SK: occurrence.SK },
               tenantId: input.tenantId,
               expectedVersion: occurrence.version,
-              // GSI3PK/GSI3SK are intentionally left in place (occ.ts's builder is
-              // SET-only, no REMOVE) - the scheduler index keeps a stale pointer, but the
-              // producer's own SCHEDULED->CLAIMED condition (§9.3) will simply fail for a
-              // CANCELLED row, so it is skipped as a harmless no-op claim attempt, not a
-              // false trigger. Documented judgment call, see report. GSI6PK/GSI6SK (M3.5),
-              // unlike GSI3, ARE actively queried by reconciliation, so a stale
-              // WORKSTATE#DST_PENDING pointer on a CANCELLED occurrence would be a real bug
-              // (reconciliation would keep re-evaluating dead work) - removed here.
+              // Full-audit round1 (Arquitetura, Data Model & Consistency) fix: both GSI3 and
+              // GSI6 pointers are now removed on cancellation. Previously only GSI6 was
+              // removed (occ.ts's builder is SET-only; REMOVE support was added in M3.5 for
+              // GSI6 but never extended to GSI3) - the scheduler index kept a stale pointer.
+              // It was a harmless no-op in practice (the producer's SCHEDULED->CLAIMED
+              // condition simply fails for a CANCELLED row), but it left a real, unbounded
+              // data-consistency residue in the single-table's most sensitive index (GSI3 is
+              // the one index with a deliberate cross-tenant-shaped key, per data-model.md
+              // §3's isolation safeguard) with no cleanup mechanism ever proposed. Removing it
+              // here keeps GSI3 containing only live SCHEDULED/CLAIMED work, matching the
+              // invariant already enforced for GSI6.
               set: { status: "CANCELLED" },
-              remove: ["GSI6PK", "GSI6SK"],
+              remove: ["GSI3PK", "GSI3SK", "GSI6PK", "GSI6SK"],
             }),
           },
         ]);

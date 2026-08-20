@@ -1,3 +1,9 @@
+---
+status: historical
+owner: claude+codex
+authority: evidence-round (not normative — red team findings, informed G8 scoping)
+---
+
 # Checkpoint 12 — Engineering Red Team (Formal)
 
 2026-08-19. Passada formal e ampla (não só "o que mudou", como as passadas leves anteriores), cobrindo as 20 categorias do Prompt Mestre §28 sobre o sistema como um todo. Íntegra em `_codex-output-round1.txt`.

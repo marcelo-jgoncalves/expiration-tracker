@@ -8,7 +8,7 @@
  */
 import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
-import type { EntityKey, TransactPutEntry } from "../../../shared/dynamodb/occ.js";
+import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 
 export type AuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "RENEW" | "DELETE";
 
@@ -77,8 +77,8 @@ export function buildAuditEvent(input: BuildAuditEventInput): AuditEvent {
   };
 }
 
-/** Appends the AuditEvent's conditional Put entry to a caller-supplied TransactWriteItems array, same convention as outbox.ts's appendToTransaction. */
-export function appendAuditToTransaction(tx: TransactPutEntry[], tableName: string, event: AuditEvent): void {
+/** Appends the AuditEvent's conditional Put entry to a caller-supplied TransactWriteItems array, same convention as outbox.ts's appendToTransaction (accepts the full Put|Update union so callers don't need an unsafe cast for a mixed transaction). */
+export function appendAuditToTransaction(tx: TransactWriteEntry[], tableName: string, event: AuditEvent): void {
   tx.push({
     Put: {
       TableName: tableName,

@@ -13,11 +13,16 @@ import { ScopedLambdaFunction, tableAccessFor, queueAccessFor } from "./scoped-l
 import { ExpirationTrackerApi } from "./api.js";
 import { ReminderDispatchQueue } from "./reminder-queue.js";
 import { ReminderSchedule } from "./reminder-schedule.js";
+import { ReminderObservability } from "./reminder-observability.js";
+import { CostBudget } from "./cost-budget.js";
 
 export interface ExpirationTrackerStackProps extends StackProps {
   mfaPolicy?: MfaPolicy;
   /** M3.5 kill switch - see ReminderSchedule. Defaults to enabled. */
   schedulesEnabled?: boolean;
+  /** Full-audit round1/round2 (Cost & Resource Governance) - see CostBudget. */
+  monthlyBudgetUsd?: number;
+  budgetNotificationEmails?: string[];
 }
 
 const HANDLERS_DIR = "src/runtime/aws/handlers";
@@ -44,7 +49,7 @@ export class ExpirationTrackerStack extends Stack {
     const commonEnv = { TABLE_NAME: this.table.table.tableName };
 
     const testRouteHandler = new ScopedLambdaFunction(this, "TestPingHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/test-ping-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("IdentityMapping", "User", "TenantQuota")],
@@ -56,7 +61,7 @@ export class ExpirationTrackerStack extends Stack {
     // header comment) - never grantGsi3ReadTo, which stays reserved for M3's
     // ReminderProducer.
     const itemsHandler = new ScopedLambdaFunction(this, "ItemsHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/items-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("ExpirationItem", "AuditEvent", "OutboxEvent", "IdempotencyRecord")],
@@ -64,7 +69,7 @@ export class ExpirationTrackerStack extends Stack {
 
     // M3: policy CRUD is tenant-facing (HTTP), like ItemsHandler - table-level RW, no GSI3.
     this.remindersHandler = new ScopedLambdaFunction(this, "RemindersHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminders-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("ReminderPolicy", "ReminderOccurrence")],
@@ -82,7 +87,7 @@ export class ExpirationTrackerStack extends Stack {
     // itself never appears on any tenant-facing function (test/infra/reminder-engine.test.ts
     // asserts this at the synthesized-template level).
     this.reminderProducer = new ScopedLambdaFunction(this, "ReminderProducer", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-producer-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 2,
@@ -93,7 +98,7 @@ export class ExpirationTrackerStack extends Stack {
     // one TransactWriteItems - needs write access to occurrences/intents/outbox/idempotency
     // and read access to ExpirationItem/ReminderPolicy for the staleness check, never GSI3.
     this.reminderDispatch = new ScopedLambdaFunction(this, "ReminderDispatch", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-dispatch-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 10,
@@ -125,7 +130,7 @@ export class ExpirationTrackerStack extends Stack {
     // `mode` in the EventBridge Scheduler input. One of EXACTLY TWO roles granted
     // gsi6Read() (docs/architecture/m3.5-runtime-design.md) - never GSI3.
     this.reminderReconciliation = new ScopedLambdaFunction(this, "ReminderReconciliation", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-reconciliation-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 1,
@@ -139,7 +144,7 @@ export class ExpirationTrackerStack extends Stack {
     // M3.5: DispatchOutboxRelay - DynamoDB Streams (NEW_IMAGE) -> SQS, the durable link
     // between the producer's claim and the dispatch queue (§"Decisão central").
     this.dispatchOutboxRelay = new ScopedLambdaFunction(this, "DispatchOutboxRelay", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/dispatch-outbox-relay-handler.ts`,
       environment: { ...commonEnv, DISPATCH_QUEUE_URL: this.dispatchQueue.queue.queueUrl },
       reservedConcurrentExecutions: 2,
@@ -159,7 +164,7 @@ export class ExpirationTrackerStack extends Stack {
     // M3.5: OutboxSweeperReminderDispatch - the other of EXACTLY TWO roles granted
     // gsi6Read() (recovers publications the relay/Stream missed).
     this.outboxSweeper = new ScopedLambdaFunction(this, "OutboxSweeperReminderDispatch", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/outbox-sweeper-handler.ts`,
       environment: { ...commonEnv, DISPATCH_QUEUE_URL: this.dispatchQueue.queue.queueUrl },
       reservedConcurrentExecutions: 2,
@@ -176,6 +181,25 @@ export class ExpirationTrackerStack extends Stack {
       reminderReconciliation: this.reminderReconciliation.function,
       outboxSweeper: this.outboxSweeper.function,
       schedulesEnabled: props.schedulesEnabled,
+    });
+
+    // Full-audit round1 (Arquitetura, Observability & Operability): error/backlog alarms
+    // for the five async-pipeline functions, beyond the pre-existing DLQ age alarm alone.
+    new ReminderObservability(this, "ReminderObservability", {
+      reminderProducer: this.reminderProducer.function,
+      reminderDispatch: this.reminderDispatch.function,
+      reminderReconciliation: this.reminderReconciliation.function,
+      dispatchOutboxRelay: this.dispatchOutboxRelay.function,
+      outboxSweeper: this.outboxSweeper.function,
+      dispatchQueue: this.dispatchQueue.queue,
+    });
+
+    // Full-audit round1/round2 (Arquitetura, Cost & Resource Governance): monthly cost
+    // ceiling alarm, complementing the structural cost choices already in place
+    // (on-demand DynamoDB, reservedConcurrentExecutions, SQS long polling).
+    new CostBudget(this, "CostBudget", {
+      monthlyLimitUsd: props.monthlyBudgetUsd,
+      notificationEmails: props.budgetNotificationEmails,
     });
   }
 }

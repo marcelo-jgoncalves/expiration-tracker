@@ -44,31 +44,31 @@ exec
 exec
 "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content -LiteralPath NEXT_SESSION_PROMPT.md; Get-Content -LiteralPath docs/architecture/README.md' in C:\Users\Usuario\Desktop\projects\expiration-tracker
  succeeded in 287ms:
-# Expiration Tracker â€” Status e PrÃ³xima SessÃ£o
+# Expiration Tracker — Status e Próxima Sessão
 
-## PrÃ³xima aÃ§Ã£o obrigatÃ³ria (2026-08-19, mais recente â€” leia isto primeiro)
+## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
 
-Engineering Maturity Review concluÃ­da (checkpoints 0, 1, 2-9, 12; ver `ENGINEERING.md` na raiz para o relatÃ³rio completo). Veredito: `ENGINEERING FOUNDATION STATUS: NOT APPROVED`, bloqueador Ãºnico e conhecido: **G8 (recuperaÃ§Ã£o real de falha assÃ­ncrona)**.
+Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEERING.md` na raiz para o relatório completo). Veredito: `ENGINEERING FOUNDATION STATUS: NOT APPROVED`, bloqueador único e conhecido: **G8 (recuperação real de falha assíncrona)**.
 
-**DecisÃ£o do usuÃ¡rio (2026-08-19)**: tratar o fechamento pleno de G8 como **novo milestone dedicado** (mesma disciplina de M0-M3: pesquisa/design â†’ implementaÃ§Ã£o â†’ teste real â†’ revisÃ£o Claude+Codex), nÃ£o como remediaÃ§Ã£o de sessÃ£o. Escopo desse milestone, per `ENGINEERING.md` (seÃ§Ã£o "DecisÃ£o pendente: escopo de G8"):
+**Decisão do usuário (2026-08-19)**: tratar o fechamento pleno de G8 como **novo milestone dedicado** (mesma disciplina de M0-M3: pesquisa/design → implementação → teste real → revisão Claude+Codex), não como remediação de sessão. Escopo desse milestone, per `ENGINEERING.md` (seção "Decisão pendente: escopo de G8"):
 
-- Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real â€” hoje sÃ³ existem fakes em memÃ³ria para teste.
+- Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
-- Testes de fault injection contra esse runtime real (timeout de dependÃªncia, poison message, redrive).
+- Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
-Antes de comeÃ§ar esse milestone: ler `docs/engineering/reviews/checkpoint-12-redteam/summary.md` (red team formal jÃ¡ identificou 5 P1 relacionados: pipeline sem recuperaÃ§Ã£o, idempotÃªncia nÃ£o provada no limite do efeito externo, false-green CI, concorrÃªncia/estado obsoleto entre renew/cancel/materializaÃ§Ã£o/dispatch/reconciliation, blast radius cross-tenant do GSI3 via workers privilegiados) â€” usar como input de design, nÃ£o redescobrir do zero.
+Antes de começar esse milestone: ler `docs/engineering/reviews/checkpoint-12-redteam/summary.md` (red team formal já identificou 5 P1 relacionados: pipeline sem recuperação, idempotência não provada no limite do efeito externo, false-green CI, concorrência/estado obsoleto entre renew/cancel/materialização/dispatch/reconciliation, blast radius cross-tenant do GSI3 via workers privilegiados) — usar como input de design, não redescobrir do zero.
 
-Trabalho jÃ¡ feito nesta sessÃ£o de engenharia (nÃ£o repetir): CI real corrigido e confirmado verde em 5 execuÃ§Ãµes; branch `develop` estabelecida como padrÃ£o de trabalho (`AGENTS.md` Â§3), `main` protegida; `dependency-cruiser` como enforcement real de boundary (achou e corrigiu 2 violaÃ§Ãµes genuÃ­nas de arquitetura); testes de `reconciliation.ts`/`producer.ts` que nÃ£o existiam; tentativa de fechar a vulnerabilidade de devDependency (EX-001) via upgrade do Vitest foi revertida por quebrar CI real (bug upstream do npm, nÃ£o repetir sem verificar correÃ§Ã£o).
+Trabalho já feito nesta sessão de engenharia (não repetir): CI real corrigido e confirmado verde em 5 execuções; branch `develop` estabelecida como padrão de trabalho (`AGENTS.md` §3), `main` protegida; `dependency-cruiser` como enforcement real de boundary (achou e corrigiu 2 violações genuínas de arquitetura); testes de `reconciliation.ts`/`producer.ts` que não existiam; tentativa de fechar a vulnerabilidade de devDependency (EX-001) via upgrade do Vitest foi revertida por quebrar CI real (bug upstream do npm, não repetir sem verificar correção).
 
 ---
 
-**CorreÃ§Ã£o de 2026-08-19 (Engineering Maturity Review, Checkpoint 2-9)**: as seÃ§Ãµes abaixo (escritas ao longo das sessÃµes de M0-M3) afirmam "nada foi commitado" e citam contagens de teste por marco que, somadas, nÃ£o batem com a realidade medida agora. Estado real verificado por execuÃ§Ã£o: M0-M3 **jÃ¡ estÃ¡ commitado** num Ãºnico commit (`154d6e0`), e `npm test` roda **123 testes** no total (19 arquivos), nÃ£o a soma das contagens individuais citadas abaixo. As seÃ§Ãµes nÃ£o foram reescritas (preservadas como histÃ³rico de sessÃ£o), mas nÃ£o devem ser lidas como estado de commit/contagem de teste vigente â€” confiar em `git log`/`npm test` reais, nÃ£o nesses nÃºmeros. Ver `docs/engineering/03-repository-baseline.md` e `docs/engineering/reviews/checkpoint-02-09-consolidated/` para a anÃ¡lise completa desta divergÃªncia.
+**Correção de 2026-08-19 (Engineering Maturity Review, Checkpoint 2-9)**: as seções abaixo (escritas ao longo das sessões de M0-M3) afirmam "nada foi commitado" e citam contagens de teste por marco que, somadas, não batem com a realidade medida agora. Estado real verificado por execução: M0-M3 **já está commitado** num único commit (`154d6e0`), e `npm test` roda **123 testes** no total (19 arquivos), não a soma das contagens individuais citadas abaixo. As seções não foram reescritas (preservadas como histórico de sessão), mas não devem ser lidas como estado de commit/contagem de teste vigente — confiar em `git log`/`npm test` reais, não nesses números. Ver `docs/engineering/03-repository-baseline.md` e `docs/engineering/reviews/checkpoint-02-09-consolidated/` para a análise completa desta divergência.
 
-Projeto: micro-SaaS de controle de vencimentos/renovaÃ§Ãµes. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
+Projeto: micro-SaaS de controle de vencimentos/renovações. Pasta: `c:\Users\Usuario\Desktop\projects\expiration-tracker\`. Repo GitHub: `marcelo-jgoncalves/expiration-tracker` (privado).
 
-Mapa completo de documentaÃ§Ã£o, status vigente e regra de precedÃªncia: `docs/architecture/README.md`. Regras de processo e ferramentas: `AGENTS.md`. Log cronolÃ³gico de sessÃµes: `docs/architecture/session-log.md`.
+Mapa completo de documentação, status vigente e regra de precedência: `docs/architecture/README.md`. Regras de processo e ferramentas: `AGENTS.md`. Log cronológico de sessões: `docs/architecture/session-log.md`.
 
 ## Status atual
 
@@ -77,98 +77,98 @@ DESIGN MATURITY STATUS: APPROVED (arquitetura conceitual + Implementation Bluepr
 ARCHITECTURE STATUS: NOT APPROVED
 ```
 
-Todo o processo de design (Fases 0-3 do prompt mestre + os 14 entregÃ¡veis das seÃ§Ãµes 35-52 + threat model seÃ§Ã£o 33 + Implementation Blueprint seÃ§Ã£o 60) estÃ¡ completo e aprovado â€” ver `ARCHITECTURE.md` na raiz para o documento consolidado. `ARCHITECTURE STATUS: NOT APPROVED` Ã© o estado normativo correto atÃ© haver implementaÃ§Ã£o real testada sob falha/carga (rubrica B, `requirements.md` Â§13.1) â€” **nÃ£o Ã© reprovaÃ§Ã£o de mÃ©rito, e nÃ£o muda com a conclusÃ£o do blueprint**: o blueprint Ã© design detalhado, nÃ£o evidÃªncia operacional.
+Todo o processo de design (Fases 0-3 do prompt mestre + os 14 entregáveis das seções 35-52 + threat model seção 33 + Implementation Blueprint seção 60) está completo e aprovado — ver `ARCHITECTURE.md` na raiz para o documento consolidado. `ARCHITECTURE STATUS: NOT APPROVED` é o estado normativo correto até haver implementação real testada sob falha/carga (rubrica B, `requirements.md` §13.1) — **não é reprovação de mérito, e não muda com a conclusão do blueprint**: o blueprint é design detalhado, não evidência operacional.
 
-## ConcluÃ­do nesta sessÃ£o â€” Implementation Blueprint (seÃ§Ã£o 60) â€” APPROVED
+## Concluído nesta sessão — Implementation Blueprint (seção 60) — APPROVED
 
-`docs/architecture/implementation-blueprint.md`. Componentes/mÃ³dulos (Identity, Expiration, Reminder, Notification, Document, Audit + workers assÃ­ncronos), interfaces concretas, eventos/schemas reais (grounded em `data-model.md`), ordem de deploy, milestones M0-M7, critÃ©rios de aceite tÃ©cnicos por componente, e as 7 lacunas do `threat-model.md` incorporadas como requisito desde o inÃ­cio (nÃ£o apÃªndice). Processo: 2 propostas independentes (Claude/Codex) â†’ crÃ­tica cruzada (17 problemas reais encontrados, incluindo um erro tÃ©cnico presente nas duas propostas â€” chave do GSI3 do scheduler nÃ£o era consultÃ¡vel) â†’ convergÃªncia â†’ 5 rodadas de nota cega com correÃ§Ã£o pontual a cada achado (cabeÃ§alho prematuro, contradiÃ§Ã£o de kill switch, tabela incompleta, decisÃµes Type 1 nÃ£o propagadas Ã s seÃ§Ãµes operativas, mapeamento de estado da Step Functions incompleto). **Nota final: Claude 9.20 / Codex 9.2 (exato)** â€” ambos â‰¥9.0 sem arredondar, 8 rodadas totais, nenhum gate violado. DecisÃ£o Type 1 nova registrada: chave global do GSI3 (`GSI3PK=DUE#yyyyMMddHHmm#NN`, exceÃ§Ã£o documentada Ã  regra de toda chave comeÃ§ar por `TENANT#tenantId`) â€” a decisÃ£o estÃ¡ fechada no blueprint; falta sÃ³ o registro mecÃ¢nico em `data-model.md` (nÃ£o bloqueia implementaÃ§Ã£o).
+`docs/architecture/implementation-blueprint.md`. Componentes/módulos (Identity, Expiration, Reminder, Notification, Document, Audit + workers assíncronos), interfaces concretas, eventos/schemas reais (grounded em `data-model.md`), ordem de deploy, milestones M0-M7, critérios de aceite técnicos por componente, e as 7 lacunas do `threat-model.md` incorporadas como requisito desde o início (não apêndice). Processo: 2 propostas independentes (Claude/Codex) → crítica cruzada (17 problemas reais encontrados, incluindo um erro técnico presente nas duas propostas — chave do GSI3 do scheduler não era consultável) → convergência → 5 rodadas de nota cega com correção pontual a cada achado (cabeçalho prematuro, contradição de kill switch, tabela incompleta, decisões Type 1 não propagadas às seções operativas, mapeamento de estado da Step Functions incompleto). **Nota final: Claude 9.20 / Codex 9.2 (exato)** — ambos ≥9.0 sem arredondar, 8 rodadas totais, nenhum gate violado. Decisão Type 1 nova registrada: chave global do GSI3 (`GSI3PK=DUE#yyyyMMddHHmm#NN`, exceção documentada à regra de toda chave começar por `TENANT#tenantId`) — a decisão está fechada no blueprint; falta só o registro mecânico em `data-model.md` (não bloqueia implementação).
 
-## ConcluÃ­do nesta sessÃ£o â€” M0 "Guardrails e contratos" (implementation-blueprint.md Â§19)
+## Concluído nesta sessão — M0 "Guardrails e contratos" (implementation-blueprint.md §19)
 
-Todas as entregas de M0 implementadas e testadas (53 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): estrutura TypeScript (`src/shared/*`, alinhada a `implementation-blueprint.md` Â§2), schemas JSON (`schemas/{events,queues,api}` + `sensitive-fields.json`, validados via Ajv em `src/shared/contracts/schema-validator.ts`), `SecureLogger`+`Redactor` central (`src/shared/observability/`, corpus de teste com valores canÃ¡rio provando que nada vaza), configuraÃ§Ã£o tipada fail-fast (`src/shared/config/config.ts`), taxonomia de erro normalizada retryable/terminal (`src/shared/errors/app-error.ts`), idempotÃªncia via `PutItem attribute_not_exists(PK)` (`src/shared/idempotency/idempotency.ts`, chaves por operaÃ§Ã£o conforme `data-model.md` Â§4), OCC com `ConditionExpression: version=:expected` (`src/shared/dynamodb/occ.ts`, `data-model.md` Â§5), outbox transacional (`src/shared/outbox/outbox.ts`, shape de `implementation-blueprint.md` Â§5.3), pipeline supply-chain (`.github/workflows/ci.yml`: npm ci imutÃ¡vel, actions pinadas por SHA, SBOM CycloneDX, audit, gate de schema). `AGENTS.md` Â§6 atualizado com comandos/convenÃ§Ãµes. Nada foi commitado (working tree aberto para revisÃ£o).
+Todas as entregas de M0 implementadas e testadas (53 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): estrutura TypeScript (`src/shared/*`, alinhada a `implementation-blueprint.md` §2), schemas JSON (`schemas/{events,queues,api}` + `sensitive-fields.json`, validados via Ajv em `src/shared/contracts/schema-validator.ts`), `SecureLogger`+`Redactor` central (`src/shared/observability/`, corpus de teste com valores canário provando que nada vaza), configuração tipada fail-fast (`src/shared/config/config.ts`), taxonomia de erro normalizada retryable/terminal (`src/shared/errors/app-error.ts`), idempotência via `PutItem attribute_not_exists(PK)` (`src/shared/idempotency/idempotency.ts`, chaves por operação conforme `data-model.md` §4), OCC com `ConditionExpression: version=:expected` (`src/shared/dynamodb/occ.ts`, `data-model.md` §5), outbox transacional (`src/shared/outbox/outbox.ts`, shape de `implementation-blueprint.md` §5.3), pipeline supply-chain (`.github/workflows/ci.yml`: npm ci imutável, actions pinadas por SHA, SBOM CycloneDX, audit, gate de schema). `AGENTS.md` §6 atualizado com comandos/convenções. Nada foi commitado (working tree aberto para revisão).
 
-Judgment calls (blueprint estava silente): Ajv+ajv-formats para validaÃ§Ã£o de JSON Schema; Vitest como test runner; ESLint `no-console` (com exceÃ§Ã£o para `src/shared/observability/**`) como o mecanismo que faz "chamada direta a `console.*` falhar no lint" (`implementation-blueprint.md` Â§14.1); idempotÃªncia/OCC/outbox construÃ­dos como builders puros de parÃ¢metros DynamoDB (sem `@aws-sdk` ainda) para ficarem testÃ¡veis sem tabelas reais, que sÃ³ existem a partir de M1; SLSA/assinatura de artefato adiada para M1+ (nÃ£o hÃ¡ alvo de deploy ainda); SHAs de actions no CI pinados no momento da escrita â€” revisar antes do primeiro run real.
+Judgment calls (blueprint estava silente): Ajv+ajv-formats para validação de JSON Schema; Vitest como test runner; ESLint `no-console` (com exceção para `src/shared/observability/**`) como o mecanismo que faz "chamada direta a `console.*` falhar no lint" (`implementation-blueprint.md` §14.1); idempotência/OCC/outbox construídos como builders puros de parâmetros DynamoDB (sem `@aws-sdk` ainda) para ficarem testáveis sem tabelas reais, que só existem a partir de M1; SLSA/assinatura de artefato adiada para M1+ (não há alvo de deploy ainda); SHAs de actions no CI pinados no momento da escrita — revisar antes do primeiro run real.
 
-## ConcluÃ­do nesta sessÃ£o â€” M1 "Foundation, Identity e isolamento" (implementation-blueprint.md Â§19)
+## Concluído nesta sessão — M1 "Foundation, Identity e isolamento" (implementation-blueprint.md §19)
 
-Todas as entregas implementadas e testadas (89 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorizaÃ§Ã£o como cÃ³digo, `IdentityMapping`/`User`/`DeviceSession`/`TenantQuota` via portas SDK-agnÃ³sticas) e `infra/{lib,bin}` (`ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi` com a rota `GET /test/ping`). SuÃ­te cross-tenant negativa em `test/integration/cross-tenant.test.ts` (9 casos, exit criterion do marco) e synth de infra em `test/infra/stack.test.ts` (6 casos, via `aws-cdk-lib/assertions`, sem AWS CLI). Detalhe completo em `docs/architecture/session-log.md`.
+Todas as entregas implementadas e testadas (89 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorização como código, `IdentityMapping`/`User`/`DeviceSession`/`TenantQuota` via portas SDK-agnósticas) e `infra/{lib,bin}` (`ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi` com a rota `GET /test/ping`). Suíte cross-tenant negativa em `test/integration/cross-tenant.test.ts` (9 casos, exit criterion do marco) e synth de infra em `test/infra/stack.test.ts` (6 casos, via `aws-cdk-lib/assertions`, sem AWS CLI). Detalhe completo em `docs/architecture/session-log.md`.
 
-Judgment calls (blueprint silente ou pendÃªncia externa jÃ¡ conhecida): (1) MFA implementado como prop configurÃ¡vel (`OFF`/`OPTIONAL`/`REQUIRED`, default `OPTIONAL`) pois UNK-006 segue pendente de pesquisa externa â€” nÃ£o bloqueava M1; (2) CSP/CloudFront Response Headers Policy **nÃ£o implementado nesta sessÃ£o** â€” nÃ£o hÃ¡ distribuiÃ§Ã£o CloudFront/frontend ainda no repositÃ³rio, e o texto do blueprint (Â§4.2) coloca CSP no contexto do SPA estÃ¡tico servido por CloudFront; tratado como pertencente ao milestone que introduzir o frontend, nÃ£o forÃ§ado em M1 (revisar se essa leitura estiver errada); (3) sessÃ£o/revogaÃ§Ã£o modelada como campo `globalLogoutAfter` no item `User` + item filho `DeviceSession` (`TENANT#t#USER#u`/`SESSION#<deviceId>`) em vez de uma entidade `Session` de primeira classe â€” `data-model.md` nÃ£o define uma; (4) `ScopedLambdaFunction` mantÃ©m a lista de entidades por capability como metadado/documentaÃ§Ã£o, mas o IAM real concedido Ã© table-level (`grantReadWriteData`) â€” DynamoDB IAM nÃ£o expressa restriÃ§Ã£o por SK/entidade da forma que a sintaxe do blueprint sugere visualmente; per-entity IAM mais fino fica como follow-up; (5) `TenantQuota` implementado como janela fixa (fixed-window), nÃ£o sliding-window/leaky-bucket â€” mais simples e ainda satisfaz "decremento atÃ´mico, sem race condition" do `data-model.md`; (6) BFF de sessÃ£o (`/session/refresh`, `/session/logout`) **nÃ£o implementado como rota HTTP nesta sessÃ£o** â€” o Cognito client jÃ¡ estÃ¡ configurado para o padrÃ£o (client secret, tokens de vida curta), mas os endpoints do BFF em si ficam para quando a Expiration/Notification API skeleton crescer alÃ©m da rota de teste; revisar se isso deveria ter sido parte do exit criterion. `cdk synth` real via CLI nÃ£o foi executado (o pacote `aws-cdk` CLI nÃ£o estÃ¡ instalado, sÃ³ a lib `aws-cdk-lib`); a sintetizaÃ§Ã£o foi verificada programaticamente via `Template.fromStack` nos testes, que Ã© equivalente para fins de validaÃ§Ã£o estÃ¡tica.
+Judgment calls (blueprint silente ou pendência externa já conhecida): (1) MFA implementado como prop configurável (`OFF`/`OPTIONAL`/`REQUIRED`, default `OPTIONAL`) pois UNK-006 segue pendente de pesquisa externa — não bloqueava M1; (2) CSP/CloudFront Response Headers Policy **não implementado nesta sessão** — não há distribuição CloudFront/frontend ainda no repositório, e o texto do blueprint (§4.2) coloca CSP no contexto do SPA estático servido por CloudFront; tratado como pertencente ao milestone que introduzir o frontend, não forçado em M1 (revisar se essa leitura estiver errada); (3) sessão/revogação modelada como campo `globalLogoutAfter` no item `User` + item filho `DeviceSession` (`TENANT#t#USER#u`/`SESSION#<deviceId>`) em vez de uma entidade `Session` de primeira classe — `data-model.md` não define uma; (4) `ScopedLambdaFunction` mantém a lista de entidades por capability como metadado/documentação, mas o IAM real concedido é table-level (`grantReadWriteData`) — DynamoDB IAM não expressa restrição por SK/entidade da forma que a sintaxe do blueprint sugere visualmente; per-entity IAM mais fino fica como follow-up; (5) `TenantQuota` implementado como janela fixa (fixed-window), não sliding-window/leaky-bucket — mais simples e ainda satisfaz "decremento atômico, sem race condition" do `data-model.md`; (6) BFF de sessão (`/session/refresh`, `/session/logout`) **não implementado como rota HTTP nesta sessão** — o Cognito client já está configurado para o padrão (client secret, tokens de vida curta), mas os endpoints do BFF em si ficam para quando a Expiration/Notification API skeleton crescer além da rota de teste; revisar se isso deveria ter sido parte do exit criterion. `cdk synth` real via CLI não foi executado (o pacote `aws-cdk` CLI não está instalado, só a lib `aws-cdk-lib`); a sintetização foi verificada programaticamente via `Template.fromStack` nos testes, que é equivalente para fins de validação estática.
 
-## ConcluÃ­do nesta sessÃ£o â€” M2 "Expiration core e Audit" (implementation-blueprint.md Â§19)
+## Concluído nesta sessão — M2 "Expiration core e Audit" (implementation-blueprint.md §19)
 
-Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` â€” CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutaÃ§Ã£o na mesma transaÃ§Ã£o, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; Ã© idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). SuÃ­te de integraÃ§Ã£o `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.
+Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` — CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutação na mesma transação, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; é idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). Suíte de integração `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.
 
-Judgment calls (blueprint silente): (1) evento `ItemDueDateChanged` segue exatamente o schema jÃ¡ existente desde M0 (`schemas/events/item-due-date-changed.v1.json`: `itemId`/`previousDueDate`/`newDueDate`/`itemVersion`, `additionalProperties: false`) em vez do exemplo mais rico do texto do blueprint Â§8.3 (que inclui `timeZone`/`reminderPolicyId`/`changeReason`) â€” o schema jÃ¡ testado/versionado Ã© a fonte de verdade de contrato per `AGENTS.md` Â§6, o exemplo em prosa nÃ£o; campos adicionais ficam para quando M3 (Reminder) precisar deles, exigindo `.v2` aditivo; (2) `renewItem` tambÃ©m dispara `ItemDueDateChanged` (para o item novo, `previousDueDate: null`) â€” o blueprint sÃ³ descreve esse evento no contexto de `updateItem`, mas renovaÃ§Ã£o tambÃ©m Ã© uma "mudanÃ§a de vencimento" do ponto de vista do futuro `ReminderProducer` (M3), e a alternativa (renovaÃ§Ã£o silenciosa) deixaria o dashboard/scheduler sem sinal de que um novo item precisa de agendamento; (3) `archiveItem` usa a aÃ§Ã£o de autorizaÃ§Ã£o `item:update` (nÃ£o uma aÃ§Ã£o dedicada â€” a matriz de M1 nÃ£o define uma para archive) enquanto `deleteItem` usa `item:delete` (ADMIN_ROLES), seguindo a granularidade que jÃ¡ existe; (4) idempotÃªncia de renovaÃ§Ã£o aceita uma `idempotencyKey` explÃ­cita do chamador (header `Idempotency-Key`) com fallback determinÃ­stico `itemId|expectedVersion|cycle` quando ausente, jÃ¡ que o blueprint define a CHAVE de dedupe mas nÃ£o de onde ela vem por HTTP; (5) `ExpirationStore.transactWrite` foi adicionado ao port (nÃ£o existe em `IdentityStore`) porque nenhuma escrita de M1 precisava de `TransactWriteItems` multi-item â€” a fake em memÃ³ria (`test/unit/expiration/in-memory-store.ts`) sÃ³ entende as duas formas exatas de `ConditionExpression` que este cÃ³digo produz (mesma limitaÃ§Ã£o documentada, mesmo espÃ­rito de `InMemoryIdentityStore`).
+Judgment calls (blueprint silente): (1) evento `ItemDueDateChanged` segue exatamente o schema já existente desde M0 (`schemas/events/item-due-date-changed.v1.json`: `itemId`/`previousDueDate`/`newDueDate`/`itemVersion`, `additionalProperties: false`) em vez do exemplo mais rico do texto do blueprint §8.3 (que inclui `timeZone`/`reminderPolicyId`/`changeReason`) — o schema já testado/versionado é a fonte de verdade de contrato per `AGENTS.md` §6, o exemplo em prosa não; campos adicionais ficam para quando M3 (Reminder) precisar deles, exigindo `.v2` aditivo; (2) `renewItem` também dispara `ItemDueDateChanged` (para o item novo, `previousDueDate: null`) — o blueprint só descreve esse evento no contexto de `updateItem`, mas renovação também é uma "mudança de vencimento" do ponto de vista do futuro `ReminderProducer` (M3), e a alternativa (renovação silenciosa) deixaria o dashboard/scheduler sem sinal de que um novo item precisa de agendamento; (3) `archiveItem` usa a ação de autorização `item:update` (não uma ação dedicada — a matriz de M1 não define uma para archive) enquanto `deleteItem` usa `item:delete` (ADMIN_ROLES), seguindo a granularidade que já existe; (4) idempotência de renovação aceita uma `idempotencyKey` explícita do chamador (header `Idempotency-Key`) com fallback determinístico `itemId|expectedVersion|cycle` quando ausente, já que o blueprint define a CHAVE de dedupe mas não de onde ela vem por HTTP; (5) `ExpirationStore.transactWrite` foi adicionado ao port (não existe em `IdentityStore`) porque nenhuma escrita de M1 precisava de `TransactWriteItems` multi-item — a fake em memória (`test/unit/expiration/in-memory-store.ts`) só entende as duas formas exatas de `ConditionExpression` que este código produz (mesma limitação documentada, mesmo espírito de `InMemoryIdentityStore`).
 
-## ConcluÃ­do nesta sessÃ£o â€” M3 "Reminder Engine" (implementation-blueprint.md Â§19)
+## Concluído nesta sessão — M3 "Reminder Engine" (implementation-blueprint.md §19)
 
-Todas as entregas implementadas e testadas (123 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/reminder/{domain,application,ports,http}` (policies CRUD, `ReminderMaterializer` com conversÃ£o localâ†’UTC IANA-aware â€” DST tratado explicitamente, horÃ¡rio inexistente e ambÃ­guo â€” reagindo a `ItemDueDateChanged` via `cancelStaleOccurrences`) e `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lÃ³gica pura testÃ¡vel com relÃ³gio falso). GSI3 com shard versionado (`shardFnVersion`) e producer com janela de lookback `[M-5min, M]`; dispatch faz `CLAIMEDâ†’TRIGGERED`+`NotificationIntent`+outbox numa Ãºnica transaÃ§Ã£o; reconciliaÃ§Ã£o Ã© um Ãºnico job (claim-expiry + DST). Exit criterion provado end-to-end em `test/integration/reminder-engine.test.ts`. **Bug real de infraestrutura corrigido**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluÃ­am `<tableArn>/index/*`, vazando `dynamodb:Query` no GSI3 para QUALQUER funÃ§Ã£o da tabela (inclusive as tenant-facing de M1/M2) â€” a salvaguarda de isolamento documentada desde M1 nunca foi de fato aplicada. Corrigido em `infra/lib/dynamo-table.ts` com `PolicyStatement`s explÃ­citos; teste de isolamento novo em `test/infra/stack.test.ts` prova via CDK synth que sÃ³ `ReminderProducer` referencia `/index/GSI3`. Detalhe completo em `docs/architecture/session-log.md`.
+Todas as entregas implementadas e testadas (123 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/reminder/{domain,application,ports,http}` (policies CRUD, `ReminderMaterializer` com conversão local→UTC IANA-aware — DST tratado explicitamente, horário inexistente e ambíguo — reagindo a `ItemDueDateChanged` via `cancelStaleOccurrences`) e `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lógica pura testável com relógio falso). GSI3 com shard versionado (`shardFnVersion`) e producer com janela de lookback `[M-5min, M]`; dispatch faz `CLAIMED→TRIGGERED`+`NotificationIntent`+outbox numa única transação; reconciliação é um único job (claim-expiry + DST). Exit criterion provado end-to-end em `test/integration/reminder-engine.test.ts`. **Bug real de infraestrutura corrigido**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluíam `<tableArn>/index/*`, vazando `dynamodb:Query` no GSI3 para QUALQUER função da tabela (inclusive as tenant-facing de M1/M2) — a salvaguarda de isolamento documentada desde M1 nunca foi de fato aplicada. Corrigido em `infra/lib/dynamo-table.ts` com `PolicyStatement`s explícitos; teste de isolamento novo em `test/infra/stack.test.ts` prova via CDK synth que só `ReminderProducer` referencia `/index/GSI3`. Detalhe completo em `docs/architecture/session-log.md`.
 
-Judgment calls (blueprint silente): (1) `occurrenceId` derivado deterministicamente (hash da chave de idempotÃªncia de data-model.md Â§4) em vez de UUID + registro `IdempotencyStore` separado â€” o prÃ³prio `putIfAbsent` condicional jÃ¡ garante a idempotÃªncia de materializaÃ§Ã£o, mesmo padrÃ£o que data-model.md documenta para `WebhookInbox`; (2) cancelamento de ocorrÃªncia stale nÃ£o remove `GSI3PK`/`GSI3SK` (o builder de `occ.ts` Ã© SET-only, sem REMOVE) â€” deixa um ponteiro Ã³rfÃ£o no Ã­ndice, mas o `Query` condicional `SCHEDULEDâ†’CLAIMED` do producer falha sobre ele de forma inofensiva; (3) tolerÃ¢ncia de dispatch (`toleranceMs`, default 30min) e TTL de claim (default 2min) nÃ£o estÃ£o fixados no blueprint â€” valores razoÃ¡veis documentados no cÃ³digo, revisar contra dados reais de produÃ§Ã£o; (4) reconciliaÃ§Ã£o DST/claim-expiry recebe os candidatos como parÃ¢metro (batch) em vez de fazer sua prÃ³pria varredura via GSI6 â€” a wiring desse Ã­ndice de "polÃ­ticas ativas"/"claims expirados" real fica como follow-up de infra, o mecanismo de reconciliaÃ§Ã£o em si (o que a tarefa pediu) estÃ¡ implementado e testado; (5) Lambda handlers reais (bundling com `@aws-sdk`) nÃ£o foram escritos â€” mesmo estÃ¡gio que M0-M2, CDK usa cÃ³digo inline placeholder via `ScopedLambdaFunction`; a lÃ³gica testÃ¡vel Ã© o entregÃ¡vel real desta fase, igual Ã s anteriores.
+Judgment calls (blueprint silente): (1) `occurrenceId` derivado deterministicamente (hash da chave de idempotência de data-model.md §4) em vez de UUID + registro `IdempotencyStore` separado — o próprio `putIfAbsent` condicional já garante a idempotência de materialização, mesmo padrão que data-model.md documenta para `WebhookInbox`; (2) cancelamento de ocorrência stale não remove `GSI3PK`/`GSI3SK` (o builder de `occ.ts` é SET-only, sem REMOVE) — deixa um ponteiro órfão no índice, mas o `Query` condicional `SCHEDULED→CLAIMED` do producer falha sobre ele de forma inofensiva; (3) tolerância de dispatch (`toleranceMs`, default 30min) e TTL de claim (default 2min) não estão fixados no blueprint — valores razoáveis documentados no código, revisar contra dados reais de produção; (4) reconciliação DST/claim-expiry recebe os candidatos como parâmetro (batch) em vez de fazer sua própria varredura via GSI6 — a wiring desse índice de "políticas ativas"/"claims expirados" real fica como follow-up de infra, o mecanismo de reconciliação em si (o que a tarefa pediu) está implementado e testado; (5) Lambda handlers reais (bundling com `@aws-sdk`) não foram escritos — mesmo estágio que M0-M2, CDK usa código inline placeholder via `ScopedLambdaFunction`; a lógica testável é o entregável real desta fase, igual às anteriores.
 
-## PrÃ³xima aÃ§Ã£o obrigatÃ³ria (histÃ³rico â€” superada pela seÃ§Ã£o do topo)
+## Próxima ação obrigatória (histórico — superada pela seção do topo)
 
-**Superada em 2026-08-19**: a Engineering Maturity Review identificou G8 (recuperaÃ§Ã£o real de falha assÃ­ncrona) como bloqueador de engenharia â€” o milestone de runtime real (adapters/handlers/filas/EventBridge, ver seÃ§Ã£o do topo) Ã© prÃ©-requisito antes de M4 fazer sentido operacionalmente, ainda que M4 nÃ£o dependa dele estruturalmente. Lista original preservada abaixo como histÃ³rico, nÃ£o como prÃ³xima aÃ§Ã£o vigente.
+**Superada em 2026-08-19**: a Engineering Maturity Review identificou G8 (recuperação real de falha assíncrona) como bloqueador de engenharia — o milestone de runtime real (adapters/handlers/filas/EventBridge, ver seção do topo) é pré-requisito antes de M4 fazer sentido operacionalmente, ainda que M4 não dependa dele estruturalmente. Lista original preservada abaixo como histórico, não como próxima ação vigente.
 
-1. **M4 â€” Notification Engine** (`implementation-blueprint.md` Â§19, depende de M3 âœ…): router de `NotificationIntent`â†’canal, delivery workers (email/WhatsApp stub-first), `NotificationAttempt`, resoluÃ§Ã£o de destinatÃ¡rio/template.
-2. Decidir e fechar os itens abaixo (BFF de sessÃ£o como rotas reais, CSP/CloudFront quando o frontend existir) antes de considerar a lacuna de "session theft" do threat model totalmente fechada â€” ainda nÃ£o resolvido, re-flagueado a cada sessÃ£o desde M1 para nÃ£o se perder: M1 fechou o mecanismo de revogaÃ§Ã£o/matriz de autorizaÃ§Ã£o, nÃ£o o endpoint BFF completo; M2/M3 nÃ£o tinham escopo de frontend/sessÃ£o (confirmado no blueprint) entÃ£o tambÃ©m nÃ£o o resolveram.
-3. **Ratificar formalmente em `data-model.md` a exceÃ§Ã£o do GSI3** (chave global do scheduler, jÃ¡ decidida e justificada em `implementation-blueprint.md` Â§9.2/Â§23.3 item 10) â€” passo de manutenÃ§Ã£o documental, nÃ£o nova rodada de debate. M3 jÃ¡ corrigiu o enforcement real do isolamento em IAM; falta sÃ³ o registro mecÃ¢nico no documento.
-4. Wiring real do GSI6 (ou Ã­ndice equivalente) para alimentar a reconciliaÃ§Ã£o de M3 com o batch real de "polÃ­ticas ativas"/"claims a verificar" em produÃ§Ã£o â€” hoje o mecanismo de reconciliaÃ§Ã£o recebe esse batch como parÃ¢metro injetado (testÃ¡vel), a query real fica pendente.
-5. Testes de carga real (cenÃ¡rios de drenagem do pico extremo, `capacity-model.md`, com SLO de drenagem UNK-CAP-006 a formalizar em `slo.md` antes do gate de M7), teste de restore real (gate jÃ¡ definido em `disaster-recovery.md` Â§6), exercÃ­cio do runbook de credencial comprometida.
-6. ReavaliaÃ§Ã£o sob rubrica (B) â€” Operational Evidence â€” sÃ³ entÃ£o `ARCHITECTURE STATUS` pode legitimamente virar `APPROVED`. **NÃ£o declarar isso antes de haver evidÃªncia operacional real.** Implementar M0/M1/M2/M3 nÃ£o Ã© evidÃªncia operacional.
-7. DecisÃµes ainda pendentes de pesquisa externa (nÃ£o bloqueiam M4 estruturalmente, mas bloqueiam habilitar os canais/features especÃ­ficos, ver `implementation-blueprint.md` Â§23.3): provider inicial de e-mail, BSP WhatsApp (pricing real, UNK-003), modelo Bedrock especÃ­fico, regiÃ£o AWS (bloqueante para LGPD/transferÃªncia internacional), MFA obrigatÃ³rio vs. opcional (UNK-006), ferramenta de backup S3 (RPOâ‰¤24h), ferramenta de assinatura/provenance do pipeline de CI.
-# docs/architecture/ â€” Ãndice e Mapa de Autoridade
+1. **M4 — Notification Engine** (`implementation-blueprint.md` §19, depende de M3 ✅): router de `NotificationIntent`→canal, delivery workers (email/WhatsApp stub-first), `NotificationAttempt`, resolução de destinatário/template.
+2. Decidir e fechar os itens abaixo (BFF de sessão como rotas reais, CSP/CloudFront quando o frontend existir) antes de considerar a lacuna de "session theft" do threat model totalmente fechada — ainda não resolvido, re-flagueado a cada sessão desde M1 para não se perder: M1 fechou o mecanismo de revogação/matriz de autorização, não o endpoint BFF completo; M2/M3 não tinham escopo de frontend/sessão (confirmado no blueprint) então também não o resolveram.
+3. **Ratificar formalmente em `data-model.md` a exceção do GSI3** (chave global do scheduler, já decidida e justificada em `implementation-blueprint.md` §9.2/§23.3 item 10) — passo de manutenção documental, não nova rodada de debate. M3 já corrigiu o enforcement real do isolamento em IAM; falta só o registro mecânico no documento.
+4. Wiring real do GSI6 (ou índice equivalente) para alimentar a reconciliação de M3 com o batch real de "políticas ativas"/"claims a verificar" em produção — hoje o mecanismo de reconciliação recebe esse batch como parâmetro injetado (testável), a query real fica pendente.
+5. Testes de carga real (cenários de drenagem do pico extremo, `capacity-model.md`, com SLO de drenagem UNK-CAP-006 a formalizar em `slo.md` antes do gate de M7), teste de restore real (gate já definido em `disaster-recovery.md` §6), exercício do runbook de credencial comprometida.
+6. Reavaliação sob rubrica (B) — Operational Evidence — só então `ARCHITECTURE STATUS` pode legitimamente virar `APPROVED`. **Não declarar isso antes de haver evidência operacional real.** Implementar M0/M1/M2/M3 não é evidência operacional.
+7. Decisões ainda pendentes de pesquisa externa (não bloqueiam M4 estruturalmente, mas bloqueiam habilitar os canais/features específicos, ver `implementation-blueprint.md` §23.3): provider inicial de e-mail, BSP WhatsApp (pricing real, UNK-003), modelo Bedrock específico, região AWS (bloqueante para LGPD/transferência internacional), MFA obrigatório vs. opcional (UNK-006), ferramenta de backup S3 (RPO≤24h), ferramenta de assinatura/provenance do pipeline de CI.
+# docs/architecture/ — Índice e Mapa de Autoridade
 
 ```text
 Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
-Current phase:           ImplementaÃ§Ã£o real (cÃ³digo/infra/testes) â€” Implementation Blueprint concluÃ­do
+Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
 Last verified:           2026-08-19
 ```
 
-Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a prÃ³xima aÃ§Ã£o concreta.
+Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a próxima ação concreta.
 
-## PrecedÃªncia de fontes (quando houver divergÃªncia)
+## Precedência de fontes (quando houver divergência)
 
-1. `AGENTS.md` (raiz) â€” processo de trabalho dos agentes, sempre vence sobre conteÃºdo de arquitetura.
-2. ADR aceito em `adr/` â€” decisÃ£o arquitetural especÃ­fica e formal.
-3. Documento temÃ¡tico corrente (tabela abaixo, coluna "normativo atual") â€” especificaÃ§Ã£o detalhada do domÃ­nio.
-4. `ARCHITECTURE.md` â€” visÃ£o consolidada e Ã­ndice executivo; nÃ£o sobrescreve silenciosamente um ADR ou documento temÃ¡tico divergente â€” divergÃªncia entre eles Ã© defeito a corrigir, nÃ£o licenÃ§a para escolher.
-5. `NEXT_SESSION_PROMPT.md` â€” estado de execuÃ§Ã£o, nunca fonte normativa de arquitetura.
-6. `docs/architecture/history/` â€” evidÃªncia histÃ³rica de como se chegou a uma decisÃ£o, nunca normativo.
+1. `AGENTS.md` (raiz) — processo de trabalho dos agentes, sempre vence sobre conteúdo de arquitetura.
+2. ADR aceito em `adr/` — decisão arquitetural específica e formal.
+3. Documento temático corrente (tabela abaixo, coluna "normativo atual") — especificação detalhada do domínio.
+4. `ARCHITECTURE.md` — visão consolidada e índice executivo; não sobrescreve silenciosamente um ADR ou documento temático divergente — divergência entre eles é defeito a corrigir, não licença para escolher.
+5. `NEXT_SESSION_PROMPT.md` — estado de execução, nunca fonte normativa de arquitetura.
+6. `docs/architecture/history/` — evidência histórica de como se chegou a uma decisão, nunca normativo.
 
-## Ãndice por documento
+## Índice por documento
 
-| Documento | ClassificaÃ§Ã£o | Do que trata |
+| Documento | Classificação | Do que trata |
 |---|---|---|
-| `../ARCHITECTURE.md` | resumo/Ã­ndice | Documento consolidado final, aponta para todos os outros |
-| `../docs/00-prompt-mestre.md` | histÃ³rico/processo (ciclo concluÃ­do) | Processo Claudeâ†”Codex que produziu o design; nÃ£o Ã© ponto de entrada de sessÃ£o |
-| `quality-criteria.md` | normativo atual | 12 critÃ©rios de qualidade, pesos, gates G1-G6 |
-| `fitness-function.md` | normativo atual | Fitness function derivada dos critÃ©rios |
-| `requirements.md` | normativo atual | Requisitos funcionais/nÃ£o-funcionais, unknowns |
+| `../ARCHITECTURE.md` | resumo/índice | Documento consolidado final, aponta para todos os outros |
+| `../docs/00-prompt-mestre.md` | histórico/processo (ciclo concluído) | Processo Claude↔Codex que produziu o design; não é ponto de entrada de sessão |
+| `quality-criteria.md` | normativo atual | 12 critérios de qualidade, pesos, gates G1-G6 |
+| `fitness-function.md` | normativo atual | Fitness function derivada dos critérios |
+| `requirements.md` | normativo atual | Requisitos funcionais/não-funcionais, unknowns |
 | `capacity-model.md` | normativo atual | Modelo de capacidade Stage 0-5 |
-| `architecture-fase3-consolidada.md` | normativo atual | Arquitetura AWS conceitual, 14 decisÃµes numeradas |
-| `data-model.md` | normativo atual | Modelo de domÃ­nio/dados, DynamoDB single-table, 6 GSIs |
+| `architecture-fase3-consolidada.md` | normativo atual | Arquitetura AWS conceitual, 14 decisões numeradas |
+| `data-model.md` | normativo atual | Modelo de domínio/dados, DynamoDB single-table, 6 GSIs |
 | `slo.md` | normativo atual | SLOs, incluindo drenagem de pico extremo |
 | `disaster-recovery.md` | normativo atual | RPO/RTO, teste de restore, runbook |
-| `privacy-lgpd.md` | normativo atual | Classes de retenÃ§Ã£o, direitos do titular |
-| `cost-model.md` | normativo atual | Modelo de custo por estÃ¡gio |
-| `mcp-readiness.md` | normativo atual | ProntidÃ£o de domÃ­nio para MCP futuro |
-| `evolution.md` | normativo atual | TransiÃ§Ãµes de estÃ¡gio, gatilhos |
-| `aws-well-architected-review.md` | normativo atual | RevisÃ£o pelos 6 pilares AWS, riscos conhecidos |
-| `threat-model.md` | normativo atual | Threat model STRIDE, seÃ§Ã£o 33 â€” APPROVED (Claude ~9.05 / Codex 9.002) |
-| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seÃ§Ã£o 60 â€” componentes, interfaces, eventos/schemas, ordem de deploy, milestones â€” APPROVED (Claude 9.20 / Codex 9.2) |
-| `decisions-log.md` | decisÃ£o/ADR (log vivo) | 26 decisÃµes (D-000 a D-025), nota Claude/Codex, status |
-| `adr/` | decisÃ£o/ADR | 8 ADRs formais para decisÃµes Type 1 |
+| `privacy-lgpd.md` | normativo atual | Classes de retenção, direitos do titular |
+| `cost-model.md` | normativo atual | Modelo de custo por estágio |
+| `mcp-readiness.md` | normativo atual | Prontidão de domínio para MCP futuro |
+| `evolution.md` | normativo atual | Transições de estágio, gatilhos |
+| `aws-well-architected-review.md` | normativo atual | Revisão pelos 6 pilares AWS, riscos conhecidos |
+| `threat-model.md` | normativo atual | Threat model STRIDE, seção 33 — APPROVED (Claude ~9.05 / Codex 9.002) |
+| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seção 60 — componentes, interfaces, eventos/schemas, ordem de deploy, milestones — APPROVED (Claude 9.20 / Codex 9.2) |
+| `decisions-log.md` | decisão/ADR (log vivo) | 26 decisões (D-000 a D-025), nota Claude/Codex, status |
+| `adr/` | decisão/ADR | 8 ADRs formais para decisões Type 1 |
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
-| `diagrams/status-projeto.html` | resumo/Ã­ndice (visual) | Painel visual do status do projeto |
-| `session-log.md` | histÃ³rico | Log cronolÃ³gico compacto por sessÃ£o |
-| `history/` | histÃ³rico/supersedido | Artefatos de rodada (propostas, crÃ­ticas, red team) que produziram os documentos normativos acima â€” ver subseÃ§Ã£o |
+| `diagrams/status-projeto.html` | resumo/índice (visual) | Painel visual do status do projeto |
+| `session-log.md` | histórico | Log cronológico compacto por sessão |
+| `history/` | histórico/supersedido | Artefatos de rodada (propostas, críticas, red team) que produziram os documentos normativos acima — ver subseção |
 
-## `history/` â€” evidÃªncia de rodada, por tema
+## `history/` — evidência de rodada, por tema
 
-Cada subpasta contÃ©m os artefatos de proposta/crÃ­tica/trÃ©plica que antecederam o documento normativo correspondente. Nunca tratar como fonte de decisÃ£o vigente â€” sÃ³ como prova de como o consenso foi alcanÃ§ado.
+Cada subpasta contém os artefatos de proposta/crítica/tréplica que antecederam o documento normativo correspondente. Nunca tratar como fonte de decisão vigente — só como prova de como o consenso foi alcançado.
 
 | Subpasta | Documento normativo correspondente |
 |---|---|
@@ -371,17 +371,17 @@ exec
  succeeded in 368ms:
 /**
  * DynamoDB surface the Reminder module needs - same SDK-agnostic port pattern as
- * src/modules/expiration/ports/expiration-store.ts (AGENTS.md Â§6: "qualquer mÃ³dulo futuro
- * com a mesma necessidade deve reusar esse formato de port, nÃ£o inventar um novo"). This
+ * src/modules/expiration/ports/expiration-store.ts (AGENTS.md §6: "qualquer módulo futuro
+ * com a mesma necessidade deve reusar esse formato de port, não inventar um novo"). This
  * IS that reuse: identical shape (get/putIfAbsent/update/transactWrite/queryGsi1-style),
  * plus one addition this module needs and Expiration didn't - `queryByItem`, to list an
  * item's existing ReminderOccurrence rows (co-located under the item's own PK per
- * data-model.md Â§2) for materialization diffing, due-date-change cancellation and DST
+ * data-model.md §2) for materialization diffing, due-date-change cancellation and DST
  * reconciliation.
  *
  * `ReminderProducerStore` is deliberately a SEPARATE, narrower interface (queryGsi3 only)
- * - implementation-blueprint.md Â§9.2's isolation safeguard ("nenhuma rota tenant-facing
- * tem permissÃ£o de Query no GSI3") is enforced structurally here: ReminderStore (used by
+ * - implementation-blueprint.md §9.2's isolation safeguard ("nenhuma rota tenant-facing
+ * tem permissão de Query no GSI3") is enforced structurally here: ReminderStore (used by
  * the policy service, materializer and HTTP handlers - all tenant-facing) has NO method
  * that can reach GSI3. Only ReminderProducerStore, injected exclusively into the
  * ReminderProducer worker, exposes it. test/integration/gsi3-isolation.test.ts asserts
@@ -400,7 +400,7 @@ export interface ReminderStore {
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
   update<T extends EntityKey>(item: T): Promise<void>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** All rows under an item's own partition whose SK begins with "OCC#" (ReminderOccurrence rows). Strongly consistent - base-partition read, not a GSI (data-model.md Â§5). */
+  /** All rows under an item's own partition whose SK begins with "OCC#" (ReminderOccurrence rows). Strongly consistent - base-partition read, not a GSI (data-model.md §5). */
   queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]>;
 }
 
@@ -411,9 +411,9 @@ export interface Gsi3QueryInput {
 /** Narrow port, injected ONLY into the ReminderProducer worker (see file header). */
 export interface ReminderProducerStore {
   queryGsi3<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3QueryInput): Promise<T[]>;
-  /** Strongly consistent read of the base item, used by the producer to reconstruct tenant context before claiming (data-model.md Â§3: "tenantId preservado... para reconstruÃ§Ã£o segura do contexto"). */
+  /** Strongly consistent read of the base item, used by the producer to reconstruct tenant context before claiming (data-model.md §3: "tenantId preservado... para reconstrução segura do contexto"). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
-  /** Conditional SCHEDULED -> CLAIMED transition (implementation-blueprint.md Â§9.3 point 3). */
+  /** Conditional SCHEDULED -> CLAIMED transition (implementation-blueprint.md §9.3 point 3). */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }
 /**
@@ -421,8 +421,8 @@ export interface ReminderProducerStore {
  * pattern established by src/modules/identity/ports/identity-store.ts (M1): callers
  * inject an implementation, so domain/application logic is unit-testable without live
  * AWS. Unlike IdentityStore, this port also exposes `transactWrite` because
- * data-model.md Â§5's load-bearing sentence requires item update + outbox record (and,
- * for M2, the AuditEvent) to commit in a single `TransactWriteItems` â€” the aggregate
+ * data-model.md §5's load-bearing sentence requires item update + outbox record (and,
+ * for M2, the AuditEvent) to commit in a single `TransactWriteItems` — the aggregate
  * write, the critical `ItemDueDateChanged` outbox record and the audit trail must never
  * be individually visible without the others.
  */
@@ -440,7 +440,7 @@ export interface Gsi1QueryInput {
 }
 
 export interface ExpirationStore {
-  /** Strongly consistent single-item read (data-model.md Â§5: authorization/edition/pre-send reads must be consistent). */
+  /** Strongly consistent single-item read (data-model.md §5: authorization/edition/pre-send reads must be consistent). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   /** PutItem with ConditionExpression attribute_not_exists(PK) - true if this call created the item. */
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
@@ -452,7 +452,7 @@ export interface ExpirationStore {
    * assume partial application.
    */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** Eventually consistent GSI1 query (data-model.md Â§3: vencimentos/dashboard). */
+  /** Eventually consistent GSI1 query (data-model.md §3: vencimentos/dashboard). */
   queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]>;
 }
 /**
@@ -474,8 +474,8 @@ export interface IdentityStore {
   update<T extends EntityKey>(item: T): Promise<void>;
 }
 /**
- * ScopedLambdaFunction â€” implementation-blueprint.md Â§17.1. "O construct gera grants
- * especÃ­ficos e falha synth quando o recurso solicitado nÃ£o corresponde a uma capability
+ * ScopedLambdaFunction — implementation-blueprint.md §17.1. "O construct gera grants
+ * específicos e falha synth quando o recurso solicitado não corresponde a uma capability
  * conhecida."
  *
  * Judgment call (blueprint is schematic, not exhaustive, about capability granularity):
@@ -525,7 +525,7 @@ export function tableAccessFor(table: ExpirationTrackerTable) {
       };
     },
     /** GSI3 (scheduler) read-only - reserved EXCLUSIVELY for ReminderProducer
-     * (data-model.md Â§3 / implementation-blueprint.md Â§9.2's isolation safeguard). Routed
+     * (data-model.md §3 / implementation-blueprint.md §9.2's isolation safeguard). Routed
      * through ExpirationTrackerTable.grantGsi3ReadTo, never table.grantReadData, so no
      * other function can acquire this permission via this helper. */
     gsi3Read(): AccessCapability {
@@ -593,7 +593,7 @@ export interface ScopedLambdaFunctionProps extends Omit<lambda.FunctionProps, "c
 
 /**
  * Every Lambda in this system MUST be constructed via ScopedLambdaFunction, never
- * `new lambda.Function` directly (implementation-blueprint.md Â§17.1) - it is the single
+ * `new lambda.Function` directly (implementation-blueprint.md §17.1) - it is the single
  * enforcement point for least-privilege IAM per function.
  */
 export class ScopedLambdaFunction extends Construct {
@@ -604,7 +604,7 @@ export class ScopedLambdaFunction extends Construct {
 
     for (const capability of props.access) {
       if (!KNOWN_CAPABILITY_KINDS.has(capability.kind)) {
-        // "falha synth quando o recurso solicitado nÃ£o corresponde a uma capability conhecida"
+        // "falha synth quando o recurso solicitado não corresponde a uma capability conhecida"
         throw new Error(
           `ScopedLambdaFunction(${id}): unknown access capability kind "${capability.kind}". ` +
             `Known kinds: ${[...KNOWN_CAPABILITY_KINDS].join(", ")}.`,
@@ -691,7 +691,7 @@ export class ExpirationTrackerStack extends Stack {
       access: [tableAccess.readWriteKeys("ReminderPolicy", "ReminderOccurrence")],
     });
 
-    // ReminderProducer (Â§9.3) is the ONLY function in the system granted gsi3Read() - the
+    // ReminderProducer (§9.3) is the ONLY function in the system granted gsi3Read() - the
     // narrow capability routed through ExpirationTrackerTable.grantGsi3ReadTo, which
     // itself never appears on any tenant-facing function (test/infra/reminder-engine.test.ts
     // asserts this at the synthesized-template level).
@@ -701,7 +701,7 @@ export class ExpirationTrackerStack extends Stack {
       access: [tableAccess.readWriteKeys("ReminderOccurrence"), tableAccess.gsi3Read()],
     });
 
-    // ReminderDispatch (Â§9.4): CLAIMED -> TRIGGERED + NotificationIntent + outbox, all in
+    // ReminderDispatch (§9.4): CLAIMED -> TRIGGERED + NotificationIntent + outbox, all in
     // one TransactWriteItems - needs write access to occurrences/intents/outbox/idempotency
     // and read access to ExpirationItem/ReminderPolicy for the staleness check, never GSI3.
     this.reminderDispatch = new ScopedLambdaFunction(this, "ReminderDispatch", {
@@ -718,7 +718,7 @@ export class ExpirationTrackerStack extends Stack {
       ],
     });
 
-    // ReminderReconciliation (Â§9.5): single job for claim-expiry revert + DST
+    // ReminderReconciliation (§9.5): single job for claim-expiry revert + DST
     // re-evaluation - never GSI3 (it reasons over base-partition/GSI6-style batches, not
     // the scheduler index).
     this.reminderReconciliation = new ScopedLambdaFunction(this, "ReminderReconciliation", {
@@ -732,15 +732,15 @@ export class ExpirationTrackerStack extends Stack {
   }
 }
 /**
- * ReminderProducer core logic - implementation-blueprint.md Â§9.3. Pure(ish) - takes an
+ * ReminderProducer core logic - implementation-blueprint.md §9.3. Pure(ish) - takes an
  * injected `ReminderProducerStore` and clock, no AWS SDK/Lambda runtime dependency, so it
  * is directly unit/integration-testable with a fake clock and fake GSI3 index (per the
  * task's requirement to test time-sensitive logic without real wall-clock waiting).
  *
- * Steps (Â§9.3):
- *  1. read active shard generations (current + still-active legacy, Â§9.2's reshard runbook);
+ * Steps (§9.3):
+ *  1. read active shard generations (current + still-active legacy, §9.2's reshard runbook);
  *  2. query GSI3 across N shards of minute M AND a lookback window [M-lookback, M] (default
- *     5 minutes) - "sem lookback, 'o prÃ³ximo tick reprocessa' Ã© falso";
+ *     5 minutes) - "sem lookback, 'o próximo tick reprocessa' é falso";
  *  3. per eligible occurrence, conditional SCHEDULED -> CLAIMED with a short claim
  *     `claimExpiresAt`, and emit one `reminder.dispatch.v1` command;
  *  4. partial-batch-failure handling: only failed entries are surfaced in `failed`, callers
@@ -775,9 +775,9 @@ export interface ProducerDeps {
   shardConfig: ShardConfig;
   tableName: string;
   now: () => string;
-  /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (Â§9.5). */
+  /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (§9.5). */
   claimTtlMs?: number;
-  /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md Â§9.3 example: [M-5min, M]). */
+  /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md §9.3 example: [M-5min, M]). */
   lookbackMinutes?: number;
 }
 
@@ -880,21 +880,21 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
   };
 }
 /**
- * Reminder dispatch worker core logic - implementation-blueprint.md Â§9.4. Consumes one
- * `reminder.dispatch.v1` command (produced by the ReminderProducer, Â§9.3) and performs the
+ * Reminder dispatch worker core logic - implementation-blueprint.md §9.4. Consumes one
+ * `reminder.dispatch.v1` command (produced by the ReminderProducer, §9.3) and performs the
  * CLAIMED -> TRIGGERED transition, creating exactly one `NotificationIntent` idempotently.
  *
- * Validation order per Â§9.4: occurrence must be CLAIMED (not SCHEDULED directly - the claim
+ * Validation order per §9.4: occurrence must be CLAIMED (not SCHEDULED directly - the claim
  * prevents double-processing by two concurrent dispatch workers); item must be ACTIVE;
  * versions must match; schedule must be within tolerance; policy must still exist. If any
  * check fails, the occurrence is conditionally cancelled (CLAIMED -> CANCELLED) instead of
- * silently dropped, and repair is left to reconciliation (Â§9.5) - never a new ad-hoc
+ * silently dropped, and repair is left to reconciliation (§9.5) - never a new ad-hoc
  * materialization from inside dispatch.
  *
- * On success, everything commits in ONE TransactWriteItems (Â§9.4: "corrige a lacuna de
- * durabilidade... antes o evento era tratado como reconstruÃ­vel sem outbox"):
+ * On success, everything commits in ONE TransactWriteItems (§9.4: "corrige a lacuna de
+ * durabilidade... antes o evento era tratado como reconstruível sem outbox"):
  * NotificationIntent Put + occurrence CLAIMED->TRIGGERED Update + idempotency record Put
- * (`tenantId|occurrenceId`, Â§9.4's exact key for NotificationIntentCreated consumers) +
+ * (`tenantId|occurrenceId`, §9.4's exact key for NotificationIntentCreated consumers) +
  * outbox `notification.intent-created.v1` Put.
  */
 import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
@@ -927,7 +927,7 @@ export type DispatchOutcome =
   | { kind: "CANCELLED_STALE"; reason: string }
   | { kind: "SKIPPED_NOT_CLAIMED" };
 
-/** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md Â§2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
+/** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md §2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
 async function findOccurrence(store: ReminderStore, tenantId: string, itemId: string, occurrenceId: string): Promise<ReminderOccurrence | undefined> {
   const rows = await store.queryByItem<ReminderOccurrence>(tenantId, itemId);
   return rows.find((r) => r.occurrenceId === occurrenceId);
@@ -1031,7 +1031,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     },
   ];
 
-  // Idempotency record for NotificationIntentCreated consumers (Â§9.4: "tenantId|occurrenceId").
+  // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId").
   const idem = buildIdempotencyKey(deps.tableName, tenantId, "reminder.dispatch", occurrenceId);
   entries.push({
     Put: {
@@ -1094,16 +1094,16 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
   return { kind: "TRIGGERED", intent };
 }
 /**
- * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
+ * Reconciliation - implementation-blueprint.md §9.5, run as ONE job/Lambda serving TWO
  * purposes (per the task brief: "don't build two separate reconciliation paths"), both
- * documented in Â§9.3 point 4 ("claims expirados... via reconciliaÃ§Ã£o, mesmo job da Â§9.5")
- * and Â§9.5 itself (DST):
+ * documented in §9.3 point 4 ("claims expirados... via reconciliação, mesmo job da §9.5")
+ * and §9.5 itself (DST):
  *
  *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its
  *      `claimExpiresAt` (dispatch worker crashed/timed out before completing) reverts to
  *      SCHEDULED, conditionally, so the next producer tick's lookback window picks it up
  *      again;
- *  (b) DST-affected re-evaluation (Â§9.5 steps 1-6): for each (item, enabled policy) pair
+ *  (b) DST-affected re-evaluation (§9.5 steps 1-6): for each (item, enabled policy) pair
  *      in the reconciliation batch, recompute the expected schedule from the policy's
  *      IANA timeZone + rule against a `[now, now+7d]` window, compare to what's actually
  *      materialized, cancel divergent SCHEDULED occurrences and materialize missing ones
@@ -1176,7 +1176,7 @@ export async function reconcileExpiredClaims(
   return reverted;
 }
 
-/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (Â§9.5 steps 1-6). */
+/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (§9.5 steps 1-6). */
 export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],

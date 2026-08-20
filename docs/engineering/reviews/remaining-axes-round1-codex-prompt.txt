@@ -1,0 +1,13 @@
+Proposta independente (nao leia docs/engineering/reviews/remaining-axes-round1-claude.md - protocolo cego, comparado depois) de criterios ponderados para os 5 eixos de auditoria restantes ja acordados em rodada de convergencia anterior (ver docs/engineering/reviews/audit-areas-convergence-output.txt para o contexto de como foram definidos, mas proponha o CONTEUDO dos criterios do zero):
+
+5. Privacidade e Governanca de Dados
+6. Operacoes, SRE e Continuidade de Negocio
+7. Governanca de IA e Controles Internos
+8. Governanca Juridica, Contratual e de Terceiros
+9. Governanca de Produto e Servico Multi-tenant
+
+Projeto: expiration-tracker (c:/Users/Usuario/Desktop/projects/expiration-tracker), micro-SaaS multi-tenant AWS serverless, dado pessoal relevante (LGPD, regiao de producao ainda pendente), construido e mantido por agentes de IA (Claude Code + Codex CLI) via protocolo de revisao formal. Leia o suficiente do repo para fundamentar: AGENTS.md, docs/engineering/joint-review-criteria.md (formato esperado - eixos 1-4 ja existem, nao duplicar criterios ja cobertos la, especialmente o eixo 4 de Seguranca que ja cobre isolamento multi-tenant e IAM em profundidade), docs/architecture/data-model.md, docs/architecture/disaster-recovery.md, docs/architecture/privacy-lgpd.md se existir, docs/architecture/slo.md, session-log mais recente (docs/architecture/session-log.md) para entender o que ja foi feito (M0-M3.5) e o que e greenfield (privacidade formal, juridico, produto/onboarding de tenant - nenhum desses tem codigo ainda).
+
+Fontes normativas por eixo (pesquise ou use conhecimento): Privacidade -> LGPD/ANPD (RIPD, bases legais, direitos do titular), DAMA-DMBOK para governanca de dados; Operacoes/SRE -> Google SRE Book (SLO/error budget), disaster recovery RTO/RPO; Governanca de IA -> ISO/IEC 42001, NIST AI RMF (Govern/Map/Measure/Manage); Juridico/Terceiros -> SOC 2 Trust Services Criteria (vendor management), licenciamento OSS; Produto/Multi-tenant -> AWS Well-Architected SaaS Lens (onboarding/offboarding, crypto-shredding, tenant lifecycle).
+
+Para cada eixo, proponha 6-9 criterios ponderados (soma 100% cada) no mesmo formato de docs/engineering/joint-review-criteria.md. Nao inflar peso de coisas ja maduras neste projeto (ex: SecureLogger/Redactor ja e forte) - focar peso no que e greenfield ou ja mostrou risco real. Termine com nota de confianca 0-10 geral nos 5 eixos. Portugues, direto ao ponto.

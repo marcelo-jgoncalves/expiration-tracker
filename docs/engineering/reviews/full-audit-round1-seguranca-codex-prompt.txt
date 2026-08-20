@@ -1,0 +1,23 @@
+Você é o revisor independente Codex no protocolo Claude<->Codex deste repositório (AGENTS.md secao 4). Este é o full audit round1 do eixo "Seguranca da Informacao e AppSec" (10 criterios ponderados), definido em docs/engineering/joint-review-criteria.md secao "## Eixo: Seguranca da Informacao e AppSec". Leia essa secao primeiro.
+
+Contexto: axes de Arquitetura, Qualidade de Engenharia e Engenharia de Contexto ja foram concluidos nesta mesma sessao (ver docs/engineering/reviews/full-audit-round1-{arquitetura,qualidade,contexto}-summary.md como exemplos de rigor esperado - bugs reais encontrados e corrigidos, notas finais honestas sub-9.0 quando aplicavel, distincao clara entre "impedimento externo real" (ex: sem ambiente AWS real para testar IAM AccessDenied de verdade) e "escopo maior que correcao pontual").
+
+Sua tarefa: dar sua PROPRIA nota cega (voce nao viu a nota do Claude ainda) de 0 a 10 para cada um dos 10 criterios do eixo de Seguranca, com evidencia concreta de arquivo:linha, e a nota ponderada final. Leia o codigo real, nao presuma.
+
+Arquivos centrais a examinar:
+- src/modules/identity/domain/authorization.ts (matriz de autorizacao)
+- src/modules/identity/application/resolve-request-context.ts (resolucao de JWT/sessao/revogacao)
+- src/modules/identity/persistence/*.ts
+- test/integration/cross-tenant.test.ts (suite negativa cross-tenant)
+- infra/lib/dynamo-table.ts + infra/lib/scoped-lambda-function.ts (grants IAM, isolamento GSI3/GSI6)
+- infra/lib/cognito.ts (politica de senha, MFA, tokens)
+- infra/lib/api.ts (wiring do JWT authorizer, CORS)
+- infra/lib/reminder-queue.ts (DLQ/redrive/alarmes)
+- src/shared/observability/redactor.ts (redacao de PII/segredos - ja teve bug de cold-start corrigido duas vezes nesta sessao, verifique se a propriedade de seguranca se sustenta em excecoes/DLQ/traces, nao so happy path)
+- src/shared/contracts/schema-validator.ts e onde e de fato invocado (grep por "schema-validator"/"schema-registry-disk" em src/) - verifique se toda borda (HTTP, filas) valida por Ajv ou se ha bordas sem validacao
+- src/modules/expiration/http/item-handlers.ts + src/modules/expiration/domain/expiration-item.ts (CreateItemInput/UpdateItemInput - ha validacao runtime real de campos como dueDate/name/tags, ou so checagem de presenca?)
+- src/runtime/aws/handlers/*.ts (todos os handlers Lambda - checar validacao de entrada e fail-closed)
+- test/infra/stack.test.ts (assertions de isolamento IAM)
+- docs/architecture/threat-model.md se existir
+
+Escreva sua resposta em markdown com uma tabela: # | Criterio | Peso | Nota | Evidencia (arquivo:linha). Ao final, a nota ponderada final (soma peso*nota). Seja honesto - se algo parece faltar validacao ou tiver um gap real de seguranca, cite o arquivo:linha exato e explique por que reduz a nota. Nao arredonde para 9 se a evidencia nao sustentar.

@@ -14,3 +14,6 @@ Nenhum ADR abaixo representa nova rodada de debate — cada um formata uma decis
 | [ADR-0006](ADR-0006-document-quarantine.md) | Quarentena física de 2 buckets S3 | `architecture-fase3-consolidada.md` §7 |
 | [ADR-0007](ADR-0007-disaster-recovery-rpo-rto.md) | RPO/RTO e risco de região aceito | `disaster-recovery.md` |
 | [ADR-0008](ADR-0008-notification-engine-adapters.md) | Notification Engine — adapters por canal | `architecture-fase3-consolidada.md` §9 |
+| [ADR-0009](ADR-0009-cdk-to-terraform-migration.md) | CDK → Terraform (substituição total, decisão direta do usuário) | `NEXT_SESSION_PROMPT.md`, `docs/engineering/change-risk-scale.md` nível 6 |
+
+Nota sobre ADR-0009: a listagem "IaC/CDK" como Type 2 no parágrafo acima referia-se à escolha original de ferramenta (CDK vs. alternativas, decisão de baixo custo de reversão em M1). Trocar TODA a stack de IaC já em produção (mesmo que só em dev) por outra, descartando uma suíte de testes de infra existente, é uma classe de decisão diferente — nível 6 de `change-risk-scale.md`, não nível 2 — por isso ganhou ADR formal.

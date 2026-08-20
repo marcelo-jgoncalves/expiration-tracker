@@ -18,7 +18,9 @@ Base: `docs/architecture/history/data-model/data-model-claude-round1.md`, `docs/
 
 Agregados: **Tenant/Access** (Organization, User, Membership) · **Expiration** (ExpirationItem raiz; ReminderPolicy, ReminderOccurrence, Document, ExtractedField referenciam item e sua versão) · **Notification** (NotificationIntent como efeito lógico único; NotificationAttempt por interação) · **Integration** (Channel, Provider, WebhookInbox, UploadSlot) · **Compliance** (AuditEvent, append-only).
 
-Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<id>[#...]`. IDs UUIDv7/ULID (ordenáveis por tempo, evitam hot-key sequencial de auto-incremento). Datas ISO-8601 UTC; timezones IANA. Atributos comuns a toda entidade: `entityType`, `schemaVersion`, `createdAt`, `updatedAt`, `version`, `deletedAt?`, `retentionClass`, `purgeAfter?`.
+Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<id>[#...]`. IDs UUIDv7/ULID (ordenáveis por tempo, evitam hot-key sequencial de auto-incremento). Datas ISO-8601 UTC; timezones IANA. Atributos comuns a toda entidade (design-target, ver nota de status abaixo): `entityType`, `schemaVersion`, `createdAt`, `updatedAt`, `version`, `deletedAt?`, `retentionClass`, `purgeAfter?`.
+
+**Status de implementação (adicionado full-audit round1/eixo Privacidade, 2026-08-20):** `retentionClass`/`purgeAfter` são compromisso de design (`docs/architecture/privacy-lgpd.md` §4), não implementação atual — nenhuma entidade em `src/` carrega esses dois campos ainda (M0-M3 não os materializou), e o GSI6 físico (`infra/lib/dynamo-table.ts`) está hoje restrito por IAM exclusivamente a `ReminderReconciliation`/`OutboxSweeperReminderDispatch`, sem papel de purge sancionado. Registrar aqui explicitamente para não ler este parágrafo como "já implementado" — trabalho de M4+ (worker de purge, migração de escrita para popular os campos, ampliação da policy de GSI6) fica pendente e rastreado por este parágrafo, não por drift silencioso.
 
 ## 2. Entidades e armazenamento
 | Entidade | Atributos principais | PK / SK |
