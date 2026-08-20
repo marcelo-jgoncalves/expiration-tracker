@@ -76,7 +76,7 @@ module "reminder_producer" {
   handler_name                   = "reminder-producer-handler"
   source_dir                     = "${local.dist_dir}/reminder-producer-handler"
   environment_variables          = local.common_env
-  reserved_concurrent_executions = 2
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The ONLY function granted gsi3_read — never add this capability to any other function.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -92,7 +92,7 @@ module "reminder_dispatch" {
   handler_name                   = "reminder-dispatch-handler"
   source_dir                     = "${local.dist_dir}/reminder-dispatch-handler"
   environment_variables          = local.common_env
-  reserved_concurrent_executions = 10
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 10 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.consume_policy_json,
@@ -107,7 +107,7 @@ module "reminder_reconciliation" {
   handler_name                   = "reminder-reconciliation-handler"
   source_dir                     = "${local.dist_dir}/reminder-reconciliation-handler"
   environment_variables          = local.common_env
-  reserved_concurrent_executions = 1
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY TWO roles granted gsi6_read (the other is OutboxSweeperReminderDispatch).
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -139,7 +139,7 @@ module "dispatch_outbox_relay" {
   handler_name                   = "dispatch-outbox-relay-handler"
   source_dir                     = "${local.dist_dir}/dispatch-outbox-relay-handler"
   environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
-  reserved_concurrent_executions = 2
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.send_policy_json,
@@ -155,7 +155,7 @@ module "outbox_sweeper" {
   handler_name                   = "outbox-sweeper-handler"
   source_dir                     = "${local.dist_dir}/outbox-sweeper-handler"
   environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
-  reserved_concurrent_executions = 2
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The other of EXACTLY TWO roles granted gsi6_read.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -244,6 +244,7 @@ module "observability" {
 module "cost_budget" {
   source = "./modules/cost-budget"
 
+  name                = "${local.name_prefix}-monthly-cost"
   monthly_limit_usd   = var.monthly_budget_usd
   notification_emails = var.budget_notification_emails
 }

@@ -4,7 +4,7 @@
 # Revisit once real traffic/cost data exists.
 
 resource "aws_budgets_budget" "monthly_cost" {
-  name         = "expiration-tracker-monthly-cost"
+  name         = var.name
   budget_type  = "COST"
   time_unit    = "MONTHLY"
   limit_amount = tostring(var.monthly_limit_usd)

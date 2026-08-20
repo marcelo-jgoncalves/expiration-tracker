@@ -23,6 +23,26 @@ variable "environment" {
   }
 }
 
+variable "enable_reserved_concurrency" {
+  description = <<-EOT
+    Whether the 5 async Lambda functions get the CDK-parity reserved concurrency values
+    (producer=2, dispatch=10, reconciliation=1, relay=2, sweeper=2, summing to 17). Real
+    finding from the first real `terraform apply` against this account (2026-08-20): the
+    claude-dev dev account's total Lambda concurrent execution limit is only 10 (new/
+    unverified-account default; AWS raises this on request), so reserving any of these
+    values leaves the account's required minimum unreserved capacity in deficit -
+    `PutFunctionConcurrency` fails outright. Defaults true (the correct/intended value for
+    any account with a normal quota); `env/dev.tfvars` overrides to false specifically for
+    this account until AWS raises its quota (external impediment, not a code defect) -
+    `stack.tftest.hcl`'s
+    `reserved_concurrency_matches_cdk_stack` test overrides this to true in its own
+    `variables {}` block, so the intended parity values are still proven correct even
+    while the real dev deploy can't use them yet.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "mfa_policy" {
   description = "Cognito MFA enforcement policy: OFF, OPTIONAL, or REQUIRED. UNK-006 is pending external research — default OPTIONAL matches infra/lib/expiration-tracker-stack.ts's own default (props.mfaPolicy undefined -> ExpirationTrackerAuth's default)."
   type        = string

@@ -2,6 +2,12 @@
 # aws_budgets_budget is an account/billing resource (not scoped to this stack's own
 # resources), same as the CDK construct's AWS::Budgets::Budget.
 
+variable "name" {
+  description = "Budget name. Default kept for backward compat; root wiring overrides to the exptrk-* naming convention so it matches the CI IAM policy's resource scoping (arn:aws:budgets::<account>:budget/exptrk-*)."
+  type        = string
+  default     = "expiration-tracker-monthly-cost"
+}
+
 variable "monthly_limit_usd" {
   description = "Monthly USD ceiling before the alarm fires. Default: 50 (dev/pre-production ceiling, matches the CDK construct's default)."
   type        = number
