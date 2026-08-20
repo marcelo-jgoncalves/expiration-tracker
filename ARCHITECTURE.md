@@ -81,7 +81,7 @@ BSP WhatsApp (pricing real), modelo Bedrock específico, região AWS (bloqueante
 Ver `docs/architecture/adr/README.md` — 8 ADRs formais para decisões Type 1.
 
 ## Decision Log
-Ver `docs/architecture/decisions-log.md` — 29 decisões registradas (D-000 a D-028), todas com nota Claude/Codex e status.
+Ver `docs/architecture/decisions-log.md` — 30 decisões registradas (D-000 a D-029), todas com nota Claude/Codex e status.
 
 ---
 

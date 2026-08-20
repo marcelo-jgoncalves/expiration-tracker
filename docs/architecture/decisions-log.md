@@ -44,4 +44,6 @@ Registro vivo de decisões, mantido atualizado a cada rodada relevante (conforme
 - Nota: esta aprovação é do checkpoint de **desenho conceitual pós-Red-Team** (rubrica A). O Gate de Aprovação Final da seção 23 do prompt mestre (rubrica B, Operational Evidence) só se aplica após implementação real — ainda pendente.
 
 ## ADRs individuais (seção 24 do prompt mestre)
-8 ADRs formais criados em `docs/architecture/adr/` (ADR-0001 a ADR-0008) para as decisões Type 1 — ver `docs/architecture/adr/README.md` para o índice e a justificativa de por que decisões Type 2 permanecem documentadas inline em `architecture-fase3-consolidada.md` sem ADR individual.
+9 ADRs formais criados em `docs/architecture/adr/` (ADR-0001 a ADR-0009) para as decisões Type 1 — ver `docs/architecture/adr/README.md` para o índice e a justificativa de por que decisões Type 2 permanecem documentadas inline em `architecture-fase3-consolidada.md` sem ADR individual.
+
+| D-029 | IaC — CDK substituído por Terraform (decisão direta do usuário, não debate técnico) | Type 1 (nível 6) | N/A — decisão direta do usuário, não nota cega | N/A | **APROVADA** (decisão do responsável final, `AGENTS.md` §1) | `ADR-0009-cdk-to-terraform-migration.md` | 2026-08-20 |
