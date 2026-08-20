@@ -6,18 +6,20 @@ Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, ap�
 
 ## Começando
 
-Pré-requisitos: Node 20.x (fixado em `.nvmrc`), npm.
+Pré-requisitos: Node 20.x (fixado em `.nvmrc`), npm. Docker é necessário só para `npm run test:dynamodb` (Testcontainers sobe DynamoDB Local) — não é pré-requisito dos demais comandos.
 
 ```bash
 npm ci                  # install imutável (scripts de terceiros desabilitados via .npmrc)
 npm run typecheck       # TypeScript estrito
-npm run lint            # ESLint (max-warnings=0, inclui enforcement de boundaries de arquitetura)
+npm run lint            # ESLint (max-warnings=0) - feedback rápido de boundary só no caso de import direto, não autoritativo (ver check-boundaries)
+npm run check-boundaries # dependency-cruiser - enforcement AUTORITATIVO de boundary de arquitetura (grafo real, não só texto do import)
 npm test                # Vitest: unit + contract + integration + infra
+npm run test:dynamodb   # Vitest contra DynamoDB Local via Testcontainers (requer Docker) - não roda em `npm test`, job de CI separado (dynamodb-integration)
 npm run validate-schemas # valida schemas/ (JSON Schema via Ajv)
 npm run build           # compila para dist/
 ```
 
-Todos os comandos acima devem rodar limpos localmente antes de qualquer PR — são os mesmos que o CI executa (`.github/workflows/ci.yml`).
+Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado) devem rodar limpos localmente antes de qualquer PR — são os mesmos que o job `guardrails` do CI executa (`.github/workflows/ci.yml`).
 
 ## Estrutura do repositório
 

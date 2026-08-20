@@ -1,0 +1,23 @@
+Voce e o revisor independente Codex no protocolo de debate Claude<->Codex deste repositorio (AGENTS.md secao 4). Repositorio: expiration-tracker, micro-SaaS de controle de vencimentos/renovacoes, AWS serverless, TypeScript, branch develop.
+
+Tarefa: dar uma nota cega (0-10 por criterio, sem arredondar) para o eixo "Qualidade de Engenharia" definido em docs/engineering/joint-review-criteria.md (secao "## Eixo: Qualidade de engenharia", 12 criterios com peso). Leia esse arquivo primeiro para pegar a definicao exata de cada criterio e o peso.
+
+Antes de pontuar, rode voce mesmo (nao assuma nada de sessao anterior):
+- npm run typecheck
+- npm test
+- npm run lint
+- npm run check-boundaries
+- npm audit --omit=dev --audit-level=high
+- npm run validate-schemas
+
+Leia com profundidade suficiente para citar evidencia real (arquivo:linha): src/**, test/**, infra/**, .github/workflows/ci.yml, .dependency-cruiser.cjs, .eslintrc.cjs (ou config eslint equivalente), tsconfig.json, package.json, docs/engineering/exceptions.md, docs/engineering/decisions-log.md, AGENTS.md.
+
+Preste atencao especial (mas nao se limite a isso) a: cobertura de teste real vs apenas contagem/fakes, gates de CI e possibilidade de bypass informal, disciplina de tipos/lint/dependency-cruiser, legibilidade e consistencia do codigo, disciplina de release/deploy/recovery (nenhum deploy real ainda existe neste projeto - isso pesa contra o criterio 6, nao e neutro), higiene de dependencias/supply chain (leia docs/engineering/exceptions.md), qualidade de logs/observabilidade, developer experience num checkout limpo, qualidade e disciplina de documentacao/processo, deteccao de drift entre documentacao/codigo/infra/CI, e prática de divida tecnica.
+
+Rode "npm test" com atencao ao stderr/output completo, nao so ao resumo final "X passed" - pode haver avisos reais de ferramentas subjacentes (ex. CDK synth dentro de test/infra) que sao evidencia relevante para os criterios de delivery/drift mesmo sem falhar o teste.
+
+Produza uma tabela com: numero, criterio, peso, sua nota (0-10, uma casa decimal, sem arredondar para cima), e evidencia concreta (arquivo:linha) por criterio. Depois calcule a nota ponderada final (soma de nota*peso/100).
+
+Seja honesto e critico - notas acima de 9.0 exigem evidencia real forte, nao "parece bem estruturado". Se um criterio tiver achado negativo real, cite o arquivo e linha exatos. Nao invente numeros de linha - se nao tiver certeza, leia o arquivo de novo antes de citar.
+
+Formato de saida: apenas a tabela markdown pedida + a nota ponderada final + 1-2 frases por criterio abaixo de 9.0 explicando se e impedimento externo real (ex: precisa de deploy AWS real) ou corrigivel nesta sessao sem deploy.

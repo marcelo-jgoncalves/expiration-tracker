@@ -6,6 +6,7 @@
  * per data-model.md §5).
  */
 import type { DomainEvent } from "../contracts/events.js";
+import type { TransactPutEntry, TransactWriteEntry } from "../dynamodb/occ.js";
 
 export type OutboxStatus = "PENDING" | "PUBLISHED";
 
@@ -67,21 +68,23 @@ export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestin
   };
 }
 
-export interface DynamoTransactPutEntry {
-  Put: {
-    TableName: string;
-    Item: Record<string, unknown>;
-    ConditionExpression: string;
-  };
-}
+/** @deprecated kept as an alias of the shared `TransactPutEntry` (src/shared/dynamodb/occ.ts)
+ * for backward compatibility with existing imports - full-audit round1/qualidade found this
+ * was a duplicate, structurally-identical declaration of the same shape (same pattern as the
+ * expiration-store.ts/reminder-store.ts duplication decisions-log.md E-008 already fixed).
+ * Do not add fields here; add them to the shared type instead. */
+export type DynamoTransactPutEntry = TransactPutEntry;
 
 /**
  * OutboxPort.append from implementation-blueprint.md #5.1: appends the outbox Put to a
  * caller-supplied TransactWriteItems array (`tx`) rather than writing directly - the caller
  * owns the transaction and includes the aggregate's own conditional update alongside it.
+ * Accepts the full `TransactWriteEntry` union (Put | Update) so callers whose transaction
+ * also contains Update entries (e.g. reminder dispatch's CLAIMED->TRIGGERED transition) can
+ * pass their real array directly, without an unsafe cast to satisfy a narrower Put-only type.
  */
 export function appendToTransaction(
-  tx: DynamoTransactPutEntry[],
+  tx: TransactWriteEntry[],
   tableName: string,
   event: DomainEvent,
   destination?: OutboxDestination,

@@ -1,0 +1,27 @@
+Voce e o revisor independente Codex no protocolo de debate Claude<->Codex deste repositorio (AGENTS.md secao 4), continuando a rodada 2 da revisao do eixo "Qualidade de Engenharia" (docs/engineering/joint-review-criteria.md). Branch develop, repositorio expiration-tracker.
+
+Na rodada 1 voce deu nota final ponderada 7,066/10 e apontou achados reais. Nesta sessao, entre a rodada 1 e agora, os seguintes achados foram corrigidos de verdade (leia o diff/codigo para confirmar, nao aceite esta lista sem verificar):
+
+1. src/shared/contracts/schema-validator.ts: defaultSchemaRegistry usava import.meta.url + readdirSync em runtime (quebra sob bundle esbuild-cjs, mesma classe de bug ja corrigida no Redactor). Agora usa imports estaticos de schema JSON para o registry de producao; new SchemaRegistry() dinamico continua so para scripts/testes.
+2. src/runtime/aws/handlers/reminder-dispatch-handler.ts: JSON.parse(record.body) as DispatchCommand sem validacao agora valida contra schemas/queues/reminder-dispatch.v1.json via defaultSchemaRegistry antes do cast.
+3. src/workers/reminder-dispatch/dispatch.ts: removido o cast "as never" - src/shared/outbox/outbox.ts agora reusa TransactPutEntry/TransactWriteEntry de src/shared/dynamodb/occ.ts em vez de duplicar o tipo, e appendToTransaction aceita TransactWriteEntry[] (Put|Update).
+4. infra/lib/expiration-tracker-stack.ts: as 8 Lambdas usavam lambda.Runtime.NODEJS_20_X (deprecado, CDK synth emitia warning real) - atualizado para NODEJS_24_X.
+5. .github/workflows/ci.yml: push trigger era so branches:[main] - agora [main, develop] (branch de trabalho ativo per AGENTS.md secao 3).
+6. AGENTS.md secao 7: afirmava "nenhum worker tem runtime Lambda real ainda" - corrigido, ja existem handlers reais em src/runtime/aws/handlers/ desde M3.5.
+7. README.md: adicionados check-boundaries e test:dynamodb (faltavam), corrigida a afirmacao de que lint sozinho cobre enforcement de boundary.
+8. docs/engineering/exceptions.md EX-001: owner "a definir formalmente" -> formalizado como Marcelo.
+9. docs/engineering/decisions-log.md: nota de superacao anexada a E-007 (premissa desatualizada sobre handlers nao existirem) + nova entrada E-009 documentando esta lista.
+
+Tarefa: rode voce mesmo de novo (nao confie em nada da sessao anterior) os seis gates:
+- npm run typecheck
+- npm test
+- npm run lint
+- npm run check-boundaries
+- npm audit --omit=dev --audit-level=high
+- npm run validate-schemas
+
+Releia os 12 criterios do eixo em docs/engineering/joint-review-criteria.md. Reavalie CADA UM dos 12 criterios (nao so os que mudaram - um achado corrigido pode ter efeito colateral em outro criterio, e um criterio que voce nao mencionou pode ter novo achado). De uma nota cega nova (0-10, uma casa decimal, sem arredondar), com evidencia concreta arquivo:linha, no mesmo formato de tabela da rodada 1: numero, criterio, peso, nota, evidencia. Calcule a nota ponderada final.
+
+Seja honesto - se um achado da lista acima nao foi realmente corrigido (ex: ainda ha um cast inseguro, ainda ha drift), diga isso explicitamente e cite a linha. Se permanecerem criterios abaixo de 9.0, classifique cada um como impedimento externo real (precisa de deploy AWS real ou decisao de produto pendente do Marcelo) ou corrigivel nesta sessao (nao foi corrigido por falta de tempo/escopo, nao por impedimento).
+
+Formato de saida: tabela + nota ponderada final + para cada criterio abaixo de 9.0, 1-2 frases de classificacao.

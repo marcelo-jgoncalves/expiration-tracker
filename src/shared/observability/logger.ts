@@ -5,8 +5,10 @@
  * every field passed through the central Redactor first.
  *
  * tenantId may appear in structured logs for investigation (per #14.1) but must never become
- * an EMF metric dimension - that's enforced by callers using shared/observability/metrics.ts
- * (M1+), not by this logger.
+ * an EMF metric dimension. NOTE (full-audit round1/qualidade, 2026-08-19): no
+ * shared/observability/metrics.ts exists yet - this constraint is aspirational until that
+ * module is built (tracked as a real gap under Observability & Operability, not this logger's
+ * job to enforce). Do not treat this comment as evidence metrics.ts exists.
  */
 import { defaultRedactor, Redactor } from "./redactor.js";
 

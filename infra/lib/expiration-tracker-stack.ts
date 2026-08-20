@@ -49,7 +49,7 @@ export class ExpirationTrackerStack extends Stack {
     const commonEnv = { TABLE_NAME: this.table.table.tableName };
 
     const testRouteHandler = new ScopedLambdaFunction(this, "TestPingHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/test-ping-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("IdentityMapping", "User", "TenantQuota")],
@@ -61,7 +61,7 @@ export class ExpirationTrackerStack extends Stack {
     // header comment) - never grantGsi3ReadTo, which stays reserved for M3's
     // ReminderProducer.
     const itemsHandler = new ScopedLambdaFunction(this, "ItemsHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/items-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("ExpirationItem", "AuditEvent", "OutboxEvent", "IdempotencyRecord")],
@@ -69,7 +69,7 @@ export class ExpirationTrackerStack extends Stack {
 
     // M3: policy CRUD is tenant-facing (HTTP), like ItemsHandler - table-level RW, no GSI3.
     this.remindersHandler = new ScopedLambdaFunction(this, "RemindersHandler", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminders-handler.ts`,
       environment: commonEnv,
       access: [tableAccess.readWriteKeys("ReminderPolicy", "ReminderOccurrence")],
@@ -87,7 +87,7 @@ export class ExpirationTrackerStack extends Stack {
     // itself never appears on any tenant-facing function (test/infra/reminder-engine.test.ts
     // asserts this at the synthesized-template level).
     this.reminderProducer = new ScopedLambdaFunction(this, "ReminderProducer", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-producer-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 2,
@@ -98,7 +98,7 @@ export class ExpirationTrackerStack extends Stack {
     // one TransactWriteItems - needs write access to occurrences/intents/outbox/idempotency
     // and read access to ExpirationItem/ReminderPolicy for the staleness check, never GSI3.
     this.reminderDispatch = new ScopedLambdaFunction(this, "ReminderDispatch", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-dispatch-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 10,
@@ -130,7 +130,7 @@ export class ExpirationTrackerStack extends Stack {
     // `mode` in the EventBridge Scheduler input. One of EXACTLY TWO roles granted
     // gsi6Read() (docs/architecture/m3.5-runtime-design.md) - never GSI3.
     this.reminderReconciliation = new ScopedLambdaFunction(this, "ReminderReconciliation", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/reminder-reconciliation-handler.ts`,
       environment: commonEnv,
       reservedConcurrentExecutions: 1,
@@ -144,7 +144,7 @@ export class ExpirationTrackerStack extends Stack {
     // M3.5: DispatchOutboxRelay - DynamoDB Streams (NEW_IMAGE) -> SQS, the durable link
     // between the producer's claim and the dispatch queue (§"Decisão central").
     this.dispatchOutboxRelay = new ScopedLambdaFunction(this, "DispatchOutboxRelay", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/dispatch-outbox-relay-handler.ts`,
       environment: { ...commonEnv, DISPATCH_QUEUE_URL: this.dispatchQueue.queue.queueUrl },
       reservedConcurrentExecutions: 2,
@@ -164,7 +164,7 @@ export class ExpirationTrackerStack extends Stack {
     // M3.5: OutboxSweeperReminderDispatch - the other of EXACTLY TWO roles granted
     // gsi6Read() (recovers publications the relay/Stream missed).
     this.outboxSweeper = new ScopedLambdaFunction(this, "OutboxSweeperReminderDispatch", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: `${HANDLERS_DIR}/outbox-sweeper-handler.ts`,
       environment: { ...commonEnv, DISPATCH_QUEUE_URL: this.dispatchQueue.queue.queueUrl },
       reservedConcurrentExecutions: 2,

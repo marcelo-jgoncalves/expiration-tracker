@@ -202,7 +202,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
       correctionReason: null,
     },
   };
-  appendToTransaction(entries as never, deps.tableName, event);
+  appendToTransaction(entries, deps.tableName, event);
 
   try {
     await deps.store.transactWrite(entries);
