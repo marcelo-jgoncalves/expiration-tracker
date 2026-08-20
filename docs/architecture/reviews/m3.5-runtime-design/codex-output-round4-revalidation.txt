@@ -115,7 +115,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -190,7 +190,7 @@ Escopo fixado por `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` ("Decisão pendente:
 
 ## Decisão central: outbox durável entre claim e publicação
 
-`TransactWrite(SCHEDULEDâ†’CLAIMED)` seguido de `SendMessage` direto no handler do producer **não é atômico** â€” se a Lambda cai entre os dois passos, a ocorrência fica `CLAIMED` sem mensagem em fila, e isso NÃO é coberto pela janela de lookback do próprio producer (que consulta `M` outra chave a cada tick) nem necessariamente pela reconciliação diária a tempo. Fila+DLQ sozinhas não fecham essa lacuna (achado que nenhuma das duas propostas independentes tinha isoladamente â€” só apareceu na crítica cruzada).
+`TransactWrite(SCHEDULED→CLAIMED)` seguido de `SendMessage` direto no handler do producer **não é atômico** — se a Lambda cai entre os dois passos, a ocorrência fica `CLAIMED` sem mensagem em fila, e isso NÃO é coberto pela janela de lookback do próprio producer (que consulta `M` outra chave a cada tick) nem necessariamente pela reconciliação diária a tempo. Fila+DLQ sozinhas não fecham essa lacuna (achado que nenhuma das duas propostas independentes tinha isoladamente — só apareceu na crítica cruzada).
 
 **Decisão**: o claim grava, na MESMA `TransactWriteItems`, um `OutboxEvent` (reusando `shared/outbox/outbox.ts` — nenhum mecanismo de outbox paralelo), `eventType: "ReminderDispatchRequested"`, com um atributo novo e obrigatório **`destination: "SQS_REMINDER_DISPATCH_V1"`** — o único discriminador de roteamento. `OutboxPublisher` (M2/M3, genérico → EventBridge) só processa itens SEM `destination` ou com `destination` que ele reconhece como "EventBridge padrão"; ao encontrar `destination: "SQS_REMINDER_DISPATCH_V1"` ele **ignora explicitamente** o item (não é "o padrão dele, só que falhando" — é um `if` textual no seu filtro de query/processamento). Só o `DispatchOutboxRelay` Lambda processa itens com esse `destination`. Isso é testado diretamente: um item com `destination: "SQS_REMINDER_DISPATCH_V1"` nunca aparece publicado no EventBridge, e um item sem `destination` nunca é consumido pelo relay SQS.
 

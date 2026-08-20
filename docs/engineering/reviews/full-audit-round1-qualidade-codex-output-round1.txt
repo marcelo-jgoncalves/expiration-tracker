@@ -62,7 +62,7 @@ Princípios de engenharia, tiers de gate de qualidade, escala de risco que calib
 
 `develop` é o branch de trabalho ativo — todo commit de sessão (implementação, remediação, docs) vai para `develop`, nunca direto em `main`. `main` é protegido no GitHub (required status check `guardrails`/CI, sem force-push, sem deleção) e só recebe merge via PR de `develop` quando um marco está estável e verificado (CI verde, gates relevantes revisados). Antes de começar qualquer trabalho de código, confirmar `git branch --show-current` = `develop` (ou uma branch de feature a partir dele, se a tarefa justificar); se estiver em `main`, trocar para `develop` antes de commitar. Abrir o PR `develop→main` é uma ação visível/compartilhada — confirmar com Marcelo antes de merjar, mesmo que o push para `develop` em si não precise de confirmação a cada commit.
 
-## 4. Protocolo de debate Claude â†” Codex
+## 4. Protocolo de debate Claude ↔ Codex
 
 Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter — nível 5-6 de `docs/engineering/change-risk-scale.md`). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada (níveis 1-4) — usar a escala de risco para calibrar, não julgamento ad-hoc repetido.
 

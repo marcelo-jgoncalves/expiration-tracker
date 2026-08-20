@@ -560,7 +560,7 @@ Avaliar:
 - deployment verification;
 - smoke tests;
 - release notes quando apropriado;
-- rastreabilidade commit â†’ build â†’ deploy.
+- rastreabilidade commit → build → deploy.
 
 ---
 
@@ -1022,7 +1022,7 @@ não recebe crédito se nenhum restore tiver sido executado.
 
 # 21. AUSÊNCIA DE EVIDÊNCIA
 
-**Evidence unavailable â‰  neutral score.**
+**Evidence unavailable ≠ neutral score.**
 
 Se um critério exige evidência e ela não existe:
 
@@ -1087,7 +1087,7 @@ Se forem feitas correções posteriormente, registre o novo SHA.
 
 Assim será possível mostrar:
 
-`BEFORE â†’ AFTER`
+`BEFORE → AFTER`
 
 ---
 
@@ -1114,7 +1114,7 @@ Fluxo:
 
 ---
 
-# 25. PROCESSO CLAUDE â†” CODEX
+# 25. PROCESSO CLAUDE ↔ CODEX
 
 O Codex deve atuar como **engenheiro independente**, não como assistente subordinado.
 
@@ -1282,7 +1282,7 @@ Pode utilizar, quando aplicável:
 
 Mas:
 
-> **mais ferramentas â‰  melhor engenharia.**
+> **mais ferramentas ≠ melhor engenharia.**
 
 Prefira o conjunto mínimo que cria feedback forte.
 
@@ -1797,7 +1797,7 @@ Remediation Implementation
 ### Checkpoint 14
 Final Engineering Assessment
 
-Cada checkpoint relevante deve passar pelo processo Claude â†” Codex.
+Cada checkpoint relevante deve passar pelo processo Claude ↔ Codex.
 
 ---
 
@@ -2206,7 +2206,7 @@ Ao final do trabalho, apresente ao usuário um resumo curto contendo:
 Comece agora por:
 
 1. ler `ARCHITECTURE.md`;
-2. compreender o processo Claude â†” Codex anterior;
+2. compreender o processo Claude ↔ Codex anterior;
 3. inventariar `docs/architecture`;
 4. congelar o SHA atual;
 5. pesquisar na Internet as referências de engenharia;
@@ -2794,7 +2794,7 @@ Avaliar:
 - deployment verification;
 - smoke tests;
 - release notes quando apropriado;
-- rastreabilidade commit â†’ build â†’ deploy.
+- rastreabilidade commit → build → deploy.
 
 ---
 
@@ -3233,7 +3233,7 @@ Remediation Implementation
 ### Checkpoint 14
 Final Engineering Assessment
 
-Cada checkpoint relevante deve passar pelo processo Claude â†” Codex.
+Cada checkpoint relevante deve passar pelo processo Claude ↔ Codex.
 
 ---
 
@@ -3642,7 +3642,7 @@ Ao final do trabalho, apresente ao usuário um resumo curto contendo:
 Comece agora por:
 
 1. ler `ARCHITECTURE.md`;
-2. compreender o processo Claude â†” Codex anterior;
+2. compreender o processo Claude ↔ Codex anterior;
 3. inventariar `docs/architecture`;
 4. congelar o SHA atual;
 5. pesquisar na Internet as referências de engenharia;
@@ -3729,7 +3729,7 @@ não recebe crédito se nenhum restore tiver sido executado.
 
 # 21. AUSÊNCIA DE EVIDÊNCIA
 
-**Evidence unavailable â‰  neutral score.**
+**Evidence unavailable ≠ neutral score.**
 
 Se um critério exige evidência e ela não existe:
 
@@ -3794,7 +3794,7 @@ Se forem feitas correções posteriormente, registre o novo SHA.
 
 Assim será possível mostrar:
 
-`BEFORE â†’ AFTER`
+`BEFORE → AFTER`
 
 ---
 
@@ -3821,7 +3821,7 @@ Fluxo:
 
 ---
 
-# 25. PROCESSO CLAUDE â†” CODEX
+# 25. PROCESSO CLAUDE ↔ CODEX
 
 O Codex deve atuar como **engenheiro independente**, não como assistente subordinado.
 
@@ -3989,7 +3989,7 @@ Pode utilizar, quando aplicável:
 
 Mas:
 
-> **mais ferramentas â‰  melhor engenharia.**
+> **mais ferramentas ≠ melhor engenharia.**
 
 Prefira o conjunto mínimo que cria feedback forte.
 

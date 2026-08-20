@@ -1,0 +1,22 @@
+Voce e o revisor independente Codex no protocolo de debate Claude<->Codex deste repositorio (AGENTS.md secao 4), continuando a rodada 4 (final) da revisao do eixo "Engenharia de Contexto" (docs/engineering/joint-review-criteria.md). Branch develop, repositorio expiration-tracker.
+
+Na rodada 3 voce deu nota final ponderada 8,564/10, com 6 dos 9 criterios abaixo de 9.0. Desde entao, tres correcoes reais foram aplicadas (commits d1e48cd, e9d4b79, c71a189):
+
+1. AGENTS.md linha 62 (instrucao morta sobre "reavaliar automacao quando volume M1+ justificar", ja satisfeita) foi removida - achado seu do round3.
+2. scripts/check-doc-drift.ts docstring corrigida para nao superestimar cobertura (links inline-style apenas, nao reference-style) - achado seu do round3.
+3. Mojibake (texto corrompido por decodificacao dupla UTF-8-como-Windows-1252) revertido em 22 arquivos de transcript brutos sob docs/engineering/reviews/*.txt e docs/architecture/reviews/m3.5-runtime-design/*.txt - reversao deterministica e verificada, nao apenas mitigada por classificacao como nas rodadas anteriores. Confirmado programaticamente: 0 caracteres de substituicao (U+FFFD) introduzidos em 76 arquivos .txt/.md verificados sob reviews/. Existe exatamente 1 palavra residual (tripla-corrompida, contexto de baixo valor: uma citacao de saida de grep dentro do proprio transcript full-audit-round1-arquitetura-codex-output-round3.txt) que nao foi corrigida por seguranca - a correcao automatica so aceita resultados verificados sem ambiguidade.
+4. AGENTS.md secao 4 agora demarca explicitamente 2 regras como especificas do ambiente Windows/terminal-com-aprovacao-por-comando (nunca encadear comandos com &&, sempre reafirmar cd defensivamente) em vez de deixa-las implicitas em exemplos formatados como Bash generico - achado seu do round2/round3 sobre AGENTS.md ser especifico a Bash/Codex CLI.
+
+Tarefa: rode voce mesmo, de novo, sem confiar em nada da sessao anterior:
+- npm run check-docs
+- npm run typecheck
+- npm run lint
+- npm run check-boundaries
+- Verifique voce mesmo a alegacao de "0 mojibake residual, exceto 1 palavra": procure por padroes tipicos de mojibake (sequencias como "Ã" seguido de outro caractere nao-ASCII, "â€" seguido de caractere) em pelo menos 3 dos arquivos citados (docs/engineering/reviews/full-audit-round1-arquitetura-codex-output-round1.txt, docs/engineering/reviews/full-audit-round1-contexto-codex-output-round3.txt, docs/architecture/reviews/m3.5-runtime-design/codex-output-round3-validation.txt) - nao aceite a alegacao sem checar.
+- Leia AGENTS.md secao 4 de verdade, nao so a lista acima.
+
+Releia os 9 criterios do eixo em docs/engineering/joint-review-criteria.md. Reavalie CADA UM dos 9 criterios. De uma nota cega nova (0-10, uma casa decimal, sem arredondar), com evidencia concreta arquivo:linha. Calcule a nota ponderada final.
+
+Esta e potencialmente a rodada final do eixo - se restar algum criterio abaixo de 9.0, classifique honestamente como impedimento externo real (nenhum deveria existir neste eixo - e documentacao pura) ou trabalho de escopo maior nao feito (ex: metadata uniforme retroativa em reviews/, se ainda for um achado seu). Nao arredonde 8.99 para 9. Se genuinamente todos os 9 criterios estiverem >=9.0 pelos seus proprios calculos, diga isso explicitamente tambem - nao existe pressao para manter uma nota baixa artificialmente.
+
+Formato de saida: tabela criterio/peso/nota/evidencia + nota ponderada final + classificacao de qualquer criterio abaixo de 9.0.

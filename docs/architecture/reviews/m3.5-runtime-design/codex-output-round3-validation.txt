@@ -50,7 +50,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -236,7 +236,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -1505,25 +1505,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -1646,9 +1646,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -1792,7 +1792,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -2000,25 +2000,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -2141,9 +2141,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -2287,7 +2287,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -2890,7 +2890,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -4159,25 +4159,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -4278,7 +4278,7 @@ Um adapter por port:
 - `DynamoDbReminderStore implements ReminderStore`
 - `DynamoDbReminderProducerStore implements ReminderProducerStore`
 
-Não criaria uma classe â€œuniversalâ€ pública implementando todos os ports. Isso permitiria injetar acidentalmente acesso ao GSI3 em código tenant-facing.
+Não criaria uma classe “universal” pública implementando todos os ports. Isso permitiria injetar acidentalmente acesso ao GSI3 em código tenant-facing.
 
 Pode haver helpers internos compartilhados para `GetCommand`, `PutCommand`, `UpdateCommand` e `TransactWriteCommand`, mas o método `queryGsi3` existe somente em `reminder-producer-store-dynamodb.ts`.
 
@@ -4300,9 +4300,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -4446,7 +4446,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -4623,7 +4623,7 @@ O milestone só pode alegar fechamento operacional de G8 quando houver:
 
 ## 12. O que este milestone não resolve
 
-â€œG8 fechadoâ€ não significa que os cinco P1 desapareceram integralmente.
+“G8 fechado” não significa que os cinco P1 desapareceram integralmente.
 
 - **P1 #1 — recuperação assíncrona:** fecha o trecho producer → dispatch se houver outbox/relay e reconciliação consultável. Não fecha pipelines futuros de Notification.
 - **P1 #2 — idempotência no efeito externo:** não pode ser provada ainda. `NotificationIntent` é apenas uma intenção durável; M4 deverá provar idempotência no limite do provider de e-mail/WhatsApp, inclusive timeout após o provider aceitar a solicitação e antes de responder.
@@ -4654,25 +4654,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -4773,7 +4773,7 @@ Um adapter por port:
 - `DynamoDbReminderStore implements ReminderStore`
 - `DynamoDbReminderProducerStore implements ReminderProducerStore`
 
-Não criaria uma classe â€œuniversalâ€ pública implementando todos os ports. Isso permitiria injetar acidentalmente acesso ao GSI3 em código tenant-facing.
+Não criaria uma classe “universal” pública implementando todos os ports. Isso permitiria injetar acidentalmente acesso ao GSI3 em código tenant-facing.
 
 Pode haver helpers internos compartilhados para `GetCommand`, `PutCommand`, `UpdateCommand` e `TransactWriteCommand`, mas o método `queryGsi3` existe somente em `reminder-producer-store-dynamodb.ts`.
 
@@ -4795,9 +4795,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -4941,7 +4941,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -5118,7 +5118,7 @@ O milestone só pode alegar fechamento operacional de G8 quando houver:
 
 ## 12. O que este milestone não resolve
 
-â€œG8 fechadoâ€ não significa que os cinco P1 desapareceram integralmente.
+“G8 fechado” não significa que os cinco P1 desapareceram integralmente.
 
 - **P1 #1 — recuperação assíncrona:** fecha o trecho producer → dispatch se houver outbox/relay e reconciliação consultável. Não fecha pipelines futuros de Notification.
 - **P1 #2 — idempotência no efeito externo:** não pode ser provada ainda. `NotificationIntent` é apenas uma intenção durável; M4 deverá provar idempotência no limite do provider de e-mail/WhatsApp, inclusive timeout após o provider aceitar a solicitação e antes de responder.
@@ -5147,7 +5147,7 @@ Principais riscos:
 Escopo (fixado por `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` "Decisão pendente: escopo de G8"):
 1. Adapters DynamoDB reais para `ReminderStore`, `ExpirationStore`, `IdentityStore` (hoje só fakes em memória).
 2. Handlers Lambda reais substituindo os placeholders `501` em `infra/lib/expiration-tracker-stack.ts`.
-3. Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+3. Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 4. EventBridge Scheduled Rule disparando `ReminderProducer` (1 min) e `ReminderReconciliation` (diário).
 5. Testes de fault injection contra esse runtime real.
 
@@ -5237,7 +5237,7 @@ exec
 3-Escopo (fixado por `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` "Decisão pendente: escopo de G8"):
 4-1. Adapters DynamoDB reais para `ReminderStore`, `ExpirationStore`, `IdentityStore` (hoje só fakes em memória).
 5-2. Handlers Lambda reais substituindo os placeholders `501` em `infra/lib/expiration-tracker-stack.ts`.
-6-3. Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+6-3. Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 7:4. EventBridge Scheduled Rule disparando `ReminderProducer` (1 min) e `ReminderReconciliation` (diário).
 8-5. Testes de fault injection contra esse runtime real.
 9-
@@ -5880,7 +5880,7 @@ codex
 
 Os dois gaps continuam corretos após ler a proposta original da Claude:
 
-- **Durabilidade claim â†’ fila:** a proposta original fazia `TransactWrite(claim)` seguido de `SendMessage`, deixando uma janela real de perda. Outbox transacional + Streams/relay + sweeper fecha essa janela para o trecho producerâ†’dispatch.
+- **Durabilidade claim → fila:** a proposta original fazia `TransactWrite(claim)` seguido de `SendMessage`, deixando uma janela real de perda. Outbox transacional + Streams/relay + sweeper fecha essa janela para o trecho producer→dispatch.
 - **Fonte de candidatos da reconciliação:** o worker atual não se torna real apenas por receber um schedule. É necessário incluir no M3.5 o GSI6 consultável e um port estreito, separado de `ReminderStore`, como `ReminderReconciliationCandidateSource`. Ele deve expor explicitamente candidatos para claims expirados e para reconciliação DST/materialização, com namespaces de GSI6 que não colidam com `RECON#OUTBOX#PENDING`.
 
 A reconciliação curta continua necessária mesmo com outbox: ela recupera leases/claims excepcionais; o sweeper do outbox recupera publicação pendente. São responsabilidades complementares.
@@ -5908,7 +5908,7 @@ tokens used
 
 Os dois gaps continuam corretos após ler a proposta original da Claude:
 
-- **Durabilidade claim â†’ fila:** a proposta original fazia `TransactWrite(claim)` seguido de `SendMessage`, deixando uma janela real de perda. Outbox transacional + Streams/relay + sweeper fecha essa janela para o trecho producerâ†’dispatch.
+- **Durabilidade claim → fila:** a proposta original fazia `TransactWrite(claim)` seguido de `SendMessage`, deixando uma janela real de perda. Outbox transacional + Streams/relay + sweeper fecha essa janela para o trecho producer→dispatch.
 - **Fonte de candidatos da reconciliação:** o worker atual não se torna real apenas por receber um schedule. É necessário incluir no M3.5 o GSI6 consultável e um port estreito, separado de `ReminderStore`, como `ReminderReconciliationCandidateSource`. Ele deve expor explicitamente candidatos para claims expirados e para reconciliação DST/materialização, com namespaces de GSI6 que não colidam com `RECON#OUTBOX#PENDING`.
 
 A reconciliação curta continua necessária mesmo com outbox: ela recupera leases/claims excepcionais; o sweeper do outbox recupera publicação pendente. São responsabilidades complementares.
@@ -5925,7 +5925,7 @@ Escopo fixado por `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` ("Decisão pendente:
 
 ## Decisão central: outbox durável entre claim e publicação
 
-`TransactWrite(SCHEDULEDâ†’CLAIMED)` seguido de `SendMessage` direto no handler do producer **não é atômico** â€” se a Lambda cai entre os dois passos, a ocorrência fica `CLAIMED` sem mensagem em fila, e isso NÃO é coberto pela janela de lookback do próprio producer (que consulta `M` outra chave a cada tick) nem necessariamente pela reconciliação diária a tempo. Fila+DLQ sozinhas não fecham essa lacuna (achado que nenhuma das duas propostas independentes tinha isoladamente â€” só apareceu na crítica cruzada).
+`TransactWrite(SCHEDULED→CLAIMED)` seguido de `SendMessage` direto no handler do producer **não é atômico** — se a Lambda cai entre os dois passos, a ocorrência fica `CLAIMED` sem mensagem em fila, e isso NÃO é coberto pela janela de lookback do próprio producer (que consulta `M` outra chave a cada tick) nem necessariamente pela reconciliação diária a tempo. Fila+DLQ sozinhas não fecham essa lacuna (achado que nenhuma das duas propostas independentes tinha isoladamente — só apareceu na crítica cruzada).
 
 **Decisão**: o claim grava, na MESMA `TransactWriteItems`, um `OutboxEvent` (reusando `shared/outbox/outbox.ts` — nenhum mecanismo de outbox paralelo), `eventType: "ReminderDispatchRequested"`. Um `DispatchOutboxRelay` Lambda (gatilho: DynamoDB Streams) publica esse evento na `ReminderDispatchQueue` via SQS e marca o outbox como publicado; falha de publicação (não de persistência) é recuperada por um sweeper periódico do próprio outbox, nunca reprocessada como se o claim não tivesse acontecido. O roteamento precisa ser inequívoco por `eventType`/campo versionado de destino, para que o relay de dispatch nunca dispute ou duplique o mesmo registro com o `OutboxPublisher` genérico já existente (M2/M3) — isso é contrato explícito a testar, não just "outro consumidor do outbox".
 
@@ -6028,7 +6028,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 

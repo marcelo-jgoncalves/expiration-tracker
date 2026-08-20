@@ -60,7 +60,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 

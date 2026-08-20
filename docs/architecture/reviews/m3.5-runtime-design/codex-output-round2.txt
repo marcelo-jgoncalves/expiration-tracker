@@ -402,7 +402,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -1671,25 +1671,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -1812,9 +1812,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -1958,7 +1958,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -2166,25 +2166,25 @@ O milestone deve transformar o fluxo atual em runtime implantável sem contamina
 
 ```text
 EventBridge Rule
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderProducer Lambda
-      â”‚
-      â”œâ”€ TransactWrite:
-      â”‚    SCHEDULED â†’ CLAIMED
+      │
+      ├─ TransactWrite:
+      │    SCHEDULED → CLAIMED
       │    + registro durável DispatchOutbox
-      â–¼
+      ▼
 DynamoDB Stream / relay
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatchQueue
-      â”‚
-      â–¼
+      │
+      ▼
 ReminderDispatch Lambda
-      â”‚
-      â”œâ”€ revalida estado/versionamento
-      â””â”€ TransactWrite:
-           CLAIMED â†’ TRIGGERED
+      │
+      ├─ revalida estado/versionamento
+      └─ TransactWrite:
+           CLAIMED → TRIGGERED
            + NotificationIntent
            + OutboxEvent
            + IdempotencyRecord
@@ -2307,9 +2307,9 @@ Paginação deve ser completa por padrão. `limit` representa limite lógico tot
 
 O adapter deve traduzuzir, sem esconder a causa:
 
-- `ConditionalCheckFailedException` em `putIfAbsent` â†’ `false`.
+- `ConditionalCheckFailedException` em `putIfAbsent` → `false`.
 - `TransactionCanceledException` → erro reconhecível por `isTransactionCanceled`.
-- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 - validation error, item/schema inválido → erro terminal.
 - `AccessDeniedException` → erro terminal operacional e alarme; não deve virar retry infinito.
 
@@ -2453,7 +2453,7 @@ return {
 Classificação:
 
 - sucesso, duplicata ou estado já avançado → ACK;
-- erro retryable â†’ incluir em `batchItemFailures`;
+- erro retryable → incluir em `batchItemFailures`;
 - poison message/schema inválido → terminal, mas precisa chegar à DLQ.
 
 Para poison message, há duas políticas válidas. Eu recomendo retornar falha até `maxReceiveCount=5`, garantindo que o redrive nativo seja exercitado e observável. Para evitar custo inútil, registrar a primeira detecção e emitir métrica por receive count. Não deletar manualmente nem enviar diretamente à DLQ.
@@ -2659,7 +2659,7 @@ Principais riscos:
 Escopo (fixado por `NEXT_SESSION_PROMPT.md`/`ENGINEERING.md` "Decisão pendente: escopo de G8"):
 1. Adapters DynamoDB reais para `ReminderStore`, `ExpirationStore`, `IdentityStore` (hoje só fakes em memória).
 2. Handlers Lambda reais substituindo os placeholders `501` em `infra/lib/expiration-tracker-stack.ts`.
-3. Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+3. Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 4. EventBridge Scheduled Rule disparando `ReminderProducer` (1 min) e `ReminderReconciliation` (diário).
 5. Testes de fault injection contra esse runtime real.
 

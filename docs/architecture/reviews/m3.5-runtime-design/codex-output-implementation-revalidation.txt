@@ -45,7 +45,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -1444,16 +1444,16 @@ exec
 "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content src/workers/reminder-reconciliation/reconciliation.ts; Get-Content src/modules/reminder/domain/recurrence.ts; Get-Content src/runtime/aws/handlers/reminder-reconciliation-handler.ts; Get-Content src/modules/reminder/persistence/dynamodb-reconciliation-candidate-source.ts; Get-Content src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts; Get-Content src/shared/dynamodb/occ.ts; rg -n "interface ReminderOccurrence|version:|expectedVersion|removeAttributes" src/modules/reminder src/shared test/unit/reminder' in C:\Users\Usuario\Desktop\projects\expiration-tracker
  succeeded in 409ms:
 /**
- * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
+ * Reconciliation - implementation-blueprint.md §9.5, run as ONE job/Lambda serving TWO
  * purposes (per the task brief: "don't build two separate reconciliation paths"), both
  * documented in §9.3 point 4 ("claims expirados... via reconciliação, mesmo job da §9.5")
- * and Â§9.5 itself (DST):
+ * and §9.5 itself (DST):
  *
  *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its
  *      `claimExpiresAt` (dispatch worker crashed/timed out before completing) reverts to
  *      SCHEDULED, conditionally, so the next producer tick's lookback window picks it up
  *      again;
- *  (b) DST-affected re-evaluation (Â§9.5 steps 1-6): for each (item, enabled policy) pair
+ *  (b) DST-affected re-evaluation (§9.5 steps 1-6): for each (item, enabled policy) pair
  *      in the reconciliation batch, recompute the expected schedule from the policy's
  *      IANA timeZone + rule against a `[now, now+7d]` window, compare to what's actually
  *      materialized, cancel divergent SCHEDULED occurrences and materialize missing ones
@@ -1529,7 +1529,7 @@ export async function reconcileExpiredClaims(
   return reverted;
 }
 
-/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (Â§9.5 steps 1-6). */
+/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (§9.5 steps 1-6). */
 export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],
@@ -1798,7 +1798,7 @@ export function addCalendarDays(date: { year: number; month: number; day: number
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
-/** Parses an ISO-8601 duration of the restricted form used by ReminderTrigger.offsetIso: optional sign, "P", integer days, "D" (e.g. "-P7D", "P0D", "-P1D"). Sufficient for the relative-offset-from-dueDate model documented in data-model.md/blueprint Â§9.1 - broader ISO-8601 duration grammar (weeks/months/time components) is out of scope for M3. */
+/** Parses an ISO-8601 duration of the restricted form used by ReminderTrigger.offsetIso: optional sign, "P", integer days, "D" (e.g. "-P7D", "P0D", "-P1D"). Sufficient for the relative-offset-from-dueDate model documented in data-model.md/blueprint §9.1 - broader ISO-8601 duration grammar (weeks/months/time components) is out of scope for M3. */
 export function parseDayOffset(offsetIso: string): number {
   const match = /^(-)?P(\d+)D$/.exec(offsetIso);
   if (!match) {

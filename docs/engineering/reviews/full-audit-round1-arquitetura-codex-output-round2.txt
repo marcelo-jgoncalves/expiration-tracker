@@ -43,9 +43,9 @@ Para cada eixo: nota inicial cega de ambos (Claude e Codex, sem ver a nota um do
 
 Registrar o resultado de cada eixo (nota final, achados corrigidos, achados com impedimento real) em `docs/engineering/reviews/full-audit-round1-<eixo>-*` (mesmo padrão de nomenclatura já usado para `security-axis-criteria-round1-*` etc.) e um resumo consolidado no topo deste arquivo ao final.
 
-## Mudança de rumo em G8/deploy (2026-08-19, decidida ao final desta sessão â€” NÃO implementada ainda)
+## Mudança de rumo em G8/deploy (2026-08-19, decidida ao final desta sessão — NÃO implementada ainda)
 
-**Credenciais AWS reais já existem** â€” perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** â€” quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
+**Credenciais AWS reais já existem** — perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** — quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
 
 Isso muda o próximo passo real de G8/M3.5 — **não** é mais "rodar `cdk bootstrap`/`cdk deploy` localmente" como as seções abaixo (histórico) ainda descrevem. É uma decisão nova, não totalmente especificada ainda, que precisa ser esclarecida no início da próxima sessão antes de qualquer implementação (nível 5-6 de `docs/engineering/change-risk-scale.md` — mudança de ferramenta de infra é decisão Type 1, protocolo Claude↔Codex provavelmente aplicável):
 
@@ -77,7 +77,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -426,7 +426,7 @@ Princípios de engenharia, tiers de gate de qualidade, escala de risco que calib
 
 `develop` é o branch de trabalho ativo — todo commit de sessão (implementação, remediação, docs) vai para `develop`, nunca direto em `main`. `main` é protegido no GitHub (required status check `guardrails`/CI, sem force-push, sem deleção) e só recebe merge via PR de `develop` quando um marco está estável e verificado (CI verde, gates relevantes revisados). Antes de começar qualquer trabalho de código, confirmar `git branch --show-current` = `develop` (ou uma branch de feature a partir dele, se a tarefa justificar); se estiver em `main`, trocar para `develop` antes de commitar. Abrir o PR `develop→main` é uma ação visível/compartilhada — confirmar com Marcelo antes de merjar, mesmo que o push para `develop` em si não precise de confirmação a cada commit.
 
-## 4. Protocolo de debate Claude â†” Codex
+## 4. Protocolo de debate Claude ↔ Codex
 
 Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter — nível 5-6 de `docs/engineering/change-risk-scale.md`). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada (níveis 1-4) — usar a escala de risco para calibrar, não julgamento ad-hoc repetido.
 
@@ -650,9 +650,9 @@ Para cada eixo: nota inicial cega de ambos (Claude e Codex, sem ver a nota um do
 
 Registrar o resultado de cada eixo (nota final, achados corrigidos, achados com impedimento real) em `docs/engineering/reviews/full-audit-round1-<eixo>-*` (mesmo padrão de nomenclatura já usado para `security-axis-criteria-round1-*` etc.) e um resumo consolidado no topo deste arquivo ao final.
 
-## Mudança de rumo em G8/deploy (2026-08-19, decidida ao final desta sessão â€” NÃO implementada ainda)
+## Mudança de rumo em G8/deploy (2026-08-19, decidida ao final desta sessão — NÃO implementada ainda)
 
-**Credenciais AWS reais já existem** â€” perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** â€” quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
+**Credenciais AWS reais já existem** — perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** — quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
 
 Isso muda o próximo passo real de G8/M3.5 — **não** é mais "rodar `cdk bootstrap`/`cdk deploy` localmente" como as seções abaixo (histórico) ainda descrevem. É uma decisão nova, não totalmente especificada ainda, que precisa ser esclarecida no início da próxima sessão antes de qualquer implementação (nível 5-6 de `docs/engineering/change-risk-scale.md` — mudança de ferramenta de infra é decisão Type 1, protocolo Claude↔Codex provavelmente aplicável):
 
@@ -684,7 +684,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -3187,7 +3187,7 @@ exec
 "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'findstr /n /c:"Camada 1" /c:"Camada 2" /c:"Camada 3" /c:"Terraform" /c:"ARCHITECTURE STATUS" NEXT_SESSION_PROMPT.md' in C:\Users\Usuario\Desktop\projects\expiration-tracker
  succeeded in 194ms:
 5:**A próxima sessão deve COMEÇAR (antes de qualquer outra coisa, inclusive antes de retomar G8/Camada 3 abaixo) rodando o processo formal de nota do protocolo Claude↔Codex (`AGENTS.md` §4) contra os 9 eixos já formalizados em `docs/engineering/joint-review-criteria.md`** (Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança/AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant — **não** o eixo FinOps, que segue deliberadamente sem critérios).
-15:**Credenciais AWS reais já existem** â€” perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** â€” quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
+15:**Credenciais AWS reais já existem** — perfil AWS CLI `claude-dev` (conta `975707451904`, `us-east-1`), confirmado funcional (`aws sts get-caller-identity --profile claude-dev`). Isso desbloqueia G8/Camada 3 em tese, **mas o usuário decidiu explicitamente NÃO fazer deploy manual via `cdk deploy` a partir da CLI** — quando perguntado, a resposta foi: **"não usamos isso. Temos que criar uma pipeline e o deploy será feito por lá via terraform. vamos continuar na próxima sessão."**
 19:- O projeto usa **AWS CDK** (`infra/lib/*.ts`, `aws-cdk-lib`) desde M1 para toda a infraestrutura. A instrução de usar Terraform não especificou se isso **substitui** CDK, **coexiste** com ele (ex. Terraform só para a pipeline/bootstrap de conta, CDK continua definindo os recursos da aplicação), ou se o CDK deveria ser **reescrito** em Terraform/HCL — não presumir nenhuma dessas opções sem perguntar.
 20:- "Pipeline" aqui não foi definida — GitHub Actions (já existe um esqueleto em `.github/workflows/deploy-dev.yml`, feito para CDK+OIDC, provavelmente precisa ser refeito para Terraform), outra ferramenta, ou algo já decidido em outro lugar que esta sessão não viu.
 21:- **Antes de escrever qualquer HCL**: perguntar ao usuário o escopo exato (CDK vs Terraform vs coexistência), se há um repositório/padrão de pipeline de referência (ex. o projeto irmão `event-discovery-platform` já tem `infrastructure/terraform/` com módulos e OIDC — pode ser o padrão a seguir, mas não presumir sem confirmar), e revisar `docs/engineering/change-risk-scale.md`/`AGENTS.md` §4 para decidir se isso precisa de ADR formal antes de implementar.
@@ -5176,8 +5176,8 @@ docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:1303:import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:1309:  shardConfig: ShardConfig;
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:1442:        shardConfig: deps.shardConfig,
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:1651:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:2146:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:1651:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:2146:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:2573:162:| `ReminderProducer` | EventBridge Scheduler, 1 minuto | Consultar GSI3 nos shards do minuto e enviar comandos para SQS |
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:2611:529-- dashboard: GSI1 por status/dueDate, seguido de verificação base quando houver ação;
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:2671:632-- dimensionamento de shards por pico **global** (todos os tenants), não por tenant.
@@ -5223,8 +5223,8 @@ docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:3957:import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:3963:  shardConfig: ShardConfig;
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:4096:        shardConfig: deps.shardConfig,
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:4305:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:4800:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:4305:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:4800:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:5161:- Erros do SDK (`ConditionalCheckFailedException`, `TransactionCanceledException`, `ProvisionedThroughputExceededException`, timeout/throttling) mapeados para a taxonomia de `shared/errors/app-error.ts` (`retryable` vs terminal) no próprio adapter — é o único lugar que vê exceções nativas do SDK; o resto do sistema já é SDK-agnóstico e deve continuar assim.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:5251:17-- Erros do SDK (`ConditionalCheckFailedException`, `TransactionCanceledException`, `ProvisionedThroughputExceededException`, timeout/throttling) mapeados para a taxonomia de `shared/errors/app-error.ts` (`retryable` vs terminal) no próprio adapter — é o único lugar que vê exceções nativas do SDK; o resto do sistema já é SDK-agnóstico e deve continuar assim.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round3-validation.txt:5351:100:Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` — CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutação na mesma transação, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; é idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). Suíte de integração `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.
@@ -5354,8 +5354,8 @@ docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1227:    s
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1469:import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1475:  shardConfig: ShardConfig;
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1608:        shardConfig: deps.shardConfig,
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1817:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
-docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:2312:- throttling, timeout, falha 5xx e indisponibilidade â†’ `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:1817:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
+docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:2312:- throttling, timeout, falha 5xx e indisponibilidade → `AppError` retryable.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:2673:- Erros do SDK (`ConditionalCheckFailedException`, `TransactionCanceledException`, `ProvisionedThroughputExceededException`, timeout/throttling) mapeados para a taxonomia de `shared/errors/app-error.ts` (`retryable` vs terminal) no próprio adapter — é o único lugar que vê exceções nativas do SDK; o resto do sistema já é SDK-agnóstico e deve continuar assim.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:2763:17-- Erros do SDK (`ConditionalCheckFailedException`, `TransactionCanceledException`, `ProvisionedThroughputExceededException`, timeout/throttling) mapeados para a taxonomia de `shared/errors/app-error.ts` (`retryable` vs terminal) no próprio adapter — é o único lugar que vê exceções nativas do SDK; o resto do sistema já é SDK-agnóstico e deve continuar assim.
 docs\architecture\reviews\m3.5-runtime-design\codex-output-round2.txt:2863:100:Todas as entregas implementadas e testadas (134 testes, `npm test`/`typecheck`/`lint`/`validate-schemas` verdes): `src/modules/expiration/{domain,application,ports,http}` — CRUD/renew (`ExpirationService`: createItem/getItem/updateItem/archiveItem/deleteItem/renewItem/listDashboard), OCC via `shared/dynamodb/occ.ts`, `ItemDueDateChanged` por outbox (`shared/outbox/outbox.ts`) na MESMA `TransactWriteItems` do item quando `dueDate` muda (updateItem e renewItem), `AuditEvent` append-only gravado em toda mutação na mesma transação, dashboard via GSI1. `renewItem` cria um item sucessor (`renewedFromId`) em vez de mutar `dueDate` no agregado de origem, que transiciona para `RENEWED`; é idempotente via `IdempotencyStore` de M0. Rotas HTTP CDK adicionadas em `infra/lib/api.ts`/`expiration-tracker-stack.ts` (`ItemsHandler`, mesmo authorizer JWT de M1). Suíte de integração `test/integration/expiration-lifecycle.test.ts` prova o exit criterion do marco end-to-end via handlers HTTP reais. Detalhe completo em `docs/architecture/session-log.md`.

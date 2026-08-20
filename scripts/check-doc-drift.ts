@@ -15,11 +15,14 @@
  *     doc was written). This only proves the section number exists, not that the citation
  *     is topically correct - that still needs a human/reviewer.
  *
- * AGENTS.md §6 conditions this kind of automation on "CI real existe" OR "reincidência de
- * link quebrado/drift documental" - both conditions are now true (CI has existed since M0;
- * this is the second audit in a row, out of three run so far, to find the same class of
- * drift that manual review missed). Run via `npm run check-docs`; wired into CI as a
- * blocking `guardrails` step (same tier as typecheck/lint/check-boundaries).
+ * Built because AGENTS.md §6's checklist previously conditioned this kind of automation on
+ * "CI real existe" OR "reincidência de drift documental" - both were true (CI has existed
+ * since M0; this was the second audit in a row, out of three run so far, to find the same
+ * class of drift that manual review missed), so the condition was acted on instead of left
+ * open-ended. AGENTS.md §6 now documents what this script covers directly (not the old
+ * conditional) - see it there, not here, for the current wording. Run via `npm run
+ * check-docs`; wired into CI as a blocking `guardrails` step (same tier as
+ * typecheck/lint/check-boundaries).
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";

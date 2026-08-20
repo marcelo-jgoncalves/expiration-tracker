@@ -54,7 +54,7 @@ Engineering Maturity Review concluída (checkpoints 0, 1, 2-9, 12; ver `ENGINEER
 
 - Adapters DynamoDB reais implementando os ports (`ReminderStore`, `ExpirationStore`, `IdentityStore`) contra AWS real — hoje só existem fakes em memória para teste.
 - Handlers Lambda reais substituindo os placeholders `exports.handler = async () => ({statusCode: 501})` em `infra/lib/expiration-tracker-stack.ts`.
-- Filas SQS + DLQ com redrive policy para o pipeline producerâ†’dispatch.
+- Filas SQS + DLQ com redrive policy para o pipeline producer→dispatch.
 - EventBridge Scheduled Rule disparando o `ReminderProducer` periodicamente (a cada minuto) e a `ReminderReconciliation` periodicamente.
 - Testes de fault injection contra esse runtime real (timeout de dependência, poison message, redrive).
 
@@ -376,11 +376,11 @@ exec
  * IS that reuse: identical shape (get/putIfAbsent/update/transactWrite/queryGsi1-style),
  * plus one addition this module needs and Expiration didn't - `queryByItem`, to list an
  * item's existing ReminderOccurrence rows (co-located under the item's own PK per
- * data-model.md Â§2) for materialization diffing, due-date-change cancellation and DST
+ * data-model.md §2) for materialization diffing, due-date-change cancellation and DST
  * reconciliation.
  *
  * `ReminderProducerStore` is deliberately a SEPARATE, narrower interface (queryGsi3 only)
- * - implementation-blueprint.md Â§9.2's isolation safeguard ("nenhuma rota tenant-facing
+ * - implementation-blueprint.md §9.2's isolation safeguard ("nenhuma rota tenant-facing
  * tem permissão de Query no GSI3") is enforced structurally here: ReminderStore (used by
  * the policy service, materializer and HTTP handlers - all tenant-facing) has NO method
  * that can reach GSI3. Only ReminderProducerStore, injected exclusively into the
@@ -400,7 +400,7 @@ export interface ReminderStore {
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
   update<T extends EntityKey>(item: T): Promise<void>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** All rows under an item's own partition whose SK begins with "OCC#" (ReminderOccurrence rows). Strongly consistent - base-partition read, not a GSI (data-model.md Â§5). */
+  /** All rows under an item's own partition whose SK begins with "OCC#" (ReminderOccurrence rows). Strongly consistent - base-partition read, not a GSI (data-model.md §5). */
   queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]>;
 }
 
@@ -413,7 +413,7 @@ export interface ReminderProducerStore {
   queryGsi3<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3QueryInput): Promise<T[]>;
   /** Strongly consistent read of the base item, used by the producer to reconstruct tenant context before claiming (data-model.md §3: "tenantId preservado... para reconstrução segura do contexto"). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
-  /** Conditional SCHEDULED -> CLAIMED transition (implementation-blueprint.md Â§9.3 point 3). */
+  /** Conditional SCHEDULED -> CLAIMED transition (implementation-blueprint.md §9.3 point 3). */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }
 /**
@@ -421,7 +421,7 @@ export interface ReminderProducerStore {
  * pattern established by src/modules/identity/ports/identity-store.ts (M1): callers
  * inject an implementation, so domain/application logic is unit-testable without live
  * AWS. Unlike IdentityStore, this port also exposes `transactWrite` because
- * data-model.md Â§5's load-bearing sentence requires item update + outbox record (and,
+ * data-model.md §5's load-bearing sentence requires item update + outbox record (and,
  * for M2, the AuditEvent) to commit in a single `TransactWriteItems` — the aggregate
  * write, the critical `ItemDueDateChanged` outbox record and the audit trail must never
  * be individually visible without the others.
@@ -440,7 +440,7 @@ export interface Gsi1QueryInput {
 }
 
 export interface ExpirationStore {
-  /** Strongly consistent single-item read (data-model.md Â§5: authorization/edition/pre-send reads must be consistent). */
+  /** Strongly consistent single-item read (data-model.md §5: authorization/edition/pre-send reads must be consistent). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   /** PutItem with ConditionExpression attribute_not_exists(PK) - true if this call created the item. */
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
@@ -452,7 +452,7 @@ export interface ExpirationStore {
    * assume partial application.
    */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** Eventually consistent GSI1 query (data-model.md Â§3: vencimentos/dashboard). */
+  /** Eventually consistent GSI1 query (data-model.md §3: vencimentos/dashboard). */
   queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]>;
 }
 /**
@@ -525,7 +525,7 @@ export function tableAccessFor(table: ExpirationTrackerTable) {
       };
     },
     /** GSI3 (scheduler) read-only - reserved EXCLUSIVELY for ReminderProducer
-     * (data-model.md Â§3 / implementation-blueprint.md Â§9.2's isolation safeguard). Routed
+     * (data-model.md §3 / implementation-blueprint.md §9.2's isolation safeguard). Routed
      * through ExpirationTrackerTable.grantGsi3ReadTo, never table.grantReadData, so no
      * other function can acquire this permission via this helper. */
     gsi3Read(): AccessCapability {
@@ -593,7 +593,7 @@ export interface ScopedLambdaFunctionProps extends Omit<lambda.FunctionProps, "c
 
 /**
  * Every Lambda in this system MUST be constructed via ScopedLambdaFunction, never
- * `new lambda.Function` directly (implementation-blueprint.md Â§17.1) - it is the single
+ * `new lambda.Function` directly (implementation-blueprint.md §17.1) - it is the single
  * enforcement point for least-privilege IAM per function.
  */
 export class ScopedLambdaFunction extends Construct {
@@ -691,7 +691,7 @@ export class ExpirationTrackerStack extends Stack {
       access: [tableAccess.readWriteKeys("ReminderPolicy", "ReminderOccurrence")],
     });
 
-    // ReminderProducer (Â§9.3) is the ONLY function in the system granted gsi3Read() - the
+    // ReminderProducer (§9.3) is the ONLY function in the system granted gsi3Read() - the
     // narrow capability routed through ExpirationTrackerTable.grantGsi3ReadTo, which
     // itself never appears on any tenant-facing function (test/infra/reminder-engine.test.ts
     // asserts this at the synthesized-template level).
@@ -701,7 +701,7 @@ export class ExpirationTrackerStack extends Stack {
       access: [tableAccess.readWriteKeys("ReminderOccurrence"), tableAccess.gsi3Read()],
     });
 
-    // ReminderDispatch (Â§9.4): CLAIMED -> TRIGGERED + NotificationIntent + outbox, all in
+    // ReminderDispatch (§9.4): CLAIMED -> TRIGGERED + NotificationIntent + outbox, all in
     // one TransactWriteItems - needs write access to occurrences/intents/outbox/idempotency
     // and read access to ExpirationItem/ReminderPolicy for the staleness check, never GSI3.
     this.reminderDispatch = new ScopedLambdaFunction(this, "ReminderDispatch", {
@@ -718,7 +718,7 @@ export class ExpirationTrackerStack extends Stack {
       ],
     });
 
-    // ReminderReconciliation (Â§9.5): single job for claim-expiry revert + DST
+    // ReminderReconciliation (§9.5): single job for claim-expiry revert + DST
     // re-evaluation - never GSI3 (it reasons over base-partition/GSI6-style batches, not
     // the scheduler index).
     this.reminderReconciliation = new ScopedLambdaFunction(this, "ReminderReconciliation", {
@@ -732,13 +732,13 @@ export class ExpirationTrackerStack extends Stack {
   }
 }
 /**
- * ReminderProducer core logic - implementation-blueprint.md Â§9.3. Pure(ish) - takes an
+ * ReminderProducer core logic - implementation-blueprint.md §9.3. Pure(ish) - takes an
  * injected `ReminderProducerStore` and clock, no AWS SDK/Lambda runtime dependency, so it
  * is directly unit/integration-testable with a fake clock and fake GSI3 index (per the
  * task's requirement to test time-sensitive logic without real wall-clock waiting).
  *
- * Steps (Â§9.3):
- *  1. read active shard generations (current + still-active legacy, Â§9.2's reshard runbook);
+ * Steps (§9.3):
+ *  1. read active shard generations (current + still-active legacy, §9.2's reshard runbook);
  *  2. query GSI3 across N shards of minute M AND a lookback window [M-lookback, M] (default
  *     5 minutes) - "sem lookback, 'o próximo tick reprocessa' é falso";
  *  3. per eligible occurrence, conditional SCHEDULED -> CLAIMED with a short claim
@@ -775,9 +775,9 @@ export interface ProducerDeps {
   shardConfig: ShardConfig;
   tableName: string;
   now: () => string;
-  /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (Â§9.5). */
+  /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (§9.5). */
   claimTtlMs?: number;
-  /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md Â§9.3 example: [M-5min, M]). */
+  /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md §9.3 example: [M-5min, M]). */
   lookbackMinutes?: number;
 }
 
@@ -880,21 +880,21 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
   };
 }
 /**
- * Reminder dispatch worker core logic - implementation-blueprint.md Â§9.4. Consumes one
- * `reminder.dispatch.v1` command (produced by the ReminderProducer, Â§9.3) and performs the
+ * Reminder dispatch worker core logic - implementation-blueprint.md §9.4. Consumes one
+ * `reminder.dispatch.v1` command (produced by the ReminderProducer, §9.3) and performs the
  * CLAIMED -> TRIGGERED transition, creating exactly one `NotificationIntent` idempotently.
  *
- * Validation order per Â§9.4: occurrence must be CLAIMED (not SCHEDULED directly - the claim
+ * Validation order per §9.4: occurrence must be CLAIMED (not SCHEDULED directly - the claim
  * prevents double-processing by two concurrent dispatch workers); item must be ACTIVE;
  * versions must match; schedule must be within tolerance; policy must still exist. If any
  * check fails, the occurrence is conditionally cancelled (CLAIMED -> CANCELLED) instead of
- * silently dropped, and repair is left to reconciliation (Â§9.5) - never a new ad-hoc
+ * silently dropped, and repair is left to reconciliation (§9.5) - never a new ad-hoc
  * materialization from inside dispatch.
  *
- * On success, everything commits in ONE TransactWriteItems (Â§9.4: "corrige a lacuna de
+ * On success, everything commits in ONE TransactWriteItems (§9.4: "corrige a lacuna de
  * durabilidade... antes o evento era tratado como reconstruível sem outbox"):
  * NotificationIntent Put + occurrence CLAIMED->TRIGGERED Update + idempotency record Put
- * (`tenantId|occurrenceId`, Â§9.4's exact key for NotificationIntentCreated consumers) +
+ * (`tenantId|occurrenceId`, §9.4's exact key for NotificationIntentCreated consumers) +
  * outbox `notification.intent-created.v1` Put.
  */
 import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
@@ -927,7 +927,7 @@ export type DispatchOutcome =
   | { kind: "CANCELLED_STALE"; reason: string }
   | { kind: "SKIPPED_NOT_CLAIMED" };
 
-/** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md Â§2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
+/** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md §2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
 async function findOccurrence(store: ReminderStore, tenantId: string, itemId: string, occurrenceId: string): Promise<ReminderOccurrence | undefined> {
   const rows = await store.queryByItem<ReminderOccurrence>(tenantId, itemId);
   return rows.find((r) => r.occurrenceId === occurrenceId);
@@ -1031,7 +1031,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     },
   ];
 
-  // Idempotency record for NotificationIntentCreated consumers (Â§9.4: "tenantId|occurrenceId").
+  // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId").
   const idem = buildIdempotencyKey(deps.tableName, tenantId, "reminder.dispatch", occurrenceId);
   entries.push({
     Put: {
@@ -1094,16 +1094,16 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
   return { kind: "TRIGGERED", intent };
 }
 /**
- * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
+ * Reconciliation - implementation-blueprint.md §9.5, run as ONE job/Lambda serving TWO
  * purposes (per the task brief: "don't build two separate reconciliation paths"), both
  * documented in §9.3 point 4 ("claims expirados... via reconciliação, mesmo job da §9.5")
- * and Â§9.5 itself (DST):
+ * and §9.5 itself (DST):
  *
  *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its
  *      `claimExpiresAt` (dispatch worker crashed/timed out before completing) reverts to
  *      SCHEDULED, conditionally, so the next producer tick's lookback window picks it up
  *      again;
- *  (b) DST-affected re-evaluation (Â§9.5 steps 1-6): for each (item, enabled policy) pair
+ *  (b) DST-affected re-evaluation (§9.5 steps 1-6): for each (item, enabled policy) pair
  *      in the reconciliation batch, recompute the expected schedule from the policy's
  *      IANA timeZone + rule against a `[now, now+7d]` window, compare to what's actually
  *      materialized, cancel divergent SCHEDULED occurrences and materialize missing ones
@@ -1176,7 +1176,7 @@ export async function reconcileExpiredClaims(
   return reverted;
 }
 
-/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (Â§9.5 steps 1-6). */
+/** Pass (b): DST-affected re-evaluation over `[now, now+7d]` (§9.5 steps 1-6). */
 export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],
