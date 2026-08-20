@@ -9,7 +9,7 @@
  * with ConsistentRead=true - an eventually consistent read could observe the pointer before
  * the attempt it points to, even though both were written in the same transaction.
  */
-import { GetCommand, PutCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { EntityKey, NotificationStore, TransactWriteEntry } from "../ports/notification-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
@@ -64,5 +64,28 @@ export class DynamoDbNotificationStore implements NotificationStore {
         TransactItems: entries as unknown as ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"],
       }),
     );
+  }
+
+  async queryAttemptsByIntent<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, intentId: string): Promise<T[]> {
+    try {
+      const items: T[] = [];
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const result = await this.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: "PK = :pk AND begins_with(SK, :attemptPrefix)",
+            ExpressionAttributeValues: { ":pk": `TENANT#${tenantId}#INTENT#${intentId}`, ":attemptPrefix": "ATTEMPT#" },
+            ConsistentRead: true,
+            ExclusiveStartKey: exclusiveStartKey,
+          }),
+        );
+        items.push(...((result.Items ?? []) as T[]));
+        exclusiveStartKey = result.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+      return items;
+    } catch (err) {
+      throw mapDynamoError(err, "NotificationStore.queryAttemptsByIntent");
+    }
   }
 }
