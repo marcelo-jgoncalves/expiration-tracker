@@ -44,4 +44,4 @@ Leia `AGENTS.md` na raiz primeiro — é a fonte canônica de regras de processo
 - Toda escrita mutável usa os builders de `src/shared/dynamodb/occ.ts` (nunca `UpdateItem`/`PutItem` cru).
 - Eventos críticos usam o outbox transacional (`src/shared/outbox/outbox.ts`) na mesma `TransactWriteItems` do agregado.
 - `console.*` é proibido fora de `src/shared/observability/**` (ESLint `no-console`) — todo handler usa `SecureLogger`.
-- `domain/` de cada módulo não pode importar `infra/`, `aws-sdk`, ou internals de outro módulo — enforced por ESLint (`no-restricted-imports`), não só por convenção.
+- `domain/` de cada módulo não pode importar `infra/`, `aws-sdk`, ou internals de outro módulo — enforced pelo grafo real de imports via `dependency-cruiser` (`npm run check-boundaries`), não só por convenção; ESLint sozinho não pega import transitivo cross-módulo (ver `decisions-log.md`).

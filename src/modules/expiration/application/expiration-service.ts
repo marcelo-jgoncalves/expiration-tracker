@@ -32,7 +32,6 @@ import {
   isTransactionCanceled,
   type ExpirationStore,
   type TransactWriteEntry,
-  type TransactPutEntry,
 } from "../ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "./id-generator.js";
 import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
@@ -198,7 +197,7 @@ export class ExpirationService {
           itemVersion: newVersion,
         },
       };
-      appendToTransaction(entries as TransactPutEntry[], this.tableName, event);
+      appendToTransaction(entries, this.tableName, event);
     }
 
     this.appendAudit(entries, ctx, {
@@ -330,7 +329,7 @@ export class ExpirationService {
       aggregate: { type: "ExpirationItem", id: newItemId, version: 1 },
       data: { itemId: newItemId, previousDueDate: null, newDueDate: input.newDueDate, itemVersion: 1 },
     };
-    appendToTransaction(entries as TransactPutEntry[], this.tableName, event);
+    appendToTransaction(entries, this.tableName, event);
 
     this.appendAudit(entries, ctx, {
       itemId,
@@ -414,7 +413,7 @@ export class ExpirationService {
       occurredAt: this.now(),
       correlationId: ctx.correlationId,
     });
-    appendAuditToTransaction(entries as TransactPutEntry[], this.tableName, event);
+    appendAuditToTransaction(entries, this.tableName, event);
   }
 
   private async readActiveItem(tenantId: string, itemId: string): Promise<ExpirationItem> {

@@ -11,6 +11,7 @@ Na rodada 1 voce deu nota final ponderada 7,066/10 e apontou achados reais. Nest
 7. README.md: adicionados check-boundaries e test:dynamodb (faltavam), corrigida a afirmacao de que lint sozinho cobre enforcement de boundary.
 8. docs/engineering/exceptions.md EX-001: owner "a definir formalmente" -> formalizado como Marcelo.
 9. docs/engineering/decisions-log.md: nota de superacao anexada a E-007 (premissa desatualizada sobre handlers nao existirem) + nova entrada E-009 documentando esta lista.
+10. src/shared/contracts/schema-validator.ts: o branch de disk-walk (repoRoot/schemasDir/walkJsonFiles, ainda usando import.meta.url) foi extraido para um modulo novo, src/shared/contracts/schema-registry-disk.ts, usado so por scripts/validate-schemas.ts e test/contract/schemas.test.ts. Isso elimina o warning cosmetico residual do esbuild sobre import.meta em codigo morto no bundle (o proprio schema-validator.ts nao referencia mais import.meta.url).
 
 Tarefa: rode voce mesmo de novo (nao confie em nada da sessao anterior) os seis gates:
 - npm run typecheck
