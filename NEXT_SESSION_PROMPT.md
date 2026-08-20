@@ -1,6 +1,36 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Status M4 (2026-08-20): design APPROVED + implementação completa (Camada 1 + adapters + workflows + handlers Lambda + infra Terraform) — só falta o spike de sandbox e a rota HTTP de preferências
+## Status M5 (2026-08-20): design APPROVED (Claude 9,1 / Codex 9,3, 4 rondas reais) — implementação ainda não começou
+
+`docs/architecture/m5-observability-design.md` está **APPROVED** (protocolo `AGENTS.md` §4).
+Escopo: correlationId/tenantId contextual via `AsyncLocalStorage` (granularidade por-record em
+handlers batch, propagado ponta a ponta via `DomainEvent.correlationId` — já obrigatório, sem
+mudança de schema — copiado explicitamente para `OutboxRecord`, nunca lido de contexto ambiente
+no momento do envio); tracing distribuído via **ADOT Lambda layer exportando para X-Ray**
+(não `aws-xray-sdk-core`, SDK legado em manutenção — achado real da revisão do Codex, corrigido
+na ronda 1→2); alerta real de alarme via **SNS→e-mail** com confirmação manual da subscription
+registrada como critério de aceite explícito (não fechado só pelo `terraform apply`). ADR
+formal: `docs/architecture/adr/ADR-0010-observability-correlation-tracing-alerting.md`.
+Histórico completo das 4 rondas (nota 6,8→8,6→8,9→9,3): `docs/architecture/reviews/
+m5-observability-design/codex-round{1,2,3,4}.txt`.
+
+**Limite explícito registrado no design, não pendência a "resolver"**: APIs são HTTP API
+(D-011), sem segment X-Ray nativo do API Gateway — a borda HTTP de entrada é correlacionada por
+log (`correlationId`), não por span de tracing; migrar para REST API só por isso foi
+explicitamente rejeitado como desproporcional a este estágio.
+
+**Nada foi implementado ainda** — design apenas, nenhum commit de código/infra desta sessão além
+dos documentos de design/ADR/decisions-log. Próxima ação real: implementar seguindo o mesmo
+padrão de M3→M3.5→M4 (lógica pura → adapters/infra → testes) — a ordem sugerida pelo próprio
+design é: (1) `runWithContext`/`getContext` em `src/shared/observability/` + testes de
+isolamento ALS; (2) `buildOutboxRecord` copiando `correlationId` + testes de causalidade
+outbox→relay→SQS + partial batch failure; (3) wiring por-record nos 12 handlers Lambda; (4)
+ADOT layer + `infra/modules/lambda-function` (`adot_layer_arn`, sem default, pinado por
+região+arquitetura); (5) `infra/modules/alert-topic` (SNS→e-mail) + `alarm_actions` nos alarmes
+existentes; (6) confirmação manual da subscription + teste real de alarme→e-mail (passo que
+depende do usuário, mesmo padrão do spike SES pendente de M4).
+
+## Status M4 (2026-08-20, histórico — superado pela seção acima quanto à próxima ação): design APPROVED + implementação completa (Camada 1 + adapters + workflows + handlers Lambda + infra Terraform) — só falta o spike de sandbox e a rota HTTP de preferências
 
 `docs/architecture/m4-notification-engine-design.md` está **APPROVED** (protocolo `AGENTS.md` §4, nota cega Claude 9,3/10 · Codex 9,4/10, 4 rodadas reais). Nesta sessão, M4 foi implementado de ponta a ponta seguindo o mesmo padrão de M3→M3.5 (lógica pura → adapters → composition-root workflows → handlers Lambda finos → infra Terraform), tudo commitado e pushado em `develop`, CI verde (workflow 32413826928, `conclusion: success`).
 
