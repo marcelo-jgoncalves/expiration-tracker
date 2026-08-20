@@ -403,7 +403,7 @@ src\modules\expiration\persistence\dynamodb-expiration-store.ts:13:export class 
 /**
  * Reconciliation - implementation-blueprint.md Â§9.5, run as ONE job/Lambda serving TWO
  * purposes (per the task brief: "don't build two separate reconciliation paths"), both
- * documented in Â§9.3 point 4 ("claims expirados... via reconciliaÃ§Ã£o, mesmo job da Â§9.5")
+ * documented in §9.3 point 4 ("claims expirados... via reconciliação, mesmo job da §9.5")
  * and Â§9.5 itself (DST):
  *
  *  (a) claim-expiry reconciliation: any occurrence still CLAIMED past its

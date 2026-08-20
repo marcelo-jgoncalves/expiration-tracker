@@ -39,71 +39,71 @@ Vou fazer a revisão de forma independente, começando por `AGENTS.md` e pelos c
 exec
 "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content -Raw AGENTS.md' in C:\Users\Usuario\Desktop\projects\expiration-tracker
  succeeded in 248ms:
-# AGENTS.md â€” Expiration Tracker
+# AGENTS.md — Expiration Tracker
 
-> Fonte canÃ´nica de regras durÃ¡veis para qualquer agente de IA (Claude Code, Codex CLI) trabalhando neste repositÃ³rio. `CLAUDE.md` importa este arquivo â€” nÃ£o duplicar conteÃºdo nele.
+> Fonte canônica de regras duráveis para qualquer agente de IA (Claude Code, Codex CLI) trabalhando neste repositório. `CLAUDE.md` importa este arquivo — não duplicar conteúdo nele.
 
-## 1. Papel e estÃ¡gio do projeto
+## 1. Papel e estágio do projeto
 
-Micro-SaaS de controle de vencimentos/renovaÃ§Ãµes, arquitetura AWS serverless. Design Maturity `APPROVED`; implementaÃ§Ã£o em andamento por milestone (M0-M3 concluÃ­dos, M3.5/G8 com design+implementaÃ§Ã£o aprovados pelo protocolo Claudeâ†”Codex â€” ver `NEXT_SESSION_PROMPT.md` para o estado exato e vigente, nÃ£o confiar em datas antigas deste arquivo). Marcelo Ã© o responsÃ¡vel final por decisÃµes de produto/arquitetura; o agente atua como engenheiro autÃ´nomo, nÃ£o assistente passivo.
+Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. Design Maturity `APPROVED`; implementação em andamento por milestone (M0-M3 concluídos, M3.5/G8 com design+implementação aprovados pelo protocolo Claude↔Codex — ver `NEXT_SESSION_PROMPT.md` para o estado exato e vigente, não confiar em datas antigas deste arquivo). Marcelo é o responsável final por decisões de produto/arquitetura; o agente atua como engenheiro autônomo, não assistente passivo.
 
-PrincÃ­pios de engenharia, tiers de gate de qualidade, escala de risco que calibra quando o protocolo do Â§4 Ã© obrigatÃ³rio, e os critÃ©rios ponderados por eixo (Arquitetura/Qualidade de Engenharia/Engenharia de Contexto) usados nas revisÃµes conjuntas: `docs/engineering/{principles,quality-gate-tiers,change-risk-scale,joint-review-criteria}.md` (padrÃµes adotados do projeto irmÃ£o `event-discovery-platform`, adaptados â€” nÃ£o copiados â€” Ã  complexidade real deste projeto).
+Princípios de engenharia, tiers de gate de qualidade, escala de risco que calibra quando o protocolo do §4 é obrigatório, e os critérios ponderados por eixo (Arquitetura/Qualidade de Engenharia/Engenharia de Contexto) usados nas revisões conjuntas: `docs/engineering/{principles,quality-gate-tiers,change-risk-scale,joint-review-criteria}.md` (padrões adotados do projeto irmão `event-discovery-platform`, adaptados — não copiados — à complexidade real deste projeto).
 
-**`docs/00-prompt-mestre.md` Ã© a especificaÃ§Ã£o de processo do ciclo de design jÃ¡ concluÃ­do â€” nÃ£o Ã© o ponto de entrada da sessÃ£o atual.** NÃ£o reiniciar a Fase 0 nem tratar suas instruÃ§Ãµes ("comece pela Fase 0") como comando ativo.
+**`docs/00-prompt-mestre.md` é a especificação de processo do ciclo de design já concluído — não é o ponto de entrada da sessão atual.** Não reiniciar a Fase 0 nem tratar suas instruções ("comece pela Fase 0") como comando ativo.
 
-## 2. InÃ­cio de sessÃ£o
+## 2. Início de sessão
 
-1. Ler `NEXT_SESSION_PROMPT.md` (estado atual + prÃ³xima aÃ§Ã£o).
-2. Ler `docs/architecture/README.md` (mapa de fontes, status vigente, regra de precedÃªncia).
-3. Consultar `docs/project/working-memory.md` sÃ³ quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), nÃ£o O QUE decidir sobre o produto.
-4. NÃ£o carregar todo `docs/architecture/history/` por padrÃ£o â€” Ã© evidÃªncia histÃ³rica, consultar sob demanda.
+1. Ler `NEXT_SESSION_PROMPT.md` (estado atual + próxima ação).
+2. Ler `docs/architecture/README.md` (mapa de fontes, status vigente, regra de precedência).
+3. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
+4. Não carregar todo `docs/architecture/history/` por padrão — é evidência histórica, consultar sob demanda.
 
-## 3. EstratÃ©gia de branch (padrÃ£o a partir de 2026-08-19)
+## 3. Estratégia de branch (padrão a partir de 2026-08-19)
 
-`develop` Ã© o branch de trabalho ativo â€” todo commit de sessÃ£o (implementaÃ§Ã£o, remediaÃ§Ã£o, docs) vai para `develop`, nunca direto em `main`. `main` Ã© protegido no GitHub (required status check `guardrails`/CI, sem force-push, sem deleÃ§Ã£o) e sÃ³ recebe merge via PR de `develop` quando um marco estÃ¡ estÃ¡vel e verificado (CI verde, gates relevantes revisados). Antes de comeÃ§ar qualquer trabalho de cÃ³digo, confirmar `git branch --show-current` = `develop` (ou uma branch de feature a partir dele, se a tarefa justificar); se estiver em `main`, trocar para `develop` antes de commitar. Abrir o PR `developâ†’main` Ã© uma aÃ§Ã£o visÃ­vel/compartilhada â€” confirmar com Marcelo antes de merjar, mesmo que o push para `develop` em si nÃ£o precise de confirmaÃ§Ã£o a cada commit.
+`develop` é o branch de trabalho ativo — todo commit de sessão (implementação, remediação, docs) vai para `develop`, nunca direto em `main`. `main` é protegido no GitHub (required status check `guardrails`/CI, sem force-push, sem deleção) e só recebe merge via PR de `develop` quando um marco está estável e verificado (CI verde, gates relevantes revisados). Antes de começar qualquer trabalho de código, confirmar `git branch --show-current` = `develop` (ou uma branch de feature a partir dele, se a tarefa justificar); se estiver em `main`, trocar para `develop` antes de commitar. Abrir o PR `develop→main` é uma ação visível/compartilhada — confirmar com Marcelo antes de merjar, mesmo que o push para `develop` em si não precise de confirmação a cada commit.
 
 ## 4. Protocolo de debate Claude â†” Codex
 
-Aplica-se **obrigatoriamente** a: decisÃµes de arquitetura, requisitos, modelo de dados, seguranÃ§a/privacidade, e qualquer entregÃ¡vel explicitamente submetido ao protocolo (Type 1, difÃ­cil de reverter â€” nÃ­vel 5-6 de `docs/engineering/change-risk-scale.md`). **NÃ£o Ã© obrigatÃ³rio** para: correÃ§Ã£o mecÃ¢nica, documentaÃ§Ã£o factual, refactors locais reversÃ­veis, lint/teste, implementaÃ§Ã£o direta de decisÃ£o jÃ¡ aprovada (nÃ­veis 1-4) â€” usar a escala de risco para calibrar, nÃ£o julgamento ad-hoc repetido.
+Aplica-se **obrigatoriamente** a: decisões de arquitetura, requisitos, modelo de dados, segurança/privacidade, e qualquer entregável explicitamente submetido ao protocolo (Type 1, difícil de reverter — nível 5-6 de `docs/engineering/change-risk-scale.md`). **Não é obrigatório** para: correção mecânica, documentação factual, refactors locais reversíveis, lint/teste, implementação direta de decisão já aprovada (níveis 1-4) — usar a escala de risco para calibrar, não julgamento ad-hoc repetido.
 
-Quando aplicÃ¡vel: mÃ­nimo 3 rodadas (proposta â†’ crÃ­tica â†’ trÃ©plica), nota mÃ­nima 9.0 de ambos antes de considerar concluÃ­do, sem arredondar (8.99 nÃ£o vira 9). Protocolo de nota cega: o avaliador que responde depois nÃ£o vÃª a nota/parecer do primeiro atÃ© ambos existirem registrados; desacordo abaixo de 9 reabre rodada em vez de arredondar ou fazer mÃ©dia.
+Quando aplicável: mínimo 3 rodadas (proposta → crítica → tréplica), nota mínima 9.0 de ambos antes de considerar concluído, sem arredondar (8.99 não vira 9). Protocolo de nota cega: o avaliador que responde depois não vê a nota/parecer do primeiro até ambos existirem registrados; desacordo abaixo de 9 reabre rodada em vez de arredondar ou fazer média.
 
-InvocaÃ§Ã£o do Codex: `codex exec --skip-git-repo-check "<prompt>"`, rodar em background. **Nunca usar crases (`` ` ``) dentro de um prompt passado por Bash com aspas duplas** â€” o shell interpreta como substituiÃ§Ã£o de comando e corrompe a entrada silenciosamente (o processo trava esperando stdin, CPU ~0). Para prompts com crases/markdown, escrever em arquivo e usar `codex exec --skip-git-repo-check - < arquivo.txt`. Se um processo `codex` rodar muito mais que rodadas comparÃ¡veis com CPU quase zero, estÃ¡ travado â€” matar e relanÃ§ar, nÃ£o esperar. **NÃ£o combinar `- < arquivo.txt` com backgrounding (`&`)** â€” essa combinaÃ§Ã£o jÃ¡ produziu duas falhas silenciosas (processo travado relendo arquivo grande e bloqueado por polÃ­tica de sandbox; depois saÃ­da vazia sem erro) mesmo com prompt correto. Rodar `codex exec --skip-git-repo-check - < arquivo.txt > saida.txt 2>&1` em primeiro plano (sem `&`) Ã© o padrÃ£o confiÃ¡vel verificado; sÃ³ background se o prompt for curto o bastante para passar inline sem stdin.
+Invocação do Codex: `codex exec --skip-git-repo-check "<prompt>"`, rodar em background. **Nunca usar crases (`` ` ``) dentro de um prompt passado por Bash com aspas duplas** — o shell interpreta como substituição de comando e corrompe a entrada silenciosamente (o processo trava esperando stdin, CPU ~0). Para prompts com crases/markdown, escrever em arquivo e usar `codex exec --skip-git-repo-check - < arquivo.txt`. Se um processo `codex` rodar muito mais que rodadas comparáveis com CPU quase zero, está travado — matar e relançar, não esperar. **Não combinar `- < arquivo.txt` com backgrounding (`&`)** — essa combinação já produziu duas falhas silenciosas (processo travado relendo arquivo grande e bloqueado por política de sandbox; depois saída vazia sem erro) mesmo com prompt correto. Rodar `codex exec --skip-git-repo-check - < arquivo.txt > saida.txt 2>&1` em primeiro plano (sem `&`) é o padrão confiável verificado; só background se o prompt for curto o bastante para passar inline sem stdin.
 
-## 5. PrecedÃªncia de fontes
+## 5. Precedência de fontes
 
-Ver tabela completa em `docs/architecture/README.md`. Resumo: `AGENTS.md` (processo) > ADR aceito (decisÃ£o especÃ­fica) > documento temÃ¡tico corrente (`docs/architecture/*.md`) > `ARCHITECTURE.md` (visÃ£o consolidada) > `NEXT_SESSION_PROMPT.md` (estado, nunca normativo) > `docs/architecture/history/` (nunca normativo).
+Ver tabela completa em `docs/architecture/README.md`. Resumo: `AGENTS.md` (processo) > ADR aceito (decisão específica) > documento temático corrente (`docs/architecture/*.md`) > `ARCHITECTURE.md` (visão consolidada) > `NEXT_SESSION_PROMPT.md` (estado, nunca normativo) > `docs/architecture/history/` (nunca normativo).
 
-## 6. ManutenÃ§Ã£o de contexto â€” checklist por marco
+## 6. Manutenção de contexto — checklist por marco
 
-Ao concluir uma fase/marco relevante (ex.: fim do Implementation Blueprint, fim de cada fase de implementaÃ§Ã£o), verificar:
+Ao concluir uma fase/marco relevante (ex.: fim do Implementation Blueprint, fim de cada fase de implementação), verificar:
 
-- Estado e prÃ³xima aÃ§Ã£o concordam entre `ARCHITECTURE.md`, `docs/architecture/README.md` e `NEXT_SESSION_PROMPT.md`.
-- Nenhum documento em `history/` estÃ¡ sendo tratado como normativo em algum lugar.
-- ADRs e `decisions-log.md` tÃªm status compatÃ­vel entre si.
-- Arquivos novos em `docs/architecture/` aparecem no Ã­ndice.
-- ReferÃªncias a caminhos de arquivo (`docs/architecture/...`) continuam vÃ¡lidas.
-- Regras durÃ¡veis nÃ£o foram duplicadas entre `AGENTS.md`, working-memory e handoff.
-- Este `AGENTS.md` continua dentro do limite de tamanho (ver Â§8).
-- Fatos temporÃ¡rios foram removidos de `NEXT_SESSION_PROMPT.md` ou promovidos ao lugar correto.
+- Estado e próxima ação concordam entre `ARCHITECTURE.md`, `docs/architecture/README.md` e `NEXT_SESSION_PROMPT.md`.
+- Nenhum documento em `history/` está sendo tratado como normativo em algum lugar.
+- ADRs e `decisions-log.md` têm status compatível entre si.
+- Arquivos novos em `docs/architecture/` aparecem no índice.
+- Referências a caminhos de arquivo (`docs/architecture/...`) continuam válidas.
+- Regras duráveis não foram duplicadas entre `AGENTS.md`, working-memory e handoff.
+- Este `AGENTS.md` continua dentro do limite de tamanho (ver §8).
+- Fatos temporários foram removidos de `NEXT_SESSION_PROMPT.md` ou promovidos ao lugar correto.
 
-NÃ£o hÃ¡ automaÃ§Ã£o disso ainda â€” Ã© proporcional ao estÃ¡gio (projeto sem cÃ³digo/CI real). Reavaliar automaÃ§Ã£o (ex.: verificador de links, ou uma skill dedicada como a de um projeto irmÃ£o do mesmo usuÃ¡rio) quando: (a) existir CI real, ou (b) houver reincidÃªncia de link quebrado/drift documental.
+Não há automação disso ainda — é proporcional ao estágio (projeto sem código/CI real). Reavaliar automação (ex.: verificador de links, ou uma skill dedicada como a de um projeto irmão do mesmo usuário) quando: (a) existir CI real, ou (b) houver reincidência de link quebrado/drift documental.
 
-## 7. CÃ³digo real (M0 em diante)
+## 7. Código real (M0 em diante)
 
-M0 ("guardrails e contratos", `implementation-blueprint.md` Â§19) estÃ¡ implementado: `src/shared/{errors,observability,config,idempotency,dynamodb,outbox,contracts}`, schemas em `schemas/`, testes em `test/{unit,contract}`. M1 ("Foundation, Identity e isolamento") adicionou `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorizaÃ§Ã£o, quotas â€” todos SDK-agnostic via portas injetÃ¡veis, mesmo padrÃ£o de `src/shared`) e `infra/{lib,bin}` (constructs CDK: `ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi`). M2 ("Expiration core e Audit") adicionou `src/modules/expiration/{domain,application,ports,http}` no mesmo padrÃ£o; seu port (`ExpirationStore`) introduz `transactWrite` porque a regra de data-model.md Â§5 (item + outbox + audit numa Ãºnica `TransactWriteItems`) exige mÃºltiplos itens condicionais atÃ´micos â€” qualquer mÃ³dulo futuro com a mesma necessidade deve reusar esse formato de port, nÃ£o inventar um novo (M3's `ReminderStore` jÃ¡ faz isso). M3 ("Reminder Engine") adicionou `src/modules/reminder/{domain,application,ports,http}` + `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lÃ³gica pura, testÃ¡vel com relÃ³gio injetado â€” nenhum worker tem runtime Lambda real ainda, mesmo estÃ¡gio de M0-M2). **Regra de isolamento de Ã­ndice descoberta em M3, vÃ¡lida para qualquer GSI restrito no futuro**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluem `<tableArn>/index/*` (todos os Ã­ndices) quando a tabela tem qualquer GSI â€” nÃ£o usar esses helpers para uma tabela com Ã­ndice restrito (como GSI3); `ExpirationTrackerTable` (`infra/lib/dynamo-table.ts`) jÃ¡ constrÃ³i `PolicyStatement`s com lista explÃ­cita de recursos por isso. M4+ segue o mesmo layout (`src/modules/<mÃ³dulo>/...`, `src/workers/<worker>`) descrito em `implementation-blueprint.md` Â§2. Testes de infra (`test/infra/`) sintetizam a stack via `aws-cdk-lib`/`aws-cdk-lib/assertions` em memÃ³ria â€” nÃ£o exigem AWS CLI/credenciais nem a instalaÃ§Ã£o do binÃ¡rio `aws-cdk`. SuÃ­te cross-tenant negativa (exit criterion de M1) vive em `test/integration/cross-tenant.test.ts`; suÃ­te de isolamento do GSI3 (exit criterion de M3) vive em `test/infra/stack.test.ts`.
+M0 ("guardrails e contratos", `implementation-blueprint.md` §19) está implementado: `src/shared/{errors,observability,config,idempotency,dynamodb,outbox,contracts}`, schemas em `schemas/`, testes em `test/{unit,contract}`. M1 ("Foundation, Identity e isolamento") adicionou `src/modules/identity/{domain,application,ports,persistence,http}` (resolver central, matriz de autorização, quotas — todos SDK-agnostic via portas injetáveis, mesmo padrão de `src/shared`) e `infra/{lib,bin}` (constructs CDK: `ExpirationTrackerTable`, `ExpirationTrackerAuth`, `ScopedLambdaFunction`, `ExpirationTrackerApi`). M2 ("Expiration core e Audit") adicionou `src/modules/expiration/{domain,application,ports,http}` no mesmo padrão; seu port (`ExpirationStore`) introduz `transactWrite` porque a regra de data-model.md §5 (item + outbox + audit numa única `TransactWriteItems`) exige múltiplos itens condicionais atômicos — qualquer módulo futuro com a mesma necessidade deve reusar esse formato de port, não inventar um novo (M3's `ReminderStore` já faz isso). M3 ("Reminder Engine") adicionou `src/modules/reminder/{domain,application,ports,http}` + `src/workers/{reminder-producer,reminder-dispatch,reminder-reconciliation}` (lógica pura, testável com relógio injetado — nenhum worker tem runtime Lambda real ainda, mesmo estágio de M0-M2). **Regra de isolamento de índice descoberta em M3, válida para qualquer GSI restrito no futuro**: `Table.grantReadWriteData`/`grantReadData` do CDK sempre incluem `<tableArn>/index/*` (todos os índices) quando a tabela tem qualquer GSI — não usar esses helpers para uma tabela com índice restrito (como GSI3); `ExpirationTrackerTable` (`infra/lib/dynamo-table.ts`) já constrói `PolicyStatement`s com lista explícita de recursos por isso. M4+ segue o mesmo layout (`src/modules/<módulo>/...`, `src/workers/<worker>`) descrito em `implementation-blueprint.md` §2. Testes de infra (`test/infra/`) sintetizam a stack via `aws-cdk-lib`/`aws-cdk-lib/assertions` em memória — não exigem AWS CLI/credenciais nem a instalação do binário `aws-cdk`. Suíte cross-tenant negativa (exit criterion de M1) vive em `test/integration/cross-tenant.test.ts`; suíte de isolamento do GSI3 (exit criterion de M3) vive em `test/infra/stack.test.ts`.
 
-Comandos: `npm ci` (install imutÃ¡vel, scripts desabilitados via `.npmrc`) Â· `npm run typecheck` Â· `npm run lint` (ESLint; `no-console` Ã© erro fora de `src/shared/observability/**` â€” todo handler usa `SecureLogger`, nunca `console.*`) Â· `npm test` (Vitest; unit+contract+integration+infra) Â· `npm run validate-schemas` (carrega tudo em `schemas/` e falha em `$ref` quebrado). Node fixado em `.nvmrc` (20.x); CI em `.github/workflows/ci.yml` roda os quatro + audit + SBOM (CycloneDX), actions pinadas por SHA (`implementation-blueprint.md` Â§16.1).
+Comandos: `npm ci` (install imutável, scripts desabilitados via `.npmrc`) · `npm run typecheck` · `npm run lint` (ESLint; `no-console` é erro fora de `src/shared/observability/**` — todo handler usa `SecureLogger`, nunca `console.*`) · `npm test` (Vitest; unit+contract+integration+infra) · `npm run validate-schemas` (carrega tudo em `schemas/` e falha em `$ref` quebrado). Node fixado em `.nvmrc` (20.x); CI em `.github/workflows/ci.yml` roda os quatro + audit + SBOM (CycloneDX), actions pinadas por SHA (`implementation-blueprint.md` §16.1).
 
-ConvenÃ§Ãµes: TypeScript estrito (`tsconfig.json`, `noUncheckedIndexedAccess`); erros de app usam a taxonomia normalizada de `src/shared/errors/app-error.ts` (`AppError` + subclasses, `retryable` decide roteamento SQS/DLQ); toda escrita mutÃ¡vel usa os builders de `src/shared/dynamodb/occ.ts` (nunca `UpdateItem`/`PutItem` cru); eventos crÃ­ticos usam `src/shared/outbox/outbox.ts` dentro do mesmo `TransactWriteItems` do agregado; schemas JSON sÃ£o a fonte de verdade dos contratos (`src/shared/contracts/schema-validator.ts` os carrega via Ajv) â€” todo evento/comando novo ganha um schema em `schemas/{events,queues,api}/` com teste de exemplo vÃ¡lido e invÃ¡lido em `test/contract/`.
+Convenções: TypeScript estrito (`tsconfig.json`, `noUncheckedIndexedAccess`); erros de app usam a taxonomia normalizada de `src/shared/errors/app-error.ts` (`AppError` + subclasses, `retryable` decide roteamento SQS/DLQ); toda escrita mutável usa os builders de `src/shared/dynamodb/occ.ts` (nunca `UpdateItem`/`PutItem` cru); eventos críticos usam `src/shared/outbox/outbox.ts` dentro do mesmo `TransactWriteItems` do agregado; schemas JSON são a fonte de verdade dos contratos (`src/shared/contracts/schema-validator.ts` os carrega via Ajv) — todo evento/comando novo ganha um schema em `schemas/{events,queues,api}/` com teste de exemplo válido e inválido em `test/contract/`.
 
-PendÃªncias nÃ£o bloqueantes registradas no pipeline: assinatura/provenance de artefato (SLSA) fica para M1+ quando existir um alvo de deploy real; SHAs das actions pinadas no CI devem ser reverificados periodicamente (comentÃ¡rio no prÃ³prio workflow).
+Pendências não bloqueantes registradas no pipeline: assinatura/provenance de artefato (SLSA) fica para M1+ quando existir um alvo de deploy real; SHAs das actions pinadas no CI devem ser reverificados periodicamente (comentário no próprio workflow).
 
-Reavaliar automaÃ§Ã£o da checklist Â§6 (verificador de links, skill de auditoria) quando o volume de mÃ³dulos M1+ justificar.
+Reavaliar automação da checklist §6 (verificador de links, skill de auditoria) quando o volume de módulos M1+ justificar.
 
-## 8. ManutenÃ§Ã£o do prÃ³prio AGENTS.md
+## 8. Manutenção do próprio AGENTS.md
 
-Meta: 60-100 linhas. Antes de adicionar algo, verificar: muda comportamento em vÃ¡rias sessÃµes futuras? Ã‰ estÃ¡vel, nÃ£o temporÃ¡rio? NÃ£o Ã© derivÃ¡vel do cÃ³digo/Git/decisions-log? NÃ£o pertence a `NEXT_SESSION_PROMPT.md`, `working-memory.md` ou a um documento de arquitetura? Se alguma resposta for nÃ£o, nÃ£o pertence aqui.
+Meta: 60-100 linhas. Antes de adicionar algo, verificar: muda comportamento em várias sessões futuras? É estável, não temporário? Não é derivável do código/Git/decisions-log? Não pertence a `NEXT_SESSION_PROMPT.md`, `working-memory.md` ou a um documento de arquitetura? Se alguma resposta for não, não pertence aqui.
 
 
 2026-08-20T00:19:26.773633Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$files = @('"'docs/engineering/joint-review-criteria.md','package.json','tsconfig.json','.eslintrc.cjs','.dependency-cruiser.cjs','.github/workflows/ci.yml','docs/engineering/exceptions.md','docs/engineering/decisions-log.md'); foreach ("'$f in $files) { Write-Output "===== $f ====="; if (Test-Path -LiteralPath $f) { Get-Content -Raw -LiteralPath $f } else { Write-Output '"'[MISSING]' } }; Write-Output '===== git ====='; git branch --show-current; git status --short"` rejected: blocked by policy
@@ -120,23 +120,23 @@ owner: engineering
 authority: normative
 ---
 
-# CritÃ©rios de revisÃ£o conjunta Claudeâ†”Codex, por eixo
+# Critérios de revisão conjunta Claude↔Codex, por eixo
 
-Fonte Ãºnica dos critÃ©rios de avaliaÃ§Ã£o (nome, peso, definiÃ§Ã£o) usados nas revisÃµes conjuntas Claudeâ†”Codex (`AGENTS.md` Â§4). Achados/rodadas de uma execuÃ§Ã£o especÃ­fica do protocolo (ex. `docs/architecture/reviews/m3.5-runtime-design/`) registram evidÃªncia de uma revisÃ£o pontual â€” nunca redefinem ou duplicam a tabela de pesos; apenas linkam para a seÃ§Ã£o correspondente aqui.
+Fonte única dos critérios de avaliação (nome, peso, definição) usados nas revisões conjuntas Claude↔Codex (`AGENTS.md` §4). Achados/rodadas de uma execução específica do protocolo (ex. `docs/architecture/reviews/m3.5-runtime-design/`) registram evidência de uma revisão pontual — nunca redefinem ou duplicam a tabela de pesos; apenas linkam para a seção correspondente aqui.
 
-Adaptado (nÃ£o copiado) do padrÃ£o equivalente do projeto irmÃ£o `event-discovery-platform` (mesmo usuÃ¡rio) â€” mesmas fontes normativas e mesmos nomes/definiÃ§Ãµes de critÃ©rio (sÃ£o padrÃµes de indÃºstria: ISO/IEC 25010, AWS Well-Architected, ATAM, DORA/Core-4, mais a literatura de context engineering para dev assistido por IA), mas com **pesos recalibrados por convergÃªncia independente Claudeâ†”Codex especificamente para este repositÃ³rio** â€” nunca herdados sem revisÃ£o. Rodada de convergÃªncia completa (2 propostas independentes + reconciliaÃ§Ã£o) em `docs/engineering/reviews/joint-review-criteria-round1-{claude,codex-prompt,codex-output}.*`; ambas as partes â‰¥9.0 de confianÃ§a na proposta prÃ³pria, sem necessidade de rodada formal de desacordo (mesma condiÃ§Ã£o de convergÃªncia rÃ¡pida que o projeto irmÃ£o documenta para o eixo de contexto).
+Adaptado (não copiado) do padrão equivalente do projeto irmão `event-discovery-platform` (mesmo usuário) — mesmas fontes normativas e mesmos nomes/definições de critério (são padrões de indústria: ISO/IEC 25010, AWS Well-Architected, ATAM, DORA/Core-4, mais a literatura de context engineering para dev assistido por IA), mas com **pesos recalibrados por convergência independente Claude↔Codex especificamente para este repositório** — nunca herdados sem revisão. Rodada de convergência completa (2 propostas independentes + reconciliação) em `docs/engineering/reviews/joint-review-criteria-round1-{claude,codex-prompt,codex-output}.*`; ambas as partes ≥9.0 de confiança na proposta própria, sem necessidade de rodada formal de desacordo (mesma condição de convergência rápida que o projeto irmão documenta para o eixo de contexto).
 
-Cada eixo evolui apenas se o prÃ³prio critÃ©rio se mostrar mal calibrado em uso real â€” registrar por que, junto com a mudanÃ§a, e nÃ£o reabrir a cada nova revisÃ£o sobre o mesmo eixo.
+Cada eixo evolui apenas se o próprio critério se mostrar mal calibrado em uso real — registrar por que, junto com a mudança, e não reabrir a cada nova revisão sobre o mesmo eixo.
 
-**Eixos formalizados (9)**: Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, SeguranÃ§a da InformaÃ§Ã£o e AppSec, Privacidade e GovernanÃ§a de Dados, OperaÃ§Ãµes/SRE e Continuidade de NegÃ³cio, GovernanÃ§a de IA e Controles Internos, GovernanÃ§a JurÃ­dica/Contratual/Terceiros, GovernanÃ§a de Produto e ServiÃ§o Multi-tenant. **FinOps fica como 10Âº eixo, aprovado por decisÃ£o do usuÃ¡rio mas ainda sem critÃ©rios definidos** â€” nÃ£o usar atÃ© ganhar seÃ§Ã£o prÃ³pria aqui; economia unitÃ¡ria hoje Ã© sÃ³ um critÃ©rio dentro de Produto/ServiÃ§o Multi-tenant, nÃ£o um substituto do eixo.
+**Eixos formalizados (9)**: Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança da Informação e AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant. **FinOps fica como 10º eixo, aprovado por decisão do usuário mas ainda sem critérios definidos** — não usar até ganhar seção própria aqui; economia unitária hoje é só um critério dentro de Produto/Serviço Multi-tenant, não um substituto do eixo.
 
 ---
 
 ## Eixo: Arquitetura
 
-Convergido em 2026-08-19. Pesos puxados para cima em Reliability & Fault Recovery e Data Model & Consistency â€” refletem que G8 (recuperaÃ§Ã£o real de falha assÃ­ncrona) Ã© o gate de engenharia mais caro e mais recentemente testado deste projeto, e que o single-table DynamoDB com 6 GSIs e duas exceÃ§Ãµes de particionamento (GSI3/GSI6, chaves globais) jÃ¡ produziu bugs reais (inconsultabilidade de PK, ponteiro removido incorretamente) â€” risco concreto, nÃ£o hipotÃ©tico.
+Convergido em 2026-08-19. Pesos puxados para cima em Reliability & Fault Recovery e Data Model & Consistency — refletem que G8 (recuperação real de falha assíncrona) é o gate de engenharia mais caro e mais recentemente testado deste projeto, e que o single-table DynamoDB com 6 GSIs e duas exceções de particionamento (GSI3/GSI6, chaves globais) já produziu bugs reais (inconsultabilidade de PK, ponteiro removido incorretamente) — risco concreto, não hipotético.
 
-| # | CritÃ©rio | Peso |
+| # | Critério | Peso |
 |---:|---|---:|
 | 1 | Domain Fit & Simplicity | 8% |
 | 2 | Reliability & Fault Recovery | 16% |
@@ -152,136 +152,136 @@ Convergido em 2026-08-19. Pesos puxados para cima em Reliability & Fault Recover
 
 ## Eixo: Qualidade de engenharia
 
-Convergido em 2026-08-19. Eixo distinto do de Arquitetura â€” craft de cÃ³digo, disciplina de testes, rigor de CI, tooling, disciplina de documentaÃ§Ã£o/processo, gestÃ£o de dÃ­vida tÃ©cnica; nÃ£o redecide design de sistema. Ajuste principal: **Delivery, Release & Recovery Discipline** subiu de forma expressiva (padrÃ£o de origem tinha 8%) â€” nÃ£o porque a entrega jÃ¡ seja madura, mas justamente o oposto: nenhum deploy real foi validado ainda neste projeto, e o Ãºnico bloqueador restante para fechar G8 Ã© exatamente executar deploy real + IAM negativo + DLQ/redrive + EventBridge Scheduler em sandbox AWS. Uma lacuna real de evidÃªncia pesa mais, nÃ£o menos â€” mesmo raciocÃ­nio aplicado ao eixo de contexto abaixo.
+Convergido em 2026-08-19. Eixo distinto do de Arquitetura — craft de código, disciplina de testes, rigor de CI, tooling, disciplina de documentação/processo, gestão de dívida técnica; não redecide design de sistema. Ajuste principal: **Delivery, Release & Recovery Discipline** subiu de forma expressiva (padrão de origem tinha 8%) — não porque a entrega já seja madura, mas justamente o oposto: nenhum deploy real foi validado ainda neste projeto, e o único bloqueador restante para fechar G8 é exatamente executar deploy real + IAM negativo + DLQ/redrive + EventBridge Scheduler em sandbox AWS. Uma lacuna real de evidência pesa mais, não menos — mesmo raciocínio aplicado ao eixo de contexto abaixo.
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | Code Correctness & Defensive Design | 11% | PreservaÃ§Ã£o de invariantes via validaÃ§Ã£o explÃ­cita, tratamento de falha, transiÃ§Ãµes de estado seguras, ausÃªncia de corrupÃ§Ã£o silenciosa. |
-| 2 | Test Effectiveness & Coverage Discipline | 15% | EvidÃªncia crÃ­vel de unit/integration/contract/negative/failure/regression focada em risco real, nÃ£o apenas contagem/cobertura de linha. SuÃ­te extensa baseada sÃ³ em fakes nÃ£o pontua alto â€” precisa provar propriedades reais (DynamoDB/IAM/SQS/EventBridge) quando o risco Ã© real. |
-| 3 | CI Quality Gates & Merge Safety | 11% | Enforcement determinÃ­stico de checks obrigatÃ³rios em toda mudanÃ§a, sem bypass informal, exceÃ§Ãµes formalmente governadas. |
+| 1 | Code Correctness & Defensive Design | 11% | Preservação de invariantes via validação explícita, tratamento de falha, transições de estado seguras, ausência de corrupção silenciosa. |
+| 2 | Test Effectiveness & Coverage Discipline | 15% | Evidência crível de unit/integration/contract/negative/failure/regression focada em risco real, não apenas contagem/cobertura de linha. Suíte extensa baseada só em fakes não pontua alto — precisa provar propriedades reais (DynamoDB/IAM/SQS/EventBridge) quando o risco é real. |
+| 3 | CI Quality Gates & Merge Safety | 11% | Enforcement determinístico de checks obrigatórios em toda mudança, sem bypass informal, exceções formalmente governadas. |
 | 4 | Type Safety, Static Analysis & Automated Enforcement | 9% | Uso efetivo de tipagem estrita, lint, dependency-cruiser (grafo real de imports) e fitness functions customizadas para prevenir classes de defeito automaticamente. |
-| 5 | Readability, Consistency & Implementation Maintainability | 8% | CÃ³digo coeso, nomeado claramente, estilo consistente, DRY/KISS/YAGNI aplicado com julgamento, barato de modificar. |
-| 6 | Delivery, Release & Recovery Discipline | 11% | Artefatos/ambientes reproduzÃ­veis, promoÃ§Ã£o segura, evidÃªncia de deploy, rollback, validaÃ§Ã£o de recuperaÃ§Ã£o â€” critÃ©rio de saÃ­da real de G8, nÃ£o secundÃ¡rio neste estÃ¡gio. |
-| 7 | Dependency & Supply-Chain Hygiene | 7% | DependÃªncias controladas, lockfiles, actions/tools pinados, triagem de vulnerabilidade com `expiresAt` formal (`docs/engineering/exceptions.md`), SBOM. |
-| 8 | Debuggability & Operational Feedback | 7% | DiagnÃ³sticos estruturados e privacy-safe (`SecureLogger`/`Redactor`), correlation context, erros acionÃ¡veis, suficientes para investigar falhas assÃ­ncronas. |
-| 9 | Developer Experience & Reproducibility | 5% | Instalar/validar/testar/rodar o repositÃ³rio a partir de checkout limpo, com comandos pinados e documentados, de baixo atrito. |
-| 10 | Documentation Quality & Process Discipline | 5% | Specs, standards, decisÃµes e registros de mudanÃ§a claros e autoritativos, com rigor de processo proporcional a projeto solo. |
-| 11 | Documentationâ€“Implementation Drift Control | 6% | Checks determinÃ­sticos ou executados regularmente que detectam divergÃªncia entre documentaÃ§Ã£o, cÃ³digo, infra, config de CI e realidade implantada. |
-| 12 | Technical-Debt & Continuous-Improvement Practice | 5% | Registro honesto de atalhos e controles falhos, com dono, trigger, expiry quando aplicÃ¡vel, e follow-through baseado em evidÃªncia. |
+| 5 | Readability, Consistency & Implementation Maintainability | 8% | Código coeso, nomeado claramente, estilo consistente, DRY/KISS/YAGNI aplicado com julgamento, barato de modificar. |
+| 6 | Delivery, Release & Recovery Discipline | 11% | Artefatos/ambientes reproduzíveis, promoção segura, evidência de deploy, rollback, validação de recuperação — critério de saída real de G8, não secundário neste estágio. |
+| 7 | Dependency & Supply-Chain Hygiene | 7% | Dependências controladas, lockfiles, actions/tools pinados, triagem de vulnerabilidade com `expiresAt` formal (`docs/engineering/exceptions.md`), SBOM. |
+| 8 | Debuggability & Operational Feedback | 7% | Diagnósticos estruturados e privacy-safe (`SecureLogger`/`Redactor`), correlation context, erros acionáveis, suficientes para investigar falhas assíncronas. |
+| 9 | Developer Experience & Reproducibility | 5% | Instalar/validar/testar/rodar o repositório a partir de checkout limpo, com comandos pinados e documentados, de baixo atrito. |
+| 10 | Documentation Quality & Process Discipline | 5% | Specs, standards, decisões e registros de mudança claros e autoritativos, com rigor de processo proporcional a projeto solo. |
+| 11 | Documentation–Implementation Drift Control | 6% | Checks determinísticos ou executados regularmente que detectam divergência entre documentação, código, infra, config de CI e realidade implantada. |
+| 12 | Technical-Debt & Continuous-Improvement Practice | 5% | Registro honesto de atalhos e controles falhos, com dono, trigger, expiry quando aplicável, e follow-through baseado em evidência. |
 
 ## Eixo: Engenharia de contexto
 
-Convergido em 2026-08-19. Avalia a qualidade do prÃ³prio sistema de documentaÃ§Ã£o/contexto do projeto â€” nÃ£o cÃ³digo, nÃ£o arquitetura de sistema, nÃ£o craft de engenharia (eixos distintos, jÃ¡ cobertos acima). Ajuste principal: **Context Routing & Progressive Disclosure** subiu de forma expressiva (padrÃ£o de origem tinha 13%) pelo mesmo raciocÃ­nio do eixo anterior â€” este projeto nÃ£o tem um "context router" dedicado equivalente ao `system-overview.md` do projeto irmÃ£o (`AGENTS.md` Â§2 cumpre parcialmente esse papel, mas Ã© mais fraco), e o volume de documentos normativos/histÃ³ricos/handoffs jÃ¡ torna caro escolher o read-set mÃ­nimo correto. Uma lacuna estrutural real pesa mais no critÃ©rio que ela mede, nunca menos.
+Convergido em 2026-08-19. Avalia a qualidade do próprio sistema de documentação/contexto do projeto — não código, não arquitetura de sistema, não craft de engenharia (eixos distintos, já cobertos acima). Ajuste principal: **Context Routing & Progressive Disclosure** subiu de forma expressiva (padrão de origem tinha 13%) pelo mesmo raciocínio do eixo anterior — este projeto não tem um "context router" dedicado equivalente ao `system-overview.md` do projeto irmão (`AGENTS.md` §2 cumpre parcialmente esse papel, mas é mais fraco), e o volume de documentos normativos/históricos/handoffs já torna caro escolher o read-set mínimo correto. Uma lacuna estrutural real pesa mais no critério que ela mede, nunca menos.
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | Canonicalidade, Autoridade & NÃ£o-DuplicaÃ§Ã£o | 15% | Cada fato normativo tem exatamente uma fonte de verdade; derivados (Ã­ndices, mapas, resumos) sÃ£o explicitamente nÃ£o autoritativos e referenciam a fonte em vez de copiÃ¡-la. Ver `docs/architecture/README.md` Â§"PrecedÃªncia de fontes". |
-| 2 | Clareza de PapÃ©is & Proporcionalidade | 9% | Cada documento tem propÃ³sito, escopo e autoridade inequÃ­vocos, sem sobreposiÃ§Ã£o semÃ¢ntica relevante. Estrutura proporcional ao tamanho real do projeto â€” sem sofisticaÃ§Ã£o antecipada (`docs/engineering/principles.md` #1). |
-| 3 | Context Routing & Progressive Disclosure | 15% | Humanos e agentes conseguem identificar e carregar o menor conjunto suficiente de contexto para cada tipo de tarefa. Lacuna reconhecida: sem context router dedicado hoje â€” `AGENTS.md` Â§2 Ã© o candidato mais prÃ³ximo, mais fraco que o padrÃ£o do projeto irmÃ£o. |
-| 4 | CorrespondÃªncia com a Realidade & Controle de Drift | 16% | O sistema distingue intenÃ§Ã£o documentada, implementaÃ§Ã£o declarada e estado efetivamente observado, reconciliando divergÃªncias explicitamente. `ARCHITECTURE STATUS`/gates G1-G8 sÃ³ mudam com evidÃªncia operacional real (`docs/engineering/principles.md` #6). |
-| 5 | Lifecycle, ProveniÃªncia & EvoluÃ§Ã£o do Conhecimento | 12% | Arquitetura vigente vs. histÃ³rica, ADR aceito imutÃ¡vel e supersedido por ADR novo, metadata de status/autoridade, lifecycle de evidÃªncias (`docs/architecture/history/`). |
-| 6 | Rastreabilidade de DecisÃµes, Trabalho & Triggers | 10% | DecisÃµes caras, trabalho adiado, dÃ­vida tÃ©cnica e evidÃªncias permanecem conectados; gatilhos de reavaliaÃ§Ã£o concretos e verificÃ¡veis (`docs/engineering/exceptions.md`, `decisions-log.md`). |
-| 7 | Higiene de Contexto & Sinal-RuÃ­do | 8% | SÃ³ conhecimento durÃ¡vel Ã© promovido a destinos canÃ´nicos; ausÃªncia de versÃµes concorrentes ou documentos Ã³rfÃ£os. |
-| 8 | Portabilidade AgnÃ³stica entre Agentes de IA | 6% | Regras essenciais utilizÃ¡veis por diferentes agentes/ferramentas â€” `AGENTS.md`/`CLAUDE.md` jÃ¡ seguem essa separaÃ§Ã£o. |
-| 9 | Auditabilidade & Enforcement do Sistema de Contexto | 9% | AfirmaÃ§Ãµes sobre a saÃºde do contexto verificÃ¡veis por evidÃªncia datada e revisÃµes reproduzÃ­veis; achados com lifecycle claro (aberto/corrigido/adiado/arquivado). |
+| 1 | Canonicalidade, Autoridade & Não-Duplicação | 15% | Cada fato normativo tem exatamente uma fonte de verdade; derivados (índices, mapas, resumos) são explicitamente não autoritativos e referenciam a fonte em vez de copiá-la. Ver `docs/architecture/README.md` §"Precedência de fontes". |
+| 2 | Clareza de Papéis & Proporcionalidade | 9% | Cada documento tem propósito, escopo e autoridade inequívocos, sem sobreposição semântica relevante. Estrutura proporcional ao tamanho real do projeto — sem sofisticação antecipada (`docs/engineering/principles.md` #1). |
+| 3 | Context Routing & Progressive Disclosure | 15% | Humanos e agentes conseguem identificar e carregar o menor conjunto suficiente de contexto para cada tipo de tarefa. Lacuna reconhecida: sem context router dedicado hoje — `AGENTS.md` §2 é o candidato mais próximo, mais fraco que o padrão do projeto irmão. |
+| 4 | Correspondência com a Realidade & Controle de Drift | 16% | O sistema distingue intenção documentada, implementação declarada e estado efetivamente observado, reconciliando divergências explicitamente. `ARCHITECTURE STATUS`/gates G1-G8 só mudam com evidência operacional real (`docs/engineering/principles.md` #6). |
+| 5 | Lifecycle, Proveniência & Evolução do Conhecimento | 12% | Arquitetura vigente vs. histórica, ADR aceito imutável e supersedido por ADR novo, metadata de status/autoridade, lifecycle de evidências (`docs/architecture/history/`). |
+| 6 | Rastreabilidade de Decisões, Trabalho & Triggers | 10% | Decisões caras, trabalho adiado, dívida técnica e evidências permanecem conectados; gatilhos de reavaliação concretos e verificáveis (`docs/engineering/exceptions.md`, `decisions-log.md`). |
+| 7 | Higiene de Contexto & Sinal-Ruído | 8% | Só conhecimento durável é promovido a destinos canônicos; ausência de versões concorrentes ou documentos órfãos. |
+| 8 | Portabilidade Agnóstica entre Agentes de IA | 6% | Regras essenciais utilizáveis por diferentes agentes/ferramentas — `AGENTS.md`/`CLAUDE.md` já seguem essa separação. |
+| 9 | Auditabilidade & Enforcement do Sistema de Contexto | 9% | Afirmações sobre a saúde do contexto verificáveis por evidência datada e revisões reproduzíveis; achados com lifecycle claro (aberto/corrigido/adiado/arquivado). |
 
-## Eixo: SeguranÃ§a da InformaÃ§Ã£o e AppSec
+## Eixo: Segurança da Informação e AppSec
 
-Convergido em 2026-08-19 (fontes: OWASP ASVS 5.0, OWASP Top 10:2025, OWASP SAMM, prÃ¡ticas de least-privilege IAM AWS Lambda/DynamoDB). Rodada de convergÃªncia completa em `docs/engineering/reviews/security-axis-criteria-round1-{claude,codex-prompt,codex-output}.*` â€” convergÃªncia forte: os dois critÃ©rios de maior peso (isolamento multi-tenant, least-privilege IAM) saÃ­ram com pesos **idÃªnticos** nas duas propostas independentes, sem precisar de reconciliaÃ§Ã£o. Eixo avalia confidencialidade/integridade/disponibilidade/isolamento diante de abuso intencional e falhas de fronteira de confianÃ§a â€” nÃ£o reavalia craft de cÃ³digo, arquitetura funcional ou disciplina de teste geral (eixos distintos); sÃ³ quando esses elementos sÃ£o controle ou evidÃªncia especificamente de seguranÃ§a.
+Convergido em 2026-08-19 (fontes: OWASP ASVS 5.0, OWASP Top 10:2025, OWASP SAMM, práticas de least-privilege IAM AWS Lambda/DynamoDB). Rodada de convergência completa em `docs/engineering/reviews/security-axis-criteria-round1-{claude,codex-prompt,codex-output}.*` — convergência forte: os dois critérios de maior peso (isolamento multi-tenant, least-privilege IAM) saíram com pesos **idênticos** nas duas propostas independentes, sem precisar de reconciliação. Eixo avalia confidencialidade/integridade/disponibilidade/isolamento diante de abuso intencional e falhas de fronteira de confiança — não reavalia craft de código, arquitetura funcional ou disciplina de teste geral (eixos distintos); só quando esses elementos são controle ou evidência especificamente de segurança.
 
-Pesos calibrados pelo risco real jÃ¡ observado neste projeto: GSI3/GSI6 sÃ£o exceÃ§Ãµes de particionamento com blast radius cross-tenant deliberado que jÃ¡ produziram bug real nesta sessÃ£o (nÃ£o risco hipotÃ©tico); o pipeline assÃ­ncrono (M3.5/G8) passou por 3 rodadas reais de revisÃ£o que encontraram bugs de contrato, race condition e limpeza de Ã­ndice.
+Pesos calibrados pelo risco real já observado neste projeto: GSI3/GSI6 são exceções de particionamento com blast radius cross-tenant deliberado que já produziram bug real nesta sessão (não risco hipotético); o pipeline assíncrono (M3.5/G8) passou por 3 rodadas reais de revisão que encontraram bugs de contrato, race condition e limpeza de índice.
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | Isolamento Multi-Tenant & AutorizaÃ§Ã£o por Objeto | 18% | `tenantId` derivado exclusivamente da identidade validada e propagado por chaves, queries, eventos, idempotÃªncia e auditoria; proteÃ§Ã£o contra IDOR e acesso cross-tenant em toda rota/worker. Maior peso do eixo â€” risco mais concreto e jÃ¡ testado deste projeto (GSI3/GSI6). |
-| 2 | Least-Privilege IAM & ContenÃ§Ã£o de Blast Radius | 14% | Capability/role especÃ­fica por Lambda (`ScopedLambdaFunction`), sem grants implÃ­citos/curinga. `gsi3Read()`/`gsi6Read()` como capabilities exclusivas de lista fechada de workers â€” permissÃµes tenant-facing devem produzir `AccessDenied` real (Camada 3, ainda pendente). |
-| 3 | AutenticaÃ§Ã£o, SessÃ£o & GestÃ£o de Identidade | 11% | ValidaÃ§Ã£o completa de JWT Cognito (assinatura/issuer/audience/expiraÃ§Ã£o/claims), revogaÃ§Ã£o global/por dispositivo, TTL/rotaÃ§Ã£o, MFA proporcional. Nenhuma autorizaÃ§Ã£o confia em identidade/tenant fornecido pelo cliente. |
-| 4 | Integridade do Pipeline AssÃ­ncrono & Fronteiras de Mensagem | 14% | Eventos EventBridge/SQS/Streams/outbox autenticados pela infra, validados por schema, vinculados ao tenant, protegidos contra replay/duplicaÃ§Ã£o/roteamento cruzado. Claim/estado/outbox preservam atomicidade; retry/DLQ/redrive/sweeper nÃ£o contornam autorizaÃ§Ã£o. Peso alto: Ã© onde G8 jÃ¡ encontrou bugs reais. |
-| 5 | ValidaÃ§Ã£o de Entrada, Injection & Fail-Closed | 9% | ValidaÃ§Ã£o server-side por contrato (Ajv) em toda borda â€” HTTP, filas, dados persistidos. Entrada invÃ¡lida/estado impossÃ­vel/erro de autorizaÃ§Ã£o falha de modo fechado, sem mutaÃ§Ã£o parcial nem detalhe interno vazado. |
-| 6 | ProteÃ§Ã£o de Dados SensÃ­veis, Segredos & Criptografia | 9% | MinimizaÃ§Ã£o/classificaÃ§Ã£o de PII e tokens, criptografia em trÃ¢nsito/repouso, segredos fora de cÃ³digo/log/artefato. `SecureLogger`/`Redactor` deve valer tambÃ©m em exceÃ§Ãµes, traces, eventos e DLQ â€” nÃ£o sÃ³ no caminho feliz. |
-| 7 | Logging Seguro, DetecÃ§Ã£o & Resposta a Incidentes | 8% | Eventos de autenticaÃ§Ã£o/autorizaÃ§Ã£o negada/alteraÃ§Ã£o privilegiada/acesso a GSI global produzem trilha Ã­ntegra, correlacionÃ¡vel, privacy-safe (OWASP A09:2025). Alarmes com threshold acionÃ¡vel e runbook de contenÃ§Ã£o/revogaÃ§Ã£o/investigaÃ§Ã£o. |
-| 8 | ConfiguraÃ§Ã£o Segura da Plataforma & SuperfÃ­cie Exposta | 6% | API Gateway/Cognito/Lambda/DynamoDB/SQS/EventBridge/Streams com defaults seguros, exposiÃ§Ã£o mÃ­nima, retenÃ§Ã£o adequada. MudanÃ§as de CDK devem ser capazes de detectar regressÃ£o (wildcard de Ã­ndice, grant excessivo, handler placeholder â€” jÃ¡ aconteceu nesta sessÃ£o). |
-| 9 | ResistÃªncia a Abuso, DoS & ExaustÃ£o de Custo | 5% | Rate limits, quotas por tenant, concorrÃªncia reservada, limites de batch/paginaÃ§Ã£o impedem que um tenant, poison message ou evento amplificado degrade outros tenants ou gere custo descontrolado; retries/reconciliaÃ§Ã£o nÃ£o podem virar multiplicador de ataque. |
-| 10 | VerificaÃ§Ã£o Adversarial & GestÃ£o ContÃ­nua de Risco | 6% | EvidÃªncia especÃ­fica de seguranÃ§a (threat model vivo, testes de abuso/cross-tenant/replay, assertions de IAM/IaC) â€” inclusive teste em AWS real quando emulaÃ§Ã£o nÃ£o prova o controle (Camada 3). Achados com severidade/dono/prazo; nova superfÃ­cie (upload, provedor externo, frontend, webhook) reabre a anÃ¡lise antes da implementaÃ§Ã£o. |
+| 1 | Isolamento Multi-Tenant & Autorização por Objeto | 18% | `tenantId` derivado exclusivamente da identidade validada e propagado por chaves, queries, eventos, idempotência e auditoria; proteção contra IDOR e acesso cross-tenant em toda rota/worker. Maior peso do eixo — risco mais concreto e já testado deste projeto (GSI3/GSI6). |
+| 2 | Least-Privilege IAM & Contenção de Blast Radius | 14% | Capability/role específica por Lambda (`ScopedLambdaFunction`), sem grants implícitos/curinga. `gsi3Read()`/`gsi6Read()` como capabilities exclusivas de lista fechada de workers — permissões tenant-facing devem produzir `AccessDenied` real (Camada 3, ainda pendente). |
+| 3 | Autenticação, Sessão & Gestão de Identidade | 11% | Validação completa de JWT Cognito (assinatura/issuer/audience/expiração/claims), revogação global/por dispositivo, TTL/rotação, MFA proporcional. Nenhuma autorização confia em identidade/tenant fornecido pelo cliente. |
+| 4 | Integridade do Pipeline Assíncrono & Fronteiras de Mensagem | 14% | Eventos EventBridge/SQS/Streams/outbox autenticados pela infra, validados por schema, vinculados ao tenant, protegidos contra replay/duplicação/roteamento cruzado. Claim/estado/outbox preservam atomicidade; retry/DLQ/redrive/sweeper não contornam autorização. Peso alto: é onde G8 já encontrou bugs reais. |
+| 5 | Validação de Entrada, Injection & Fail-Closed | 9% | Validação server-side por contrato (Ajv) em toda borda — HTTP, filas, dados persistidos. Entrada inválida/estado impossível/erro de autorização falha de modo fechado, sem mutação parcial nem detalhe interno vazado. |
+| 6 | Proteção de Dados Sensíveis, Segredos & Criptografia | 9% | Minimização/classificação de PII e tokens, criptografia em trânsito/repouso, segredos fora de código/log/artefato. `SecureLogger`/`Redactor` deve valer também em exceções, traces, eventos e DLQ — não só no caminho feliz. |
+| 7 | Logging Seguro, Detecção & Resposta a Incidentes | 8% | Eventos de autenticação/autorização negada/alteração privilegiada/acesso a GSI global produzem trilha íntegra, correlacionável, privacy-safe (OWASP A09:2025). Alarmes com threshold acionável e runbook de contenção/revogação/investigação. |
+| 8 | Configuração Segura da Plataforma & Superfície Exposta | 6% | API Gateway/Cognito/Lambda/DynamoDB/SQS/EventBridge/Streams com defaults seguros, exposição mínima, retenção adequada. Mudanças de CDK devem ser capazes de detectar regressão (wildcard de índice, grant excessivo, handler placeholder — já aconteceu nesta sessão). |
+| 9 | Resistência a Abuso, DoS & Exaustão de Custo | 5% | Rate limits, quotas por tenant, concorrência reservada, limites de batch/paginação impedem que um tenant, poison message ou evento amplificado degrade outros tenants ou gere custo descontrolado; retries/reconciliação não podem virar multiplicador de ataque. |
+| 10 | Verificação Adversarial & Gestão Contínua de Risco | 6% | Evidência específica de segurança (threat model vivo, testes de abuso/cross-tenant/replay, assertions de IAM/IaC) — inclusive teste em AWS real quando emulação não prova o controle (Camada 3). Achados com severidade/dono/prazo; nova superfície (upload, provedor externo, frontend, webhook) reabre a análise antes da implementação. |
 
-## Eixo: Privacidade e GovernanÃ§a de Dados
+## Eixo: Privacidade e Governança de Dados
 
-Convergido em 2026-08-19 (fontes: LGPD/orientaÃ§Ãµes ANPD sobre RIPD/direitos/incidentes/transferÃªncias, DAMA-DMBOK). Rodada completa em `docs/engineering/reviews/remaining-axes-round1-{claude,codex-prompt,codex-output}.*`. Avalia licitude, finalidade, governanÃ§a e ciclo de vida dos dados â€” nÃ£o controles tÃ©cnicos de acesso (isolamento multi-tenant/IAM jÃ¡ pertencem ao eixo de SeguranÃ§a, nÃ£o duplicado aqui). Maior peso do eixo em RetenÃ§Ã£o/ExclusÃ£o porque Ã© o workflow mais greenfield e envolve mÃºltiplos stores (DynamoDB, S3, filas, backups, providers).
+Convergido em 2026-08-19 (fontes: LGPD/orientações ANPD sobre RIPD/direitos/incidentes/transferências, DAMA-DMBOK). Rodada completa em `docs/engineering/reviews/remaining-axes-round1-{claude,codex-prompt,codex-output}.*`. Avalia licitude, finalidade, governança e ciclo de vida dos dados — não controles técnicos de acesso (isolamento multi-tenant/IAM já pertencem ao eixo de Segurança, não duplicado aqui). Maior peso do eixo em Retenção/Exclusão porque é o workflow mais greenfield e envolve múltiplos stores (DynamoDB, S3, filas, backups, providers).
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | InventÃ¡rio, ClassificaÃ§Ã£o, Ownership & Linhagem de Dados | 15% | InventÃ¡rio versionado de dados pessoais, sensÃ­veis, documentos, metadados, logs, eventos e backups; finalidade, origem, destino, responsÃ¡vel e `retentionClass` rastreÃ¡veis. Nova entidade/campo/integraÃ§Ã£o nÃ£o entra sem classificaÃ§Ã£o. |
-| 2 | Base Legal, Finalidade & MinimizaÃ§Ã£o | 16% | Base legal e finalidade definidas por tratamento, com teste de necessidade/proporcionalidade. Uso secundÃ¡rio exige reavaliaÃ§Ã£o, nÃ£o reutilizaÃ§Ã£o implÃ­cita. |
-| 3 | Direitos do Titular & Portabilidade Efetiva | 16% | ConfirmaÃ§Ã£o/acesso/correÃ§Ã£o/exportaÃ§Ã£o/oposiÃ§Ã£o/exclusÃ£o com fluxo autenticado, prazos, estados e evidÃªncia de conclusÃ£o. |
-| 4 | RetenÃ§Ã£o, Legal Hold, ExclusÃ£o VerificÃ¡vel & Backups | 17% | Prazo por classe com evento inicial, prazo final e mecanismo executÃ¡vel. ExclusÃ£o alcanÃ§a DynamoDB/S3/Ã­ndices/filas/providers/restores; testes provam que dado excluÃ­do nÃ£o ressurge apÃ³s restore. |
-| 5 | LocalizaÃ§Ã£o, TransferÃªncia Internacional & Subprocessamento | 14% | RegiÃ£o de produÃ§Ã£o, paÃ­ses de tratamento, subprocessadores e mecanismos jurÃ­dicos de transferÃªncia decididos antes de produÃ§Ã£o â€” decisÃ£o hoje pendente por LGPD, nÃ£o drift silencioso. |
-| 6 | RIPD, Risco aos Titulares & Privacy by Design | 10% | CritÃ©rios objetivos de quando elaborar/atualizar RIPD; tratamento de alto risco exige decisÃ£o humana registrada. |
-| 7 | Qualidade, CorreÃ§Ã£o & ProveniÃªncia dos Dados | 7% | Dados exatos/completos/atuais vinculados Ã  origem/versÃ£o; inferÃªncia de IA distinguÃ­vel de dado confirmado pelo usuÃ¡rio. |
-| 8 | Accountability, EvidÃªncia & Monitoramento de Privacidade | 5% | ResponsÃ¡veis, aprovaÃ§Ãµes, DSRs, holds e exceÃ§Ãµes produzem evidÃªncia auditÃ¡vel, sem virar telemetria excessiva de dado pessoal. |
+| 1 | Inventário, Classificação, Ownership & Linhagem de Dados | 15% | Inventário versionado de dados pessoais, sensíveis, documentos, metadados, logs, eventos e backups; finalidade, origem, destino, responsável e `retentionClass` rastreáveis. Nova entidade/campo/integração não entra sem classificação. |
+| 2 | Base Legal, Finalidade & Minimização | 16% | Base legal e finalidade definidas por tratamento, com teste de necessidade/proporcionalidade. Uso secundário exige reavaliação, não reutilização implícita. |
+| 3 | Direitos do Titular & Portabilidade Efetiva | 16% | Confirmação/acesso/correção/exportação/oposição/exclusão com fluxo autenticado, prazos, estados e evidência de conclusão. |
+| 4 | Retenção, Legal Hold, Exclusão Verificável & Backups | 17% | Prazo por classe com evento inicial, prazo final e mecanismo executável. Exclusão alcança DynamoDB/S3/índices/filas/providers/restores; testes provam que dado excluído não ressurge após restore. |
+| 5 | Localização, Transferência Internacional & Subprocessamento | 14% | Região de produção, países de tratamento, subprocessadores e mecanismos jurídicos de transferência decididos antes de produção — decisão hoje pendente por LGPD, não drift silencioso. |
+| 6 | RIPD, Risco aos Titulares & Privacy by Design | 10% | Critérios objetivos de quando elaborar/atualizar RIPD; tratamento de alto risco exige decisão humana registrada. |
+| 7 | Qualidade, Correção & Proveniência dos Dados | 7% | Dados exatos/completos/atuais vinculados à origem/versão; inferência de IA distinguível de dado confirmado pelo usuário. |
+| 8 | Accountability, Evidência & Monitoramento de Privacidade | 5% | Responsáveis, aprovações, DSRs, holds e exceções produzem evidência auditável, sem virar telemetria excessiva de dado pessoal. |
 
-## Eixo: OperaÃ§Ãµes, SRE e Continuidade de NegÃ³cio
+## Eixo: Operações, SRE e Continuidade de Negócio
 
-Convergido em 2026-08-19 (fontes: Google SRE Book â€” SLO/error budget dirige decisÃ£o operacional, nÃ£o sÃ³ relatÃ³rio â€”, AWS Well-Architected SaaS Lens Â§Operate). Avalia capacidade de operar/detectar/responder/recuperar o serviÃ§o real â€” o desenho de SLO/DR jÃ¡ existe (`slo.md`/`disaster-recovery.md`) mas nunca foi operacionalizado com dado de produÃ§Ã£o real. Maior peso em Backup/Restore porque "documentado mas nunca testado" Ã© o padrÃ£o de risco mais repetido observado neste projeto (G8 sÃ³ fechou depois de testar de verdade).
+Convergido em 2026-08-19 (fontes: Google SRE Book — SLO/error budget dirige decisão operacional, não só relatório —, AWS Well-Architected SaaS Lens §Operate). Avalia capacidade de operar/detectar/responder/recuperar o serviço real — o desenho de SLO/DR já existe (`slo.md`/`disaster-recovery.md`) mas nunca foi operacionalizado com dado de produção real. Maior peso em Backup/Restore porque "documentado mas nunca testado" é o padrão de risco mais repetido observado neste projeto (G8 só fechou depois de testar de verdade).
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | SLIs, SLOs & Error Budgets AcionÃ¡veis | 16% | SLIs representam resultado percebido (API, reminder freshness, backlog, reconciliaÃ§Ã£o); consumo de error budget condiciona release/priorizaÃ§Ã£o, nÃ£o sÃ³ relatÃ³rio. |
-| 2 | Observabilidade Operacional & VisÃ£o por Tenant | 11% | Detecta impacto agregado e noisy neighbor entre tenants â€” `SecureLogger` maduro nÃ£o basta sem dashboard/sinal real. |
-| 3 | DetecÃ§Ã£o, Resposta & ComunicaÃ§Ã£o de Incidentes | 15% | Alertas com threshold acionÃ¡vel/dono/escalonamento/runbook; comunicaÃ§Ã£o a tenants/titulares/ANPD quando aplicÃ¡vel; exercÃ­cios comprovam funcionamento sob pressÃ£o. |
-| 4 | SaÃºde do Pipeline AssÃ­ncrono & RecuperaÃ§Ã£o de Backlog | 14% | Idade/profundidade de fila, DLQ, outbox, claims, sweeper monitorados; redrive/replay idempotentes e limitados. Peso alto pela criticidade do produto + Camada 3 ainda pendente. |
-| 5 | Backup, Restore, RTO/RPO & Continuidade | 18% | PITR/backup configurado nÃ£o basta â€” nota depende de restore real periÃ³dico com RTO/RPO observado. Falha regional Ã© risco aceito explicitamente (regiÃ£o Ãºnica, Stage 0-2), nÃ£o ignorado. |
-| 6 | ProntidÃ£o de Deploy, Rollback & MudanÃ§a Operacional | 10% | Deploy com artefato identificÃ¡vel, checks prÃ©/pÃ³s, rollback/roll-forward; mudanÃ§a de schema/GSI/KMS/provider aciona validaÃ§Ã£o proporcional. |
-| 7 | Capacidade, DependÃªncias & DegradaÃ§Ã£o Controlada | 9% | Limites AWS/providers/concorrÃªncia/custo conhecidos e testados; kill switches preservam trabalho recuperÃ¡vel. |
-| 8 | Post-mortem, ExercÃ­cios & Melhoria ContÃ­nua | 7% | Post-mortem sem culpa com aÃ§Ã£o/dono/prazo; falha recorrente ou aÃ§Ã£o vencida reduz nota. |
+| 1 | SLIs, SLOs & Error Budgets Acionáveis | 16% | SLIs representam resultado percebido (API, reminder freshness, backlog, reconciliação); consumo de error budget condiciona release/priorização, não só relatório. |
+| 2 | Observabilidade Operacional & Visão por Tenant | 11% | Detecta impacto agregado e noisy neighbor entre tenants — `SecureLogger` maduro não basta sem dashboard/sinal real. |
+| 3 | Detecção, Resposta & Comunicação de Incidentes | 15% | Alertas com threshold acionável/dono/escalonamento/runbook; comunicação a tenants/titulares/ANPD quando aplicável; exercícios comprovam funcionamento sob pressão. |
+| 4 | Saúde do Pipeline Assíncrono & Recuperação de Backlog | 14% | Idade/profundidade de fila, DLQ, outbox, claims, sweeper monitorados; redrive/replay idempotentes e limitados. Peso alto pela criticidade do produto + Camada 3 ainda pendente. |
+| 5 | Backup, Restore, RTO/RPO & Continuidade | 18% | PITR/backup configurado não basta — nota depende de restore real periódico com RTO/RPO observado. Falha regional é risco aceito explicitamente (região única, Stage 0-2), não ignorado. |
+| 6 | Prontidão de Deploy, Rollback & Mudança Operacional | 10% | Deploy com artefato identificável, checks pré/pós, rollback/roll-forward; mudança de schema/GSI/KMS/provider aciona validação proporcional. |
+| 7 | Capacidade, Dependências & Degradação Controlada | 9% | Limites AWS/providers/concorrência/custo conhecidos e testados; kill switches preservam trabalho recuperável. |
+| 8 | Post-mortem, Exercícios & Melhoria Contínua | 7% | Post-mortem sem culpa com ação/dono/prazo; falha recorrente ou ação vencida reduz nota. |
 
-## Eixo: GovernanÃ§a de IA e Controles Internos
+## Eixo: Governança de IA e Controles Internos
 
-Convergido em 2026-08-19 (fontes: NIST AI RMF â€” ciclo Govern/Map/Measure/Manage â€”, ISO/IEC 42001). Abrange Claude/Codex construindo e operando o projeto, e futuros componentes de IA/OCR do produto. Avalia autoridade, supervisÃ£o, independÃªncia, proveniÃªncia e gestÃ£o de risco â€” nÃ£o a qualidade genÃ©rica do cÃ³digo gerado (eixo de Engenharia). Maior peso em IndependÃªncia da RevisÃ£o porque Ã© o controle interno central deste projeto (protocolo `AGENTS.md` Â§4).
+Convergido em 2026-08-19 (fontes: NIST AI RMF — ciclo Govern/Map/Measure/Manage —, ISO/IEC 42001). Abrange Claude/Codex construindo e operando o projeto, e futuros componentes de IA/OCR do produto. Avalia autoridade, supervisão, independência, proveniência e gestão de risco — não a qualidade genérica do código gerado (eixo de Engenharia). Maior peso em Independência da Revisão porque é o controle interno central deste projeto (protocolo `AGENTS.md` §4).
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | Limites de Autoridade, PermissÃµes & SupervisÃ£o Humana | 18% | AÃ§Ãµes permitidas/proibidas/sujeitas a aprovaÃ§Ã£o humana por agente; deploy/merge/exclusÃ£o/produÃ§Ã£o/Type-1/comunicaÃ§Ã£o externa seguem least authority e fail-closed. |
-| 2 | AtribuiÃ§Ã£o, ProveniÃªncia & Reprodutibilidade das AÃ§Ãµes | 15% | Toda mudanÃ§a relevante atribuÃ­vel a agente/modelo/sessÃ£o/diff/teste/aprovador â€” reconstruÃ­vel sem exigir armazenamento indiscriminado de prompt sensÃ­vel. |
-| 3 | IndependÃªncia da RevisÃ£o & SegregaÃ§Ã£o de FunÃ§Ãµes | 15% | Nota cega, mÃ­nimo de rodadas, mesmo agente nunca simula aprovaÃ§Ã£o independente de si mesmo. Controle interno central do projeto â€” sem ele, "revisÃ£o Claudeâ†”Codex" viraria teatro. |
-| 4 | InventÃ¡rio de Casos de Uso & GestÃ£o do Risco de IA | 13% | Usos de IA inventariados por finalidade/impacto/dado/autonomia/reversibilidade; mudanÃ§a relevante reabre avaliaÃ§Ã£o (Govern-Map-Measure-Manage). |
-| 5 | AvaliaÃ§Ã£o de CorreÃ§Ã£o, LimitaÃ§Ãµes & Impacto | 12% | Nota alta sem evidÃªncia de arquivo:linha concreta nÃ£o fecha revisÃ£o (jÃ¡ Ã© a prÃ¡tica deste projeto â€” formalizado aqui como critÃ©rio). |
-| 6 | ProteÃ§Ã£o de Contexto, Dados & Segredos no Uso de IA | 10% | Apenas contexto necessÃ¡rio enviado a modelo/ferramenta; segredos/dado pessoal/documento de tenant obedecem classificaÃ§Ã£o e retenÃ§Ã£o. |
-| 7 | GestÃ£o de Modelos, Ferramentas, Fornecedores & MudanÃ§as | 9% | VersÃ£o/capacidade de modelo/CLI conhecida; upgrade tem avaliaÃ§Ã£o de regressÃ£o e impacto â€” comportamento de fornecedor nÃ£o Ã© controle interno garantido. |
-| 8 | Incidentes de IA, ExceÃ§Ãµes & Melhoria ContÃ­nua | 8% | Mecanismo de suspender uso/reverter/registrar falha; bypass/exceÃ§Ã£o com fundamento, prazo e aprovaÃ§Ã£o. |
+| 1 | Limites de Autoridade, Permissões & Supervisão Humana | 18% | Ações permitidas/proibidas/sujeitas a aprovação humana por agente; deploy/merge/exclusão/produção/Type-1/comunicação externa seguem least authority e fail-closed. |
+| 2 | Atribuição, Proveniência & Reprodutibilidade das Ações | 15% | Toda mudança relevante atribuível a agente/modelo/sessão/diff/teste/aprovador — reconstruível sem exigir armazenamento indiscriminado de prompt sensível. |
+| 3 | Independência da Revisão & Segregação de Funções | 15% | Nota cega, mínimo de rodadas, mesmo agente nunca simula aprovação independente de si mesmo. Controle interno central do projeto — sem ele, "revisão Claude↔Codex" viraria teatro. |
+| 4 | Inventário de Casos de Uso & Gestão do Risco de IA | 13% | Usos de IA inventariados por finalidade/impacto/dado/autonomia/reversibilidade; mudança relevante reabre avaliação (Govern-Map-Measure-Manage). |
+| 5 | Avaliação de Correção, Limitações & Impacto | 12% | Nota alta sem evidência de arquivo:linha concreta não fecha revisão (já é a prática deste projeto — formalizado aqui como critério). |
+| 6 | Proteção de Contexto, Dados & Segredos no Uso de IA | 10% | Apenas contexto necessário enviado a modelo/ferramenta; segredos/dado pessoal/documento de tenant obedecem classificação e retenção. |
+| 7 | Gestão de Modelos, Ferramentas, Fornecedores & Mudanças | 9% | Versão/capacidade de modelo/CLI conhecida; upgrade tem avaliação de regressão e impacto — comportamento de fornecedor não é controle interno garantido. |
+| 8 | Incidentes de IA, Exceções & Melhoria Contínua | 8% | Mecanismo de suspender uso/reverter/registrar falha; bypass/exceção com fundamento, prazo e aprovação. |
 
-## Eixo: GovernanÃ§a JurÃ­dica, Contratual e de Terceiros
+## Eixo: Governança Jurídica, Contratual e de Terceiros
 
-Convergido em 2026-08-19 (fontes: SOC 2 Trust Services Criteria â€” gestÃ£o de fornecedor, nÃ£o certificaÃ§Ã£o prematura â€”, licenciamento OSS). Avalia obrigaÃ§Ã£o/licenÃ§a/contrato/responsabilidade/risco de dependÃªncia externa â€” SBOM, pinning e integridade tÃ©cnica de build continuam nos eixos de Engenharia/SeguranÃ§a, nÃ£o duplicados aqui.
+Convergido em 2026-08-19 (fontes: SOC 2 Trust Services Criteria — gestão de fornecedor, não certificação prematura —, licenciamento OSS). Avalia obrigação/licença/contrato/responsabilidade/risco de dependência externa — SBOM, pinning e integridade técnica de build continuam nos eixos de Engenharia/Segurança, não duplicados aqui.
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | PapÃ©is JurÃ­dicos, Responsabilidades & Modelo Contratual | 16% | Define quando o serviÃ§o Ã© controlador/operador/ambos; decisÃ£o pendente recebe dono e gate antes do lanÃ§amento. |
-| 2 | InventÃ¡rio, Due Diligence & Monitoramento de Terceiros | 16% | Registro de AWS/modelos de IA/OCR/mensageria/CI com serviÃ§o, dados, criticidade, regiÃ£o, certificaÃ§Ã£o, lock-in e responsÃ¡vel. |
-| 3 | Licenciamento OSS, Propriedade Intelectual & Uso de ConteÃºdo | 14% | DependÃªncias/cÃ³digo gerado com licenÃ§a/proveniÃªncia compatÃ­vel com operaÃ§Ã£o comercial; autoria por IA nÃ£o presume ausÃªncia de risco de licenÃ§a. |
-| 4 | Termos de Uso, Aviso de Privacidade & Consentimentos | 14% | Termos/avisos compatÃ­veis com comportamento real do produto â€” nÃ£o existem ainda, prÃ©-requisito antes do primeiro usuÃ¡rio real. |
-| 5 | DPAs, TransferÃªncias, Incidentes & ObrigaÃ§Ãµes de Fornecedor | 13% | Contrato com operador/suboperador cobre instruÃ§Ãµes, seguranÃ§a, localizaÃ§Ã£o, exclusÃ£o e comunicaÃ§Ã£o tempestiva de incidente (LGPD art. 39). |
-| 6 | Compromissos Comerciais, SLA & ProteÃ§Ã£o do Consumidor | 13% | NÃ£o prometer entrega de mensagem quando sÃ³ hÃ¡ tentativa do provider, nem disponibilidade sem arquitetura correspondente. |
-| 7 | AprovaÃ§Ã£o, EvidÃªncia, ExceÃ§Ãµes & MudanÃ§a RegulatÃ³ria | 7% | Gatilho de reavaliaÃ§Ã£o em mudanÃ§a regulatÃ³ria/produto/regiÃ£o/provider; aprovaÃ§Ã£o sem dono nÃ£o pontua como controle. |
-| 8 | Continuidade, Portabilidade & SaÃ­da de Fornecedor | 7% | DependÃªncia crÃ­tica tem estratÃ©gia proporcional de substituiÃ§Ã£o/exportaÃ§Ã£o â€” dado nÃ£o fica irrecuperavelmente preso sem risco aceito e documentado. |
+| 1 | Papéis Jurídicos, Responsabilidades & Modelo Contratual | 16% | Define quando o serviço é controlador/operador/ambos; decisão pendente recebe dono e gate antes do lançamento. |
+| 2 | Inventário, Due Diligence & Monitoramento de Terceiros | 16% | Registro de AWS/modelos de IA/OCR/mensageria/CI com serviço, dados, criticidade, região, certificação, lock-in e responsável. |
+| 3 | Licenciamento OSS, Propriedade Intelectual & Uso de Conteúdo | 14% | Dependências/código gerado com licença/proveniência compatível com operação comercial; autoria por IA não presume ausência de risco de licença. |
+| 4 | Termos de Uso, Aviso de Privacidade & Consentimentos | 14% | Termos/avisos compatíveis com comportamento real do produto — não existem ainda, pré-requisito antes do primeiro usuário real. |
+| 5 | DPAs, Transferências, Incidentes & Obrigações de Fornecedor | 13% | Contrato com operador/suboperador cobre instruções, segurança, localização, exclusão e comunicação tempestiva de incidente (LGPD art. 39). |
+| 6 | Compromissos Comerciais, SLA & Proteção do Consumidor | 13% | Não prometer entrega de mensagem quando só há tentativa do provider, nem disponibilidade sem arquitetura correspondente. |
+| 7 | Aprovação, Evidência, Exceções & Mudança Regulatória | 7% | Gatilho de reavaliação em mudança regulatória/produto/região/provider; aprovação sem dono não pontua como controle. |
+| 8 | Continuidade, Portabilidade & Saída de Fornecedor | 7% | Dependência crítica tem estratégia proporcional de substituição/exportação — dado não fica irrecuperavelmente preso sem risco aceito e documentado. |
 
-## Eixo: GovernanÃ§a de Produto e ServiÃ§o Multi-tenant
+## Eixo: Governança de Produto e Serviço Multi-tenant
 
-Convergido em 2026-08-19 (fontes: AWS Well-Architected SaaS Lens â€” onboarding automatizado no control plane, crypto-shredding no offboarding, tenant como conceito de primeira classe). Avalia o serviÃ§o percebido/administrado pelo tenant ao longo do ciclo de vida â€” nÃ£o reavalia isolamento/IAM tÃ©cnico (eixo de SeguranÃ§a). **FinOps fica como eixo prÃ³prio por decisÃ£o do usuÃ¡rio, nÃ£o formalizado ainda** â€” economia unitÃ¡ria aqui Ã© sÃ³ um critÃ©rio de produto, nÃ£o compete em peso com esse eixo futuro.
+Convergido em 2026-08-19 (fontes: AWS Well-Architected SaaS Lens — onboarding automatizado no control plane, crypto-shredding no offboarding, tenant como conceito de primeira classe). Avalia o serviço percebido/administrado pelo tenant ao longo do ciclo de vida — não reavalia isolamento/IAM técnico (eixo de Segurança). **FinOps fica como eixo próprio por decisão do usuário, não formalizado ainda** — economia unitária aqui é só um critério de produto, não compete em peso com esse eixo futuro.
 
-| # | CritÃ©rio | Peso | DefiniÃ§Ã£o |
+| # | Critério | Peso | Definição |
 |---:|---|---:|---|
-| 1 | Lifecycle Automatizado de Tenant | 18% | Onboarding/ativaÃ§Ã£o/convite/mudanÃ§a de plano/suspensÃ£o/offboarding como estados explÃ­citos, idempotentes, auditÃ¡veis â€” hoje o tenant nasce implicitamente no primeiro login (MVP `tenantId=userId`), sem control plane dedicado. |
-| 2 | Offboarding, ExportaÃ§Ã£o & DestruiÃ§Ã£o CriptogrÃ¡fica | 16% | "NÃ£o conseguimos deletar um tenant" Ã© falha de compliance, nÃ£o sÃ³ tÃ©cnica; crypto-shredding coordenado com retenÃ§Ã£o/backup/legal hold. |
-| 3 | Planos, Entitlements, Quotas & Fairness | 13% | Capacidades/limites como polÃ­tica centralizada e versionada; `TenantQuota` jÃ¡ existe (M1), falta plano de billing real. NÃ£o duplica rate-limiting de seguranÃ§a â€” mede correÃ§Ã£o da oferta do produto. |
-| 4 | CorreÃ§Ã£o do ServiÃ§o de Lembretes & ProteÃ§Ã£o do UsuÃ¡rio | 15% | Timezone/DST/opt-out/quiet hours/renovaÃ§Ã£o corrigÃ­veis; lembrete perdido/duplicado/obsoleto tem detecÃ§Ã£o e reparo â€” Ã© a falha mais grave possÃ­vel do produto. |
-| 5 | TransparÃªncia, Usabilidade & Acessibilidade | 10% | Estado/erro/atraso comunicado em linguagem clara; ainda nÃ£o se aplica plenamente (sem frontend), mas entra no radar em M4+. |
-| 6 | AdministraÃ§Ã£o, Suporte & OperaÃ§Ã£o sob a Ã“tica do Tenant | 10% | Suporte autorizado diagnostica saÃºde/uso/config por tenant com trilha de auditoria, sem acesso informal a conteÃºdo. |
-| 7 | MÃ©tricas de Valor, Consumo & Economia UnitÃ¡ria | 10% | AdoÃ§Ã£o/sucesso de lembrete/consumo atribuÃ­vel por tenant de forma privacy-safe â€” germe do futuro eixo FinOps, nÃ£o o eixo em si. |
-| 8 | EvoluÃ§Ã£o Unificada & Controle de CustomizaÃ§Ã£o | 8% | Nenhuma feature cria "fork" por tenant; variaÃ§Ã£o por plano usa mecanismo governado (mesmo princÃ­pio jÃ¡ aplicado ao reshard versionado do GSI3). |
+| 1 | Lifecycle Automatizado de Tenant | 18% | Onboarding/ativação/convite/mudança de plano/suspensão/offboarding como estados explícitos, idempotentes, auditáveis — hoje o tenant nasce implicitamente no primeiro login (MVP `tenantId=userId`), sem control plane dedicado. |
+| 2 | Offboarding, Exportação & Destruição Criptográfica | 16% | "Não conseguimos deletar um tenant" é falha de compliance, não só técnica; crypto-shredding coordenado com retenção/backup/legal hold. |
+| 3 | Planos, Entitlements, Quotas & Fairness | 13% | Capacidades/limites como política centralizada e versionada; `TenantQuota` já existe (M1), falta plano de billing real. Não duplica rate-limiting de segurança — mede correção da oferta do produto. |
+| 4 | Correção do Serviço de Lembretes & Proteção do Usuário | 15% | Timezone/DST/opt-out/quiet hours/renovação corrigíveis; lembrete perdido/duplicado/obsoleto tem detecção e reparo — é a falha mais grave possível do produto. |
+| 5 | Transparência, Usabilidade & Acessibilidade | 10% | Estado/erro/atraso comunicado em linguagem clara; ainda não se aplica plenamente (sem frontend), mas entra no radar em M4+. |
+| 6 | Administração, Suporte & Operação sob a Ótica do Tenant | 10% | Suporte autorizado diagnostica saúde/uso/config por tenant com trilha de auditoria, sem acesso informal a conteúdo. |
+| 7 | Métricas de Valor, Consumo & Economia Unitária | 10% | Adoção/sucesso de lembrete/consumo atribuível por tenant de forma privacy-safe — germe do futuro eixo FinOps, não o eixo em si. |
+| 8 | Evolução Unificada & Controle de Customização | 8% | Nenhuma feature cria "fork" por tenant; variação por plano usa mecanismo governado (mesmo princípio já aplicado ao reshard versionado do GSI3). |
 
 ## Como adicionar um novo eixo
 
-NÃ£o criar a tabela de critÃ©rios dentro do primeiro doc de auditoria do eixo novo. Seguir o mesmo procedimento de convergÃªncia independente (`AGENTS.md` Â§4) e, ao final, adicionar aqui uma seÃ§Ã£o nova nesse mesmo formato â€” o registro de auditoria referencia a seÃ§Ã£o, nÃ£o a duplica.
+Não criar a tabela de critérios dentro do primeiro doc de auditoria do eixo novo. Seguir o mesmo procedimento de convergência independente (`AGENTS.md` §4) e, ao final, adicionar aqui uma seção nova nesse mesmo formato — o registro de auditoria referencia a seção, não a duplica.
 
 {
   "name": "expiration-tracker",
@@ -431,14 +431,14 @@ module.exports = {
 };
 
 /**
- * Real dependency-graph boundary enforcement â€” Engineering Maturity Review red team finding
+ * Real dependency-graph boundary enforcement — Engineering Maturity Review red team finding
  * (2026-08-19, checkpoint-12-redteam): the ESLint `no-restricted-imports` rule in
  * .eslintrc.cjs only catches a DIRECT forbidden import; it cannot see a transitive path
  * (e.g. domain/a.ts -> domain/bridge.ts -> application/service.ts), dynamic import(), or a
  * barrel file re-exporting a forbidden layer. dependency-cruiser resolves the actual module
  * graph (including transitively), so it closes that gap instead of just restating it.
  *
- * This is deliberately narrow â€” three rules, matching exactly the three boundaries already
+ * This is deliberately narrow — three rules, matching exactly the three boundaries already
  * enforced (imperfectly) by ESLint. Not a general-purpose architecture linter; adding more
  * rules here should require the same justification as any other engineering decision
  * (docs/engineering/decisions-log.md), not accumulate by default.
@@ -600,66 +600,66 @@ jobs:
 
 # Exception Registry
 
-Registro de violaÃ§Ãµes conscientes de regra, com justificativa, risco, owner e prazo de revisÃ£o (Prompt Mestre Â§47; formalizado com o padrÃ£o de `expiraEm` do `event-discovery-platform`, ver `docs/engineering/quality-gate-tiers.md` Â§"PolÃ­tica de exceÃ§Ã£o"). Nenhuma exceÃ§Ã£o aqui Ã© permanente por padrÃ£o â€” **uma exceÃ§Ã£o sem `expiraEm` explÃ­cito nÃ£o Ã© uma exceÃ§Ã£o vÃ¡lida, Ã© uma vulnerabilidade nÃ£o tratada disfarÃ§ada.** Ao expirar sem reavaliaÃ§Ã£o registrada, o achado volta a bloquear `Dependency audit` normalmente atÃ© ser re-registrado com novo prazo.
+Registro de violações conscientes de regra, com justificativa, risco, owner e prazo de revisão (Prompt Mestre §47; formalizado com o padrão de `expiraEm` do `event-discovery-platform`, ver `docs/engineering/quality-gate-tiers.md` §"Política de exceção"). Nenhuma exceção aqui é permanente por padrão — **uma exceção sem `expiraEm` explícito não é uma exceção válida, é uma vulnerabilidade não tratada disfarçada.** Ao expirar sem reavaliação registrada, o achado volta a bloquear `Dependency audit` normalmente até ser re-registrado com novo prazo.
 
-## EX-001 â€” Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild)
+## EX-001 — Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild)
 
-- **Regra violada**: G5 (sem vulnerabilidade crÃ­tica nÃ£o tratada).
-- **Achado**: `npm audit` reporta 2 critical, 1 high, 2 moderate, todos transitivos via `vitest`â†’`vite`â†’`esbuild`. A mais severa (CVSS 9.8, GHSA-5xrq-8626-4rwp) Ã© sobre o servidor de UI do Vitest permitir leitura/execuÃ§Ã£o arbitrÃ¡ria de arquivo quando exposto â€” este projeto nunca inicia esse servidor (nÃ£o hÃ¡ `vitest --ui` em nenhum script/workflow).
-- **Justificativa**: risco real Ã© de dev-server local, nÃ£o de runtime de produÃ§Ã£o; `npm audit --omit=dev` (produÃ§Ã£o) mostra 0 vulnerabilidades.
-- **Tentativa de correÃ§Ã£o registrada (2026-08-19)**: upgrade para Vitest 4.1.11 foi tentado nesta sessÃ£o. Localmente (Windows) passou limpo (typecheck/lint/130 testes/audit zerado), mas **quebrou o CI real (Ubuntu)**: `Error: Cannot find native binding... Cannot find module '@rolldown/binding-wasm32-wasi'` â€” bug conhecido e nÃ£o resolvido do ecossistema npm com optional dependencies cross-platform (`npm/cli#4828`, referenciado na prÃ³pria mensagem de erro), onde o lockfile gerado numa plataforma nÃ£o resolve corretamente o binding nativo de outra mesmo depois de regenerado do zero. **Revertido** para `vitest@^1.6.0` apÃ³s confirmar em duas execuÃ§Ãµes reais de CI que o upgrade quebrava o pipeline â€” CI real verde Ã© mais importante do que fechar esta exceÃ§Ã£o Ã s pressas. NÃ£o tentar de novo sem verificar primeiro se o bug upstream do rolldown/npm foi corrigido numa versÃ£o futura do Vitest/Vite.
-- **Risco residual**: baixo (superfÃ­cie de ataque exige rodar o dev-server localmente com input nÃ£o confiÃ¡vel) â€” mas nÃ£o Ã© zero e nÃ£o deve virar exceÃ§Ã£o permanente.
+- **Regra violada**: G5 (sem vulnerabilidade crítica não tratada).
+- **Achado**: `npm audit` reporta 2 critical, 1 high, 2 moderate, todos transitivos via `vitest`→`vite`→`esbuild`. A mais severa (CVSS 9.8, GHSA-5xrq-8626-4rwp) é sobre o servidor de UI do Vitest permitir leitura/execução arbitrária de arquivo quando exposto — este projeto nunca inicia esse servidor (não há `vitest --ui` em nenhum script/workflow).
+- **Justificativa**: risco real é de dev-server local, não de runtime de produção; `npm audit --omit=dev` (produção) mostra 0 vulnerabilidades.
+- **Tentativa de correção registrada (2026-08-19)**: upgrade para Vitest 4.1.11 foi tentado nesta sessão. Localmente (Windows) passou limpo (typecheck/lint/130 testes/audit zerado), mas **quebrou o CI real (Ubuntu)**: `Error: Cannot find native binding... Cannot find module '@rolldown/binding-wasm32-wasi'` — bug conhecido e não resolvido do ecossistema npm com optional dependencies cross-platform (`npm/cli#4828`, referenciado na própria mensagem de erro), onde o lockfile gerado numa plataforma não resolve corretamente o binding nativo de outra mesmo depois de regenerado do zero. **Revertido** para `vitest@^1.6.0` após confirmar em duas execuções reais de CI que o upgrade quebrava o pipeline — CI real verde é mais importante do que fechar esta exceção às pressas. Não tentar de novo sem verificar primeiro se o bug upstream do rolldown/npm foi corrigido numa versão futura do Vitest/Vite.
+- **Risco residual**: baixo (superfície de ataque exige rodar o dev-server localmente com input não confiável) — mas não é zero e não deve virar exceção permanente.
 - **Owner**: Marcelo (a definir formalmente).
 - **Data de registro**: 2026-08-19.
-- **Prazo de revisÃ£o**: antes de M4 ou em 30 dias, o que vier primeiro â€” reavaliar upgrade do Vitest quando o bug de optional dependencies cross-platform estiver resolvido upstream.
-- **Compensating control**: gate de CI `Dependency audit (production - blocking)` bloqueia qualquer vulnerabilidade real em `dependencies` (nÃ£o `devDependencies`); o job separado de dev-audit Ã© informacional e referencia esta entrada.
+- **Prazo de revisão**: antes de M4 ou em 30 dias, o que vier primeiro — reavaliar upgrade do Vitest quando o bug de optional dependencies cross-platform estiver resolvido upstream.
+- **Compensating control**: gate de CI `Dependency audit (production - blocking)` bloqueia qualquer vulnerabilidade real em `dependencies` (não `devDependencies`); o job separado de dev-audit é informacional e referencia esta entrada.
 
 # Engineering Decision Log
 
-DecisÃµes de engenharia tomadas durante a Engineering Maturity Review (Prompt Mestre Â§46), com IDs sequenciais.
+Decisões de engenharia tomadas durante a Engineering Maturity Review (Prompt Mestre §46), com IDs sequenciais.
 
-## E-000 â€” Rubrica congelada com 16 domÃ­nios, pesos e gates G1-G11
+## E-000 — Rubrica congelada com 16 domínios, pesos e gates G1-G11
 
-ConvergÃªncia Claudeâ†”Codex em uma rodada (Codex rejeitou o draft inicial, todas as objeÃ§Ãµes aceitas). Ver `01-engineering-quality-criteria.md` e `reviews/checkpoint-01-rubric/`.
+Convergência Claude↔Codex em uma rodada (Codex rejeitou o draft inicial, todas as objeções aceitas). Ver `01-engineering-quality-criteria.md` e `reviews/checkpoint-01-rubric/`.
 
-## E-001 â€” Regra anti-double-counting entre domÃ­nios M/B/I
+## E-001 — Regra anti-double-counting entre domínios M/B/I
 
-M avalia semÃ¢ntica de persistÃªncia, B avalia correÃ§Ã£o local/de contrato, I avalia comportamento sob falha â€” mesma implementaÃ§Ã£o (ex.: OCC) pode ser citada nos trÃªs, mas cada nota exige uma propriedade distinta comprovada.
+M avalia semântica de persistência, B avalia correção local/de contrato, I avalia comportamento sob falha — mesma implementação (ex.: OCC) pode ser citada nos três, mas cada nota exige uma propriedade distinta comprovada.
 
-## E-002 â€” DistinÃ§Ã£o formal entre N/A e NOT ENOUGH EVIDENCE (NEE)
+## E-002 — Distinção formal entre N/A e NOT ENOUGH EVIDENCE (NEE)
 
-N/A exige inaplicabilidade estrutural + concordÃ¢ncia dos dois revisores; NEE Ã© evidÃªncia insuficiente sobre algo aplicÃ¡vel, nÃ£o sai do denominador, reduz a nota mÃ¡xima possÃ­vel.
+N/A exige inaplicabilidade estrutural + concordância dos dois revisores; NEE é evidência insuficiente sobre algo aplicável, não sai do denominador, reduz a nota máxima possível.
 
-## E-003 â€” Gate de dependency audit dividido em produÃ§Ã£o (bloqueante) e dev (informacional com exceÃ§Ã£o registrada)
+## E-003 — Gate de dependency audit dividido em produção (bloqueante) e dev (informacional com exceção registrada)
 
-Motivo: `npm audit --omit=dev` mostra 0 vulnerabilidades reais; as 5 encontradas (2 critical, 1 high, 2 moderate) sÃ£o todas transitivas via `vitest`/`vite`/`esbuild`, relacionadas ao dev-server (nÃ£o expostas em produÃ§Ã£o). Corrigir exige upgrade major do Vitest (1.xâ†’4.x), desproporcional a aplicar sem verificar a suÃ­te inteira. DecisÃ£o: tornar o audit de produÃ§Ã£o genuinamente bloqueante agora (estava `|| echo`, nunca bloqueava nada); registrar o achado de dev como exceÃ§Ã£o formal (`exceptions.md` EX-001) com prazo de revisÃ£o, nÃ£o deixar como "warning eterno" sem dono nem prazo.
+Motivo: `npm audit --omit=dev` mostra 0 vulnerabilidades reais; as 5 encontradas (2 critical, 1 high, 2 moderate) são todas transitivas via `vitest`/`vite`/`esbuild`, relacionadas ao dev-server (não expostas em produção). Corrigir exige upgrade major do Vitest (1.x→4.x), desproporcional a aplicar sem verificar a suíte inteira. Decisão: tornar o audit de produção genuinamente bloqueante agora (estava `|| echo`, nunca bloqueava nada); registrar o achado de dev como exceção formal (`exceptions.md` EX-001) com prazo de revisão, não deixar como "warning eterno" sem dono nem prazo.
 
-## E-004 â€” Enforcement de boundary de arquitetura via ESLint `no-restricted-imports`, nÃ£o uma ferramenta nova
+## E-004 — Enforcement de boundary de arquitetura via ESLint `no-restricted-imports`, não uma ferramenta nova
 
-Motivo: o achado do Checkpoint 2-9 (G10 FAIL) Ã© que os boundaries de mÃ³dulo estavam limpos sÃ³ por disciplina, sem mecanismo automatizado. Alternativas consideradas: `dependency-cruiser` (ferramenta dedicada, mais expressiva, mas nova dependÃªncia e nova curva de configuraÃ§Ã£o) vs. `no-restricted-imports` do ESLint core (jÃ¡ presente, zero dependÃªncia nova, expressivo o suficiente para os trÃªs boundaries identificados: domainâ†›infra, domainâ†›aws-sdk, domainâ†›mÃ³dulo-de-terceiros). Escolhido `no-restricted-imports` por proporcionalidade (Prompt Mestre Â§29, Â§37 â€” nÃ£o adicionar ferramenta sÃ³ para "parecer completo"). Verificado que passa hoje sem quebrar nada (`npm run lint` limpo) â€” prova que o estado real jÃ¡ respeitava o boundary, sÃ³ faltava o mecanismo.
+Motivo: o achado do Checkpoint 2-9 (G10 FAIL) é que os boundaries de módulo estavam limpos só por disciplina, sem mecanismo automatizado. Alternativas consideradas: `dependency-cruiser` (ferramenta dedicada, mais expressiva, mas nova dependência e nova curva de configuração) vs. `no-restricted-imports` do ESLint core (já presente, zero dependência nova, expressivo o suficiente para os três boundaries identificados: domain↛infra, domain↛aws-sdk, domain↛módulo-de-terceiros). Escolhido `no-restricted-imports` por proporcionalidade (Prompt Mestre §29, §37 — não adicionar ferramenta só para "parecer completo"). Verificado que passa hoje sem quebrar nada (`npm run lint` limpo) — prova que o estado real já respeitava o boundary, só faltava o mecanismo.
 
-## E-005 â€” Branch protection nÃ£o aplicada automaticamente
+## E-005 — Branch protection não aplicada automaticamente
 
-Motivo: mudar a configuraÃ§Ã£o do GitHub (branch protection) altera o fluxo de trabalho do usuÃ¡rio (hoje push direto pra `main`) fora do escopo de uma ediÃ§Ã£o de arquivo â€” tratado como decisÃ£o que precisa de confirmaÃ§Ã£o explÃ­cita do usuÃ¡rio, nÃ£o aplicada silenciosamente nesta sessÃ£o. RecomendaÃ§Ã£o registrada em `ENGINEERING.md` (Known Gaps).
+Motivo: mudar a configuração do GitHub (branch protection) altera o fluxo de trabalho do usuário (hoje push direto pra `main`) fora do escopo de uma edição de arquivo — tratado como decisão que precisa de confirmação explícita do usuário, não aplicada silenciosamente nesta sessão. Recomendação registrada em `ENGINEERING.md` (Known Gaps).
 
-## E-006 â€” CorreÃ§Ã£o do SHA truncado do `actions/setup-node` sem rodada de debate
+## E-006 — Correção do SHA truncado do `actions/setup-node` sem rodada de debate
 
-Motivo: bug mecÃ¢nico e objetivamente verificÃ¡vel (39 vs. 40 caracteres, confirmado via `gh api` contra o SHA real do tag `v4.0.2`) â€” nÃ£o Ã© uma decisÃ£o de engenharia sujeita a interpretaÃ§Ã£o, Ã© uma correÃ§Ã£o factual. Tratado como correÃ§Ã£o direta, nÃ£o como Type 1 decision.
+Motivo: bug mecânico e objetivamente verificável (39 vs. 40 caracteres, confirmado via `gh api` contra o SHA real do tag `v4.0.2`) — não é uma decisão de engenharia sujeita a interpretação, é uma correção factual. Tratado como correção direta, não como Type 1 decision.
 
-## E-007 â€” NÃ£o injetar `SecureLogger` diretamente na lÃ³gica pura dos workers (dispatch/producer/reconciliation); fechar G8 via testes dedicados em vez disso
+## E-007 — Não injetar `SecureLogger` diretamente na lógica pura dos workers (dispatch/producer/reconciliation); fechar G8 via testes dedicados em vez disso
 
-Motivo: `producer.ts` documenta explicitamente que "this module stays observability-agnostic" â€” telemetria fica para a camada de handler Lambda real, que ainda nÃ£o existe (mesmo padrÃ£o de M0-M3: lÃ³gica pura testÃ¡vel primeiro, wiring de runtime depois). Injetar logging agora romperia esse padrÃ£o arquitetural jÃ¡ estabelecido e adiantaria trabalho de M4+ sem o handler real para validar o formato de evento contra CloudWatch de verdade â€” risco de reabstraÃ§Ã£o. DecisÃ£o: em vez disso, fechar a parte de G8 que Ã‰ possÃ­vel fechar hoje sem infraestrutura nova â€” "replay/reconciliation sÃ£o testados" â€” com testes unitÃ¡rios dedicados que faltavam:
+Motivo: `producer.ts` documenta explicitamente que "this module stays observability-agnostic" — telemetria fica para a camada de handler Lambda real, que ainda não existe (mesmo padrão de M0-M3: lógica pura testável primeiro, wiring de runtime depois). Injetar logging agora romperia esse padrão arquitetural já estabelecido e adiantaria trabalho de M4+ sem o handler real para validar o formato de evento contra CloudWatch de verdade — risco de reabstração. Decisão: em vez disso, fechar a parte de G8 que É possível fechar hoje sem infraestrutura nova — "replay/reconciliation são testados" — com testes unitários dedicados que faltavam:
 
-- `test/unit/reminder/reconciliation.test.ts`: `reconcileExpiredClaims` (claim expirado reverte pra SCHEDULED; claim ainda vÃ¡lido ou ocorrÃªncia nÃ£o-CLAIMED nÃ£o Ã© tocada) e `reconcileDst` (cenÃ¡rio real de drift: ocorrÃªncia materializada sob uma regra antiga Ã© cancelada e substituÃ­da por uma nova ocorrÃªncia recomputada sob a regra atual â€” antes disso, `reconcileDst` tinha ZERO cobertura de teste em qualquer lugar do repositÃ³rio, direta ou indireta).
-- `test/unit/reminder/producer.test.ts`: prova que uma falha genuÃ­na de store (nÃ£o uma perda de race de OCC) numa claim especÃ­fica cai em `failed`, sem abortar o resto do tick nem mutar a ocorrÃªncia (fica disponÃ­vel pra retry) â€” o caminho `failed` do producer nunca tinha sido exercitado por nenhum teste antes (sÃ³ afirmado vazio no caminho feliz).
+- `test/unit/reminder/reconciliation.test.ts`: `reconcileExpiredClaims` (claim expirado reverte pra SCHEDULED; claim ainda válido ou ocorrência não-CLAIMED não é tocada) e `reconcileDst` (cenário real de drift: ocorrência materializada sob uma regra antiga é cancelada e substituída por uma nova ocorrência recomputada sob a regra atual — antes disso, `reconcileDst` tinha ZERO cobertura de teste em qualquer lugar do repositório, direta ou indireta).
+- `test/unit/reminder/producer.test.ts`: prova que uma falha genuína de store (não uma perda de race de OCC) numa claim específica cai em `failed`, sem abortar o resto do tick nem mutar a ocorrência (fica disponível pra retry) — o caminho `failed` do producer nunca tinha sido exercitado por nenhum teste antes (só afirmado vazio no caminho feliz).
 
-G8 permanece **nÃ£o-PASS pleno** â€” "observÃ¡vel em execuÃ§Ã£o real" continua exigindo o handler Lambda + fila real de M4+, isso nÃ£o muda com testes. Mas a parte de "replay/reconciliation testados" da definiÃ§Ã£o do gate agora tem evidÃªncia real, o que nÃ£o existia antes desta sessÃ£o.
+G8 permanece **não-PASS pleno** — "observável em execução real" continua exigindo o handler Lambda + fila real de M4+, isso não muda com testes. Mas a parte de "replay/reconciliation testados" da definição do gate agora tem evidência real, o que não existia antes desta sessão.
 
-## E-008 â€” Boundary transitivo real via `dependency-cruiser`, nÃ£o sÃ³ ESLint; achado real de cÃ³digo corrigido no processo
+## E-008 — Boundary transitivo real via `dependency-cruiser`, não só ESLint; achado real de código corrigido no processo
 
-Motivo: o red team formal (Checkpoint 12) apontou que a regra `no-restricted-imports` do ESLint (E-004) sÃ³ compara o texto literal do specifier do import, nÃ£o o grafo real â€” nÃ£o pega reexport transitivo, `import()` dinÃ¢mico, nem (descoberta ao testar de verdade) imports relativos dentro do MESMO mÃ³dulo, porque a string `"../ports/foo.js"` nunca contÃ©m a substring `modules/*/ports` que os padrÃµes glob esperam. Adicionado `dependency-cruiser` (`npm run check-boundaries`, wired no CI) como enforcement AUTORITATIVO â€” resolve o grafo de mÃ³dulos de verdade. ESLint mantido sÃ³ como feedback rÃ¡pido no editor, comentÃ¡rio do arquivo agora deixa isso explÃ­cito.
+Motivo: o red team formal (Checkpoint 12) apontou que a regra `no-restricted-imports` do ESLint (E-004) só compara o texto literal do specifier do import, não o grafo real — não pega reexport transitivo, `import()` dinâmico, nem (descoberta ao testar de verdade) imports relativos dentro do MESMO módulo, porque a string `"../ports/foo.js"` nunca contém a substring `modules/*/ports` que os padrões glob esperam. Adicionado `dependency-cruiser` (`npm run check-boundaries`, wired no CI) como enforcement AUTORITATIVO — resolve o grafo de módulos de verdade. ESLint mantido só como feedback rápido no editor, comentário do arquivo agora deixa isso explícito.
 
-Ao testar a nova ferramenta contra o cÃ³digo real (nÃ£o sÃ³ contra um caso sintÃ©tico), ela encontrou **2 violaÃ§Ãµes genuÃ­nas jÃ¡ existentes**: `src/modules/expiration/domain/expiration-item.ts` e `audit-event.ts` importavam `EntityKey`/`TransactPutEntry` de `../ports/expiration-store.ts` (domainâ†’ports, boundary real) em vez do `shared/dynamodb/occ.ts` jÃ¡ usado corretamente pelo mÃ³dulo `reminder` para o mesmo tipo â€” `expiration-store.ts` tinha uma cÃ³pia prÃ³pria e estruturalmente duplicada de `EntityKey`/`TransactPutEntry`/`TransactUpdateEntry`/`TransactWriteEntry`/`isTransactionCanceled`. TambÃ©m descoberto no processo: `reminder/ports/reminder-store.ts` reexportava esses mesmos tipos de `expiration/ports/expiration-store.ts` â€” uma dependÃªncia acidental portsâ†’ports entre mÃ³dulos irmÃ£os. Corrigido na origem: os tipos/funÃ§Ã£o agora vivem sÃ³ em `shared/dynamodb/occ.ts`; `expiration-store.ts` e `reminder-store.ts` importam de lÃ¡ diretamente; `dependency-cruiser` confirma zero violaÃ§Ãµes apÃ³s a correÃ§Ã£o (rodado contra o cÃ³digo real, nÃ£o um exemplo isolado).
+Ao testar a nova ferramenta contra o código real (não só contra um caso sintético), ela encontrou **2 violações genuínas já existentes**: `src/modules/expiration/domain/expiration-item.ts` e `audit-event.ts` importavam `EntityKey`/`TransactPutEntry` de `../ports/expiration-store.ts` (domain→ports, boundary real) em vez do `shared/dynamodb/occ.ts` já usado corretamente pelo módulo `reminder` para o mesmo tipo — `expiration-store.ts` tinha uma cópia própria e estruturalmente duplicada de `EntityKey`/`TransactPutEntry`/`TransactUpdateEntry`/`TransactWriteEntry`/`isTransactionCanceled`. Também descoberto no processo: `reminder/ports/reminder-store.ts` reexportava esses mesmos tipos de `expiration/ports/expiration-store.ts` — uma dependência acidental ports→ports entre módulos irmãos. Corrigido na origem: os tipos/função agora vivem só em `shared/dynamodb/occ.ts`; `expiration-store.ts` e `reminder-store.ts` importam de lá diretamente; `dependency-cruiser` confirma zero violações após a correção (rodado contra o código real, não um exemplo isolado).
 
 develop
 ?? docs/engineering/reviews/full-audit-round1-qualidade-claude.md
