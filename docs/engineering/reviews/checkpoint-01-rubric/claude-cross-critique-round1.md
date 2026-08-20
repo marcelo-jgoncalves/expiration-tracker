@@ -1,3 +1,9 @@
+---
+status: historical
+owner: claude
+authority: evidence-round (not normative — produced 01-engineering-quality-criteria.md, CONGELADA)
+---
+
 # Checkpoint 1 — Cross-Critique (Claude resposta à crítica do Codex)
 
 Referência: `_codex-output-checkpoint1-final.txt` (íntegra preservada). Este documento é a Passo D (Cross Critique) do protocolo — Claude responde às objeções do Codex.

@@ -1,3 +1,9 @@
+---
+status: superseded
+owner: claude
+authority: evidence-round (not normative — converged into docs/engineering/joint-review-criteria.md)
+---
+
 # Critérios de revisão conjunta Claude↔Codex, por eixo — Proposta Claude (Rodada 1)
 
 Adaptado da estrutura do projeto irmão `event-discovery-platform` (mesmas fontes normativas: ISO/IEC 25010, AWS Well-Architected, ATAM, DORA/Core-4) — pesos e ênfases recalibrados para a realidade do `expiration-tracker`: serverless single-tenant-per-request AWS, single-table DynamoDB, pipeline assíncrono (SQS/EventBridge/Streams) como núcleo do risco atual (G8), Cognito multi-tenant.

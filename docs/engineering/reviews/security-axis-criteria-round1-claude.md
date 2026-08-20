@@ -1,3 +1,9 @@
+---
+status: superseded
+owner: claude
+authority: evidence-round (not normative — converged into docs/engineering/joint-review-criteria.md)
+---
+
 # Eixo 4 — Segurança da Informação e AppSec — Proposta Claude (Rodada 1)
 
 Fontes: OWASP ASVS 5.0 (17 capítulos, ~350 requisitos — estrutura de verificação de app), OWASP Top 10:2025 (categorias concretas de vulnerabilidade, A01 Broken Access Control no topo, A03 Software Supply Chain Failures e A10 Mishandling of Exceptional Conditions novas), OWASP SAMM (5 funções de negócio: Governance/Design/Implementation/Verification/Operations — maturidade de processo, não só código), práticas de least-privilege AWS Lambda/DynamoDB (papel por função, sem wildcard, permission boundaries).

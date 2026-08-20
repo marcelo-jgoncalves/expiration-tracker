@@ -1,3 +1,9 @@
+---
+status: superseded
+owner: claude
+authority: evidence-round (not normative — converged into docs/engineering/joint-review-criteria.md)
+---
+
 # Eixos 5-9 — Proposta Claude (Rodada 1)
 
 Fontes: DAMA-DMBOK (governança de dados), LGPD/ANPD (RIPD, bases legais, direitos do titular), Google SRE Book (SLO/error budget), ISO 22301/whitepaper AWS DR (RTO/RPO), ISO/IEC 42001 + NIST AI RMF (Govern/Map/Measure/Manage), SOC 2 Trust Services Criteria (gestão de terceiros), AWS Well-Architected SaaS Lens (onboarding/offboarding de tenant, crypto-shredding).
