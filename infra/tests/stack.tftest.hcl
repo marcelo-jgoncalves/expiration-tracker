@@ -17,26 +17,27 @@ provider "aws" {
 }
 
 variables {
-  aws_account_id = "123456789012"
-  aws_region     = "us-east-1"
-  environment    = "dev"
+  aws_account_id   = "123456789012"
+  aws_region       = "us-east-1"
+  environment      = "dev"
+  ses_from_address = "noreply@example.com"
 }
 
-run "eight_lambda_functions_exist_no_placeholder" {
+run "twelve_lambda_functions_exist_no_placeholder" {
   command = plan
 
-  # M3.5: no Lambda function is left as an inline 501 placeholder - every function has a
+  # M3.5+M4: no Lambda function is left as an inline 501 placeholder - every function has a
   # real asset bundle (Terraform structurally cannot have inline code here - the
   # lambda-function module always zips an on-disk directory via data.archive_file - but we
   # still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 8
-    error_message = "Expected exactly 8 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper"
+    condition     = length(output.lambda_function_names) == 12
+    error_message = "Expected exactly 12 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 8
-    error_message = "All 8 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 12
+    error_message = "All 12 Lambda function names must be distinct"
   }
 }
 
@@ -91,6 +92,25 @@ run "gsi3_access_granted_only_to_reminder_producer" {
     condition     = !anytrue([for p in module.outbox_sweeper.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "OutboxSweeperReminderDispatch must NOT reference GSI3"
   }
+
+  # M4: none of the 4 notification functions ever needs GSI3 (that's exclusively
+  # ReminderProducer's, unrelated to notification routing/delivery/callback).
+  assert {
+    condition     = !strcontains(module.notification_router.capability_policy_documents[0], "/index/GSI3")
+    error_message = "NotificationRouter's table-access policy must NOT reference GSI3"
+  }
+  assert {
+    condition     = !strcontains(module.notification_email_outbox_relay.capability_policy_documents[0], "/index/GSI3")
+    error_message = "NotificationEmailOutboxRelay's table-access policy must NOT reference GSI3"
+  }
+  assert {
+    condition     = !anytrue([for p in module.email_delivery.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "EmailDelivery must NOT reference GSI3"
+  }
+  assert {
+    condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "SesCallback must NOT reference GSI3"
+  }
 }
 
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
@@ -136,6 +156,24 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !strcontains(module.dispatch_outbox_relay.capability_policy_documents[1], "/index/GSI6")
     error_message = "DispatchOutboxRelay's queue-send policy must NOT reference GSI6"
   }
+
+  # M4: none of the 4 notification functions is one of the two GSI6-privileged roles.
+  assert {
+    condition     = !strcontains(module.notification_router.capability_policy_documents[0], "/index/GSI6")
+    error_message = "NotificationRouter's table-access policy must NOT reference GSI6"
+  }
+  assert {
+    condition     = !strcontains(module.notification_email_outbox_relay.capability_policy_documents[0], "/index/GSI6")
+    error_message = "NotificationEmailOutboxRelay's table-access policy must NOT reference GSI6"
+  }
+  assert {
+    condition     = !anytrue([for p in module.email_delivery.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "EmailDelivery must NOT reference GSI6"
+  }
+  assert {
+    condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "SesCallback must NOT reference GSI6"
+  }
 }
 
 run "dlq_max_receive_count_5_and_age_alarm_exists" {
@@ -152,16 +190,22 @@ run "dlq_max_receive_count_5_and_age_alarm_exists" {
   }
 }
 
-run "exactly_seven_cloudwatch_alarms_total" {
+run "seven_reminder_alarms_plus_one_dlq_age_alarm_per_m4_queue" {
   command = plan
 
-  # 1 DLQ age alarm (reminder-queue module) + 5 per-function error alarms + 1 dispatch-queue
-  # backlog-age alarm (reminder-observability module) = 7, matching test/infra/stack.test.ts's
-  # `template.resourceCountIs("AWS::CloudWatch::Alarm", 7)`. cost-budget's aws_budgets_budget
-  # is not a CloudWatch alarm and correctly does not count here.
+  # 1 DLQ age alarm (dispatch_queue, sqs-worker-queue module) + 5 per-function error alarms
+  # + 1 dispatch-queue backlog-age alarm (reminder-observability module) = 7, matching
+  # test/infra/stack.test.ts's `template.resourceCountIs("AWS::CloudWatch::Alarm", 7)` from
+  # the original CDK stack (M3.5-era baseline, unchanged by M4). M4 adds 3 more DLQ age
+  # alarms (one per new sqs-worker-queue instance: router/email-deliver/ses-callback) via
+  # the SAME generic module - asserted separately below, not folded into a renamed "total"
+  # count, since M4 deliberately does NOT add per-function error alarms or a backlog-age
+  # alarm for the new functions yet (docs/architecture observability milestone, planned as
+  # the next work item after M4, is where that gets decided holistically rather than
+  # duplicating reminder-observability's non-generic per-function-name module shape here).
   assert {
     condition     = length(module.observability.function_error_alarm_names) == 5
-    error_message = "Expected exactly 5 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper)"
+    error_message = "Expected exactly 5 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper) - unchanged by M4"
   }
 
   assert {
@@ -171,7 +215,20 @@ run "exactly_seven_cloudwatch_alarms_total" {
 
   assert {
     condition     = module.dispatch_queue.dlq_age_alarm_name != ""
-    error_message = "DLQ age alarm must exist"
+    error_message = "ReminderDispatchQueue DLQ age alarm must exist"
+  }
+
+  assert {
+    condition     = module.router_queue.dlq_age_alarm_name != ""
+    error_message = "NotificationRouter queue DLQ age alarm must exist"
+  }
+  assert {
+    condition     = module.email_deliver_queue.dlq_age_alarm_name != ""
+    error_message = "EmailDeliver queue DLQ age alarm must exist"
+  }
+  assert {
+    condition     = module.ses_callback_queue.dlq_age_alarm_name != ""
+    error_message = "SesCallback queue DLQ age alarm must exist"
   }
 }
 
@@ -295,6 +352,24 @@ run "event_source_mappings_use_partial_batch_failure" {
   assert {
     condition     = aws_lambda_event_source_mapping.dispatch_outbox_relay_from_stream.batch_size == 25
     error_message = "DynamoDB Streams event source mapping batch size must be 25"
+  }
+
+  # M4's 4 new event source mappings - same partial-batch-failure discipline.
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.notification_router_from_stream.function_response_types, "ReportBatchItemFailures")
+    error_message = "NotificationRouter's Streams event source mapping must use ReportBatchItemFailures"
+  }
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.notification_email_outbox_relay_from_stream.function_response_types, "ReportBatchItemFailures")
+    error_message = "NotificationEmailOutboxRelay's Streams event source mapping must use ReportBatchItemFailures"
+  }
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.email_delivery_from_queue.function_response_types, "ReportBatchItemFailures")
+    error_message = "EmailDelivery's SQS event source mapping must use ReportBatchItemFailures"
+  }
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.ses_callback_from_queue.function_response_types, "ReportBatchItemFailures")
+    error_message = "SesCallback's SQS event source mapping must use ReportBatchItemFailures"
   }
 }
 

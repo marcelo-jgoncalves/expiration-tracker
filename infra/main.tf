@@ -118,7 +118,10 @@ module "reminder_reconciliation" {
 
 # DynamoDB Streams read permissions — Terraform's aws_lambda_event_source_mapping does not
 # auto-grant IAM the way CDK's addEventSource(DynamoEventSource) does; this is the explicit
-# equivalent, scoped to this table's stream ARN only.
+# equivalent, scoped to this table's stream ARN only. Shared by every Streams-triggered
+# consumer of this table (DispatchOutboxRelay, and M4's NotificationRouter/
+# NotificationEmailOutboxRelay) - the name predates M4 but the policy itself was already
+# generic (table-stream-scoped, not reminder-specific).
 data "aws_iam_policy_document" "dispatch_outbox_relay_stream_read" {
   statement {
     sid = "DynamoStreamRead"
@@ -151,16 +154,27 @@ module "dispatch_outbox_relay" {
 module "outbox_sweeper" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-outbox-sweeper-reminder-dispatch"
-  handler_name                   = "outbox-sweeper-handler"
-  source_dir                     = "${local.dist_dir}/outbox-sweeper-handler"
-  environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
+  # Name preserved as-is (not renamed to reflect its now-broader M4 scope) - this function
+  # is already deployed in the dev account since M3.5; renaming an aws_lambda_function forces
+  # a destroy+recreate in Terraform, which is an unnecessary destructive change for a pure
+  # naming cleanup. The comment above documents the real, broader scope instead.
+  function_name = "${local.name_prefix}-outbox-sweeper-reminder-dispatch"
+  handler_name  = "outbox-sweeper-handler"
+  source_dir    = "${local.dist_dir}/outbox-sweeper-handler"
+  environment_variables = merge(local.common_env, {
+    DISPATCH_QUEUE_URL      = module.dispatch_queue.queue_url
+    EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
-  # The other of EXACTLY TWO roles granted gsi6_read.
+  # The other of EXACTLY TWO roles granted gsi6_read. M4 extends this SAME privileged role
+  # to also send to the notification email queue (docs/architecture/m4-notification-engine-design.md
+  # §7.4: one sweeper covering both destinations, not a second sweeper querying the same
+  # global GSI6 partition).
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
     module.dispatch_queue.send_policy_json,
+    module.email_deliver_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -207,6 +221,198 @@ resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
   function_name           = module.dispatch_outbox_relay.function_name
   starting_position       = "LATEST"
   batch_size              = 25
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- M4: Notification Engine queues, SES/SNS, workers -------------------------------------
+# docs/architecture/m4-notification-engine-design.md (APPROVED, Claude 9.3/Codex 9.4).
+
+module "router_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-notification-router"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "email_deliver_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-notification-email-deliver"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "ses_callback_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-ses-callback"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "ses_notifications" {
+  source = "./modules/ses-notifications"
+
+  name_prefix        = local.name_prefix
+  callback_queue_arn = module.ses_callback_queue.queue_arn
+  aws_region         = var.aws_region
+  aws_account_id     = var.aws_account_id
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_sqs_queue_policy" "ses_callback_queue" {
+  queue_url = module.ses_callback_queue.queue_url
+  policy    = module.ses_notifications.queue_policy_json
+}
+
+# EventBridge (M3 pattern) delivers notification.intent-created.v1 to the router queue -
+# the outbox already publishes it there (OutboxPublisher's generic EventBridge path, no new
+# destination discriminator needed for THIS hop, only for router->email which uses the
+# SQS_NOTIFICATION_EMAIL_V1 outbox destination per the design).
+resource "aws_cloudwatch_event_rule" "notification_intent_created" {
+  name           = "${local.name_prefix}-notification-intent-created"
+  event_bus_name = "default"
+  event_pattern = jsonencode({
+    "detail-type" = ["notification.intent-created.v1"]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "notification_intent_created_to_router_queue" {
+  rule      = aws_cloudwatch_event_rule.notification_intent_created.name
+  target_id = "router-queue"
+  arn       = module.router_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "eventbridge_to_router_queue" {
+  statement {
+    sid       = "AllowEventBridgeRuleToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.router_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.notification_intent_created.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "router_queue" {
+  queue_url = module.router_queue.queue_url
+  policy    = data.aws_iam_policy_document.eventbridge_to_router_queue.json
+}
+
+# ses:SendEmail scoped to nothing table/queue-related - a distinct capability EmailDelivery
+# alone gets (docs/architecture/reviews/m4-notification-engine-design/codex-proposal-round1.md
+# §12.4: "EmailDeliveryWorker: ... e ses:SendEmail; sem GSI6").
+data "aws_iam_policy_document" "ses_send_email" {
+  statement {
+    sid       = "SesSendEmail"
+    actions   = ["ses:SendEmail"]
+    resources = ["*"] # SESv2 SendEmail doesn't support resource-level restriction by FromEmailAddress; scoped narrowly to this single action instead.
+  }
+}
+
+module "notification_router" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-notification-router"
+  handler_name          = "notification-router-handler"
+  source_dir            = "${local.dist_dir}/notification-router-handler"
+  environment_variables = local.common_env
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "notification_router_from_stream" {
+  event_source_arn        = module.table.stream_arn
+  function_name           = module.notification_router.function_name
+  starting_position       = "LATEST"
+  batch_size              = 25
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+module "notification_email_outbox_relay" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-notification-email-outbox-relay"
+  handler_name          = "notification-email-outbox-relay-handler"
+  source_dir            = "${local.dist_dir}/notification-email-outbox-relay-handler"
+  environment_variables = merge(local.common_env, { EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.email_deliver_queue.send_policy_json,
+    data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "notification_email_outbox_relay_from_stream" {
+  event_source_arn        = module.table.stream_arn
+  function_name           = module.notification_email_outbox_relay.function_name
+  starting_position       = "LATEST"
+  batch_size              = 25
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+module "email_delivery" {
+  source = "./modules/lambda-function"
+
+  function_name = "${local.name_prefix}-email-delivery"
+  handler_name  = "email-delivery-handler"
+  source_dir    = "${local.dist_dir}/email-delivery-handler"
+  environment_variables = merge(local.common_env, {
+    SES_FROM_ADDRESS      = var.ses_from_address
+    SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.email_deliver_queue.consume_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "email_delivery_from_queue" {
+  event_source_arn        = module.email_deliver_queue.queue_arn
+  function_name           = module.email_delivery.function_name
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+module "ses_callback" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-ses-callback"
+  handler_name          = "ses-callback-handler"
+  source_dir            = "${local.dist_dir}/ses-callback-handler"
+  environment_variables = merge(local.common_env, { SES_ACCOUNT_ALIAS = "default" })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.ses_callback_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "ses_callback_from_queue" {
+  event_source_arn        = module.ses_callback_queue.queue_arn
+  function_name           = module.ses_callback.function_name
+  batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }
 

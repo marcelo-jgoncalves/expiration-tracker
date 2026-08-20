@@ -28,5 +28,9 @@ output "lambda_function_names" {
     module.reminder_reconciliation.function_name,
     module.dispatch_outbox_relay.function_name,
     module.outbox_sweeper.function_name,
+    module.notification_router.function_name,
+    module.notification_email_outbox_relay.function_name,
+    module.email_delivery.function_name,
+    module.ses_callback.function_name,
   ]
 }

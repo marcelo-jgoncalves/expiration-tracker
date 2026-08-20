@@ -67,6 +67,20 @@ variable "budget_notification_emails" {
   default     = []
 }
 
+variable "ses_from_address" {
+  description = <<-EOT
+    Verified SES sender address for M4's EmailDeliveryWorker (SES sandbox/test account,
+    implementation-blueprint.md §19 M4 scope). No default - SES identity verification is a
+    manual, out-of-band, one-time step against whichever address/domain the sandbox test
+    account uses (tracked separately, not a Terraform-managed resource here), and this
+    variable must fail fast rather than silently deploy against an unverified/placeholder
+    address. Set via -var or TF_VAR_ses_from_address once the sandbox spike
+    (docs/architecture/m4-notification-engine-design.md, item aberto #2 do fechamento de
+    rodada 3) verifies an identity.
+  EOT
+  type        = string
+}
+
 variable "cognito_callback_urls" {
   description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module."
   type        = list(string)
