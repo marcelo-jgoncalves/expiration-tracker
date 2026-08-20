@@ -1,0 +1,12 @@
+# Copy to backend.hcl (gitignored) and fill in values for local dev.
+# CI passes these via -backend-config flags directly (see ../.github/workflows/{ci,cd}.yml).
+#
+# Usage:
+#   terraform init -backend-config=backend.hcl
+
+bucket       = "expiration-tracker-dev-tfstate"
+key          = "exptrk/terraform.tfstate"
+region       = "us-east-1"
+use_lockfile = true
+encrypt      = true
+profile      = "claude-dev"

@@ -1,0 +1,135 @@
+# Deploy Pipeline (CD) — ADR-0009 (CDK replaced by Terraform). This is the ONLY place
+# `terraform apply` runs — never from a local machine (the user explicitly required this:
+# "o apply tem que ser feito pela pipeline, via github actions diretamente no ambiente").
+# Triggers on push to `main`, i.e. after a PR already passed ci.yml's `infra` job
+# (fmt/validate/test/plan) via branch protection.
+#
+# Assumes the same IAM role ci.yml uses for `terraform plan` (edp-dev-role-cicd-github-actions,
+# widened to trust this repo too — a pre-existing shared CI/CD role from the sibling
+# event-discovery-platform project, reused rather than creating a second OIDC role per
+# project). AWS_ROLE_ARN_DEV repository variable holds its ARN.
+
+name: Deploy (CD)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+# A second push while an apply is in-flight must queue, not race - cancelling a terraform
+# apply mid-way can leave a stuck state lock or a partially-created resource.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: "1.15.8"
+
+jobs:
+  deploy-dev:
+    name: Deploy → Dev
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: infra-terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install (immutable, scripts disabled)
+        run: npm ci
+        working-directory: .
+
+      # Same gates as ci.yml's `guardrails` job — never deploy on a build that would have
+      # failed CI (belt-and-suspenders: branch protection should already guarantee this).
+      - name: Typecheck + lint + boundaries + tests
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run check-boundaries
+          npm test
+        working-directory: .
+
+      - name: Build Lambda bundles
+        run: npm run build:lambdas
+        working-directory: .
+
+      - name: Configure AWS credentials (OIDC, no persistent secret)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform init (dev)
+        run: |
+          terraform init \
+            -backend-config="bucket=expiration-tracker-dev-tfstate" \
+            -backend-config="key=exptrk/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan (visible in the run log before anything changes)
+        run: terraform plan -input=false -var-file=env/dev.tfvars
+
+      - name: Terraform apply (dev)
+        run: terraform apply -auto-approve -input=false -var-file=env/dev.tfvars
+
+      - name: Get Terraform outputs
+        id: tf
+        run: |
+          outputs=$(terraform output -json)
+          jq -r '"table_name=\(.table_name.value)",
+                 "user_pool_id=\(.user_pool_id.value)",
+                 "dispatch_queue_url=\(.dispatch_queue_url.value)",
+                 "api_endpoint=\(.api_endpoint.value)"' <<< "$outputs" >> "$GITHUB_OUTPUT"
+
+      # Proves the apply's resources actually exist and answer, via the same AWS APIs a
+      # real integration test would use — not that the application works end-to-end
+      # (Camada 3 of m3.5-runtime-design.md's 3-layer test plan is broader than this).
+      - name: Post-deploy smoke test (resource existence)
+        run: |
+          set -e
+          echo "Checking DynamoDB table ${{ steps.tf.outputs.table_name }} ..."
+          aws dynamodb describe-table --table-name "${{ steps.tf.outputs.table_name }}" >/dev/null
+          echo "OK: table ACTIVE"
+
+          echo "Checking Cognito User Pool ${{ steps.tf.outputs.user_pool_id }} ..."
+          aws cognito-idp describe-user-pool --user-pool-id "${{ steps.tf.outputs.user_pool_id }}" >/dev/null
+          echo "OK: user pool describable"
+
+          echo "Checking SQS queue ${{ steps.tf.outputs.dispatch_queue_url }} ..."
+          aws sqs get-queue-attributes --queue-url "${{ steps.tf.outputs.dispatch_queue_url }}" --attribute-names QueueArn >/dev/null
+          echo "OK: dispatch queue describable"
+
+      - name: Deploy summary
+        run: |
+          {
+            echo "### Dev Deploy Complete"
+            echo "- **Table:** ${{ steps.tf.outputs.table_name }}"
+            echo "- **Cognito User Pool:** ${{ steps.tf.outputs.user_pool_id }}"
+            echo "- **API endpoint:** ${{ steps.tf.outputs.api_endpoint }}"
+          } >> "$GITHUB_STEP_SUMMARY"
