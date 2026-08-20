@@ -45,6 +45,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
 | `diagrams/status-projeto.html` | resumo/índice (visual) | Painel visual do status do projeto |
 | `session-log.md` | histórico | Log cronológico compacto por sessão |
+| `reviews/` | histórico/evidência de rodada (protocolo `AGENTS.md` §4, pós-M0) | Artefatos de revisão Claude↔Codex de implementação real, por milestone (ex. `reviews/m3.5-runtime-design/`) — mesmo papel de `history/` (evidência, nunca normativo), mas para rodadas ocorridas depois que código passou a existir, em vez das rodadas de design conceitual pré-implementação |
 | `history/` | histórico/supersedido | Artefatos de rodada (propostas, críticas, red team) que produziram os documentos normativos acima — ver subseção |
 
 ## `history/` — evidência de rodada, por tema

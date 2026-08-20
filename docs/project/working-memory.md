@@ -15,8 +15,8 @@ Quatro classes de entrada, cada uma marcada explicitamente:
 
 ## Entradas atuais
 
-- **[ferramenta]** Invocação do Codex CLI: `codex exec --skip-git-repo-check "<prompt>"`, sempre em background. Ver `AGENTS.md` §3 para a regra de crases (já promovida por ser crítica e recorrente).
-- **[regra obrigatória]** Perguntar ao Codex ANTES de revelar a posição/nota do Claude em qualquer avaliação independente — regra anti-anchoring. Já promovida a `AGENTS.md` §3 por ser central ao processo; mantida aqui como referência cruzada.
+- **[ferramenta]** Invocação do Codex CLI: `codex exec --skip-git-repo-check "<prompt>"`, sempre em background. Ver `AGENTS.md` §4 para a regra de crases (já promovida por ser crítica e recorrente).
+- **[regra obrigatória]** Perguntar ao Codex ANTES de revelar a posição/nota do Claude em qualquer avaliação independente — regra anti-anchoring. Já promovida a `AGENTS.md` §4 por ser central ao processo; mantida aqui como referência cruzada.
 - **[local/Windows]** Não usar `Rename-Item`/`Move-Item` direto em pastas com `.git` ativo se houver risco de o Windows Defender escanear logo após commit/push — pode corromper o `.git`. Método seguro: garantir tudo commitado/pushado, deletar a pasta local, clonar de novo do GitHub com o nome novo.
 - **[aprendizado]** Ao usar Codex para avaliação independente com régua de critérios combinada previamente, ele pode "derivar" para nomes de critério diferentes dos acordados na resposta seguinte — sempre conferir se os nomes/ordem batem com o que foi combinado antes de aceitar a nota; se não bater, pedir para refazer explicitamente com os nomes exatos.
 - **[ferramenta]** Marcelo pediu explicitamente para não encadear comandos Bash com `&&` (ex.: `cd "..." && codex ...`) — rodar `cd`/mudança de diretório como chamada separada da ferramenta Bash e só then o comando seguinte (o working directory já persiste entre chamadas da ferramenta Bash nesta sessão, então normalmente nem precisa repetir `cd`).
