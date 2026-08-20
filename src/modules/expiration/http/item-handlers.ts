@@ -109,13 +109,29 @@ function requireItemId(req: HttpRequest): string {
   return itemId;
 }
 
+const DASHBOARD_STATUSES = new Set(["ACTIVE", "ARCHIVED", "RENEWED", "DELETED"]);
+
 function requireExpectedVersion(req: HttpRequest): number {
   const raw = req.headers?.["if-match"] ?? req.queryStringParameters?.["expectedVersion"];
   const version = Number(raw);
-  if (!raw || Number.isNaN(version)) {
+  // full-audit round1/Seguranca criterio 5 residual (Codex round2): Number() accepted
+  // negative, fractional and Infinity values as a "valid" version - version is always a
+  // positive integer (OCC counter, occ.ts), so only that shape is fail-closed here.
+  if (!raw || Number.isNaN(version) || !Number.isInteger(version) || version < 1) {
     throw new ValidationError("Missing or invalid expected version (If-Match header).");
   }
   return version;
+}
+
+/** full-audit round1/Seguranca criterio 5 residual (Codex round2): the dashboard's
+ * `status` query param was cast to the union type without validating it belongs to the
+ * enum - a client could pass an arbitrary string that flows into gsi1Keys()'s GSI1PK. */
+function requireDashboardStatus(req: HttpRequest): "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED" {
+  const raw = req.queryStringParameters?.["status"] ?? "ACTIVE";
+  if (!DASHBOARD_STATUSES.has(raw)) {
+    throw new ValidationError("Invalid status query parameter.", { allowed: [...DASHBOARD_STATUSES] });
+  }
+  return raw as "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
 }
 
 export async function handleCreateItem(deps: ExpirationHttpDeps, req: HttpRequest<CreateItemInput>): Promise<HttpResponse> {
@@ -190,7 +206,7 @@ export async function handleRenewItem(deps: ExpirationHttpDeps, req: HttpRequest
 
 export async function handleDashboard(deps: ExpirationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const status = (req.queryStringParameters?.["status"] ?? "ACTIVE") as "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
+    const status = requireDashboardStatus(req);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
     await consumeApiRequestQuota(deps.quota, context);
     const items = await deps.expiration.listDashboard(context, { status });

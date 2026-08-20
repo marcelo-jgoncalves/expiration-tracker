@@ -89,7 +89,11 @@ function requirePolicyId(req: HttpRequest): string {
 function requireExpectedVersion(req: HttpRequest): number {
   const raw = req.headers?.["if-match"];
   const version = Number(raw);
-  if (!raw || Number.isNaN(version)) throw new ValidationError("Missing or invalid expected version (If-Match header).");
+  // full-audit round1/Seguranca criterio 5 residual (Codex round2): same fix as
+  // item-handlers.ts - version is always a positive integer (OCC counter).
+  if (!raw || Number.isNaN(version) || !Number.isInteger(version) || version < 1) {
+    throw new ValidationError("Missing or invalid expected version (If-Match header).");
+  }
   return version;
 }
 
