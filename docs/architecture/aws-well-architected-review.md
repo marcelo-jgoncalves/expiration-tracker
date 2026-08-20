@@ -36,7 +36,7 @@ Monólito modular em Lambda (não microsserviços prematuros); EventBridge+SQS c
 ## Resumo de riscos por severidade
 | Severidade | Risco | Responsável | Prazo |
 |---|---|---|---|
-| **Alta** | Threat model formal ausente | Arquiteto-Chefe + Segundo Engenheiro | Antes do lançamento público |
+| ~~Alta~~ **FECHADO** | ~~Threat model formal ausente~~ — produzido e `APPROVED` numa sessão posterior (`threat-model.md`) | Arquiteto-Chefe + Segundo Engenheiro | Concluído |
 | **Alta** | Custo de WhatsApp domina o modelo financeiro | Produto/negócio | Antes de habilitar WhatsApp |
 | **Média** | Runbooks não exercitados | Operações | Antes do primeiro deploy em produção |
 | **Média (aceita)** | Falha de região não coberta | — | Condicional a gatilho de `evolution.md` |
