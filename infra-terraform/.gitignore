@@ -5,3 +5,5 @@
 crash.log
 crash.*.log
 .terraform.tfstate.lock.info
+.build/
+*.zip
