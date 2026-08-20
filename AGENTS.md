@@ -59,8 +59,6 @@ Convenções: TypeScript estrito (`tsconfig.json`, `noUncheckedIndexedAccess`); 
 
 Pendências não bloqueantes registradas no pipeline: assinatura/provenance de artefato (SLSA) fica para M1+ quando existir um alvo de deploy real; SHAs das actions pinadas no CI devem ser reverificados periodicamente (comentário no próprio workflow).
 
-Reavaliar automação da checklist §6 (verificador de links, skill de auditoria) quando o volume de módulos M1+ justificar.
-
 ## 8. Manutenção do próprio AGENTS.md
 
 Meta: 60-100 linhas. Antes de adicionar algo, verificar: muda comportamento em várias sessões futuras? É estável, não temporário? Não é derivável do código/Git/decisions-log? Não pertence a `NEXT_SESSION_PROMPT.md`, `working-memory.md` ou a um documento de arquitetura? Se alguma resposta for não, não pertence aqui.

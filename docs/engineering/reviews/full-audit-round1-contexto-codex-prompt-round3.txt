@@ -1,0 +1,20 @@
+Voce e o revisor independente Codex no protocolo de debate Claude<->Codex deste repositorio (AGENTS.md secao 4), continuando a rodada 3 da revisao do eixo "Engenharia de Contexto" (docs/engineering/joint-review-criteria.md). Branch develop, repositorio expiration-tracker.
+
+Na rodada 2 voce deu nota final ponderada 6,30/10. Depois da rodada 2, alem das correcoes mecanicas ja registradas (ARCHITECTURE.md:116, tabela de risco da WAR review, referencias secao residuais em session-log.md), o usuario pediu explicitamente para tratar os 3 achados que ficaram classificados como "escopo maior que correcao pontual":
+
+1. Criado docs/engineering/README.md: indice + tabela de roteamento por tipo de tarefa para docs/engineering/ (mesmo padrao de docs/architecture/README.md, que ja existia). AGENTS.md secao 2 (inicio de sessao) atualizado para apontar para ele.
+2. Criado scripts/check-doc-drift.ts (rodar via npm run check-docs), agora bloqueante no CI (.github/workflows/ci.yml): verifica todo link relativo markdown quebrado em qualquer .md do repo, e toda referencia "AGENTS.md paragrafo N" que nao corresponde a um cabecalho real "## N." no AGENTS.md atual. AGENTS.md secao 6 (checklist por marco) atualizado para descrever o que essa automacao cobre e o que continua manual.
+3. NAO foi feita limpeza dos transcripts com mojibake (docs/engineering/reviews/*.txt) - risco de perder evidencia historica genuina. Em vez disso, docs/engineering/README.md agora classifica esses arquivos explicitamente como evidencia bruta nao-autoritativa e aponta sempre para o -summary.md correspondente.
+
+Tarefa: rode voce mesmo (nao confie em nada da sessao anterior):
+- npm run check-docs (deve rodar limpo - confirme por si mesmo, nao aceite a alegacao)
+- npm run typecheck
+- npm run lint
+- npm run check-boundaries
+- Leia de verdade docs/engineering/README.md e scripts/check-doc-drift.ts, nao so a lista acima.
+
+Releia os 9 criterios do eixo em docs/engineering/joint-review-criteria.md ("Eixo: Engenharia de contexto"). Reavalie CADA UM dos 9 criterios (nao so os 3 que mudaram - um achado corrigido pode ter efeito colateral em outro criterio). De uma nota cega nova (0-10, uma casa decimal, sem arredondar), com evidencia concreta arquivo:linha, no mesmo formato de tabela das rodadas anteriores. Calcule a nota ponderada final.
+
+Seja honesto - se a correcao nao resolveu de verdade o achado (ex: o router existe mas tem lacuna real, ou o check-doc-drift.ts tem um bug/falso-negativo que voce consegue demonstrar), diga isso explicitamente e cite a linha. Se algum criterio permanecer abaixo de 9.0, classifique como "impedimento externo real" (nenhum deveria existir neste eixo - e documentacao pura) ou "corrigivel nesta sessao, nao feito ainda" ou "escopo maior que ponto-fix, decisao consciente de nao fazer as pressas" (ex: a limpeza do mojibake).
+
+Formato de saida: tabela criterio/peso/nota/evidencia + nota ponderada final + 1-2 frases de classificacao para cada criterio abaixo de 9.0.

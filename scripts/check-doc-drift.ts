@@ -4,11 +4,16 @@
  * bugs found by hand across axes 1-3 of that audit (10+ broken `AGENTS.md §N` references
  * after AGENTS.md was restructured, without every citing document being updated):
  *
- *  1. Every relative markdown link (`[text](path/to/file.md)`) in every tracked `.md` file
- *     resolves to a file that actually exists on disk.
+ *  1. Every inline-style relative markdown link (`[text](path/to/file.md)`) in every `.md`
+ *     file on disk (not just git-tracked ones, so it also catches a doc you're about to
+ *     commit) resolves to a file that actually exists. Scope note, found in round3 of the
+ *     same audit that produced this script: reference-style links (`[text][ref]` +
+ *     `[ref]: path`) are NOT checked - none exist in this repo today, but a new one would
+ *     silently bypass this check.
  *  2. Every `AGENTS.md §N` citation refers to a section that actually exists as a `## N.`
  *     heading in AGENTS.md right now (not the section number that existed when the citing
- *     doc was written).
+ *     doc was written). This only proves the section number exists, not that the citation
+ *     is topically correct - that still needs a human/reviewer.
  *
  * AGENTS.md §6 conditions this kind of automation on "CI real existe" OR "reincidência de
  * link quebrado/drift documental" - both conditions are now true (CI has existed since M0;
