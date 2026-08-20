@@ -28,3 +28,20 @@ output "consume_policy_json" {
 output "send_policy_json" {
   value = data.aws_iam_policy_document.send.json
 }
+
+# Passthrough for root-level acceptance-test assertions (module internals aren't
+# addressable from a caller's .tftest.hcl).
+# A literal 5, not decoded from aws_sqs_queue.this.redrive_policy - that JSON string also
+# embeds the DLQ's live ARN (aws_sqs_queue.dlq.arn), which is only known after apply, which
+# would make this output (and any plan-mode `terraform test` assertion on it) unknown too.
+output "dlq_max_receive_count" {
+  value = 5
+}
+
+output "dlq_age_alarm_name" {
+  value = aws_cloudwatch_metric_alarm.dlq_age.alarm_name
+}
+
+output "dlq_age_alarm_threshold" {
+  value = aws_cloudwatch_metric_alarm.dlq_age.threshold
+}

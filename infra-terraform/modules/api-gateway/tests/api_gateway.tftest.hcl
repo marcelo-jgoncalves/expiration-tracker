@@ -17,16 +17,16 @@ run "jwt_authorizer_attached_to_every_route" {
   command = apply
 
   variables {
-    api_name                 = "expiration-tracker-test-api"
-    user_pool_id              = "us-east-1_testpool"
-    user_pool_client_id       = "test-client-id"
-    aws_region                = "us-east-1"
-    test_ping_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
-    test_ping_function_name   = "test-ping"
-    items_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
-    items_function_name       = "items"
-    reminders_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
-    reminders_function_name   = "reminders"
+    api_name                = "expiration-tracker-test-api"
+    user_pool_id            = "us-east-1_testpool"
+    user_pool_client_id     = "test-client-id"
+    aws_region              = "us-east-1"
+    test_ping_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
+    test_ping_function_name = "test-ping"
+    items_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
+    items_function_name     = "items"
+    reminders_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
+    reminders_function_name = "reminders"
   }
 
   assert {

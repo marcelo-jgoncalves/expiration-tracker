@@ -43,7 +43,7 @@ run "mfa_policy_off_disables_software_token_mfa" {
 
   variables {
     user_pool_name = "expiration-tracker-test-off"
-    mfa_policy      = "OFF"
+    mfa_policy     = "OFF"
   }
 
   assert {
@@ -62,7 +62,7 @@ run "mfa_policy_required_maps_to_on" {
 
   variables {
     user_pool_name = "expiration-tracker-test-required"
-    mfa_policy      = "REQUIRED"
+    mfa_policy     = "REQUIRED"
   }
 
   assert {

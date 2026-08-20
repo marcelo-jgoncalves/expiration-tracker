@@ -50,6 +50,18 @@ variable "memory_size" {
   default     = 256
 }
 
+variable "reserved_concurrent_executions" {
+  description = <<-EOT
+    Reserved concurrency for this function, matching ScopedLambdaFunction's
+    `reservedConcurrentExecutions` prop (infra/lib/expiration-tracker-stack.ts sets this
+    per-function: ReminderProducer=2, ReminderDispatch=10, ReminderReconciliation=1,
+    DispatchOutboxRelay=2, OutboxSweeperReminderDispatch=2). -1 (the aws_lambda_function
+    default) means unreserved/unlimited, matching CDK's own default when the prop is unset.
+  EOT
+  type        = number
+  default     = -1
+}
+
 variable "tracing_active" {
   description = "Whether X-Ray active tracing is enabled. CDK default (ScopedLambdaFunction) is Tracing.ACTIVE (true)."
   type        = bool

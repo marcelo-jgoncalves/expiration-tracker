@@ -73,6 +73,8 @@ resource "aws_lambda_function" "this" {
   timeout     = var.timeout_seconds
   memory_size = var.memory_size
 
+  reserved_concurrent_executions = var.reserved_concurrent_executions
+
   dynamic "tracing_config" {
     for_each = var.tracing_active ? [1] : []
     content {

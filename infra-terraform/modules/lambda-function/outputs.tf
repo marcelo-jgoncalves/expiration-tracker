@@ -17,3 +17,16 @@ output "role_arn" {
 output "role_name" {
   value = aws_iam_role.this.name
 }
+
+# Passthrough of the capability policy documents actually attached to this function's role
+# (one aws_iam_role_policy.capabilities per entry, unconditionally - see main.tf). Exposed
+# so callers (root-level `terraform test` acceptance suites) can assert on exactly which
+# capabilities were wired to which function without needing to address resources inside this
+# module directly (module internals aren't addressable from a caller's .tftest.hcl).
+output "capability_policy_documents" {
+  value = var.policy_documents_json
+}
+
+output "reserved_concurrent_executions" {
+  value = aws_lambda_function.this.reserved_concurrent_executions
+}

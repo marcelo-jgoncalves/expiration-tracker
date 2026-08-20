@@ -20,8 +20,8 @@ run "grants_exactly_the_capabilities_passed_in" {
 
   variables {
     function_name = "expiration-tracker-test-fn"
-    handler_name   = "dummy-handler"
-    source_dir     = "tests/fixtures/dummy-handler"
+    handler_name  = "dummy-handler"
+    source_dir    = "tests/fixtures/dummy-handler"
     policy_documents_json = [
       jsonencode({
         Version = "2012-10-17"
@@ -95,8 +95,8 @@ run "no_capabilities_means_no_capability_policies" {
 
   variables {
     function_name = "expiration-tracker-test-fn-nopolicy"
-    handler_name   = "dummy-handler"
-    source_dir     = "tests/fixtures/dummy-handler"
+    handler_name  = "dummy-handler"
+    source_dir    = "tests/fixtures/dummy-handler"
   }
 
   assert {
@@ -110,9 +110,9 @@ run "tracing_can_be_disabled" {
 
   variables {
     function_name  = "expiration-tracker-test-fn-notrace"
-    handler_name    = "dummy-handler"
-    source_dir      = "tests/fixtures/dummy-handler"
-    tracing_active  = false
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    tracing_active = false
   }
 
   assert {
