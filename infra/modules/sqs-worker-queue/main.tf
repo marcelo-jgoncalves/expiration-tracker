@@ -1,7 +1,11 @@
-# Reminder dispatch queue + DLQ — Terraform equivalent of infra/lib/reminder-queue.ts.
-# See variables.tf for the sizing rationale (maxReceiveCount=5, visibility timeout = 6x
-# consumer timeout, long polling, DLQ age alarm at 1h per implementation-blueprint.md
-# line 879).
+# Generic SQS worker queue + DLQ, reused across milestones (M3.5 reminder dispatch, M4
+# notification router/email-deliver/ses-callback) - extracted from the reminder-specific
+# module of the same shape (round1 cross-critique of M4's design: "o módulo atual
+# reminder-queue não deve ser reutilizado nominalmente porque contém nomes, SIDs e
+# descrições específicos de reminder"). See variables.tf for the sizing rationale
+# (maxReceiveCount=5, visibility timeout = 6x consumer timeout, long polling, DLQ age alarm
+# at 1h per implementation-blueprint.md line 879) - unchanged from the original module,
+# only the naming is generic now.
 
 resource "aws_sqs_queue" "dlq" {
   name                      = "${var.queue_name}-dlq"
@@ -52,7 +56,7 @@ locals {
 # IAM policy documents mirroring scoped-lambda-function.ts's queueAccessFor() capabilities.
 data "aws_iam_policy_document" "consume" {
   statement {
-    sid = "ReminderQueueConsume"
+    sid = "WorkerQueueConsume"
     actions = [
       "sqs:ReceiveMessage",
       "sqs:DeleteMessage",
@@ -64,7 +68,7 @@ data "aws_iam_policy_document" "consume" {
 
 data "aws_iam_policy_document" "send" {
   statement {
-    sid       = "ReminderQueueSend"
+    sid       = "WorkerQueueSend"
     actions   = ["sqs:SendMessage"]
     resources = [local.queue_arn]
   }

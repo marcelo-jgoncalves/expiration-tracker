@@ -1,6 +1,6 @@
 # Root wiring — ADR-0009 step 2. Terraform equivalent of infra/lib/expiration-tracker-stack.ts
 # (+ infra/bin/app.ts for naming/region). Instantiates all 7+1 modules for the dev
-# environment: dynamo-table, cognito, api-gateway, lambda-function (x8), reminder-queue,
+# environment: dynamo-table, cognito, api-gateway, lambda-function (x8), sqs-worker-queue,
 # reminder-schedule, reminder-observability, cost-budget.
 #
 # Lambda artifacts are NOT built by this configuration — `npm run build:lambdas`
@@ -186,7 +186,7 @@ module "api" {
 # --- SQS: ReminderDispatchQueue + DLQ, consumed by ReminderDispatch -----------------------
 
 module "dispatch_queue" {
-  source = "./modules/reminder-queue"
+  source = "./modules/sqs-worker-queue"
 
   queue_name               = "${local.name_prefix}-reminder-dispatch"
   consumer_timeout_seconds = 10
