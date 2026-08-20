@@ -132,7 +132,7 @@ describe("Reminder Engine end-to-end against REAL DynamoDB (Camada 2)", () => {
 
     const sentToQueue: unknown[] = [];
     const publishOutcome = await publishOne(
-      { store: relayStore, sendToDispatchQueue: async (p) => void sentToQueue.push(p), now, leaseOwner: "relay-1" },
+      { store: relayStore, senders: { SQS_REMINDER_DISPATCH_V1: async (p) => void sentToQueue.push(p) }, now, leaseOwner: "relay-1" },
       outboxItems[0] as never,
     );
     expect(publishOutcome.kind).toBe("PUBLISHED");

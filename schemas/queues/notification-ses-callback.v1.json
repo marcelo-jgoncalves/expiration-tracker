@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/notification-ses-callback.v1.json",
+  "title": "notification.ses-callback.v1",
+  "description": "SQS message consumed by SesCallbackWorker (M4, docs/architecture/m4-notification-engine-design.md). Wraps the raw SNS notification envelope carrying an SES event (DELIVERY/BOUNCE/COMPLAINT). No PII beyond what SES itself includes in the raw event body.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["messageVersion", "messageId", "commandType", "createdAt", "snsMessageId", "snsTopicArn", "data"],
+  "properties": {
+    "messageVersion": { "const": 1 },
+    "messageId": { "type": "string", "minLength": 1 },
+    "commandType": { "const": "notification.ses-callback.v1" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "snsMessageId": { "type": "string", "minLength": 1 },
+    "snsTopicArn": { "type": "string", "minLength": 1 },
+    "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["eventType"],
+      "properties": {
+        "eventType": { "enum": ["Delivery", "Bounce", "Complaint", "Reject", "Rendering Failure"] }
+      }
+    }
+  }
+}

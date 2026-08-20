@@ -1,5 +1,30 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Status M4 (2026-08-20): design APPROVED, implementação Camada 1 concluída — Camada 2/3 pendentes
+
+`docs/architecture/m4-notification-engine-design.md` está **APPROVED** (protocolo `AGENTS.md` §4, nota cega Claude 9,3/10 · Codex 9,4/10, 4 rodadas reais). **Camada 1 (lógica pura, sem AWS SDK) implementada e testada nesta sessão**, mesmo padrão que M0-M3 usaram antes de M3.5 fechar o runtime real:
+
+- `src/modules/notification/domain/` — `NotificationPreferences`, `NotificationEntitlements`, `NotificationAttempt` (+ `NotificationAttemptLookup`, o ponteiro tenant-scoped do fechamento de rodada 3), `NotificationIntent` estendido (`kind: REPLACEMENT | CORRECTIVE`, `recipientUserId`, `routedChannels`, `cancelledChannels`).
+- `src/modules/notification/ports/` — `NotificationRecipientResolver` (com a validação tenant-scoped exigida pelo delta 2), `EmailProviderAdapter`, `NotificationStore`.
+- `src/modules/notification/application/` — `notification-router.ts` (matriz fail-closed/fail-open completa), `quiet-hours.ts` (reusa `reminder/domain/recurrence.ts`, DST-aware), `corrective-intent-service.ts` (REPLACEMENT vs CORRECTIVE pelo estado do attempt, incluindo `SUBMITTING`), `email-delivery.ts` (estados `SUBMITTING`/`UNKNOWN`/etc.), `ses-callback-processor.ts` (transições monotônicas, política de supressão por complaint).
+- `src/shared/outbox/outbox.ts` e `src/workers/dispatch-outbox-relay/relay.ts` generalizados para múltiplos `destination` (`SQS_REMINDER_DISPATCH_V1` + `SQS_NOTIFICATION_EMAIL_V1`) via mapa `senders` — o sweeper agora roteia por destination num único mecanismo, não duplicado (fechamento §7.4 do design). `src/runtime/aws/composition/reminder.ts` (M3.5, real) atualizado para o novo formato.
+- `identity/application/quota.ts`: `QuotaType` ganhou `"NOTIFICATION_EMAIL"`.
+- Schema novo: `schemas/queues/notification-ses-callback.v1.json`.
+- 61 testes novos (`test/unit/notification/*`, mais o teste M3.5 e o de integração DynamoDB ajustados ao novo `senders`). Suite completa: **198/198**, typecheck/lint/check-boundaries/check-docs/validate-schemas limpos.
+
+**Ainda NÃO feito** (próxima ação real): adapters DynamoDB reais (`DynamoDbNotificationStore`), handlers Lambda (`NotificationRouter`, `NotificationEmailOutboxRelay`, `EmailDeliveryWorker`, `SesCallbackWorker`), infra Terraform (filas+DLQ, SNS, SES Configuration Set, EventBridge Scheduler para quiet hours), rota HTTP de preferências, e o **spike de validação das tags SES em sandbox real** (o design já assume que isso roda como primeiro passo da fase de runtime, não bloqueia a Camada 1 que acabou de ser implementada). Seguir a estrutura de `docs/architecture/reviews/m4-notification-engine-design/codex-proposal-round1.md` §12/§13 (mesmo padrão de M3→M3.5: lógica pura primeiro, depois um milestone de runtime real fecha os adapters/handlers/infra).
+
+## Decisão do usuário (2026-08-20): Observabilidade world-class é o passo seguinte após M4 (implementação, não só design)
+
+**O usuário decidiu que, assim que a implementação de M4 estiver concluída (não apenas o design, que já está aprovado), o próximo passo é um milestone/ADR dedicado de Observabilidade** (correlationId/tenant propagado automaticamente no logger, tracing distribuído ponta a ponta API→SQS→Lambda→DynamoDB, destino real de notificação para alarmes) — não abrir isso em paralelo a M4, só depois.
+
+Motivação (levantada nesta sessão, ver `docs/engineering/joint-review-criteria.md`): o tema "logging/tracing world class" não tem eixo próprio no full-audit — está fatiado em 3 critérios diferentes, cada um com achado real abaixo do gate:
+- **Qualidade/Debuggability** (7.7/7.5): `SecureLogger` não propaga `correlationId`/tenant automaticamente ao contexto — precisa de mecanismo de logger contextual (ex. `AsyncLocalStorage`), não ponto-fix.
+- **Segurança/Logging Seguro & Incident Response** (~5.4, bem abaixo do gate): alarmes existem mas sem destino de notificação real (SNS/PagerDuty/Slack — decisão deliberadamente adiada, `infra/lib/reminder-observability.ts:11-15`); eventos de auth negada não geram trilha de segurança dedicada.
+- **Tracing distribuído**: não existe nenhuma menção a X-Ray/OpenTelemetry no código nem nos critérios formais — maior lacuna real, nenhum span cobre o pipeline ponta a ponta.
+
+Nenhum desses 3 é corrigível como ponto-fix isolado — um milestone dedicado resolveria os três de uma vez em vez de remendar cada eixo separadamente. Avaliar no início dessa sessão futura se precisa do protocolo Claude↔Codex (§4, provavelmente sim — decisão de arquitetura transversal) antes de desenhar.
+
 ## Status mais recente (2026-08-20 — leia isto primeiro, supera tudo abaixo)
 
 **Os 9 eixos formais do full-audit round1 (`docs/engineering/joint-review-criteria.md`) estão TODOS concluídos.** Resultado real (nota cega Claude↔Codex, `AGENTS.md` §4, sem arredondar):

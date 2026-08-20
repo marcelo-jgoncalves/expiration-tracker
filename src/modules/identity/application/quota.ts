@@ -7,7 +7,7 @@
 import { QuotaExceededError } from "../../../shared/errors/app-error.js";
 import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
 
-export type QuotaType = "API_REQUEST" | "UPLOAD_BYTES" | "UPLOAD_COUNT" | "AI_CALL";
+export type QuotaType = "API_REQUEST" | "UPLOAD_BYTES" | "UPLOAD_COUNT" | "AI_CALL" | "NOTIFICATION_EMAIL";
 
 export interface TenantQuotaRecord {
   PK: string;
