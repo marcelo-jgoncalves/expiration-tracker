@@ -13,11 +13,15 @@ npm ci                  # install imutável (scripts de terceiros desabilitados 
 npm run typecheck       # TypeScript estrito
 npm run lint            # ESLint (max-warnings=0) - feedback rápido de boundary só no caso de import direto, não autoritativo (ver check-boundaries)
 npm run check-boundaries # dependency-cruiser - enforcement AUTORITATIVO de boundary de arquitetura (grafo real, não só texto do import)
-npm test                # Vitest: unit + contract + integration + infra
+npm test                # Vitest: unit + contract + integration
 npm run test:dynamodb   # Vitest contra DynamoDB Local via Testcontainers (requer Docker) - não roda em `npm test`, job de CI separado (dynamodb-integration)
 npm run validate-schemas # valida schemas/ (JSON Schema via Ajv)
+npm run check-docs      # link relativo quebrado + referência AGENTS.md §N desatualizada
 npm run build           # compila para dist/
+npm run build:lambdas   # bundla os 8 handlers via esbuild (pré-requisito de terraform plan/apply)
 ```
+
+Infra (`infra-terraform/`, Terraform — ver ADR-0009): `terraform fmt/validate/test/plan` rodam no job `infra` do CI a cada PR; `terraform apply` só roda via `.github/workflows/cd.yml`, em push para `main` — nunca localmente.
 
 Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado) devem rodar limpos localmente antes de qualquer PR — são os mesmos que o job `guardrails` do CI executa (`.github/workflows/ci.yml`).
 
@@ -27,9 +31,9 @@ Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado
 src/shared/       — primitivas cross-módulo (erros, config, observabilidade, DynamoDB/OCC, idempotência, outbox, schemas)
 src/modules/      — domain/application/ports/http por módulo de negócio (identity, expiration, reminder — mais a caminho)
 src/workers/      — lógica assíncrona pura (producer/dispatch/reconciliation), testável com relógio injetado
-infra/            — AWS CDK (TypeScript como infraestrutura)
+infra-terraform/  — Terraform (infraestrutura, ADR-0009 — substituiu o CDK em 2026-08-20)
 schemas/          — contratos JSON Schema (events/queues/api) — fonte de verdade de contrato
-test/             — unit, integration, contract, infra
+test/             — unit, integration, contract
 docs/architecture/ — design maturity (aprovado) — não é o guia de "como trabalhar no código"
 docs/engineering/  — Engineering Maturity Review (em andamento) — rubrica, evidência, gates, remediação
 ```

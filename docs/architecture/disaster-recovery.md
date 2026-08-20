@@ -19,21 +19,23 @@ Para Stage 0–2: **RPO ≤5min e RTO ≤4h para falhas recuperáveis dentro da 
 |---|---:|---:|---|
 | DynamoDB | ≤5min | ≤2h | PITR contínuo; restore para tabela nova |
 | S3 quarantine/clean | ≤5min | ≤3h | Versioning + AWS Backup contínuo/PITR |
-| CDK, Lambdas, API, Step Functions, filas, alarmes | último commit aprovado | ≤2h | Redeploy de tag imutável |
-| SQS/EventBridge/Streams | reconstruível | ≤4h | CDK + replay de outbox/reconciliação |
+| IaC (Terraform, ADR-0009), Lambdas, API, filas, alarmes | último commit aprovado em `main` | ≤2h | `terraform apply` via pipeline CD (`.github/workflows/cd.yml`) a partir da tag/commit aprovado — nunca `apply` local (regra da pipeline) |
+| SQS/EventBridge/Streams | reconstruível | ≤4h | Terraform (via pipeline) + replay de outbox/reconciliação |
 | Cognito | config: zero; credenciais: sem garantia | ≤4h | Recriar configuração; reset/reconvite se necessário |
 | Providers externos | estado local ≤5min | ≤4h degradado | Kill-switch, retenção de trabalho, rotação de credenciais |
 
 Backup Vault, KMS, políticas e role de restore são IaC — a aplicação não pode excluir recovery points. Alarmes detectam PITR/Versioning/integração EventBridge desabilitados, backup sem recovery point saudável, estado STOPPED.
 
 ## 3. DynamoDB
-PITR habilitado, retenção 35 dias. Incident Commander fixa `T0` (último instante sabidamente íntegro), interrompe writers/consumidores. Restore cria tabela nova (comportamento nativo do DynamoDB); CDK reaplica TTL/Streams/alarmes/tags/integrações (não restaurados como dados). Antes do corte: validar contagens por `entityType`, amostras com hash, GSIs ativos, TTL, isolamento por `tenantId` (`data-model.md`); verificar invariantes de outbox/inbox/idempotência/ocorrências; apontar parâmetro versionado para a nova tabela; smoke test + reabertura em canário; reconciliar registros `PENDING` e o intervalo `T0`–retomada com idempotência. Tabela anterior fica somente-leitura até o encerramento do incidente.
+PITR habilitado, retenção 35 dias (`infra-terraform/modules/dynamo-table/main.tf`, ver comentário do módulo). Incident Commander fixa `T0` (último instante sabidamente íntegro), interrompe writers/consumidores. Restore cria tabela nova (comportamento nativo do DynamoDB); a pipeline Terraform (ADR-0009, `.github/workflows/cd.yml` — nunca `apply` local) reaplica TTL/Streams/alarmes/tags/integrações (não restaurados como dados). Antes do corte: validar contagens por `entityType`, amostras com hash, GSIs ativos, TTL, isolamento por `tenantId` (`data-model.md`); verificar invariantes de outbox/inbox/idempotência/ocorrências; apontar parâmetro versionado para a nova tabela; smoke test + reabertura em canário; reconciliar registros `PENDING` e o intervalo `T0`–retomada com idempotência. Tabela anterior fica somente-leitura até o encerramento do incidente.
+
+**Nota de ferramenta (achado corrigido em `full-audit-round1-operacoes-*`, 2026-08-20)**: este documento foi escrito quando a infraestrutura era CDK (`infra/lib/*.ts`); a partir de ADR-0009 o único caminho real de `apply` é a pipeline Terraform (`.github/workflows/cd.yml`) — `infra/lib/*.ts` permanece no repo apenas como referência histórica (`AGENTS.md` §4 do prompt do auditor a trata como "CDK antigo, ainda presente"). Qualquer redeploy/reconstrução deste runbook usa Terraform via pipeline, nunca CDK local nem `terraform apply` manual.
 
 ## 4. S3
 Versioning cobre exclusão/sobrescrita pontual (já decidido, `architecture-fase3-consolidada.md` §7). Para corrupção ampla: AWS Backup contínuo/PITR, restaurar `quarantine` e `clean` em buckets novos, versionados e criptografados. **Nunca restaurar objetos de `quarantine` diretamente em `clean`** — viola o próprio propósito da quarentena de 2 buckets. Validar quantidade, bytes, checksums, leitura SSE-KMS, correspondência com `Document.objectKey/versionId/status`. Objetos sem registro DynamoDB tornam-se órfãos em quarentena (não promovidos); registros sem objeto correspondente ficam indisponíveis e geram reparo — **nunca marcados `CLEAN`** por omissão (mesma política fail-closed da decisão original de quarentena).
 
 ## 5. IaC e providers
-Reconstruir de tag aprovada via `cdk synth/diff/deploy`. Secrets nunca no Git — recriados/rotacionados no Secrets Manager. DNS/config só mudam após validação. Falha de provider aciona o kill-switch do canal correspondente (já decidido), mantém mensagens recuperáveis, encaminha para operação degradada/revisão humana. **SQS não é backup** — todo trabalho em fila deve ser reconstruível a partir do DynamoDB/outbox, nunca a fila como única fonte de verdade.
+Reconstruir de commit aprovado em `main` via `terraform plan`/`apply` **executado exclusivamente pela pipeline CD** (`.github/workflows/cd.yml`, ADR-0009) — nunca `apply` local, mesma regra que rege operação normal. Secrets nunca no Git — recriados/rotacionados no Secrets Manager. DNS/config só mudam após validação. Falha de provider aciona o kill-switch do canal correspondente (já decidido, ver `infra-terraform/modules/reminder-schedule/variables.tf` para o kill switch de schedule), mantém mensagens recuperáveis, encaminha para operação degradada/revisão humana. **SQS não é backup** — todo trabalho em fila deve ser reconstruível a partir do DynamoDB/outbox, nunca a fila como única fonte de verdade.
 
 ## 6. Teste real de restore — gate de produção
 Executar antes do primeiro usuário externo, trimestralmente, e após mudanças relevantes de schema/backup/KMS/CDK:

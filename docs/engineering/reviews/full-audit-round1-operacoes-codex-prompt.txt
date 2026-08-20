@@ -1,0 +1,13 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste repositório (AGENTS.md secao 4). Repositorio: c:\Users\Usuario\Desktop\projects\expiration-tracker (branch develop). NAO edite nada em infra-terraform/ nem em .github/workflows/{ci,cd}.yml e NAO rode terraform/aws — outra sessao esta ativamente fazendo deploy real la agora. Voce pode LER esses arquivos como evidencia.
+
+Tarefa: dar nota cega (0-10, sem arredondar) para cada um dos 8 criterios do eixo "Operacoes, SRE e Continuidade de Negocio", pesos e definicoes em docs/engineering/joint-review-criteria.md (secao "## Eixo: Operacoes, SRE e Continuidade de Negocio"). Avalie contra o ESTADO REAL do repositorio, nao contra intencao documentada.
+
+Leia antes de avaliar: docs/architecture/slo.md, docs/architecture/disaster-recovery.md, docs/architecture/capacity-model.md, infra/lib/reminder-observability.ts (READ ONLY), infra-terraform/modules/reminder-observability/main.tf (READ ONLY), infra/lib/reminder-queue.ts se existir, NEXT_SESSION_PROMPT.md (estado real de G8/Camada 3 e da migracao para Terraform), e procure por qualquer runbook/incident/post-mortem doc em docs/.
+
+Contexto do estagio do projeto: pre-producao, design maturity APPROVED em slo.md e disaster-recovery.md (ambos por rodadas independentes Claude/Codex anteriores), mas ZERO trafego de producao real e nenhum restore/deploy real confirmado como executado e validado por esta sessao ate agora (uma migracao CDK->Terraform esta em andamento por outra sessao paralela esta noite, fora do seu escopo de edicao). Espere lacunas operacionais reais e genuinas (nao invente conquistas) — mas tambem verifique se ha drift de documentacao/inconsistencia factual entre os documentos (padrao recorrente encontrado em todos os eixos anteriores deste projeto).
+
+Para cada um dos 8 criterios, produza: nota numerica, 2-4 frases de evidencia concreta com arquivo:linha, e se a nota for abaixo de 9.0, classifique o motivo como (a) impedimento externo real (falta trafego/deploy/incidente real, nao corrigivel nesta sessao), (b) escopo maior (feature real a construir, ex. alertas SNS reais, dashboard), ou (c) corrigivel nesta sessao via documentacao/processo (drift, gap nao documentado, falta de runbook/template que pode ser escrito agora).
+
+Ao final: nota ponderada total pelos pesos do documento de criterios, e uma lista curta dos achados que voce julga corrigiveis nesta sessao (classe c) com sugestao concreta do que escrever/onde.
+
+Responda em portugues, formato markdown, direto ao ponto.
