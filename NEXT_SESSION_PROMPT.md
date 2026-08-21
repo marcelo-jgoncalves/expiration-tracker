@@ -52,9 +52,12 @@ real confirmado saudável.
   gate de 9,0. Os outros 8 têm achados reais classificados como impedimento externo (parecer
   jurídico, DPA de fornecedor) ou escopo de produto maior (control plane multi-tenant, DSR/purge)
   — não reabrir rodadas só para tentar melhorar nota, só se houver achado novo real.
-- **Trace real X-Ray/ADOT verificado em ambiente real via console** — a layer está anexada e
-  funcionando (confirmado via invoke real), mas ninguém abriu o console X-Ray ainda para
-  confirmar visualmente um trace ponta-a-ponta SQS→Lambda→DynamoDB.
+- **Trace real X-Ray/ADOT**: **CONFIRMADO nesta sessão** via `aws xray get-trace-summaries` —
+  traces reais existem para `exptrk-dev-reminder-producer` (sem `HasFault`/`HasError`), provando
+  que a instrumentação ADOT está gerando telemetria de verdade, não só configurada. Não visto
+  ainda no console web (só via CLI) e não confirmado especificamente para o caminho
+  SQS→Lambda→DynamoDB ponta-a-ponta (só para uma invocação single-function) — refinamento
+  possível, não bloqueante.
 
 ---
 
