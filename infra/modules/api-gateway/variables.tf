@@ -53,6 +53,16 @@ variable "reminders_function_name" {
   type        = string
 }
 
+variable "notifications_invoke_arn" {
+  description = "Invoke ARN of the NotificationsHandler Lambda — backs GET/PUT /notifications/preferences."
+  type        = string
+}
+
+variable "notifications_function_name" {
+  description = "Function name of the NotificationsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)

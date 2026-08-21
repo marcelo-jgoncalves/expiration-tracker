@@ -42,9 +42,20 @@ real confirmado saudável.
 
 ### Pendências reais não-M5 ainda abertas (backlog do projeto, nenhuma bloqueante)
 
-- **M4**: spike de validação das tags SES em sandbox real (nunca provado contra API real), rota
-  HTTP `PUT /notifications/preferences` (hoje só via onboarding), template de e-mail real
-  versionado (hoje placeholder em `ses-email-adapter.ts`).
+- **M4**: spike de validação das tags SES em sandbox real (nunca provado contra API real),
+  template de e-mail real versionado (hoje placeholder em `ses-email-adapter.ts`).
+  - ~~Rota HTTP `PUT /notifications/preferences`~~ **FECHADA nesta sessão**: novo
+    `GET`/`PUT /notifications/preferences` (`src/modules/notification/http/preferences-handlers.ts`
+    + `NotificationPreferencesService` + `notifications-handler.ts`/infra novos). Achado real
+    descoberto ao implementar: `defaultNotificationPreferences()` nunca era chamado em lugar
+    nenhum do `src/` — "hoje só via onboarding" no backlog era aspiracional, não código real.
+    Bridge pragmático: o `GET` cria o registro padrão na hora se ele não existir (em vez de
+    depender de um onboarding que não existe), e o `PUT` reusa a mesma lógica. Ação
+    `notification:configure` já existia na matriz de autorização (`ADMIN_ROLES`/OWNER) — sem
+    mismatch real porque o MVP é `tenantId=userId`/tenant single-owner (`authorization.ts:36`),
+    então o usuário editando as próprias preferências já É o OWNER daquele tenant. 252/252
+    testes, typecheck/lint/check-boundaries/validate-schemas/check-docs limpos,
+    `terraform plan` real: 9 a adicionar, 12 a mudar (rebuild dos bundles), **0 a destruir**.
 - **Camada 3 de teste** (sandbox AWS efêmero: IAM negativo real, redrive de DLQ real, invocação
   real do EventBridge Scheduler) — pendência estrutural desde M3.5, nunca fechada por falta de
   ambiente de teste efêmero dedicado (distinto do ambiente `dev` real já em uso).

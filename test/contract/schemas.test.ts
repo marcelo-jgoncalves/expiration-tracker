@@ -311,4 +311,43 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     );
     expect(valid).toBe(false);
   });
+
+  it("accepts a valid update-notification-preferences-request (PUT /notifications/preferences)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json",
+      {
+        emailEnabled: true,
+        locale: "pt-BR",
+        quietHours: { enabled: true, startLocal: "22:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts quietHours: null (opting out of quiet hours entirely)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json", {
+      emailEnabled: true,
+      locale: "pt-BR",
+      quietHours: null,
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-notification-preferences-request missing locale", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json", {
+      emailEnabled: true,
+      quietHours: null,
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an update-notification-preferences-request with an incomplete quietHours object", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json", {
+      emailEnabled: true,
+      locale: "pt-BR",
+      quietHours: { enabled: true, startLocal: "22:00" },
+    });
+    expect(valid).toBe(false);
+  });
 });

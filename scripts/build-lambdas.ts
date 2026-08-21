@@ -34,6 +34,7 @@ const HANDLERS = [
   "test-ping-handler",
   "items-handler",
   "reminders-handler",
+  "notifications-handler",
   "reminder-producer-handler",
   "reminder-dispatch-handler",
   "reminder-reconciliation-handler",
