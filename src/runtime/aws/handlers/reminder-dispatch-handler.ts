@@ -26,14 +26,18 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
-    // m5-observability-design.md #2: DispatchCommand's own JSON body doesn't carry a
-    // correlationId field, but the relay/sweeper (dispatch-outbox-relay-handler ->
-    // composition/reminder.ts) already propagates the ORIGINAL correlationId via this SQS
-    // message's own MessageAttributes - reading it here is what actually closes the
-    // outbox -> SQS -> Lambda causality chain the milestone exists for. Fall back to the
-    // SQS messageId only for a message that never got that attribute (pre-M5 in-flight).
-    const correlationId = correlationIdFromSqsRecord(record);
-    await runWithContext({ correlationId }, async () => {
+    // m5-observability-design.md #2's general SQS rule: read correlationId from the
+    // command's own body (DispatchCommand.correlationId - real fix landed alongside this
+    // handler, see producer.ts's DispatchCommand envelope fields), not from
+    // MessageAttributes in isolation. This fallback chain only ever affects LOG CONTEXT,
+    // never whether a message is processed: a schema-invalid message (including any
+    // in-flight message from before this fix, which lacked `correlationId` entirely) is
+    // always rejected as a poison message below, regardless of which correlationId source
+    // is available. The chain just decides what correlationId that rejection's own log line
+    // carries - MessageAttributes (still set by the relay/sweeper, sourced from the exact
+    // same outbox event as the body) before falling back to the SQS messageId.
+    const fallbackCorrelationId = correlationIdFromSqsRecord(record);
+    await runWithContext({ correlationId: fallbackCorrelationId }, async () => {
       try {
         const parsed: unknown = JSON.parse(record.body);
         const { valid, errors } = defaultSchemaRegistry.validate(DISPATCH_COMMAND_SCHEMA_ID, parsed);
@@ -47,9 +51,10 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
           return;
         }
         const command = parsed as DispatchCommand;
-        // m5-observability-design.md #2: nest tenantId once known from the command, without
-        // mutating the outer per-record context (AsyncLocalStorage.run composition).
-        await runWithContext({ correlationId, tenantId: command.tenantId }, async () => {
+        // m5-observability-design.md #2: nest the command's own correlationId + tenantId
+        // once known, without mutating the outer per-record context (AsyncLocalStorage.run
+        // composition).
+        await runWithContext({ correlationId: command.correlationId ?? fallbackCorrelationId, tenantId: command.tenantId }, async () => {
           const outcome = await dispatchOccurrence(deps, command);
           logger.info("reminder-dispatch outcome", { messageId: record.messageId, outcome: outcome.kind });
         });

@@ -27,6 +27,19 @@ import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules
 import type { DomainEvent } from "../../shared/contracts/events.js";
 
 export interface DispatchCommand {
+  /**
+   * Real fix for a pre-existing bug found during M5's observability review (registered in
+   * NEXT_SESSION_PROMPT.md): `schemas/queues/reminder-dispatch.v1.json` extends
+   * `command-envelope.v1.json` via `allOf`, which already required `messageVersion`/
+   * `messageId`/`createdAt`/`correlationId` at the top level - but this command never
+   * carried them, so `reminder-dispatch-handler.ts`'s own schema validation against the
+   * real SQS body would always reject it as schema-invalid. This is a bug fix making the
+   * implementation match its own already-approved v1 contract, not a new schema version.
+   */
+  messageVersion: 1;
+  messageId: string;
+  createdAt: string;
+  correlationId: string;
   commandType: "reminder.dispatch.v1";
   tenantId: string;
   deduplicationKey: string;
@@ -109,8 +122,18 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
 
             const claimExpiresAt = new Date(Date.parse(deps.now()) + claimTtlMs).toISOString();
             const newVersion = occurrence.version + 1;
+            const now = deps.now();
+            // Same value used for both the command's own envelope correlationId (read
+            // directly from the SQS body per m5-observability-design.md #2's general SQS
+            // rule) and the outbox DomainEvent's correlationId - one business correlation
+            // per dispatch, not two independently-generated ids for the same operation.
+            const correlationId = deps.correlationId();
 
             const command: DispatchCommand = {
+              messageVersion: 1,
+              messageId: deps.newEventId(),
+              createdAt: now,
+              correlationId,
               commandType: "reminder.dispatch.v1",
               tenantId,
               deduplicationKey: `${tenantId}|${occurrenceId}|${newVersion}`,
@@ -139,8 +162,8 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
               eventId: deps.newEventId(),
               eventType: "ReminderDispatchRequested",
               source: "expiration-tracker.reminder-producer",
-              occurredAt: deps.now(),
-              correlationId: deps.correlationId(),
+              occurredAt: now,
+              correlationId,
               tenantId,
               actor: { type: "SYSTEM" },
               aggregate: { type: "ReminderOccurrence", id: occurrenceId, version: newVersion },
