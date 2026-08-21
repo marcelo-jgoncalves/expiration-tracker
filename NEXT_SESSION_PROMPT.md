@@ -1,6 +1,27 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Status M5 (2026-08-21): implementação concluída e revisada pelo protocolo Claude↔Codex (nota final 9,1/10, 3 rondas) — **leia isto primeiro, supera a seção histórica abaixo**
+## Achado do envelope de `reminder.dispatch.v1` (2026-08-21): CORRIGIDO nesta mesma sessão, pelo protocolo Claude↔Codex (nota 9,2/10) — supera a menção abaixo em "Status M5"
+
+O achado novo registrado pela revisão de M5 (ver seção abaixo, "Achado novo e real") foi corrigido
+nesta mesma sessão, tratado como Nível 5 da escala de risco (`docs/engineering/change-risk-scale.md`,
+"novo formato de evento/schema") — protocolo Claude↔Codex rodado, nota cega **9,2/10, aprovado
+de primeira** (Opção A: fazer `DispatchCommand` cumprir o schema `command-envelope.v1.json` já
+existente, em vez de relaxar o schema). `src/workers/reminder-producer/producer.ts`'s
+`DispatchCommand` ganhou `messageVersion`/`messageId`/`createdAt`/`correlationId` (reusa
+`deps.newEventId()` para `messageId` — judgment call aceito pelo Codex, não introduz
+`newMessageId` para não quebrar ~10 call-sites de teste); `now`/`correlationId` capturados uma
+única vez e reusados tanto no `command` quanto no `DomainEvent` do outbox (antes eram dois
+valores independentes para a mesma operação). `reminder-dispatch-handler.ts` agora lê
+`command.correlationId` do corpo (regra geral do design M5 para SQS), com fallback para
+`MessageAttributes`/`messageId` só para efeito de log de mensagens poison — nunca afeta se a
+mensagem é processada. Novo teste real em `test/unit/reminder/producer.test.ts` roda
+`runProducerTick()` de verdade e valida o `DispatchCommand` resultante contra o schema real via
+`defaultSchemaRegistry`, fechando o gap que deixou o bug invisível (242/242 testes,
+typecheck/lint/check-boundaries/validate-schemas/check-docs limpos).
+
+---
+
+## Status M5 (2026-08-21): implementação concluída e revisada pelo protocolo Claude↔Codex (nota final 9,1/10, 3 rondas)
 
 Design `APPROVED` (seção histórica abaixo) foi implementado de ponta a ponta nesta sessão:
 `src/shared/observability/context.ts` (`runWithContext`/`getContext` via `AsyncLocalStorage` +

@@ -16,6 +16,7 @@ import { runProducerTick } from "../../../src/workers/reminder-producer/producer
 import type { ReminderProducerStore, TransactWriteEntry, EntityKey } from "../../../src/modules/reminder/ports/reminder-store.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
 
 /** Wraps a real InMemoryReminderStore but injects one poison failure: the first
  * transactWrite whose Update targets `poisonSk` throws a plain Error (not a
@@ -124,5 +125,53 @@ describe("producer.ts - partial batch failure", () => {
     // the caller (per §9.3 point 4: only the failed entries are retried, not the batch).
     const row = await store.get<{ PK: string; SK: string; status: string }>({ PK: occurrence.PK, SK: occurrence.SK });
     expect(row?.status).toBe("SCHEDULED");
+  });
+
+  it("the real claimed DispatchCommand satisfies its own JSON schema (reminder-dispatch.v1.json) - closes a real pre-existing gap where the schema was never validated against a producer-constructed command, only against a hand-written example (found during M5's observability review)", async () => {
+    const ctx: RequestContext = {
+      requestId: "r1",
+      correlationId: "c1",
+      principal: { userId: "u1", cognitoSubject: "sub-u1", sessionId: "s1" },
+      tenant: { tenantId: TENANT, roles: ["OWNER"] },
+      auth: { issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), tokenId: "jti-1" },
+    };
+    const policies = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now });
+    const policy = await policies.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: ITEM_ID,
+      rule: {
+        name: "same day 08:00",
+        triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "08:00" }],
+        timeZone: "UTC",
+        channels: ["EMAIL"],
+      },
+    });
+
+    const materializer = new ReminderMaterializer(store, TABLE, now);
+    await materializer.materialize({
+      tenantId: TENANT,
+      itemId: ITEM_ID,
+      itemVersion: 1,
+      itemDueDate: "2026-09-10T00:00:00.000Z",
+      policy,
+      shardConfig: defaultShardConfig(),
+    });
+
+    clock.current = "2026-09-10T08:00:30.000Z";
+
+    const tick = await runProducerTick(
+      { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId: () => `evt-${Math.random()}`, correlationId: () => "cor-real" },
+      new Date("2026-09-10T08:00:00.000Z"),
+    );
+
+    expect(tick.claimed).toHaveLength(1);
+    const command = tick.claimed[0];
+    const { valid, errors } = defaultSchemaRegistry.validate(
+      "https://expiration-tracker/schemas/queues/reminder-dispatch.v1.json",
+      command,
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+    expect(command?.correlationId).toBe("cor-real");
   });
 });
