@@ -1,47 +1,62 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Deploy real de M5 concluído (2026-08-21) — pipeline CI/CD trocado de role, bug real da ADOT layer corrigido, subscription confirmada — leia isto primeiro
+## Status atual (2026-08-21) — M5 implementado, deployado, verificado em produção real e operacionalmente fechado. Leia esta seção primeiro, supera todo o histórico abaixo.
 
-Depois dos merges de M5 (abaixo), o `cd.yml` (push em `main`) falhou 3x reais antes de fechar:
+**M5 (Observabilidade)** está implementado, revisado pelo protocolo Claude↔Codex e **verificado
+funcionando na conta AWS `dev` real** — não só "código no repo". Linha do tempo resumida (detalhe
+completo no histórico abaixo, se precisar dos porquês):
 
-1. **Lock falso** (`Error acquiring the state lock`) — autolimpou, não era lock real (nenhum objeto `.tflock` presente no S3 no momento).
-2. **IAM real faltante na role `edp-dev-role-cicd-github-actions`**: faltava `lambda:GetLayerVersion` (cross-account, ADOT), `SNS:CreateTopic`, `ses:CreateConfigurationSet`, `events:TagResource` — a policy exclusiva do projeto (`exptrk-dev-policy-cicd-github-actions`) nunca teve esses statements (M4's SES/SNS nunca tinha sido de fato aplicado com sucesso antes). **Decisão do usuário**: em vez de corrigir essa policy, trocar a role usada pelo pipeline para `GITHUB-OIDC-ROLE` (variável de repo `AWS_ROLE_ARN_DEV` atualizada). Essa role tem policy `Action:*/Resource:*` (admin total da conta) — usuário optou explicitamente por manter assim depois de eu alertar o risco (não é escopado a `exptrk-*`). Ajustei via CLI só o trust policy dessa role para liberar o repo `expiration-tracker` (mantendo `ifin` que já usava).
-3. **Trust policy com formato errado do `sub` claim OIDC** — GitHub está emitindo o formato "imutável" (`repo:owner@orgId/repo@repoId:environment:dev`), não o clássico (`repo:owner/repo:*`). Corrigido adicionando a variante `repo:marcelo-jgoncalves@*/expiration-tracker@*:*` (mesmo padrão que a role antiga já tinha para o outro projeto). **Isso é um achado reaplicável**: qualquer nova role IAM para GitHub Actions OIDC neste ou em outros projetos precisa incluir AMBOS os formatos de `sub` no trust policy, não só o clássico.
+1. Implementação de `correlationId`/`tenantId` contextual via `AsyncLocalStorage`, ADOT tracing,
+   alerta SNS→e-mail — revisão Claude↔Codex 7,4→8,8→**9,1/10**.
+2. Achado colateral (`reminder.dispatch.v1` nunca cumpria seu próprio schema de envelope) —
+   corrigido no mesmo dia, revisão Claude↔Codex **9,2/10** de primeira (Nível 5 da escala de
+   risco, `DispatchCommand` passou a emitir `messageVersion`/`messageId`/`createdAt`/
+   `correlationId` reais).
+3. Deploy real via `cd.yml` exigiu 3 correções de infra que nada tinham a ver com o código do
+   milestone: role de CI/CD trocada para `GITHUB-OIDC-ROLE` (decisão do usuário — essa role tem
+   policy `Action:*/Resource:*`, admin total da conta, mantida assim deliberadamente após o
+   risco ser avisado), trust policy da role corrigido para o formato "imutável" do `sub` claim
+   OIDC do GitHub (`repo:owner@orgId/repo@repoId:*`, não só o clássico), e `dev.tfvars` com
+   `alert_email`/`adot_layer_arn` reais (verificados via CLI, não placeholders).
+4. **Bug real e severo pós-deploy**, achado via `aws lambda invoke` real: a ADOT layer quebrava
+   as 12 funções (`Cannot redefine property: handler` — esbuild exporta `handler` como getter
+   não-configurável, o `shimmer`/instrumentation do OTel não consegue envolvê-lo). Corrigido em
+   `scripts/build-lambdas.ts` (esbuild `footer` reatribui `module.exports` a um objeto plano
+   novo) + teste de regressão real (`test/unit/build-lambdas-export-shape.test.ts`). Verificado
+   corrigido via novo `aws lambda invoke` real após redeploy.
+5. **Achado de infra separado, também corrigido**: `ci.yml` e `cd.yml` disparavam ambos em
+   `push: branches: [main]`, competindo pelo mesmo lock nativo do state no S3 — quem perdia
+   falhava com "Error acquiring the state lock" (parecia lock travado, era só corrida). Corrigido:
+   `cd.yml` agora dispara via `workflow_run` (`workflows: ["CI"]`), só depois da CI real terminar
+   com sucesso — verificado funcionando sequencialmente num merge real subsequente.
+6. **Subscription SNS confirmada pelo usuário** (`tchelojg@gmail.com`, deixou de ser
+   `PendingConfirmation`). **Teste real de alarme→e-mail executado**: `exptrk-dev-reminder-producer-errors`
+   tinha um estado `ALARM` real e antigo (de 2026-08-20, antes do M5 ter destino de notificação) —
+   limpo para `OK`, depois forçado `OK→ALARM→OK` via `aws cloudwatch set-alarm-state` (método
+   prescrito pelo próprio design M5 §4 para esse teste), publicando de verdade no tópico
+   `exptrk-dev-alerts` já confirmado.
 
-Apply real então rodou com sucesso — confirmado via CLI: tópico `exptrk-dev-alerts` criado, subscription de e-mail para `tchelojg@gmail.com` criada e **já confirmada pelo usuário** (deixou de ser `PendingConfirmation`).
+**Nenhuma pendência técnica bloqueante conhecida para M5.** Todas as PRs (#8–#12) mergeadas em
+`main`, todas revisadas/testadas conforme o protocolo aplicável, suíte de testes verde, deploy
+real confirmado saudável.
 
-**Bug real e severo encontrado DEPOIS do apply, via smoke test real (`aws lambda invoke` contra `exptrk-dev-test-ping-handler`)**: a ADOT layer quebrava **as 12 funções** — `TypeError: Cannot redefine property: handler`. Causa: o esbuild (`scripts/build-lambdas.ts`) exporta `handler` como getter não-configurável (transform padrão ESM→CJS para `export async function handler`); o `shimmer`/instrumentation do OTel tenta `Object.defineProperty` para envolver o handler com tracing, e isso falha contra uma propriedade não-configurável. **Corrigido**: `footer: { js: "module.exports = { handler: module.exports.handler };" }` no `esbuild.build()` — cria um objeto plano novo, com propriedade normal (configurable/writable/enumerable), depois que o corpo do bundle já rodou. Teste de regressão real em `test/unit/build-lambdas-export-shape.test.ts` (roda esbuild de verdade com as mesmas opções, `require()` o resultado de FORA da árvore do repo — dentro da árvore, o `package.json` raiz com `"type": "module"` confunde a detecção de módulo do Node e não reflete o ZIP real da Lambda, que nunca contém esse `package.json`).
+### Pendências reais não-M5 ainda abertas (backlog do projeto, nenhuma bloqueante)
 
-**Bug do handler CORRIGIDO e verificado em produção real** (PR #11, mergeado, `cd.yml` reaplicado com sucesso): smoke test real via `aws lambda invoke` contra `exptrk-dev-test-ping-handler` confirma a instrumentação ADOT envolvendo o handler normalmente (stack trace mostra `safeExecuteInTheMiddle`/`Runtime.handler` da OTel, execução chega até a lógica de negócio real — os únicos erros retornados são de validação de claims JWT do payload sintético de teste, não de infraestrutura).
-
-**Achado novo, também corrigido nesta sessão**: `ci.yml` e `cd.yml` disparavam ambos em `push: branches: [main]`, rodando `terraform plan` **simultaneamente** contra o mesmo state lock nativo do S3 — quem perdia a corrida falhava com "Error acquiring the state lock" (confuso, parece lock travado, mas era só a corrida; um retry sempre resolvia). Corrigido: `cd.yml` agora dispara via `workflow_run` (`workflows: ["CI"]`, `types: [completed]`), só roda quando a CI real terminou com sucesso no `main` — nunca mais em paralelo com o próprio `terraform plan` da CI.
-
-**Próxima ação real**: nenhuma pendência técnica bloqueante conhecida para M5. Só falta testar um alarme real disparando e o e-mail chegando de fato (agora que a subscription SNS está confirmada) — Camada 2/3 de teste, mesma pendência estrutural de M3.5/M4, não fechada nesta sessão.
+- **M4**: spike de validação das tags SES em sandbox real (nunca provado contra API real), rota
+  HTTP `PUT /notifications/preferences` (hoje só via onboarding), template de e-mail real
+  versionado (hoje placeholder em `ses-email-adapter.ts`).
+- **Camada 3 de teste** (sandbox AWS efêmero: IAM negativo real, redrive de DLQ real, invocação
+  real do EventBridge Scheduler) — pendência estrutural desde M3.5, nunca fechada por falta de
+  ambiente de teste efêmero dedicado (distinto do ambiente `dev` real já em uso).
+- **Full-audit round1** (9 eixos, ver histórico abaixo): só o eixo Engenharia de Contexto bateu o
+  gate de 9,0. Os outros 8 têm achados reais classificados como impedimento externo (parecer
+  jurídico, DPA de fornecedor) ou escopo de produto maior (control plane multi-tenant, DSR/purge)
+  — não reabrir rodadas só para tentar melhorar nota, só se houver achado novo real.
+- **Trace real X-Ray/ADOT verificado em ambiente real via console** — a layer está anexada e
+  funcionando (confirmado via invoke real), mas ninguém abriu o console X-Ray ainda para
+  confirmar visualmente um trace ponta-a-ponta SQS→Lambda→DynamoDB.
 
 ---
-
-## Achado do envelope de `reminder.dispatch.v1` (2026-08-21): CORRIGIDO nesta mesma sessão, pelo protocolo Claude↔Codex (nota 9,2/10) — supera a menção abaixo em "Status M5"
-
-O achado novo registrado pela revisão de M5 (ver seção abaixo, "Achado novo e real") foi corrigido
-nesta mesma sessão, tratado como Nível 5 da escala de risco (`docs/engineering/change-risk-scale.md`,
-"novo formato de evento/schema") — protocolo Claude↔Codex rodado, nota cega **9,2/10, aprovado
-de primeira** (Opção A: fazer `DispatchCommand` cumprir o schema `command-envelope.v1.json` já
-existente, em vez de relaxar o schema). `src/workers/reminder-producer/producer.ts`'s
-`DispatchCommand` ganhou `messageVersion`/`messageId`/`createdAt`/`correlationId` (reusa
-`deps.newEventId()` para `messageId` — judgment call aceito pelo Codex, não introduz
-`newMessageId` para não quebrar ~10 call-sites de teste); `now`/`correlationId` capturados uma
-única vez e reusados tanto no `command` quanto no `DomainEvent` do outbox (antes eram dois
-valores independentes para a mesma operação). `reminder-dispatch-handler.ts` agora lê
-`command.correlationId` do corpo (regra geral do design M5 para SQS), com fallback para
-`MessageAttributes`/`messageId` só para efeito de log de mensagens poison — nunca afeta se a
-mensagem é processada. Novo teste real em `test/unit/reminder/producer.test.ts` roda
-`runProducerTick()` de verdade e valida o `DispatchCommand` resultante contra o schema real via
-`defaultSchemaRegistry`, fechando o gap que deixou o bug invisível (242/242 testes,
-typecheck/lint/check-boundaries/validate-schemas/check-docs limpos).
-
----
-
-## Status M5 (2026-08-21): implementação concluída e revisada pelo protocolo Claude↔Codex (nota final 9,1/10, 3 rondas)
 
 Design `APPROVED` (seção histórica abaixo) foi implementado de ponta a ponta nesta sessão:
 `src/shared/observability/context.ts` (`runWithContext`/`getContext` via `AsyncLocalStorage` +
