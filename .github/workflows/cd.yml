@@ -1,8 +1,16 @@
 # Deploy Pipeline (CD) — ADR-0009 (CDK replaced by Terraform). This is the ONLY place
 # `terraform apply` runs — never from a local machine (the user explicitly required this:
 # "o apply tem que ser feito pela pipeline, via github actions diretamente no ambiente").
-# Triggers on push to `main`, i.e. after a PR already passed ci.yml's `infra` job
-# (fmt/validate/test/plan) via branch protection.
+#
+# Triggers on `workflow_run` of `CI` completing on `main` (real incident, 2026-08-21, see
+# NEXT_SESSION_PROMPT.md): both this workflow and `CI` used to trigger independently on
+# `push: branches: [main]`, so a single merge to main fired them AT THE SAME TIME - both run
+# `terraform plan` against the SAME S3-native-locked state, and whichever acquires the lock
+# first makes the other fail immediately with "Error acquiring the state lock" (a transient,
+# confusing failure, not a real stuck lock - a retry always succeeded once the race resolved).
+# `workflow_run` makes this deploy strictly SEQUENTIAL after CI's own `infra` job
+# (fmt/validate/test/plan) already released the lock - the `if` condition below only
+# proceeds when that CI run's conclusion was `success`.
 #
 # Assumes the same IAM role ci.yml uses for `terraform plan` - AWS_ROLE_ARN_DEV repository
 # variable holds its ARN. M5 (2026-08-21): switched from edp-dev-role-cicd-github-actions
@@ -18,7 +26,9 @@
 name: Deploy (CD)
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -29,7 +39,7 @@ permissions:
 # A second push while an apply is in-flight must queue, not race - cancelling a terraform
 # apply mid-way can leave a stuck state lock or a partially-created resource.
 concurrency:
-  group: cd-${{ github.ref }}
+  group: cd-main
   cancel-in-progress: false
 
 env:
@@ -41,6 +51,9 @@ jobs:
     name: Deploy → Dev
     runs-on: ubuntu-latest
     environment: dev
+    # Only deploy after CI's own run on main actually succeeded - a workflow_dispatch (no
+    # `workflow_run` context) always proceeds; a workflow_run event requires success.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     defaults:
       run:
         working-directory: infra
@@ -49,6 +62,10 @@ jobs:
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
         with:
           persist-credentials: false
+          # workflow_run runs in the DEFAULT branch's workflow file context but the
+          # triggering commit is on `head_sha` - check that commit out explicitly, or a
+          # stale `main` checkout could deploy an outdated Terraform config.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
