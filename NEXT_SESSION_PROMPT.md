@@ -53,9 +53,25 @@ real confirmado saudável.
     depender de um onboarding que não existe), e o `PUT` reusa a mesma lógica. Ação
     `notification:configure` já existia na matriz de autorização (`ADMIN_ROLES`/OWNER) — sem
     mismatch real porque o MVP é `tenantId=userId`/tenant single-owner (`authorization.ts:36`),
-    então o usuário editando as próprias preferências já É o OWNER daquele tenant. 252/252
-    testes, typecheck/lint/check-boundaries/validate-schemas/check-docs limpos,
-    `terraform plan` real: 9 a adicionar, 12 a mudar (rebuild dos bundles), **0 a destruir**.
+    então o usuário editando as próprias preferências já É o OWNER daquele tenant.
+
+    **Bug real pós-deploy encontrado via smoke test real** (`aws lambda invoke` contra
+    `exptrk-dev-notifications-handler` real): `GET` funcionou (200), `PUT` retornou 500
+    "Unknown schema $id". Causa: `schema-validator.ts`'s `defaultSchemaRegistry` usa imports
+    estáticos explícitos de cada schema (necessário pro bundle esbuild-cjs — `import.meta.url`
+    não funciona nesse formato, então a varredura dinâmica de diretório resolveria zero
+    schemas em cold start real). O novo schema foi criado no disco mas eu esqueci de
+    adicioná-lo a essa lista estática — o próprio comentário do arquivo já avisava
+    explicitamente sobre esse passo manual. **Nunca pego por nenhum teste** porque
+    `test/contract/schemas.test.ts` valida contra `loadAllSchemasFromDisk()` (registro
+    diferente, só usado por testes/`validate-schemas`, nunca por um handler real) — só o
+    `defaultSchemaRegistry` real importa os schemas estaticamente. Corrigido (linha de import +
+    entrada no array) + novo teste de regressão real
+    (`test/unit/notification/preferences-handlers.test.ts`) que exercita o handler de verdade
+    contra o `defaultSchemaRegistry` real — confirmei que esse teste falha sem o fix (revertido
+    temporariamente, reproduziu o mesmo 500) antes de restaurar. 255/255 testes,
+    typecheck/lint/check-boundaries/validate-schemas/check-docs limpos — deploy real do fix e
+    novo `aws lambda invoke` de verificação, ver commit seguinte nesta mesma sessão.
 - **Camada 3 de teste** (sandbox AWS efêmero: IAM negativo real, redrive de DLQ real, invocação
   real do EventBridge Scheduler) — pendência estrutural desde M3.5, nunca fechada por falta de
   ambiente de teste efêmero dedicado (distinto do ambiente `dev` real já em uso).
