@@ -25,21 +25,21 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "twelve_lambda_functions_exist_no_placeholder" {
+run "thirteen_lambda_functions_exist_no_placeholder" {
   command = plan
 
-  # M3.5+M4: no Lambda function is left as an inline 501 placeholder - every function has a
-  # real asset bundle (Terraform structurally cannot have inline code here - the
-  # lambda-function module always zips an on-disk directory via data.archive_file - but we
-  # still assert the expected count and distinct names to catch a wiring mistake).
+  # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
+  # every function has a real asset bundle (Terraform structurally cannot have inline code
+  # here - the lambda-function module always zips an on-disk directory via data.archive_file
+  # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 12
-    error_message = "Expected exactly 12 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback"
+    condition     = length(output.lambda_function_names) == 13
+    error_message = "Expected exactly 13 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 12
-    error_message = "All 12 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 13
+    error_message = "All 13 Lambda function names must be distinct"
   }
 }
 
@@ -113,6 +113,10 @@ run "gsi3_access_granted_only_to_reminder_producer" {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "SesCallback must NOT reference GSI3"
   }
+  assert {
+    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "NotificationsHandler must NOT reference GSI3"
+  }
 }
 
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
@@ -175,6 +179,10 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   assert {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "SesCallback must NOT reference GSI6"
+  }
+  assert {
+    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "NotificationsHandler must NOT reference GSI6"
   }
 }
 

@@ -134,3 +134,37 @@ resource "aws_lambda_permission" "reminders" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reminders/policies*"
 }
+
+# --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------
+
+resource "aws_apigatewayv2_integration" "notifications" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.notifications_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  notifications_routes = {
+    get    = { method = "GET", path = "/notifications/preferences" }
+    update = { method = "PUT", path = "/notifications/preferences" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "notifications" {
+  for_each = local.notifications_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.notifications.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "notifications" {
+  statement_id  = "AllowApiGatewayInvokeNotifications"
+  action        = "lambda:InvokeFunction"
+  function_name = var.notifications_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications/preferences"
+}

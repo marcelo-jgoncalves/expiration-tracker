@@ -72,6 +72,18 @@ module "reminders_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+module "notifications_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-notifications-handler"
+  handler_name          = "notifications-handler"
+  source_dir            = "${local.dist_dir}/notifications-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 module "reminder_producer" {
   source = "./modules/lambda-function"
 
@@ -192,17 +204,19 @@ module "outbox_sweeper" {
 module "api" {
   source = "./modules/api-gateway"
 
-  api_name                = "${local.name_prefix}-api"
-  user_pool_id            = module.auth.user_pool_id
-  user_pool_client_id     = module.auth.user_pool_client_id
-  aws_region              = var.aws_region
-  test_ping_invoke_arn    = module.test_ping_handler.invoke_arn
-  test_ping_function_name = module.test_ping_handler.function_name
-  items_invoke_arn        = module.items_handler.invoke_arn
-  items_function_name     = module.items_handler.function_name
-  reminders_invoke_arn    = module.reminders_handler.invoke_arn
-  reminders_function_name = module.reminders_handler.function_name
-  tags                    = { Project = local.project_name, Environment = var.environment }
+  api_name                    = "${local.name_prefix}-api"
+  user_pool_id                = module.auth.user_pool_id
+  user_pool_client_id         = module.auth.user_pool_client_id
+  aws_region                  = var.aws_region
+  test_ping_invoke_arn        = module.test_ping_handler.invoke_arn
+  test_ping_function_name     = module.test_ping_handler.function_name
+  items_invoke_arn            = module.items_handler.invoke_arn
+  items_function_name         = module.items_handler.function_name
+  reminders_invoke_arn        = module.reminders_handler.invoke_arn
+  reminders_function_name     = module.reminders_handler.function_name
+  notifications_invoke_arn    = module.notifications_handler.invoke_arn
+  notifications_function_name = module.notifications_handler.function_name
+  tags                        = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Observability: SNS alert topic (m5-observability-design.md §4) -----------------------

@@ -5,8 +5,15 @@ import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { DynamoDbNotificationStore } from "../../../modules/notification/persistence/dynamodb-notification-store.js";
 import { DynamoDbNotificationRecipientResolver } from "../../../modules/notification/persistence/dynamodb-recipient-resolver.js";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
+import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { UlidIdGenerator } from "../ids.js";
+
+export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  const preferences = new NotificationPreferencesService({ store, tableName });
+  return { store, preferences };
+}
 
 export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbNotificationStore(client, tableName);

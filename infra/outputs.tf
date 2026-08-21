@@ -32,5 +32,6 @@ output "lambda_function_names" {
     module.notification_email_outbox_relay.function_name,
     module.email_delivery.function_name,
     module.ses_callback.function_name,
+    module.notifications_handler.function_name,
   ]
 }
