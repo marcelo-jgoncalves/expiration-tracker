@@ -5,6 +5,7 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { handleTestRoute } from "../../../modules/identity/http/test-route-handler.js";
 import { extractClaims, toApiGatewayResult } from "../http-adapter.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -12,10 +13,15 @@ if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
-  const claims = extractClaims(event);
-  const response = await handleTestRoute(
-    { resolver, quota },
-    { requestId: event.requestContext.requestId, correlationId: ulid(), claims },
-  );
-  return toApiGatewayResult(response);
+  // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
+  // is the ambient log correlationId; the pure business correlationId (ulid, below) that
+  // flows into DomainEvent.correlationId is unrelated and stays exactly as before.
+  return runWithContext({ correlationId: event.requestContext.requestId }, async () => {
+    const claims = extractClaims(event);
+    const response = await handleTestRoute(
+      { resolver, quota },
+      { requestId: event.requestContext.requestId, correlationId: ulid(), claims },
+    );
+    return toApiGatewayResult(response);
+  });
 }

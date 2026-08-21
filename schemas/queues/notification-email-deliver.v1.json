@@ -12,6 +12,7 @@
       "additionalProperties": false,
       "required": [
         "intentId",
+        "attemptId",
         "itemId",
         "expectedItemVersion",
         "channelId",
@@ -23,6 +24,7 @@
       ],
       "properties": {
         "intentId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "minLength": 1 },
         "itemId": { "type": "string", "minLength": 1 },
         "expectedItemVersion": { "type": "integer", "minimum": 1 },
         "channelId": { "type": "string", "minLength": 1 },

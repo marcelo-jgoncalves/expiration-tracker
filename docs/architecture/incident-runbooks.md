@@ -4,7 +4,7 @@ Status: **draft operacional** — escrito para satisfazer OPS-006 (`requirements
 
 Escopo: os 4 runbooks exigidos por OPS-006 (falha de disparo, DLQ crescendo, provedor indisponível, IA indisponível) + matriz de severidade/escalonamento + template de post-mortem sem culpa + registro de exercícios. Não duplica o runbook de credencial comprometida, que já existe em `disaster-recovery.md` §7, nem o procedimento de restore, em `disaster-recovery.md` §6.
 
-**Lacuna reconhecida e não fechada por este documento**: nenhum alarme de `infra/lib/reminder-observability.ts` / `infra-terraform/modules/reminder-observability/main.tf` tem `alarm_actions`/SNS — os runbooks abaixo assumem detecção via console/CloudWatch manual até essa lacuna ser fechada (classificada como escopo maior no eixo Operações, não ponto-fixável hoje sem tocar `infra-terraform/`, fora do escopo de edição desta sessão).
+**Lacuna reconhecida e não fechada por este documento**: nenhum alarme de `infra/lib/reminder-observability.ts` / `infra/modules/reminder-observability/main.tf` tem `alarm_actions`/SNS — os runbooks abaixo assumem detecção via console/CloudWatch manual até essa lacuna ser fechada (classificada como escopo maior no eixo Operações, não ponto-fixável hoje sem tocar `infra/`, fora do escopo de edição desta sessão).
 
 ## 1. Matriz de severidade e escalonamento
 
@@ -41,7 +41,7 @@ Sintoma: alarme de idade da DLQ (`reminder-queue.ts`, threshold 1h/4h já fixado
 
 Sintoma: taxa de rejeição/erro do provedor sobe (sem alarme dedicado por canal hoje — gap reconhecido; hoje só visível via `NotificationAttempt.status` consultado manualmente ou logs).
 1. Confirmar se é o provedor (status page/erro consistente do SDK) ou erro de configuração/credencial própria.
-2. Acionar o kill-switch do canal correspondente (`ADR-0005-security-kill-switch.md`, wiring real em `infra-terraform/modules/reminder-schedule/variables.tf`) para não amplificar custo/retry contra um provedor fora do ar.
+2. Acionar o kill-switch do canal correspondente (`ADR-0005-security-kill-switch.md`, wiring real em `infra/modules/reminder-schedule/variables.tf`) para não amplificar custo/retry contra um provedor fora do ar.
 3. Mensagens desse canal ficam retidas de forma recuperável (nunca descartadas) — outros canais do mesmo alerta (fan-out multi-canal, `capacity-model.md`) continuam tentando normalmente.
 4. Ao confirmar recuperação do provedor: desligar o kill-switch, drenar o backlog retido, monitorar `DispatchQueueBacklogAlarm`.
 5. Se o SLO de tentativa de entrega por canal (`slo.md` §6) for violado de forma sustentada: SEV-2; se afetar o único canal ativo de tenants sem alternativa configurada: SEV-1.

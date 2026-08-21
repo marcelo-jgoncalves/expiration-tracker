@@ -2,7 +2,7 @@
 
 Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 20, DynamoDB single-table.
 
-**Status**: pré-produção. Design maturity aprovado; implementação real em andamento (M0-M3 concluídos). Ver `ARCHITECTURE.md` e `ENGINEERING.md` (quando existir) para o estado normativo vigente — este README é só o ponto de entrada, não a fonte de verdade.
+**Status**: pré-produção. Design maturity aprovado; implementação real M0-M3 concluída; infraestrutura provisionada via Terraform/GitHub Actions (ADR-0009); full-audit round1 dos 9 eixos formais de `docs/engineering/joint-review-criteria.md` concluído em 2026-08-20 (só o eixo Engenharia de Contexto bateu o gate de nota ≥9,0 dos dois lados; os outros 8 ficaram honestamente abaixo, cada achado remanescente classificado como impedimento externo real ou escopo maior — ver `docs/engineering/reviews/full-audit-round1-*-summary.md` e `NEXT_SESSION_PROMPT.md`). Ver `ARCHITECTURE.md` e `ENGINEERING.md` (histórico, pré-M3.5) para o estado normativo vigente — este README é só o ponto de entrada, não a fonte de verdade.
 
 ## Começando
 
@@ -21,7 +21,7 @@ npm run build           # compila para dist/
 npm run build:lambdas   # bundla os 8 handlers via esbuild (pré-requisito de terraform plan/apply)
 ```
 
-Infra (`infra-terraform/`, Terraform — ver ADR-0009): `terraform fmt/validate/test/plan` rodam no job `infra` do CI a cada PR; `terraform apply` só roda via `.github/workflows/cd.yml`, em push para `main` — nunca localmente.
+Infra (`infra/`, Terraform — ver ADR-0009): `terraform fmt/validate/test/plan` rodam no job `infra` do CI a cada PR; `terraform apply` só roda via `.github/workflows/cd.yml`, em push para `main` — nunca localmente.
 
 Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado) devem rodar limpos localmente antes de qualquer PR — são os mesmos que o job `guardrails` do CI executa (`.github/workflows/ci.yml`).
 
@@ -31,7 +31,7 @@ Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado
 src/shared/       — primitivas cross-módulo (erros, config, observabilidade, DynamoDB/OCC, idempotência, outbox, schemas)
 src/modules/      — domain/application/ports/http por módulo de negócio (identity, expiration, reminder — mais a caminho)
 src/workers/      — lógica assíncrona pura (producer/dispatch/reconciliation), testável com relógio injetado
-infra-terraform/  — Terraform (infraestrutura, ADR-0009 — substituiu o CDK em 2026-08-20)
+infra/  — Terraform (infraestrutura, ADR-0009 — substituiu o CDK em 2026-08-20)
 schemas/          — contratos JSON Schema (events/queues/api) — fonte de verdade de contrato
 test/             — unit, integration, contract
 docs/architecture/ — design maturity (aprovado) — não é o guia de "como trabalhar no código"

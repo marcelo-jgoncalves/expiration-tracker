@@ -1,14 +1,14 @@
 /** Real handler for DispatchOutboxRelay (DynamoDB Streams NEW_IMAGE), replacing the 501
  * placeholder. Partial batch failure so a poison record doesn't block the rest of the
- * shard's batch (m3.5-runtime-design.md §"Decisão central"). */
+ * shard's batch (m3.5-runtime-design.md §"Decisão central"). Per-record processing logic
+ * lives in dispatch-outbox-relay-processor.ts (no module-level side effects, unit-testable)
+ * - this file is only the thin AWS entrypoint: real env vars, real clients, real deps. */
 import type { DynamoDBBatchResponse, DynamoDBStreamEvent } from "aws-lambda";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildOutboxRelayDeps } from "../composition/reminder.js";
-import { relayStreamRecord } from "../../../workers/dispatch-outbox-relay/relay.js";
-import type { OutboxRecord } from "../../../shared/outbox/outbox.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { processStreamRecords } from "./dispatch-outbox-relay-processor.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -19,26 +19,6 @@ const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({})
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {
-  const batchItemFailures: { itemIdentifier: string }[] = [];
-
-  for (const record of event.Records) {
-    if (record.eventName !== "INSERT" && record.eventName !== "MODIFY") continue;
-    const image = record.dynamodb?.NewImage;
-    if (!image) continue;
-
-    try {
-      const item = unmarshall(image as Record<string, never>) as OutboxRecord;
-      if (item.entityType !== "OutboxEvent") continue;
-      const outcome = await relayStreamRecord({ ...deps, leaseOwner: `relay-${record.eventID}` }, item);
-      logger.info("dispatch-outbox-relay outcome", { eventId: item.eventId, outcome: outcome.kind });
-      if (outcome.kind === "FAILED") {
-        batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
-      }
-    } catch (err) {
-      logger.error("dispatch-outbox-relay failed", { eventID: record.eventID, error: err instanceof Error ? err.message : String(err) });
-      batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
-    }
-  }
-
+  const batchItemFailures = await processStreamRecords(deps, logger, event.Records);
   return { batchItemFailures };
 }

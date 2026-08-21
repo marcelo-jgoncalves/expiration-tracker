@@ -51,4 +51,27 @@ export class DynamoDbIdentityStore implements IdentityStore {
       throw mapDynamoError(err, "IdentityStore.update");
     }
   }
+
+  async updateConditional<T extends EntityKey>(
+    item: T,
+    expected: { count: number; resetAt: string },
+  ): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: item,
+          ConditionExpression: "count = :expectedCount AND resetAt = :expectedResetAt",
+          ExpressionAttributeValues: {
+            ":expectedCount": expected.count,
+            ":expectedResetAt": expected.resetAt,
+          },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) return false;
+      throw mapDynamoError(err, "IdentityStore.updateConditional");
+    }
+  }
 }

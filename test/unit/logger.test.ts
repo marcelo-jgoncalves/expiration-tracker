@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runWithContext } from "../../src/shared/observability/context.js";
 import { SecureLogger } from "../../src/shared/observability/logger.js";
 
 const CANARY_SECRET = "sk_live_canary_0123456789";
@@ -55,6 +56,33 @@ describe("SecureLogger", () => {
     expect(first.correlationId).toBe("cor_01");
     expect(second.correlationId).toBe("cor_01");
     expect(second.extra).toBe(1);
+  });
+
+  it("inherits correlationId/tenantId from the ambient AsyncLocalStorage context automatically", () => {
+    const { logger, lines } = captureLogger();
+    runWithContext({ correlationId: "cor_ambient", tenantId: "t_ambient" }, () => {
+      logger.info("step_a", {});
+    });
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.correlationId).toBe("cor_ambient");
+    expect(parsed.tenantId).toBe("t_ambient");
+  });
+
+  it("lets explicit context win over the ambient AsyncLocalStorage context", () => {
+    const { logger, lines } = captureLogger();
+    runWithContext({ correlationId: "cor_ambient", tenantId: "t_ambient" }, () => {
+      logger.info("step_a", { correlationId: "cor_explicit" });
+    });
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.correlationId).toBe("cor_explicit");
+    expect(parsed.tenantId).toBe("t_ambient");
+  });
+
+  it("does not leak ambient context into log lines written outside any runWithContext", () => {
+    const { logger, lines } = captureLogger();
+    logger.info("step_outside", {});
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.correlationId).toBeUndefined();
   });
 
   it("never lets a canary secret survive across log/exception/DLQ-shaped payloads", () => {

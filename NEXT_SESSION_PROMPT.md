@@ -1,6 +1,182 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Próxima ação obrigatória (2026-08-19, mais recente — leia isto primeiro)
+## Status M5 (2026-08-21): implementação concluída e revisada pelo protocolo Claude↔Codex (nota final 9,1/10, 3 rondas) — **leia isto primeiro, supera a seção histórica abaixo**
+
+Design `APPROVED` (seção histórica abaixo) foi implementado de ponta a ponta nesta sessão:
+`src/shared/observability/context.ts` (`runWithContext`/`getContext` via `AsyncLocalStorage` +
+`correlationIdFromSqsRecord`), `SecureLogger` integrado (contexto ambiente mesclado, explícito
+sempre vence), `buildOutboxRecord` copiando `event.correlationId` para `OutboxRecord`
+(`outboxRecordCorrelationId` com fallback `eventId`), wiring por-record nos 12 handlers Lambda
+(fontes por tipo de evento conforme o design: `MessageAttributes.correlationId` nas filas SQS
+que o próprio relay/sweeper alimenta — ver achado novo abaixo —, `SequenceNumber` nos handlers
+Streams, novo UUID nos produtores EventBridge Scheduler, `requestContext.requestId` nos 3
+handlers HTTP), propagação real via `MessageAttributes.correlationId` no `SendMessageCommand`.
+`tenantId` aninhado via `runWithContext` composto em `reminder-dispatch-handler`,
+`ses-callback-handler` e `notification-router-handler` — **não** nos 3 handlers HTTP
+(`items-handler`/`reminders-handler`/`test-ping-handler`), decisão deliberada aceita pelo Codex
+como follow-up não bloqueante (aninhar exigiria tocar 12 funções `handleXxx` em 3 módulos sem
+duplicar a chamada `resolver.resolve()`, que bate no DynamoDB — não é ponto-fix trivial).
+
+Infra Terraform: `infra/modules/lambda-function` ganhou `adot_layer_arn` (sem default) +
+`layers`/`AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-handler`; novo módulo `infra/modules/alert-topic`
+(SNS→e-mail); `alarm_actions` wired em todos os alarmes existentes
+(`reminder-observability` + os 4 `sqs-worker-queue`). `terraform test` verde em todos os módulos
+afetados + raiz (mock_provider/plan real contra `claude-dev`, nunca apply);
+`terraform plan -var-file=env/dev.tfvars` real: **0 a destruir/substituir** (só `layers`/
+`alarm_actions`, atributos mutáveis).
+
+Revisão de implementação via protocolo Claude↔Codex (`AGENTS.md` §4, mesmo padrão de M3.5):
+7,4 → 8,8 → **9,1/10 final**, 3 rondas reais. Achados reais corrigidos: causalidade
+outbox→SQS→reminder-dispatch quebrada (handler ignorava o `MessageAttributes.correlationId`
+que o relay já propagava — corrigido, extraído para `correlationIdFromSqsRecord()` testável);
+4 handlers batch com `try/catch` fora do `runWithContext` (logs de falha perdiam o contexto —
+corrigido, `try/catch` agora fica dentro); fallback de Streams usando a fonte errada
+(`eventId` do sweeper em vez de `SequenceNumber` — corrigido); teste de partial batch failure
+exigido pelo design §5 estava ausente (3 records, 2º falha — adicionado, exigiu extrair
+`dispatch-outbox-relay-processor.ts`/`notification-email-outbox-relay-processor.ts` sem efeitos
+colaterais de topo para ficarem unit-testáveis).
+
+**Achado novo e real, descoberto durante a revisão, registrado como pendência separada — não é
+escopo de M5, mas é bloqueante para prontidão operacional real do Reminder Dispatch**:
+`schemas/queues/reminder-dispatch.v1.json` exige (via `allOf` de `command-envelope.v1.json`)
+os campos de envelope `messageVersion`/`messageId`/`createdAt`/`correlationId` no corpo da
+mensagem SQS — mas o `DispatchCommand` real construído em
+`src/workers/reminder-producer/producer.ts` (e serializado como o body real via
+`buildOutboxRecord`'s `payload: event.data` → relay's `JSON.stringify(payload)`) nunca teve
+esses campos, só `commandType`/`tenantId`/`deduplicationKey`/`data`. Isso significa que
+`reminder-dispatch-handler.ts`'s validação de schema contra o corpo real **falharia sempre**
+em produção real (mensagem tratada como poison/schema-invalid) — bug pré-existente a M5, nunca
+exercitado por nenhum teste (`test/integration/reminder-engine.test.ts` chama `dispatchOccurrence()`
+diretamente, nunca passa pelo handler/JSON.parse/validate; `test/contract/schemas.test.ts` só
+valida um exemplo de envelope escrito à mão, nunca o objeto real). **Divergência temporária e
+consciente do design M5 registrada aqui**: para este contrato legado específico, a fonte real do
+`correlationId` no `reminder-dispatch-handler` é `MessageAttributes.correlationId` (que o
+relay/sweeper já propaga corretamente), não `record.body` como o design prescreve em geral para
+SQS — isso não é evidência de que o envelope atual está correto, é uma exceção temporária até o
+bug ser corrigido.
+
+**Próxima ação real (nova, alta severidade para prontidão operacional, antes do próximo deploy
+que exercite Reminder Dispatch de verdade)**: decidir formalmente o formato de wire completo de
+`reminder.dispatch.v1` (adicionar `messageVersion`/`messageId`/`createdAt` reais ao
+`DispatchCommand`, ou revisar o schema/envelope) — muda um contrato SQS já em uso desde M3,
+provavelmente Type 1 (`AGENTS.md` §4, avaliar se precisa do protocolo Claude↔Codex) — e então
+adicionar um teste de contrato real producer→outbox→relay→body JSON→validação do consumer, que
+hoje não existe em lugar nenhum (o gap que deixou esse bug invisível).
+
+**Ainda não feito (pendências explícitas do design, registradas como critério de aceite, não
+"resolvido" por este `terraform plan`)**: confirmação manual da subscription SNS→e-mail (passo
+humano — `infra/env/dev.tfvars`'s `alert_email`/`adot_layer_arn` são placeholders/valores a
+verificar antes de um `apply` real via pipeline: e-mail real do operador, e o ARN/versão real da
+ADOT layer publicada pela AWS no momento do primeiro `cd.yml` que tocar isso); teste real de
+alarme→e-mail; trace real X-Ray/ADOT verificado em ambiente real (mesma pendência estrutural de
+Camada 3 de M3.5/M4).
+
+---
+
+## Status M5 (2026-08-20, histórico — superado pela seção acima): design APPROVED (Claude 9,1 / Codex 9,3, 4 rondas reais) — implementação ainda não começou
+
+`docs/architecture/m5-observability-design.md` está **APPROVED** (protocolo `AGENTS.md` §4).
+Escopo: correlationId/tenantId contextual via `AsyncLocalStorage` (granularidade por-record em
+handlers batch, propagado ponta a ponta via `DomainEvent.correlationId` — já obrigatório, sem
+mudança de schema — copiado explicitamente para `OutboxRecord`, nunca lido de contexto ambiente
+no momento do envio); tracing distribuído via **ADOT Lambda layer exportando para X-Ray**
+(não `aws-xray-sdk-core`, SDK legado em manutenção — achado real da revisão do Codex, corrigido
+na ronda 1→2); alerta real de alarme via **SNS→e-mail** com confirmação manual da subscription
+registrada como critério de aceite explícito (não fechado só pelo `terraform apply`). ADR
+formal: `docs/architecture/adr/ADR-0010-observability-correlation-tracing-alerting.md`.
+Histórico completo das 4 rondas (nota 6,8→8,6→8,9→9,3): `docs/architecture/reviews/
+m5-observability-design/codex-round{1,2,3,4}.txt`.
+
+**Limite explícito registrado no design, não pendência a "resolver"**: APIs são HTTP API
+(D-011), sem segment X-Ray nativo do API Gateway — a borda HTTP de entrada é correlacionada por
+log (`correlationId`), não por span de tracing; migrar para REST API só por isso foi
+explicitamente rejeitado como desproporcional a este estágio.
+
+**Nada foi implementado ainda** — design apenas, nenhum commit de código/infra desta sessão além
+dos documentos de design/ADR/decisions-log. Próxima ação real: implementar seguindo o mesmo
+padrão de M3→M3.5→M4 (lógica pura → adapters/infra → testes) — a ordem sugerida pelo próprio
+design é: (1) `runWithContext`/`getContext` em `src/shared/observability/` + testes de
+isolamento ALS; (2) `buildOutboxRecord` copiando `correlationId` + testes de causalidade
+outbox→relay→SQS + partial batch failure; (3) wiring por-record nos 12 handlers Lambda; (4)
+ADOT layer + `infra/modules/lambda-function` (`adot_layer_arn`, sem default, pinado por
+região+arquitetura); (5) `infra/modules/alert-topic` (SNS→e-mail) + `alarm_actions` nos alarmes
+existentes; (6) confirmação manual da subscription + teste real de alarme→e-mail (passo que
+depende do usuário, mesmo padrão do spike SES pendente de M4).
+
+## Status M4 (2026-08-20, histórico — superado pela seção acima quanto à próxima ação): design APPROVED + implementação completa (Camada 1 + adapters + workflows + handlers Lambda + infra Terraform) — só falta o spike de sandbox e a rota HTTP de preferências
+
+`docs/architecture/m4-notification-engine-design.md` está **APPROVED** (protocolo `AGENTS.md` §4, nota cega Claude 9,3/10 · Codex 9,4/10, 4 rodadas reais). Nesta sessão, M4 foi implementado de ponta a ponta seguindo o mesmo padrão de M3→M3.5 (lógica pura → adapters → composition-root workflows → handlers Lambda finos → infra Terraform), tudo commitado e pushado em `develop`, CI verde (workflow 32413826928, `conclusion: success`).
+
+**Código de aplicação** (`src/modules/notification/`):
+- `domain/` — `NotificationPreferences`, `NotificationEntitlements`, `NotificationAttempt` (+ `NotificationAttemptLookup`, ponteiro tenant-scoped, + `leaseExpiresAt`), `NotificationIntent` estendido (`kind: REPLACEMENT | CORRECTIVE`, `recipientUserId`, `routedChannels`, `cancelledChannels`).
+- `ports/` — `NotificationRecipientResolver`, `EmailProviderAdapter`, `NotificationStore` (com `queryAttemptsByIntent`).
+- `application/` — lógica pura (`notification-router.ts`, `quiet-hours.ts`, `corrective-intent-service.ts`, `email-delivery.ts`, `ses-callback-processor.ts`) + os 3 workflows composition-root reais: `notification-router-workflow.ts` (`routeNotificationIntent`), `email-delivery-workflow.ts` (`processEmailDelivery`), `ses-callback-workflow.ts` (`processSesCallback`) — cada um carrega entidades com leitura consistente e produz UMA `TransactWriteItems`.
+- `persistence/` — `DynamoDbNotificationStore`, `DynamoDbNotificationRecipientResolver` (validação tenant-scoped em duas camadas).
+- `providers/ses-email-adapter.ts` — `SesEmailAdapter` real via `@aws-sdk/client-sesv2` (nova dependência instalada), classifica falhas em CONCLUSIVE_RETRYABLE/CONCLUSIVE_TERMINAL/AMBIGUOUS.
+
+**2 bugs reais pegos pelos testes antes de qualquer deploy**: intent REPLACEMENT/CORRECTIVE usava a versão obsoleta do item/policy em vez da atual; schema `notification-email-deliver.v1` (existente desde M3) não carregava `attemptId`, necessário para o worker saber qual `NotificationAttempt` atualizar — ambos corrigidos.
+
+**Handlers Lambda** (`src/runtime/aws/handlers/`): `notification-router-handler.ts`, `notification-email-outbox-relay-handler.ts`, `email-delivery-handler.ts`, `ses-callback-handler.ts` (inclui parser do envelope real SNS/SES) — todos finos, mesmo padrão de `dispatch-outbox-relay-handler.ts`. `outbox-sweeper-handler.ts` generalizado para cobrir os dois destinations (reminder + notification-email) na mesma role privilegiada. `scripts/build-lambdas.ts` atualizado e verificado (12 handlers empacotam com esbuild sem erro).
+
+**Infra Terraform** (`infra/`): módulo `reminder-queue` renomeado para `sqs-worker-queue` (genérico, SIDs sem nome de reminder — achado real da crítica cruzada de M4) e reusado para as 3 novas filas (`router`, `email-deliver`, `ses-callback`); novo módulo `ses-notifications` (SES Configuration Set → SNS → policy restrita ao topic ARN exato, nunca wildcard); 4 novos módulos `lambda-function` com IAM mínimo (nenhum dos 4 tem acesso a GSI3/GSI6); event source mappings com `ReportBatchItemFailures`. Nova variável `ses_from_address` (sem default — falha rápido até a verificação real de identidade SES). `terraform test` do módulo novo (4/4) e da stack raiz (10/10, isolamento de GSI3/GSI6 e alarmes de DLQ estendidos para os 4 novos componentes) verificados com `AWS_PROFILE=claude-dev`; `terraform plan` real: 48 a adicionar, 11 a atualizar in-place, **0 a destruir/substituir**. CI (`ci.yml`, plan-only) verde.
+
+223/223 testes de aplicação, typecheck/lint/check-boundaries/check-docs/validate-schemas limpos em cada commit.
+
+**Ainda NÃO feito** (próxima ação real, nenhuma bloqueante para considerar M4 "codado"):
+1. **Spike de validação das tags SES em sandbox real** — `ses-callback-workflow.ts` já assume que as tags (`et_attempt_id`/`et_intent_id`/`et_tenant_id`) sobrevivem nos eventos SES reais de `DELIVERY`/`BOUNCE`/`COMPLAINT`; isso nunca foi provado contra a API real. Requer uma identidade SES verificada (manual, fora do Terraform) antes de rodar.
+2. **Rota HTTP de preferências** (`PUT /notifications/preferences`) — o runtime depende de `NotificationPreferences` existir (via onboarding), mas não há endpoint para o usuário editar depois. Não bloqueia o exit criterion se um usuário de teste for criado via fixture/migração.
+3. Template real de e-mail (hoje é um placeholder em `ses-email-adapter.ts`/`composition/notification.ts`) — versionado, localizado, per `templateId`+`templateVersion`.
+4. Camada 3 (sandbox AWS efêmero) — mesma pendência estrutural de M3.5, nunca fechada por falta de ambiente de teste efêmero disponível nesta sessão.
+
+Depois disso, M4 está pronto para ser considerado "implementado" no sentido pleno do design aprovado.
+
+**Reforço explícito do usuário (2026-08-20) sobre a infra desta fase de runtime**: toda implantação na AWS é via **Terraform modularizado** (novos módulos ou reuso disciplinado dos existentes em `infra/modules/`, seguindo boas práticas — nunca um bloco monolítico de recursos soltos) e **só via pipeline** (`ci.yml` plan-only em PR, `cd.yml` apply em push a `main`, OIDC) — nunca `terraform apply` local. Já era a política vigente (ADR-0009, `AGENTS.md` §7), mas o usuário pediu para reafirmar antes da fase de infra de M4 (filas, SNS, SES, EventBridge Scheduler) começar.
+
+## Decisão do usuário (2026-08-20): Observabilidade world-class é o passo seguinte após M4 (implementação, não só design)
+
+**O usuário decidiu que, assim que a implementação de M4 estiver concluída (não apenas o design, que já está aprovado), o próximo passo é um milestone/ADR dedicado de Observabilidade** (correlationId/tenant propagado automaticamente no logger, tracing distribuído ponta a ponta API→SQS→Lambda→DynamoDB, destino real de notificação para alarmes) — não abrir isso em paralelo a M4, só depois.
+
+Motivação (levantada nesta sessão, ver `docs/engineering/joint-review-criteria.md`): o tema "logging/tracing world class" não tem eixo próprio no full-audit — está fatiado em 3 critérios diferentes, cada um com achado real abaixo do gate:
+- **Qualidade/Debuggability** (7.7/7.5): `SecureLogger` não propaga `correlationId`/tenant automaticamente ao contexto — precisa de mecanismo de logger contextual (ex. `AsyncLocalStorage`), não ponto-fix.
+- **Segurança/Logging Seguro & Incident Response** (~5.4, bem abaixo do gate): alarmes existem mas sem destino de notificação real (SNS/PagerDuty/Slack — decisão deliberadamente adiada, `infra/lib/reminder-observability.ts:11-15`); eventos de auth negada não geram trilha de segurança dedicada.
+- **Tracing distribuído**: não existe nenhuma menção a X-Ray/OpenTelemetry no código nem nos critérios formais — maior lacuna real, nenhum span cobre o pipeline ponta a ponta.
+
+Nenhum desses 3 é corrigível como ponto-fix isolado — um milestone dedicado resolveria os três de uma vez em vez de remendar cada eixo separadamente. Avaliar no início dessa sessão futura se precisa do protocolo Claude↔Codex (§4, provavelmente sim — decisão de arquitetura transversal) antes de desenhar.
+
+## Status mais recente (2026-08-20 — leia isto primeiro, supera tudo abaixo)
+
+**Os 9 eixos formais do full-audit round1 (`docs/engineering/joint-review-criteria.md`) estão TODOS concluídos.** Resultado real (nota cega Claude↔Codex, `AGENTS.md` §4, sem arredondar):
+
+| Eixo | Nota final (mais baixa dos dois lados) | Gate ≥9.0? | Classificação do que falta |
+|---|---:|---|---|
+| Engenharia de Contexto | Claude 9,08 / Codex 9,09 | **Sim** (5 rodadas reais) | — fechado |
+| Arquitetura | ver `full-audit-round1-arquitetura-summary.md` | Não | acompanhar summary — achado real de cold-start corrigido |
+| Qualidade de Engenharia | ver `full-audit-round1-qualidade-summary.md` | Não | acompanhar summary |
+| Segurança da Informação e AppSec | ver `full-audit-round1-seguranca-summary.md` | Não | acompanhar summary |
+| Privacidade e Governança de Dados | ver `full-audit-round1-privacidade-summary.md` | Não | endpoints DSR/purge são escopo M4+ |
+| Operações/SRE e Continuidade | ver `full-audit-round1-operacoes-summary.md` | Não | acompanhar summary |
+| Governança de IA e Controles Internos | ver `full-audit-round1-governanca-ia-summary.md` | Não | acompanhar summary |
+| Governança Jurídica, Contratual e de Terceiros | Codex 5,015/10 | Não | 2/8 critérios são impedimento externo genuíno (parecer jurídico, DPA de fornecedor não contratado); os demais são escopo de produto/processo maior. 2 fixes reais aplicados nesta sessão (LICENSE + `docs/engineering/third-party-inventory.md`). |
+| Governança de Produto e Serviço Multi-tenant | Codex 4,65/10 | Não | 1 achado de concorrência real corrigido (`TenantQuotaService` tinha lost-update sob consumo concorrente — ver `full-audit-round1-produto-summary.md`); o resto é feature de produto ainda não construída (control plane de tenant, DSR/purge, ferramenta de suporte, métricas), consistente com o estágio pré-produção. |
+
+Só o eixo Contexto bateu o gate formal de 9.0 dos dois lados. Os outros 8 ficaram honestamente abaixo, cada achado remanescente classificado como impedimento externo real ou escopo maior — **não é falha do protocolo, é o resultado esperado de auditar um projeto pré-produção sem usuários reais, sem parecer jurídico contratado e sem frontend**: a maior parte das lacunas exige trabalho que não é ponto-fix de uma sessão de engenharia (feature de produto, contrato real, decisão de negócio). Não reabrir rodadas adicionais desses 8 eixos só para tentar empurrar a nota — só reabrir se houver achado NOVO e real, ou se o projeto avançar de estágio (ex. primeiro usuário real destrava reavaliar Privacidade/Jurídico/Produto).
+
+**Trabalho real aplicado nesta sessão além de nota/documentação** (não apenas avaliação):
+- `LICENSE` + `package.json` (`license: UNLICENSED`) — antes inexistentes.
+- `docs/engineering/third-party-inventory.md` — inventário versionado de fornecedores, novo.
+- **Bug de concorrência real corrigido**: `TenantQuotaService.consume()` (`src/modules/identity/application/quota.ts`) fazia read-modify-write sobre um `PutCommand` incondicional, permitindo lost-update sob consumo concorrente da mesma quota. Corrigido com `IdentityStore.updateConditional()` (CAS via `ConditionExpression`) + loop de retry limitado (20 tentativas). Teste de regressão novo prova a propriedade (25 chamadas concorrentes, `limit=10` → exatamente 10 passam). Suite: 137/137 (era 136/136), typecheck/lint/check-boundaries limpos.
+
+**Migração CDK→Terraform (ADR-0009) e primeiro deploy AWS real já concluídos numa sessão anterior a esta** (ver `docs/architecture/adr/ADR-0009-cdk-to-terraform-migration.md`, `infra/`, `.github/workflows/{ci,cd}.yml`) — CDK removido, 95 recursos reais provisionados na conta `975707451904`/`us-east-1` via pipeline (nunca `apply` local). As seções "Mudança de rumo em G8/deploy" e "Próxima ação obrigatória (histórico)" abaixo descrevem esse trabalho como pendente — **estão desatualizadas nesse ponto específico**, preservadas como histórico de como a decisão foi tomada, não como próximo passo.
+
+### Possíveis próximas ações reais (nenhuma delas obrigatória — julgamento do usuário)
+
+1. Retomar M4 (Notification Engine) — é o próximo marco estrutural de produto (`implementation-blueprint.md` §19), e resolveria diretamente vários achados abaixo do gate nos eixos Produto/Privacidade (endpoints DSR, control plane de tenant, ferramenta de suporte dependem de mais superfície HTTP/produto existir).
+2. Fechar os 2 fixes documentais restantes do eixo Jurídico que ainda são corrigíveis sem parecer jurídico (ex. matriz de responsabilidades regulatória, calendário de revisão) — impacto pequeno na nota, mas genuinamente ponto-fix.
+3. Se o usuário quiser badge/relatório consolidado do full-audit (nota por eixo, achados corrigidos, achados pendentes) num único documento novo — ainda não existe um `docs/engineering/reviews/full-audit-round1-CONSOLIDATED.md`, só os 9 summaries individuais.
+
+---
+
+## Próxima ação obrigatória (2026-08-19, superada pela seção acima quanto ao full-audit — preservada como histórico da decisão original)
 
 **A próxima sessão deve COMEÇAR (antes de qualquer outra coisa, inclusive antes de retomar G8/Camada 3 abaixo) rodando o processo formal de nota do protocolo Claude↔Codex (`AGENTS.md` §4) contra os 9 eixos já formalizados em `docs/engineering/joint-review-criteria.md`** (Arquitetura, Qualidade de Engenharia, Engenharia de Contexto, Segurança/AppSec, Privacidade e Governança de Dados, Operações/SRE e Continuidade de Negócio, Governança de IA e Controles Internos, Governança Jurídica/Contratual/Terceiros, Governança de Produto e Serviço Multi-tenant — **não** o eixo FinOps, que segue deliberadamente sem critérios).
 

@@ -6,7 +6,7 @@
  * via `data "archive_file"`. This script is that explicit, separate build step: run it
  * before any Terraform command that touches the lambda-function module.
  *
- * Bundles each of the 8 handlers in src/runtime/aws/handlers/*.ts to
+ * Bundles each handler in src/runtime/aws/handlers/*.ts to
  * dist/lambda/<handler-name>/index.js, replicating bundleEntry's exact esbuild options
  * (bundle:true, platform:"node", target:"node20", format:"cjs", sourcemap:"external",
  * minify:false - AWS SDK v3 bundled IN, stack traces stay auditable, per
@@ -26,8 +26,8 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const HANDLERS_DIR = path.join(REPO_ROOT, "src/runtime/aws/handlers");
 const OUT_ROOT = path.join(REPO_ROOT, "dist/lambda");
 
-// Every handler currently in src/runtime/aws/handlers/, matching the 8 ScopedLambdaFunction
-// entries wired in infra/lib/expiration-tracker-stack.ts. Listed explicitly (not globbed)
+// Every handler currently in src/runtime/aws/handlers/, matching the Lambda function
+// entries wired in the Terraform infra/ module (ADR-0009). Listed explicitly (not globbed)
 // so a new handler file is a deliberate one-line addition here, not silently picked up or
 // silently missing from the Terraform build.
 const HANDLERS = [
@@ -39,6 +39,10 @@ const HANDLERS = [
   "reminder-reconciliation-handler",
   "dispatch-outbox-relay-handler",
   "outbox-sweeper-handler",
+  "notification-router-handler",
+  "notification-email-outbox-relay-handler",
+  "email-delivery-handler",
+  "ses-callback-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

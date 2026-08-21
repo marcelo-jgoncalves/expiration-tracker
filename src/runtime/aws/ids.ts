@@ -29,6 +29,9 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   newIntentId(): string {
     return `intent_${ulid()}`;
   }
+  newAttemptId(): string {
+    return `attempt_${ulid()}`;
+  }
   newUserId(): string {
     return `user_${ulid()}`;
   }

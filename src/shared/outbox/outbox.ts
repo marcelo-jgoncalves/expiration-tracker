@@ -18,7 +18,7 @@ export type OutboxStatus = "PENDING" | "PUBLISHED";
  * M2/M3 caller today) - `OutboxPublisher` must explicitly skip any record whose
  * `destination` it doesn't recognize as its own default, never process-by-omission.
  */
-export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1";
+export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1" | "SQS_NOTIFICATION_EMAIL_V1";
 
 export interface OutboxRecord {
   PK: string;
@@ -38,6 +38,14 @@ export interface OutboxRecord {
   GSI6PK: string;
   GSI6SK: string;
   destination?: OutboxDestination;
+  /**
+   * m5-observability-design.md #2: copied from `DomainEvent.correlationId` (already mandatory
+   * on every event) at write time - never read from the ambient AsyncLocalStorage context here,
+   * so this stays a pure, environment-agnostic builder. Optional only because records persisted
+   * before M5 don't have it (historical data, never written without it again) - readers
+   * (relay/sweeper) must fall back to `eventId` when absent, per the design's fallback table.
+   */
+  correlationId?: string;
 }
 
 /** Monthly shard for the outbox partition, matching #5.3's `TENANT#t#OUTBOX#202608` example. */
@@ -64,8 +72,19 @@ export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestin
     createdAt: event.occurredAt,
     GSI6PK: "RECON#OUTBOX#PENDING",
     GSI6SK: `${event.occurredAt}#${event.eventId}`,
+    correlationId: event.correlationId,
     ...(destination ? { destination } : {}),
   };
+}
+
+/**
+ * m5-observability-design.md #2: correlation id a relay/sweeper should use for the record
+ * being processed - read from the persisted `OutboxRecord`, never from the caller's own
+ * ambient context. Falls back to `eventId` only for records persisted before M5 (missing
+ * `correlationId`); this is historical-data compatibility, not a new write path.
+ */
+export function outboxRecordCorrelationId(record: OutboxRecord): string {
+  return record.correlationId ?? record.eventId;
 }
 
 /** @deprecated kept as an alias of the shared `TransactPutEntry` (src/shared/dynamodb/occ.ts)
