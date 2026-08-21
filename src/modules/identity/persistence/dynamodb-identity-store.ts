@@ -61,7 +61,17 @@ export class DynamoDbIdentityStore implements IdentityStore {
         new PutCommand({
           TableName: this.tableName,
           Item: item,
-          ConditionExpression: "count = :expectedCount AND resetAt = :expectedResetAt",
+          // Real production bug found via a live smoke test against
+          // exptrk-dev-notifications-handler (2026-08-21): `count` is a DynamoDB reserved
+          // word (https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html)
+          // - using it as a bare attribute name in a ConditionExpression, instead of through
+          // an ExpressionAttributeNames placeholder, makes every real DynamoDB call fail with
+          // ValidationException. Never caught by any test because the in-memory
+          // IdentityStore fake (test/unit/identity/in-memory-store.ts) doesn't parse
+          // condition expressions the way real DynamoDB does - this path was never actually
+          // exercised against real DynamoDB before this session's real deploy.
+          ConditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
+          ExpressionAttributeNames: { "#count": "count" },
           ExpressionAttributeValues: {
             ":expectedCount": expected.count,
             ":expectedResetAt": expected.resetAt,

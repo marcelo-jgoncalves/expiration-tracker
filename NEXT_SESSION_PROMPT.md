@@ -71,6 +71,25 @@ real confirmado saudável.
     contra o `defaultSchemaRegistry` real — confirmei que esse teste falha sem o fix (revertido
     temporariamente, reproduziu o mesmo 500) antes de restaurar. 255/255 testes,
     typecheck/lint/check-boundaries/validate-schemas/check-docs limpos — deploy real do fix e
+
+    **Segundo bug real, mais severo, encontrado no smoke test seguinte** (agora `PUT` real
+    depois do fix do schema): 400 "DynamoDB rejected IdentityStore.updateConditional:
+    ValidationException". Causa real (via `aws logs`/leitura do código, não só suposição):
+    `DynamoDbIdentityStore.updateConditional` (`src/modules/identity/persistence/
+    dynamodb-identity-store.ts`) usava o nome de atributo `count` **direto** (sem placeholder
+    `ExpressionAttributeNames`) numa `ConditionExpression` — `count` é palavra reservada do
+    DynamoDB. Isso quebra **toda rota HTTP autenticada** (`items-handler`, `reminders-handler`,
+    `notifications-handler`, `test-ping-handler` — todas usam `TenantQuotaService.consume()`),
+    mas só na **segunda** chamada da mesma tenant dentro da mesma janela de 60s (a primeira
+    usa `putIfAbsent`, sem essa `ConditionExpression`; só a partir da segunda o
+    `updateConditional` é exercitado). Bug pré-existente desde M1, nunca pego por nenhum teste
+    porque `InMemoryIdentityStore` (fake) não interpreta `ConditionExpression` como o DynamoDB
+    real — só um teste contra DynamoDB Local real pegaria isso. Corrigido (placeholder
+    `#count`) + novo teste de integração real
+    (`test/integration-dynamodb/quota.dynamodb.test.ts`, Camada 2, roda no job `dynamodb-integration`
+    da CI — não pude rodar localmente por falta de Docker nesta máquina, mas typecheck/lint
+    passam). **Ainda não verificado no ambiente real via novo `aws lambda invoke`** — próximo
+    passo desta mesma sessão.
     novo `aws lambda invoke` de verificação, ver commit seguinte nesta mesma sessão.
 - **Camada 3 de teste** (sandbox AWS efêmero: IAM negativo real, redrive de DLQ real, invocação
   real do EventBridge Scheduler) — pendência estrutural desde M3.5, nunca fechada por falta de
