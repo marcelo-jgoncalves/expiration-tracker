@@ -4,8 +4,9 @@
 mock_provider "aws" {}
 
 variables {
-  aws_region     = "us-east-1"
-  aws_account_id = "123456789012"
+  aws_region      = "us-east-1"
+  aws_account_id  = "123456789012"
+  alert_topic_arn = "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts"
 }
 
 run "dlq_wiring_and_max_receive_count" {
@@ -81,6 +82,12 @@ run "dlq_age_alarm_exists_with_one_hour_threshold" {
   assert {
     condition     = aws_cloudwatch_metric_alarm.dlq_age.comparison_operator == "GreaterThanThreshold"
     error_message = "DLQ age alarm must compare with GreaterThanThreshold"
+  }
+
+  # m5-observability-design.md §4: DLQ age alarm must have a real notification target.
+  assert {
+    condition     = contains(aws_cloudwatch_metric_alarm.dlq_age.alarm_actions, "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts")
+    error_message = "DLQ age alarm must have alarm_actions pointing at the alert topic"
   }
 }
 

@@ -42,6 +42,7 @@ resource "aws_cloudwatch_metric_alarm" "dlq_age" {
   comparison_operator = "GreaterThanThreshold"
   alarm_description   = "ReminderDispatchQueue DLQ has messages older than 1 hour - investigate and redrive per runbook (never blind redrive)."
   treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alert_topic_arn]
   tags                = var.tags
 }
 

@@ -15,6 +15,7 @@ run "exactly_five_function_error_alarms_plus_one_backlog_alarm" {
     dispatch_outbox_relay_function_name   = "dispatch-outbox-relay"
     outbox_sweeper_function_name          = "outbox-sweeper-reminder-dispatch"
     dispatch_queue_name                   = "reminder-dispatch-queue"
+    alert_topic_arn                       = "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts"
   }
 
   # Exactly 5 critical-function error alarms - not more, not fewer.
@@ -100,5 +101,19 @@ run "exactly_five_function_error_alarms_plus_one_backlog_alarm" {
   assert {
     condition     = aws_cloudwatch_metric_alarm.dispatch_queue_backlog.evaluation_periods == 2
     error_message = "Backlog alarm must use 2 evaluation periods"
+  }
+
+  # m5-observability-design.md §4: every alarm must have a real notification target.
+  assert {
+    condition = alltrue([
+      for name, alarm in aws_cloudwatch_metric_alarm.function_errors :
+      contains(alarm.alarm_actions, "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts")
+    ])
+    error_message = "Every function error alarm must have alarm_actions pointing at the alert topic"
+  }
+
+  assert {
+    condition     = contains(aws_cloudwatch_metric_alarm.dispatch_queue_backlog.alarm_actions, "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts")
+    error_message = "Backlog alarm must have alarm_actions pointing at the alert topic"
   }
 }

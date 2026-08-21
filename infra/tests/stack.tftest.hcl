@@ -21,6 +21,8 @@ variables {
   aws_region       = "us-east-1"
   environment      = "dev"
   ses_from_address = "noreply@example.com"
+  adot_layer_arn   = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+  alert_email      = "ops@example.com"
 }
 
 run "twelve_lambda_functions_exist_no_placeholder" {
@@ -370,6 +372,39 @@ run "event_source_mappings_use_partial_batch_failure" {
   assert {
     condition     = contains(aws_lambda_event_source_mapping.ses_callback_from_queue.function_response_types, "ReportBatchItemFailures")
     error_message = "SesCallback's SQS event source mapping must use ReportBatchItemFailures"
+  }
+}
+
+run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
+  command = plan
+
+  # m5-observability-design.md §3: every function gets the ADOT layer, never resolved
+  # implicitly to "latest" - the pinned test ARN above is asserted on directly.
+  assert {
+    condition     = contains(module.reminder_producer.layers, var.adot_layer_arn)
+    error_message = "ReminderProducer must have the ADOT layer attached"
+  }
+  assert {
+    condition     = contains(module.ses_callback.layers, var.adot_layer_arn)
+    error_message = "SesCallback must have the ADOT layer attached"
+  }
+  assert {
+    condition     = contains(module.test_ping_handler.layers, var.adot_layer_arn)
+    error_message = "TestPingHandler must have the ADOT layer attached"
+  }
+
+  # m5-observability-design.md §4: every alarm this stack owns still gets created with the
+  # alert topic wired in (per-alarm alarm_actions content is asserted inside
+  # reminder-observability's/sqs-worker-queue's own module tests; the alert topic's ARN
+  # itself isn't plan-time-known here since aws_sns_topic.this.arn depends on the real
+  # account id/topic creation, unlike the other modules' deterministically-constructed ARNs).
+  assert {
+    condition     = length(module.observability.function_error_alarm_names) == 5 && module.observability.dispatch_queue_backlog_alarm_name != ""
+    error_message = "Observability module must still produce its alarms with the alert topic wired"
+  }
+  assert {
+    condition     = module.dispatch_queue.dlq_age_alarm_name != ""
+    error_message = "Dispatch queue DLQ age alarm must still exist with the alert topic wired"
   }
 }
 

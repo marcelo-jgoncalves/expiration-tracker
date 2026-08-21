@@ -10,6 +10,7 @@
  * module is built (tracked as a real gap under Observability & Operability, not this logger's
  * job to enforce). Do not treat this comment as evidence metrics.ts exists.
  */
+import { getContext } from "./context.js";
 import { defaultRedactor, Redactor } from "./redactor.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -76,7 +77,7 @@ export class SecureLogger {
   }
 
   private write(level: LogLevel, event: string, context: LogContext): void {
-    const merged = { ...this.baseContext, ...context };
+    const merged = { ...getContext(), ...this.baseContext, ...context };
     const redacted = this.redactor.redact(merged) as Record<string, unknown>;
     const line = JSON.stringify({
       timestamp: this.now(),

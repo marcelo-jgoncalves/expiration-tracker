@@ -25,11 +25,23 @@ const deps = {
   store,
   now: () => new Date().toISOString(),
   senders: {
-    SQS_REMINDER_DISPATCH_V1: async (payload: Record<string, unknown>) => {
-      await sqsClient.send(new SendMessageCommand({ QueueUrl: reminderDispatchQueueUrl, MessageBody: JSON.stringify(payload) }));
+    SQS_REMINDER_DISPATCH_V1: async (payload: Record<string, unknown>, correlationId: string) => {
+      await sqsClient.send(
+        new SendMessageCommand({
+          QueueUrl: reminderDispatchQueueUrl,
+          MessageBody: JSON.stringify(payload),
+          MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+        }),
+      );
     },
-    SQS_NOTIFICATION_EMAIL_V1: async (payload: Record<string, unknown>) => {
-      await sqsClient.send(new SendMessageCommand({ QueueUrl: emailDeliverQueueUrl, MessageBody: JSON.stringify(payload) }));
+    SQS_NOTIFICATION_EMAIL_V1: async (payload: Record<string, unknown>, correlationId: string) => {
+      await sqsClient.send(
+        new SendMessageCommand({
+          QueueUrl: emailDeliverQueueUrl,
+          MessageBody: JSON.stringify(payload),
+          MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+        }),
+      );
     },
   },
 };

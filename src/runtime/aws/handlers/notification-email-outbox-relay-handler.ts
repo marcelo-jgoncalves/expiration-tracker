@@ -4,15 +4,15 @@
  * `destination` instead of being hardcoded to reminder dispatch). This handler only wires
  * the `senders` map for `SQS_NOTIFICATION_EMAIL_V1` - it never touches
  * `SQS_REMINDER_DISPATCH_V1` records (routing exclusivity is enforced in publishOne itself,
- * this handler's senders map simply doesn't recognize that destination). */
+ * this handler's senders map simply doesn't recognize that destination). Per-record
+ * processing logic lives in notification-email-outbox-relay-processor.ts (no module-level
+ * side effects, unit-testable) - this file is only the thin AWS entrypoint. */
 import type { DynamoDBBatchResponse, DynamoDBStreamEvent } from "aws-lambda";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { DynamoDbOutboxRelayStore } from "../../../shared/outbox/persistence/dynamodb-outbox-relay-store.js";
 import { buildNotificationEmailOutboxRelayDeps } from "../composition/notification.js";
-import { relayStreamRecord } from "../../../workers/dispatch-outbox-relay/relay.js";
-import type { OutboxRecord } from "../../../shared/outbox/outbox.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { processStreamRecords } from "./notification-email-outbox-relay-processor.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -28,26 +28,6 @@ const deps = { store, now: () => new Date().toISOString(), senders: notification
 const logger = new SecureLogger({ baseContext: { service: "notification-email-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {
-  const batchItemFailures: { itemIdentifier: string }[] = [];
-
-  for (const record of event.Records) {
-    if (record.eventName !== "INSERT" && record.eventName !== "MODIFY") continue;
-    const image = record.dynamodb?.NewImage;
-    if (!image) continue;
-
-    try {
-      const item = unmarshall(image as Record<string, never>) as OutboxRecord;
-      if (item.entityType !== "OutboxEvent") continue;
-      const outcome = await relayStreamRecord({ ...deps, leaseOwner: `notification-relay-${record.eventID}` }, item);
-      logger.info("notification-email-outbox-relay outcome", { eventId: item.eventId, outcome: outcome.kind });
-      if (outcome.kind === "FAILED") {
-        batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
-      }
-    } catch (err) {
-      logger.error("notification-email-outbox-relay failed", { eventID: record.eventID, error: err instanceof Error ? err.message : String(err) });
-      batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
-    }
-  }
-
+  const batchItemFailures = await processStreamRecords(deps, logger, event.Records);
   return { batchItemFailures };
 }

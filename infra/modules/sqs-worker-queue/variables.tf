@@ -34,3 +34,12 @@ variable "aws_account_id" {
   description = "AWS account ID the queues are deployed to. Same rationale as aws_region."
   type        = string
 }
+
+variable "alert_topic_arn" {
+  description = <<-EOT
+    ARN of the SNS topic (alert-topic module) that receives the DLQ age alarm's state
+    changes (m5-observability-design.md §4). No default - same fail-fast rationale as
+    ses_from_address.
+  EOT
+  type        = string
+}

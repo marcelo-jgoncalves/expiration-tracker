@@ -68,6 +68,19 @@ variable "tracing_active" {
   default     = true
 }
 
+variable "adot_layer_arn" {
+  description = <<-EOT
+    ARN of the AWS Distro for OpenTelemetry (ADOT) Lambda layer for Node.js
+    (m5-observability-design.md §3 - instrumentation for X-Ray tracing, replacing the
+    legacy/maintenance-mode aws-xray-sdk-core). No default, same fail-fast rationale as
+    ses_from_address - the ARN is region+architecture-specific
+    (aws-otel-nodejs-<amd64|arm64>-ver-<version>, published account 901920570463) and must
+    be pinned explicitly at the environment level, never resolved to "latest" implicitly
+    (keeps `terraform plan` deterministic, same rationale as CI's SHA-pinned actions).
+  EOT
+  type        = string
+}
+
 variable "environment_variables" {
   description = "Environment variables for the function."
   type        = map(string)

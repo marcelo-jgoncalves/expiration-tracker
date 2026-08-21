@@ -13,6 +13,7 @@ import {
 } from "../../../modules/reminder/http/policy-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -22,6 +23,13 @@ const { policies } = buildReminderHttpDeps(client, tableName);
 const deps: ReminderHttpDeps = { resolver, policies, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
+  // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
+  // is the ambient log correlationId; the pure business correlationId (ulid, below) that
+  // flows into DomainEvent.correlationId is unrelated and stays exactly as before.
+  return runWithContext({ correlationId: event.requestContext.requestId }, () => handleRemindersRoute(event));
+}
+
+async function handleRemindersRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   const claims = extractClaims(event);
   const base = { requestId: event.requestContext.requestId, correlationId: ulid(), claims, pathParameters: event.pathParameters, headers: event.headers };
   const routeKey = event.routeKey;

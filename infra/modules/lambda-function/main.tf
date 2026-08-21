@@ -70,6 +70,12 @@ resource "aws_lambda_function" "this" {
   handler = "index.handler"
   runtime = var.runtime
 
+  # m5-observability-design.md §3: ADOT layer instrumenting the bundled @aws-sdk clients
+  # (DynamoDB/SQS/SESv2) automatically via AWS_LAMBDA_EXEC_WRAPPER - no captureAWSv3Client
+  # calls in application code. IAM: already covered by the xray attachment above (same
+  # AWSXRayDaemonWriteAccess permission ADOT exports through), no policy change needed.
+  layers = [var.adot_layer_arn]
+
   timeout     = var.timeout_seconds
   memory_size = var.memory_size
 
@@ -82,11 +88,8 @@ resource "aws_lambda_function" "this" {
     }
   }
 
-  dynamic "environment" {
-    for_each = length(var.environment_variables) > 0 ? [1] : []
-    content {
-      variables = var.environment_variables
-    }
+  environment {
+    variables = merge(var.environment_variables, { AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-handler" })
   }
 
   tags = var.tags

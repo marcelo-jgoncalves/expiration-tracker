@@ -52,8 +52,14 @@ export function buildOutboxRelayDeps(client: DynamoDBDocumentClient, tableName: 
     store,
     now: () => new Date().toISOString(),
     senders: {
-      SQS_REMINDER_DISPATCH_V1: async (payload: Record<string, unknown>) => {
-        await sqsClient.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(payload) }));
+      SQS_REMINDER_DISPATCH_V1: async (payload: Record<string, unknown>, correlationId: string) => {
+        await sqsClient.send(
+          new SendMessageCommand({
+            QueueUrl: queueUrl,
+            MessageBody: JSON.stringify(payload),
+            MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+          }),
+        );
       },
     },
   };

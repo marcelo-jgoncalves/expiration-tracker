@@ -81,6 +81,29 @@ variable "ses_from_address" {
   type        = string
 }
 
+variable "adot_layer_arn" {
+  description = <<-EOT
+    ARN of the AWS Distro for OpenTelemetry (ADOT) Lambda layer for Node.js, attached to
+    every function (m5-observability-design.md §3). No default - region+architecture-
+    specific (aws-otel-nodejs-<amd64|arm64>-ver-<version>, published AWS account
+    901920570463), must be pinned explicitly rather than resolved to "latest" implicitly.
+    Set via -var or TF_VAR_adot_layer_arn (env/dev.tfvars pins the dev value).
+  EOT
+  type        = string
+}
+
+variable "alert_email" {
+  description = <<-EOT
+    E-mail address that receives operational alerts from every CloudWatch alarm
+    (m5-observability-design.md §4). No default - same fail-fast rationale as
+    ses_from_address. The subscription this creates stays PendingConfirmation until the
+    recipient clicks the AWS confirmation e-mail - a real manual step this milestone
+    registers as an explicit acceptance criterion (see NEXT_SESSION_PROMPT.md), not closed
+    by `terraform apply` alone.
+  EOT
+  type        = string
+}
+
 variable "cognito_callback_urls" {
   description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module."
   type        = list(string)

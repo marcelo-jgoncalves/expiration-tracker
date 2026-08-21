@@ -15,7 +15,8 @@
  * existing sweeper role is already privileged for GSI6 and just needs to dispatch to the
  * right queue sender per record.
  */
-import type { OutboxRecord, OutboxDestination } from "../../shared/outbox/outbox.js";
+import { runWithContext } from "../../shared/observability/context.js";
+import { outboxRecordCorrelationId, type OutboxRecord, type OutboxDestination } from "../../shared/outbox/outbox.js";
 import type { OutboxRelayStore } from "../../shared/outbox/relay-store.js";
 
 export const SQS_REMINDER_DISPATCH_V1: OutboxDestination = "SQS_REMINDER_DISPATCH_V1";
@@ -24,7 +25,9 @@ export const SQS_NOTIFICATION_EMAIL_V1: OutboxDestination = "SQS_NOTIFICATION_EM
 /** One sender per recognized destination - a record whose `destination` has no entry here
  * is not this relay/sweeper's to touch (SKIPPED_WRONG_DESTINATION), same exclusivity
  * discipline as the single-destination M3.5 version. */
-export type DestinationSenders = Partial<Record<OutboxDestination, (payload: Record<string, unknown>) => Promise<void>>>;
+export type DestinationSenders = Partial<
+  Record<OutboxDestination, (payload: Record<string, unknown>, correlationId: string) => Promise<void>>
+>;
 
 export interface RelayDeps {
   store: OutboxRelayStore;
@@ -60,6 +63,17 @@ export async function publishOne(deps: RelayDeps, record: OutboxRecord): Promise
     return { kind: "SKIPPED_ALREADY_PUBLISHED" };
   }
 
+  // m5-observability-design.md #2: one runWithContext per record - correlationId read from
+  // the persisted OutboxRecord (the business operation that originally created it), never
+  // from this invocation's own ambient context.
+  return runWithContext({ correlationId: outboxRecordCorrelationId(record) }, () => publishAcquiredOrPending(deps, record, send));
+}
+
+async function publishAcquiredOrPending(
+  deps: RelayDeps,
+  record: OutboxRecord,
+  send: (payload: Record<string, unknown>, correlationId: string) => Promise<void>,
+): Promise<PublishOutcome> {
   const leaseDurationMs = deps.leaseDurationMs ?? 30_000;
   const now = deps.now();
   const leaseExpiresAt = new Date(Date.parse(now) + leaseDurationMs).toISOString();
@@ -70,7 +84,7 @@ export async function publishOne(deps: RelayDeps, record: OutboxRecord): Promise
   }
 
   try {
-    await send(record.payload);
+    await send(record.payload, outboxRecordCorrelationId(record));
   } catch (error) {
     // Failure here is expected and recoverable: the lease expires, the sweeper (or a later
     // Stream retry) will retry. A duplicate SendMessage after a retry is absorbed by the

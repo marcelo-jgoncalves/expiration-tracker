@@ -33,6 +33,17 @@ variable "dispatch_queue_name" {
   type        = string
 }
 
+variable "alert_topic_arn" {
+  description = <<-EOT
+    ARN of the SNS topic (alert-topic module) that receives alarm state changes
+    (m5-observability-design.md §4). No default - same fail-fast rationale as
+    ses_from_address: these alarms existed since M3.5 with no real notification target
+    (`infra/lib/reminder-observability.ts:11-15`'s deliberately deferred decision), and this
+    milestone closes that gap - never silently deploy an alarm with nowhere to send.
+  EOT
+  type        = string
+}
+
 variable "tags" {
   description = "Tags applied to the alarms."
   type        = map(string)

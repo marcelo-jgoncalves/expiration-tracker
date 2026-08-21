@@ -28,8 +28,14 @@ export function buildNotificationEmailOutboxRelayDeps(client: DynamoDBDocumentCl
   // `destination` rather than being hardcoded to a single queue.
   return {
     senders: {
-      SQS_NOTIFICATION_EMAIL_V1: async (payload: Record<string, unknown>) => {
-        await sqsClient.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(payload) }));
+      SQS_NOTIFICATION_EMAIL_V1: async (payload: Record<string, unknown>, correlationId: string) => {
+        await sqsClient.send(
+          new SendMessageCommand({
+            QueueUrl: queueUrl,
+            MessageBody: JSON.stringify(payload),
+            MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+          }),
+        );
       },
     },
   };

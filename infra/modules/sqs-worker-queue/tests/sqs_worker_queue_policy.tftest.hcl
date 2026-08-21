@@ -13,9 +13,10 @@ run "consume_and_send_policies_are_scoped_correctly" {
   command = plan
 
   variables {
-    queue_name     = "expiration-tracker-test-reminder-dispatch-policy"
-    aws_region     = "us-east-1"
-    aws_account_id = "123456789012"
+    queue_name      = "expiration-tracker-test-reminder-dispatch-policy"
+    aws_region      = "us-east-1"
+    aws_account_id  = "123456789012"
+    alert_topic_arn = "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts"
   }
 
   assert {

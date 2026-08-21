@@ -8,6 +8,7 @@
  * (infra/lib/reminder-schedule.ts: `{mode, scheduledTime}` at the top level), never
  * `event.detail.mode` (bug found by Codex implementation review - event.detail was always
  * undefined, both schedules would throw on every invocation). */
+import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReconciliationDeps } from "../composition/reminder.js";
 import { runReconciliation, type DstReconciliationCandidate as FullDstCandidate } from "../../../workers/reminder-reconciliation/reconciliation.js";
@@ -15,6 +16,7 @@ import { itemKey } from "../../../modules/expiration/domain/expiration-item.js";
 import { policyKey, type ReminderPolicy } from "../../../modules/reminder/domain/reminder-policy.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import type { ReminderOccurrence } from "../../../modules/reminder/domain/reminder-occurrence.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
 const client = createDocumentClient();
@@ -37,6 +39,12 @@ export interface ReminderReconciliationEvent {
 const MAX_PAGES = 25;
 
 export async function handler(event: ReminderReconciliationEvent): Promise<void> {
+  // m5-observability-design.md #2: EventBridge Scheduler producer, no upstream request to
+  // inherit a correlationId from - new UUID per invocation.
+  await runWithContext({ correlationId: randomUUID() }, () => handleReconciliation(event));
+}
+
+async function handleReconciliation(event: ReminderReconciliationEvent): Promise<void> {
   const mode = event.mode;
 
   const expiredClaimCandidates: ReminderOccurrence[] = [];

@@ -25,3 +25,18 @@ enable_reserved_concurrency = false
 # `terraform plan`/`test` against this placeholder never actually attempts to send e-mail.
 # Update to the real verified address before EmailDelivery is exercised against live SES.
 ses_from_address = "noreply@example.com"
+
+# M5 (2026-08-21): ADOT Lambda layer for Node.js, us-east-1/x86_64, published AWS account
+# 901920570463 (m5-observability-design.md §3). Pinned explicitly, never "latest" - verify
+# against AWS's currently published ADOT Lambda layer table before the real `terraform
+# apply` that attaches this (layer version numbers change independently of the ADOT
+# release/Collector version embedded in the name).
+adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+
+# M5 (2026-08-21): placeholder pending the real operator e-mail confirmation
+# (m5-observability-design.md §4) - safe as a placeholder for `terraform plan`/`test`
+# (never applied against real AWS from this repo's tooling), but the SNS subscription this
+# creates on a real `apply` stays PendingConfirmation until the real recipient confirms it -
+# update to the real operator address before that apply, then confirm the subscription
+# e-mail per the milestone's explicit acceptance criterion.
+alert_email = "ops@example.com"

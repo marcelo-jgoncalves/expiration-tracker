@@ -1,6 +1,79 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Status M5 (2026-08-20): design APPROVED (Claude 9,1 / Codex 9,3, 4 rondas reais) — implementação ainda não começou
+## Status M5 (2026-08-21): implementação concluída e revisada pelo protocolo Claude↔Codex (nota final 9,1/10, 3 rondas) — **leia isto primeiro, supera a seção histórica abaixo**
+
+Design `APPROVED` (seção histórica abaixo) foi implementado de ponta a ponta nesta sessão:
+`src/shared/observability/context.ts` (`runWithContext`/`getContext` via `AsyncLocalStorage` +
+`correlationIdFromSqsRecord`), `SecureLogger` integrado (contexto ambiente mesclado, explícito
+sempre vence), `buildOutboxRecord` copiando `event.correlationId` para `OutboxRecord`
+(`outboxRecordCorrelationId` com fallback `eventId`), wiring por-record nos 12 handlers Lambda
+(fontes por tipo de evento conforme o design: `MessageAttributes.correlationId` nas filas SQS
+que o próprio relay/sweeper alimenta — ver achado novo abaixo —, `SequenceNumber` nos handlers
+Streams, novo UUID nos produtores EventBridge Scheduler, `requestContext.requestId` nos 3
+handlers HTTP), propagação real via `MessageAttributes.correlationId` no `SendMessageCommand`.
+`tenantId` aninhado via `runWithContext` composto em `reminder-dispatch-handler`,
+`ses-callback-handler` e `notification-router-handler` — **não** nos 3 handlers HTTP
+(`items-handler`/`reminders-handler`/`test-ping-handler`), decisão deliberada aceita pelo Codex
+como follow-up não bloqueante (aninhar exigiria tocar 12 funções `handleXxx` em 3 módulos sem
+duplicar a chamada `resolver.resolve()`, que bate no DynamoDB — não é ponto-fix trivial).
+
+Infra Terraform: `infra/modules/lambda-function` ganhou `adot_layer_arn` (sem default) +
+`layers`/`AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-handler`; novo módulo `infra/modules/alert-topic`
+(SNS→e-mail); `alarm_actions` wired em todos os alarmes existentes
+(`reminder-observability` + os 4 `sqs-worker-queue`). `terraform test` verde em todos os módulos
+afetados + raiz (mock_provider/plan real contra `claude-dev`, nunca apply);
+`terraform plan -var-file=env/dev.tfvars` real: **0 a destruir/substituir** (só `layers`/
+`alarm_actions`, atributos mutáveis).
+
+Revisão de implementação via protocolo Claude↔Codex (`AGENTS.md` §4, mesmo padrão de M3.5):
+7,4 → 8,8 → **9,1/10 final**, 3 rondas reais. Achados reais corrigidos: causalidade
+outbox→SQS→reminder-dispatch quebrada (handler ignorava o `MessageAttributes.correlationId`
+que o relay já propagava — corrigido, extraído para `correlationIdFromSqsRecord()` testável);
+4 handlers batch com `try/catch` fora do `runWithContext` (logs de falha perdiam o contexto —
+corrigido, `try/catch` agora fica dentro); fallback de Streams usando a fonte errada
+(`eventId` do sweeper em vez de `SequenceNumber` — corrigido); teste de partial batch failure
+exigido pelo design §5 estava ausente (3 records, 2º falha — adicionado, exigiu extrair
+`dispatch-outbox-relay-processor.ts`/`notification-email-outbox-relay-processor.ts` sem efeitos
+colaterais de topo para ficarem unit-testáveis).
+
+**Achado novo e real, descoberto durante a revisão, registrado como pendência separada — não é
+escopo de M5, mas é bloqueante para prontidão operacional real do Reminder Dispatch**:
+`schemas/queues/reminder-dispatch.v1.json` exige (via `allOf` de `command-envelope.v1.json`)
+os campos de envelope `messageVersion`/`messageId`/`createdAt`/`correlationId` no corpo da
+mensagem SQS — mas o `DispatchCommand` real construído em
+`src/workers/reminder-producer/producer.ts` (e serializado como o body real via
+`buildOutboxRecord`'s `payload: event.data` → relay's `JSON.stringify(payload)`) nunca teve
+esses campos, só `commandType`/`tenantId`/`deduplicationKey`/`data`. Isso significa que
+`reminder-dispatch-handler.ts`'s validação de schema contra o corpo real **falharia sempre**
+em produção real (mensagem tratada como poison/schema-invalid) — bug pré-existente a M5, nunca
+exercitado por nenhum teste (`test/integration/reminder-engine.test.ts` chama `dispatchOccurrence()`
+diretamente, nunca passa pelo handler/JSON.parse/validate; `test/contract/schemas.test.ts` só
+valida um exemplo de envelope escrito à mão, nunca o objeto real). **Divergência temporária e
+consciente do design M5 registrada aqui**: para este contrato legado específico, a fonte real do
+`correlationId` no `reminder-dispatch-handler` é `MessageAttributes.correlationId` (que o
+relay/sweeper já propaga corretamente), não `record.body` como o design prescreve em geral para
+SQS — isso não é evidência de que o envelope atual está correto, é uma exceção temporária até o
+bug ser corrigido.
+
+**Próxima ação real (nova, alta severidade para prontidão operacional, antes do próximo deploy
+que exercite Reminder Dispatch de verdade)**: decidir formalmente o formato de wire completo de
+`reminder.dispatch.v1` (adicionar `messageVersion`/`messageId`/`createdAt` reais ao
+`DispatchCommand`, ou revisar o schema/envelope) — muda um contrato SQS já em uso desde M3,
+provavelmente Type 1 (`AGENTS.md` §4, avaliar se precisa do protocolo Claude↔Codex) — e então
+adicionar um teste de contrato real producer→outbox→relay→body JSON→validação do consumer, que
+hoje não existe em lugar nenhum (o gap que deixou esse bug invisível).
+
+**Ainda não feito (pendências explícitas do design, registradas como critério de aceite, não
+"resolvido" por este `terraform plan`)**: confirmação manual da subscription SNS→e-mail (passo
+humano — `infra/env/dev.tfvars`'s `alert_email`/`adot_layer_arn` são placeholders/valores a
+verificar antes de um `apply` real via pipeline: e-mail real do operador, e o ARN/versão real da
+ADOT layer publicada pela AWS no momento do primeiro `cd.yml` que tocar isso); teste real de
+alarme→e-mail; trace real X-Ray/ADOT verificado em ambiente real (mesma pendência estrutural de
+Camada 3 de M3.5/M4).
+
+---
+
+## Status M5 (2026-08-20, histórico — superado pela seção acima): design APPROVED (Claude 9,1 / Codex 9,3, 4 rondas reais) — implementação ainda não começou
 
 `docs/architecture/m5-observability-design.md` está **APPROVED** (protocolo `AGENTS.md` §4).
 Escopo: correlationId/tenantId contextual via `AsyncLocalStorage` (granularidade por-record em

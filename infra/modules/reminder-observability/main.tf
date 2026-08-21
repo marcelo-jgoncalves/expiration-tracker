@@ -30,6 +30,7 @@ resource "aws_cloudwatch_metric_alarm" "function_errors" {
   comparison_operator = "GreaterThanOrEqualToThreshold"
   alarm_description   = "${each.key} raised errors in 3+ of the last 5-minute windows - investigate before backlog grows (async pipeline has no other automatic error signal)."
   treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alert_topic_arn]
   tags                = var.tags
 }
 
@@ -49,5 +50,6 @@ resource "aws_cloudwatch_metric_alarm" "dispatch_queue_backlog" {
   comparison_operator = "GreaterThanThreshold"
   alarm_description   = "ReminderDispatchQueue has messages older than 15 minutes - dispatch is falling behind producer; investigate before reminders become stale (toleranceMs default is 30 minutes)."
   treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alert_topic_arn]
   tags                = var.tags
 }

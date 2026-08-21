@@ -30,3 +30,9 @@ output "capability_policy_documents" {
 output "reserved_concurrent_executions" {
   value = aws_lambda_function.this.reserved_concurrent_executions
 }
+
+# m5-observability-design.md §3: exposed so root-level `terraform test` acceptance suites
+# can assert the ADOT layer is attached without addressing this module's internals directly.
+output "layers" {
+  value = aws_lambda_function.this.layers
+}

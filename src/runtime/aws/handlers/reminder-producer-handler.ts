@@ -4,10 +4,12 @@
  * the schedule sets (infra/lib/reminder-schedule.ts), never `event.time` (a Rule-shaped
  * field that doesn't exist for Scheduler invocations - bug found by Codex implementation
  * review, event.time was always undefined -> Invalid Date). */
+import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReminderProducerDeps } from "../composition/reminder.js";
 import { runProducerTick } from "../../../workers/reminder-producer/producer.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { ValidationError } from "../../../shared/errors/app-error.js";
 
@@ -29,16 +31,20 @@ export async function handler(event: ReminderProducerEvent): Promise<void> {
   if (Number.isNaN(tickMinute.getTime())) {
     throw new ValidationError("reminder-producer: scheduledTime is not a valid date.", { scheduledTime: event.scheduledTime });
   }
-  const result = await runProducerTick({ ...deps, shardConfig: defaultShardConfig() }, tickMinute);
-  logger.info("reminder-producer tick complete", {
-    scanned: result.scanned,
-    claimed: result.claimed.length,
-    failed: result.failed.length,
-    minutesScanned: result.minutesScanned,
+  // m5-observability-design.md #2: EventBridge Scheduler producer, no upstream request to
+  // inherit a correlationId from - new UUID per invocation.
+  await runWithContext({ correlationId: randomUUID() }, async () => {
+    const result = await runProducerTick({ ...deps, shardConfig: defaultShardConfig() }, tickMinute);
+    logger.info("reminder-producer tick complete", {
+      scanned: result.scanned,
+      claimed: result.claimed.length,
+      failed: result.failed.length,
+      minutesScanned: result.minutesScanned,
+    });
+    if (result.failed.length > 0) {
+      // Non-conditional failures (not claim-race losses) - surfaced so CloudWatch alarms on
+      // Lambda errors fire; the next tick's lookback window still covers these occurrences.
+      throw new Error(`reminder-producer: ${result.failed.length} occurrence(s) failed to claim`);
+    }
   });
-  if (result.failed.length > 0) {
-    // Non-conditional failures (not claim-race losses) - surfaced so CloudWatch alarms on
-    // Lambda errors fire; the next tick's lookback window still covers these occurrences.
-    throw new Error(`reminder-producer: ${result.failed.length} occurrence(s) failed to claim`);
-  }
 }

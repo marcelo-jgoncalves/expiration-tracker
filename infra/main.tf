@@ -42,6 +42,7 @@ module "test_ping_handler" {
   function_name         = "${local.name_prefix}-test-ping-handler"
   handler_name          = "test-ping-handler"
   source_dir            = "${local.dist_dir}/test-ping-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
@@ -53,6 +54,7 @@ module "items_handler" {
   function_name         = "${local.name_prefix}-items-handler"
   handler_name          = "items-handler"
   source_dir            = "${local.dist_dir}/items-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
@@ -64,6 +66,7 @@ module "reminders_handler" {
   function_name         = "${local.name_prefix}-reminders-handler"
   handler_name          = "reminders-handler"
   source_dir            = "${local.dist_dir}/reminders-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
@@ -75,6 +78,7 @@ module "reminder_producer" {
   function_name                  = "${local.name_prefix}-reminder-producer"
   handler_name                   = "reminder-producer-handler"
   source_dir                     = "${local.dist_dir}/reminder-producer-handler"
+  adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = local.common_env
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The ONLY function granted gsi3_read — never add this capability to any other function.
@@ -91,6 +95,7 @@ module "reminder_dispatch" {
   function_name                  = "${local.name_prefix}-reminder-dispatch"
   handler_name                   = "reminder-dispatch-handler"
   source_dir                     = "${local.dist_dir}/reminder-dispatch-handler"
+  adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = local.common_env
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 10 : null
   policy_documents_json = [
@@ -106,6 +111,7 @@ module "reminder_reconciliation" {
   function_name                  = "${local.name_prefix}-reminder-reconciliation"
   handler_name                   = "reminder-reconciliation-handler"
   source_dir                     = "${local.dist_dir}/reminder-reconciliation-handler"
+  adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = local.common_env
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY TWO roles granted gsi6_read (the other is OutboxSweeperReminderDispatch).
@@ -141,6 +147,7 @@ module "dispatch_outbox_relay" {
   function_name                  = "${local.name_prefix}-dispatch-outbox-relay"
   handler_name                   = "dispatch-outbox-relay-handler"
   source_dir                     = "${local.dist_dir}/dispatch-outbox-relay-handler"
+  adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -158,9 +165,10 @@ module "outbox_sweeper" {
   # is already deployed in the dev account since M3.5; renaming an aws_lambda_function forces
   # a destroy+recreate in Terraform, which is an unnecessary destructive change for a pure
   # naming cleanup. The comment above documents the real, broader scope instead.
-  function_name = "${local.name_prefix}-outbox-sweeper-reminder-dispatch"
-  handler_name  = "outbox-sweeper-handler"
-  source_dir    = "${local.dist_dir}/outbox-sweeper-handler"
+  function_name  = "${local.name_prefix}-outbox-sweeper-reminder-dispatch"
+  handler_name   = "outbox-sweeper-handler"
+  source_dir     = "${local.dist_dir}/outbox-sweeper-handler"
+  adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     DISPATCH_QUEUE_URL      = module.dispatch_queue.queue_url
     EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url
@@ -197,6 +205,18 @@ module "api" {
   tags                    = { Project = local.project_name, Environment = var.environment }
 }
 
+# --- Observability: SNS alert topic (m5-observability-design.md §4) -----------------------
+# Instantiated before the queues/observability module below so its ARN is available to wire
+# into every aws_cloudwatch_metric_alarm's alarm_actions.
+
+module "alert_topic" {
+  source = "./modules/alert-topic"
+
+  name_prefix = local.name_prefix
+  alert_email = var.alert_email
+  tags        = { Project = local.project_name, Environment = var.environment }
+}
+
 # --- SQS: ReminderDispatchQueue + DLQ, consumed by ReminderDispatch -----------------------
 
 module "dispatch_queue" {
@@ -206,6 +226,7 @@ module "dispatch_queue" {
   consumer_timeout_seconds = 10
   aws_region               = var.aws_region
   aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -234,6 +255,7 @@ module "router_queue" {
   consumer_timeout_seconds = 10
   aws_region               = var.aws_region
   aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -244,6 +266,7 @@ module "email_deliver_queue" {
   consumer_timeout_seconds = 10
   aws_region               = var.aws_region
   aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -254,6 +277,7 @@ module "ses_callback_queue" {
   consumer_timeout_seconds = 10
   aws_region               = var.aws_region
   aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -331,6 +355,7 @@ module "notification_router" {
   function_name         = "${local.name_prefix}-notification-router"
   handler_name          = "notification-router-handler"
   source_dir            = "${local.dist_dir}/notification-router-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -353,6 +378,7 @@ module "notification_email_outbox_relay" {
   function_name         = "${local.name_prefix}-notification-email-outbox-relay"
   handler_name          = "notification-email-outbox-relay-handler"
   source_dir            = "${local.dist_dir}/notification-email-outbox-relay-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = merge(local.common_env, { EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -373,9 +399,10 @@ resource "aws_lambda_event_source_mapping" "notification_email_outbox_relay_from
 module "email_delivery" {
   source = "./modules/lambda-function"
 
-  function_name = "${local.name_prefix}-email-delivery"
-  handler_name  = "email-delivery-handler"
-  source_dir    = "${local.dist_dir}/email-delivery-handler"
+  function_name  = "${local.name_prefix}-email-delivery"
+  handler_name   = "email-delivery-handler"
+  source_dir     = "${local.dist_dir}/email-delivery-handler"
+  adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     SES_FROM_ADDRESS      = var.ses_from_address
     SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
@@ -401,6 +428,7 @@ module "ses_callback" {
   function_name         = "${local.name_prefix}-ses-callback"
   handler_name          = "ses-callback-handler"
   source_dir            = "${local.dist_dir}/ses-callback-handler"
+  adot_layer_arn        = var.adot_layer_arn
   environment_variables = merge(local.common_env, { SES_ACCOUNT_ALIAS = "default" })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -442,6 +470,7 @@ module "observability" {
   dispatch_outbox_relay_function_name   = module.dispatch_outbox_relay.function_name
   outbox_sweeper_function_name          = module.outbox_sweeper.function_name
   dispatch_queue_name                   = module.dispatch_queue.queue_name
+  alert_topic_arn                       = module.alert_topic.topic_arn
   tags                                  = { Project = local.project_name, Environment = var.environment }
 }
 

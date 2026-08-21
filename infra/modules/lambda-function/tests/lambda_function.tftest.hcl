@@ -19,9 +19,10 @@ run "grants_exactly_the_capabilities_passed_in" {
   command = apply
 
   variables {
-    function_name = "expiration-tracker-test-fn"
-    handler_name  = "dummy-handler"
-    source_dir    = "tests/fixtures/dummy-handler"
+    function_name  = "expiration-tracker-test-fn"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
     policy_documents_json = [
       jsonencode({
         Version = "2012-10-17"
@@ -88,15 +89,26 @@ run "grants_exactly_the_capabilities_passed_in" {
     condition     = aws_lambda_function.this.tracing_config[0].mode == "Active"
     error_message = "X-Ray tracing must be Active by default"
   }
+
+  assert {
+    condition     = contains(aws_lambda_function.this.layers, "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1")
+    error_message = "ADOT layer ARN must be attached (m5-observability-design.md §3)"
+  }
+
+  assert {
+    condition     = aws_lambda_function.this.environment[0].variables["AWS_LAMBDA_EXEC_WRAPPER"] == "/opt/otel-handler"
+    error_message = "AWS_LAMBDA_EXEC_WRAPPER must point at the ADOT layer's handler wrapper"
+  }
 }
 
 run "no_capabilities_means_no_capability_policies" {
   command = apply
 
   variables {
-    function_name = "expiration-tracker-test-fn-nopolicy"
-    handler_name  = "dummy-handler"
-    source_dir    = "tests/fixtures/dummy-handler"
+    function_name  = "expiration-tracker-test-fn-nopolicy"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
   }
 
   assert {
@@ -113,6 +125,7 @@ run "tracing_can_be_disabled" {
     handler_name   = "dummy-handler"
     source_dir     = "tests/fixtures/dummy-handler"
     tracing_active = false
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
   }
 
   assert {

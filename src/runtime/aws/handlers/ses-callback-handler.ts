@@ -7,6 +7,7 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildSesCallbackDeps } from "../composition/notification.js";
 import { processSesCallback, type ParsedSesCallbackEvent } from "../../../modules/notification/application/ses-callback-workflow.js";
 import type { SesCallbackEventKind } from "../../../modules/notification/application/ses-callback-processor.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
 const client = createDocumentClient();
@@ -64,18 +65,26 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
-    try {
-      const parsedEvent = parseSesCallback(record.body);
-      if (!parsedEvent) {
-        logger.info("ses-callback unhandled event type, skipping", { messageId: record.messageId });
-        continue;
+    // m5-observability-design.md #2: no business correlationId travels in the SES/SNS
+    // event JSON - fall back to the SQS messageId, same fallback used for any pre-M5 message.
+    await runWithContext({ correlationId: record.messageId }, async () => {
+      try {
+        const parsedEvent = parseSesCallback(record.body);
+        if (!parsedEvent) {
+          logger.info("ses-callback unhandled event type, skipping", { messageId: record.messageId });
+          return;
+        }
+        // m5-observability-design.md #2: nest tenantId once known from the SES message tags,
+        // without mutating the outer per-record context (AsyncLocalStorage.run composition).
+        await runWithContext({ correlationId: record.messageId, tenantId: parsedEvent.tags.tenantId }, async () => {
+          const outcome = await processSesCallback(deps, parsedEvent);
+          logger.info("ses-callback outcome", { messageId: record.messageId, outcome: outcome.kind });
+        });
+      } catch (err) {
+        logger.error("ses-callback failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
       }
-      const outcome = await processSesCallback(deps, parsedEvent);
-      logger.info("ses-callback outcome", { messageId: record.messageId, outcome: outcome.kind });
-    } catch (err) {
-      logger.error("ses-callback failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
-      batchItemFailures.push({ itemIdentifier: record.messageId });
-    }
+    });
   }
 
   return { batchItemFailures };

@@ -5,6 +5,7 @@ import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildEmailDeliveryDeps } from "../composition/notification.js";
 import { processEmailDelivery, type EmailDeliverCommandData } from "../../../modules/notification/application/email-delivery-workflow.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 
@@ -48,29 +49,41 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         continue;
       }
       const envelope = parsed as EmailDeliverEnvelope;
-      const command: EmailDeliverCommandData = {
-        tenantId: envelope.tenantId,
-        intentId: envelope.data.intentId,
-        attemptId: envelope.data.attemptId,
-        itemId: envelope.data.itemId,
-        expectedItemVersion: envelope.data.expectedItemVersion,
-        templateId: envelope.data.templateId,
-        templateVersion: envelope.data.templateVersion,
-        locale: envelope.data.locale,
-        deliverNotBefore: envelope.data.deliverNotBefore,
-        correlationId: envelope.correlationId,
-      };
-      const outcome = await processEmailDelivery(deps, command);
-      logger.info("email-delivery outcome", { messageId: record.messageId, attemptId: command.attemptId, outcome: outcome.kind });
-      if (outcome.kind === "DEFERRED") {
-        // Quiet hours not over yet - never discard. The router already scheduled a
-        // one-shot EventBridge Scheduler re-delivery (design §5.3); reporting THIS delivery
-        // as a batch item failure would just requeue it needlessly before that fires. No
-        // action needed here beyond the log above.
-        continue;
-      }
+      await runWithContext({ correlationId: envelope.correlationId, tenantId: envelope.tenantId }, async () => {
+        // try/catch stays INSIDE runWithContext - see dispatch-outbox-relay-handler.ts's
+        // comment on why a catch wrapping runWithContext itself would lose this record's
+        // correlationId/tenantId (AsyncLocalStorage.run already restored the outer/empty
+        // context by the time a catch outside it runs).
+        try {
+          const command: EmailDeliverCommandData = {
+            tenantId: envelope.tenantId,
+            intentId: envelope.data.intentId,
+            attemptId: envelope.data.attemptId,
+            itemId: envelope.data.itemId,
+            expectedItemVersion: envelope.data.expectedItemVersion,
+            templateId: envelope.data.templateId,
+            templateVersion: envelope.data.templateVersion,
+            locale: envelope.data.locale,
+            deliverNotBefore: envelope.data.deliverNotBefore,
+            correlationId: envelope.correlationId,
+          };
+          const outcome = await processEmailDelivery(deps, command);
+          logger.info("email-delivery outcome", { messageId: record.messageId, attemptId: command.attemptId, outcome: outcome.kind });
+          if (outcome.kind === "DEFERRED") {
+            // Quiet hours not over yet - never discard. The router already scheduled a
+            // one-shot EventBridge Scheduler re-delivery (design §5.3); reporting THIS
+            // delivery as a batch item failure would just requeue it needlessly before that
+            // fires. No action needed here beyond the log above.
+            return;
+          }
+        } catch (err) {
+          logger.error("email-delivery failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+          batchItemFailures.push({ itemIdentifier: record.messageId });
+        }
+      });
     } catch (err) {
-      logger.error("email-delivery failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+      // JSON.parse itself threw on a malformed body - no envelope/correlationId available.
+      logger.error("email-delivery failed to parse message body", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
