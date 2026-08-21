@@ -32,6 +32,7 @@ import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.jso
 import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
 import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
+import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -97,4 +98,5 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   updateItemRequestV1,
   renewItemRequestV1,
   putPolicyRequestV1,
+  updateNotificationPreferencesRequestV1,
 ]);
