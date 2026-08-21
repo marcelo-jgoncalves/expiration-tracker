@@ -27,16 +27,17 @@ enable_reserved_concurrency = false
 ses_from_address = "noreply@example.com"
 
 # M5 (2026-08-21): ADOT Lambda layer for Node.js, us-east-1/x86_64, published AWS account
-# 901920570463 (m5-observability-design.md §3). Pinned explicitly, never "latest" - verify
-# against AWS's currently published ADOT Lambda layer table before the real `terraform
-# apply` that attaches this (layer version numbers change independently of the ADOT
-# release/Collector version embedded in the name).
-adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+# 901920570463 (m5-observability-design.md §3). Verified real via
+# `aws lambda get-layer-version --layer-name arn:...:layer:aws-otel-nodejs-amd64-ver-1-30-0
+# --version-number <N> --profile claude-dev` (2026-08-21): versions 1-4 exist with identical
+# CodeSha256/CodeSize, version 5 does not exist (AccessDeniedException on a nonexistent
+# resource, distinct from the public resource-policy grant on 1-4). Pinned to the latest
+# confirmed version (4), never "latest" resolved implicitly - reverify before any future
+# `terraform apply` if the ADOT release train has moved on by then.
+adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:4"
 
-# M5 (2026-08-21): placeholder pending the real operator e-mail confirmation
-# (m5-observability-design.md §4) - safe as a placeholder for `terraform plan`/`test`
-# (never applied against real AWS from this repo's tooling), but the SNS subscription this
-# creates on a real `apply` stays PendingConfirmation until the real recipient confirms it -
-# update to the real operator address before that apply, then confirm the subscription
-# e-mail per the milestone's explicit acceptance criterion.
-alert_email = "ops@example.com"
+# M5 (2026-08-21): real operator e-mail (Marcelo), confirmed for this environment. The SNS
+# subscription this creates on a real `apply` stays PendingConfirmation until Marcelo clicks
+# the AWS confirmation e-mail sent to this address - that manual step is the milestone's
+# explicit acceptance criterion (m5-observability-design.md §4), not closed by `apply` alone.
+alert_email = "tchelojg@gmail.com"
