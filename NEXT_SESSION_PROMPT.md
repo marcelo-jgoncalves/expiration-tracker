@@ -1,5 +1,21 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Deploy real de M5 concluído (2026-08-21) — pipeline CI/CD trocado de role, bug real da ADOT layer corrigido, subscription confirmada — leia isto primeiro
+
+Depois dos merges de M5 (abaixo), o `cd.yml` (push em `main`) falhou 3x reais antes de fechar:
+
+1. **Lock falso** (`Error acquiring the state lock`) — autolimpou, não era lock real (nenhum objeto `.tflock` presente no S3 no momento).
+2. **IAM real faltante na role `edp-dev-role-cicd-github-actions`**: faltava `lambda:GetLayerVersion` (cross-account, ADOT), `SNS:CreateTopic`, `ses:CreateConfigurationSet`, `events:TagResource` — a policy exclusiva do projeto (`exptrk-dev-policy-cicd-github-actions`) nunca teve esses statements (M4's SES/SNS nunca tinha sido de fato aplicado com sucesso antes). **Decisão do usuário**: em vez de corrigir essa policy, trocar a role usada pelo pipeline para `GITHUB-OIDC-ROLE` (variável de repo `AWS_ROLE_ARN_DEV` atualizada). Essa role tem policy `Action:*/Resource:*` (admin total da conta) — usuário optou explicitamente por manter assim depois de eu alertar o risco (não é escopado a `exptrk-*`). Ajustei via CLI só o trust policy dessa role para liberar o repo `expiration-tracker` (mantendo `ifin` que já usava).
+3. **Trust policy com formato errado do `sub` claim OIDC** — GitHub está emitindo o formato "imutável" (`repo:owner@orgId/repo@repoId:environment:dev`), não o clássico (`repo:owner/repo:*`). Corrigido adicionando a variante `repo:marcelo-jgoncalves@*/expiration-tracker@*:*` (mesmo padrão que a role antiga já tinha para o outro projeto). **Isso é um achado reaplicável**: qualquer nova role IAM para GitHub Actions OIDC neste ou em outros projetos precisa incluir AMBOS os formatos de `sub` no trust policy, não só o clássico.
+
+Apply real então rodou com sucesso — confirmado via CLI: tópico `exptrk-dev-alerts` criado, subscription de e-mail para `tchelojg@gmail.com` criada e **já confirmada pelo usuário** (deixou de ser `PendingConfirmation`).
+
+**Bug real e severo encontrado DEPOIS do apply, via smoke test real (`aws lambda invoke` contra `exptrk-dev-test-ping-handler`)**: a ADOT layer quebrava **as 12 funções** — `TypeError: Cannot redefine property: handler`. Causa: o esbuild (`scripts/build-lambdas.ts`) exporta `handler` como getter não-configurável (transform padrão ESM→CJS para `export async function handler`); o `shimmer`/instrumentation do OTel tenta `Object.defineProperty` para envolver o handler com tracing, e isso falha contra uma propriedade não-configurável. **Corrigido**: `footer: { js: "module.exports = { handler: module.exports.handler };" }` no `esbuild.build()` — cria um objeto plano novo, com propriedade normal (configurable/writable/enumerable), depois que o corpo do bundle já rodou. Teste de regressão real em `test/unit/build-lambdas-export-shape.test.ts` (roda esbuild de verdade com as mesmas opções, `require()` o resultado de FORA da árvore do repo — dentro da árvore, o `package.json` raiz com `"type": "module"` confunde a detecção de módulo do Node e não reflete o ZIP real da Lambda, que nunca contém esse `package.json`).
+
+**Próxima ação real, ainda pendente desta sessão**: rebuildar (`npm run build:lambdas`, já feito localmente com o fix) e disparar um novo `cd.yml` real para aplicar o bundle corrigido nas 12 funções — o deploy que rodou com sucesso ainda tinha o bug do handler. Depois, repetir o smoke test real (`aws lambda invoke` no `test-ping-handler`) para confirmar que as funções voltaram a funcionar antes de considerar M5 operacionalmente fechado. Só então testar um alarme real disparando e o e-mail chegando (agora que a subscription está confirmada).
+
+---
+
 ## Achado do envelope de `reminder.dispatch.v1` (2026-08-21): CORRIGIDO nesta mesma sessão, pelo protocolo Claude↔Codex (nota 9,2/10) — supera a menção abaixo em "Status M5"
 
 O achado novo registrado pela revisão de M5 (ver seção abaixo, "Achado novo e real") foi corrigido
