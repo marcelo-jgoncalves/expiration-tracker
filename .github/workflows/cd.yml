@@ -4,10 +4,16 @@
 # Triggers on push to `main`, i.e. after a PR already passed ci.yml's `infra` job
 # (fmt/validate/test/plan) via branch protection.
 #
-# Assumes the same IAM role ci.yml uses for `terraform plan` (edp-dev-role-cicd-github-actions,
-# widened to trust this repo too — a pre-existing shared CI/CD role from the sibling
-# event-discovery-platform project, reused rather than creating a second OIDC role per
-# project). AWS_ROLE_ARN_DEV repository variable holds its ARN.
+# Assumes the same IAM role ci.yml uses for `terraform plan` - AWS_ROLE_ARN_DEV repository
+# variable holds its ARN. M5 (2026-08-21): switched from edp-dev-role-cicd-github-actions
+# (a shared role from the sibling event-discovery-platform project, whose project-specific
+# policy never granted SNS/SES/EventBridge/cross-account Lambda-layer actions this
+# milestone's infra needs) to GITHUB-OIDC-ROLE. Its trust policy's `sub` condition must list
+# BOTH the classic (`repo:OWNER/REPO:*`) and GitHub's newer immutable
+# (`repo:OWNER@orgId/REPO@repoId:*`) subject-claim formats - this account's OIDC provider
+# emits the immutable form, and a trust policy missing it fails
+# `sts:AssumeRoleWithWebIdentity` with a generic "Not authorized" error that looks identical
+# to a real IAM permissions gap (real incident, see NEXT_SESSION_PROMPT.md).
 
 name: Deploy (CD)
 

@@ -65,6 +65,20 @@ async function buildHandler(name: string): Promise<void> {
     format: "cjs",
     sourcemap: "external",
     minify: false,
+    // Real production bug found in M5 (2026-08-21): esbuild's ESM->CJS export transform
+    // defines `exports.handler` as a getter-only accessor with `configurable: false` (live-
+    // binding emulation for `export async function handler(...)`). The ADOT Lambda layer's
+    // OpenTelemetry auto-instrumentation (instrumentation-aws-lambda, via the `shimmer`
+    // library) tries to Object.defineProperty-wrap that same property to add tracing - which
+    // throws "TypeError: Cannot redefine property: handler" against a non-configurable
+    // accessor, crashing every invocation (confirmed via a real `aws lambda invoke` smoke
+    // test against exptrk-dev-test-ping-handler after M5's ADOT layer rollout).
+    // Fix: replace `module.exports` with a brand-new plain object after the bundle body
+    // runs - a plain `{ handler: ... }` object literal always yields a normal writable/
+    // configurable/enumerable own property (JS default property semantics), never the
+    // getter-only shape esbuild's `__export` helper produces, so the ADOT instrumentation
+    // can wrap it normally.
+    footer: { js: "module.exports = { handler: module.exports.handler };" },
   });
 
   // eslint-disable-next-line no-console -- CLI script, not a Lambda handler.
