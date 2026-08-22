@@ -58,14 +58,12 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "system:ping": READ_ONLY_ROLES,
 };
 
+export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
+
 export class AuthorizationDeniedError extends Error {
   constructor(
-    readonly reason:
-      | "TENANT_MISMATCH"
-      | "NO_MEMBERSHIP"
-      | "INSUFFICIENT_ROLE"
-      | "RESOURCE_OWNERSHIP_MISMATCH",
-    action: Action,
+    readonly reason: AuthorizationDenialReason,
+    readonly action: Action,
   ) {
     super(`Authorization denied for action "${action}": ${reason}`);
     this.name = "AuthorizationDeniedError";

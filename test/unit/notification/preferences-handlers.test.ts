@@ -15,7 +15,8 @@
  * new schema that's added to disk but not registered there would fail this test the same way
  * it failed in production.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { InMemoryIdentityStore, makeIdGenerator } from "../identity/in-memory-store.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
@@ -81,5 +82,24 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
       body: { emailEnabled: false, locale: "en-US", quietHours: null, unknownField: "nope" } as never,
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
+    const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
+    const deps = buildDeps();
+    const noRoleResolver = {
+      resolve: async () => ({
+        tenant: { tenantId: "tenant-x", roles: [] },
+        principal: { userId: "user-x" },
+        requestId: "r1",
+      }),
+    } as unknown as NotificationHttpDeps["resolver"];
+
+    const response = await handleGetPreferences({ ...deps, resolver: noRoleResolver }, { requestId: "r1", correlationId: "c1", claims: claims() });
+
+    expect(response.statusCode).toBe(403);
+    expect(auditSpy).toHaveBeenCalledTimes(1);
+    expect(auditSpy).toHaveBeenCalledWith({ reason: "NO_MEMBERSHIP", action: "notification:configure" });
+    auditSpy.mockRestore();
   });
 });

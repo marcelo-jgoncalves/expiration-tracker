@@ -1,5 +1,46 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Trilha de auditoria de segurança — MVP implementado, commitado em `develop` (2026-08-22), aguardando deploy
+
+Achado real aberto da rodada focada (Segurança-Logging/OWASP A09:2025 + SRE-Detecção) fechado via
+protocolo Claude↔Codex completo (nota cega round1: Codex 9.4/10 com proposta muito mais completa
+que a minha inicial; round2 reconciliação aceita com 2 ajustes — divisão MVP-desta-sessão vs.
+entrega futura, módulo em `src/shared/observability/`). Design:
+`docs/architecture/reviews/security-audit-trail-design/codex-reconciliation-round2-final-design.md`.
+
+Implementado: `src/shared/observability/security-audit.ts` (3 funções de taxonomia fechada —
+`auditAuthorizationDenied`/`auditGlobalIndexAccess`/`auditGlobalIndexAccessDenied` — nunca
+`Record<string, unknown>` arbitrário); `AuthorizationDeniedError` agora expõe `action` como
+propriedade real (bug real corrigido); os 4 handlers HTTP (`item-handlers.ts`,
+`policy-handlers.ts`, `preferences-handlers.ts`, `test-route-handler.ts`) emitem 1 evento exato
+por negação real, sem alterar a resposta HTTP; os 3 adapters GSI3/GSI6
+(`dynamodb-reminder-producer-store.ts`, `dynamodb-reconciliation-candidate-source.ts`,
+`dynamodb-outbox-relay-store.ts`) emitem 1 evento de sucesso por chamada lógica (mesmo paginada)
+e 1 evento de negação real em `AccessDeniedException`, sem alterar retry/DLQ;
+`outbox-sweeper-handler.ts` corrigido (não chamava `runWithContext`, achado real do Codex — sem
+isso os eventos de GSI6 do sweeper não tinham `correlationId`); novo módulo Terraform
+`infra/modules/security-audit-observability` com 3 alarmes reais (`SecurityAuthorizationDeniedBurst`,
+`SecurityAuthorizationTenantBoundaryDenied`, `SecurityGlobalIndexAccessDenied`) ligados ao
+`alert-topic` real de M5. Nova regra de `dependency-cruiser` (`shared-must-not-reach-modules`)
+adicionada para não deixar essa arquitetura ser violada silenciosamente no futuro.
+
+274 testes (era 264), incluindo cobertura real da trilha (formato/redação, 1-evento-por-chamada
+mesmo paginada, `AccessDeniedException` sintético não altera retry, 1-evento-por-negação real via
+`authorize()` de verdade em 2 dos 4 handlers). `terraform test` (módulo novo + raiz) verde;
+`terraform plan` real contra `dev`: 14 a adicionar, 26 a mudar (todas as 13 funções recebem nova
+versão/alias porque o módulo compartilhado novo entra no bundle de todas), 0 destroy.
+
+**Fora do MVP desta sessão, explicitamente**: alarme de anomalia de volume de acesso a GSI3/GSI6
+(a instrumentação `pageCount`/`resultCount` já existe para gerar dado, mas o alarme em si só pode
+ser calibrado depois de observar baseline real em `dev` — não fechar isso especulativamente).
+
+**Ainda não deployado nem exercitado em produção real** — próxima ação: commitar, abrir PR,
+mergear, deployar via `cd.yml`, depois **gerar evidência real** (mesmo padrão da entrega 1 de
+rollback): forçar um evento real de negação (ex. via `aws lambda invoke` sintético) e um acesso
+real a GSI3/GSI6 (já ocorre naturalmente via os schedules reais), confirmar ambos localizáveis no
+CloudWatch por `correlationId`, e exercitar os 3 alarmes reais `OK→ALARM→OK` via
+`aws cloudwatch set-alarm-state` (mesmo método já usado para o alarme de M5).
+
 ## Mecanismo de rollback — entrega 1 implementada, commitada em `develop` (2026-08-21/22), NÃO deployada
 
 Achado real da rodada focada (rollback/roll-forward inexistente) fechado via protocolo

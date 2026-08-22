@@ -7,6 +7,7 @@
 import { AppError, ValidationError, toAppError } from "../../../shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
 import { AuthorizationError } from "../../../shared/errors/app-error.js";
+import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
@@ -91,12 +92,14 @@ async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpRe
   try {
     return await fn();
   } catch (err) {
-    const appError =
-      err instanceof AuthorizationDeniedError
-        ? new AuthorizationError(err.message, { reason: err.reason })
-        : err instanceof AppError
-          ? err
-          : toAppError(err);
+    if (err instanceof AuthorizationDeniedError) {
+      // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real): a
+      // negação real, não a excecao/resposta HTTP sozinha, agora produz um evento dedicado -
+      // ver docs/architecture/reviews/security-audit-trail-design/.
+      auditAuthorizationDenied({ reason: err.reason, action: err.action });
+      return toResponse(new AuthorizationError(err.message, { reason: err.reason }));
+    }
+    const appError = err instanceof AppError ? err : toAppError(err);
     return toResponse(appError);
   }
 }

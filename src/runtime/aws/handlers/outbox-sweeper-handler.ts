@@ -5,11 +5,13 @@
  * destination", not a second sweeper querying the same global GSI6 partition. Recovers
  * publications the relay missed (Stream failure, crashed relay invocation) for either
  * destination - m3.5-runtime-design.md §"Decisão central". */
+import { randomUUID } from "node:crypto";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { DynamoDbOutboxRelayStore } from "../../../shared/outbox/persistence/dynamodb-outbox-relay-store.js";
 import { sweepPendingDispatch } from "../../../workers/dispatch-outbox-relay/relay.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -48,6 +50,12 @@ const deps = {
 const logger = new SecureLogger({ baseContext: { service: "outbox-sweeper" } });
 
 export async function handler(): Promise<void> {
-  const result = await sweepPendingDispatch({ ...deps, leaseOwner: `sweeper-${Date.now()}` });
-  logger.info("outbox-sweeper complete", { ...result });
+  // Security audit trail fix (full-audit-round1-focused-round2-summary.md, achado real): this
+  // handler never called runWithContext, so the security.global_index_access event emitted by
+  // DynamoDbOutboxRelayStore.listPendingReminderDispatch (GSI6) during the sweep had no real
+  // correlationId - see docs/architecture/reviews/security-audit-trail-design/.
+  await runWithContext({ correlationId: randomUUID() }, async () => {
+    const result = await sweepPendingDispatch({ ...deps, leaseOwner: `sweeper-${Date.now()}` });
+    logger.info("outbox-sweeper complete", { ...result });
+  });
 }

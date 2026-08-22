@@ -470,3 +470,23 @@ run "monthly_cost_budget_exists" {
     error_message = "Budget limit must be greater than 0"
   }
 }
+
+run "security_audit_trail_alarms_exist_and_are_wired_to_the_real_alert_topic" {
+  command = plan
+
+  # Trilha de auditoria de segurança (MVP desta sessão, achado real de
+  # full-audit-round1-focused-round2-summary.md): os 3 alarmes reais existem e apontam para o
+  # alert-topic real, não um destino novo.
+  assert {
+    condition     = module.security_audit_observability.authorization_denied_burst_alarm_name != ""
+    error_message = "SecurityAuthorizationDeniedBurst alarm must exist"
+  }
+  assert {
+    condition     = module.security_audit_observability.authorization_tenant_boundary_denied_alarm_name != ""
+    error_message = "SecurityAuthorizationTenantBoundaryDenied alarm must exist"
+  }
+  assert {
+    condition     = module.security_audit_observability.global_index_access_denied_alarm_name != ""
+    error_message = "SecurityGlobalIndexAccessDenied alarm must exist"
+  }
+}

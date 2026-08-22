@@ -7,6 +7,7 @@
  */
 import { AppError, AuthorizationError, toAppError } from "../../../shared/errors/app-error.js";
 import { authorize, AuthorizationDeniedError } from "../domain/authorization.js";
+import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import type { RequestContextResolver, ValidatedClaims } from "../application/resolve-request-context.js";
 import type { TenantQuotaService } from "../application/quota.js";
 
@@ -67,12 +68,14 @@ export async function handleTestRoute(deps: TestRouteDeps, req: TestRouteHttpReq
       },
     };
   } catch (err) {
-    const appError =
-      err instanceof AuthorizationDeniedError
-        ? new AuthorizationError(err.message, { reason: err.reason })
-        : err instanceof AppError
-          ? err
-          : toAppError(err);
+    if (err instanceof AuthorizationDeniedError) {
+      // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real) - ver
+      // docs/architecture/reviews/security-audit-trail-design/.
+      auditAuthorizationDenied({ reason: err.reason, action: err.action });
+      const appError = new AuthorizationError(err.message, { reason: err.reason });
+      return { statusCode: STATUS_BY_CATEGORY[appError.category] ?? 500, body: appError.toJSON() };
+    }
+    const appError = err instanceof AppError ? err : toAppError(err);
     const status = STATUS_BY_CATEGORY[appError.category] ?? 500;
     return { statusCode: status, body: appError.toJSON() };
   }

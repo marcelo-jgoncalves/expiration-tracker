@@ -35,6 +35,14 @@ module.exports = {
       from: { path: "^src/modules/[^/]+/domain/" },
       to: { path: "^src/modules/[^/]+/(application|ports|http|persistence)/" },
     },
+    {
+      name: "shared-must-not-reach-modules",
+      severity: "error",
+      comment:
+        "src/shared/** is the lower-level layer every module's domain ultimately depends on (transitively) - it must never depend back on src/modules/**, or the dependency graph inverts. Added when security-audit.ts (src/shared/observability/) was tempted to import AuthorizationDeniedError's closed union types from modules/identity/domain/authorization.ts for a stricter signature - decoupled instead (reason/action typed as string there; callers already hold the closed-union value). This rule prevents that specific mistake from being reintroduced silently.",
+      from: { path: "^src/shared/" },
+      to: { path: "^src/modules/" },
+    },
   ],
   options: {
     tsPreCompilationDeps: true,
