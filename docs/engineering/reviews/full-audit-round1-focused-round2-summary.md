@@ -102,10 +102,10 @@ recurso novo). Registrados aqui como pendência explícita, não fechados por ar
 |---|---:|---|---|
 | QE — Debuggability & Operational Feedback | 9.2 | **Sim** | — fechado |
 | Produto — Correção do Serviço de Lembretes (preferências) | 9.3 | **Sim** | — fechado, fix de proveniência aplicado |
-| QE — Delivery, Release & Recovery Discipline | 7.5-8.7 | Não | Rollback real ausente — Nível 3-4, candidato a design dedicado |
-| SRE — Deploy/Rollback/Mudança Operacional | 6.5-8.6 | Não | Mesmo achado raiz de rollback |
-| Segurança — Logging Seguro/Detecção/Resposta | 7.8 | Não | Sem trilha de auditoria para negação/acesso GSI — Nível 3-4 |
-| SRE — Detecção/Resposta/Comunicação de Incidentes | 7.5-8.5 | Não | Mesma lacuna de trilha + exercício humano completo ainda pendente (parcialmente impedimento operacional real) |
+| QE — Delivery, Release & Recovery Discipline | 9.3 | **Sim** | **Fechado em 2026-08-22** — ver rodada 3 (`full-audit-round1-focused-round3-summary.md`) e evidência real de exercício de rollback (`rollback-mechanism-design/rollback-exercise-2026-08-22.md`) |
+| SRE — Deploy/Rollback/Mudança Operacional | 9.1 | **Sim** | **Fechado em 2026-08-22** — mesma evidência acima. Achado residual real não bloqueante: sem validação diferenciada por blast radius de schema/GSI/KMS |
+| Segurança — Logging Seguro/Detecção/Resposta | 7.8 | Não | Sem trilha de auditoria para negação/acesso GSI — Nível 3-4, ainda aberto |
+| SRE — Detecção/Resposta/Comunicação de Incidentes | 7.5-8.5 | Não | Mesma lacuna de trilha + exercício humano completo ainda pendente (parcialmente impedimento operacional real), ainda aberto |
 
 2 de 6 critérios fechados nesta rodada (nota ≥9.0 dos dois lados, achados reais corrigidos). Os
 outros 4 permanecem com achado real e específico, registrado explicitamente (não arredondado),

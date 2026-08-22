@@ -47,13 +47,22 @@ nesta sessão):
   **401** (não 500/502) — prova que a cadeia real API Gateway→autorizer JWT→integração→alias
   `live`→Lambda está intacta depois do rewiring simultâneo das 13 funções.
 
-**Pendência real, não urgente**: `rollback.yml` nunca foi exercitado de verdade (só
-`terraform plan`/`test`) — o manifesto atual não tem `previousHealthyDeploymentId` ainda (é o
-primeiro), então não há "alvo" real de rollback até existir um segundo deploy saudável. Próximo
-deploy real (de qualquer natureza) cria esse segundo manifesto e destrava um teste real de
-`rollback.yml` contra `dev` — vale executar esse teste na próxima oportunidade de deploy, não
-precisa forçar um deploy só para isso agora. Canários semânticos (entrega 2) continuam
-registrados como escopo futuro explícito, não implementados.
+**Rollback exercitado de ponta a ponta com evidência real (2026-08-22)** — rodada 3 focada
+(`docs/engineering/reviews/full-audit-round1-focused-round3-summary.md`) reavaliou os 2
+critérios ainda abaixo do gate; Codex encontrou e eu corrigi 2 bugs reais em `rollback.yml`
+(passo de compensação sem `id:` classificava toda falha parcial incorretamente; validação de
+manifesto não checava conjunto exato de nomes de função nem formato de versão). Depois disso,
+mudança trivial e reversível forçou um segundo deploy real (`test-ping-handler` v1→v2),
+seguido de um rollback real disparado via `gh workflow run rollback.yml` — verificado
+independentemente via AWS CLI: alias voltou pra v1, `current-healthy` restaurado ao manifesto
+anterior, registro real `routing_restored`/`health_verified`/`completed`, API real continuou
+respondendo corretamente (401) depois do rollback. Detalhe completo:
+`docs/architecture/reviews/rollback-mechanism-design/rollback-exercise-2026-08-22.md`. **Os 2
+critérios agora batem o gate ≥9.0** (9.3 e 9.1). Achado residual não bloqueante: caminho de
+compensação de falha parcial nunca foi exercitado com uma falha real induzida (só por leitura
+de código); ausência de validação diferenciada por blast radius de schema/GSI/KMS permanece
+real, candidato a design futuro. Canários semânticos (entrega 2) continuam registrados como
+escopo futuro explícito, não implementados.
 
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
 
