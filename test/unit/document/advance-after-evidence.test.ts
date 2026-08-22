@@ -83,6 +83,27 @@ describe("advanceAfterEvidence — corrida real entre upload e malware", () => {
     expect(doc.cleanObject?.bucket).toBe(CLEAN_BUCKET);
   });
 
+  it("real bug found via Camada 3 (2026-08-22): promotion copies from the evidence's real object reference, never doc.quarantineObject (whose versionId is always \"\" - reserveUpload sets it before the real object exists, and copying with an empty versionId crashes S3 with 'Version id cannot be the empty string')", async () => {
+    const store = new InMemoryDocumentStore();
+    const emptyVersionPlaceholder = { bucket: QUARANTINE_OBJECT.bucket, key: QUARANTINE_OBJECT.key, versionId: "" };
+    const realObject = { ...QUARANTINE_OBJECT, versionId: "real-s3-version-id" };
+    await store.putIfAbsent(
+      baseDocument({
+        status: "SCANNING",
+        quarantineObject: emptyVersionPlaceholder,
+        uploadEvidence: { object: realObject, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+        malwareEvidence: { object: realObject, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+      }),
+    );
+    let copiedFrom: { bucket: string; key: string; versionId: string } | undefined;
+    const outcome = await advanceAfterEvidence(
+      { store, objects: fakeObjectStore({ copyObject: async (source, destBucket, destKey) => { copiedFrom = source; return { bucket: destBucket, key: destKey, versionId: "clean-v1" }; } }), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: realObject },
+    );
+    expect(outcome).toBe("PROMOTED");
+    expect(copiedFrom?.versionId).toBe("real-s3-version-id");
+  });
+
   it("promotes to CLEAN once both evidences are present (malware-then-upload order) - both orders converge", async () => {
     const store = new InMemoryDocumentStore();
     await store.putIfAbsent(
