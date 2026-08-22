@@ -1,11 +1,12 @@
 # Document upload/malware boundary buckets — M6 runtime design
 # (docs/architecture/reviews/m6-document-upload-design/codex-reconciliation-round2-final-design.md).
-# Two physically separate buckets (quarantine/clean), each with its own KMS key - already
-# approved (architecture-fase3-consolidada.md §7 / D-016, Type 1). Actual key USAGE grants
-# happen via each Lambda's own IAM capability policy (kms:Decrypt/GenerateDataKey on the
-# specific key ARN), not via this module's key policy - the default AWS key policy (root
-# account delegates to IAM) is deliberately kept, avoiding a circular dependency between this
-# module and the lambda-function modules that need these bucket/key ARNs first.
+# Two physically separate buckets (quarantine/clean). D-016 originally approved a dedicated
+# CMK per bucket; superseded 2026-08-22 (Marcelo direct cost decision, dev has near-zero real
+# upload volume and CMKs bill ~US$1/mo/key just for existing) - both buckets now share the
+# AWS-managed "aws/s3" key (see main.tf's data.aws_kms_key.s3_managed), which has no per-key
+# monthly charge. The security boundary between quarantine/clean is the 2 physical buckets +
+# IAM least-privilege (each Lambda's own capability policy), never a shared table-wide grant -
+# that property is unaffected by which KMS key backs the encryption.
 
 variable "name_prefix" {
   description = "Prefix for bucket/key names (e.g. exptrk-dev)."

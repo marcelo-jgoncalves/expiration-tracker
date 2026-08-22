@@ -28,35 +28,25 @@ run "buckets_are_private_kms_encrypted_and_versioned" {
     error_message = "Clean bucket must use BucketOwnerEnforced object ownership"
   }
 
+  # Cost decision 2026-08-22: both buckets use SSE-KMS with the AWS-managed "aws/s3" key
+  # (data.aws_kms_key.s3_managed), not a dedicated CMK per bucket - see main.tf's comment for
+  # the full rationale. Both buckets deliberately reference the SAME key ARN (there is only
+  # one aws/s3 managed key per account); the security boundary between them is the 2 physical
+  # buckets + IAM least-privilege, not a per-bucket key anymore.
   assert {
     condition = anytrue([
       for r in aws_s3_bucket_server_side_encryption_configuration.quarantine.rule :
-      anytrue([for d in r.apply_server_side_encryption_by_default : d.sse_algorithm == "aws:kms" && d.kms_master_key_id == aws_kms_key.quarantine.arn])
+      anytrue([for d in r.apply_server_side_encryption_by_default : d.sse_algorithm == "aws:kms" && d.kms_master_key_id == data.aws_kms_key.s3_managed.arn])
     ])
-    error_message = "Quarantine bucket must use SSE-KMS with its own dedicated key"
+    error_message = "Quarantine bucket must use SSE-KMS with the AWS-managed S3 key"
   }
 
   assert {
     condition = anytrue([
       for r in aws_s3_bucket_server_side_encryption_configuration.clean.rule :
-      anytrue([for d in r.apply_server_side_encryption_by_default : d.sse_algorithm == "aws:kms" && d.kms_master_key_id == aws_kms_key.clean.arn])
+      anytrue([for d in r.apply_server_side_encryption_by_default : d.sse_algorithm == "aws:kms" && d.kms_master_key_id == data.aws_kms_key.s3_managed.arn])
     ])
-    error_message = "Clean bucket must use SSE-KMS with its own dedicated key"
-  }
-
-  assert {
-    condition     = aws_kms_key.quarantine.arn != aws_kms_key.clean.arn
-    error_message = "Quarantine and clean buckets must use physically separate KMS keys"
-  }
-
-  assert {
-    condition     = aws_kms_key.quarantine.enable_key_rotation == true
-    error_message = "Quarantine KMS key must have rotation enabled"
-  }
-
-  assert {
-    condition     = aws_kms_key.clean.enable_key_rotation == true
-    error_message = "Clean KMS key must have rotation enabled"
+    error_message = "Clean bucket must use SSE-KMS with the AWS-managed S3 key"
   }
 
   assert {

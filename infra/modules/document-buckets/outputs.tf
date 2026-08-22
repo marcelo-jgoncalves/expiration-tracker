@@ -7,7 +7,8 @@ output "quarantine_bucket_arn" {
 }
 
 output "quarantine_kms_key_arn" {
-  value = aws_kms_key.quarantine.arn
+  description = "ARN of the AWS-managed S3 key (alias/aws/s3) - shared with the clean bucket, not a dedicated CMK. See main.tf for the 2026-08-22 cost decision."
+  value       = data.aws_kms_key.s3_managed.arn
 }
 
 output "clean_bucket_name" {
@@ -19,5 +20,6 @@ output "clean_bucket_arn" {
 }
 
 output "clean_kms_key_arn" {
-  value = aws_kms_key.clean.arn
+  description = "Same AWS-managed key as quarantine_kms_key_arn - see main.tf."
+  value       = data.aws_kms_key.s3_managed.arn
 }

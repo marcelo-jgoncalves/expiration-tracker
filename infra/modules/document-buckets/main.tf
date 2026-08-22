@@ -1,27 +1,15 @@
-# --- KMS keys (one per bucket, per M6 design §4.1) -----------------------------------------
-
-resource "aws_kms_key" "quarantine" {
-  description             = "${var.name_prefix} document quarantine bucket encryption key"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-  tags                    = var.tags
-}
-
-resource "aws_kms_alias" "quarantine" {
-  name          = "alias/${var.name_prefix}-documents-quarantine"
-  target_key_id = aws_kms_key.quarantine.key_id
-}
-
-resource "aws_kms_key" "clean" {
-  description             = "${var.name_prefix} document clean bucket encryption key"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-  tags                    = var.tags
-}
-
-resource "aws_kms_alias" "clean" {
-  name          = "alias/${var.name_prefix}-documents-clean"
-  target_key_id = aws_kms_key.clean.key_id
+# --- KMS: the AWS-managed S3 key (alias/aws/s3), NOT a customer-managed key -----------------
+# Real cost decision (2026-08-22, Marcelo direct call - dispensa o protocolo Claude<->Codex
+# por ser simplificação por custo, não reabertura de arquitetura, ver decisions-log.md):
+# a D-016 original (chaves separadas por bucket) previa 2 CMKs (~US$1/mês cada, ~US$2/mês fixo
+# só por existirem, mesmo com zero uploads em dev). AWS-managed keys não têm a cobrança mensal
+# de CMK - ambos os buckets agora compartilham a MESMA chave gerenciada pela AWS (só existe uma
+# "aws/s3" por conta, não é possível ter uma por bucket sem voltar a ser uma CMK). A separação
+# de segurança entre quarantine/clean continua vindo dos 2 buckets físicos distintos + IAM
+# least-privilege (cada função só recebe permissão explícita no bucket que precisa) - o
+# controle principal já era esse, a chave própria por bucket era uma camada extra, não a única.
+data "aws_kms_key" "s3_managed" {
+  key_id = "alias/aws/s3"
 }
 
 # --- Quarantine bucket -----------------------------------------------------------------------
@@ -56,7 +44,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "quarantine" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.quarantine.arn
+      kms_master_key_id = data.aws_kms_key.s3_managed.arn
     }
     bucket_key_enabled = true
   }
@@ -148,7 +136,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "clean" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.clean.arn
+      kms_master_key_id = data.aws_kms_key.s3_managed.arn
     }
     bucket_key_enabled = true
   }
