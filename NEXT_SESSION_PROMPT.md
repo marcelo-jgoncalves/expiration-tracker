@@ -23,12 +23,19 @@ com compensação real de falha parcial.
 mudar (12 são replace de `aws_lambda_permission` só para adicionar `qualifier="live"`,
 esperado), 0 destroy de dado/infra crítica.
 
-**NÃO mergeado nem deployado ainda** — blast radius maior que os outros fixes desta sessão
-(rewiring simultâneo do invoke real das 13 funções Lambda). Antes do próximo PR
-`develop→main`: (1) confirmar/criar o required reviewer no environment `dev` do GitHub (passo
-manual, fora do Terraform); (2) decidir com o usuário se deploya agora ou como próximo passo
-formal da sessão seguinte. Canários semânticos (entrega 2) continuam registrados como escopo
-futuro explícito, não implementados.
+**Decisão do usuário (2026-08-21/22): sem required reviewer no environment `dev`, deliberadamente.**
+Perguntado sobre configurar isso (eu tentei via API, bloqueado pelo classificador de permissões
+do Claude Code — mudança de configuração de repositório), a resposta foi: "não quero que você
+não consiga trabalhar de maneira autônoma, então não acho que seja interessante me colocar como
+reviewer no momento". Ou seja, o gate de aprovação humana que o design original do `rollback.yml`
+previa como "critério operacional obrigatório da entrega" foi **deliberadamente não configurado**
+— trade-off consciente entre segurança extra e permitir que o agente dispare `cd.yml`/
+`rollback.yml` sem pausar esperando aprovação manual. Não reabrir essa pergunta em sessões
+futuras sem um motivo novo e real (ex. um incidente causado por disparo não intencional).
+
+PR aberto: `develop→main` #20. Blast radius maior que os outros fixes desta sessão (rewiring
+simultâneo do invoke real das 13 funções Lambda). Canários semânticos (entrega 2) continuam
+registrados como escopo futuro explícito, não implementados.
 
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
 
