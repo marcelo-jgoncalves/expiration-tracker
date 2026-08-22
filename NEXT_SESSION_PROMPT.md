@@ -1,5 +1,42 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Mecanismo de rollback — entrega 1 implementada, commitada em `develop` (2026-08-21/22), NÃO deployada
+
+Achado real da rodada focada (rollback/roll-forward inexistente) fechado via protocolo
+Claude↔Codex completo (nota cega round1: Codex 8.6-8.7×2 propostas independentes convergiram no
+mesmo mecanismo; round2 reconciliação com 3 ajustes meus aceitos — bucket S3 dedicado, gate de
+aprovação humana no `workflow_dispatch`, canários semânticos fatiados como entrega 2 — nota final
+9.1-9.2 dos dois lados). Design completo:
+`docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md`.
+
+Implementado: alias `live` real + versionamento em `infra/modules/lambda-function` (todo
+invocador real — API Gateway, event source mappings, EventBridge Scheduler — aponta pro alias,
+nunca `$LATEST`); módulo novo `infra/modules/deploy-manifest-bucket` (bucket S3 dedicado,
+privado, versionado, nunca dado de tenant); `cd.yml` com `plan -out=tfplan`/`apply tfplan` (fecha
+de brinde o achado de "artefato recalculado, não promovido"), verificação real de alias
+pós-apply, manifesto de deploy + ponteiro `current-healthy` só avançado após sucesso completo;
+`rollback.yml` novo (`workflow_dispatch` manual, `environment: dev` — precisa de required
+reviewer configurado nas settings do GitHub, passo operacional ainda pendente de confirmação),
+com compensação real de falha parcial.
+
+`terraform test` (módulo + raiz) verde; `terraform plan` real contra `dev`: 23 a adicionar, 31 a
+mudar (12 são replace de `aws_lambda_permission` só para adicionar `qualifier="live"`,
+esperado), 0 destroy de dado/infra crítica.
+
+**Decisão do usuário (2026-08-21/22): sem required reviewer no environment `dev`, deliberadamente.**
+Perguntado sobre configurar isso (eu tentei via API, bloqueado pelo classificador de permissões
+do Claude Code — mudança de configuração de repositório), a resposta foi: "não quero que você
+não consiga trabalhar de maneira autônoma, então não acho que seja interessante me colocar como
+reviewer no momento". Ou seja, o gate de aprovação humana que o design original do `rollback.yml`
+previa como "critério operacional obrigatório da entrega" foi **deliberadamente não configurado**
+— trade-off consciente entre segurança extra e permitir que o agente dispare `cd.yml`/
+`rollback.yml` sem pausar esperando aprovação manual. Não reabrir essa pergunta em sessões
+futuras sem um motivo novo e real (ex. um incidente causado por disparo não intencional).
+
+PR aberto: `develop→main` #20. Blast radius maior que os outros fixes desta sessão (rewiring
+simultâneo do invoke real das 13 funções Lambda). Canários semânticos (entrega 2) continuam
+registrados como escopo futuro explícito, não implementados.
+
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
 
 2 dos 6 critérios fecharam (nota ≥9.0 dos dois lados): Debuggability & Operational Feedback (9.2),
@@ -52,25 +89,29 @@ verificação explícita de limpeza depois de cada teste.
    (fila/DLQ voltaram a 0, event source mapping reabilitado, estado idêntico ao baseline). Nenhum
    recurso ficou órfão. Evidência: `docs/architecture/reviews/camada3-dlq-redrive-test-2026-08-21.md`.
 3. **Achado severo real, não relacionado aos testes acima, encontrado ao investigar telemetria
-   real durante a Camada 3**: `exptrk-dev-reminder-producer` (e as outras 3 schedules do
-   `reminder-schedule`) estavam falhando em **100% das invocações desde 2026-08-20T14:41:39Z**
-   (~1 dia inteiro). Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
+   real durante a Camada 3**: `exptrk-dev-reminder-producer` estava falhando em **100% das
+   invocações desde 2026-08-20T14:41:39Z** (~1 dia inteiro) — motor de lembretes real de `dev`
+   efetivamente parado. Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
    `<aws.scheduler.scheduled-time>`, o que quebra a substituição textual literal que o
    EventBridge Scheduler faz — o handler recebia o texto literal do placeholder em vez de um
-   timestamp real, e falhava validação sempre. Corrigido em
-   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`).
+   timestamp real, e essa função em particular valida `scheduledTime` como fatal. As outras 3
+   schedules (`reminder-claim-reconciliation`/`reminder-dst-reconciliation`/
+   `outbox-sweeper-reminder-dispatch`) tinham o mesmo bug de armazenamento, mas **sem impacto
+   funcional real** — verificado que seus handlers não validam nem usam `scheduledTime` na
+   lógica (reconciliação só loga o valor; sweeper nem lê o campo). Corrigido em
+   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`)
+   para as 4, por consistência/prevenção, não só pela produtora.
    **Achado adicional**: os testes Terraform existentes comparavam contra o mesmo `jsonencode()`
    usado em produção, certificando o bug como correto — corrigidos para comparar contra o texto
-   literal esperado, com um teste novo de regressão anti-`<` na raiz. `terraform test`
-   (módulo + raiz) e `terraform plan -var-file=env/dev.tfvars` reais e verdes (plan-only, sem
-   apply local). Detalhe completo, impacto e lição de processo:
-   `docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
+   literal esperado, com um teste novo de regressão anti-escape na raiz.
 
-**Ainda não deployado** — a correção está commitada em `develop`, mas política vigente
-(`AGENTS.md` §7, reforçada pelo usuário) exige que toda aplicação real vá só pela pipeline
-(`cd.yml`, merge para `main`). Próxima sessão (ou ainda esta, se o usuário confirmar) deve abrir o
-PR `develop→main` para deployar esta correção — o motor de lembretes real de `dev` continua
-efetivamente parado até isso ser mergeado e o `cd.yml` rodar.
+**Deployado e verificado em produção real (2026-08-22)**: PR #19 (`develop→main`) mergeado,
+`cd.yml` aplicou via pipeline com sucesso. Confirmado via `aws scheduler get-schedule` que o
+`Input` armazenado não tem mais escaping, e via métricas CloudWatch (`Invocations`/`Errors` de
+`exptrk-dev-reminder-producer`) que, após o backlog de retries assíncronos remanescentes drenar,
+a função passou a invocar com sucesso de forma sustentada (`Invocations=1`/`Errors=0` por
+minuto). Detalhe completo, impacto real por função e verificação pós-deploy:
+`docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
 
 ## Passo 3 concluído (2026-08-21) — decisão de próximo marco estrutural
 

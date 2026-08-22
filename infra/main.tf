@@ -204,17 +204,19 @@ module "outbox_sweeper" {
 module "api" {
   source = "./modules/api-gateway"
 
-  api_name                    = "${local.name_prefix}-api"
-  user_pool_id                = module.auth.user_pool_id
-  user_pool_client_id         = module.auth.user_pool_client_id
-  aws_region                  = var.aws_region
-  test_ping_invoke_arn        = module.test_ping_handler.invoke_arn
+  api_name            = "${local.name_prefix}-api"
+  user_pool_id        = module.auth.user_pool_id
+  user_pool_client_id = module.auth.user_pool_client_id
+  aws_region          = var.aws_region
+  # Rollback design entrega 1: API Gateway integrates against the `live` alias (never
+  # $LATEST) so an emergency alias repoint actually changes what a real request invokes.
+  test_ping_invoke_arn        = module.test_ping_handler.live_alias_invoke_arn
   test_ping_function_name     = module.test_ping_handler.function_name
-  items_invoke_arn            = module.items_handler.invoke_arn
+  items_invoke_arn            = module.items_handler.live_alias_invoke_arn
   items_function_name         = module.items_handler.function_name
-  reminders_invoke_arn        = module.reminders_handler.invoke_arn
+  reminders_invoke_arn        = module.reminders_handler.live_alias_invoke_arn
   reminders_function_name     = module.reminders_handler.function_name
-  notifications_invoke_arn    = module.notifications_handler.invoke_arn
+  notifications_invoke_arn    = module.notifications_handler.live_alias_invoke_arn
   notifications_function_name = module.notifications_handler.function_name
   tags                        = { Project = local.project_name, Environment = var.environment }
 }
@@ -246,14 +248,14 @@ module "dispatch_queue" {
 
 resource "aws_lambda_event_source_mapping" "reminder_dispatch_from_queue" {
   event_source_arn        = module.dispatch_queue.queue_arn
-  function_name           = module.reminder_dispatch.function_name
+  function_name           = module.reminder_dispatch.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }
 
 resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
   event_source_arn        = module.table.stream_arn
-  function_name           = module.dispatch_outbox_relay.function_name
+  function_name           = module.dispatch_outbox_relay.live_alias_arn
   starting_position       = "LATEST"
   batch_size              = 25
   function_response_types = ["ReportBatchItemFailures"]
@@ -380,7 +382,7 @@ module "notification_router" {
 
 resource "aws_lambda_event_source_mapping" "notification_router_from_stream" {
   event_source_arn        = module.table.stream_arn
-  function_name           = module.notification_router.function_name
+  function_name           = module.notification_router.live_alias_arn
   starting_position       = "LATEST"
   batch_size              = 25
   function_response_types = ["ReportBatchItemFailures"]
@@ -404,7 +406,7 @@ module "notification_email_outbox_relay" {
 
 resource "aws_lambda_event_source_mapping" "notification_email_outbox_relay_from_stream" {
   event_source_arn        = module.table.stream_arn
-  function_name           = module.notification_email_outbox_relay.function_name
+  function_name           = module.notification_email_outbox_relay.live_alias_arn
   starting_position       = "LATEST"
   batch_size              = 25
   function_response_types = ["ReportBatchItemFailures"]
@@ -431,7 +433,7 @@ module "email_delivery" {
 
 resource "aws_lambda_event_source_mapping" "email_delivery_from_queue" {
   event_source_arn        = module.email_deliver_queue.queue_arn
-  function_name           = module.email_delivery.function_name
+  function_name           = module.email_delivery.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }
@@ -453,7 +455,7 @@ module "ses_callback" {
 
 resource "aws_lambda_event_source_mapping" "ses_callback_from_queue" {
   event_source_arn        = module.ses_callback_queue.queue_arn
-  function_name           = module.ses_callback.function_name
+  function_name           = module.ses_callback.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }
@@ -463,11 +465,14 @@ resource "aws_lambda_event_source_mapping" "ses_callback_from_queue" {
 module "schedule" {
   source = "./modules/reminder-schedule"
 
-  reminder_producer_function_arn        = module.reminder_producer.function_arn
+  # Rollback design entrega 1: EventBridge Scheduler targets + its invoke permission both use
+  # the `live` alias ARN (never $LATEST/the bare function ARN) so an emergency alias repoint
+  # actually changes what the schedule invokes.
+  reminder_producer_function_arn        = module.reminder_producer.live_alias_arn
   reminder_producer_function_name       = module.reminder_producer.function_name
-  reminder_reconciliation_function_arn  = module.reminder_reconciliation.function_arn
+  reminder_reconciliation_function_arn  = module.reminder_reconciliation.live_alias_arn
   reminder_reconciliation_function_name = module.reminder_reconciliation.function_name
-  outbox_sweeper_function_arn           = module.outbox_sweeper.function_arn
+  outbox_sweeper_function_arn           = module.outbox_sweeper.live_alias_arn
   outbox_sweeper_function_name          = module.outbox_sweeper.function_name
   schedules_enabled                     = var.schedules_enabled
   tags                                  = { Project = local.project_name, Environment = var.environment }
@@ -496,4 +501,16 @@ module "cost_budget" {
   name                = "${local.name_prefix}-monthly-cost"
   monthly_limit_usd   = var.monthly_budget_usd
   notification_emails = var.budget_notification_emails
+}
+
+# --- Rollback design entrega 1: deploy manifest bucket -------------------------------------
+# docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md §3.
+# Operational-only bucket (deploy manifests, current-healthy pointer, rollback records) -
+# never tenant data or PII, deliberately separate from the document buckets.
+
+module "deploy_manifests" {
+  source = "./modules/deploy-manifest-bucket"
+
+  bucket_name = "${local.name_prefix}-deploy-manifests"
+  tags        = { Project = local.project_name, Environment = var.environment }
 }

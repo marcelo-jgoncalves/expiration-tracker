@@ -429,6 +429,31 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
   }
 }
 
+run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
+  command = plan
+
+  # Rollback design entrega 1 (docs/architecture/reviews/rollback-mechanism-design/
+  # codex-round2-final-design.md): every function's config must publish a version and have a
+  # `live` alias (asserted per-function in the module's own tests, apply-mode with
+  # mock_provider); at root, assert the manifest map covers all 13 functions and the
+  # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
+  # config, not resource-computed attributes).
+  assert {
+    condition     = length(output.lambda_published_versions) == 13
+    error_message = "Deploy manifest map must cover exactly the 13 real Lambda functions"
+  }
+
+  assert {
+    condition     = output.deploy_manifest_bucket_name != ""
+    error_message = "Dedicated deploy manifest bucket must exist"
+  }
+
+  assert {
+    condition     = !strcontains(output.deploy_manifest_bucket_name, "exptrk-dev-table")
+    error_message = "Deploy manifest bucket must never be the tenant document/table resource"
+  }
+}
+
 run "monthly_cost_budget_exists" {
   command = plan
 

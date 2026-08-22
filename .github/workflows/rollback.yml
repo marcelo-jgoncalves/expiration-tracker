@@ -1,0 +1,269 @@
+# Emergency rollback workflow — rollback design entrega 1
+# (docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md).
+#
+# Repoints every real Lambda function's `live` alias to a previously-recorded healthy
+# deployment's versions, via `aws lambda update-alias` directly - NEVER `terraform apply`.
+# This is intentionally a separate, faster, narrower mechanism than a normal deploy: it only
+# ever changes alias->version pointers, never infrastructure, and completes in roughly
+# 30-90 seconds instead of a full CI+CD cycle.
+#
+# Scope explicitly NOT covered here (see the design doc's "fora do escopo" section):
+# rollback of Terraform-managed infrastructure/schema/IAM; rollback or compensation of
+# DynamoDB data; reversal of already-produced external effects (e-mails sent, messages
+# consumed); semantic/canary health checks (still only the same shallow post-check `cd.yml`
+# uses) - a future "entrega 2" is expected to add per-handler semantic canaries before this
+# pointer can be trusted as proof of real application health, not just routing.
+#
+# `current-healthy` is only advanced to the restored deployment if the ENTIRE rollback
+# (alias updates + shallow post-check) succeeds. A partial failure triggers compensation
+# (reverting the aliases already changed) before the job fails.
+
+name: Emergency Rollback (dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to roll back. Only 'dev' is supported in this entrega."
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+      deployment_id:
+        description: >-
+          Target deploymentId to restore. Leave empty to use the current healthy
+          deployment's own previousHealthyDeploymentId (i.e. "undo the last deploy").
+        required: false
+        type: string
+      confirmation:
+        description: "Type exactly: ROLLBACK dev"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+# Never race a normal deploy or another rollback - both mutate the same aliases/pointer.
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  rollback-dev:
+    name: Rollback → Dev
+    runs-on: ubuntu-latest
+    environment: dev
+    if: github.event.inputs.environment == 'dev'
+    steps:
+      - name: Validate literal confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "ROLLBACK dev" ]; then
+            echo "::error::confirmation input must be exactly 'ROLLBACK dev' - got '${{ github.event.inputs.confirmation }}'"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC, no persistent secret)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve manifest bucket
+        id: bucket
+        run: |
+          set -e
+          name="exptrk-dev-deploy-manifests"
+          aws s3api head-bucket --bucket "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve target manifest
+        id: target
+        run: |
+          set -e
+          bucket="${{ steps.bucket.outputs.name }}"
+
+          current_healthy=$(aws s3 cp "s3://$bucket/pointers/current-healthy.json" -)
+          current_id=$(echo "$current_healthy" | jq -r '.deploymentId')
+
+          requested="${{ github.event.inputs.deployment_id }}"
+          if [ -n "$requested" ]; then
+            target_id="$requested"
+          else
+            target_id=$(echo "$current_healthy" | jq -r '.previousHealthyDeploymentId')
+            if [ "$target_id" = "null" ] || [ -z "$target_id" ]; then
+              echo "::error::current-healthy has no previousHealthyDeploymentId (this is the first healthy deploy since entrega 1 shipped) - pass deployment_id explicitly if you have an earlier manifest, or there is nothing to roll back to yet."
+              exit 1
+            fi
+          fi
+
+          if [ "$target_id" = "$current_id" ]; then
+            echo "::error::Target deployment ($target_id) is already the current healthy deployment - nothing to roll back to."
+            exit 1
+          fi
+
+          manifest=$(aws s3 cp "s3://$bucket/deployments/$target_id.json" -)
+          echo "$manifest" > /tmp/target-manifest.json
+
+          # Schema/environment/function-set validation - never accept a malformed or
+          # cross-environment manifest as a rollback target.
+          schema_version=$(echo "$manifest" | jq -r '.schemaVersion')
+          environment=$(echo "$manifest" | jq -r '.environment')
+          fn_count=$(echo "$manifest" | jq '.functions | length')
+          if [ "$schema_version" != "1" ]; then
+            echo "::error::Unsupported manifest schemaVersion: $schema_version"
+            exit 1
+          fi
+          if [ "$environment" != "dev" ]; then
+            echo "::error::Manifest environment ($environment) does not match dev"
+            exit 1
+          fi
+          if [ "$fn_count" != "13" ]; then
+            echo "::error::Manifest has $fn_count functions, expected exactly 13"
+            exit 1
+          fi
+
+          echo "target_id=$target_id" >> "$GITHUB_OUTPUT"
+          echo "Target deployment: $target_id (commit ${{ github.sha }} not necessarily current - restoring $(echo "$manifest" | jq -r '.commitSha'))"
+
+      - name: Confirm every target version still exists before touching any alias
+        run: |
+          set -e
+          for fn in $(jq -r '.functions | keys[]' /tmp/target-manifest.json); do
+            version=$(jq -r --arg fn "$fn" '.functions[$fn].version' /tmp/target-manifest.json)
+            aws lambda get-function --function-name "$fn" --qualifier "$version" >/dev/null
+            echo "OK: $fn version $version exists"
+          done
+
+      - name: Capture current alias map (for compensation if the rollback fails partway)
+        id: before
+        run: |
+          set -e
+          map="{}"
+          for fn in $(jq -r '.functions | keys[]' /tmp/target-manifest.json); do
+            current_version=$(aws lambda get-alias --function-name "$fn" --name live --query FunctionVersion --output text)
+            map=$(echo "$map" | jq --arg fn "$fn" --arg v "$current_version" '. + {($fn): $v}')
+          done
+          echo "$map" > /tmp/before-map.json
+          cat /tmp/before-map.json
+
+      - name: Update aliases to the target deployment (sequential, stops on first failure)
+        id: rollback
+        run: |
+          set -e
+          updated=""
+          for fn in $(jq -r '.functions | keys[]' /tmp/target-manifest.json); do
+            version=$(jq -r --arg fn "$fn" '.functions[$fn].version' /tmp/target-manifest.json)
+            echo "Updating $fn live -> v$version"
+            aws lambda update-alias --function-name "$fn" --name live --function-version "$version" >/dev/null
+            updated="$updated $fn"
+          done
+          echo "updated_functions=$updated" >> "$GITHUB_OUTPUT"
+          echo "status=routing_restored" >> "$GITHUB_OUTPUT"
+
+      - name: Compensate on failure (revert already-changed aliases to their pre-rollback versions)
+        if: failure() && steps.rollback.outcome == 'failure'
+        run: |
+          set +e
+          compensation_ok=true
+          for fn in $(jq -r 'keys[]' /tmp/before-map.json); do
+            version=$(jq -r --arg fn "$fn" '.[$fn]' /tmp/before-map.json)
+            aws lambda update-alias --function-name "$fn" --name live --function-version "$version" >/dev/null
+            if [ $? -ne 0 ]; then
+              compensation_ok=false
+              echo "::error::Failed to compensate $fn back to v$version"
+            fi
+          done
+          if [ "$compensation_ok" = "true" ]; then
+            echo "status=partial_failure_compensated" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=partial_failure_compensation_failed" >> "$GITHUB_OUTPUT"
+            echo "::error::Compensation itself failed - manual intervention required, see before-map.json in the run log above."
+          fi
+
+      - name: Verify every alias now points at the target version
+        id: verify
+        run: |
+          set -e
+          for fn in $(jq -r '.functions | keys[]' /tmp/target-manifest.json); do
+            expected=$(jq -r --arg fn "$fn" '.functions[$fn].version' /tmp/target-manifest.json)
+            actual=$(aws lambda get-alias --function-name "$fn" --name live --query FunctionVersion --output text)
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$fn live alias is at v$actual, expected v$expected"
+              exit 1
+            fi
+          done
+          echo "All aliases confirmed at target versions."
+
+      - name: Shallow post-check (same resource-existence checks cd.yml uses)
+        id: postcheck
+        run: |
+          set -e
+          table_name=$(aws dynamodb list-tables --query "TableNames[?starts_with(@, 'exptrk-dev-table')]|[0]" --output text)
+          aws dynamodb describe-table --table-name "$table_name" >/dev/null
+          echo "OK: table describable post-rollback"
+          echo "status=health_verified" >> "$GITHUB_OUTPUT"
+
+      - name: Persist rollback record and advance current-healthy
+        if: success()
+        run: |
+          set -e
+          bucket="${{ steps.bucket.outputs.name }}"
+          rollback_id="rollback-${{ github.run_id }}-${{ github.run_attempt }}"
+          target_id="${{ steps.target.outputs.target_id }}"
+
+          record=$(jq -n \
+            --arg rollbackId "$rollback_id" \
+            --arg targetDeploymentId "$target_id" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg routingStatus "routing_restored" \
+            --arg healthStatus "health_verified" \
+            '{rollbackId: $rollbackId, targetDeploymentId: $targetDeploymentId, createdAt: $createdAt,
+              workflowRunUrl: $workflowRunUrl, actor: $actor, routingStatus: $routingStatus,
+              healthStatus: $healthStatus, status: "completed"}')
+
+          echo "$record" | aws s3 cp - "s3://$bucket/rollbacks/$rollback_id.json" --content-type application/json
+
+          # The restored manifest becomes current-healthy again - re-persist it verbatim so
+          # its own previousHealthyDeploymentId chain (audit trail) stays intact.
+          aws s3 cp /tmp/target-manifest.json "s3://$bucket/pointers/current-healthy.json" --content-type application/json
+
+          {
+            echo "### Rollback Complete"
+            echo "- **Restored deployment:** $target_id"
+            echo "- **Routing:** restored"
+            echo "- **Health check:** verified (shallow)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record failed/compensated rollback (only reached if a prior step failed)
+        if: failure()
+        run: |
+          set -e
+          bucket="${{ steps.bucket.outputs.name }}"
+          rollback_id="rollback-${{ github.run_id }}-${{ github.run_attempt }}"
+          status="${{ steps.rollback.outputs.status || 'failed_before_routing_change' }}"
+
+          record=$(jq -n \
+            --arg rollbackId "$rollback_id" \
+            --arg targetDeploymentId "${{ steps.target.outputs.target_id }}" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg status "$status" \
+            '{rollbackId: $rollbackId, targetDeploymentId: $targetDeploymentId, createdAt: $createdAt,
+              workflowRunUrl: $workflowRunUrl, actor: $actor, status: $status}')
+
+          echo "$record" | aws s3 cp - "s3://$bucket/rollbacks/$rollback_id.json" --content-type application/json || true
+
+          {
+            echo "### Rollback FAILED"
+            echo "- **Status:** $status"
+            echo "- current-healthy pointer was NOT advanced."
+            echo "- See job log above for the before/target alias maps if manual intervention is needed."
+          } >> "$GITHUB_STEP_SUMMARY"

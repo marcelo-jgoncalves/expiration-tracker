@@ -123,4 +123,27 @@ run "jwt_authorizer_attached_to_every_route" {
     )
     error_message = "PUT /notifications/preferences route must exist"
   }
+
+  # Rollback design entrega 1: every invoke permission must be scoped to the `live` alias,
+  # never the unqualified function ($LATEST) - required for an emergency alias repoint to
+  # actually change what a real API Gateway request invokes.
+  assert {
+    condition     = aws_lambda_permission.test_ping.qualifier == "live"
+    error_message = "TestPingHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.items.qualifier == "live"
+    error_message = "ItemsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.reminders.qualifier == "live"
+    error_message = "RemindersHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.notifications.qualifier == "live"
+    error_message = "NotificationsHandler invoke permission must be scoped to the 'live' alias"
+  }
 }
