@@ -126,7 +126,9 @@ module "reminder_reconciliation" {
   adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = local.common_env
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
-  # One of EXACTLY TWO roles granted gsi6_read (the other is OutboxSweeperReminderDispatch).
+  # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
+  # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
+  # GlobalIndexComponent "upload-slot-reconciliation").
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
@@ -186,7 +188,8 @@ module "outbox_sweeper" {
     EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
-  # The other of EXACTLY TWO roles granted gsi6_read. M4 extends this SAME privileged role
+  # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
+  # M4 extends this SAME privileged role
   # to also send to the notification email queue (docs/architecture/m4-notification-engine-design.md
   # §7.4: one sweeper covering both destinations, not a second sweeper querying the same
   # global GSI6 partition).
@@ -218,6 +221,8 @@ module "api" {
   reminders_function_name     = module.reminders_handler.function_name
   notifications_invoke_arn    = module.notifications_handler.live_alias_invoke_arn
   notifications_function_name = module.notifications_handler.function_name
+  documents_invoke_arn        = module.documents_handler.live_alias_invoke_arn
+  documents_function_name     = module.documents_handler.function_name
   tags                        = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -536,4 +541,355 @@ module "security_audit_observability" {
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- M6: Document upload e malware boundary ------------------------------------------------
+# docs/architecture/reviews/m6-document-upload-design/codex-reconciliation-round2-final-design.md
+# (Claude 9.4/Codex 9.6). Two physically separate buckets (quarantine/clean, own KMS keys),
+# GuardDuty Malware Protection behind the `malware_protection_enabled` toggle, 5 new Lambda
+# functions. No business-facing Lambda role (items-handler etc.) is ever granted any
+# permission on either bucket - only the 5 functions below.
+
+module "document_buckets" {
+  source = "./modules/document-buckets"
+
+  name_prefix = local.name_prefix
+  tags        = { Project = local.project_name, Environment = var.environment }
+}
+
+module "malware_result_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-malware-result"
+  consumer_timeout_seconds = 15
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "upload_finalizer_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-upload-finalizer"
+  consumer_timeout_seconds = 30 # covers the synchronous parser-sandbox invocation below
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# S3 "Object Created" in the quarantine bucket -> UploadFinalizerWorker. The quarantine
+# bucket's own aws_s3_bucket_notification (document-buckets module) forwards to EventBridge;
+# this is the rule/target/queue-policy triad that routes it onward (same shape as M4's
+# notification.intent-created.v1 rule below).
+resource "aws_cloudwatch_event_rule" "quarantine_object_created" {
+  name           = "${local.name_prefix}-quarantine-object-created"
+  event_bus_name = "default"
+  event_pattern = jsonencode({
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = { name = [module.document_buckets.quarantine_bucket_name] }
+    }
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "quarantine_object_created_to_finalizer_queue" {
+  rule      = aws_cloudwatch_event_rule.quarantine_object_created.name
+  target_id = "upload-finalizer-queue"
+  arn       = module.upload_finalizer_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "eventbridge_to_upload_finalizer_queue" {
+  statement {
+    sid       = "AllowEventBridgeRuleToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.upload_finalizer_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.quarantine_object_created.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "upload_finalizer_queue" {
+  queue_url = module.upload_finalizer_queue.queue_url
+  policy    = data.aws_iam_policy_document.eventbridge_to_upload_finalizer_queue.json
+}
+
+# --- ParserSandbox: isolated Lambda, no VPC/DynamoDB/clean-bucket access (M6 design) --------
+
+data "aws_iam_policy_document" "parser_sandbox_read_quarantine" {
+  statement {
+    sid       = "ReadQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:GetObjectVersion"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+}
+
+module "parser_sandbox" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-parser-sandbox"
+  handler_name    = "parser-sandbox-handler"
+  source_dir      = "${local.dist_dir}/parser-sandbox-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30  # M6 design: 30s hard limit on PDF structural parsing.
+  memory_size     = 512 # pdf-lib needs headroom beyond the 256MB default for a 10MiB PDF.
+  policy_documents_json = [
+    data.aws_iam_policy_document.parser_sandbox_read_quarantine.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- DocumentsHandler: HTTP (POST reserve upload, DELETE document) --------------------------
+
+data "aws_iam_policy_document" "documents_presign_quarantine_put" {
+  statement {
+    sid       = "PresignQuarantinePut"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "EncryptQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey"]
+    resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+}
+
+module "documents_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-documents-handler"
+  handler_name   = "documents-handler"
+  source_dir     = "${local.dist_dir}/documents-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET = module.document_buckets.quarantine_bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- UploadFinalizerWorker: S3 event (via queue) -> validate + invoke ParserSandbox ---------
+
+data "aws_iam_policy_document" "upload_finalizer_read_quarantine" {
+  statement {
+    sid       = "ReadQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:GetObjectVersion"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+}
+
+data "aws_iam_policy_document" "upload_finalizer_invoke_parser_sandbox" {
+  statement {
+    sid       = "InvokeParserSandbox"
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [module.parser_sandbox.function_arn]
+  }
+}
+
+module "upload_finalizer_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-upload-finalizer-handler"
+  handler_name    = "upload-finalizer-handler"
+  source_dir      = "${local.dist_dir}/upload-finalizer-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.upload_finalizer_read_quarantine.json,
+    data.aws_iam_policy_document.upload_finalizer_invoke_parser_sandbox.json,
+    module.upload_finalizer_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "upload_finalizer_from_queue" {
+  event_source_arn        = module.upload_finalizer_queue.queue_arn
+  function_name           = module.upload_finalizer_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- MalwareResultWorker: GuardDuty scan result (via queue) -> promote or reject -----------
+
+data "aws_iam_policy_document" "malware_result_object_access" {
+  statement {
+    sid       = "ReadDeleteQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:GetObjectVersion", "s3:DeleteObjectVersion"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "WriteCleanObjects"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.document_buckets.clean_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+  statement {
+    sid       = "EncryptCleanObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+    resources = [module.document_buckets.clean_kms_key_arn]
+  }
+}
+
+module "malware_result_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-malware-result-handler"
+  handler_name    = "malware-result-handler"
+  source_dir      = "${local.dist_dir}/malware-result-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET = module.document_buckets.quarantine_bucket_name
+    CLEAN_BUCKET      = module.document_buckets.clean_bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.malware_result_object_access.json,
+    module.malware_result_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "malware_result_from_queue" {
+  event_source_arn        = module.malware_result_queue.queue_arn
+  function_name           = module.malware_result_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+module "document_malware_protection" {
+  source = "./modules/document-malware-protection"
+
+  malware_protection_enabled = var.malware_protection_enabled
+  environment                = var.environment
+  name_prefix                = local.name_prefix
+  quarantine_bucket_name     = module.document_buckets.quarantine_bucket_name
+  quarantine_bucket_arn      = module.document_buckets.quarantine_bucket_arn
+  quarantine_kms_key_arn     = module.document_buckets.quarantine_kms_key_arn
+  malware_result_queue_arn   = module.malware_result_queue.queue_arn
+  malware_result_queue_url   = module.malware_result_queue.queue_url
+  tags                       = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- UploadSlotReconciliationWorker: EventBridge Scheduler, every 15 minutes ---------------
+# Third (of exactly three, alongside ReminderReconciliation/OutboxSweeperReminderDispatch)
+# role ever granted gsi6_read - see security-audit.ts's GlobalIndexComponent
+# "upload-slot-reconciliation" and stack.tftest.hcl's updated GSI6 isolation assertions.
+
+module "upload_slot_reconciliation_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-upload-slot-reconciliation-handler"
+  handler_name          = "upload-slot-reconciliation-handler"
+  source_dir            = "${local.dist_dir}/upload-slot-reconciliation-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi6_read_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "upload_slot_reconciliation_schedule" {
+  name = "${module.upload_slot_reconciliation_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "upload_slot_reconciliation_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.upload_slot_reconciliation_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeUploadSlotReconciliation"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.upload_slot_reconciliation_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+# jsonencode() HTML-escapes "<"/">" (reminder-schedule/main.tf's real bug, 2026-08-21) - this
+# schedule's input is a literal HCL string for the same reason, even though it has no
+# scheduler context attribute today (defense against ever adding one here without noticing).
+resource "aws_scheduler_schedule" "upload_slot_reconciliation" {
+  name                = "upload-slot-reconciliation"
+  schedule_expression = "rate(15 minutes)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = module.upload_slot_reconciliation_handler.live_alias_arn
+    role_arn = aws_iam_role.upload_slot_reconciliation_schedule.arn
+    input    = "{}"
+  }
+}
+
+module "document_observability" {
+  source = "./modules/document-observability"
+
+  malware_result_function_name             = module.malware_result_handler.function_name
+  upload_slot_reconciliation_function_name = module.upload_slot_reconciliation_handler.function_name
+  alert_topic_arn                          = module.alert_topic.topic_arn
+  tags                                     = { Project = local.project_name, Environment = var.environment }
 }

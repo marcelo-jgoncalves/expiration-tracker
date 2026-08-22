@@ -138,6 +138,41 @@ resource "aws_lambda_permission" "reminders" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reminders/policies*"
 }
 
+# --- DocumentsHandler: /items/{itemId}/documents* (M6) ----------------------------------
+
+resource "aws_apigatewayv2_integration" "documents" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.documents_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  documents_routes = {
+    reserve_upload = { method = "POST", path = "/items/{itemId}/documents" }
+    delete         = { method = "DELETE", path = "/items/{itemId}/documents/{documentId}" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "documents" {
+  for_each = local.documents_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.documents.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "documents" {
+  statement_id  = "AllowApiGatewayInvokeDocuments"
+  action        = "lambda:InvokeFunction"
+  function_name = var.documents_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/documents*"
+}
+
 # --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------
 
 resource "aws_apigatewayv2_integration" "notifications" {

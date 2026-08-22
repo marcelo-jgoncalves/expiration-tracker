@@ -112,4 +112,29 @@ export class TenantQuotaService {
       quotaType: input.quotaType,
     });
   }
+
+  /**
+   * Releases 1 previously-consumed unit — M6 design §3.5 (UploadSlotReconciliationWorker
+   * "libera quota idempotentemente" for a slot that expired unconfirmed). Idempotent: never
+   * decrements below 0, and calling this twice for the same already-released slot floors at 0
+   * rather than double-crediting. A window that has already reset naturally (count implicitly
+   * 0) is a no-op, not an error - the quota already recovered on its own.
+   */
+  async release(input: Omit<QuotaCheckInput, "limit"> & { limit?: number }): Promise<void> {
+    for (let attempt = 0; attempt < TenantQuotaService.MAX_CONTENTION_RETRIES; attempt++) {
+      const key = tenantQuotaKey(input.tenantId, input.quotaType, input.window);
+      const nowIso = this.now();
+      const existing = await this.store.get<TenantQuotaRecord>(key);
+      if (!existing) return; // nothing consumed yet for this window - nothing to release.
+
+      const windowExpired = existing.resetAt < nowIso;
+      if (windowExpired) return; // window already reset naturally - already recovered.
+
+      const nextCount = Math.max(0, existing.count - 1);
+      const wrote = await this.store.updateConditional({ ...existing, count: nextCount }, { count: existing.count, resetAt: existing.resetAt });
+      if (wrote) return;
+      // Lost a concurrent write race; re-read and retry against fresh state.
+    }
+    throw new QuotaExceededError("Quota release could not complete under contention.", { tenantId: input.tenantId, quotaType: input.quotaType });
+  }
 }

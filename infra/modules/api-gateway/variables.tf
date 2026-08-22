@@ -63,6 +63,16 @@ variable "notifications_function_name" {
   type        = string
 }
 
+variable "documents_invoke_arn" {
+  description = "Invoke ARN of the DocumentsHandler Lambda (M6) — backs POST /items/{itemId}/documents and DELETE /items/{itemId}/documents/{documentId}."
+  type        = string
+}
+
+variable "documents_function_name" {
+  description = "Function name of the DocumentsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)

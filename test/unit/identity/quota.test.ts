@@ -76,4 +76,32 @@ describe("TenantQuotaService", () => {
     expect(fulfilled).toBe(input.limit);
     expect(rejected).toBe(25 - input.limit);
   });
+
+  it("release() decrements a previously-consumed unit, freeing capacity for a new consume() in the same window (M6 UploadSlotReconciliationWorker)", async () => {
+    const store = new InMemoryIdentityStore();
+    const quota = new TenantQuotaService(store);
+    const input = { tenantId: "tenant-a", quotaType: "UPLOAD_COUNT" as const, window: "w1", limit: 1, windowSeconds: 60 };
+
+    await quota.consume(input);
+    await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError);
+
+    await quota.release(input);
+    await expect(quota.consume(input)).resolves.toBeUndefined();
+  });
+
+  it("release() is idempotent and never decrements below 0", async () => {
+    const store = new InMemoryIdentityStore();
+    const quota = new TenantQuotaService(store);
+    const input = { tenantId: "tenant-a", quotaType: "UPLOAD_COUNT" as const, window: "w1", limit: 5, windowSeconds: 60 };
+
+    await quota.consume(input);
+    await quota.release(input);
+    await expect(quota.release(input)).resolves.toBeUndefined(); // second release: no-op, not an error.
+  });
+
+  it("release() is a no-op when nothing has been consumed for that window yet", async () => {
+    const store = new InMemoryIdentityStore();
+    const quota = new TenantQuotaService(store);
+    await expect(quota.release({ tenantId: "tenant-a", quotaType: "UPLOAD_COUNT", window: "w1", windowSeconds: 60 })).resolves.toBeUndefined();
+  });
 });

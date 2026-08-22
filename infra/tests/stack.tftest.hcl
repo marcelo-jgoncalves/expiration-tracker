@@ -33,13 +33,13 @@ run "thirteen_lambda_functions_exist_no_placeholder" {
   # here - the lambda-function module always zips an on-disk directory via data.archive_file
   # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 13
-    error_message = "Expected exactly 13 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler"
+    condition     = length(output.lambda_function_names) == 18
+    error_message = "Expected exactly 18 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 13
-    error_message = "All 13 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 18
+    error_message = "All 18 Lambda function names must be distinct"
   }
 }
 
@@ -122,8 +122,9 @@ run "gsi3_access_granted_only_to_reminder_producer" {
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   command = plan
 
-  # M3.5 isolation: GSI6 access is granted to EXACTLY ReminderReconciliation and
-  # OutboxSweeperReminderDispatch - no other function's IAM policy references GSI6.
+  # M3.5 isolation, extended by M6: GSI6 access is granted to EXACTLY ReminderReconciliation,
+  # OutboxSweeperReminderDispatch, and (since M6) UploadSlotReconciliationWorker - no other
+  # function's IAM policy references GSI6.
   assert {
     condition     = anytrue([for p in module.reminder_reconciliation.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "ReminderReconciliation must have a policy referencing GSI6"
@@ -131,6 +132,10 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   assert {
     condition     = anytrue([for p in module.outbox_sweeper.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "OutboxSweeperReminderDispatch must have a policy referencing GSI6"
+  }
+  assert {
+    condition     = anytrue([for p in module.upload_slot_reconciliation_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "UploadSlotReconciliationWorker must have a policy referencing GSI6 (M6)"
   }
 
   assert {
@@ -183,6 +188,27 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   assert {
     condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "NotificationsHandler must NOT reference GSI6"
+  }
+
+  # M6: none of the 5 document-module functions except UploadSlotReconciliationWorker itself
+  # is one of the three GSI6-privileged roles. Only index [0] (the plain
+  # tenant_facing_read_write_policy_json, plan-time-known) is checked here - same rationale as
+  # DispatchOutboxRelay above: the other capability documents in these functions' lists embed
+  # not-yet-created S3/KMS resource ARNs (unknown until apply), and none of them ever receives
+  # module.table.gsi6_read_policy_json in the first place (structurally impossible - see
+  # main.tf), so there is nothing to check there. ParserSandbox gets no table policy at all
+  # (isolated by design), so it is skipped entirely rather than asserted on.
+  assert {
+    condition     = !strcontains(module.documents_handler.capability_policy_documents[0], "/index/GSI6")
+    error_message = "DocumentsHandler's table-access policy must NOT reference GSI6"
+  }
+  assert {
+    condition     = !strcontains(module.upload_finalizer_handler.capability_policy_documents[0], "/index/GSI6")
+    error_message = "UploadFinalizerWorker's table-access policy must NOT reference GSI6"
+  }
+  assert {
+    condition     = !strcontains(module.malware_result_handler.capability_policy_documents[0], "/index/GSI6")
+    error_message = "MalwareResultWorker's table-access policy must NOT reference GSI6"
   }
 }
 
@@ -394,6 +420,16 @@ run "event_source_mappings_use_partial_batch_failure" {
     condition     = contains(aws_lambda_event_source_mapping.ses_callback_from_queue.function_response_types, "ReportBatchItemFailures")
     error_message = "SesCallback's SQS event source mapping must use ReportBatchItemFailures"
   }
+
+  # M6's 2 new event source mappings - same discipline.
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.upload_finalizer_from_queue.function_response_types, "ReportBatchItemFailures")
+    error_message = "UploadFinalizerWorker's SQS event source mapping must use ReportBatchItemFailures"
+  }
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.malware_result_from_queue.function_response_types, "ReportBatchItemFailures")
+    error_message = "MalwareResultWorker's SQS event source mapping must use ReportBatchItemFailures"
+  }
 }
 
 run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
@@ -439,8 +475,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 13
-    error_message = "Deploy manifest map must cover exactly the 13 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 18
+    error_message = "Deploy manifest map must cover exactly the 18 real Lambda functions"
   }
 
   assert {

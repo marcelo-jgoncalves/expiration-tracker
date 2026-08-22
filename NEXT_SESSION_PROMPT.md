@@ -1,5 +1,27 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Renumeração de milestone registrada (2026-08-22) — leia antes de qualquer trabalho de M6/M7
+
+Achado real de drift de contexto: "M5" já foi usado para Observabilidade (inserção ad hoc, não
+fazia parte do `implementation-blueprint.md` original — `decisions-log.md` D-030). O blueprint
+original define M5="Document upload e malware boundary", M6="Extraction e confirmação",
+M7="Hardening operacional" — esses 3, ainda não implementados, agora são tratados como **M6**,
+**M7**, **M8** neste projeto (nota registrada em `implementation-blueprint.md` §19, mesmo padrão
+de inserção já usado para M3.5). `docs/architecture/diagrams/project-status.html` já atualizado.
+**Próxima ação real de produto: M6 = Document upload e malware boundary** (upload presigned,
+quarentena S3, GuardDuty, promoção CLEAN, exclusão segura) — não "Extraction/AI" como uma
+referência vaga anterior sugeria; extração (M7) depende de M6 existir primeiro.
+
+## Progresso real desta sessão (2026-08-21/22, resumo — ver seções datadas abaixo para detalhe)
+
+Camada 3 real (IAM negativo + DLQ/redrive, decisão do usuário de reusar a conta `dev`) achou um
+bug crítico colateral: `reminder-producer` parado ~1 dia inteiro (EventBridge Scheduler +
+`jsonencode()` HTML-escapando o placeholder) — corrigido e verificado. Na sequência, 2 achados
+abertos da rodada focada de auditoria foram fechados via protocolo Claude↔Codex completo,
+implementados, deployados e verificados em produção real: mecanismo de rollback (alias+versão
+Lambda, manifesto S3, `rollback.yml`, exercitado de ponta a ponta) e trilha de auditoria de
+segurança (negação de autorização + acesso GSI3/GSI6, 3 alarmes reais). 255→274 testes.
+
 ## Trilha de auditoria de segurança — MVP implementado, commitado em `develop` (2026-08-22), aguardando deploy
 
 Achado real aberto da rodada focada (Segurança-Logging/OWASP A09:2025 + SRE-Detecção) fechado via
@@ -34,12 +56,25 @@ versão/alias porque o módulo compartilhado novo entra no bundle de todas), 0 d
 (a instrumentação `pageCount`/`resultCount` já existe para gerar dado, mas o alarme em si só pode
 ser calibrado depois de observar baseline real em `dev` — não fechar isso especulativamente).
 
-**Ainda não deployado nem exercitado em produção real** — próxima ação: commitar, abrir PR,
-mergear, deployar via `cd.yml`, depois **gerar evidência real** (mesmo padrão da entrega 1 de
-rollback): forçar um evento real de negação (ex. via `aws lambda invoke` sintético) e um acesso
-real a GSI3/GSI6 (já ocorre naturalmente via os schedules reais), confirmar ambos localizáveis no
-CloudWatch por `correlationId`, e exercitar os 3 alarmes reais `OK→ALARM→OK` via
-`aws cloudwatch set-alarm-state` (mesmo método já usado para o alarme de M5).
+**Deployado e verificado em produção real (2026-08-22)**: PR #22 mergeado, `cd.yml` real.
+**Achado real durante o deploy**: `terraform apply` falhou na primeira tentativa —
+`aws_cloudwatch_log_metric_filter` para `items-handler`/`reminders-handler` exigia log group
+já existente, mas essas 2 das 13 funções nunca tinham sido invocadas em `dev` (CloudWatch só cria
+o log group no primeiro `Invoke` real). Corrigido criando os 2 log groups vazios via
+`aws logs create-log-group` (fora do Terraform, não é `apply` manual — só supre um pré-requisito
+de uma API que o Terraform não gerencia), deploy re-executado com sucesso
+(`gh run rerun --failed`). Achado estrutural registrado (não corrigido agora): qualquer função
+nova adicionada a este módulo que nunca tenha sido invocada reproduz o mesmo erro — candidato a
+melhoria futura (`lambda-function` module gerenciar `aws_cloudwatch_log_group` explicitamente).
+
+Verificação real pós-deploy: evento real `security.global_index_access` confirmado nos logs reais
+de `reminder-producer` (gerado pelo schedule real, correlacionável por `correlationId`); os 3
+alarmes reais exercitados `OK→ALARM→OK` via `aws cloudwatch set-alarm-state`, todos publicando de
+verdade no tópico SNS real de M5. Evento de negação de autorização real **não** exercitado via
+API real por decisão deliberada (exigiria fabricar identidade quebrada na tabela real de `dev`,
+sem valor que justifique o risco) — aceito como evidência suficiente os 2 testes reais
+(não-mockados) que já exercitam `authorize()` de verdade. Detalhe completo:
+`docs/architecture/reviews/security-audit-trail-design/real-exercise-2026-08-22.md`.
 
 ## Mecanismo de rollback — entrega 1 implementada, commitada em `develop` (2026-08-21/22), NÃO deployada
 
