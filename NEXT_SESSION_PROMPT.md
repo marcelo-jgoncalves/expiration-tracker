@@ -1,5 +1,39 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## M7 (Extraction e confirmação) — DESIGN APROVADO (2026-08-22), IMPLEMENTAÇÃO AINDA NÃO INICIADA
+
+Decisão explícita do Marcelo: "design completo primeiro, depois eu decido implementar" — dado o
+escopo maior que M6 (Step Functions + Textract + Bedrock, 2 integrações de IA com custo real por
+chamada). Protocolo Claude↔Codex completo, 7 rodadas (D-035, decisions-log.md): proposta
+independente de cada lado → crítica cruzada (Codex deu 6,8/10 na proposta Claude round1, apontando
+que Textract síncrono não se sustentava contra o limite de 50 páginas já aprovado, entre outros
+problemas reais) → reconciliação com 5 correções pontuais reais, cada uma batendo numa nota real
+antes de fechar (8,7→8,6→8,8→8,9→9,3) — a mais séria: uma corrida real de limpeza do artefato OCR
+transitório que, se implementada como a rodada 5 propunha, causaria uma falha intermitente real em
+produção (exatamente a classe de bug que só timing real revela, como os achados de Camada 3 de M6).
+**Nota final: Claude 9,2 / Codex 9,3 — gate atingido.**
+
+Design final: `docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md`.
+Decisões-chave: Step Functions Standard; Textract **assíncrono** com `waitForTaskToken` (a Fase 3
+tinha deixado essa escolha para um "ADR dedicado" nunca escrito); parser de extração como função nova
+isolada (nunca estende o `parser-sandbox` de M6, para não ampliar o blast radius de uma função já
+verificada em produção real); AWS AppConfig real para os kill switches `AI_EXTRACTION`/`OCR` (módulo
+Terraform `feature-flags`, transversal — não acoplado a Document, já que o schema também cobre
+`WHATSAPP`); classe de retenção `EXTRACTION_TRANSIENT` (pré-requisito de **início** de implementação
+em `privacy-lgpd.md` §4, não só de produção); toggle `extraction_pipeline_enabled` com **default
+`false`** (diferente do padrão de M6 — feature nova com custo real e pré-condições externas ainda
+não fechadas, ao contrário do GuardDuty que é requisito de segurança não-negociável); rotas HTTP
+`POST .../extractions/{runId}/fields/{fieldName}/confirm` e `.../reject`; critério `NeedsBedrock`
+fechado com threshold versionado por campo (nenhuma das duas propostas originais tinha isso
+implementável); isolamento de prompt via API Converse com tool `submit_extraction` forçada.
+
+**Pendências externas que bloqueiam só a ativação em produção** (não a implementação/teste em
+`dev`): escolha e validação de modelo Bedrock + região; RIPD formal para uso de IA/OCR sobre
+documento de titular (`privacy-lgpd.md` §6, gatilho já registrado).
+
+**Próxima ação real**: implementar M7 seguindo o design aprovado — aguardando decisão do Marcelo
+sobre quando começar (não autorizado a iniciar implementação sem essa decisão explícita).
+
 ## M6 (Document upload e malware boundary) — IMPLEMENTADO, DEPLOYADO e VERIFICADO EM PRODUÇÃO REAL (2026-08-22)
 
 Design aprovado via protocolo Claude↔Codex (Claude 9.4/Codex 9.6,
