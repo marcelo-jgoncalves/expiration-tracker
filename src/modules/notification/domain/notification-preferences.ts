@@ -43,6 +43,7 @@ export function defaultNotificationPreferences(input: {
   userId: string;
   locale: string;
   now: string;
+  consentSource?: NotificationConsentSource;
 }): NotificationPreferences {
   return {
     ...notificationPreferencesKey(input.tenantId, input.userId),
@@ -52,7 +53,7 @@ export function defaultNotificationPreferences(input: {
     emailEnabled: true,
     locale: input.locale,
     quietHours: null,
-    consentSource: "ONBOARDING",
+    consentSource: input.consentSource ?? "ONBOARDING",
     version: 1,
     createdAt: input.now,
     updatedAt: input.now,

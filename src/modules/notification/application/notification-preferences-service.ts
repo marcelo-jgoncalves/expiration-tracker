@@ -10,10 +10,11 @@
  * `defaultNotificationPreferences()` (notification-preferences.ts) was previously never
  * called anywhere in src/ - onboarding wiring for it is still a documented gap, not real
  * code. getOrCreatePreferences() below is the pragmatic bridge until that onboarding step
- * exists: a GET lazily creates the record with its documented default (emailEnabled: true,
- * consentSource: "ONBOARDING") instead of 404-ing on every user who predates or bypasses
- * that step - never silently treats a missing record as "no consent" (that's the router's
- * own fail-closed matrix's job, not this service's).
+ * exists: a GET lazily creates the record with its documented default (emailEnabled: true),
+ * tagged `consentSource: "MIGRATED_DEFAULT"` (not "ONBOARDING" - this bridge is not the real
+ * onboarding flow and must not claim that provenance) instead of 404-ing on every user who
+ * predates or bypasses that step - never silently treats a missing record as "no consent"
+ * (that's the router's own fail-closed matrix's job, not this service's).
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
@@ -61,6 +62,9 @@ export class NotificationPreferencesService {
       userId: ctx.principal.userId,
       locale: "pt-BR",
       now: this.now(),
+      // This bridge runs on first GET for a user whose onboarding never wrote the record -
+      // it is not the real onboarding flow, so it must not claim that provenance.
+      consentSource: "MIGRATED_DEFAULT",
     });
     const wasCreated = await this.store.putIfAbsent(created);
     if (wasCreated) return created;

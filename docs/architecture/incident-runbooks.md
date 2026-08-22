@@ -1,10 +1,12 @@
 # Runbooks Operacionais, Matriz de Incidentes & Post-mortem — Expiration Tracker
 
-Status: **draft operacional** — escrito para satisfazer OPS-006 (`requirements.md` §7) e fechar o achado classe (c) do eixo Operações/SRE (`full-audit-round1-operacoes-*`, 2026-08-20). Não passou pelo protocolo de nota cega Claude↔Codex de 3 rodadas (nível 2-3 de `docs/engineering/change-risk-scale.md` — processo/documentação operacional, não decisão de arquitetura Type 1) — texto de trabalho, reabrir se um exercício real (§5) encontrar passo errado. Nenhum destes runbooks foi exercitado contra AWS real ainda; isso é impedimento externo real (ver `full-audit-round1-operacoes-claude.md` critério 3/8), não motivo para não documentar o procedimento agora.
+Status: **draft operacional** — escrito para satisfazer OPS-006 (`requirements.md` §7) e fechar o achado classe (c) do eixo Operações/SRE (`full-audit-round1-operacoes-*`, 2026-08-20). Não passou pelo protocolo de nota cega Claude↔Codex de 3 rodadas (nível 2-3 de `docs/engineering/change-risk-scale.md` — processo/documentação operacional, não decisão de arquitetura Type 1) — texto de trabalho, reabrir se um exercício real (§5) encontrar passo errado.
+
+**Atualizado em 2026-08-21** (achado real da rodada focada de revisão, `NEXT_SESSION_PROMPT.md`): M5 fechou a lacuna de destino de notificação descrita abaixo como pendente — `infra/modules/alert-topic` (SNS→e-mail) está real, `alarm_actions` está wired em todos os alarmes de `reminder-observability`/`sqs-worker-queue`, e um teste real `OK→ALARM→OK` (`aws cloudwatch set-alarm-state`) já foi executado com sucesso contra a subscription confirmada. As referências a `infra/lib/*.ts` neste documento são do CDK pré-ADR-0009 — a infra real hoje é Terraform (`infra/modules/`). Continua real e não fechado: negações de autorização e acesso a GSI3/GSI6 não geram trilha de auditoria de segurança dedicada (achado distinto, maior, ver eixo Segurança); nenhum exercício humano ponta a ponta de incidente foi executado ainda (§7 abaixo continua vazio — o teste de alarme é transporte, não exercício de investigação/contenção/comunicação).
 
 Escopo: os 4 runbooks exigidos por OPS-006 (falha de disparo, DLQ crescendo, provedor indisponível, IA indisponível) + matriz de severidade/escalonamento + template de post-mortem sem culpa + registro de exercícios. Não duplica o runbook de credencial comprometida, que já existe em `disaster-recovery.md` §7, nem o procedimento de restore, em `disaster-recovery.md` §6.
 
-**Lacuna reconhecida e não fechada por este documento**: nenhum alarme de `infra/lib/reminder-observability.ts` / `infra/modules/reminder-observability/main.tf` tem `alarm_actions`/SNS — os runbooks abaixo assumem detecção via console/CloudWatch manual até essa lacuna ser fechada (classificada como escopo maior no eixo Operações, não ponto-fixável hoje sem tocar `infra/`, fora do escopo de edição desta sessão).
+**Lacuna fechada em 2026-08-21 (ver nota no topo)**: os alarmes de `infra/modules/reminder-observability/main.tf` e `infra/modules/sqs-worker-queue/main.tf` têm `alarm_actions` reais apontando para `infra/modules/alert-topic` (SNS→e-mail), testado de verdade. **Lacuna real ainda aberta**: nenhuma trilha de auditoria dedicada para negação de autorização/acesso a GSI3/GSI6 (achado distinto do eixo Segurança, não corrigido por este documento).
 
 ## 1. Matriz de severidade e escalonamento
 
@@ -15,7 +17,7 @@ Escopo: os 4 runbooks exigidos por OPS-006 (falha de disparo, DLQ crescendo, pro
 | SEV-3 | Degradação localizada, com fallback ou impacto limitado a poucos tenants | Erros intermitentes de 1 função crítica (alarme `${name}ErrorsAlarm`) sem impacto em backlog | Investigar no próximo ciclo útil, sem acordar ninguém | Nenhuma, salvo se virar SEV-2 |
 | SEV-4 | Anomalia sem impacto observável ao usuário | Log de retry isolado, sem alarme disparado | Registrar, revisar em lote | Nenhuma |
 
-Sem PagerDuty/SNS configurado hoje (gap reconhecido acima), "mobilizar"/"investigar" significa: quem estiver de plantão informal (hoje, o próprio operador do projeto) monitora o console CloudWatch Alarms manualmente até o roteamento real existir.
+Notificação real via SNS→e-mail já existe (ver nota no topo) — "mobilizar"/"investigar" hoje significa: o e-mail de alarme chega ao único operador do projeto (sem rotação de plantão real, sem PagerDuty), que então segue o runbook correspondente abaixo.
 
 ## 2. Runbook — Falha de disparo de lembrete (reminder-dispatch)
 
@@ -91,4 +93,4 @@ Nenhum exercício foi executado até 2026-08-20 — consistente com o estágio p
 
 | Data | Tipo | Runbook exercitado | Resultado | Ações decorrentes |
 |---|---|---|---|---|
-| — | — | — | (nenhum exercício ainda) | — |
+| 2026-08-21 | Teste de transporte de alarme (`aws cloudwatch set-alarm-state`, `OK→ALARM→OK` real em `exptrk-dev-reminder-producer-errors`) | Nenhum (só prova que SNS→e-mail entrega) | Sucesso — e-mail confirmado recebido na subscription confirmada | Nenhuma ação corretiva. **Não conta como exercício de §2-§5** (não testou investigação/contenção/comunicação) — primeiro exercício real de runbook completo continua pendente. |

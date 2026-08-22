@@ -284,6 +284,19 @@ run "schedule_inputs_have_no_detail_wrapper_and_have_scheduled_time" {
     error_message = "Outbox sweeper schedule input must have scheduledTime"
   }
 
+  # Real bug found 2026-08-21 (live CloudWatch evidence, Camada 3): jsonencode() HTML-escapes
+  # `<`/`>` to their \uXXXX form, which silently defeats EventBridge Scheduler's literal-text
+  # substitution of `<aws.scheduler.scheduled-time>` - every real invocation received the
+  # placeholder string unsubstituted and failed validation. Re-verified at root wiring level.
+  assert {
+    condition     = !strcontains(module.schedule.schedule_inputs.reminder_producer, "\\u003c")
+    error_message = "ReminderProducer schedule input must use the literal, unescaped context-attribute placeholder, not an HTML-escaped one"
+  }
+  assert {
+    condition     = strcontains(module.schedule.schedule_inputs.reminder_producer, "<aws.scheduler.scheduled-time>")
+    error_message = "ReminderProducer schedule input must contain the literal context-attribute placeholder text"
+  }
+
   assert {
     condition     = module.schedule.schedule_count == 4
     error_message = "Expected exactly 4 EventBridge Scheduler schedules (producer, claims-reconciliation, dst-reconciliation, sweeper)"

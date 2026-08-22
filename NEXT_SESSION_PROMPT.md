@@ -1,6 +1,90 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Plano priorizado para a próxima sessão (2026-08-21) — COMECE AQUI, antes de qualquer outra coisa
+## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
+
+2 dos 6 critérios fecharam (nota ≥9.0 dos dois lados): Debuggability & Operational Feedback (9.2),
+e Correção do Serviço de Lembretes/preferências (9.3, depois de corrigir achado real do Codex —
+`getOrCreatePreferences()` marcava proveniência falsa `consentSource: "ONBOARDING"` num bridge que
+não é o onboarding real; corrigido para `"MIGRATED_DEFAULT"`, valor do enum que já existia para
+esse caso exato). Achado documental corrigido (afetava 2 critérios): `incident-runbooks.md`
+afirmava falsamente que não havia `alarm_actions`/SNS — atualizado para refletir M5 real.
+
+**4 critérios permanecem abaixo do gate, achado real não-arredondado, classificado como trabalho
+de design/feature (não ponto-fix desta rodada)**: rollback/roll-forward real ausente em `cd.yml`
+(afeta Delivery/Recovery e SRE-Deploy/Rollback); trilha de auditoria de segurança dedicada ausente
+para negação de autorização/acesso a GSI3/GSI6 (afeta Segurança-Logging e parcialmente
+SRE-Detecção/Resposta, que também carece de um exercício humano completo de incidente, não só o
+teste de transporte de alarme já realizado). Candidatos para uma sessão dedicada de design de
+deploy/segurança — decidido nesta sessão (ver abaixo) que a próxima prioridade estrutural é a
+Camada 3, não esses 4 itens diretamente.
+
+## Passo 2 concluído (2026-08-21) — template de e-mail real e versionado
+
+Decisão do usuário: motor = string interpolation simples versionada em código (sem motor
+externo/dependência nova); localização = só pt-BR por agora. Implementado:
+`src/modules/notification/providers/email-templates.ts` (registro `templateId`→`templateVersion`→
+`locale`→renderer, fail-closed em combinação desconhecida, escapa HTML), `ses-email-adapter.ts`
+passou a chamar `renderEmailTemplate()` real em vez do placeholder ad-hoc anterior. Teste novo
+`test/unit/notification/email-templates.test.ts` (4 casos: render real, defaults, escape de
+HTML/injection, fail-closed em combinação desconhecida). 259/259 testes, typecheck/lint/
+check-boundaries/validate-schemas/check-docs limpos.
+
+**Spike de validação das tags SES em sandbox real continua bloqueado** — usuário confirmou que
+ainda não tem identidade SES verificada; permanece pendência externa genuína, não tentar sem
+identidade real.
+
+## Camada 3 — primeiros testes reais executados (2026-08-21), achado severo encontrado e corrigido
+
+Decisão do usuário: reusar a conta `dev` real (sem conta nova), da forma mais segura possível, com
+verificação explícita de limpeza depois de cada teste.
+
+1. **Teste de IAM negativo real** (`aws iam simulate-principal-policy`, motor de avaliação real da
+   AWS contra as políticas reais anexadas — zero recursos criados, nada para limpar): confirma
+   exatamente o isolamento desenhado em M3.5 — as 10 roles não-privilegiadas negadas em GSI3 e
+   GSI6; `reminder-producer` permitida só em GSI3; `reminder-reconciliation` e
+   `outbox-sweeper-reminder-dispatch` permitidas só em GSI6, nenhuma com as duas. Controle
+   positivo confirma que a role tem acesso real à tabela base (não é role sem permissão alguma).
+   Evidência completa: `docs/architecture/reviews/camada3-iam-negative-test-2026-08-21.md`.
+2. **Teste real de poison message → DLQ → redrive** contra `exptrk-dev-reminder-dispatch`: mensagem
+   sintética real esgotou `maxReceiveCount=5` e caiu na DLQ real (~4.5min); redrive real via
+   `aws sqs start-message-move-task` executado com o event source mapping temporariamente
+   desabilitado (nunca deixando a mensagem ser reprocessada de verdade); limpeza verificada
+   (fila/DLQ voltaram a 0, event source mapping reabilitado, estado idêntico ao baseline). Nenhum
+   recurso ficou órfão. Evidência: `docs/architecture/reviews/camada3-dlq-redrive-test-2026-08-21.md`.
+3. **Achado severo real, não relacionado aos testes acima, encontrado ao investigar telemetria
+   real durante a Camada 3**: `exptrk-dev-reminder-producer` (e as outras 3 schedules do
+   `reminder-schedule`) estavam falhando em **100% das invocações desde 2026-08-20T14:41:39Z**
+   (~1 dia inteiro). Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
+   `<aws.scheduler.scheduled-time>`, o que quebra a substituição textual literal que o
+   EventBridge Scheduler faz — o handler recebia o texto literal do placeholder em vez de um
+   timestamp real, e falhava validação sempre. Corrigido em
+   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`).
+   **Achado adicional**: os testes Terraform existentes comparavam contra o mesmo `jsonencode()`
+   usado em produção, certificando o bug como correto — corrigidos para comparar contra o texto
+   literal esperado, com um teste novo de regressão anti-`<` na raiz. `terraform test`
+   (módulo + raiz) e `terraform plan -var-file=env/dev.tfvars` reais e verdes (plan-only, sem
+   apply local). Detalhe completo, impacto e lição de processo:
+   `docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
+
+**Ainda não deployado** — a correção está commitada em `develop`, mas política vigente
+(`AGENTS.md` §7, reforçada pelo usuário) exige que toda aplicação real vá só pela pipeline
+(`cd.yml`, merge para `main`). Próxima sessão (ou ainda esta, se o usuário confirmar) deve abrir o
+PR `develop→main` para deployar esta correção — o motor de lembretes real de `dev` continua
+efetivamente parado até isso ser mergeado e o `cd.yml` rodar.
+
+## Passo 3 concluído (2026-08-21) — decisão de próximo marco estrutural
+
+Usuário delegou a decisão. Escolhido: **Camada 3 de teste (sandbox AWS efêmero)** antes de M6/M7 —
+motivo: é pendência estrutural reaberta a cada milestone desde M3.5, nunca fechada, e destrava
+diretamente achados classificados como "Camada 3 pendente" em 3 eixos do full-audit
+(Arquitetura/Segurança/Operações) simultaneamente — maior alavancagem que abrir superfície de
+produto nova (M6/M7) enquanto essa dívida estrutural continua se acumulando. Próxima sessão deve
+COMEÇAR desenhando o escopo real da Camada 3 (ambiente efêmero dedicado, distinto de `dev`; IAM
+negativo real, redrive de DLQ real, invocação real do EventBridge Scheduler) — provavelmente
+precisa de decisão de arquitetura (ambiente novo, custo, ciclo de vida) antes de implementar,
+avaliar se o protocolo Claude↔Codex (`AGENTS.md` §4) se aplica antes de desenhar.
+
+## Plano priorizado (2026-08-21, histórico — Passo 1 concluído acima, Passos 2/3 continuam válidos)
 
 Análise feita ao final desta sessão: dos 8 eixos do full-audit round1 que ficaram abaixo do
 gate de 9,0 (ver seção "Status mais recente" no histórico abaixo), a implementação e o deploy

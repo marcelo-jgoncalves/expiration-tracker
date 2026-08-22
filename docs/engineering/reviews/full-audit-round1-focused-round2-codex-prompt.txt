@@ -1,0 +1,21 @@
+Você é o revisor "Codex" no protocolo de nota cega Claude-Codex (AGENTS.md secao 4) do repositorio expiration-tracker (C:\Users\Usuario\Desktop\projects\expiration-tracker). NAO leia nenhum arquivo em docs/engineering/reviews/full-audit-round1-focused-round2-* -- isso contem a nota do Claude e violaria o protocolo de nota cega. Se algum desses arquivos ja existir, ignore-o completamente e nao o abra.
+
+Contexto: uma rodada FOCADA (nao o full-audit inteiro) reavaliando so 6 criterios especificos, escolhidos porque a implementacao e deploy real de M4/M5 nesta sessao geraram achado novo real para eles. Avalie contra o ESTADO REAL do repositorio em `develop` (leia o codigo real, nao NEXT_SESSION_PROMPT.md como fonte de verdade -- use-o so como mapa de onde procurar). Gate: nota >= 9.0 sem arredondar (8.99 nao vira 9), por criterio.
+
+Os 6 criterios (peso e definicao exatos, fonte docs/engineering/joint-review-criteria.md):
+
+1. Eixo Qualidade de Engenharia -- "Delivery, Release & Recovery Discipline" (peso 11%): "Artefatos/ambientes reproduziveis, promocao segura, evidencia de deploy, rollback, validacao de recuperacao -- criterio de saida real de G8, nao secundario neste estagio." Leia .github/workflows/cd.yml e ci.yml completos.
+
+2. Eixo Qualidade de Engenharia -- "Debuggability & Operational Feedback" (peso 7%): "Diagnosticos estruturados e privacy-safe (SecureLogger/Redactor), correlation context, erros acionaveis, suficientes para investigar falhas assincronas." Leia src/shared/observability/context.ts, src/shared/observability/logger.ts, e o wiring em pelo menos 2 handlers reais em src/runtime/aws/handlers/ (ex. reminder-dispatch-handler.ts, ses-callback-handler.ts).
+
+3. Eixo Seguranca da Informacao e AppSec -- criterio "Logging Seguro, Deteccao & Resposta a Incidentes" (peso 8%): "Eventos de autenticacao/autorizacao negada/alteracao privilegiada/acesso a GSI global produzem trilha integra, correlacionavel, privacy-safe (OWASP A09:2025). Alarmes com threshold acionavel e runbook de contencao/revogacao/investigacao." Leia infra/modules/alert-topic, os alarmes em infra/modules/sqs-worker-queue e infra/modules/reminder-observability, e docs/architecture/incident-runbooks.md.
+
+4. Eixo Operacoes/SRE e Continuidade -- criterio "Deteccao, Resposta & Comunicacao de Incidentes" (peso 15%): "Alertas com threshold acionavel/dono/escalonamento/runbook; comunicacao a tenants/titulares/ANPD quando aplicavel; exercicios comprovam funcionamento sob pressao." Mesma evidencia do item 3, mais procure em NEXT_SESSION_PROMPT.md pela secao que descreve o teste real OK->ALARM->OK via aws cloudwatch set-alarm-state.
+
+5. Eixo Operacoes/SRE e Continuidade -- criterio "Prontidao de Deploy, Rollback & Mudanca Operacional" (peso 10%): "Deploy com artefato identificavel, checks pre/pos, rollback/roll-forward; mudanca de schema/GSI/KMS/provider aciona validacao proporcional." Mesma evidencia do item 1.
+
+6. Eixo Governanca de Produto e Servico Multi-tenant -- dentro do criterio "Correcao do Servico de Lembretes & Protecao do Usuario" (peso 15%), especificamente o sub-achado sobre entrega/feedback de provider e rota self-service de preferencias de notificacao (antes nota 8.6 porque a rota nao existia). Leia src/modules/notification/http/preferences-handlers.ts, src/modules/notification/application/notification-preferences-service.ts, o wiring de rota em src/runtime/aws/handlers/notifications-handler.ts, e os testes em test/unit/notification/preferences-handlers.test.ts.
+
+Para cada um dos 6, produza: nota de 0 a 10 (uma decimal, sem arredondar para o gate), 2-4 achados concretos com arquivo:linha, e se a nota ficar abaixo de 9.0 diga explicitamente se e achado real corrigivel nesta sessao ou impedimento externo genuino. Nao decida por "intencao documentada" -- decida pelo que o codigo/infra real faz.
+
+Salve sua resposta completa em texto simples, comecando com "# Nota cega Codex - rodada focada" e uma tabela final "criterio | nota | gate 9.0? | achado principal".

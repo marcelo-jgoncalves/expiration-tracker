@@ -32,7 +32,7 @@ describe("NotificationPreferencesService", () => {
   it("getOrCreatePreferences lazily creates the documented default when no record exists yet (onboarding never wired this)", async () => {
     const preferences = await service.getOrCreatePreferences(ctx());
     expect(preferences.emailEnabled).toBe(true);
-    expect(preferences.consentSource).toBe("ONBOARDING");
+    expect(preferences.consentSource).toBe("MIGRATED_DEFAULT");
     expect(preferences.version).toBe(1);
     expect(preferences.tenantId).toBe(TENANT);
     expect(preferences.userId).toBe(USER);

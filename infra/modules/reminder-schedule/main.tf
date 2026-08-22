@@ -9,6 +9,17 @@
 # handler.ts), never `event.detail.*` / `event.time` (those are Rule-shaped fields that
 # don't exist here). `<aws.scheduler.scheduled-time>` is a Scheduler context attribute,
 # substituted at invoke time with the schedule's fire time (ISO-8601 UTC).
+#
+# REAL BUG found and fixed 2026-08-21 via Camada 3 evidence (live CloudWatch logs, not a
+# test): `jsonencode()` HTML-escapes the angle-bracket characters to their \uXXXX form (Go's
+# encoding/json default, which Terraform's jsonencode inherits) - EventBridge Scheduler's
+# context-attribute substitution does literal text matching for `<aws.scheduler.scheduled-time>` and never
+# found it once escaped, so the literal placeholder string reached the Lambda as
+# `scheduledTime`, and every producer/reconciliation/sweeper invocation failed validation
+# 100% of the time since the first `terraform apply` that created these schedules
+# (confirmed via `aws logs filter-log-events`, first occurrence 2026-08-20T14:41:39Z). Fixed
+# by writing `input` as a literal HCL string instead of `jsonencode(...)` for these 4
+# schedules specifically - never reintroduce `jsonencode()` here.
 
 locals {
   state = var.schedules_enabled ? "ENABLED" : "DISABLED"
@@ -60,7 +71,7 @@ resource "aws_scheduler_schedule" "reminder_producer" {
   target {
     arn      = var.reminder_producer_function_arn
     role_arn = aws_iam_role.reminder_producer.arn
-    input    = jsonencode({ scheduledTime = "<aws.scheduler.scheduled-time>" })
+    input    = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
 }
 
@@ -113,7 +124,7 @@ resource "aws_scheduler_schedule" "reminder_claim_reconciliation" {
   target {
     arn      = var.reminder_reconciliation_function_arn
     role_arn = aws_iam_role.reminder_claim_reconciliation.arn
-    input    = jsonencode({ mode = "CLAIMS", scheduledTime = "<aws.scheduler.scheduled-time>" })
+    input    = "{\"mode\":\"CLAIMS\",\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
 }
 
@@ -165,7 +176,7 @@ resource "aws_scheduler_schedule" "reminder_dst_reconciliation" {
   target {
     arn      = var.reminder_reconciliation_function_arn
     role_arn = aws_iam_role.reminder_dst_reconciliation.arn
-    input    = jsonencode({ mode = "DST", scheduledTime = "<aws.scheduler.scheduled-time>" })
+    input    = "{\"mode\":\"DST\",\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
 }
 
@@ -215,6 +226,6 @@ resource "aws_scheduler_schedule" "outbox_sweeper" {
   target {
     arn      = var.outbox_sweeper_function_arn
     role_arn = aws_iam_role.outbox_sweeper.arn
-    input    = jsonencode({ scheduledTime = "<aws.scheduler.scheduled-time>" })
+    input    = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
 }

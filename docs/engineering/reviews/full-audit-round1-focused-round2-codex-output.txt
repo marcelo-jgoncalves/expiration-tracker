@@ -1,0 +1,161 @@
+ove artefato/plano imutável; runbook está factual e operacionalmente desatualizado sobre SNS; e a criação lazy de preferências marca `ONBOARDING` e habilita e-mail mesmo sem onboarding real.
+2026-08-22T00:53:56.134683Z ERROR codex_core::tools::router: error=patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings
+codex
+# Nota cega Codex - rodada focada
+
+Não li o arquivo Claude proibido. A gravação em `docs/engineering/reviews/full-audit-round1-focused-round2-codex-blind.md` foi bloqueada porque o workspace está em modo somente leitura.
+
+## 1. Delivery, Release & Recovery Discipline
+
+Nota: **8.7/10 — NÃO passa**
+
+- CD aguarda CI verde, usa o `head_sha` correto e serializa applies sem cancelá-los (`.github/workflows/cd.yml:28`, `:39`, `:54`, `:61`).
+- CI possui testes, auditoria, SBOM, integração DynamoDB e validação Terraform (`.github/workflows/ci.yml:35`, `:80`, `:86`, `:103`, `:127`).
+- CI e CD recompilam os Lambdas; o artefato aprovado não é promovido. `terraform apply` também recalcula o plano em vez de consumir um saved plan (`.github/workflows/ci.yml:151`, `:191`; `.github/workflows/cd.yml:90`, `:124`, `:127`).
+- Não há rollback/roll-forward executável. O pós-deploy apenas descreve tabela, Cognito e fila, sem invocar API/Lambda ou validar M4/M5 (`.github/workflows/cd.yml:139`, `:142`, `:157`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 2. Debuggability & Operational Feedback
+
+Nota: **9.1/10 — PASSA**
+
+- `AsyncLocalStorage` isola e compõe correlação por operação; SQS preserva `correlationId` com fallback determinístico (`src/shared/observability/context.ts:14`, `:16`, `:35`).
+- `SecureLogger` produz JSON estruturado e redige todo o contexto antes da emissão (`src/shared/observability/logger.ts:79`, `:80`, `:81`).
+- Reminder dispatch mantém validação, processamento e falha dentro do contexto por record, acrescentando tenant após validar o comando (`src/runtime/aws/handlers/reminder-dispatch-handler.ts:40`, `:43`, `:49`, `:57`, `:61`).
+- SES callback repete o isolamento por record e acrescenta o tenant extraído das tags (`src/runtime/aws/handlers/ses-callback-handler.ts:68`, `:77`, `:83`). Residual: exceções inesperadas registram somente `message`, sem stack/código/categoria (`reminder-dispatch-handler.ts:62`; `ses-callback-handler.ts:84`).
+
+## 3. Logging Seguro, Detecção & Resposta a Incidentes
+
+Nota: **7.8/10 — NÃO passa**
+
+- Logger e handlers fornecem uma base privacy-safe e correlacionável (`src/shared/observability/logger.ts:79`; `src/runtime/aws/handlers/reminder-dispatch-handler.ts:40`).
+- Erros Lambda, backlog e DLQ possuem thresholds e `alarm_actions` para SNS/e-mail (`infra/modules/reminder-observability/main.tf:19`, `:29`, `:41`, `:49`, `:53`; `infra/modules/sqs-worker-queue/main.tf:33`, `:41`, `:45`; `infra/modules/alert-topic/main.tf:17`).
+- Negações de autorização apenas lançam exceção ou viram resposta HTTP; não geram trilha de segurança (`src/modules/identity/domain/authorization.ts:99`, `:103`, `:109`; `src/modules/notification/http/preferences-handlers.ts:64`).
+- Queries aos GSIs globais também não geram evento auditável (`src/modules/reminder/persistence/dynamodb-reminder-producer-store.ts:27`; `src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts:64`). O runbook contradiz a infra ao declarar que SNS não existe (`docs/architecture/incident-runbooks.md:7`, `:18`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 4. Detecção, Resposta & Comunicação de Incidentes
+
+Nota: **8.5/10 — NÃO passa**
+
+- CloudWatch→SNS→e-mail está implementado. O handoff registra subscription confirmada e teste real `OK→ALARM→OK` via `set-alarm-state` (`infra/modules/alert-topic/main.tf:17`; `NEXT_SESSION_PROMPT.md`, “Status atual”, item 6).
+- A matriz define severidade, prazos e comunicação a tenants/DPO/ANPD (`docs/architecture/incident-runbooks.md:11`, `:13`, `:14`).
+- O runbook está materialmente desatualizado: diz que SNS não existe, mantém caminhos antigos e continua registrando “nenhum exercício” (`docs/architecture/incident-runbooks.md:7`, `:18`, `:22`, `:90`, `:92`).
+- O teste forçado prova transporte do alerta, não investigação, contenção, escalonamento e comunicação sob pressão. Provider também segue sem alarme dedicado (`docs/architecture/incident-runbooks.md:42`).
+
+Classificação: o drift documental e ownership são **corrigíveis nesta sessão**. Um exercício humano ponta a ponta é **impedimento operacional externo genuíno**, pois precisa ser realmente executado.
+
+## 5. Prontidão de Deploy, Rollback & Mudança Operacional
+
+Nota: **8.6/10 — NÃO passa**
+
+- Commit implantado é identificável e depende de CI verde (`.github/workflows/cd.yml:54`, `:65`). Concorrência de deploy é serializada (`:39`).
+- Existem checks proporcionais de código e Terraform antes do apply (`.github/workflows/ci.yml:151`, `:160`, `:185`, `:188`, `:191`; `.github/workflows/cd.yml:80`, `:121`, `:124`).
+- Não se promove o mesmo bundle ou saved plan entre os estágios; build, plan e apply são recalculados (`.github/workflows/cd.yml:90`, `:124`, `:127`).
+- Não há gatilho diferenciado para schema/GSI/KMS/provider, rollback executável ou pós-check funcional (`.github/workflows/cd.yml:139`, `:142`, `:157`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 6. Reminder/provider/preferences
+
+Nota: **8.8/10 — NÃO passa**
+
+- GET/PUT autenticados estão realmente expostos e ligados ao handler (`infra/modules/api-gateway/main.tf:138`, `:148`, `:154`; `src/runtime/aws/handlers/notifications-handler.ts:35`).
+- PUT valida schema e versão, aplica identidade/quota e usa OCC transacional (`src/modules/notification/http/preferences-handlers.ts:78`, `:101`; `src/modules/notification/application/notification-preferences-service.ts:91`, `:104`).
+- Testes exercitam o registry real, GET lazy e payload inválido (`test/unit/notification/preferences-handlers.test.ts:52`, `:67`, `:74`). Callback SES processa Delivery/Bounce/Complaint com tenant correlacionado (`src/runtime/aws/handlers/ses-callback-handler.ts:33`, `:51`, `:77`).
+- Residual de proteção: o código reconhece que onboarding não existe, mas o primeiro GET cria preferências com e-mail habilitado e `consentSource: "ONBOARDING"` (`src/modules/notification/application/notification-preferences-service.ts:10`, `:13`, `:59`; `test/unit/notification/preferences-handlers.test.ts:67`). Isso registra uma origem de consentimento que não ocorreu.
+
+Classificação: **achado real corrigível nesta sessão**. A política final de opt-in exige decisão de produto, mas a proveniência falsa não depende de fator externo.
+
+## Tabela final
+
+criterio | nota | gate 9.0? | achado principal
+--- | ---: | --- | ---
+QE — Delivery, Release & Recovery | 8.7 | NÃO | Sem artefato/plan imutável, rollback ou smoke funcional
+QE — Debuggability & Operational Feedback | 9.1 | SIM | Contexto e redação sólidos; erros inesperados perdem stack/código
+Segurança — Logging/Detecção/Resposta | 7.8 | NÃO | Negações e acessos GSI não produzem trilha; runbook contradiz SNS
+SRE — Detecção/Resposta/Comunicação | 8.5 | NÃO | Alerta foi testado, mas runbook está em drift e falta exercício completo
+SRE — Deploy/Rollback/Mudança | 8.6 | NÃO | Commit rastreável, porém sem saved plan, recovery ou pós-check funcional
+Produto — Reminder/provider/preferences | 8.8 | NÃO | Self-service existe, mas cria opt-in com falsa origem `ONBOARDING`
+tokens used
+78.047
+# Nota cega Codex - rodada focada
+
+Não li o arquivo Claude proibido. A gravação em `docs/engineering/reviews/full-audit-round1-focused-round2-codex-blind.md` foi bloqueada porque o workspace está em modo somente leitura.
+
+## 1. Delivery, Release & Recovery Discipline
+
+Nota: **8.7/10 — NÃO passa**
+
+- CD aguarda CI verde, usa o `head_sha` correto e serializa applies sem cancelá-los (`.github/workflows/cd.yml:28`, `:39`, `:54`, `:61`).
+- CI possui testes, auditoria, SBOM, integração DynamoDB e validação Terraform (`.github/workflows/ci.yml:35`, `:80`, `:86`, `:103`, `:127`).
+- CI e CD recompilam os Lambdas; o artefato aprovado não é promovido. `terraform apply` também recalcula o plano em vez de consumir um saved plan (`.github/workflows/ci.yml:151`, `:191`; `.github/workflows/cd.yml:90`, `:124`, `:127`).
+- Não há rollback/roll-forward executável. O pós-deploy apenas descreve tabela, Cognito e fila, sem invocar API/Lambda ou validar M4/M5 (`.github/workflows/cd.yml:139`, `:142`, `:157`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 2. Debuggability & Operational Feedback
+
+Nota: **9.1/10 — PASSA**
+
+- `AsyncLocalStorage` isola e compõe correlação por operação; SQS preserva `correlationId` com fallback determinístico (`src/shared/observability/context.ts:14`, `:16`, `:35`).
+- `SecureLogger` produz JSON estruturado e redige todo o contexto antes da emissão (`src/shared/observability/logger.ts:79`, `:80`, `:81`).
+- Reminder dispatch mantém validação, processamento e falha dentro do contexto por record, acrescentando tenant após validar o comando (`src/runtime/aws/handlers/reminder-dispatch-handler.ts:40`, `:43`, `:49`, `:57`, `:61`).
+- SES callback repete o isolamento por record e acrescenta o tenant extraído das tags (`src/runtime/aws/handlers/ses-callback-handler.ts:68`, `:77`, `:83`). Residual: exceções inesperadas registram somente `message`, sem stack/código/categoria (`reminder-dispatch-handler.ts:62`; `ses-callback-handler.ts:84`).
+
+## 3. Logging Seguro, Detecção & Resposta a Incidentes
+
+Nota: **7.8/10 — NÃO passa**
+
+- Logger e handlers fornecem uma base privacy-safe e correlacionável (`src/shared/observability/logger.ts:79`; `src/runtime/aws/handlers/reminder-dispatch-handler.ts:40`).
+- Erros Lambda, backlog e DLQ possuem thresholds e `alarm_actions` para SNS/e-mail (`infra/modules/reminder-observability/main.tf:19`, `:29`, `:41`, `:49`, `:53`; `infra/modules/sqs-worker-queue/main.tf:33`, `:41`, `:45`; `infra/modules/alert-topic/main.tf:17`).
+- Negações de autorização apenas lançam exceção ou viram resposta HTTP; não geram trilha de segurança (`src/modules/identity/domain/authorization.ts:99`, `:103`, `:109`; `src/modules/notification/http/preferences-handlers.ts:64`).
+- Queries aos GSIs globais também não geram evento auditável (`src/modules/reminder/persistence/dynamodb-reminder-producer-store.ts:27`; `src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts:64`). O runbook contradiz a infra ao declarar que SNS não existe (`docs/architecture/incident-runbooks.md:7`, `:18`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 4. Detecção, Resposta & Comunicação de Incidentes
+
+Nota: **8.5/10 — NÃO passa**
+
+- CloudWatch→SNS→e-mail está implementado. O handoff registra subscription confirmada e teste real `OK→ALARM→OK` via `set-alarm-state` (`infra/modules/alert-topic/main.tf:17`; `NEXT_SESSION_PROMPT.md`, “Status atual”, item 6).
+- A matriz define severidade, prazos e comunicação a tenants/DPO/ANPD (`docs/architecture/incident-runbooks.md:11`, `:13`, `:14`).
+- O runbook está materialmente desatualizado: diz que SNS não existe, mantém caminhos antigos e continua registrando “nenhum exercício” (`docs/architecture/incident-runbooks.md:7`, `:18`, `:22`, `:90`, `:92`).
+- O teste forçado prova transporte do alerta, não investigação, contenção, escalonamento e comunicação sob pressão. Provider também segue sem alarme dedicado (`docs/architecture/incident-runbooks.md:42`).
+
+Classificação: o drift documental e ownership são **corrigíveis nesta sessão**. Um exercício humano ponta a ponta é **impedimento operacional externo genuíno**, pois precisa ser realmente executado.
+
+## 5. Prontidão de Deploy, Rollback & Mudança Operacional
+
+Nota: **8.6/10 — NÃO passa**
+
+- Commit implantado é identificável e depende de CI verde (`.github/workflows/cd.yml:54`, `:65`). Concorrência de deploy é serializada (`:39`).
+- Existem checks proporcionais de código e Terraform antes do apply (`.github/workflows/ci.yml:151`, `:160`, `:185`, `:188`, `:191`; `.github/workflows/cd.yml:80`, `:121`, `:124`).
+- Não se promove o mesmo bundle ou saved plan entre os estágios; build, plan e apply são recalculados (`.github/workflows/cd.yml:90`, `:124`, `:127`).
+- Não há gatilho diferenciado para schema/GSI/KMS/provider, rollback executável ou pós-check funcional (`.github/workflows/cd.yml:139`, `:142`, `:157`).
+
+Classificação: **achado real corrigível nesta sessão**, não impedimento externo.
+
+## 6. Reminder/provider/preferences
+
+Nota: **8.8/10 — NÃO passa**
+
+- GET/PUT autenticados estão realmente expostos e ligados ao handler (`infra/modules/api-gateway/main.tf:138`, `:148`, `:154`; `src/runtime/aws/handlers/notifications-handler.ts:35`).
+- PUT valida schema e versão, aplica identidade/quota e usa OCC transacional (`src/modules/notification/http/preferences-handlers.ts:78`, `:101`; `src/modules/notification/application/notification-preferences-service.ts:91`, `:104`).
+- Testes exercitam o registry real, GET lazy e payload inválido (`test/unit/notification/preferences-handlers.test.ts:52`, `:67`, `:74`). Callback SES processa Delivery/Bounce/Complaint com tenant correlacionado (`src/runtime/aws/handlers/ses-callback-handler.ts:33`, `:51`, `:77`).
+- Residual de proteção: o código reconhece que onboarding não existe, mas o primeiro GET cria preferências com e-mail habilitado e `consentSource: "ONBOARDING"` (`src/modules/notification/application/notification-preferences-service.ts:10`, `:13`, `:59`; `test/unit/notification/preferences-handlers.test.ts:67`). Isso registra uma origem de consentimento que não ocorreu.
+
+Classificação: **achado real corrigível nesta sessão**. A política final de opt-in exige decisão de produto, mas a proveniência falsa não depende de fator externo.
+
+## Tabela final
+
+criterio | nota | gate 9.0? | achado principal
+--- | ---: | --- | ---
+QE — Delivery, Release & Recovery | 8.7 | NÃO | Sem artefato/plan imutável, rollback ou smoke funcional
+QE — Debuggability & Operational Feedback | 9.1 | SIM | Contexto e redação sólidos; erros inesperados perdem stack/código
+Segurança — Logging/Detecção/Resposta | 7.8 | NÃO | Negações e acessos GSI não produzem trilha; runbook contradiz SNS
+SRE — Detecção/Resposta/Comunicação | 8.5 | NÃO | Alerta foi testado, mas runbook está em drift e falta exercício completo
+SRE — Deploy/Rollback/Mudança | 8.6 | NÃO | Commit rastreável, porém sem saved plan, recovery ou pós-check funcional
+Produto — Reminder/provider/preferences | 8.8 | NÃO | Self-service existe, mas cria opt-in com falsa origem `ONBOARDING`

@@ -13,6 +13,7 @@
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import type { EmailProviderAdapter, EmailSendInput, EmailSendResult } from "../ports/email-provider.js";
 import { EmailSendError, type EmailSendFailureKind } from "../ports/email-provider.js";
+import { renderEmailTemplate } from "./email-templates.js";
 
 const RETRYABLE_SDK_ERROR_NAMES = new Set(["ThrottlingException", "TooManyRequestsException", "LimitExceededException"]);
 const TERMINAL_SDK_ERROR_NAMES = new Set([
@@ -40,7 +41,7 @@ export class SesEmailAdapter implements EmailProviderAdapter {
   ) {}
 
   async send(input: EmailSendInput): Promise<EmailSendResult> {
-    const { subject, html, text } = renderPlaceholder(input);
+    const { subject, html, text } = renderEmailTemplate(input.templateId, input.templateVersion, input.locale, input.renderContext);
     try {
       const result = await this.client.send(
         new SendEmailCommand({
@@ -73,20 +74,6 @@ export class SesEmailAdapter implements EmailProviderAdapter {
       throw new EmailSendError(err instanceof Error ? err.message : "SES SendEmail failed.", classifyFailure(err));
     }
   }
-}
-
-/** Placeholder rendering - M4's real template rendering (locale-aware, versioned artifact
- * per templateId+templateVersion, docs/architecture/reviews/m4-notification-engine-design/
- * codex-proposal-round1.md §9.2) is a follow-up; this keeps the adapter itself free of
- * template-selection logic (that belongs in the workflow's `renderTemplate` dependency, not
- * here) while still producing a valid SES request shape end-to-end for the sandbox spike. */
-function renderPlaceholder(input: EmailSendInput): { subject: string; html: string; text: string } {
-  const name = (input.renderContext["itemDisplayName"] as string | undefined) ?? "seu item";
-  const dueDate = (input.renderContext["dueDateLocal"] as string | undefined) ?? "";
-  const subject = `Lembrete de vencimento: ${name}`;
-  const text = `O item "${name}" vence em ${dueDate}.`;
-  const html = `<p>O item <strong>${name}</strong> vence em ${dueDate}.</p>`;
-  return { subject, html, text };
 }
 
 export function createSesClient(): SESv2Client {
