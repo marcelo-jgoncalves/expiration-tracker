@@ -4,7 +4,7 @@
 Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
 Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
-Last verified:           2026-08-22 (M6 implementado/deployado/verificado em produção real — ver `NEXT_SESSION_PROMPT.md`)
+Last verified:           2026-08-22 (M6 implementado/deployado/verificado em produção real; design de M7 aprovado, implementação não iniciada — ver `NEXT_SESSION_PROMPT.md`)
 ```
 
 Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a próxima ação concreta.
@@ -41,7 +41,8 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `threat-model.md` | normativo atual | Threat model STRIDE, seção 33 — APPROVED (Claude ~9.05 / Codex 9.002) |
 | `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seção 60 — componentes, interfaces, eventos/schemas, ordem de deploy, milestones — APPROVED (Claude 9.20 / Codex 9.2) |
 | `m3.5-runtime-design.md` | normativo atual | Design do milestone M3.5 (runtime real do Reminder Engine, fechamento de G8) — adapters DynamoDB, handlers Lambda, outbox+relay SQS/DLQ, EventBridge Scheduler+GSI6, testes em 3 camadas — APPROVED (Claude 9.0 / Codex 9.3) |
-| `decisions-log.md` | decisão/ADR (log vivo) | D-000 a D-033 (a numeração não é sequencial na ordem das linhas — D-024 a D-028 foram inseridas antes de D-010 a D-023 no arquivo), nota Claude/Codex, status |
+| `decisions-log.md` | decisão/ADR (log vivo) | D-000 a D-035 (a numeração não é sequencial na ordem das linhas — D-024 a D-028 foram inseridas antes de D-010 a D-023 no arquivo), nota Claude/Codex, status |
+| `reviews/m7-extraction-design/` | histórico/evidência de rodada | Artefatos do protocolo Claude↔Codex de M7 (proposta Claude, proposta Codex, crítica, reconciliação final aprovada — D-035) |
 | `adr/` | decisão/ADR | 10 ADRs formais para decisões Type 1 |
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
 | `diagrams/project-status.html` | resumo/índice (visual) | **O documento de status do projeto** — painel visual (timeline de marcos, achados reais, pendências); abrir no navegador para uma visão executiva rápida, mais legível que `NEXT_SESSION_PROMPT.md` para esse fim (que continua sendo a fonte de estado detalhado por sessão) |
