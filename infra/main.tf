@@ -682,7 +682,7 @@ module "documents_handler" {
   source_dir     = "${local.dist_dir}/documents-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    QUARANTINE_BUCKET = module.document_buckets.quarantine_bucket_name
+    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -726,6 +726,7 @@ module "upload_finalizer_handler" {
   adot_layer_arn  = var.adot_layer_arn
   timeout_seconds = 30
   environment_variables = merge(local.common_env, {
+    CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
     PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
   })
   policy_documents_json = [
@@ -782,8 +783,8 @@ module "malware_result_handler" {
   adot_layer_arn  = var.adot_layer_arn
   timeout_seconds = 30
   environment_variables = merge(local.common_env, {
-    QUARANTINE_BUCKET = module.document_buckets.quarantine_bucket_name
-    CLEAN_BUCKET      = module.document_buckets.clean_bucket_name
+    CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
+    PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
