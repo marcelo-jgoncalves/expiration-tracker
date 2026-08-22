@@ -711,9 +711,16 @@ data "aws_iam_policy_document" "upload_finalizer_object_access" {
     resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
   }
   statement {
-    sid       = "WriteCleanObjects"
+    # Real bug found via Camada 3 (2026-08-22): advanceAfterEvidence() calls headObject() on
+    # the clean bucket right after copyObject() to VERIFY the promotion copy actually landed
+    # before confirming CLEAN - S3's HeadObject API requires the s3:GetObject IAM action (a
+    # well-known S3 quirk: there is no separate "HeadObject" IAM action), which was never
+    # granted here (only PutObject was). The copy itself succeeded every time; only the
+    # verification step 403'd, surfaced by the AWS SDK as an opaque "UnknownError" rather than
+    # a clean AccessDenied.
+    sid       = "ReadWriteCleanObjects"
     effect    = "Allow"
-    actions   = ["s3:PutObject"]
+    actions   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"]
     resources = ["${module.document_buckets.clean_bucket_arn}/*"]
   }
   statement {
@@ -777,9 +784,16 @@ data "aws_iam_policy_document" "malware_result_object_access" {
     resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
   }
   statement {
-    sid       = "WriteCleanObjects"
+    # Real bug found via Camada 3 (2026-08-22): advanceAfterEvidence() calls headObject() on
+    # the clean bucket right after copyObject() to VERIFY the promotion copy actually landed
+    # before confirming CLEAN - S3's HeadObject API requires the s3:GetObject IAM action (a
+    # well-known S3 quirk: there is no separate "HeadObject" IAM action), which was never
+    # granted here (only PutObject was). The copy itself succeeded every time; only the
+    # verification step 403'd, surfaced by the AWS SDK as an opaque "UnknownError" rather than
+    # a clean AccessDenied.
+    sid       = "ReadWriteCleanObjects"
     effect    = "Allow"
-    actions   = ["s3:PutObject"]
+    actions   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"]
     resources = ["${module.document_buckets.clean_bucket_arn}/*"]
   }
   statement {
