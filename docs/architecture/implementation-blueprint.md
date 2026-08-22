@@ -1499,6 +1499,19 @@ Rollback de código usa aliases Lambda. Rollback de schema não remove campos; u
 
 ## 19. Milestones e dependências
 
+> **Renumeração registrada em 2026-08-22** (achado real de drift de contexto, corrigido — não
+> reescreve as seções abaixo, que continuam a fonte da definição de escopo de cada entrega):
+> "M5" já foi usado neste projeto para um milestone de Observabilidade inserido ad hoc, fora
+> deste blueprint original (decisão do usuário, `decisions-log.md` D-030,
+> `m5-observability-design.md`) — mesmo padrão de inserção já usado para M3.5. Para não colidir
+> dois milestones diferentes com o mesmo nome "M5", os três milestones abaixo ainda não
+> implementados (originalmente M5/M6/M7 neste documento) passam a ser tratados, em todo
+> documento de status/contexto (`NEXT_SESSION_PROMPT.md`, `docs/architecture/diagrams/
+> project-status.html`), como **M6** (Document upload e malware boundary), **M7** (Extraction e
+> confirmação) e **M8** (Hardening operacional) — nessa ordem, dependências inalteradas. Os
+> títulos `### M5`/`### M6`/`### M7` abaixo permanecem como estão (a seção não foi reescrita)
+> porque descrevem o escopo técnico original de cada entrega, não a etiqueta de sequência real.
+
 ### M0 — Guardrails e contratos
 
 Entregas:

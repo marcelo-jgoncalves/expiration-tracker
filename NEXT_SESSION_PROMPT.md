@@ -1,5 +1,27 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Renumeração de milestone registrada (2026-08-22) — leia antes de qualquer trabalho de M6/M7
+
+Achado real de drift de contexto: "M5" já foi usado para Observabilidade (inserção ad hoc, não
+fazia parte do `implementation-blueprint.md` original — `decisions-log.md` D-030). O blueprint
+original define M5="Document upload e malware boundary", M6="Extraction e confirmação",
+M7="Hardening operacional" — esses 3, ainda não implementados, agora são tratados como **M6**,
+**M7**, **M8** neste projeto (nota registrada em `implementation-blueprint.md` §19, mesmo padrão
+de inserção já usado para M3.5). `docs/architecture/diagrams/project-status.html` já atualizado.
+**Próxima ação real de produto: M6 = Document upload e malware boundary** (upload presigned,
+quarentena S3, GuardDuty, promoção CLEAN, exclusão segura) — não "Extraction/AI" como uma
+referência vaga anterior sugeria; extração (M7) depende de M6 existir primeiro.
+
+## Progresso real desta sessão (2026-08-21/22, resumo — ver seções datadas abaixo para detalhe)
+
+Camada 3 real (IAM negativo + DLQ/redrive, decisão do usuário de reusar a conta `dev`) achou um
+bug crítico colateral: `reminder-producer` parado ~1 dia inteiro (EventBridge Scheduler +
+`jsonencode()` HTML-escapando o placeholder) — corrigido e verificado. Na sequência, 2 achados
+abertos da rodada focada de auditoria foram fechados via protocolo Claude↔Codex completo,
+implementados, deployados e verificados em produção real: mecanismo de rollback (alias+versão
+Lambda, manifesto S3, `rollback.yml`, exercitado de ponta a ponta) e trilha de auditoria de
+segurança (negação de autorização + acesso GSI3/GSI6, 3 alarmes reais). 255→274 testes.
+
 ## Trilha de auditoria de segurança — MVP implementado, commitado em `develop` (2026-08-22), aguardando deploy
 
 Achado real aberto da rodada focada (Segurança-Logging/OWASP A09:2025 + SRE-Detecção) fechado via
