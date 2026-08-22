@@ -45,6 +45,27 @@ Pendências reais não resolvidas nesta sessão: teste de reconciliação real (
 expirado, mecanismo implementado e testado unitariamente mas não exercitado em Camada 3);
 extração de conteúdo do documento (M7, depende de M6, ainda não iniciado).
 
+## Pendência registrada (2026-08-22): Frontend e BFF de sessão não têm milestone atribuído
+
+Achado ao responder uma pergunta direta do Marcelo sobre em que fase o frontend entra: **não
+entra em nenhum milestone nomeado nos M0-M8 atuais.** Isso é uma lacuna real, não uma decisão
+fechada — decisão registrada é só sobre O QUE o frontend será (S3+CloudFront, D-012, Type 2),
+nunca QUANDO construí-lo. Todos os M0-M8 são 100% backend (identity, expiration core, reminder,
+notification, document upload/malware, extraction, hardening). Consequência prática: CSP/
+CloudFront Response Headers Policy (adiada em M1, `implementation-blueprint.md` §4.2) e o BFF de
+sessão (`/session/refresh`, `/session/logout` — Cognito já configurado para o padrão, endpoints
+nunca implementados) seguem em aberto, re-flagueados a cada handoff de sessão desde M1 sem nunca
+virar ação concreta (ver linha "Judgment calls" do M1 abaixo e item 2 da lista histórica de
+"Próxima ação obrigatória").
+
+**Decisão explícita do Marcelo (2026-08-22): registrar como pendência para etapa posterior, não
+resolver agora.** Não bloqueia M7/M8 (ambos são backend). Quando o projeto entrar na fase de
+construir uma interface de usuário real, esse é o ponto para: (1) decidir formalmente em qual
+milestone (provavelmente um M9 novo, pós-M8, ou uma iniciativa paralela) o frontend entra; (2)
+implementar CSP/CloudFront Response Headers Policy junto da distribuição CloudFront real; (3)
+implementar as rotas HTTP do BFF de sessão. Até lá, todo teste/exercício real deste projeto
+continua sendo feito via chamada direta a Lambda/API (padrão já usado em M0-M6), nunca via UI.
+
 ## Renumeração de milestone registrada (2026-08-22) — leia antes de qualquer trabalho de M6/M7
 
 Achado real de drift de contexto: "M5" já foi usado para Observabilidade (inserção ad hoc, não
