@@ -36,9 +36,14 @@ export async function advanceAfterEvidence(
     const doc = await deps.store.get<Document>(key, true);
     if (!doc) return "IGNORED_STALE";
 
+    // `doc.quarantineObject.versionId` is always "" (reserveUpload sets it before the real
+    // object exists - the actual versionId is only known once evidence arrives) - the real,
+    // current object reference lives in whichever evidence has already been persisted.
+    const knownObject = doc.uploadEvidence?.object ?? doc.malwareEvidence?.object;
+
     // A late event for a superseded object version (e.g. a re-upload reused the slot before
     // this event was processed) is never applied to the current document state.
-    if (doc.quarantineObject.key === input.expectedObject.key && doc.quarantineObject.versionId && !sameObjectVersion(doc.quarantineObject, input.expectedObject)) {
+    if (knownObject && knownObject.key === input.expectedObject.key && !sameObjectVersion(knownObject, input.expectedObject)) {
       return "IGNORED_WRONG_VERSION";
     }
 
@@ -65,8 +70,14 @@ export async function advanceAfterEvidence(
     }
 
     // decision.action === "PROMOTE": copy quarantine -> clean, verify, then confirm CLEAN.
+    // Real bug found via Camada 3 (2026-08-22): copying from `doc.quarantineObject` crashed
+    // with "Version id cannot be the empty string" - that field's versionId is always "" (see
+    // comment above), never the real S3 version. PROMOTE is only reachable once uploadEvidence
+    // exists (uploadValid === true is required by decideNextAction), so `knownObject` here is
+    // guaranteed to hold the real, observed object reference.
+    const sourceObject = knownObject ?? doc.quarantineObject;
     const cleanKey = `clean/${doc.tenantId}/${doc.documentId}`;
-    const cleanObject = await deps.objects.copyObject(doc.quarantineObject, deps.cleanBucket, cleanKey);
+    const cleanObject = await deps.objects.copyObject(sourceObject, deps.cleanBucket, cleanKey);
     const verify = await deps.objects.headObject(cleanObject);
     if (!verify || verify.contentLength !== doc.contentLength) {
       // Copy landed but didn't verify - never confirm CLEAN on unverified data. The
@@ -94,7 +105,7 @@ export async function advanceAfterEvidence(
       // por lifecycle/reconciliação"). The quarantine bucket's own 24h lifecycle rule is the
       // backstop even if this delete call fails or is never reached.
       try {
-        await deps.objects.deleteObjectVersion(doc.quarantineObject);
+        await deps.objects.deleteObjectVersion(sourceObject);
       } catch {
         // Intentionally swallowed - see comment above. Real failure visibility comes from the
         // bucket lifecycle rule + reconciliation metrics, not from this call succeeding.
