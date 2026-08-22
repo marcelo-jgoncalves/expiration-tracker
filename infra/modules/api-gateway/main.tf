@@ -59,6 +59,7 @@ resource "aws_lambda_permission" "test_ping" {
   action        = "lambda:InvokeFunction"
   function_name = var.test_ping_function_name
   principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/test/ping"
 }
 
@@ -105,6 +106,7 @@ resource "aws_lambda_permission" "items" {
   action        = "lambda:InvokeFunction"
   function_name = var.items_function_name
   principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items*"
 }
 
@@ -132,6 +134,7 @@ resource "aws_lambda_permission" "reminders" {
   action        = "lambda:InvokeFunction"
   function_name = var.reminders_function_name
   principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reminders/policies*"
 }
 
@@ -166,5 +169,6 @@ resource "aws_lambda_permission" "notifications" {
   action        = "lambda:InvokeFunction"
   function_name = var.notifications_function_name
   principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications/preferences"
 }

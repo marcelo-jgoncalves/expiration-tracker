@@ -121,11 +121,19 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
-      - name: Terraform plan (visible in the run log before anything changes)
-        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
+      # Rollback design entrega 1 (docs/architecture/reviews/rollback-mechanism-design/
+      # codex-round2-final-design.md §2): plan to a file and apply THAT FILE, never a
+      # freshly-recomputed plan - closes the real finding that the plan shown in the log and
+      # the plan actually applied could silently diverge between two separate `terraform`
+      # invocations.
+      - name: Terraform plan (saved to file, visible in the run log before anything changes)
+        run: |
+          terraform plan -input=false -out=tfplan \
+            -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
+          terraform show -no-color tfplan
 
-      - name: Terraform apply (dev)
-        run: terraform apply -auto-approve -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
+      - name: Terraform apply (dev) — applies the exact plan file above
+        run: terraform apply -auto-approve -input=false tfplan
 
       - name: Get Terraform outputs
         id: tf
@@ -134,12 +142,15 @@ jobs:
           jq -r '"table_name=\(.table_name.value)",
                  "user_pool_id=\(.user_pool_id.value)",
                  "dispatch_queue_url=\(.dispatch_queue_url.value)",
-                 "api_endpoint=\(.api_endpoint.value)"' <<< "$outputs" >> "$GITHUB_OUTPUT"
+                 "api_endpoint=\(.api_endpoint.value)",
+                 "manifest_bucket=\(.deploy_manifest_bucket_name.value)"' <<< "$outputs" >> "$GITHUB_OUTPUT"
+          echo "$outputs" | jq -c '.lambda_published_versions.value' > /tmp/published_versions.json
 
       # Proves the apply's resources actually exist and answer, via the same AWS APIs a
       # real integration test would use — not that the application works end-to-end
       # (Camada 3 of m3.5-runtime-design.md's 3-layer test plan is broader than this).
       - name: Post-deploy smoke test (resource existence)
+        id: smoke
         run: |
           set -e
           echo "Checking DynamoDB table ${{ steps.tf.outputs.table_name }} ..."
@@ -154,11 +165,65 @@ jobs:
           aws sqs get-queue-attributes --queue-url "${{ steps.tf.outputs.dispatch_queue_url }}" --attribute-names QueueArn >/dev/null
           echo "OK: dispatch queue describable"
 
+          echo "Checking every function's 'live' alias points at its just-published version ..."
+          for fn in $(jq -r 'keys[]' /tmp/published_versions.json); do
+            expected=$(jq -r --arg fn "$fn" '.[$fn]' /tmp/published_versions.json)
+            actual=$(aws lambda get-alias --function-name "$fn" --name live --query FunctionVersion --output text)
+            if [ "$actual" != "$expected" ]; then
+              echo "MISMATCH: $fn live alias is at version $actual, expected $expected"
+              exit 1
+            fi
+            echo "OK: $fn live -> v$expected"
+          done
+
+      # Rollback design entrega 1 §3: the deploy manifest is the source of truth for
+      # rollback.yml's default target ("previous healthy deployment"). Only written, and
+      # current-healthy only advanced, after apply + alias verification + the shallow
+      # smoke test above all succeeded - a failed deploy never becomes a rollback target.
+      - name: Persist deploy manifest and advance current-healthy pointer
+        if: success()
+        run: |
+          set -e
+          bucket="${{ steps.tf.outputs.manifest_bucket }}"
+          deployment_id="${{ github.run_id }}-${{ github.run_attempt }}"
+          previous_healthy=""
+          if aws s3api head-object --bucket "$bucket" --key pointers/current-healthy.json >/dev/null 2>&1; then
+            previous_healthy=$(aws s3 cp "s3://$bucket/pointers/current-healthy.json" - | jq -r '.deploymentId')
+          fi
+
+          functions_json=$(jq -c '[to_entries[] | {(.key): {version: .value, alias: "live"}}] | add' /tmp/published_versions.json)
+
+          manifest=$(jq -n \
+            --arg schemaVersion "1" \
+            --arg deploymentId "$deployment_id" \
+            --arg commitSha "${{ github.sha }}" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg environment "dev" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg previousHealthyDeploymentId "$previous_healthy" \
+            --argjson functions "$functions_json" \
+            '{schemaVersion: ($schemaVersion|tonumber), deploymentId: $deploymentId, commitSha: $commitSha,
+              createdAt: $createdAt, environment: $environment, workflowRunUrl: $workflowRunUrl,
+              previousHealthyDeploymentId: (if $previousHealthyDeploymentId == "" then null else $previousHealthyDeploymentId end),
+              functions: $functions, postCheck: {type: "shallow", status: "passed"}, status: "healthy"}')
+
+          echo "$manifest" | aws s3 cp - "s3://$bucket/deployments/$deployment_id.json" --content-type application/json
+          echo "$manifest" | aws s3 cp - "s3://$bucket/pointers/current-healthy.json" --content-type application/json
+          echo "Manifest persisted: deployments/$deployment_id.json (previousHealthy=${previous_healthy:-none})"
+
       - name: Deploy summary
         run: |
           {
             echo "### Dev Deploy Complete"
+            echo "- **Deployment ID:** ${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "- **Commit:** ${{ github.sha }}"
             echo "- **Table:** ${{ steps.tf.outputs.table_name }}"
             echo "- **Cognito User Pool:** ${{ steps.tf.outputs.user_pool_id }}"
             echo "- **API endpoint:** ${{ steps.tf.outputs.api_endpoint }}"
+            echo "- **Manifest bucket:** ${{ steps.tf.outputs.manifest_bucket }}"
+            echo ""
+            echo "#### Published Lambda versions"
+            echo '```json'
+            cat /tmp/published_versions.json
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

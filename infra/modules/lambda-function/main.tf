@@ -64,6 +64,13 @@ resource "aws_lambda_function" "this" {
   function_name = var.function_name
   role          = aws_iam_role.this.arn
 
+  # Rollback design (docs/architecture/reviews/rollback-mechanism-design/
+  # codex-round2-final-design.md, entrega 1): every deploy publishes an immutable numbered
+  # version. The `live` alias below is what every real invoker (API Gateway, SQS event source
+  # mappings, EventBridge Scheduler) actually targets - never `$LATEST` - so an emergency
+  # rollback can repoint `live` to a prior version in seconds without a `terraform apply`.
+  publish = true
+
   filename         = data.archive_file.this.output_path
   source_code_hash = data.archive_file.this.output_base64sha256
 
@@ -99,4 +106,15 @@ resource "aws_lambda_function" "this" {
     aws_iam_role_policy_attachment.xray,
     aws_iam_role_policy.capabilities,
   ]
+}
+
+# Rollback design entrega 1: stable alias every real invoker targets. Terraform advances this
+# to the newly published version on every normal deploy; emergency rollback (rollback.yml)
+# repoints it directly via `aws lambda update-alias`, bypassing `terraform apply` entirely -
+# the next normal deploy then reconciles Terraform's view of the alias back to $LATEST's
+# published version, which is expected drift-then-reconcile, not a bug.
+resource "aws_lambda_alias" "live" {
+  name             = "live"
+  function_name    = aws_lambda_function.this.function_name
+  function_version = aws_lambda_function.this.version
 }

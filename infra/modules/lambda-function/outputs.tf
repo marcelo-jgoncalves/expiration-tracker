@@ -36,3 +36,22 @@ output "reserved_concurrent_executions" {
 output "layers" {
   value = aws_lambda_function.this.layers
 }
+
+# Rollback design entrega 1 (docs/architecture/reviews/rollback-mechanism-design/
+# codex-round2-final-design.md) — real invokers must use these, never function_arn/invoke_arn
+# above directly, so an emergency alias repoint actually changes what gets invoked.
+output "published_version" {
+  value = aws_lambda_function.this.version
+}
+
+output "live_alias_name" {
+  value = aws_lambda_alias.live.name
+}
+
+output "live_alias_arn" {
+  value = aws_lambda_alias.live.arn
+}
+
+output "live_alias_invoke_arn" {
+  value = aws_lambda_alias.live.invoke_arn
+}

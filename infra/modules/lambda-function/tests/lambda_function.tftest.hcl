@@ -99,6 +99,23 @@ run "grants_exactly_the_capabilities_passed_in" {
     condition     = aws_lambda_function.this.environment[0].variables["AWS_LAMBDA_EXEC_WRAPPER"] == "/opt/otel-handler"
     error_message = "AWS_LAMBDA_EXEC_WRAPPER must point at the ADOT layer's handler wrapper"
   }
+
+  # Rollback design entrega 1: every function publishes a version and has a `live` alias -
+  # real invokers must target the alias, never $LATEST, for emergency rollback to work.
+  assert {
+    condition     = aws_lambda_function.this.publish == true
+    error_message = "Function must publish a new version on every deploy (publish = true)"
+  }
+
+  assert {
+    condition     = aws_lambda_alias.live.name == "live"
+    error_message = "A stable 'live' alias must exist for every function"
+  }
+
+  assert {
+    condition     = aws_lambda_alias.live.function_version == aws_lambda_function.this.version
+    error_message = "The 'live' alias must point at the version just published by this deploy"
+  }
 }
 
 run "no_capabilities_means_no_capability_policies" {
