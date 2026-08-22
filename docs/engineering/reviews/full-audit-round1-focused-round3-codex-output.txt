@@ -1,0 +1,78 @@
+azoável aguardar o próximo deploy, mas a evidência de recuperação ainda não existe.
+
+## 2. Prontidão de Deploy, Rollback & Mudança Operacional — 8.5/10
+
+Evidências positivas:
+
+- Artefato/deployment identificável, checks pré e pós, plano promovido sem recomputação e manifesto durável: `.github/workflows/cd.yml:82-211`.
+- Rollback separado do Terraform, serializado com o deploy, confirmação literal e versões resolvidas pelo manifesto: `.github/workflows/rollback.yml:23-51`, `:63-68` e `:84-140`.
+- Compensação parcial e avanço do ponteiro somente no sucesso: `.github/workflows/rollback.yml:168-185` e `:211-267`.
+
+Achados que impedem 9.0:
+
+1. A ferramenta operacional de emergência ainda não foi exercitada em AWS real (`NEXT_SESSION_PROMPT.md:50-55`). Para prontidão SRE, teste estrutural não substitui um exercício real.
+
+2. Não há validação proporcional por blast radius para mudanças de schema, GSI, KMS ou provider. O CD aplica sempre os mesmos gates e smoke raso (`.github/workflows/cd.yml:82-90` e `:152-177`).
+
+3. O rollback exclui expressamente infraestrutura, schema/IAM, dados e efeitos externos (`.github/workflows/rollback.yml:10-15`; `docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md:200`). Isso é boa governança de escopo, mas não satisfaz a definição normativa do critério.
+
+4. O pós-check chamado de equivalente ao CD verifica somente DynamoDB (`.github/workflows/rollback.yml:202-209`); o CD também verifica Cognito, SQS e aliases (`.github/workflows/cd.yml:152-177`). Não há canário semântico por classe de handler.
+
+Portanto, a ausência de validação diferenciada ainda pesa contra o critério 2. Registrá-la como fora de escopo evita alegação enganosa, mas não transforma a ausência do controle em atendimento da rubrica.
+
+| criterio | nota | gate 9.0? |
+|---|---:|:---:|
+| Delivery, Release & Recovery Discipline | 8.8 | Não |
+| Prontidão de Deploy, Rollback & Mudança Operacional | 8.5 | Não |
+tokens used
+59.553
+# Nota cega Codex - rodada 3
+
+Não consultei nenhum arquivo com `round3` no nome. Tentei salvar em `docs/engineering/reviews/full-audit-round1-focused-round3-codex-blind.md`, mas o workspace está em modo somente leitura e bloqueou a gravação.
+
+## 1. Delivery, Release & Recovery Discipline — 8.8/10
+
+Evidências positivas:
+
+- Gates de qualidade e build antes do deploy: `.github/workflows/cd.yml:82-90`.
+- O plano exibido é exatamente o aplicado: `.github/workflows/cd.yml:129-136`.
+- Versões Lambda imutáveis e alias `live`: `infra/modules/lambda-function/main.tf:63-72` e `:111-119`.
+- Verificação dos 13 aliases antes de declarar sucesso: `.github/workflows/cd.yml:168-176`.
+- Manifesto e `current-healthy` só avançam após apply e checks: `.github/workflows/cd.yml:179-211`.
+- Bucket privado, versionado e protegido: `infra/modules/deploy-manifest-bucket/main.tf:14-49`.
+- Evidência AWS real: deploy concluído, 13 aliases em `v1`, manifesto S3, zero erros agendados e HTTP 401 esperado: `NEXT_SESSION_PROMPT.md:36-48`.
+
+Achados que impedem 9.0:
+
+1. O rollback nunca foi executado ponta a ponta com alvo real (`NEXT_SESSION_PROMPT.md:50-55`). O deploy e o smoke reais comprovam o caminho normal e a estrutura de recuperação, mas não a recuperação efetivamente executada.
+
+2. A classificação de compensação está defeituosa. O passo de compensação escreve em `$GITHUB_OUTPUT`, mas não possui `id`; o registro consulta apenas `steps.rollback.outputs.status` (`.github/workflows/rollback.yml:168-185` e `:244-260`). Uma falha parcialmente compensada pode ser registrada como `failed_before_routing_change`.
+
+3. O manifesto valida apenas schema, ambiente e quantidade de funções, não o conjunto exato dos 13 nomes nem versões estritamente numéricas (`.github/workflows/rollback.yml:112-140`).
+
+São achados reais e corrigíveis. A inexistência temporária de um segundo manifesto saudável não é impedimento externo genuíno. É razoável aguardar o próximo deploy, mas a evidência de recuperação ainda não existe.
+
+## 2. Prontidão de Deploy, Rollback & Mudança Operacional — 8.5/10
+
+Evidências positivas:
+
+- Artefato/deployment identificável, checks pré e pós, plano promovido sem recomputação e manifesto durável: `.github/workflows/cd.yml:82-211`.
+- Rollback separado do Terraform, serializado com o deploy, confirmação literal e versões resolvidas pelo manifesto: `.github/workflows/rollback.yml:23-51`, `:63-68` e `:84-140`.
+- Compensação parcial e avanço do ponteiro somente no sucesso: `.github/workflows/rollback.yml:168-185` e `:211-267`.
+
+Achados que impedem 9.0:
+
+1. A ferramenta operacional de emergência ainda não foi exercitada em AWS real (`NEXT_SESSION_PROMPT.md:50-55`). Para prontidão SRE, teste estrutural não substitui um exercício real.
+
+2. Não há validação proporcional por blast radius para mudanças de schema, GSI, KMS ou provider. O CD aplica sempre os mesmos gates e smoke raso (`.github/workflows/cd.yml:82-90` e `:152-177`).
+
+3. O rollback exclui expressamente infraestrutura, schema/IAM, dados e efeitos externos (`.github/workflows/rollback.yml:10-15`; `docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md:200`). Isso é boa governança de escopo, mas não satisfaz a definição normativa do critério.
+
+4. O pós-check chamado de equivalente ao CD verifica somente DynamoDB (`.github/workflows/rollback.yml:202-209`); o CD também verifica Cognito, SQS e aliases (`.github/workflows/cd.yml:152-177`). Não há canário semântico por classe de handler.
+
+Portanto, a ausência de validação diferenciada ainda pesa contra o critério 2. Registrá-la como fora de escopo evita alegação enganosa, mas não transforma a ausência do controle em atendimento da rubrica.
+
+| criterio | nota | gate 9.0? |
+|---|---:|:---:|
+| Delivery, Release & Recovery Discipline | 8.8 | Não |
+| Prontidão de Deploy, Rollback & Mudança Operacional | 8.5 | Não |

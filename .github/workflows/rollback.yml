@@ -110,7 +110,10 @@ jobs:
           echo "$manifest" > /tmp/target-manifest.json
 
           # Schema/environment/function-set validation - never accept a malformed or
-          # cross-environment manifest as a rollback target.
+          # cross-environment manifest as a rollback target. Real gap found 2026-08-22
+          # (Codex, round3 focused review): checking only fn_count == 13 would accept a
+          # manifest with 13 functions that aren't the right 13 (wrong names) or with a
+          # non-numeric version string - both closed below.
           schema_version=$(echo "$manifest" | jq -r '.schemaVersion')
           environment=$(echo "$manifest" | jq -r '.environment')
           fn_count=$(echo "$manifest" | jq '.functions | length')
@@ -124,6 +127,21 @@ jobs:
           fi
           if [ "$fn_count" != "13" ]; then
             echo "::error::Manifest has $fn_count functions, expected exactly 13"
+            exit 1
+          fi
+
+          target_fn_names=$(echo "$manifest" | jq -r '.functions | keys | sort | join(",")')
+          current_fn_names=$(echo "$current_healthy" | jq -r '.functions | keys | sort | join(",")')
+          if [ "$target_fn_names" != "$current_fn_names" ]; then
+            echo "::error::Target manifest's function names don't match the current deployment's function set."
+            echo "::error::Target:  $target_fn_names"
+            echo "::error::Current: $current_fn_names"
+            exit 1
+          fi
+
+          non_numeric=$(echo "$manifest" | jq -r '.functions | to_entries[] | select(.value.version | test("^[0-9]+$") | not) | .key')
+          if [ -n "$non_numeric" ]; then
+            echo "::error::Manifest has non-numeric version(s) for: $non_numeric"
             exit 1
           fi
 
@@ -166,6 +184,7 @@ jobs:
           echo "status=routing_restored" >> "$GITHUB_OUTPUT"
 
       - name: Compensate on failure (revert already-changed aliases to their pre-rollback versions)
+        id: compensate
         if: failure() && steps.rollback.outcome == 'failure'
         run: |
           set +e
@@ -203,9 +222,20 @@ jobs:
         id: postcheck
         run: |
           set -e
+          # Real gap found 2026-08-22 (Codex, round3 focused review): this used to check only
+          # DynamoDB, weaker than cd.yml's own post-deploy smoke test (table + Cognito + SQS +
+          # aliases) - aligned to the same set (alias check already done in the previous step).
           table_name=$(aws dynamodb list-tables --query "TableNames[?starts_with(@, 'exptrk-dev-table')]|[0]" --output text)
           aws dynamodb describe-table --table-name "$table_name" >/dev/null
           echo "OK: table describable post-rollback"
+
+          user_pool_id=$(aws cognito-idp list-user-pools --max-results 60 --query "UserPools[?starts_with(Name, 'exptrk-dev')].Id | [0]" --output text)
+          aws cognito-idp describe-user-pool --user-pool-id "$user_pool_id" >/dev/null
+          echo "OK: user pool describable post-rollback"
+
+          queue_url=$(aws sqs get-queue-url --queue-name exptrk-dev-reminder-dispatch --query QueueUrl --output text)
+          aws sqs get-queue-attributes --queue-url "$queue_url" --attribute-names QueueArn >/dev/null
+          echo "OK: dispatch queue describable post-rollback"
           echo "status=health_verified" >> "$GITHUB_OUTPUT"
 
       - name: Persist rollback record and advance current-healthy
@@ -247,7 +277,15 @@ jobs:
           set -e
           bucket="${{ steps.bucket.outputs.name }}"
           rollback_id="rollback-${{ github.run_id }}-${{ github.run_attempt }}"
-          status="${{ steps.rollback.outputs.status || 'failed_before_routing_change' }}"
+          # steps.rollback.outputs.status is only ever "routing_restored" (set at the end of a
+          # fully successful alias-update loop) - a mid-loop failure never reaches that line,
+          # so it's always empty here. The real status of a failed/compensated rollback comes
+          # from the compensate step (present only if the alias-update step itself failed).
+          # Bug found real 2026-08-22 (Codex, round3 focused review): this used to read only
+          # steps.rollback.outputs.status, which is never set on failure, silently
+          # misclassifying every compensated/failed-compensation case as
+          # "failed_before_routing_change" even when aliases HAD already been partially changed.
+          status="${{ steps.compensate.outputs.status || steps.rollback.outputs.status || 'failed_before_routing_change' }}"
 
           record=$(jq -n \
             --arg rollbackId "$rollback_id" \
