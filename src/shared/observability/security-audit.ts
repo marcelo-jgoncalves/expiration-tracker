@@ -32,9 +32,11 @@ export type GlobalIndexName = "GSI3" | "GSI6";
 
 export type GlobalIndexOperation = "Query";
 
-/** Closed set of components that legitimately query GSI3/GSI6 - the same 3 privileged roles
- * already proven IAM-isolated (docs/architecture/reviews/camada3-iam-negative-test-2026-08-21.md). */
-export type GlobalIndexComponent = "reminder-producer" | "reminder-reconciliation" | "outbox-sweeper-reminder-dispatch";
+/** Closed set of components that legitimately query GSI3/GSI6 - the original 3 privileged
+ * roles proven IAM-isolated (docs/architecture/reviews/camada3-iam-negative-test-2026-08-21.md)
+ * plus "upload-slot-reconciliation" (M6 design — a real structural change to what used to be a
+ * closed set of exactly 2 GSI6 consumers, acknowledged explicitly, not silently expanded). */
+export type GlobalIndexComponent = "reminder-producer" | "reminder-reconciliation" | "outbox-sweeper-reminder-dispatch" | "upload-slot-reconciliation";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

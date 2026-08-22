@@ -29,6 +29,8 @@ run "jwt_authorizer_attached_to_every_route" {
     reminders_function_name     = "reminders"
     notifications_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
     notifications_function_name = "notifications"
+    documents_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
+    documents_function_name     = "documents"
   }
 
   assert {
@@ -145,5 +147,31 @@ run "jwt_authorizer_attached_to_every_route" {
   assert {
     condition     = aws_lambda_permission.notifications.qualifier == "live"
     error_message = "NotificationsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.documents.qualifier == "live"
+    error_message = "DocumentsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  # Every /items/{itemId}/documents* route exists and is JWT-authorized (M6).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.documents : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /items/{itemId}/documents* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.documents) == 2
+    error_message = "Expected exactly 2 /items/{itemId}/documents* routes (reserve upload, delete)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "DELETE /items/{itemId}/documents/{documentId}",
+    )
+    error_message = "DELETE /items/{itemId}/documents/{documentId} route must exist"
   }
 }

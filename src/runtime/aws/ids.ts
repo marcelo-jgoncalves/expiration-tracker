@@ -9,8 +9,9 @@ import { ulid } from "ulid";
 import type { ExpirationIdGenerator } from "../../modules/expiration/application/id-generator.js";
 import type { ReminderIdGenerator } from "../../modules/reminder/application/id-generator.js";
 import type { IdGenerator as IdentityIdGenerator } from "../../modules/identity/application/resolve-request-context.js";
+import type { DocumentIdGenerator } from "../../modules/document/application/id-generator.js";
 
-export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator {
+export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator {
   newItemId(): string {
     return `item_${ulid()}`;
   }
@@ -37,6 +38,12 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   }
   newSessionId(): string {
     return `session_${ulid()}`;
+  }
+  newDocumentId(): string {
+    return `doc_${ulid()}`;
+  }
+  newUploadSlotId(): string {
+    return `slot_${ulid()}`;
   }
 }
 

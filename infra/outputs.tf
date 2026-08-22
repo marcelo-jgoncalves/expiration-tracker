@@ -33,6 +33,11 @@ output "lambda_function_names" {
     module.email_delivery.function_name,
     module.ses_callback.function_name,
     module.notifications_handler.function_name,
+    module.documents_handler.function_name,
+    module.upload_finalizer_handler.function_name,
+    module.malware_result_handler.function_name,
+    module.upload_slot_reconciliation_handler.function_name,
+    module.parser_sandbox.function_name,
   ]
 }
 
@@ -41,22 +46,39 @@ output "lambda_function_names" {
 # (function_name -> published version + live alias name) - not sensitive, no PII/secrets.
 output "lambda_published_versions" {
   value = {
-    (module.test_ping_handler.function_name)               = module.test_ping_handler.published_version
-    (module.items_handler.function_name)                   = module.items_handler.published_version
-    (module.reminders_handler.function_name)               = module.reminders_handler.published_version
-    (module.reminder_producer.function_name)               = module.reminder_producer.published_version
-    (module.reminder_dispatch.function_name)               = module.reminder_dispatch.published_version
-    (module.reminder_reconciliation.function_name)         = module.reminder_reconciliation.published_version
-    (module.dispatch_outbox_relay.function_name)           = module.dispatch_outbox_relay.published_version
-    (module.outbox_sweeper.function_name)                  = module.outbox_sweeper.published_version
-    (module.notification_router.function_name)             = module.notification_router.published_version
-    (module.notification_email_outbox_relay.function_name) = module.notification_email_outbox_relay.published_version
-    (module.email_delivery.function_name)                  = module.email_delivery.published_version
-    (module.ses_callback.function_name)                    = module.ses_callback.published_version
-    (module.notifications_handler.function_name)           = module.notifications_handler.published_version
+    (module.test_ping_handler.function_name)                  = module.test_ping_handler.published_version
+    (module.items_handler.function_name)                      = module.items_handler.published_version
+    (module.reminders_handler.function_name)                  = module.reminders_handler.published_version
+    (module.reminder_producer.function_name)                  = module.reminder_producer.published_version
+    (module.reminder_dispatch.function_name)                  = module.reminder_dispatch.published_version
+    (module.reminder_reconciliation.function_name)            = module.reminder_reconciliation.published_version
+    (module.dispatch_outbox_relay.function_name)              = module.dispatch_outbox_relay.published_version
+    (module.outbox_sweeper.function_name)                     = module.outbox_sweeper.published_version
+    (module.notification_router.function_name)                = module.notification_router.published_version
+    (module.notification_email_outbox_relay.function_name)    = module.notification_email_outbox_relay.published_version
+    (module.email_delivery.function_name)                     = module.email_delivery.published_version
+    (module.ses_callback.function_name)                       = module.ses_callback.published_version
+    (module.notifications_handler.function_name)              = module.notifications_handler.published_version
+    (module.documents_handler.function_name)                  = module.documents_handler.published_version
+    (module.upload_finalizer_handler.function_name)           = module.upload_finalizer_handler.published_version
+    (module.malware_result_handler.function_name)             = module.malware_result_handler.published_version
+    (module.upload_slot_reconciliation_handler.function_name) = module.upload_slot_reconciliation_handler.published_version
+    (module.parser_sandbox.function_name)                     = module.parser_sandbox.published_version
   }
 }
 
 output "deploy_manifest_bucket_name" {
   value = module.deploy_manifests.bucket_name
+}
+
+output "document_quarantine_bucket_name" {
+  value = module.document_buckets.quarantine_bucket_name
+}
+
+output "document_clean_bucket_name" {
+  value = module.document_buckets.clean_bucket_name
+}
+
+output "malware_protection_enabled" {
+  value = module.document_malware_protection.enabled
 }

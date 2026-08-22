@@ -44,6 +44,11 @@ const HANDLERS = [
   "notification-email-outbox-relay-handler",
   "email-delivery-handler",
   "ses-callback-handler",
+  "documents-handler",
+  "upload-finalizer-handler",
+  "malware-result-handler",
+  "upload-slot-reconciliation-handler",
+  "parser-sandbox-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

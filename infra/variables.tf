@@ -104,6 +104,21 @@ variable "alert_email" {
   type        = string
 }
 
+variable "malware_protection_enabled" {
+  description = <<-EOT
+    GuardDuty Malware Protection for S3 kill switch (M6 design,
+    docs/architecture/reviews/m6-document-upload-design/codex-reconciliation-round2-final-design.md).
+    Real user decision: GuardDuty has a recurring cost (~US$0.60/GB scanned, ~US$250/month
+    estimated at Stage 5 production scale) - default true lets it be exercised end-to-end
+    (including the real Camada 3 GuardDuty/EICAR test), but dev can turn it off (`-var
+    malware_protection_enabled=false`) between exercises to avoid the recurring cost.
+    document-malware-protection's own variable validation forces this true whenever
+    `environment == "prod"` - fail-closed, no bypass in a real production deploy.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "cognito_callback_urls" {
   description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module."
   type        = list(string)
