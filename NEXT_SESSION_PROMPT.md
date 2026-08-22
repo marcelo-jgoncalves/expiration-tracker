@@ -1,5 +1,50 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## M6 (Document upload e malware boundary) — IMPLEMENTADO, DEPLOYADO e VERIFICADO EM PRODUÇÃO REAL (2026-08-22)
+
+Design aprovado via protocolo Claude↔Codex (Claude 9.4/Codex 9.6,
+`docs/architecture/reviews/m6-document-upload-design/`). Implementação completa: domínio,
+aplicação, portas, persistência DynamoDB/S3, HTTP, 4 workers, 5 handlers Lambda, 3 módulos
+Terraform novos (`document-buckets`, `document-malware-protection` com o toggle
+`malware_protection_enabled` fail-closed em prod, `document-observability`). 345 testes
+unitários. Deployado em `dev` via `cd.yml` (PRs #23-#32, todas mergeadas em `main`).
+
+**Decisão de custo real (D-033)**: `document-buckets` usa a chave gerenciada `aws/s3` em vez de
+CMKs dedicadas por bucket (decisão direta do Marcelo — corta ~US$2/mês de custo fixo). GuardDuty
+Malware Protection for S3 não tem custo de estar ligado, só cobra por GB escaneado.
+
+**6 bugs reais encontrados e corrigidos via o exercício de Camada 3** (upload real de PDF limpo +
+arquivo EICAR real contra GuardDuty real, PRs #23-#32 — nenhum destes seria pego por
+`terraform plan`/`terraform test`, só por um `terraform apply` real seguido de invocação real):
+1. `documents-handler`/`upload-finalizer-handler`/`malware-result-handler` liam nomes de env var
+   diferentes dos que `infra/main.tf` configurava (`QUARANTINE_BUCKET_NAME` vs `QUARANTINE_BUCKET`
+   etc.) — os 3 handlers teriam falhado desde o cold start.
+2. `UploadFinalizerWorker`/`MalwareResultWorker` perdiam permanentemente sua própria evidência na
+   primeira colisão de OCC com o outro worker (`isTransactionCanceled` → `IGNORED_STALE` sem
+   retry) — corrigido com o mesmo loop de retry limitado que `advanceAfterEvidence` já usa.
+3. A promoção copiava de `doc.quarantineObject` (versionId sempre `""`, placeholder) em vez do
+   objeto real em `uploadEvidence.object`/`malwareEvidence.object` — S3 rejeitava com "Version id
+   cannot be the empty string".
+4. `upload-finalizer-handler` só tinha permissão de LEITURA no bucket quarantine — mas
+   `advanceAfterEvidence()` (a promoção) é executada por QUALQUER UM dos 2 workers (quem
+   completar a evidência que faltava por último), não sempre `malware-result-handler`.
+5. `CopySource` usava `encodeURIComponent()` na key inteira, escapando os separadores `/` para
+   `%2F` — toda quarantine key real tem múltiplos segmentos, quebrando 100% das promoções reais.
+6. A verificação pós-cópia (`headObject` no bucket clean) precisa de `s3:GetObject` (peculiaridade
+   do S3: não existe action IAM "HeadObject") — nunca concedido no bucket clean (só `PutObject`).
+
+**Evidência real de que funciona, ponta a ponta** (2026-08-22, ver PR #32 e commits seguintes):
+upload real de PDF limpo → GuardDuty real → `NO_THREATS_FOUND` → `status: CLEAN` real, objeto
+real no bucket clean, quarantine deletado. Upload real do arquivo EICAR padrão da indústria →
+GuardDuty real → `THREATS_FOUND` → `status: REJECTED` real. Alarme `DocumentMalwareThreatsFound`
+disparou de verdade (`StateValue: ALARM`). Limpeza completa verificada: buckets vazios, todos os
+registros `Document`/`UploadSlot`/`IdempotencyRecord` de teste deletados, usuário/role IAM
+temporários criados para diagnóstico de permissão deletados e confirmados (`NoSuchEntity`).
+
+Pendências reais não resolvidas nesta sessão: teste de reconciliação real (timeout de upload slot
+expirado, mecanismo implementado e testado unitariamente mas não exercitado em Camada 3);
+extração de conteúdo do documento (M7, depende de M6, ainda não iniciado).
+
 ## Renumeração de milestone registrada (2026-08-22) — leia antes de qualquer trabalho de M6/M7
 
 Achado real de drift de contexto: "M5" já foi usado para Observabilidade (inserção ad hoc, não
