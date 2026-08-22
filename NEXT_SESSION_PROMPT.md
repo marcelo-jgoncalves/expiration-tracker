@@ -1,6 +1,66 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Status atual (2026-08-21) — M5 implementado, deployado, verificado em produção real e operacionalmente fechado. Leia esta seção primeiro, supera todo o histórico abaixo.
+## Plano priorizado para a próxima sessão (2026-08-21) — COMECE AQUI, antes de qualquer outra coisa
+
+Análise feita ao final desta sessão: dos 8 eixos do full-audit round1 que ficaram abaixo do
+gate de 9,0 (ver seção "Status mais recente" no histórico abaixo), a implementação e o deploy
+real de M4/M5 nesta sessão geraram **achado novo real** — não cosmético — para 6 critérios
+específicos, espalhados em 3 eixos diferentes. Isso NÃO significa reabrir os 8 eixos inteiros
+(`AGENTS.md` §"não reabrir rodadas... só se houver achado novo real" continua valendo para o
+resto) — só esses 6 têm evidência nova genuína desde 2026-08-20:
+
+| Eixo | Critério | Por que há achado novo |
+|---|---|---|
+| Qualidade de Engenharia | Delivery/Release/Recovery Discipline | `cd.yml` real usado, corrida CI/CD real corrigida, bug pós-deploy real caçado via `aws lambda invoke` e corrigido |
+| Qualidade de Engenharia | Debuggability & Operational Feedback | M5 implementou exatamente o mecanismo que faltava (`AsyncLocalStorage`/`SecureLogger` contextual) |
+| Segurança da Informação | Critério 7 (alarmes sem destino de notificação real) | M5 entregou SNS→e-mail real, testado de verdade (`OK→ALARM→OK`) |
+| Operações/SRE e Continuidade | Critério 3 (detecção/resposta a incidente) | Mesmo alerta real de M5 |
+| Operações/SRE e Continuidade | Critério 6 (deploy/rollback) | Mesma evidência de `cd.yml` real de Qualidade |
+| Governança de Produto Multi-tenant | "Correção do Serviço de Lembretes" (nota 8,6 — "entrega/feedback de provider é M4+") | M4 entregou SES real + rota `/notifications/preferences` self-service |
+
+### Passo 1 — Rodada focada Claude↔Codex (só esses 6 critérios, não os eixos inteiros)
+
+Protocolo `AGENTS.md` §4, nota cega, mínimo 3 rodadas, ≥9,0 sem arredondar por critério (não
+por eixo — os outros critérios de Qualidade/Segurança/Operações/Produto continuam como estavam,
+não fazem parte desta rodada). Ler `docs/engineering/joint-review-criteria.md` para o texto
+exato de cada critério antes de avaliar contra o estado real do repositório (não contra intenção
+documentada). Registrar o resultado em
+`docs/engineering/reviews/full-audit-round1-<eixo>-round2-*` (mesmo padrão de nomenclatura já
+usado) e atualizar os `*-summary.md` correspondentes.
+
+### Passo 2 — Fechar os residuais reais de M4 (não bloqueantes, mas pontuais)
+
+1. **Spike de validação das tags SES em sandbox real** — depende de uma identidade SES
+   verificada (passo manual, fora do Terraform) antes de rodar; perguntar ao usuário se já tem
+   uma identidade de e-mail/domínio pra verificar, ou se isso continua bloqueado externamente.
+2. **Template de e-mail real e versionado** (`templateId`+`templateVersion`, hoje placeholder em
+   `ses-email-adapter.ts`) — decisão de produto sobre motor de template/localização antes de
+   implementar; não é ponto-fix trivial, calibrar `docs/engineering/change-risk-scale.md` (é
+   Nível 3-4, não deveria precisar do protocolo Claude↔Codex, mas confirmar).
+
+### Passo 3 — Decidir o próximo marco estrutural (M6/M7 ou Camada 3)
+
+Duas opções reais, mutuamente não-exclusivas, mas uma decisão de prioridade é necessária:
+- **M6/M7** (`implementation-blueprint.md` §19: Document/AI, evidência operacional final) — é o
+  próximo marco de produto per o blueprint original.
+- **Camada 3** (sandbox AWS efêmero: teste negativo de IAM real, redrive de DLQ real, invocação
+  real do EventBridge Scheduler) — pendência estrutural reaberta a cada milestone desde M3.5,
+  nunca fechada. Destravaria diretamente vários achados de Arquitetura/Segurança/Operações
+  classificados como "Camada 3 pendente" no full-audit.
+
+Não presumir qual vem primeiro sem perguntar ao usuário — é decisão de priorização de produto,
+não técnica.
+
+### Pendências não relacionadas a este plano, mantidas como estavam (ver full-audit no histórico)
+
+Privacidade/Jurídico (DSR/purge, DPA, parecer jurídico, região AWS), Governança de IA (processo,
+não arquitetura), Produto Multi-tenant (control plane, catálogo de planos — exceto o critério do
+Passo 1), e os critérios de Operações que exigem tráfego/incidente/backup real — nenhum desses
+muda com código desta sessão, continuam exatamente como classificados no full-audit round1.
+
+---
+
+## Status atual (2026-08-21) — M5 implementado, deployado, verificado em produção real e operacionalmente fechado.
 
 **M5 (Observabilidade)** está implementado, revisado pelo protocolo Claude↔Codex e **verificado
 funcionando na conta AWS `dev` real** — não só "código no repo". Linha do tempo resumida (detalhe
