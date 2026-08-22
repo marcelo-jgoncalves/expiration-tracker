@@ -1,5 +1,46 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Trilha de auditoria de segurança — MVP implementado, commitado em `develop` (2026-08-22), aguardando deploy
+
+Achado real aberto da rodada focada (Segurança-Logging/OWASP A09:2025 + SRE-Detecção) fechado via
+protocolo Claude↔Codex completo (nota cega round1: Codex 9.4/10 com proposta muito mais completa
+que a minha inicial; round2 reconciliação aceita com 2 ajustes — divisão MVP-desta-sessão vs.
+entrega futura, módulo em `src/shared/observability/`). Design:
+`docs/architecture/reviews/security-audit-trail-design/codex-reconciliation-round2-final-design.md`.
+
+Implementado: `src/shared/observability/security-audit.ts` (3 funções de taxonomia fechada —
+`auditAuthorizationDenied`/`auditGlobalIndexAccess`/`auditGlobalIndexAccessDenied` — nunca
+`Record<string, unknown>` arbitrário); `AuthorizationDeniedError` agora expõe `action` como
+propriedade real (bug real corrigido); os 4 handlers HTTP (`item-handlers.ts`,
+`policy-handlers.ts`, `preferences-handlers.ts`, `test-route-handler.ts`) emitem 1 evento exato
+por negação real, sem alterar a resposta HTTP; os 3 adapters GSI3/GSI6
+(`dynamodb-reminder-producer-store.ts`, `dynamodb-reconciliation-candidate-source.ts`,
+`dynamodb-outbox-relay-store.ts`) emitem 1 evento de sucesso por chamada lógica (mesmo paginada)
+e 1 evento de negação real em `AccessDeniedException`, sem alterar retry/DLQ;
+`outbox-sweeper-handler.ts` corrigido (não chamava `runWithContext`, achado real do Codex — sem
+isso os eventos de GSI6 do sweeper não tinham `correlationId`); novo módulo Terraform
+`infra/modules/security-audit-observability` com 3 alarmes reais (`SecurityAuthorizationDeniedBurst`,
+`SecurityAuthorizationTenantBoundaryDenied`, `SecurityGlobalIndexAccessDenied`) ligados ao
+`alert-topic` real de M5. Nova regra de `dependency-cruiser` (`shared-must-not-reach-modules`)
+adicionada para não deixar essa arquitetura ser violada silenciosamente no futuro.
+
+274 testes (era 264), incluindo cobertura real da trilha (formato/redação, 1-evento-por-chamada
+mesmo paginada, `AccessDeniedException` sintético não altera retry, 1-evento-por-negação real via
+`authorize()` de verdade em 2 dos 4 handlers). `terraform test` (módulo novo + raiz) verde;
+`terraform plan` real contra `dev`: 14 a adicionar, 26 a mudar (todas as 13 funções recebem nova
+versão/alias porque o módulo compartilhado novo entra no bundle de todas), 0 destroy.
+
+**Fora do MVP desta sessão, explicitamente**: alarme de anomalia de volume de acesso a GSI3/GSI6
+(a instrumentação `pageCount`/`resultCount` já existe para gerar dado, mas o alarme em si só pode
+ser calibrado depois de observar baseline real em `dev` — não fechar isso especulativamente).
+
+**Ainda não deployado nem exercitado em produção real** — próxima ação: commitar, abrir PR,
+mergear, deployar via `cd.yml`, depois **gerar evidência real** (mesmo padrão da entrega 1 de
+rollback): forçar um evento real de negação (ex. via `aws lambda invoke` sintético) e um acesso
+real a GSI3/GSI6 (já ocorre naturalmente via os schedules reais), confirmar ambos localizáveis no
+CloudWatch por `correlationId`, e exercitar os 3 alarmes reais `OK→ALARM→OK` via
+`aws cloudwatch set-alarm-state` (mesmo método já usado para o alarme de M5).
+
 ## Mecanismo de rollback — entrega 1 implementada, commitada em `develop` (2026-08-21/22), NÃO deployada
 
 Achado real da rodada focada (rollback/roll-forward inexistente) fechado via protocolo
@@ -47,13 +88,22 @@ nesta sessão):
   **401** (não 500/502) — prova que a cadeia real API Gateway→autorizer JWT→integração→alias
   `live`→Lambda está intacta depois do rewiring simultâneo das 13 funções.
 
-**Pendência real, não urgente**: `rollback.yml` nunca foi exercitado de verdade (só
-`terraform plan`/`test`) — o manifesto atual não tem `previousHealthyDeploymentId` ainda (é o
-primeiro), então não há "alvo" real de rollback até existir um segundo deploy saudável. Próximo
-deploy real (de qualquer natureza) cria esse segundo manifesto e destrava um teste real de
-`rollback.yml` contra `dev` — vale executar esse teste na próxima oportunidade de deploy, não
-precisa forçar um deploy só para isso agora. Canários semânticos (entrega 2) continuam
-registrados como escopo futuro explícito, não implementados.
+**Rollback exercitado de ponta a ponta com evidência real (2026-08-22)** — rodada 3 focada
+(`docs/engineering/reviews/full-audit-round1-focused-round3-summary.md`) reavaliou os 2
+critérios ainda abaixo do gate; Codex encontrou e eu corrigi 2 bugs reais em `rollback.yml`
+(passo de compensação sem `id:` classificava toda falha parcial incorretamente; validação de
+manifesto não checava conjunto exato de nomes de função nem formato de versão). Depois disso,
+mudança trivial e reversível forçou um segundo deploy real (`test-ping-handler` v1→v2),
+seguido de um rollback real disparado via `gh workflow run rollback.yml` — verificado
+independentemente via AWS CLI: alias voltou pra v1, `current-healthy` restaurado ao manifesto
+anterior, registro real `routing_restored`/`health_verified`/`completed`, API real continuou
+respondendo corretamente (401) depois do rollback. Detalhe completo:
+`docs/architecture/reviews/rollback-mechanism-design/rollback-exercise-2026-08-22.md`. **Os 2
+critérios agora batem o gate ≥9.0** (9.3 e 9.1). Achado residual não bloqueante: caminho de
+compensação de falha parcial nunca foi exercitado com uma falha real induzida (só por leitura
+de código); ausência de validação diferenciada por blast radius de schema/GSI/KMS permanece
+real, candidato a design futuro. Canários semânticos (entrega 2) continuam registrados como
+escopo futuro explícito, não implementados.
 
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
 

@@ -514,3 +514,26 @@ module "deploy_manifests" {
   bucket_name = "${local.name_prefix}-deploy-manifests"
   tags        = { Project = local.project_name, Environment = var.environment }
 }
+
+# --- Trilha de auditoria de segurança (MVP desta sessão) -----------------------------------
+# docs/architecture/reviews/security-audit-trail-design/codex-reconciliation-round2-final-design.md
+# Detecta os 2 achados reais abertos (Segurança-Logging/OWASP A09, SRE-Detecção): negação de
+# autorização e acesso a GSI3/GSI6 não tinham trilha dedicada. Reusa o alert-topic real de M5.
+
+module "security_audit_observability" {
+  source = "./modules/security-audit-observability"
+
+  http_function_names = [
+    module.items_handler.function_name,
+    module.reminders_handler.function_name,
+    module.notifications_handler.function_name,
+    module.test_ping_handler.function_name,
+  ]
+  global_index_function_names = [
+    module.reminder_producer.function_name,
+    module.reminder_reconciliation.function_name,
+    module.outbox_sweeper.function_name,
+  ]
+  alert_topic_arn = module.alert_topic.topic_arn
+  tags            = { Project = local.project_name, Environment = var.environment }
+}

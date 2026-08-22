@@ -9,6 +9,7 @@ import { GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dyn
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { EntityKey, Gsi3QueryInput, ReminderProducerStore, TransactWriteEntry } from "../ports/reminder-store.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
+import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../../shared/observability/security-audit.js";
 
 export class DynamoDbReminderProducerStore implements ReminderProducerStore {
   constructor(
@@ -17,6 +18,7 @@ export class DynamoDbReminderProducerStore implements ReminderProducerStore {
   ) {}
 
   async queryGsi3<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3QueryInput): Promise<T[]> {
+    let pageCount = 0;
     try {
       const items: T[] = [];
       let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -30,11 +32,19 @@ export class DynamoDbReminderProducerStore implements ReminderProducerStore {
             ExclusiveStartKey: exclusiveStartKey,
           }),
         );
+        pageCount += 1;
         items.push(...((result.Items ?? []) as T[]));
         exclusiveStartKey = result.LastEvaluatedKey;
       } while (exclusiveStartKey);
+      // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real): 1
+      // evento por chamada lógica, não por página - ver
+      // docs/architecture/reviews/security-audit-trail-design/.
+      auditGlobalIndexAccess({ indexName: "GSI3", operation: "Query", component: "reminder-producer", pageCount, resultCount: items.length });
       return items;
     } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI3", operation: "Query", component: "reminder-producer", awsErrorCode: "AccessDeniedException" });
+      }
       throw mapDynamoError(err, "ReminderProducerStore.queryGsi3");
     }
   }

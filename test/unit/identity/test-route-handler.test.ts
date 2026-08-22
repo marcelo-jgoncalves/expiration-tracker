@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 import { InMemoryIdentityStore, makeIdGenerator } from "./in-memory-store.js";
 import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
@@ -63,5 +64,30 @@ describe("handleTestRoute", () => {
       { requestId: "r2", correlationId: "c", claims: { ...claims, tokenId: "t2" } },
     );
     expect(denied.statusCode).toBe(401);
+  });
+
+  it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
+    const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
+    const quota = makeDeps().quota;
+    // A resolver whose context has no role at all - the real authorize() function throws
+    // AuthorizationDeniedError("NO_MEMBERSHIP", ...) for this, exercising the real domain
+    // path (not a mocked exception) through the handler's actual catch block.
+    const noRoleResolver = {
+      resolve: async () => ({
+        tenant: { tenantId: "tenant-x", roles: [] },
+        principal: { userId: "user-x" },
+        requestId: "r1",
+      }),
+    } as unknown as Parameters<typeof handleTestRoute>[0]["resolver"];
+
+    const res = await handleTestRoute(
+      { resolver: noRoleResolver, quota },
+      { requestId: "r1", correlationId: "c1", claims: { sub: "sub-x", tokenId: "t1", issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() } },
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect(auditSpy).toHaveBeenCalledTimes(1);
+    expect(auditSpy).toHaveBeenCalledWith({ reason: "NO_MEMBERSHIP", action: "system:ping" });
+    auditSpy.mockRestore();
   });
 });

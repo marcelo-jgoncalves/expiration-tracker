@@ -17,6 +17,7 @@ import {
   type ReminderReconciliationCandidateSource,
 } from "../ports/reconciliation-candidate-source.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
+import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../../shared/observability/security-audit.js";
 
 const DEFAULT_PAGE_SIZE = 200;
 
@@ -41,8 +42,15 @@ export class DynamoDbReminderReconciliationCandidateSource implements ReminderRe
       // GSI6 is ALL-projected (infra/lib/dynamo-table.ts) - each row already IS the full
       // ReminderOccurrence item, no separate fetch needed.
       const items = (result.Items ?? []) as ExpiredClaimCandidate[];
+      // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real): 1
+      // página por chamada aqui - pageCount sempre 1, ver
+      // docs/architecture/reviews/security-audit-trail-design/.
+      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", pageCount: 1, resultCount: items.length });
       return { items, cursor: result.LastEvaluatedKey ? JSON.stringify(result.LastEvaluatedKey) : undefined };
     } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", awsErrorCode: "AccessDeniedException" });
+      }
       throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listExpiredClaims");
     }
   }
@@ -61,8 +69,12 @@ export class DynamoDbReminderReconciliationCandidateSource implements ReminderRe
       );
       // GSI6 is ALL-projected - each row already IS the full ReminderOccurrence item.
       const items = (result.Items ?? []) as DstReconciliationCandidate[];
+      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", pageCount: 1, resultCount: items.length });
       return { items, cursor: result.LastEvaluatedKey ? JSON.stringify(result.LastEvaluatedKey) : undefined };
     } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", awsErrorCode: "AccessDeniedException" });
+      }
       throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listDstCandidates");
     }
   }

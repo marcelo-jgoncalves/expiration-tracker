@@ -7,6 +7,7 @@ import type { EntityKey } from "../../dynamodb/occ.js";
 import type { OutboxRecord } from "../outbox.js";
 import type { OutboxRelayStore } from "../relay-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../dynamodb/sdk-errors.js";
+import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../observability/security-audit.js";
 
 export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
   constructor(
@@ -54,6 +55,7 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
   }
 
   async listPendingReminderDispatch(input: { destination: string; olderThan: string; pageSize?: number }): Promise<OutboxRecord[]> {
+    let pageCount = 0;
     try {
       const items: OutboxRecord[] = [];
       let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -73,11 +75,19 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
             ExclusiveStartKey: exclusiveStartKey,
           }),
         );
+        pageCount += 1;
         items.push(...((result.Items ?? []) as OutboxRecord[]));
         exclusiveStartKey = result.LastEvaluatedKey;
       } while (exclusiveStartKey);
+      // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real): só
+      // outbox-sweeper-reminder-dispatch chama este método (única role com gsi6Read que usa
+      // este caminho) - ver docs/architecture/reviews/security-audit-trail-design/.
+      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", pageCount, resultCount: items.length });
       return items;
     } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", awsErrorCode: "AccessDeniedException" });
+      }
       throw mapDynamoError(err, "OutboxRelayStore.listPendingReminderDispatch");
     }
   }
