@@ -44,23 +44,35 @@ substituição nunca ocorria. O Lambda recebia o `Input` como JSON válido (`<` 
 `<` normalmente ao fazer `JSON.parse`), então o valor chegava ao handler como a string literal
 `"<aws.scheduler.scheduled-time>"` — nunca um timestamp real.
 
-## Impacto real
+## Impacto real (verificado por função, não presumido igual para as 4)
 
-**Desde `2026-08-20T14:41:39Z`** (primeiro `terraform apply` real que criou essas 4 schedules,
-sessão de M5) **até a correção nesta sessão**, as 4 schedules afetadas nunca funcionaram de
-verdade contra dados reais:
-- `reminder-producer` (a cada 1 min): **nenhum lembrete real foi materializado** durante toda essa
-  janela — o motor de lembretes esteve efetivamente parado em `dev`.
-- `reminder-claim-reconciliation` (CLAIMS, a cada 5 min) e `reminder-dst-reconciliation` (DST,
-  diário): mesma falha — reconciliação nunca rodou de verdade.
-- `outbox-sweeper-reminder-dispatch` (a cada 5 min): mesma falha — sweeper do outbox nunca rodou.
+O bug de escaping estava presente no `input` armazenado das 4 schedules desde
+`2026-08-20T14:41:39Z` — mas o impacto funcional real difere por handler, verificado via
+CloudWatch Logs/Metrics de cada função, não presumido:
 
-Como o ambiente `dev` não tem usuários/tenants reais ainda, o impacto de produto é zero — mas isso
-teria sido um incidente SEV-1/SEV-2 real (`incident-runbooks.md`) num ambiente com usuários. O
-alarme de erros de cada função (`*ErrorsAlarm`, M5) deveria ter capturado isso e notificado via
-SNS→e-mail — não capturou porque nenhum desses alarmes está configurado sobre invocações
-assíncronas de Scheduler com essa cardinalidade/threshold específico ainda, achado adicional a
-investigar (fora do escopo deste documento, registrar como follow-up).
+- **`reminder-producer` (a cada 1 min): impacto real e severo.** O handler valida
+  `scheduledTime` contra o schema do evento e trata data inválida como `VALIDATION_FAILED`
+  fatal — **100% das invocações falharam**, confirmado via métricas `Invocations`/`Errors`
+  (3/3 por minuto, 1 tentativa + 2 retries assíncronos automáticos, todos falhos) e via logs
+  reais. **Nenhum lembrete real foi materializado nessa janela** — o motor de lembretes esteve
+  efetivamente parado em `dev`.
+- **`reminder-claim-reconciliation`/`reminder-dst-reconciliation` (mesmo handler, modos
+  `CLAIMS`/`DST`): sem impacto funcional.** `reminder-reconciliation-handler.ts` só usa
+  `event.scheduledTime` para um campo de log (`logger.info(..., { scheduledTime:
+  event.scheduledTime, ... })`) — nunca o valida nem o usa na lógica de reconciliação (que usa
+  seu próprio relógio injetado). O placeholder não-substituído virava só um valor de log
+  incorreto/cosmético; a reconciliação em si rodou normalmente durante toda a janela (confirmado:
+  nenhuma ocorrência de erro de validação de `scheduledTime` nos logs desta função).
+- **`outbox-sweeper-reminder-dispatch`: sem impacto algum.** `outbox-sweeper-handler.ts` nunca
+  referencia `event.scheduledTime` — o campo era recebido e simplesmente ignorado.
+
+Como o ambiente `dev` não tem usuários/tenants reais ainda, o impacto de produto do caso severo
+(`reminder-producer`) é zero — mas isso teria sido um incidente SEV-1/SEV-2 real
+(`incident-runbooks.md`) num ambiente com usuários. O alarme de erros da função (`*ErrorsAlarm`,
+M5) deveria ter capturado isso e notificado via SNS→e-mail — não capturou porque nenhum alarme
+está configurado sobre a cardinalidade/threshold específico de invocações assíncronas de
+Scheduler ainda, achado adicional a investigar (fora do escopo deste documento, registrar como
+follow-up).
 
 ## Correção real aplicada
 
@@ -78,6 +90,20 @@ local — política do projeto, `AGENTS.md` §7): confirma as 4 schedules como `
 mudança isolada ao campo `input`. **Ainda não deployado** — decisão do usuário e política vigente
 exigem que qualquer aplicação real vá só pela pipeline (`cd.yml`, merge para `main`); esta correção
 está commitada em `develop`, aguardando decisão explícita do usuário sobre abrir o PR de deploy.
+
+## Verificação pós-deploy real (2026-08-22, via PR #19 merged em `main`, `cd.yml`)
+
+`aws scheduler get-schedule --name reminder-producer --query Target.Input` confirma o texto
+armazenado agora com `<`/`>` literais (não mais `<`/`>`). Nos minutos imediatamente
+após o deploy, `reminder-producer` ainda registrou 2-3 falhas adicionais com o placeholder
+não-substituído — **retries assíncronos automáticos remanescentes de invocações que já tinham
+capturado o payload antigo antes do fix propagar**, não invocações novas contra o schedule já
+corrigido (o retry assíncrono do Lambda reenvia o mesmo evento capturado na primeira tentativa,
+não busca um valor novo). Confirmado via métricas `Invocations`/`Errors` de
+`exptrk-dev-reminder-producer`: a partir de `2026-08-21T23:00:00-03:00` (após o backlog de
+retries drenar), `Invocations=1`/`Errors=0` por minuto, de forma sustentada — exatamente o
+padrão esperado de uma schedule saudável. Motor de lembretes real de `dev` confirmado
+recuperado.
 
 ## Lição para o processo, não só para o código
 

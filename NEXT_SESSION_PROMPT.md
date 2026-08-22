@@ -52,25 +52,29 @@ verificação explícita de limpeza depois de cada teste.
    (fila/DLQ voltaram a 0, event source mapping reabilitado, estado idêntico ao baseline). Nenhum
    recurso ficou órfão. Evidência: `docs/architecture/reviews/camada3-dlq-redrive-test-2026-08-21.md`.
 3. **Achado severo real, não relacionado aos testes acima, encontrado ao investigar telemetria
-   real durante a Camada 3**: `exptrk-dev-reminder-producer` (e as outras 3 schedules do
-   `reminder-schedule`) estavam falhando em **100% das invocações desde 2026-08-20T14:41:39Z**
-   (~1 dia inteiro). Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
+   real durante a Camada 3**: `exptrk-dev-reminder-producer` estava falhando em **100% das
+   invocações desde 2026-08-20T14:41:39Z** (~1 dia inteiro) — motor de lembretes real de `dev`
+   efetivamente parado. Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
    `<aws.scheduler.scheduled-time>`, o que quebra a substituição textual literal que o
    EventBridge Scheduler faz — o handler recebia o texto literal do placeholder em vez de um
-   timestamp real, e falhava validação sempre. Corrigido em
-   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`).
+   timestamp real, e essa função em particular valida `scheduledTime` como fatal. As outras 3
+   schedules (`reminder-claim-reconciliation`/`reminder-dst-reconciliation`/
+   `outbox-sweeper-reminder-dispatch`) tinham o mesmo bug de armazenamento, mas **sem impacto
+   funcional real** — verificado que seus handlers não validam nem usam `scheduledTime` na
+   lógica (reconciliação só loga o valor; sweeper nem lê o campo). Corrigido em
+   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`)
+   para as 4, por consistência/prevenção, não só pela produtora.
    **Achado adicional**: os testes Terraform existentes comparavam contra o mesmo `jsonencode()`
    usado em produção, certificando o bug como correto — corrigidos para comparar contra o texto
-   literal esperado, com um teste novo de regressão anti-`<` na raiz. `terraform test`
-   (módulo + raiz) e `terraform plan -var-file=env/dev.tfvars` reais e verdes (plan-only, sem
-   apply local). Detalhe completo, impacto e lição de processo:
-   `docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
+   literal esperado, com um teste novo de regressão anti-escape na raiz.
 
-**Ainda não deployado** — a correção está commitada em `develop`, mas política vigente
-(`AGENTS.md` §7, reforçada pelo usuário) exige que toda aplicação real vá só pela pipeline
-(`cd.yml`, merge para `main`). Próxima sessão (ou ainda esta, se o usuário confirmar) deve abrir o
-PR `develop→main` para deployar esta correção — o motor de lembretes real de `dev` continua
-efetivamente parado até isso ser mergeado e o `cd.yml` rodar.
+**Deployado e verificado em produção real (2026-08-22)**: PR #19 (`develop→main`) mergeado,
+`cd.yml` aplicou via pipeline com sucesso. Confirmado via `aws scheduler get-schedule` que o
+`Input` armazenado não tem mais escaping, e via métricas CloudWatch (`Invocations`/`Errors` de
+`exptrk-dev-reminder-producer`) que, após o backlog de retries assíncronos remanescentes drenar,
+a função passou a invocar com sucesso de forma sustentada (`Invocations=1`/`Errors=0` por
+minuto). Detalhe completo, impacto real por função e verificação pós-deploy:
+`docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
 
 ## Passo 3 concluído (2026-08-21) — decisão de próximo marco estrutural
 
