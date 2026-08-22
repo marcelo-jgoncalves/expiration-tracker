@@ -25,11 +25,20 @@ export class S3DocumentObjectStore implements DocumentObjectStore {
   }
 
   async copyObject(source: DocumentObjectReference, destinationBucket: string, destinationKey: string): Promise<DocumentObjectReference> {
+    // Real bug found via Camada 3 (2026-08-22): encodeURIComponent() on the FULL key also
+    // encodes its "/" path separators as "%2F", producing a CopySource that doesn't resolve to
+    // any real object (S3 keys use literal "/" as the segment delimiter; only the characters
+    // WITHIN each segment need escaping). Every quarantine key has multiple "/" segments
+    // (tenant/<id>/item/<id>/document/<id>/slot/<id>/<uuid>), so this affected every real
+    // promotion attempt - confirmed via a real CopyObjectCommand failing with an opaque
+    // "UnknownError" (S3's error response for a CopySource that doesn't parse as a real
+    // bucket/key/versionId triple). Fixed by escaping each path segment independently.
+    const encodedKey = source.key.split("/").map(encodeURIComponent).join("/");
     const result = await this.client.send(
       new CopyObjectCommand({
         Bucket: destinationBucket,
         Key: destinationKey,
-        CopySource: `${source.bucket}/${encodeURIComponent(source.key)}?versionId=${source.versionId}`,
+        CopySource: `${source.bucket}/${encodedKey}?versionId=${source.versionId}`,
         ServerSideEncryption: "aws:kms",
       }),
     );
