@@ -1,5 +1,35 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Mecanismo de rollback — entrega 1 implementada, commitada em `develop` (2026-08-21/22), NÃO deployada
+
+Achado real da rodada focada (rollback/roll-forward inexistente) fechado via protocolo
+Claude↔Codex completo (nota cega round1: Codex 8.6-8.7×2 propostas independentes convergiram no
+mesmo mecanismo; round2 reconciliação com 3 ajustes meus aceitos — bucket S3 dedicado, gate de
+aprovação humana no `workflow_dispatch`, canários semânticos fatiados como entrega 2 — nota final
+9.1-9.2 dos dois lados). Design completo:
+`docs/architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md`.
+
+Implementado: alias `live` real + versionamento em `infra/modules/lambda-function` (todo
+invocador real — API Gateway, event source mappings, EventBridge Scheduler — aponta pro alias,
+nunca `$LATEST`); módulo novo `infra/modules/deploy-manifest-bucket` (bucket S3 dedicado,
+privado, versionado, nunca dado de tenant); `cd.yml` com `plan -out=tfplan`/`apply tfplan` (fecha
+de brinde o achado de "artefato recalculado, não promovido"), verificação real de alias
+pós-apply, manifesto de deploy + ponteiro `current-healthy` só avançado após sucesso completo;
+`rollback.yml` novo (`workflow_dispatch` manual, `environment: dev` — precisa de required
+reviewer configurado nas settings do GitHub, passo operacional ainda pendente de confirmação),
+com compensação real de falha parcial.
+
+`terraform test` (módulo + raiz) verde; `terraform plan` real contra `dev`: 23 a adicionar, 31 a
+mudar (12 são replace de `aws_lambda_permission` só para adicionar `qualifier="live"`,
+esperado), 0 destroy de dado/infra crítica.
+
+**NÃO mergeado nem deployado ainda** — blast radius maior que os outros fixes desta sessão
+(rewiring simultâneo do invoke real das 13 funções Lambda). Antes do próximo PR
+`develop→main`: (1) confirmar/criar o required reviewer no environment `dev` do GitHub (passo
+manual, fora do Terraform); (2) decidir com o usuário se deploya agora ou como próximo passo
+formal da sessão seguinte. Canários semânticos (entrega 2) continuam registrados como escopo
+futuro explícito, não implementados.
+
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
 
 2 dos 6 critérios fecharam (nota ≥9.0 dos dois lados): Debuggability & Operational Feedback (9.2),
