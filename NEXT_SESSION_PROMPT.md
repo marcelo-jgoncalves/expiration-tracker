@@ -36,7 +36,7 @@ completo no histórico abaixo, se precisar dos porquês):
    prescrito pelo próprio design M5 §4 para esse teste), publicando de verdade no tópico
    `exptrk-dev-alerts` já confirmado.
 
-**Nenhuma pendência técnica bloqueante conhecida para M5.** Todas as PRs (#8–#12) mergeadas em
+**Nenhuma pendência técnica bloqueante conhecida para M5.** Todas as PRs (#8–#16) mergeadas em
 `main`, todas revisadas/testadas conforme o protocolo aplicável, suíte de testes verde, deploy
 real confirmado saudável.
 
@@ -70,7 +70,7 @@ real confirmado saudável.
     (`test/unit/notification/preferences-handlers.test.ts`) que exercita o handler de verdade
     contra o `defaultSchemaRegistry` real — confirmei que esse teste falha sem o fix (revertido
     temporariamente, reproduziu o mesmo 500) antes de restaurar. 255/255 testes,
-    typecheck/lint/check-boundaries/validate-schemas/check-docs limpos — deploy real do fix e
+    typecheck/lint/check-boundaries/validate-schemas/check-docs limpos.
 
     **Segundo bug real, mais severo, encontrado no smoke test seguinte** (agora `PUT` real
     depois do fix do schema): 400 "DynamoDB rejected IdentityStore.updateConditional:
@@ -87,10 +87,14 @@ real confirmado saudável.
     real — só um teste contra DynamoDB Local real pegaria isso. Corrigido (placeholder
     `#count`) + novo teste de integração real
     (`test/integration-dynamodb/quota.dynamodb.test.ts`, Camada 2, roda no job `dynamodb-integration`
-    da CI — não pude rodar localmente por falta de Docker nesta máquina, mas typecheck/lint
-    passam). **Ainda não verificado no ambiente real via novo `aws lambda invoke`** — próximo
-    passo desta mesma sessão.
-    novo `aws lambda invoke` de verificação, ver commit seguinte nesta mesma sessão.
+    da CI — passou de verdade contra DynamoDB Local real, não pude rodar localmente por falta de
+    Docker nesta máquina). **Verificado corrigido em produção real**: duas chamadas `PUT`
+    consecutivas (mesma janela de 60s) contra `exptrk-dev-notifications-handler` real, ambas
+    200 — a segunda é exatamente o caminho `updateConditional` que antes quebrava sempre.
+    255/255 testes, typecheck/lint/check-boundaries/validate-schemas/check-docs limpos.
+
+  **Rota fechada e totalmente verificada em produção real** (`GET`/`PUT` funcionando, ambos os
+  bugs pós-deploy corrigidos e confirmados via `aws lambda invoke` real).
 - **Camada 3 de teste** (sandbox AWS efêmero: IAM negativo real, redrive de DLQ real, invocação
   real do EventBridge Scheduler) — pendência estrutural desde M3.5, nunca fechada por falta de
   ambiente de teste efêmero dedicado (distinto do ambiente `dev` real já em uso).
