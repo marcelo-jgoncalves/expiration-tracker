@@ -1,5 +1,5 @@
 <title>Controle de Vencimentos — Estado da Arquitetura</title>
-<meta name="description" content="Onde o projeto está no processo Claude↔Codex: Design Maturity aprovado por completo (14 documentos + Threat Model + Implementation Blueprint), M0 implementado, M1 é a próxima ação." />
+<meta name="description" content="Onde o projeto está no processo Claude↔Codex: Design Maturity aprovado por completo, M0–M5 implementados e implantados de verdade na AWS, 5 bugs reais achados e corrigidos via smoke tests contra infraestrutura real, M6–M7 são a próxima ação." />
 <style>
 :root{
   --bg:#f5f4f0;
@@ -172,13 +172,13 @@ footer code{
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">Controle de Vencimentos · DESIGN MATURITY: APPROVED · ARCHITECTURE STATUS: NOT APPROVED · M0–M3.5 IMPLEMENTADOS · INFRA REAL NA AWS (TERRAFORM) · FULL-AUDIT 9/9 EIXOS CONCLUÍDO</p>
-  <h1>Design aprovado, runtime real implantado na AWS, full-audit dos 9 eixos formais concluído</h1>
+  <p class="eyebrow">Controle de Vencimentos · DESIGN MATURITY: APPROVED · ARCHITECTURE STATUS: NOT APPROVED · M0–M5 IMPLEMENTADOS · INFRA REAL NA AWS (TERRAFORM) · FULL-AUDIT 9/9 EIXOS CONCLUÍDO · OBSERVABILIDADE VERIFICADA EM PRODUÇÃO REAL</p>
+  <h1>Design aprovado, M0–M5 implantados e verificados de verdade na AWS, full-audit dos 9 eixos formais concluído</h1>
   <p class="lede">14 documentos de arquitetura, Threat Model (seção 33) e Implementation Blueprint (seção 60), 9 ADRs formais e 14 diagramas Mermaid, todos passados por debate Claude↔Codex e avaliação independente às cegas — 12 checkpoints de Design Maturity pontuados, todos ≥9.0 de ambos, sem arredondamento (Threat Model: Claude ~9.05 / Codex 9.0 exato; Implementation Blueprint: Claude 9.20 / Codex 9.2 exato, 8 rodadas). O processo corrigiu a si mesmo várias vezes de forma real ao longo do caminho: uma rubrica de nota que exigia evidência de implementação impossível antes da aprovação (corrigida com duas rubricas formais — Design Maturity e Operational Evidence), um erro técnico de sharding pego pelo Codex no data model, um segundo erro técnico real presente nas <em>duas</em> propostas independentes do blueprint (chave do GSI3 do scheduler não era consultável — corrigido e ratificado em <code>data-model.md</code>), e uma correção final do próprio status: <code>ARCHITECTURE STATUS</code> (seção 62) segue formalmente <code>NOT APPROVED</code> até haver implementação real testada sob carga/falha — <code>DESIGN MATURITY STATUS: APPROVED</code> é o que o processo de design entrega, não o gate final de produção.</p>
 
   <div class="callout">
     <span class="dot" aria-hidden="true"></span>
-    <p><strong>Implementação real (M0–M3.5) concluída, testada (137 testes) e implantada na AWS via Terraform/GitHub Actions (ADR-0009) — CDK removido. Full-audit round1 dos 9 eixos formais concluído em 2026-08-20: só Engenharia de Contexto bateu o gate de nota ≥9,0 dos dois lados; os outros 8 ficaram honestamente abaixo, cada achado classificado como impedimento externo real ou escopo maior de produto.</strong> Lambda + API Gateway HTTP API + DynamoDB single-table (17 entidades, 6 GSIs, incluindo a exceção documentada de particionamento do GSI3 do scheduler) + S3 (quarentena de 2 buckets) + Cognito + EventBridge + SQS por canal — provisionados de verdade na conta AWS (`us-east-1`), `terraform apply` só via pipeline (`cd.yml`, nunca local). M0 (guardrails/contratos), M1 (Foundation/Identity/isolamento, com suíte negativa cross-tenant), M2 (Expiration core/Audit, CRUD+renew+outbox transacional), M3 (Reminder Engine, producer/dispatch/reconciliação DST) e M3.5 (runtime Lambda/adapters/filas/EventBridge real) entregues e revisados pelo protocolo Claude↔Codex — o processo pegou e corrigiu bugs reais ao longo do caminho, incluindo uma falha de isolamento IAM no GSI3 (CDK), um bug de cold-start (`import.meta.url` vazio sob bundle esbuild-cjs, achado do eixo Arquitetura) e uma race de lost-update em `TenantQuotaService` (achado do eixo Governança de Produto, corrigida com compare-and-swap real). Pendências em aberto, não resolvidas: endpoints de sessão BFF, CSP/CloudFront (frontend), M4 (Notification Engine) como próximo marco estrutural. Ver <code>ARCHITECTURE.md</code>, <code>docs/architecture/adr/ADR-0009-cdk-to-terraform-migration.md</code> e <code>docs/engineering/reviews/full-audit-round1-*-summary.md</code> para os documentos consolidados.</p>
+    <p><strong>Implementação real (M0–M5) concluída, testada (255 testes) e implantada na AWS via Terraform/GitHub Actions (ADR-0009) — CDK removido. Full-audit round1 dos 9 eixos formais concluído em 2026-08-20: só Engenharia de Contexto bateu o gate de nota ≥9,0 dos dois lados; os outros 8 ficaram honestamente abaixo, cada achado classificado como impedimento externo real ou escopo maior de produto.</strong> Lambda + API Gateway HTTP API + DynamoDB single-table + S3 (quarentena) + Cognito + EventBridge + SQS por canal + SNS/ADOT/X-Ray — provisionados de verdade na conta AWS (<code>us-east-1</code>), <code>terraform apply</code> só via pipeline (<code>cd.yml</code>, sequenciado após a CI via <code>workflow_run</code>, nunca local). M0–M3 (guardrails, identity, expiration core, reminder engine), M3.5 (runtime real + Terraform/AWS), M4 (Notification Engine — router, delivery multi-canal, preferências self-service) e M5 (Observabilidade — correlationId/tenantId contextual via <code>AsyncLocalStorage</code>, tracing distribuído ADOT→X-Ray, alerta real SNS→e-mail) entregues e revisados pelo protocolo Claude↔Codex. M5 foi além do design: <strong>5 bugs reais e severos foram achados e corrigidos só depois do deploy real, via smoke tests (<code>aws lambda invoke</code>) contra a infraestrutura de verdade</strong> — nenhum detectável por teste com fakes/mocks: (1) <code>reminder.dispatch.v1</code> nunca cumpria seu próprio schema de envelope; (2) a instrumentação ADOT quebrava as 12 funções (esbuild exporta <code>handler</code> como getter não-configurável); (3) <code>ci.yml</code>/<code>cd.yml</code> competiam pelo mesmo lock do state; (4) um schema novo nunca foi registrado no <code>defaultSchemaRegistry</code> real; (5) <code>count</code> — palavra reservada do DynamoDB — usada sem placeholder numa <code>ConditionExpression</code>, quebrando a segunda chamada de quota de <em>toda</em> rota HTTP autenticada, bug pré-existente desde M1. Pendências em aberto, não resolvidas: spike de validação SES em sandbox real, template de e-mail versionado, Camada 3 de teste (sandbox AWS efêmero), M6–M7 (Document/AI, evidência operacional final). Ver <code>NEXT_SESSION_PROMPT.md</code>, <code>docs/architecture/m4-notification-engine-design.md</code>, <code>docs/architecture/m5-observability-design.md</code> e <code>docs/engineering/reviews/full-audit-round1-*-summary.md</code> para os documentos consolidados.</p>
   </div>
 
   <section>
@@ -258,7 +258,7 @@ footer code{
     <h3>Onde o projeto está agora e o que falta antes de "Architecture Status: Approved"</h3>
     <figure>
       <div class="diagram-frame">
-        <svg viewBox="0 0 900 1250" role="img" aria-label="Linha do tempo vertical: Fase 0 a 3, Architecture Red Team, Domain/Data Model, SLOs, Disaster Recovery, Privacy/LGPD, Cost Model, ADRs formais, MCP/AWS review/Evolution, Threat Model e Implementation Blueprint concluídos e aprovados; M0, M1, M2, M3 e M3.5 (runtime real, Terraform/AWS, full-audit dos 9 eixos) implementados e testados; M4 a M7 e aprovação final da arquitetura operacional pendentes.">
+        <svg viewBox="0 0 900 1400" role="img" aria-label="Linha do tempo vertical: Fase 0 a 3, Architecture Red Team, Domain/Data Model, SLOs, Disaster Recovery, Privacy/LGPD, Cost Model, ADRs formais, MCP/AWS review/Evolution, Threat Model e Implementation Blueprint concluídos e aprovados; M0, M1, M2, M3, M3.5 (runtime real, Terraform/AWS, full-audit dos 9 eixos), M4 (Notification Engine) e M5 (Observabilidade, deploy real verificado) implementados e testados; M6 a M7 e aprovação final da arquitetura operacional pendentes.">
           <defs>
             <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -266,7 +266,7 @@ footer code{
           </defs>
           <g font-size="12.5">
             <!-- vertical spine -->
-            <line x1="80" y1="34" x2="80" y2="1216" stroke="var(--line)" stroke-width="2"/>
+            <line x1="80" y1="34" x2="80" y2="1366" stroke="var(--line)" stroke-width="2"/>
 
             <!-- Fase 0 done -->
             <circle cx="80" cy="40" r="9" fill="var(--done)"/>
@@ -399,21 +399,37 @@ footer code{
             <rect x="700" y="1038" width="90" height="24" rx="12" fill="var(--done-bg)"/>
             <text x="745" y="1054" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
 
-            <!-- M4-M7 pending -->
-            <circle cx="80" cy="1130" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
-            <text x="104" y="1120" fill="var(--ink-dim)" font-size="13">M4–M7 — Notification, Document/AI, observabilidade, evidência operacional</text>
-            <text x="104" y="1137" fill="var(--ink-dim)" font-size="11">Próxima ação estrutural quando retomado: M4 (Notification Engine)</text>
+            <!-- M4 done -->
+            <circle cx="80" cy="1130" r="9" fill="var(--done)"/>
+            <text x="104" y="1120" fill="currentColor" font-weight="600" font-size="13">M4 — Notification Engine</text>
+            <text x="104" y="1137" fill="var(--ink-dim)" font-size="11">Router de intent→canal, delivery workers (SES real), preferências self-service (GET/PUT)</text>
+            <text x="104" y="1152" fill="var(--ink-dim)" font-size="11">Claude 9,3 · Codex 9,4 (design) — spike de sandbox SES e template real de e-mail pendentes</text>
+            <rect x="700" y="1112" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="1128" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">IMPLEMENTADO</text>
+
+            <!-- M5 done -->
+            <circle cx="80" cy="1204" r="9" fill="var(--done)"/>
+            <text x="104" y="1194" fill="currentColor" font-weight="600" font-size="13">M5 — Observabilidade (correlationId, tracing ADOT, alerta real)</text>
+            <text x="104" y="1211" fill="var(--ink-dim)" font-size="11">Claude↔Codex 7,4→8,8→9,1 (implementação) — deploy real verificado via smoke tests</text>
+            <text x="104" y="1226" fill="var(--ink-dim)" font-size="11">5 bugs reais achados e corrigidos pós-deploy, invisíveis a qualquer teste com fake/mock</text>
+            <rect x="700" y="1186" width="90" height="24" rx="12" fill="var(--done-bg)"/>
+            <text x="745" y="1202" text-anchor="middle" fill="var(--done)" font-weight="600" font-size="10.5">VERIFICADO</text>
+
+            <!-- M6-M7 pending -->
+            <circle cx="80" cy="1278" r="9" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+            <text x="104" y="1268" fill="var(--ink-dim)" font-size="13">M6–M7 — Document/AI, evidência operacional final</text>
+            <text x="104" y="1285" fill="var(--ink-dim)" font-size="11">Camada 3 (sandbox AWS efêmero) segue como pendência estrutural desde M3.5</text>
 
             <!-- Final gate -->
-            <circle cx="80" cy="1194" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-            <text x="104" y="1190" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
-            <text x="104" y="1207" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, sob rubrica (B) Operational Evidence — não antes de M7</text>
+            <circle cx="80" cy="1342" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="104" y="1338" fill="currentColor" font-weight="600" font-size="13">ARCHITECTURE STATUS</text>
+            <text x="104" y="1355" fill="var(--ink-dim)" font-size="11">Approved apenas se Claude ≥ 9.0 <tspan fill="currentColor">E</tspan> Codex ≥ 9.0, sem arredondar, sob rubrica (B) Operational Evidence — não antes de M7</text>
           </g>
         </svg>
       </div>
-      <figcaption>Cada nó pendente ainda vai passar pelo mesmo protocolo de proposta → crítica → tréplica → nota independente já usado nas fases concluídas — o número de rodadas não é fixo em 3: continua até o padrão world-class (nota ≥9.0 de ambos) ou até um achado remanescente ser classificado honestamente como impedimento externo real/escopo maior, como aconteceu em 8 dos 9 eixos do full-audit.</figcaption>
+      <figcaption>Cada nó pendente ainda vai passar pelo mesmo protocolo de proposta → crítica → tréplica → nota independente já usado nas fases concluídas — o número de rodadas não é fixo em 3: continua até o padrão world-class (nota ≥9.0 de ambos) ou até um achado remanescente ser classificado honestamente como impedimento externo real/escopo maior, como aconteceu em 8 dos 9 eixos do full-audit. M5 foi além da nota de design: a implementação em si passou por 3 rodadas reais (7,4→8,8→9,1) e só foi considerada "VERIFICADO" depois de smoke tests reais contra a AWS de verdade — a nota de design sozinha não garante que o deploy real funciona.</figcaption>
       <div class="legend">
-        <span><i class="swatch sw-done" aria-hidden="true"></i>aprovada</span>
+        <span><i class="swatch sw-done" aria-hidden="true"></i>aprovada / implementada</span>
         <span><i class="swatch sw-next" aria-hidden="true"></i>em rodada</span>
         <span><i class="swatch sw-pending" aria-hidden="true"></i>pendente</span>
       </div>
@@ -421,6 +437,6 @@ footer code{
   </section>
 
   <footer>
-    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code>, <code>docs/architecture/data-model.md</code>, <code>docs/architecture/slo.md</code>, <code>docs/architecture/threat-model.md</code>, <code>docs/architecture/implementation-blueprint.md</code>, <code>docs/architecture/adr/ADR-0009-cdk-to-terraform-migration.md</code>, <code>docs/engineering/joint-review-criteria.md</code>/<code>reviews/full-audit-round1-*-summary.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. Design Maturity 100% aprovado (todos os entregáveis das seções 35–52 + 33 + 60). Implementação real: M0–M3.5 concluídos (137 testes), infra provisionada de verdade na AWS via Terraform/GitHub Actions, full-audit dos 9 eixos formais concluído (só Contexto bateu o gate). Faltam: M4–M7, testes de carga/restore reais e exercício do runbook de credencial comprometida antes de <code>ARCHITECTURE STATUS: APPROVED</code>.
+    Gerado a partir de <code>docs/architecture/requirements.md</code>, <code>docs/architecture/capacity-model.md</code>, <code>docs/architecture/architecture-fase3-consolidada.md</code>, <code>docs/architecture/data-model.md</code>, <code>docs/architecture/slo.md</code>, <code>docs/architecture/threat-model.md</code>, <code>docs/architecture/implementation-blueprint.md</code>, <code>docs/architecture/adr/ADR-0009-cdk-to-terraform-migration.md</code>, <code>docs/architecture/m4-notification-engine-design.md</code>, <code>docs/architecture/m5-observability-design.md</code>, <code>docs/engineering/joint-review-criteria.md</code>/<code>reviews/full-audit-round1-*-summary.md</code> e <code>NEXT_SESSION_PROMPT.md</code> em <code>expiration-tracker/</code>. Design Maturity 100% aprovado (todos os entregáveis das seções 35–52 + 33 + 60). Implementação real: M0–M5 concluídos (255 testes), infra provisionada de verdade na AWS via Terraform/GitHub Actions (deploy sequenciado <code>ci.yml→cd.yml</code> via <code>workflow_run</code>), full-audit dos 9 eixos formais concluído (só Contexto bateu o gate), M5 verificado em produção real após 5 bugs reais pós-deploy corrigidos. Faltam: M6–M7, testes de carga/restore reais e exercício do runbook de credencial comprometida antes de <code>ARCHITECTURE STATUS: APPROVED</code>.
   </footer>
 </div>
