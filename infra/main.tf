@@ -204,10 +204,10 @@ module "outbox_sweeper" {
 module "api" {
   source = "./modules/api-gateway"
 
-  api_name                    = "${local.name_prefix}-api"
-  user_pool_id                = module.auth.user_pool_id
-  user_pool_client_id         = module.auth.user_pool_client_id
-  aws_region                  = var.aws_region
+  api_name            = "${local.name_prefix}-api"
+  user_pool_id        = module.auth.user_pool_id
+  user_pool_client_id = module.auth.user_pool_client_id
+  aws_region          = var.aws_region
   # Rollback design entrega 1: API Gateway integrates against the `live` alias (never
   # $LATEST) so an emergency alias repoint actually changes what a real request invokes.
   test_ping_invoke_arn        = module.test_ping_handler.live_alias_invoke_arn
