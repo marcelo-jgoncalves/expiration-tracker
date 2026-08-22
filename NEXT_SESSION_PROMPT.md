@@ -33,8 +33,26 @@ previa como "critério operacional obrigatório da entrega" foi **deliberadament
 `rollback.yml` sem pausar esperando aprovação manual. Não reabrir essa pergunta em sessões
 futuras sem um motivo novo e real (ex. um incidente causado por disparo não intencional).
 
-PR aberto: `develop→main` #20. Blast radius maior que os outros fixes desta sessão (rewiring
-simultâneo do invoke real das 13 funções Lambda). Canários semânticos (entrega 2) continuam
+**Mergeado e deployado com sucesso (2026-08-22)**: PR #20 mergeado (usuário: "pode fazer o merge
+e prosseguir... você não precisa de minha autorização"), `cd.yml` real aplicou via pipeline.
+Verificação real pós-deploy (não só o smoke test do próprio `cd.yml`, verificação independente
+nesta sessão):
+- As 13 aliases `live` reais confirmados via `aws lambda get-alias`, todos em `v1`.
+- Manifesto real persistido em `s3://exptrk-dev-deploy-manifests/deployments/32547276849-1.json`
+  + `pointers/current-healthy.json` (mesmo conteúdo, `previousHealthyDeploymentId: null` — é o
+  primeiro deploy healthy desde que a entrega 1 existe).
+- Zero erros reais nas 3 funções agendadas (`reminder-producer`/`reminder-reconciliation`/
+  `outbox-sweeper-reminder-dispatch`) nos minutos seguintes ao deploy.
+- Chamada HTTP real contra o endpoint real da API (`GET /test/ping` sem token) retornou
+  **401** (não 500/502) — prova que a cadeia real API Gateway→autorizer JWT→integração→alias
+  `live`→Lambda está intacta depois do rewiring simultâneo das 13 funções.
+
+**Pendência real, não urgente**: `rollback.yml` nunca foi exercitado de verdade (só
+`terraform plan`/`test`) — o manifesto atual não tem `previousHealthyDeploymentId` ainda (é o
+primeiro), então não há "alvo" real de rollback até existir um segundo deploy saudável. Próximo
+deploy real (de qualquer natureza) cria esse segundo manifesto e destrava um teste real de
+`rollback.yml` contra `dev` — vale executar esse teste na próxima oportunidade de deploy, não
+precisa forçar um deploy só para isso agora. Canários semânticos (entrega 2) continuam
 registrados como escopo futuro explícito, não implementados.
 
 ## Passo 1 concluído (2026-08-21) — rodada focada Claude↔Codex, ver `full-audit-round1-focused-round2-summary.md`
