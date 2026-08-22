@@ -693,18 +693,40 @@ module "documents_handler" {
 
 # --- UploadFinalizerWorker: S3 event (via queue) -> validate + invoke ParserSandbox ---------
 
-data "aws_iam_policy_document" "upload_finalizer_read_quarantine" {
+# Real bug found via Camada 3 (2026-08-22): UploadFinalizerWorker only had READ access to the
+# quarantine bucket, but advanceAfterEvidence() (called identically by both workers) performs
+# the actual quarantine->clean promotion copy whichever worker's evidence completes the pair
+# LAST - which is not always MalwareResultWorker. A real upload where the finalizer's own
+# evidence-persist step landed after the malware scan result hit exactly this: the finalizer
+# won the PROMOTE race and got a real AccessDenied trying s3:PutObject on the clean bucket.
+# Both workers need IDENTICAL object-access permissions for this reason - kept as two
+# separately-named data sources (not a single shared one) so each function's IAM role
+# document stays self-explanatory in `aws iam` output, but the statements are deliberately
+# identical to malware_result_object_access below.
+data "aws_iam_policy_document" "upload_finalizer_object_access" {
   statement {
-    sid       = "ReadQuarantineObjects"
+    sid       = "ReadDeleteQuarantineObjects"
     effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:GetObjectVersion"]
+    actions   = ["s3:GetObject", "s3:GetObjectVersion", "s3:DeleteObjectVersion"]
     resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "WriteCleanObjects"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.document_buckets.clean_bucket_arn}/*"]
   }
   statement {
     sid       = "DecryptQuarantineObjects"
     effect    = "Allow"
     actions   = ["kms:Decrypt"]
     resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+  statement {
+    sid       = "EncryptCleanObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+    resources = [module.document_buckets.clean_kms_key_arn]
   }
 }
 
@@ -731,7 +753,7 @@ module "upload_finalizer_handler" {
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
-    data.aws_iam_policy_document.upload_finalizer_read_quarantine.json,
+    data.aws_iam_policy_document.upload_finalizer_object_access.json,
     data.aws_iam_policy_document.upload_finalizer_invoke_parser_sandbox.json,
     module.upload_finalizer_queue.consume_policy_json,
   ]
