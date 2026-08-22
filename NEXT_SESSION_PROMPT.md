@@ -33,6 +33,45 @@ check-boundaries/validate-schemas/check-docs limpos.
 ainda não tem identidade SES verificada; permanece pendência externa genuína, não tentar sem
 identidade real.
 
+## Camada 3 — primeiros testes reais executados (2026-08-21), achado severo encontrado e corrigido
+
+Decisão do usuário: reusar a conta `dev` real (sem conta nova), da forma mais segura possível, com
+verificação explícita de limpeza depois de cada teste.
+
+1. **Teste de IAM negativo real** (`aws iam simulate-principal-policy`, motor de avaliação real da
+   AWS contra as políticas reais anexadas — zero recursos criados, nada para limpar): confirma
+   exatamente o isolamento desenhado em M3.5 — as 10 roles não-privilegiadas negadas em GSI3 e
+   GSI6; `reminder-producer` permitida só em GSI3; `reminder-reconciliation` e
+   `outbox-sweeper-reminder-dispatch` permitidas só em GSI6, nenhuma com as duas. Controle
+   positivo confirma que a role tem acesso real à tabela base (não é role sem permissão alguma).
+   Evidência completa: `docs/architecture/reviews/camada3-iam-negative-test-2026-08-21.md`.
+2. **Teste real de poison message → DLQ → redrive** contra `exptrk-dev-reminder-dispatch`: mensagem
+   sintética real esgotou `maxReceiveCount=5` e caiu na DLQ real (~4.5min); redrive real via
+   `aws sqs start-message-move-task` executado com o event source mapping temporariamente
+   desabilitado (nunca deixando a mensagem ser reprocessada de verdade); limpeza verificada
+   (fila/DLQ voltaram a 0, event source mapping reabilitado, estado idêntico ao baseline). Nenhum
+   recurso ficou órfão. Evidência: `docs/architecture/reviews/camada3-dlq-redrive-test-2026-08-21.md`.
+3. **Achado severo real, não relacionado aos testes acima, encontrado ao investigar telemetria
+   real durante a Camada 3**: `exptrk-dev-reminder-producer` (e as outras 3 schedules do
+   `reminder-schedule`) estavam falhando em **100% das invocações desde 2026-08-20T14:41:39Z**
+   (~1 dia inteiro). Causa: `jsonencode()` do Terraform HTML-escapa `<`/`>` do placeholder
+   `<aws.scheduler.scheduled-time>`, o que quebra a substituição textual literal que o
+   EventBridge Scheduler faz — o handler recebia o texto literal do placeholder em vez de um
+   timestamp real, e falhava validação sempre. Corrigido em
+   `infra/modules/reminder-schedule/main.tf` (input via string HCL literal, não `jsonencode()`).
+   **Achado adicional**: os testes Terraform existentes comparavam contra o mesmo `jsonencode()`
+   usado em produção, certificando o bug como correto — corrigidos para comparar contra o texto
+   literal esperado, com um teste novo de regressão anti-`<` na raiz. `terraform test`
+   (módulo + raiz) e `terraform plan -var-file=env/dev.tfvars` reais e verdes (plan-only, sem
+   apply local). Detalhe completo, impacto e lição de processo:
+   `docs/architecture/reviews/camada3-eventbridge-scheduler-escaping-bug-2026-08-21.md`.
+
+**Ainda não deployado** — a correção está commitada em `develop`, mas política vigente
+(`AGENTS.md` §7, reforçada pelo usuário) exige que toda aplicação real vá só pela pipeline
+(`cd.yml`, merge para `main`). Próxima sessão (ou ainda esta, se o usuário confirmar) deve abrir o
+PR `develop→main` para deployar esta correção — o motor de lembretes real de `dev` continua
+efetivamente parado até isso ser mergeado e o `cd.yml` rodar.
+
 ## Passo 3 concluído (2026-08-21) — decisão de próximo marco estrutural
 
 Usuário delegou a decisão. Escolhido: **Camada 3 de teste (sandbox AWS efêmero)** antes de M6/M7 —

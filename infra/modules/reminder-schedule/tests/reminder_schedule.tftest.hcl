@@ -104,25 +104,30 @@ run "scheduler_input_has_no_detail_wrapper_and_correct_top_level_fields" {
     error_message = "Outbox sweeper schedule input must NOT wrap payload in a detail envelope"
   }
 
-  # Top-level fields the handlers actually read.
+  # Top-level fields the handlers actually read. Real bug found 2026-08-21 (live CloudWatch
+  # evidence, Camada 3): comparing against `jsonencode(...)` here was asserting the BUGGY
+  # value as correct - jsonencode HTML-escapes angle brackets to their \uXXXX form, which
+  # defeats EventBridge Scheduler's literal-text context-attribute substitution, so every
+  # real invocation received the placeholder string unsubstituted and failed validation.
+  # These assertions now check for the literal, unescaped placeholder text.
   assert {
-    condition     = aws_scheduler_schedule.reminder_producer.target[0].input == jsonencode({ scheduledTime = "<aws.scheduler.scheduled-time>" })
-    error_message = "ReminderProducer schedule input must be exactly {scheduledTime}"
+    condition     = aws_scheduler_schedule.reminder_producer.target[0].input == "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "ReminderProducer schedule input must be exactly {scheduledTime} with the literal, unescaped context-attribute placeholder"
   }
 
   assert {
-    condition     = aws_scheduler_schedule.reminder_claim_reconciliation.target[0].input == jsonencode({ mode = "CLAIMS", scheduledTime = "<aws.scheduler.scheduled-time>" })
-    error_message = "CLAIMS reconciliation schedule input must be exactly {mode: CLAIMS, scheduledTime}"
+    condition     = aws_scheduler_schedule.reminder_claim_reconciliation.target[0].input == "{\"mode\":\"CLAIMS\",\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "CLAIMS reconciliation schedule input must be exactly {mode: CLAIMS, scheduledTime} with the literal, unescaped context-attribute placeholder"
   }
 
   assert {
-    condition     = aws_scheduler_schedule.reminder_dst_reconciliation.target[0].input == jsonencode({ mode = "DST", scheduledTime = "<aws.scheduler.scheduled-time>" })
-    error_message = "DST reconciliation schedule input must be exactly {mode: DST, scheduledTime}"
+    condition     = aws_scheduler_schedule.reminder_dst_reconciliation.target[0].input == "{\"mode\":\"DST\",\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "DST reconciliation schedule input must be exactly {mode: DST, scheduledTime} with the literal, unescaped context-attribute placeholder"
   }
 
   assert {
-    condition     = aws_scheduler_schedule.outbox_sweeper.target[0].input == jsonencode({ scheduledTime = "<aws.scheduler.scheduled-time>" })
-    error_message = "Outbox sweeper schedule input must be exactly {scheduledTime}"
+    condition     = aws_scheduler_schedule.outbox_sweeper.target[0].input == "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "Outbox sweeper schedule input must be exactly {scheduledTime} with the literal, unescaped context-attribute placeholder"
   }
 }
 
