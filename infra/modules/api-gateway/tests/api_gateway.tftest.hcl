@@ -31,8 +31,10 @@ run "jwt_authorizer_attached_to_every_route" {
     notifications_function_name = "notifications"
     documents_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
     documents_function_name     = "documents"
-    subjects_invoke_arn         = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
-    subjects_function_name      = "subjects"
+    subjects_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
+    subjects_function_name         = "subjects"
+    guest_documents_invoke_arn     = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:guest-documents/invocations"
+    guest_documents_function_name  = "guest-documents"
   }
 
   assert {
@@ -201,5 +203,32 @@ run "jwt_authorizer_attached_to_every_route" {
       "POST /subjects/{subjectId}/requirements/{assignmentId}/link",
     )
     error_message = "POST /subjects/{subjectId}/requirements/{assignmentId}/link route must exist"
+  }
+
+  # /guest/document-requests/* routes (M10, D-037) are the project's first PUBLIC routes —
+  # no JWT authorizer, auth happens inside the handler via the opaque guest token.
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.guest_documents : r.authorization_type == "NONE"
+    ])
+    error_message = "Every /guest/document-requests/* route must be public (authorization_type = NONE) — auth happens via the opaque guest token inside the handler, not API Gateway"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.guest_documents) == 2
+    error_message = "Expected exactly 2 /guest/document-requests/* routes (get_request, start_submission)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.guest_documents : r.route_key],
+      "POST /guest/document-requests/{token}/uploads",
+    )
+    error_message = "POST /guest/document-requests/{token}/uploads route must exist"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.guest_documents.qualifier == "live"
+    error_message = "GuestDocumentsHandler invoke permission must be scoped to the 'live' alias"
   }
 }

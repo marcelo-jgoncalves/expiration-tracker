@@ -25,7 +25,7 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "nineteen_lambda_functions_exist_no_placeholder" {
+run "twenty_lambda_functions_exist_no_placeholder" {
   command = plan
 
   # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
@@ -33,13 +33,13 @@ run "nineteen_lambda_functions_exist_no_placeholder" {
   # here - the lambda-function module always zips an on-disk directory via data.archive_file
   # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 19
-    error_message = "Expected exactly 19 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9)"
+    condition     = length(output.lambda_function_names) == 20
+    error_message = "Expected exactly 20 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 19
-    error_message = "All 19 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 20
+    error_message = "All 20 Lambda function names must be distinct"
   }
 }
 
@@ -475,8 +475,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 19
-    error_message = "Deploy manifest map must cover exactly the 19 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 20
+    error_message = "Deploy manifest map must cover exactly the 20 real Lambda functions"
   }
 
   assert {

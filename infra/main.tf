@@ -60,6 +60,17 @@ module "items_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
+# GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
+# faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
+# runtime real. Trade-off consciente (registrado, não escondido): valor vai como env var
+# Lambda (nunca hardcoded/commitado), não via Secrets Manager fetch em runtime - proporcional
+# ao estágio atual sem dado real de tenant em risco. Upgrade fica como follow-up.
+resource "random_password" "guest_token_pepper" {
+  length  = 64
+  special = false
+}
+
 module "subjects_handler" {
   source = "./modules/lambda-function"
 
@@ -67,11 +78,13 @@ module "subjects_handler" {
   # items_handler existente, reaproveitando a mesma Lambda de expiration - ver api-gateway).
   # Sem capability nova alem da geral: GSI7 e tenant-scoped, ja incluido em
   # tenant_facing_read_write_policy_json (dynamo-table module).
-  function_name         = "${local.name_prefix}-subjects-handler"
-  handler_name          = "subjects-handler"
-  source_dir            = "${local.dist_dir}/subjects-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
+  function_name  = "${local.name_prefix}-subjects-handler"
+  handler_name   = "subjects-handler"
+  source_dir     = "${local.dist_dir}/subjects-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
+  })
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
@@ -229,19 +242,31 @@ module "api" {
   aws_region          = var.aws_region
   # Rollback design entrega 1: API Gateway integrates against the `live` alias (never
   # $LATEST) so an emergency alias repoint actually changes what a real request invokes.
-  test_ping_invoke_arn        = module.test_ping_handler.live_alias_invoke_arn
-  test_ping_function_name     = module.test_ping_handler.function_name
-  items_invoke_arn            = module.items_handler.live_alias_invoke_arn
-  items_function_name         = module.items_handler.function_name
-  reminders_invoke_arn        = module.reminders_handler.live_alias_invoke_arn
-  reminders_function_name     = module.reminders_handler.function_name
-  notifications_invoke_arn    = module.notifications_handler.live_alias_invoke_arn
-  notifications_function_name = module.notifications_handler.function_name
-  documents_invoke_arn        = module.documents_handler.live_alias_invoke_arn
-  documents_function_name     = module.documents_handler.function_name
-  subjects_invoke_arn         = module.subjects_handler.live_alias_invoke_arn
-  subjects_function_name      = module.subjects_handler.function_name
-  tags                        = { Project = local.project_name, Environment = var.environment }
+  test_ping_invoke_arn          = module.test_ping_handler.live_alias_invoke_arn
+  test_ping_function_name       = module.test_ping_handler.function_name
+  items_invoke_arn              = module.items_handler.live_alias_invoke_arn
+  items_function_name           = module.items_handler.function_name
+  reminders_invoke_arn          = module.reminders_handler.live_alias_invoke_arn
+  reminders_function_name       = module.reminders_handler.function_name
+  notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
+  notifications_function_name   = module.notifications_handler.function_name
+  documents_invoke_arn          = module.documents_handler.live_alias_invoke_arn
+  documents_function_name       = module.documents_handler.function_name
+  subjects_invoke_arn           = module.subjects_handler.live_alias_invoke_arn
+  subjects_function_name        = module.subjects_handler.function_name
+  guest_documents_invoke_arn    = module.guest_documents_handler.live_alias_invoke_arn
+  guest_documents_function_name = module.guest_documents_handler.function_name
+  tags                          = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- WAF (M10, D-037): pré-requisito antes da rota pública /guest/* estar exposta -----------
+
+module "waf" {
+  source = "./modules/waf"
+
+  name_prefix   = local.name_prefix
+  api_stage_arn = module.api.stage_arn
+  tags          = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Observability: SNS alert topic (m5-observability-design.md §4) -----------------------
@@ -701,6 +726,28 @@ module "documents_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) ------------------
+# PRIMEIRA Lambda do projeto atrás de rota pública (sem JWT) - reusa exatamente a mesma
+# capability de presign de documents_handler (mesmo bucket de quarentena), nunca uma nova.
+
+module "guest_documents_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-guest-documents-handler"
+  handler_name   = "guest-documents-handler"
+  source_dir     = "${local.dist_dir}/guest-documents-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
+    GUEST_TOKEN_PEPPER     = random_password.guest_token_pepper.result
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,

@@ -13,6 +13,16 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # M10 (D-037): gera o pepper de hash do guest token (random_password) - nunca hardcoded
+    # em código nem em texto claro versionado. Trade-off consciente registrado (achado de
+    # revisão adversarial): valor vai direto como env var Lambda (criptografado em repouso
+    # pelo Lambda, nunca logado/commitado), não via Secrets Manager fetch em runtime -
+    # proporcional ao estágio atual (sem dado real de tenant em risco ainda). Upgrade para
+    # Secrets Manager real fica registrado como follow-up, não decidido/implementado agora.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   backend "s3" {}

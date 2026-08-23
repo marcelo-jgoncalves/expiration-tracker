@@ -224,6 +224,44 @@ resource "aws_lambda_permission" "subjects" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/subjects*"
 }
 
+# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) -----------------
+# PRIMEIRA rota pública do projeto: authorization_type = NONE, sem authorizer JWT. Validação
+# fica inteiramente na aplicação (GuestSubmissionService#resolveToken) - decisão explícita do
+# cluster 2 (evita duplicar lógica de token/contexto num Lambda authorizer, e o risco de cache
+# stale de authorizer). WAF na frente (módulo "waf") é pré-requisito, não opcional.
+
+resource "aws_apigatewayv2_integration" "guest_documents" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.guest_documents_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  guest_documents_routes = {
+    get_request      = { method = "GET", path = "/guest/document-requests/{token}" }
+    start_submission = { method = "POST", path = "/guest/document-requests/{token}/uploads" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "guest_documents" {
+  for_each = local.guest_documents_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.guest_documents.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "guest_documents" {
+  statement_id  = "AllowApiGatewayInvokeGuestDocuments"
+  action        = "lambda:InvokeFunction"
+  function_name = var.guest_documents_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/guest/document-requests*"
+}
+
 # --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------
 
 resource "aws_apigatewayv2_integration" "notifications" {
