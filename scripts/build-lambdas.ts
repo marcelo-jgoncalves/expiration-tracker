@@ -50,6 +50,7 @@ const HANDLERS = [
   "upload-slot-reconciliation-handler",
   "parser-sandbox-handler",
   "subjects-handler",
+  "guest-documents-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

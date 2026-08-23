@@ -3,7 +3,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { ulid } from "ulid";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
-import { buildSubjectDeps } from "../composition/subject.js";
+import { buildSubjectDeps, buildDocumentRequestDeps } from "../composition/subject.js";
 import {
   handleCreateSubject,
   handleGetSubject,
@@ -23,16 +23,28 @@ import {
   handleUnlinkExpirationItem,
   type RequirementHttpDeps,
 } from "../../../modules/subject/http/requirement-handlers.js";
+import {
+  handleCreateDocumentRequest,
+  handleListDocumentRequests,
+  handleGetDocumentRequest,
+  handleRevokeDocumentRequest,
+  type DocumentRequestHttpDeps,
+} from "../../../modules/subject/http/document-request-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
+// M10 (D-037): referência de Secrets Manager resolvida para env var pelo Terraform (SEC-006 -
+// nunca segredo em claro no código); provisionamento real do secret fica no wiring de infra.
+const guestTokenPepper = process.env["GUEST_TOKEN_PEPPER"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
+if (!guestTokenPepper) throw new Error("GUEST_TOKEN_PEPPER env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { subjects, requirements } = buildSubjectDeps(client, tableName);
-const deps: RequirementHttpDeps & SubjectHttpDeps = { resolver, quota, subjects, requirements };
+const { requests: documentRequests } = buildDocumentRequestDeps(client, tableName, guestTokenPepper);
+const deps: RequirementHttpDeps & SubjectHttpDeps & DocumentRequestHttpDeps = { resolver, quota, subjects, requirements, documentRequests };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleSubjectsRoute(event));
@@ -79,6 +91,14 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
           return await handleLinkExpirationItem(deps, { ...base, body: parseBody(event) });
         case "POST /subjects/{subjectId}/requirements/{assignmentId}/unlink":
           return await handleUnlinkExpirationItem(deps, base);
+        case "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests":
+          return await handleCreateDocumentRequest(deps, { ...base, body: parseBody(event) });
+        case "GET /subjects/{subjectId}/requirements/{assignmentId}/document-requests":
+          return await handleListDocumentRequests(deps, base);
+        case "GET /subjects/{subjectId}/document-requests/{documentRequestId}":
+          return await handleGetDocumentRequest(deps, base);
+        case "POST /subjects/{subjectId}/document-requests/{documentRequestId}/revoke":
+          return await handleRevokeDocumentRequest(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

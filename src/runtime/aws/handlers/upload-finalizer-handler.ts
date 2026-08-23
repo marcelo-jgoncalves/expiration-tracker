@@ -6,6 +6,13 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildDocumentWorkerDeps } from "../composition/document.js";
 import { finalizeUpload } from "../../../workers/upload-finalizer/finalizer.js";
 import { parseQuarantineKey } from "../../../modules/document/domain/quarantine-key.js";
+// M10 (D-037): branch puramente aditivo para o namespace de key de guest upload
+// (`tenant/.../subject/...`) - nunca sobrepõe o formato item-anchored acima
+// (`tenant/.../item/...`), que continua resolvido pelo parser/fluxo originais sem nenhuma
+// mudança de comportamento.
+import { parseSubmissionQuarantineKey } from "../../../modules/subject/domain/submission-quarantine-key.js";
+import { finalizeSubmissionUpload } from "../../../workers/submission-finalizer/finalizer.js";
+import { buildSubjectWorkerDeps } from "../composition/subject.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -17,6 +24,7 @@ if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!cleanBucket) throw new Error("CLEAN_BUCKET_NAME env var is required.");
 if (!parserFunctionName) throw new Error("PARSER_SANDBOX_FUNCTION_NAME env var is required.");
 const deps = buildDocumentWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
+const submissionDeps = buildSubjectWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
 const logger = new SecureLogger({ baseContext: { service: "upload-finalizer" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source
@@ -41,21 +49,38 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         }
 
         const parsed = parseQuarantineKey(detail.object.key);
-        if (!parsed) {
-          // A key this handler doesn't recognize (never produced by reserveUpload) is not a
-          // retryable failure - it can never resolve on retry. Log and drop, never DLQ-loop.
+        if (parsed) {
+          await runWithContext({ correlationId: randomUUID(), tenantId: parsed.tenantId }, async () => {
+            const outcome = await finalizeUpload(deps, {
+              tenantId: parsed.tenantId,
+              itemId: parsed.itemId,
+              documentId: parsed.documentId,
+              object: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
+            });
+            logger.info("upload-finalizer outcome", { documentId: parsed.documentId, outcome });
+          });
+          return;
+        }
+
+        // M10: não é uma key item-anchored (M6) - tenta o namespace de guest submission antes
+        // de desistir. Os dois formatos nunca colidem (segmentos "item" vs "subject").
+        const parsedSubmission = parseSubmissionQuarantineKey(detail.object.key);
+        if (!parsedSubmission) {
+          // A key this handler doesn't recognize (never produced by either reserveUpload flow)
+          // is not a retryable failure - it can never resolve on retry. Log and drop, never DLQ-loop.
           logger.error("upload-finalizer unrecognized key shape", { key: detail.object.key });
           return;
         }
 
-        await runWithContext({ correlationId: randomUUID(), tenantId: parsed.tenantId }, async () => {
-          const outcome = await finalizeUpload(deps, {
-            tenantId: parsed.tenantId,
-            itemId: parsed.itemId,
-            documentId: parsed.documentId,
+        await runWithContext({ correlationId: randomUUID(), tenantId: parsedSubmission.tenantId }, async () => {
+          const outcome = await finalizeSubmissionUpload(submissionDeps, {
+            tenantId: parsedSubmission.tenantId,
+            subjectId: parsedSubmission.subjectId,
+            assignmentId: parsedSubmission.assignmentId,
+            submissionId: parsedSubmission.submissionId,
             object: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
           });
-          logger.info("upload-finalizer outcome", { documentId: parsed.documentId, outcome });
+          logger.info("upload-finalizer submission outcome", { submissionId: parsedSubmission.submissionId, outcome });
         });
       } catch (err) {
         // Real incident (2026-08-22): a bare `err.message` of "UnknownError" (AWS SDK v3's

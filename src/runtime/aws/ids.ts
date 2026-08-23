@@ -52,6 +52,9 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   newAssignmentId(): string {
     return `assignment_${ulid()}`;
   }
+  newSubmissionId(): string {
+    return `submission_${ulid()}`;
+  }
 }
 
 export function newCorrelationId(): string {
