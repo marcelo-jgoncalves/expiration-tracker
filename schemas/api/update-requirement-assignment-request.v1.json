@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json",
+  "title": "UpdateRequirementAssignmentRequest v1",
+  "description": "PUT /subjects/{subjectId}/requirements/{assignmentId} request body (UpdateRequirementAssignmentInput).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requirementName": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "notes": { "type": "string", "maxLength": 2000 }
+  }
+}

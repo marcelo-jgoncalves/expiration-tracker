@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/create-subject-request.v1.json",
+  "title": "CreateSubjectRequest v1",
+  "description": "POST /subjects request body (src/modules/subject/domain/tracked-subject.ts CreateSubjectInput). 03-domain-model-tracked-subject-requirement.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "displayName"],
+  "properties": {
+    "type": { "type": "string", "enum": ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"] },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "notes": { "type": "string", "maxLength": 2000 },
+    "tags": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 20 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/update-subject-request.v1.json",
+  "title": "UpdateSubjectRequest v1",
+  "description": "PUT /subjects/{subjectId} request body (UpdateSubjectInput). 03-domain-model-tracked-subject-requirement.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "notes": { "type": "string", "maxLength": 2000 },
+    "tags": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 20 }
+  }
+}

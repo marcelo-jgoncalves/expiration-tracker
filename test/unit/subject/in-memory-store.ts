@@ -1,19 +1,12 @@
-import type {
-  EntityKey,
-  ExpirationStore,
-  Gsi1QueryInput,
-  TransactWriteEntry,
-} from "../../../src/modules/expiration/ports/expiration-store.js";
-import type { ExpirationIdGenerator } from "../../../src/modules/expiration/application/id-generator.js";
+import type { EntityKey, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../../../src/modules/subject/ports/subject-store.js";
+import type { SubjectIdGenerator } from "../../../src/modules/subject/application/id-generator.js";
+import type { ExpirationItemLookup } from "../../../src/modules/subject/ports/expiration-item-lookup.js";
 
 /**
- * In-memory fake of ExpirationStore, mirroring test/unit/identity/in-memory-store.ts's
- * conventions. transactWrite evaluates only the two ConditionExpression shapes this
- * codebase actually produces (occ.ts's versioned-update condition and the
- * attribute_not_exists(PK) AND attribute_not_exists(SK) creation condition) - documented
- * limitation, same spirit as InMemoryIdentityStore.
+ * In-memory fake de SubjectStore, mesmas convenções de test/unit/expiration/in-memory-store.ts
+ * (avalia só os 2 formatos de ConditionExpression que este codebase realmente produz).
  */
-export class InMemoryExpirationStore implements ExpirationStore {
+export class InMemorySubjectStore implements SubjectStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
 
   private k(key: EntityKey): string {
@@ -36,7 +29,6 @@ export class InMemoryExpirationStore implements ExpirationStore {
   }
 
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
-    // Pass 1: validate every condition without mutating anything.
     for (const entry of entries) {
       if ("Put" in entry) {
         const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
@@ -59,7 +51,6 @@ export class InMemoryExpirationStore implements ExpirationStore {
       }
     }
 
-    // Pass 2: apply.
     for (const entry of entries) {
       if ("Put" in entry) {
         this.items.set(this.k(entry.Put.Item as unknown as EntityKey), entry.Put.Item as Record<string, unknown> & EntityKey);
@@ -67,6 +58,7 @@ export class InMemoryExpirationStore implements ExpirationStore {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
+        const removedNames = new Set<string>();
         for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames)) {
           if (placeholder === "version") {
             next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
@@ -75,43 +67,49 @@ export class InMemoryExpirationStore implements ExpirationStore {
           } else if (name.startsWith("#set")) {
             const valueKey = `:${name.slice(1)}`;
             next[placeholder] = entry.Update.ExpressionAttributeValues[valueKey];
+          } else if (name.startsWith("#rem")) {
+            removedNames.add(placeholder);
           }
         }
+        for (const name of removedNames) delete next[name];
         this.items.set(this.k(key), next);
       }
     }
   }
 
-  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
-    const matches = [...this.items.values()].filter(
-      (item) => item["PK"] === pk && (!skPrefix || String(item["SK"]).startsWith(skPrefix)),
-    );
-    matches.sort((a, b) => String(a["SK"]).localeCompare(String(b["SK"])));
-    return matches as unknown as T[];
-  }
-
-  async queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]> {
-    const matches = [...this.items.values()].filter((item) => item["GSI1PK"] === input.gsi1pk);
+  async queryGsi7<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7QueryInput): Promise<T[]> {
+    const matches = [...this.items.values()].filter((item) => item["GSI7PK"] === input.gsi7pk);
     matches.sort((a, b) => {
-      const sa = String(a["GSI1SK"]);
-      const sb = String(b["GSI1SK"]);
+      const sa = String(a["GSI7SK"]);
+      const sb = String(b["GSI7SK"]);
       return input.ascending === false ? sb.localeCompare(sa) : sa.localeCompare(sb);
     });
     const limited = input.limit ? matches.slice(0, input.limit) : matches;
     return limited as unknown as T[];
   }
 
-  /** Test-only helper mirroring InMemoryIdentityStore.allKeys(), for audit/outbox assertions. */
+  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+    const matches = [...this.items.values()].filter((item) => item["PK"] === pk && (!skPrefix || String(item["SK"]).startsWith(skPrefix)));
+    matches.sort((a, b) => String(a["SK"]).localeCompare(String(b["SK"])));
+    return matches as unknown as T[];
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }
 }
 
 let counter = 0;
-export function makeExpirationIdGenerator(): ExpirationIdGenerator {
+export function makeSubjectIdGenerator(): SubjectIdGenerator {
   return {
-    newItemId: () => `item-${++counter}`,
+    newSubjectId: () => `subject-${++counter}`,
+    newAssignmentId: () => `assignment-${++counter}`,
     newAuditEventId: () => `audit-${++counter}`,
-    newEventId: () => `evt-${++counter}`,
+  };
+}
+
+export function makeItemLookup(existingItemIds: Set<string>): ExpirationItemLookup {
+  return {
+    itemExists: async (_tenantId, itemId) => existingItemIds.has(itemId),
   };
 }

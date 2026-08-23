@@ -350,4 +350,83 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // Evolucao estrategica do roadmap (M9, D-036) - schemas novos do modulo subject.
+
+  it("accepts a valid create-subject-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "VENDOR",
+      displayName: "ACME Seguros",
+      tags: ["seguro", "sp"],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a create-subject-request with an unknown type", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "NOT_A_REAL_TYPE",
+      displayName: "ACME Seguros",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid update-subject-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
+      notes: "Contato principal: financeiro@acme.com",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-subject-request with an additional undeclared property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
+      displayName: "ACME",
+      ownerUserId: "user_01",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid assign-requirement-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
+      requirementName: "Seguro RC",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an assign-requirement-request missing requirementName", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
+      notes: "sem nome",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid update-requirement-assignment-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
+      requirementName: "Seguro RC atualizado",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-requirement-assignment-request carrying status directly (status is never client-settable)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
+      status: "SATISFIED",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid link-requirement-item-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {
+      itemId: "item_01",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a link-requirement-item-request missing itemId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
 });

@@ -34,6 +34,11 @@ import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json"
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 import reserveDocumentUploadRequestV1 from "../../../schemas/api/reserve-document-upload-request.v1.json";
+import createSubjectRequestV1 from "../../../schemas/api/create-subject-request.v1.json";
+import updateSubjectRequestV1 from "../../../schemas/api/update-subject-request.v1.json";
+import assignRequirementRequestV1 from "../../../schemas/api/assign-requirement-request.v1.json";
+import updateRequirementAssignmentRequestV1 from "../../../schemas/api/update-requirement-assignment-request.v1.json";
+import linkRequirementItemRequestV1 from "../../../schemas/api/link-requirement-item-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -101,4 +106,9 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
   reserveDocumentUploadRequestV1,
+  createSubjectRequestV1,
+  updateSubjectRequestV1,
+  assignRequirementRequestV1,
+  updateRequirementAssignmentRequestV1,
+  linkRequirementItemRequestV1,
 ]);

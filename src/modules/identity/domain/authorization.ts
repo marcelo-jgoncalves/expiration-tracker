@@ -9,6 +9,7 @@ export type Action =
   | "item:read"
   | "item:update"
   | "item:delete"
+  | "item:watch"
   | "reminder:manage"
   | "document:reserve-upload"
   | "document:read"
@@ -16,8 +17,21 @@ export type Action =
   | "extraction:confirm"
   | "notification:configure"
   | "audit:read"
-  | "system:ping"; // M1 test route action, not in the blueprint's business list but
-// declared explicitly here rather than silently bypassing the matrix (see report).
+  | "system:ping" // M1 test route action, not in the blueprint's business list but
+  // declared explicitly here rather than silently bypassing the matrix (see report).
+  // M9 (evolução estratégica do roadmap, D-036/D-039, 03-domain-model-tracked-subject-
+  // requirement.md e 07-domain-model-escalation-watchers-digest.md): TrackedSubject +
+  // RequirementAssignment + ItemWatch. Mesmo padrão resolver-deriva-tenantId de todo módulo
+  // existente — nenhuma dessas actions confia em tenantId fornecido pelo cliente.
+  | "subject:create"
+  | "subject:read"
+  | "subject:update"
+  | "subject:delete"
+  | "requirement:assign"
+  | "requirement:read"
+  | "requirement:update"
+  | "requirement:delete"
+  | "requirement:review";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -48,6 +62,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "item:read": READ_ONLY_ROLES,
   "item:update": WRITE_ROLES,
   "item:delete": ADMIN_ROLES,
+  "item:watch": WRITE_ROLES,
   "reminder:manage": WRITE_ROLES,
   "document:reserve-upload": WRITE_ROLES,
   "document:read": READ_ONLY_ROLES,
@@ -56,6 +71,15 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "notification:configure": ADMIN_ROLES,
   "audit:read": READ_ONLY_ROLES,
   "system:ping": READ_ONLY_ROLES,
+  "subject:create": WRITE_ROLES,
+  "subject:read": READ_ONLY_ROLES,
+  "subject:update": WRITE_ROLES,
+  "subject:delete": ADMIN_ROLES,
+  "requirement:assign": WRITE_ROLES,
+  "requirement:read": READ_ONLY_ROLES,
+  "requirement:update": WRITE_ROLES,
+  "requirement:delete": ADMIN_ROLES,
+  "requirement:review": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
