@@ -28,6 +28,13 @@ export class InMemorySubjectStore implements SubjectStore {
     this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
   }
 
+  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+    const existing = this.items.get(this.k(item));
+    if (!existing || existing["count"] !== expected.count || existing["resetAt"] !== expected.resetAt) return false;
+    this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
     for (const entry of entries) {
       if ("Put" in entry) {
@@ -105,6 +112,7 @@ export function makeSubjectIdGenerator(): SubjectIdGenerator {
     newSubjectId: () => `subject-${++counter}`,
     newAssignmentId: () => `assignment-${++counter}`,
     newAuditEventId: () => `audit-${++counter}`,
+    newSubmissionId: () => `submission-${++counter}`,
   };
 }
 

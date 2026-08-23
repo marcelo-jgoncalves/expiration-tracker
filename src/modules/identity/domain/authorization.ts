@@ -31,7 +31,11 @@ export type Action =
   | "requirement:read"
   | "requirement:update"
   | "requirement:delete"
-  | "requirement:review";
+  | "requirement:review"
+  // M10 (guest upload/magic link, D-037, 04-domain-model-guest-upload.md): apenas o lado
+  // autenticado do tenant tem action própria — o convidado nunca passa por authorize()/
+  // RequestContext, é validado por GuestTokenService (fora da matriz de roles por design).
+  | "requirement:request-document";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -80,6 +84,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "requirement:update": WRITE_ROLES,
   "requirement:delete": ADMIN_ROLES,
   "requirement:review": WRITE_ROLES,
+  "requirement:request-document": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/start-guest-submission-request.v1.json",
+  "title": "StartGuestSubmissionRequest v1",
+  "description": "POST /guest/document-requests/{token}/uploads request body (StartGuestSubmissionInput). 04-domain-model-guest-upload.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fileName", "mediaType", "contentLength", "checksumSha256"],
+  "properties": {
+    "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "mediaType": { "type": "string", "enum": ["application/pdf", "image/jpeg", "image/png"] },
+    "contentLength": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+    "checksumSha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+  }
+}

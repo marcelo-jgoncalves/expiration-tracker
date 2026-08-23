@@ -39,6 +39,8 @@ import updateSubjectRequestV1 from "../../../schemas/api/update-subject-request.
 import assignRequirementRequestV1 from "../../../schemas/api/assign-requirement-request.v1.json";
 import updateRequirementAssignmentRequestV1 from "../../../schemas/api/update-requirement-assignment-request.v1.json";
 import linkRequirementItemRequestV1 from "../../../schemas/api/link-requirement-item-request.v1.json";
+import createDocumentRequestRequestV1 from "../../../schemas/api/create-document-request-request.v1.json";
+import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -111,4 +113,6 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   assignRequirementRequestV1,
   updateRequirementAssignmentRequestV1,
   linkRequirementItemRequestV1,
+  createDocumentRequestRequestV1,
+  startGuestSubmissionRequestV1,
 ]);

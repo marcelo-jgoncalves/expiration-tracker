@@ -20,7 +20,13 @@ export interface SubjectStore {
   /** Leitura fortemente consistente (mesma exigência de ExpirationStore.get). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
+  /** Unconditional overwrite - only for bookkeeping writes with no concurrent-writer risk (ver `updateConditional` para o caso de contador). */
   update<T extends EntityKey>(item: T): Promise<void>;
+  /** PutItem condicionado ao contador ainda bater com `expected` no momento da escrita — mesmo
+   * padrão/mesma correção real de `IdentityStore.updateConditional` (bug de produção real: `count`
+   * é palavra reservada do DynamoDB, exige `ExpressionAttributeNames`). Usado por
+   * `GuestRateLimiter` para evitar lost update sob concorrência. */
+  updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
   /** GSI7 — listagem de subjects por status/tipo/nome (domain/tracked-subject.ts#gsi7Keys). */
   queryGsi7<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7QueryInput): Promise<T[]>;

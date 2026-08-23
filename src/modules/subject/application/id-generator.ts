@@ -3,4 +3,5 @@ export interface SubjectIdGenerator {
   newSubjectId(): string;
   newAssignmentId(): string;
   newAuditEventId(): string;
+  newSubmissionId(): string;
 }
