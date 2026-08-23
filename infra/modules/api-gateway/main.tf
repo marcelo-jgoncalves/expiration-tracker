@@ -310,3 +310,39 @@ resource "aws_lambda_permission" "notifications" {
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications/preferences"
 }
+
+# --- ImportsHandler: /imports* (M11, D-042 - CSV import de TrackedSubject) -----------------
+
+resource "aws_apigatewayv2_integration" "imports" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.imports_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  imports_routes = {
+    reserve = { method = "POST", path = "/imports" }
+    get     = { method = "GET", path = "/imports/{jobId}" }
+    commit  = { method = "POST", path = "/imports/{jobId}/commit" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "imports" {
+  for_each = local.imports_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.imports.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "imports" {
+  statement_id  = "AllowApiGatewayInvokeImports"
+  action        = "lambda:InvokeFunction"
+  function_name = var.imports_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/imports*"
+}

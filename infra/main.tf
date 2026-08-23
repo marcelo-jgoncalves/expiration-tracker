@@ -205,15 +205,18 @@ module "dispatch_outbox_relay" {
   adot_layer_arn = var.adot_layer_arn
   # M10 cluster 4 (D-039/D-046/D-048): second destination on this SAME relay Lambda/DynamoDB
   # Streams event source mapping (below) - never a new relay function just for one more queue.
+  # M11 (D-042) adds a third destination, same reasoning.
   environment_variables = merge(local.common_env, {
     DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
     DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.send_policy_json,
     module.document_chasing_dispatch_queue.send_policy_json,
+    module.import_commit_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -234,19 +237,21 @@ module "outbox_sweeper" {
     DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
     EMAIL_DELIVER_QUEUE_URL             = module.email_deliver_queue.queue_url
     DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
   # M4 extends this SAME privileged role to also send to the notification email queue
   # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
   # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
-  # for document-chasing-dispatch, same reasoning.
+  # for document-chasing-dispatch, and M11 (D-042) once more for import-commit, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
     module.dispatch_queue.send_policy_json,
     module.email_deliver_queue.send_policy_json,
     module.document_chasing_dispatch_queue.send_policy_json,
+    module.import_commit_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -276,6 +281,8 @@ module "api" {
   subjects_function_name        = module.subjects_handler.function_name
   guest_documents_invoke_arn    = module.guest_documents_handler.live_alias_invoke_arn
   guest_documents_function_name = module.guest_documents_handler.function_name
+  imports_invoke_arn            = module.imports_handler.live_alias_invoke_arn
+  imports_function_name         = module.imports_handler.function_name
   tags                          = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -1064,4 +1071,207 @@ module "document_observability" {
   upload_slot_reconciliation_function_name = module.upload_slot_reconciliation_handler.function_name
   alert_topic_arn                          = module.alert_topic.topic_arn
   tags                                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- M11: CSV Import de TrackedSubject (D-042) ---------------------------------------------
+# Um único bucket (raw CSV + plano JSONL, nunca quarentena/malware scanning - fora do escopo
+# de v1) e 3 novas funções: ImportsHandler (HTTP), ImportParseWorker (S3 event via fila) e
+# ImportCommitWorker (SQS_IMPORT_COMMIT_V1, roteado pelo dispatch_outbox_relay/outbox_sweeper
+# já existentes acima - nunca um relay/sweeper novo). Alarme de observabilidade por função
+# fica como residual documentado (NEXT_SESSION_PROMPT.md) - a idade da DLQ de cada fila abaixo
+# (já embutida em sqs-worker-queue) é a rede de segurança mínima herdada "de graça".
+
+module "import_bucket" {
+  source = "./modules/import-bucket"
+
+  name_prefix = local.name_prefix
+  tags        = { Project = local.project_name, Environment = var.environment }
+}
+
+module "import_parse_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-import-parse"
+  consumer_timeout_seconds = 30
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# S3 "Object Created" in the import bucket -> ImportParseWorker. Filtered to the literal
+# `raw.csv` suffix (same bucket also receives the parse worker's OWN plan JSONL writes, which
+# must never re-trigger it - defense in depth alongside parseImportRawKey's own key check).
+resource "aws_cloudwatch_event_rule" "import_raw_object_created" {
+  name           = "${local.name_prefix}-import-raw-object-created"
+  event_bus_name = "default"
+  event_pattern = jsonencode({
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = { name = [module.import_bucket.bucket_name] }
+      object = { key = [{ suffix = "raw.csv" }] }
+    }
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "import_raw_object_created_to_parse_queue" {
+  rule      = aws_cloudwatch_event_rule.import_raw_object_created.name
+  target_id = "import-parse-queue"
+  arn       = module.import_parse_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "eventbridge_to_import_parse_queue" {
+  statement {
+    sid       = "AllowEventBridgeRuleToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.import_parse_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.import_raw_object_created.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "import_parse_queue" {
+  queue_url = module.import_parse_queue.queue_url
+  policy    = data.aws_iam_policy_document.eventbridge_to_import_parse_queue.json
+}
+
+data "aws_iam_policy_document" "import_parse_object_access" {
+  statement {
+    sid       = "ReadWriteImportObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptEncryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "import_parse_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-import-parse-handler"
+  handler_name    = "import-parse-handler"
+  source_dir      = "${local.dist_dir}/import-parse-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    IMPORT_RAW_BUCKET_NAME  = module.import_bucket.bucket_name
+    IMPORT_PLAN_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.import_parse_object_access.json,
+    module.import_parse_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "import_parse_from_queue" {
+  event_source_arn        = module.import_parse_queue.queue_arn
+  function_name           = module.import_parse_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- ImportCommitWorker: SQS_IMPORT_COMMIT_V1, fed by dispatch_outbox_relay/outbox_sweeper --
+
+module "import_commit_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-import-commit"
+  consumer_timeout_seconds = 60 # replaying up to 5.000 linhas via SubjectService.createSubject() pode levar um tempo real
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "import_commit_plan_object_access" {
+  statement {
+    sid       = "ReadPlanObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "import_commit_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-import-commit-handler"
+  handler_name    = "import-commit-handler"
+  source_dir      = "${local.dist_dir}/import-commit-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60
+  environment_variables = merge(local.common_env, {
+    IMPORT_PLAN_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.import_commit_plan_object_access.json,
+    module.import_commit_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "import_commit_from_queue" {
+  event_source_arn        = module.import_commit_queue.queue_arn
+  function_name           = module.import_commit_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- ImportsHandler: HTTP (POST /imports, GET /imports/{jobId}, POST .../commit) -----------
+
+data "aws_iam_policy_document" "imports_presign_raw_put" {
+  statement {
+    sid       = "PresignImportRawPut"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "EncryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "imports_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-imports-handler"
+  handler_name   = "imports-handler"
+  source_dir     = "${local.dist_dir}/imports-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    IMPORT_RAW_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.imports_presign_raw_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }

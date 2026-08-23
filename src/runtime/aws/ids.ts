@@ -11,8 +11,9 @@ import type { ReminderIdGenerator } from "../../modules/reminder/application/id-
 import type { IdGenerator as IdentityIdGenerator } from "../../modules/identity/application/resolve-request-context.js";
 import type { DocumentIdGenerator } from "../../modules/document/application/id-generator.js";
 import type { SubjectIdGenerator } from "../../modules/subject/application/id-generator.js";
+import type { ImportIdGenerator } from "../../modules/import/application/id-generator.js";
 
-export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator, SubjectIdGenerator {
+export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator, SubjectIdGenerator, ImportIdGenerator {
   newItemId(): string {
     return `item_${ulid()}`;
   }
@@ -54,6 +55,9 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   }
   newSubmissionId(): string {
     return `submission_${ulid()}`;
+  }
+  newImportJobId(): string {
+    return `importjob_${ulid()}`;
   }
 }
 

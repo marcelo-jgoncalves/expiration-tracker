@@ -51,8 +51,16 @@ export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableNam
  * SECOND sender to the SAME relay Lambda/DynamoDB Streams event source mapping (mirrors
  * `outbox-sweeper-handler.ts`'s own "one shared privileged role, router keyed by destination"
  * pattern, per m4-notification-engine-design.md §7.4 - never a new relay Lambda just for a
- * second destination). */
-export function buildOutboxRelayDeps(client: DynamoDBDocumentClient, tableName: string, queueUrl: string, sqsClient: SQSClient = new SQSClient({}), chasingQueueUrl?: string) {
+ * second destination). M11 (D-042) adds `importCommitQueueUrl` as a THIRD optional sender on
+ * this same shared relay, same reasoning. */
+export function buildOutboxRelayDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  queueUrl: string,
+  sqsClient: SQSClient = new SQSClient({}),
+  chasingQueueUrl?: string,
+  importCommitQueueUrl?: string,
+) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
     await sqsClient.send(
@@ -69,6 +77,7 @@ export function buildOutboxRelayDeps(client: DynamoDBDocumentClient, tableName: 
     senders: {
       SQS_REMINDER_DISPATCH_V1: send(queueUrl),
       ...(chasingQueueUrl ? { SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingQueueUrl) } : {}),
+      ...(importCommitQueueUrl ? { SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl) } : {}),
     },
   };
 }

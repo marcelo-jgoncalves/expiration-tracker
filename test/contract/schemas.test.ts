@@ -418,6 +418,35 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid import-commit.v1 command (M11, D-042)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/import-commit.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_03",
+      commandType: "import.commit.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_03",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|importjob_01|2",
+      data: { jobId: "importjob_01" },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an import-commit.v1 command missing jobId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/import-commit.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_03",
+      commandType: "import.commit.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_03",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|importjob_01|2",
+      data: {},
+    });
+    expect(valid).toBe(false);
+  });
+
   // M11 (D-042) - schema novo do modulo import.
 
   it("accepts a valid reserve-import-request (POST /imports, M11, D-042)", () => {

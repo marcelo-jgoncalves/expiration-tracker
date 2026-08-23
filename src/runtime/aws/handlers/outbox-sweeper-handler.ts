@@ -21,10 +21,13 @@ const emailDeliverQueueUrl = process.env["EMAIL_DELIVER_QUEUE_URL"];
 // sweeper role - same "router keyed by destination" pattern §7.4 already established for
 // SQS_NOTIFICATION_EMAIL_V1, never a second sweeper querying the same global GSI6 partition.
 const chasingDispatchQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
+// M11 (D-042): fourth destination, same reasoning.
+const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
 if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
+if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
 
 const sqsClient = new SQSClient({});
 const store = new DynamoDbOutboxRelayStore(client, tableName);
@@ -44,6 +47,7 @@ const deps = {
     SQS_REMINDER_DISPATCH_V1: send(reminderDispatchQueueUrl),
     SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
     SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
+    SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
   },
 };
 const logger = new SecureLogger({ baseContext: { service: "outbox-sweeper" } });

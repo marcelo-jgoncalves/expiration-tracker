@@ -44,6 +44,7 @@ import createDocumentRequestRequestV1 from "../../../schemas/api/create-document
 import updateDocumentRequestDeliveryPreferenceRequestV1 from "../../../schemas/api/update-document-request-delivery-preference-request.v1.json";
 import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
 import reserveImportRequestV1 from "../../../schemas/api/reserve-import-request.v1.json";
+import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -121,4 +122,5 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   startGuestSubmissionRequestV1,
   updateDocumentRequestDeliveryPreferenceRequestV1,
   reserveImportRequestV1,
+  importCommitV1,
 ]);

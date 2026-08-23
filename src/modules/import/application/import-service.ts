@@ -35,6 +35,21 @@ export interface ReserveImportResult {
   expiresAt: string;
 }
 
+/** Envelope da mensagem SQS_IMPORT_COMMIT_V1 - schemas/queues/import-commit.v1.json. Mesmo
+ * padrão do `DispatchCommand` de reminder-producer/producer.ts: como o relay/sweeper só
+ * reenvia `OutboxRecord.payload` (== `DomainEvent.data`), este tipo precisa carregar sozinho
+ * tudo que command-envelope.v1.json exige no nível raiz (tenantId incluso). */
+export interface ImportCommitCommand {
+  messageVersion: 1;
+  messageId: string;
+  createdAt: string;
+  correlationId: string;
+  commandType: "import.commit.v1";
+  tenantId: string;
+  deduplicationKey: string;
+  data: { jobId: string };
+}
+
 export interface ImportServiceDeps {
   store: ImportStore;
   tableName: string;
@@ -163,6 +178,21 @@ export class ImportService {
         }),
       },
     ];
+    // O relay/sweeper só reenvia `event.data` para a fila (nunca o DomainEvent completo) -
+    // por isso `data` aqui precisa já SER o envelope inteiro exigido por command-envelope.v1.json
+    // (messageVersion/messageId/tenantId/deduplicationKey no nível raiz), mesmo padrão do
+    // DispatchCommand de reminder-producer/producer.ts. Sem isso o commit worker nunca teria
+    // tenantId disponível na mensagem SQS.
+    const command: ImportCommitCommand = {
+      messageVersion: 1,
+      messageId: randomUUID(),
+      createdAt: now,
+      correlationId: ctx.correlationId,
+      commandType: "import.commit.v1",
+      tenantId: ctx.tenant.tenantId,
+      deduplicationKey: `${ctx.tenant.tenantId}|${jobId}|${expectedVersion + 1}`,
+      data: { jobId },
+    };
     const event: DomainEvent = {
       specVersion: "1.0",
       eventId: randomUUID(),
@@ -173,7 +203,7 @@ export class ImportService {
       tenantId: ctx.tenant.tenantId,
       actor: { type: "USER", userId: ctx.principal.userId },
       aggregate: { type: "ImportJob", id: jobId, version: expectedVersion + 1 },
-      data: { jobId },
+      data: command as unknown as Record<string, unknown>,
     };
     appendToTransaction(entries, this.tableName, event, "SQS_IMPORT_COMMIT_V1");
 

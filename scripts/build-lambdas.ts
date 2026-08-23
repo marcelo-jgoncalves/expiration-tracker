@@ -52,6 +52,9 @@ const HANDLERS = [
   "subjects-handler",
   "guest-documents-handler",
   "document-chasing-dispatch-handler",
+  "imports-handler",
+  "import-parse-handler",
+  "import-commit-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

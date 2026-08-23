@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/import-commit.v1.json",
+  "title": "import.commit.v1",
+  "description": "SQS command emitted by ImportService.requestCommit (M11, D-042) after the PREVIEW_READY->COMMITTING transition of an ImportJob, consumed by the ImportCommit worker.",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "import.commit.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId"],
+      "properties": {
+        "jobId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

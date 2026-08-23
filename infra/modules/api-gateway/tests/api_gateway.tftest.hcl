@@ -35,6 +35,8 @@ run "jwt_authorizer_attached_to_every_route" {
     subjects_function_name        = "subjects"
     guest_documents_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:guest-documents/invocations"
     guest_documents_function_name = "guest-documents"
+    imports_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
+    imports_function_name         = "imports"
   }
 
   assert {
@@ -246,5 +248,31 @@ run "jwt_authorizer_attached_to_every_route" {
   assert {
     condition     = aws_lambda_permission.guest_documents.qualifier == "live"
     error_message = "GuestDocumentsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  # Every /imports* route exists and is JWT-authorized (M11, D-042).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.imports : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /imports* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.imports) == 3
+    error_message = "Expected exactly 3 /imports* routes (reserve, get, commit)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.imports : r.route_key],
+      "POST /imports/{jobId}/commit",
+    )
+    error_message = "POST /imports/{jobId}/commit route must exist"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.imports.qualifier == "live"
+    error_message = "ImportsHandler invoke permission must be scoped to the 'live' alias"
   }
 }
