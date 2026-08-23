@@ -1078,8 +1078,9 @@ module "document_observability" {
 # de v1) e 3 novas funções: ImportsHandler (HTTP), ImportParseWorker (S3 event via fila) e
 # ImportCommitWorker (SQS_IMPORT_COMMIT_V1, roteado pelo dispatch_outbox_relay/outbox_sweeper
 # já existentes acima - nunca um relay/sweeper novo). Alarme de observabilidade por função
-# fica como residual documentado (NEXT_SESSION_PROMPT.md) - a idade da DLQ de cada fila abaixo
-# (já embutida em sqs-worker-queue) é a rede de segurança mínima herdada "de graça".
+# (module.import_observability, abaixo) fecha o residual documentado em D-050 - a idade da DLQ
+# de cada fila (já embutida em sqs-worker-queue) continua sendo a rede mínima herdada, agora
+# complementada por sinal de causa (exceção do worker vs. FAILED_INTEGRITY_MISMATCH real).
 
 module "import_bucket" {
   source = "./modules/import-bucket"
@@ -1274,4 +1275,13 @@ module "imports_handler" {
     data.aws_iam_policy_document.imports_presign_raw_put.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
+}
+
+module "import_observability" {
+  source = "./modules/import-observability"
+
+  import_parse_function_name  = module.import_parse_handler.function_name
+  import_commit_function_name = module.import_commit_handler.function_name
+  alert_topic_arn             = module.alert_topic.topic_arn
+  tags                        = { Project = local.project_name, Environment = var.environment }
 }
