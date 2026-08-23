@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { issueGuestToken, parseGuestToken, secretMatches } from "../../../src/modules/subject/domain/guest-token.js";
+import { epochSecondsFromIso, issueGuestToken, parseGuestToken, secretMatches } from "../../../src/modules/subject/domain/guest-token.js";
 
 const PEPPER = "test-pepper-value";
 
@@ -41,5 +41,10 @@ describe("guest-token", () => {
     const b = issueGuestToken(PEPPER);
     expect(a.selector).not.toBe(b.selector);
     expect(a.selectorHash).not.toBe(b.selectorHash);
+  });
+
+  it("epochSecondsFromIso converts an ISO instant to numeric epoch seconds (D-047/D-048: DynamoDB TTL requires this, never an ISO string)", () => {
+    expect(epochSecondsFromIso("2026-08-23T00:00:00.000Z")).toBe(1787443200);
+    expect(Number.isInteger(epochSecondsFromIso(new Date().toISOString()))).toBe(true);
   });
 });

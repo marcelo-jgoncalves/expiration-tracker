@@ -7,6 +7,7 @@
  * (nunca `TENANT#...` — o convidado não tem tenant resolvido antes da validação do token).
  */
 import { QuotaExceededError } from "../../../shared/errors/app-error.js";
+import { epochSecondsFromIso } from "../domain/guest-token.js";
 import type { EntityKey, SubjectStore } from "../ports/subject-store.js";
 
 export interface GuestRateLimitRecord extends EntityKey {
@@ -17,6 +18,8 @@ export interface GuestRateLimitRecord extends EntityKey {
   windowSeconds: number;
   count: number;
   resetAt: string;
+  /** TTL físico real da tabela — achado real de D-047/D-048, mesmo motivo de `GuestTokenPointer.purgeAfterTtl`: `resetAt` sozinho nunca aciona a exclusão física do DynamoDB. Avança a cada escrita para acompanhar `resetAt`. */
+  purgeAfterTtl: number;
 }
 
 function guestRateLimitKey(selectorHash: string): { PK: string; SK: "RATE" } {
@@ -48,6 +51,7 @@ export class GuestRateLimiter {
           windowSeconds: input.windowSeconds,
           count: 1,
           resetAt,
+          purgeAfterTtl: epochSecondsFromIso(resetAt),
         });
         if (created) return;
         continue; // perdeu a corrida de criação - relê estado fresco.
@@ -65,7 +69,7 @@ export class GuestRateLimiter {
 
       const nextResetAt = windowExpired ? resetAt : existing.resetAt;
       const wrote = await this.store.updateConditional(
-        { ...existing, count: effectiveCount + 1, resetAt: nextResetAt },
+        { ...existing, count: effectiveCount + 1, resetAt: nextResetAt, purgeAfterTtl: epochSecondsFromIso(nextResetAt) },
         { count: existing.count, resetAt: existing.resetAt },
       );
       if (wrote) return;

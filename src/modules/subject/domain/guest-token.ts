@@ -26,6 +26,11 @@ export interface GuestTokenPointer extends EntityKey {
   documentRequestId: string;
   tokenVersion: number;
   expiresAt: string;
+  /** TTL físico real da tabela (`infra/modules/dynamo-table/main.tf`'s `ttl.attribute_name`) —
+   * achado real de D-047/D-048: `expiresAt` sozinho é só um campo lido por `resolveToken()`,
+   * nunca aciona a exclusão física do DynamoDB. Sem este campo, cada `GuestTokenPointer`
+   * (inclusive cada rotação de chasing, D-048) seria uma linha permanente. */
+  purgeAfterTtl: number;
   revokedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +39,11 @@ export interface GuestTokenPointer extends EntityKey {
 
 export function guestTokenPointerKey(selectorHash: string): { PK: string; SK: "POINTER" } {
   return { PK: `GUESTTOKEN#${selectorHash}`, SK: "POINTER" };
+}
+
+/** DynamoDB TTL exige epoch seconds numérico, nunca a string ISO — achado real de D-048. */
+export function epochSecondsFromIso(iso: string): number {
+  return Math.floor(Date.parse(iso) / 1000);
 }
 
 /** Pepper vem de config/Secrets Manager no composition root (nunca hardcoded aqui) — este

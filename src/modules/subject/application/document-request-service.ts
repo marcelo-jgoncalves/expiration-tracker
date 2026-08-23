@@ -9,7 +9,7 @@ import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.j
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { requirementAssignmentKey, REQUIREMENT_ASSIGNMENT_SK_PREFIX, type RequirementAssignment } from "../domain/requirement-assignment.js";
 import { documentRequestKey, type DocumentRequest, type CreateDocumentRequestInput } from "../domain/document-request.js";
-import { guestTokenPointerKey, issueGuestToken, GUEST_TOKEN_TTL_SECONDS, type GuestTokenPointer } from "../domain/guest-token.js";
+import { guestTokenPointerKey, issueGuestToken, epochSecondsFromIso, GUEST_TOKEN_TTL_SECONDS, type GuestTokenPointer } from "../domain/guest-token.js";
 import { buildSubjectAuditEvent, appendSubjectAuditToTransaction } from "../domain/audit-event.js";
 import { isTransactionCanceled, type SubjectStore, type TransactWriteEntry } from "../ports/subject-store.js";
 import type { SubjectIdGenerator } from "./id-generator.js";
@@ -88,6 +88,7 @@ export class DocumentRequestService {
       documentRequestId,
       tokenVersion: 1,
       expiresAt: tokenExpiresAt,
+      purgeAfterTtl: epochSecondsFromIso(tokenExpiresAt),
       createdAt: now,
       updatedAt: now,
       version: 1,
