@@ -14,6 +14,12 @@ import {
   handleUpdateItem,
   type ExpirationHttpDeps,
 } from "../../../modules/expiration/http/item-handlers.js";
+import {
+  handleAddWatcher,
+  handleRemoveWatcher,
+  handleListWatchers,
+  type ItemWatchHttpDeps,
+} from "../../../modules/expiration/http/item-watch-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -22,8 +28,8 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { expiration } = buildExpirationDeps(client, tableName);
-const deps: ExpirationHttpDeps = { resolver, expiration, quota };
+const { expiration, watches } = buildExpirationDeps(client, tableName);
+const deps: ExpirationHttpDeps & ItemWatchHttpDeps = { resolver, expiration, watches, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
@@ -54,6 +60,12 @@ async function handleItemsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer):
           return await handleArchiveItem(deps, base);
         case "POST /items/{itemId}/renew":
           return await handleRenewItem(deps, { ...base, body: parseBody(event) });
+        case "POST /items/{itemId}/watchers/{userId}":
+          return await handleAddWatcher(deps, base);
+        case "DELETE /items/{itemId}/watchers/{userId}":
+          return await handleRemoveWatcher(deps, base);
+        case "GET /items/{itemId}/watchers":
+          return await handleListWatchers(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

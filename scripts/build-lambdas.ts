@@ -49,6 +49,7 @@ const HANDLERS = [
   "malware-result-handler",
   "upload-slot-reconciliation-handler",
   "parser-sandbox-handler",
+  "subjects-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
