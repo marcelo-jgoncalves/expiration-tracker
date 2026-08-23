@@ -4,7 +4,7 @@
 Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
 Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
-Last verified:           2026-08-23 (M6 implementado/deployado/verificado em produção real; M9 e a fatia de guest upload do M10 implementados em `develop`, NÃO deployados; design de M7 aprovado, implementação não iniciada — ver `NEXT_SESSION_PROMPT.md`)
+Last verified:           2026-08-23 (M6 implementado/deployado/verificado em produção real; M9, M10 completo — guest upload + automated chasing + convite inicial automatizado — e M11 (CSV import) implementados em `develop`, NÃO deployados; design de M7 aprovado, implementação não iniciada — ver `NEXT_SESSION_PROMPT.md`)
 ```
 
 Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a próxima ação concreta.

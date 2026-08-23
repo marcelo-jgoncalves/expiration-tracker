@@ -87,6 +87,13 @@ Convenção de IDs: `FR-xxx`, `NFR-xxx`, `SEC-xxx`, `PRIV-xxx`, `COST-xxx`, `SCA
 - **FR-081** — Usuário (tenant) deve poder optar, por preferência persistente (`DocumentRequestDeliveryPreference`, default `MANUAL`) ou por chamada individual, entre enviar automaticamente o e-mail de convite inicial do guest upload ou continuar entregando o link manualmente — automação nunca é o comportamento implícito sem essa escolha explícita, e fica sob um kill switch global desligado por padrão (`D-049`).
 - **FR-082** — Todo envio automático de e-mail a um destinatário externo (convite inicial ou cobrança) deve respeitar um limite de taxa por tenant e por destinatário, verificado antes da criação do recurso quando o envio for solicitado — excedê-lo bloqueia a criação (não cria parcialmente) em vez de silenciosamente pular o envio.
 
+### 1.11 CSV Import de TrackedSubject (M11 — evolução estratégica do roadmap, D-042/D-050, implementado em `develop`, ainda não deployado)
+- **FR-083** — Usuário deve poder importar `TrackedSubject` em lote via arquivo CSV (até 5 MiB / 5.000 linhas por importação), com uma etapa de preview (plano linha-a-linha, nunca persistido em DynamoDB por linha) antes de qualquer criação real ser efetivada (`roadmap-evolution/09-domain-model-csv-import.md`).
+- **FR-084** — Sistema deve rejeitar linhas estruturalmente inválidas (caractere de controle embutido, nome de exibição ausente) individualmente, sem falhar o arquivo inteiro — o preview deve reportar total de linhas aceitas/rejeitadas/duplicadas antes do usuário confirmar o commit.
+- **FR-085** — Sistema deve deduplicar linhas por `externalId` (forte, contra importações anteriores do mesmo tenant e contra o próprio arquivo) e, na ausência de `externalId`, por `type`+nome normalizado contra os `TrackedSubject` ativos já existentes (fallback fraco) — uma linha identificada como duplicata nunca cria um segundo registro.
+- **FR-086** — O commit de uma importação confirmada deve ser seguro sob reentrega (SQS at-least-once): reexecutar o commit de um job parcialmente processado nunca deve duplicar um `TrackedSubject` já criado por uma tentativa anterior.
+- **FR-087** — Valor com aparência de fórmula de planilha (prefixo `=`/`+`/`-`/`@`) deve ser aceito na importação com um aviso registrado no preview, nunca rejeitado — a mitigação de CSV/formula injection pertence à futura exportação, não à entrada (DynamoDB nunca interpreta o valor como fórmula).
+
 ---
 
 ## 2. Non-Functional Requirements (NFR)

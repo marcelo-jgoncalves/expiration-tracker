@@ -1,6 +1,84 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## M10 (Guest Collection & Automated Chasing) — COMPLETO EM `develop`, NÃO DEPLOYADO — leia isto primeiro
+## M11 (CSV Import de TrackedSubject) — COMPLETO EM `develop`, NÃO DEPLOYADO — leia isto primeiro (D-042/D-050)
+
+M11 (cluster 7, último cluster do roadmap de D-043) implementado de ponta a ponta na mesma
+sessão contínua que fechou M10, seguindo o design já aprovado em D-042
+(`roadmap-evolution/09-domain-model-csv-import.md`, Claude 9,2/Codex 9,4). Registrado como
+**D-050** em `decisions-log.md`.
+
+**Módulo novo `src/modules/import`** (domain/ports/persistence/application/http completos,
+v1 deliberadamente estreito: só CSV, só `TrackedSubject`, per o próprio D-042):
+- `ImportService` (`reserveImport`/`getImportJob`/`requestCommit`) — presign+idempotência,
+  mirror exato de `DocumentService.reserveUpload`; consome quotas novas `IMPORT_COUNT`/
+  `IMPORT_BYTES` (identity's `TenantQuotaService`, reaproveitado diretamente — nunca duplicado,
+  ao contrário de `GuestRateLimiter`/`InitialInviteRateLimiter`, que SÃO duplicados
+  deliberadamente para não acoplar módulos, ver decisions-log D-049).
+- `parseImportJob` (worker, disparado por evento S3 real) — parser CSV próprio (RFC4180
+  mínimo), dedupe forte por `externalId` (contra DynamoDB + contra o próprio arquivo) e
+  fallback fraco por `type`+nome normalizado (preload único de GSI7 — o teto do
+  `TenantEntitlement`, hoje 25, garante que isso nunca é um scan caro), plano JSONL + SHA-256
+  gravado em S3 (nunca linha-a-linha em DynamoDB, per `ADR-0001`).
+- `commitImportJob` (worker, disparado por `SQS_IMPORT_COMMIT_V1`) — replay do plano validado
+  via `SubjectService.createSubject()` **inalterado** (sibling-aggregate principle: nunca uma
+  segunda implementação de criação de subject só para este worker); idempotência de retry
+  (SQS at-least-once) via cursor `lastCommittedRowNumber` na própria `ImportJob` + claim de
+  `ImportDedupRecord` por linha ANTES de criar o subject (chave real `externalId` quando existe,
+  senão sintética `job:<jobId>:row:<rowNumber>`); fail-fast (não pula linhas) em
+  `QuotaExceededError`.
+
+**Bug real corrigido antes do commit da infra** (nenhum teste teria pego sem inspecionar o
+wire format real): `ImportService.requestCommit()` gravava `data: { jobId }` no `OutboxRecord`,
+mas `DispatchOutboxRelay`/`OutboxSweeper` só reenviam `OutboxRecord.payload` (== `event.data`)
+para a fila SQS — nunca o `DomainEvent` completo, então `tenantId` nunca chegaria ao worker de
+commit. Corrigido para o MESMO padrão já usado por `DispatchCommand` em
+`reminder-producer/producer.ts`: o comando inteiro (`messageVersion`/`messageId`/`tenantId`/
+`deduplicationKey`/`data`, exigido por `command-envelope.v1.json`) vira `event.data`. Schema
+novo `import-commit.v1.json`; teste dedicado (`import-service.test.ts`) valida o outbox record
+real contra esse schema, não apenas contra o shape do TypeScript.
+
+**Infra nova**: um único bucket S3 (`import-bucket`, deliberadamente SEM quarentena/malware
+scan — fora do escopo de v1 por decisão do próprio D-042: DynamoDB nunca interpreta fórmula de
+planilha, a mitigação de CSV injection pertence à futura exportação); 2 filas SQS novas
+(`import-parse`, `import-commit`); 3 Lambdas (`ImportsHandler` HTTP, `ImportParseWorker` via
+regra EventBridge filtrada pelo sufixo literal `raw.csv` — o mesmo bucket também recebe a
+escrita do PRÓPRIO plano JSONL do worker, que nunca deve re-disparar o parser — e
+`ImportCommitWorker`, roteado pelo `dispatch_outbox_relay`/`outbox_sweeper` JÁ existentes, nunca
+um relay novo, mesmo padrão do cluster 4/D-039). Rotas `/imports*` novas no API Gateway.
+**Observabilidade por função para as 2 Lambdas novas foi deliberadamente deixada como residual**
+(ver seção de pendências abaixo) — a DLQ-age alarm de cada fila (já embutida em
+`sqs-worker-queue`) é a rede mínima herdada, sem estender `reminder-observability`/
+`document-observability` (ambos já revisados/aprovados) para escopo fora do que foram
+desenhados a cobrir.
+
+**Estado final verificado**: `terraform fmt`/`validate` limpos; `terraform test` real
+(`AWS_PROFILE=claude-dev`, plan-only, nunca apply) verde no módulo novo `import-bucket`, no
+módulo `api-gateway` (rotas `/imports*`) e na suíte raiz `stack.tftest.hcl` (24 funções Lambda,
+contagem atualizada de 21→24). **527 testes totais, zero regressão.**
+typecheck/lint/check-boundaries/validate-schemas/build:lambdas/check-docs todos limpos.
+
+**Pendência residual explícita (não bloqueante)**: alarme CloudWatch por função para
+`ImportParseWorker`/`ImportCommitWorker` (paralelo ao que `document-observability` faz para
+M6) não foi criado nesta sessão — decisão deliberada de não estender um módulo já
+revisado/aprovado para escopo novo sem justificativa forte o bastante (a DLQ-age alarm
+genérica já cobre "está falhando repetidamente"). Fica para quando a próxima rodada de
+observabilidade holística for decidida (mesmo padrão já registrado para M4 em
+`stack.tftest.hcl`'s próprio comentário).
+
+**Autorização explícita do Marcelo para o restante deste trabalho** (ainda em vigor):
+"no fim de todo esse trabalho, pode fazer o push e o merge" — `develop→main` está autorizado ao
+final, sem precisar de nova confirmação (ainda assim, verificar CI verde e `terraform plan`
+limpo antes).
+
+**Próxima ação real**: M11 era o ÚLTIMO cluster (7) do roadmap de evolução estratégica (D-043).
+Com M9/M10/M11 completos em `develop`, os candidatos naturais são: (a) M12 (Organization/
+Membership/RBAC — D-038 já decidiu que billing por `TrackedSubject` vem ANTES desta ordem
+original do prompt estratégico, então billing pode já estar coberto por `TenantEntitlement`;
+confirmar o que realmente falta de M12 antes de implementar), ou (b) finalmente executar o
+push+merge `develop→main` já autorizado, dado que M9/M10/M11 se acumularam sem deploy real. Ver
+`roadmap-evolution/10-phase3-scoring-and-roadmap.md` para a sequência completa M9-M13.
+
+## M10 (Guest Collection & Automated Chasing) — COMPLETO EM `develop`, NÃO DEPLOYADO
 
 M10 inteiro (guest upload + automated chasing + convite inicial automatizado) está implementado
 de ponta a ponta nesta sessão contínua, seguindo o roadmap de D-043. Sequência real de decisões:
