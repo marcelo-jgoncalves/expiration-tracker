@@ -23,6 +23,25 @@ resource "aws_apigatewayv2_stage" "default" {
   name        = "$default"
   auto_deploy = true
   tags        = var.tags
+
+  # D-051: throttling nativo do HTTP API nunca tinha sido configurado (nem para as rotas
+  # JWT-protegidas) - default conservador aplicado a todo o stage; as 2 rotas públicas
+  # /guest/* recebem um `route_settings` mais restritivo abaixo, já que são as únicas sem
+  # autenticação JWT (HTTP API v2 não tem um recurso `aws_apigatewayv2_route_settings`
+  # separado - é um bloco aninhado repetível dentro do próprio stage).
+  default_route_settings {
+    throttling_burst_limit = 50
+    throttling_rate_limit  = 25
+  }
+
+  dynamic "route_settings" {
+    for_each = local.guest_documents_routes
+    content {
+      route_key              = "${route_settings.value.method} ${route_settings.value.path}"
+      throttling_burst_limit = 10
+      throttling_rate_limit  = 5
+    }
+  }
 }
 
 resource "aws_apigatewayv2_authorizer" "jwt" {
@@ -242,7 +261,13 @@ resource "aws_lambda_permission" "subjects" {
 # PRIMEIRA rota pública do projeto: authorization_type = NONE, sem authorizer JWT. Validação
 # fica inteiramente na aplicação (GuestSubmissionService#resolveToken) - decisão explícita do
 # cluster 2 (evita duplicar lógica de token/contexto num Lambda authorizer, e o risco de cache
-# stale de authorizer). WAF na frente (módulo "waf") é pré-requisito, não opcional.
+# stale de authorizer). D-037 originalmente exigia WAF na frente como pré-requisito - superseded
+# por D-051 (achado real: WAFv2 não suporta associação com API Gateway HTTP API v2, só REST API
+# v1/ALB/AppSync/etc. - CreateWebACL/AssociateWebACL nunca funcionariam aqui). Mitigação
+# imediata: throttling nativo por rota (`route_settings` em `aws_apigatewayv2_stage.default`
+# acima), mais restritivo que o default do stage já que estas são as únicas rotas sem
+# autenticação JWT. CloudFront+WAF fica registrado como débito técnico bloqueante antes de
+# tráfego público real de produção (não antes de `dev`).
 
 resource "aws_apigatewayv2_integration" "guest_documents" {
   api_id                 = aws_apigatewayv2_api.this.id

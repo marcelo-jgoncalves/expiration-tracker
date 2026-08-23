@@ -286,15 +286,15 @@ module "api" {
   tags                          = { Project = local.project_name, Environment = var.environment }
 }
 
-# --- WAF (M10, D-037): pré-requisito antes da rota pública /guest/* estar exposta -----------
-
-module "waf" {
-  source = "./modules/waf"
-
-  name_prefix   = local.name_prefix
-  api_stage_arn = module.api.stage_arn
-  tags          = { Project = local.project_name, Environment = var.environment }
-}
+# --- WAF (M10, D-037) — REMOVIDO (D-051): AWS WAFv2 não suporta associação com API Gateway
+# HTTP API v2 (só REST API v1/ALB/AppSync/Cognito/App Runner/Verified Access/Amplify) -
+# achado real no primeiro `terraform apply` de fato deste recurso (WAFInvalidParameterException
+# na AssociateWebACL). O módulo `infra/modules/waf/` foi deletado (não só desligado do wiring -
+# a abstração como estava era estruturalmente inválida, reconstruir do zero quando existir
+# CloudFront é mais seguro que reaproveitar código que nunca poderia funcionar standalone).
+# Mitigação imediata: throttling nativo do HTTP API (ver `route_settings`/
+# `default_route_settings` no módulo api-gateway). CloudFront+WAF registrado como débito
+# técnico bloqueante antes de tráfego público real de produção (`decisions-log.md` D-051).
 
 # --- Observability: SNS alert topic (m5-observability-design.md §4) -----------------------
 # Instantiated before the queues/observability module below so its ARN is available to wire

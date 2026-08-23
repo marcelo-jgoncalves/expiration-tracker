@@ -1,6 +1,45 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## M11 (CSV Import de TrackedSubject) — COMPLETO EM `develop`, NÃO DEPLOYADO — leia isto primeiro (D-042/D-050)
+## M9+M10+M11 DEPLOYADOS EM `main` + achado real de WAF corrigido (D-051) — leia isto primeiro
+
+Marcelo autorizou explicitamente o merge `develop→main` (PR #38) depois de M11 completo — CI
+verde, `terraform plan` limpo, tudo conforme padrão já estabelecido. O `cd.yml` disparou o
+PRIMEIRO apply real de fato de todo esse acumulado (M9+M10+M11), e isso revelou um achado real
+que nenhum `terraform plan`/`validate`/`mock_provider` local jamais pegaria: **AWS WAFv2 não
+suporta associação com API Gateway HTTP API (v2)** — só REST API (v1), ALB, AppSync, Cognito,
+App Runner, Verified Access, Amplify. O módulo `infra/modules/waf/` (M10, D-037) tentava
+associar um Web ACL ao stage do HTTP API deste projeto — estruturalmente impossível, não um
+erro de configuração. `AssociateWebACL` falhou com `WAFInvalidParameterException` no meio do
+apply (a maioria dos recursos, incluindo as 3 Lambdas novas de M11, JÁ tinha aplicado com
+sucesso antes desse ponto).
+
+**Resolvido via protocolo Claude↔Codex (3 rodadas, Claude 9,2/Codex 9,3) como D-051**: módulo
+`infra/modules/waf/` **deletado inteiramente** (não só desligado — reconstruir do zero quando
+existir CloudFront é mais seguro que reaproveitar uma abstração já comprovadamente inválida).
+Mitigação imediata: throttling nativo do HTTP API (`aws_apigatewayv2_stage.default_route_settings`
+burst=50/rate=25 para o stage inteiro; `route_settings` burst=10/rate=5 só para as 2 rotas
+`/guest/*`, as únicas sem JWT). CloudFront+WAF registrado como débito técnico bloqueante antes
+de tráfego público real de produção (não antes de `dev`). Residual aceito e documentado: o
+throttle nativo é por rota/stage, nunca por IP — um único IP hostil ainda consome sozinho toda a
+cota de 5 req/s da rota guest; é exatamente por isso que CloudFront+WAF continua bloqueante
+pré-produção. Um teste de regressão (`waf.tftest.hcl`... já deletado junto do módulo -
+substituído por 2 asserts novos em `api_gateway.tftest.hcl` verificando os valores de throttle)
+verificou que a string antiga (com em-dash/acento/parênteses) teria sido pega por uma checagem
+de regex antes mesmo do achado maior aparecer — 2 bugs reais em sequência no mesmo recurso,
+ambos só visíveis contra a API real.
+
+**Estado real verificado antes do segundo push**: `terraform plan` real contra o state remoto
+de `dev` (`AWS_PROFILE=claude-dev`, backend S3 real) — exatamente 1 destroy (o Web ACL órfão), 0
+create novo (route_settings é adição in-place ao stage existente), resto são refreshes inócuos
+de hash de Lambda. PR #39 (fix WAF description) e a correção de D-051 seguem o mesmo fluxo
+develop→PR→CI verde→merge→CD já usado no resto da sessão.
+
+**Próxima ação real**: confirmar que o CD deploy final (pós-D-051) completou com sucesso em
+`main` (verificar `gh run list --branch main` para o run "Deploy (CD)" mais recente). Se verde,
+M9+M10+M11 estão de fato deployados e funcionais em `dev`. Depois disso, mesma decisão de antes:
+M12 (Organization/Membership/RBAC) ou pausa. Ver `roadmap-evolution/10-phase3-scoring-and-roadmap.md`.
+
+## M11 (CSV Import de TrackedSubject) — COMPLETO EM `develop`, DEPLOYADO EM `main` (D-042/D-050)
 
 M11 (cluster 7, último cluster do roadmap de D-043) implementado de ponta a ponta na mesma
 sessão contínua que fechou M10, seguindo o design já aprovado em D-042

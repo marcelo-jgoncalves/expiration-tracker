@@ -250,6 +250,30 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "GuestDocumentsHandler invoke permission must be scoped to the 'live' alias"
   }
 
+  # D-051: WAFv2 can't associate with an HTTP API (real deploy finding) - native throttling is
+  # the interim compensating control, tighter on the 2 public/unauthenticated guest routes than
+  # the stage default.
+  assert {
+    condition     = aws_apigatewayv2_stage.default.default_route_settings[0].throttling_burst_limit == 50 && aws_apigatewayv2_stage.default.default_route_settings[0].throttling_rate_limit == 25
+    error_message = "Stage default throttle must be burst=50/rate=25 (D-051)"
+  }
+
+  assert {
+    condition = alltrue([
+      for rs in aws_apigatewayv2_stage.default.route_settings : rs.throttling_burst_limit == 10 && rs.throttling_rate_limit == 5
+      if contains(["GET /guest/document-requests/{token}", "POST /guest/document-requests/{token}/uploads"], rs.route_key)
+    ])
+    error_message = "Both /guest/* routes must have the tighter burst=10/rate=5 throttle (D-051)"
+  }
+
+  assert {
+    condition = length([
+      for rs in aws_apigatewayv2_stage.default.route_settings : rs
+      if contains(["GET /guest/document-requests/{token}", "POST /guest/document-requests/{token}/uploads"], rs.route_key)
+    ]) == 2
+    error_message = "Expected exactly 2 route-level throttle settings, one per /guest/* route"
+  }
+
   # Every /imports* route exists and is JWT-authorized (M11, D-042).
   assert {
     condition = alltrue([

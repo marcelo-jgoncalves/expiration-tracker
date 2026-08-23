@@ -11,6 +11,6 @@ output "execution_arn" {
 }
 
 output "stage_arn" {
-  description = "ARN do stage $default - usado pelo módulo waf (M10, D-037) para associar o Web ACL."
+  description = "ARN do stage $default. Não consumido por nada hoje - o módulo `waf` que o usava foi deletado (D-051: WAFv2 não suporta associação com API Gateway HTTP API v2). Mantido para quando CloudFront+WAF for implementado (débito técnico registrado em D-051)."
   value       = aws_apigatewayv2_stage.default.arn
 }
