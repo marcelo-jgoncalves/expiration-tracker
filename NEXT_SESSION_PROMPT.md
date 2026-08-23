@@ -1,6 +1,32 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## D-052 (M12 bloqueado) + alarmes de import worker deployados — leia isto primeiro (2026-08-23, sessão autônoma)
+## Decisão do Marcelo (2026-08-23): próxima sessão começa pelo BFF de sessão — leia isto primeiro
+
+Depois de mapear os caminhos possíveis ao final da sessão anterior (M7, M12, M13, frontend/BFF,
+débito técnico residual), Marcelo decidiu: **a próxima sessão começa pelo BFF de sessão**
+(`/session/refresh`, `/session/logout` — Cognito já configurado para o padrão, endpoints nunca
+implementados), não por M7/M12/M13. Isso resolve a parte "QUANDO" da pendência registrada em
+2026-08-22 ("Frontend e BFF de sessão não têm milestone atribuído", ver seção abaixo para o
+histórico completo) — ainda falta decidir formalmente em qual milestone numerado isso entra
+(provavelmente uma trilha paralela, já que M9-M13 já estão ocupados pela evolução comercial e o
+BFF nunca dependeu tecnicamente de nenhum deles), mas isso pode ficar para o início da própria
+sessão de implementação, não é bloqueante para começar.
+
+**Nenhuma implementação de código foi feita ainda** — esta é só a decisão de priorização,
+registrada aqui para não perder o contexto de por que essa lacuna existia nem repetir a
+investigação.
+
+**Próxima ação real, primeira coisa da próxima sessão**: implementar o BFF de sessão. Antes de
+escrever código: (1) reler a seção "Pendência registrada (2026-08-22)" abaixo para o contexto
+completo (CSP/CloudFront Response Headers Policy foi adiada junto em M1 — decidir se entra agora
+ou continua adiada até existir distribuição CloudFront real); (2) confirmar escopo exato das
+rotas/contrato de `/session/refresh`/`/session/logout` contra a configuração Cognito já existente
+(`infra/modules/cognito`); (3) avaliar se isso passa pelo protocolo Claude↔Codex (AGENTS.md §4) —
+provavelmente sim, é a primeira superfície de sessão HTTP do projeto além do padrão JWT direto já
+usado por toda rota autenticada existente, o que a torna uma decisão de segurança/arquitetura
+nova, não implementação direta de algo já fechado.
+
+## D-052 (M12 bloqueado) + alarmes de import worker deployados — sessão anterior (2026-08-23)
 
 Continuação da mesma autorização de sessões anteriores (Marcelo indisponível, "trabalhe de forma
 mais autônoma possível"). Confirmado primeiro: o CD pós-D-051 (PR #39/#40) completou com sucesso
@@ -529,6 +555,11 @@ milestone (provavelmente um M9 novo, pós-M8, ou uma iniciativa paralela) o fron
 implementar CSP/CloudFront Response Headers Policy junto da distribuição CloudFront real; (3)
 implementar as rotas HTTP do BFF de sessão. Até lá, todo teste/exercício real deste projeto
 continua sendo feito via chamada direta a Lambda/API (padrão já usado em M0-M6), nunca via UI.
+
+**Atualização (2026-08-23): parte "QUANDO" resolvida** — Marcelo decidiu que a próxima sessão
+começa pelo BFF de sessão (item 3 acima), ver seção do topo deste arquivo para a decisão completa
+e a próxima ação real. Itens 1 (numeração de milestone) e 2 (CSP/CloudFront) continuam em aberto,
+a fechar no início dessa implementação.
 
 ## Renumeração de milestone registrada (2026-08-22) — leia antes de qualquer trabalho de M6/M7
 
