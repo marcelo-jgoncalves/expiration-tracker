@@ -13,7 +13,7 @@
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction, type DynamoTransactPutEntry } from "../../../shared/outbox/outbox.js";
 import { isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { buildChasingClaimGsi6Sk, type DocumentChasingOccurrence } from "../domain/document-chasing.js";
+import { buildChasingClaimGsi6Sk, type DocumentChasingOccurrence, type DocumentChasingTier } from "../domain/document-chasing.js";
 import { GSI6PK_WORKSTATE_CLAIMED } from "../../reminder/ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 
@@ -36,7 +36,7 @@ export interface ChasingDispatchCommand {
     documentRequestId: string;
     occurrenceId: string;
     occurrenceVersion: number;
-    tier: string;
+    tier: DocumentChasingTier;
     scheduledAt: string;
     documentRequestVersion: number;
   };
