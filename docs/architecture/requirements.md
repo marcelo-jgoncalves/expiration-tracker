@@ -75,6 +75,12 @@ Convenção de IDs: `FR-xxx`, `NFR-xxx`, `SEC-xxx`, `PRIV-xxx`, `COST-xxx`, `SCA
 - **FR-073** — Sistema deve limitar o número de `TrackedSubject` ativos por tenant conforme o plano vigente (`TenantEntitlement`, default 25 no plano free — `roadmap-evolution/05-domain-model-organization-billing.md`), rejeitando a criação de forma fail-closed (nunca parcial) ao atingir o limite.
 - **FR-074** — Usuário deve poder observar (`watch`) um `ExpirationItem` sem ser o responsável (`assigneeUserId`) primário, e deixar de observá-lo a qualquer momento — sem que isso altere a versão OCC do item observado (`roadmap-evolution/07-domain-model-escalation-watchers-digest.md`).
 
+### 1.9 Guest Upload / Magic Link (M10 — evolução estratégica do roadmap, D-037/D-045, implementado em `develop`, ainda não deployado)
+- **FR-075** — Usuário (tenant) deve poder emitir um `DocumentRequest` para um `RequirementAssignment`, gerando um link/token opaco enviado a um destinatário externo (`recipientEmail`) sem exigir que esse destinatário tenha conta no sistema (`roadmap-evolution/04-domain-model-guest-upload.md`).
+- **FR-076** — O destinatário externo (convidado) deve poder consultar o `DocumentRequest` e submeter um documento usando somente o token — nunca por login/senha/JWT — e o sistema nunca deve distinguir, pela resposta observável, um token inexistente de um token existente mas com secret incorreto ou com quota de requisições excedida (anti-enumeração).
+- **FR-077** — Um `DocumentRequest` deve expirar no primeiro entre 14 dias da emissão ou seu `deadline` opcional, o que ocorrer primeiro; após expirar, revogado ou já submetido, o token deixa de resolver.
+- **FR-078** — O documento submetido por um convidado deve passar pelo mesmo pipeline de triagem de malware/quarentena já usado para uploads autenticados (M6), antes de avançar a `RequirementAssignment` associada.
+
 ---
 
 ## 2. Non-Functional Requirements (NFR)

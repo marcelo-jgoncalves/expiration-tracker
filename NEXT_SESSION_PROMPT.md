@@ -1,6 +1,70 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## M9 (Commercial Domain Foundation) — IMPLEMENTADO EM `develop`, NÃO DEPLOYADO (2026-08-23) — leia isto primeiro
+## M10 (Guest Collection & Automated Chasing) — fatia de guest upload IMPLEMENTADA EM `develop`, NÃO DEPLOYADA (2026-08-23) — leia isto primeiro
+
+Continuação direta da mesma autorização usada para M9 ("prossiga... o mais longe possível...
+registre e pule para a etapa seguinte", Marcelo indisponível). Implementada a fatia de **guest
+upload/magic link** de M10 (design já fechado em D-037, `roadmap-evolution/04-domain-model-guest-upload.md`)
+— **automated chasing (a outra metade de M10, cluster 4) não foi iniciado nesta sessão**, fica
+como próxima ação real.
+
+**Implementado** (commits `c7ecf77`, `12da47b`, `f5b87dc`, branch `develop`, D-045):
+- `DocumentRequest`/`DocumentSubmission` (`src/modules/subject/domain/`) — coleções sob a mesma
+  partição/assignment de `RequirementAssignment` (M9), sem GSI novo. `DocumentSubmission`
+  reaproveita `DocumentStatus`/`UploadEvidence`/`MalwareEvidence`/`DocumentObjectReference` do
+  módulo `document` (M6), não redefine.
+- `GuestTokenPointer` (`GUESTTOKEN#<selectorHash>`/`POINTER`) — terceira exceção tenantless do
+  modelo (depois de `IdentityMapping` e o scheduler GSI3): token opaco `selector.secret`, só o
+  hash HMAC-SHA256+pepper é persistido, comparação via `timingSafeEqual`. `GuestSubmissionService`
+  nunca passa por `RequestContext`/`authorize()` — é a primeira superfície não-autenticada do
+  projeto, validada só pelo token.
+- `src/workers/{submission-finalizer,submission-malware-result}` — espelhos estruturais dos
+  workers de M6, roteados por um namespace de quarantine-key deliberadamente não-sobreposto ao de
+  `item/` (`parseSubmissionQuarantineKey`), plugados nos handlers Lambda existentes
+  (`upload-finalizer-handler`/`malware-result-handler`) via branch aditivo — só tenta o parser
+  novo quando o de M6 retorna `undefined`. Pipeline de malware scanning de M6 (já verificado em
+  produção real) permanece intocado.
+- **Revisão adversarial dedicada (Codex) antes do commit**, justificada pela impossibilidade de
+  testar contra AWS real nesta sessão (Camada 3) — achou 2 ALTO + 3 MÉDIO reais, todos corrigidos
+  antes de commitar: (1) `GUEST_TOKEN_PEPPER` exigido no cold start mas nunca wireado na infra;
+  (2) rota `/guest/*` e WAF pré-requisito não estavam provisionados; (3) oráculo de enumeração —
+  rate limit só era consumido depois da checagem de existência do pointer, deixando
+  `QuotaExceededError` (token real sem quota) distinguível de `GuestTokenInvalidError` (token
+  inexistente) — corrigido consumindo o rate limit por `selectorHash` ANTES do lookup do pointer,
+  convertendo qualquer falha no mesmo erro genérico; (4) ausência de caminho dummy contra timing
+  attack — corrigido com um hash determinístico calculado mesmo quando o pointer não existe; (5)
+  `deadline` do `DocumentRequest` decidido em design mas nunca aplicado — corrigido, TTL do token
+  agora é `min(now+14d, deadline)`, revalidado em `resolveToken()`.
+- 4 schemas/testes novos, 405 testes totais, zero regressão (confirmado depois das correções de
+  segurança, incluindo o teste de rate-limit que precisou ser reescrito para verificar o novo
+  comportamento anti-enumeração).
+- Infra nova (`infra/`, código apenas — nenhum `terraform apply` executado): módulo `waf` (WAFv2
+  Web ACL regional, `AWSManagedRulesCommonRuleSet`+`AWSManagedRulesKnownBadInputsRuleSet`+
+  rate-based rule por IP escopada só a `/guest/*` via `scope_down_statement`, associado ao stage
+  do API Gateway); módulo Lambda `guest_documents_handler` (rotas `authorization_type = NONE` —
+  primeira rota pública do projeto); `random_password` para `GUEST_TOKEN_PEPPER`, wireado em
+  `subjects_handler` e `guest_documents_handler`. Todos os `.tftest.hcl` atualizados (20 Lambdas,
+  novas rotas/variáveis de `guest_documents`, novo módulo `waf/tests/waf.tftest.hcl`) e
+  verificados: `terraform fmt`/`validate`/`test` (mock + real-provider plan-only,
+  `AWS_PROFILE=claude-dev`) todos verdes.
+- **`terraform plan` real contra `dev` executado e verificado (nunca aplicado)**: 38 a criar, 54
+  a atualizar, **0 a destruir**.
+- `docs/architecture/data-model.md` (§2/§3, novas entidades + nota da 3ª exceção tenantless) e
+  `requirements.md` (§1.9, FR-075..078) atualizados. `decisions-log.md` ganhou D-045.
+
+**Pendência real, não resolvida nesta sessão — decisão do Marcelo**: igual a M9, deploy real
+(merge `develop→main`) não foi executado — ação visível/compartilhada que exige confirmação
+explícita (`AGENTS.md` §3).
+
+**Próxima ação real**: (1) Marcelo decide se/quando mergear `develop→main` para deploy real de
+M9+M10 (guest upload); (2) implementar a outra metade de M10 — **automated chasing**
+(`DocumentChasingOccurrence`/`DocumentChasingIntent`, reaproveitando GSI3 condicionalmente, design
+já fechado em `roadmap-evolution/04-domain-model-guest-upload.md` cluster 4) — não iniciado nesta
+sessão; (3) considerar uma rodada extra de revisão Codex confirmando que as 5 correções de
+segurança realmente fecham os achados originais (não estritamente necessário, mas consistente com
+a cultura de verificação do projeto).
+
+## M9 (Commercial Domain Foundation) — IMPLEMENTADO EM `develop`, NÃO DEPLOYADO (2026-08-23)
 
 Depois das Fases 1-3 da evolução estratégica (seção abaixo) ficarem prontas, Marcelo decidiu
 diretamente prosseguir para implementação ("prossiga... o mais longe possível... se encontrar
@@ -46,9 +110,9 @@ explícita, mesmo padrão de autorização já usado para M6/M7**.
 limpo e verificado, mas abrir/mergear o PR é ação visível/compartilhada que exige confirmação
 explícita (`AGENTS.md` §3) — diferente de "implementar", que já estava autorizado.
 
-**Próxima ação real**: (1) Marcelo decide se/quando mergear `develop→main` para deploy real de
-M9; (2) depois disso, seguir para M10 (Guest Collection & Automated Chasing) seguindo o mesmo
-padrão desta sessão, ou repriorizar conforme `10-phase3-scoring-and-roadmap.md`.
+**Próxima ação real**: superada pela seção M10 acima — a fatia de guest upload de M10 já foi
+implementada na sequência desta mesma sessão. Ver seção do topo para o estado vigente e a próxima
+ação real atual (automated chasing + decisão de deploy).
 
 ## Evolução estratégica do roadmap — Fases 1-3 CONCLUÍDAS (2026-08-23), aguardando decisão do Marcelo sobre implementação
 
