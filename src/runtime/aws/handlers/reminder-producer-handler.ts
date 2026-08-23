@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReminderProducerDeps } from "../composition/reminder.js";
-import { runProducerTick } from "../../../workers/reminder-producer/producer.js";
+import { runProducerTick, shouldAlarm } from "../../../workers/reminder-producer/producer.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
@@ -38,13 +38,20 @@ export async function handler(event: ReminderProducerEvent): Promise<void> {
     logger.info("reminder-producer tick complete", {
       scanned: result.scanned,
       claimed: result.claimed.length,
+      chasingClaimed: result.chasingClaimed.length,
       failed: result.failed.length,
+      unknownEntityType: result.unknownEntityType,
       minutesScanned: result.minutesScanned,
     });
-    if (result.failed.length > 0) {
-      // Non-conditional failures (not claim-race losses) - surfaced so CloudWatch alarms on
-      // Lambda errors fire; the next tick's lookback window still covers these occurrences.
-      throw new Error(`reminder-producer: ${result.failed.length} occurrence(s) failed to claim`);
+    // Achado real de revisão adversarial (Codex, D-039/D-046/D-048): o comentário original de
+    // producer.ts prometia que `unknownEntityType` seria "surfaced via failed so a real alarm
+    // can fire", mas nada de fato lançava por causa dele - uma linha de GSI3 com forma
+    // desconhecida ficava silenciosa em produção. Corrigido: decisão de alarme extraída para
+    // `shouldAlarm()` (função pura, testada diretamente), separada de `failed` (uma linha
+    // desconhecida nunca teria occurrenceId/tenantId reais para colocar lá).
+    const alarm = shouldAlarm(result);
+    if (alarm.alarm) {
+      throw new Error(alarm.reason);
     }
   });
 }

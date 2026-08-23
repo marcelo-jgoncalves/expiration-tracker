@@ -7,6 +7,7 @@ import { GuestSubmissionService, GuestTokenInvalidError } from "../../../src/mod
 import { GuestRateLimiter } from "../../../src/modules/subject/application/guest-rate-limiter.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { UploadUrlSigner } from "../../../src/modules/document/ports/upload-url-signer.js";
+import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 
 const PEPPER = "test-pepper";
 const QUARANTINE_BUCKET = "quarantine-bucket";
@@ -45,7 +46,7 @@ describe("Guest upload flow (DocumentRequest -> GuestSubmissionService)", () => 
     const ids = makeSubjectIdGenerator();
     subjects = new SubjectService({ store, tableName: "MainTable", ids, now: () => "2026-08-23T12:00:00.000Z" });
     requirements = new RequirementService({ store, tableName: "MainTable", ids, itemLookup: makeItemLookup(new Set()), now: () => "2026-08-23T12:00:00.000Z" });
-    documentRequests = new DocumentRequestService({ store, tableName: "MainTable", ids, guestTokenPepper: PEPPER, now: () => "2026-08-23T12:00:00.000Z" });
+    documentRequests = new DocumentRequestService({ store, tableName: "MainTable", ids, guestTokenPepper: PEPPER, shardConfig: defaultShardConfig(), now: () => "2026-08-23T12:00:00.000Z" });
     guestSubmissions = new GuestSubmissionService({
       store,
       tableName: "MainTable",

@@ -13,6 +13,8 @@ import { guestTokenPointerKey, issueGuestToken, epochSecondsFromIso, GUEST_TOKEN
 import { buildSubjectAuditEvent, appendSubjectAuditToTransaction } from "../domain/audit-event.js";
 import { isTransactionCanceled, type SubjectStore, type TransactWriteEntry } from "../ports/subject-store.js";
 import type { SubjectIdGenerator } from "./id-generator.js";
+import { DocumentChasingMaterializer } from "./document-chasing-materializer.js";
+import type { ShardConfig } from "../../reminder/domain/shard-config.js";
 
 export interface DocumentRequestServiceDeps {
   store: SubjectStore;
@@ -20,6 +22,9 @@ export interface DocumentRequestServiceDeps {
   ids: SubjectIdGenerator;
   /** Pepper do hash de token — vem de Secrets Manager no composition root real, nunca hardcoded. */
   guestTokenPepper: string;
+  /** M10 cluster 4 (D-039/D-046): MESMA config de shard do GSI3 usado por reminders — o índice
+   * é fisicamente compartilhado, não faz sentido as duas gerações divergirem em v1. */
+  shardConfig: ShardConfig;
   now?: () => string;
 }
 
@@ -34,14 +39,18 @@ export class DocumentRequestService {
   private readonly tableName: string;
   private readonly ids: SubjectIdGenerator;
   private readonly pepper: string;
+  private readonly shardConfig: ShardConfig;
   private readonly now: () => string;
+  private readonly chasingMaterializer: DocumentChasingMaterializer;
 
   constructor(deps: DocumentRequestServiceDeps) {
     this.store = deps.store;
     this.tableName = deps.tableName;
     this.ids = deps.ids;
     this.pepper = deps.guestTokenPepper;
+    this.shardConfig = deps.shardConfig;
     this.now = deps.now ?? (() => new Date().toISOString());
+    this.chasingMaterializer = new DocumentChasingMaterializer(this.store, this.now);
   }
 
   async createDocumentRequest(ctx: RequestContext, subjectId: string, assignmentId: string, input: CreateDocumentRequestInput): Promise<CreatedDocumentRequest> {
@@ -115,6 +124,20 @@ export class DocumentRequestService {
       if (isTransactionCanceled(err)) throw new ConflictError("Failed to create document request under contention.", { subjectId, assignmentId });
       throw err;
     }
+
+    // M10 cluster 4 (D-039/D-046): materializa os DocumentChasingOccurrence (T7/T3/EXPIRED) fora
+    // da transação acima - mesmo espírito de ReminderMaterializer.materialize(), idempotente via
+    // putIfAbsent, seguro para retry se falhar aqui (o DocumentRequest já foi criado com sucesso;
+    // uma falha de materialização não deve desfazer isso, a reconciliação futura cobriria o gap).
+    await this.chasingMaterializer.materialize({
+      tenantId: assignment.tenantId,
+      subjectId,
+      assignmentId,
+      documentRequestId,
+      documentRequestVersion: request.version,
+      tokenExpiresAt,
+      shardConfig: this.shardConfig,
+    });
 
     return { request, guestToken: issued.token };
   }

@@ -14,6 +14,18 @@
  *     retry just those (never the whole batch);
  *  5. returns counters for `scheduler_lag_seconds`/per-shard/lookback-depth metrics (left to
  *     the Lambda handler to emit via SecureLogger/EMF - this module stays observability-agnostic).
+ *
+ * M10 cluster 4 (D-039/D-046/D-048): GSI3 is now a SHARED scheduler for two entity types,
+ * discriminated by the SHAPE of the GSI3SK read back from the index (`...#OCCURRENCE#...` for
+ * `ReminderOccurrence`, unchanged; `...#CHASING#...` for `DocumentChasingOccurrence`, new) - a
+ * single `queryGsi3` call for a given shard/minute can return BOTH types mixed together, since
+ * they share the same physical partition space. The reminder branch below is byte-for-byte
+ * identical to before this change (same transaction shape, same command, same event) - only the
+ * dispatch/routing at the top of the loop is new. An unrecognized GSI3SK shape (neither pattern
+ * matches) is fail-closed: counted in `unknownEntityType` (a SEPARATE counter from `failed` -
+ * an unrecognized row never has a real occurrenceId/tenantId to put there) - the Lambda handler
+ * (reminder-producer-handler.ts) throws whenever it's nonzero, via `shouldAlarm()` below, so a
+ * real CloudWatch alarm fires - never processed or silently skipped by omission.
  */
 import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { gsi3PartitionsForMinute } from "../../modules/reminder/domain/reminder-occurrence.js";
@@ -25,6 +37,8 @@ import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-
 import { appendToTransaction, type DynamoTransactPutEntry } from "../../shared/outbox/outbox.js";
 import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
+import { parseChasingGsi3Sk } from "../../modules/subject/domain/document-chasing.js";
+import { claimChasingOccurrence, type ChasingDispatchCommand } from "../../modules/subject/application/document-chasing-producer.js";
 
 export interface DispatchCommand {
   /**
@@ -70,7 +84,13 @@ export interface ProducerDeps {
 
 export interface ProducerTickResult {
   claimed: DispatchCommand[];
+  /** M10 cluster 4: DocumentChasingOccurrence claims from the SAME GSI3 scan, kept in a
+   * separate array (different command shape) - never merged into `claimed`. */
+  chasingClaimed: ChasingDispatchCommand[];
   failed: { occurrenceId: string; tenantId: string; error: unknown }[];
+  /** GSI3SK shape matched neither the reminder nor the chasing pattern - fail-closed, never
+   * processed. Should always be 0 in practice; a nonzero count is alarm-worthy (D-039). */
+  unknownEntityType: number;
   scanned: number;
   minutesScanned: string[];
   shardPartitionsScanned: number;
@@ -78,6 +98,25 @@ export interface ProducerTickResult {
 
 function minuteFloor(d: Date): Date {
   return new Date(Math.floor(d.getTime() / 60_000) * 60_000);
+}
+
+/**
+ * Pure alarm decision, extracted so the Lambda handler's "when should this tick throw" logic
+ * is unit-testable without mocking the whole handler/composition root (achado real de revisão
+ * adversarial, D-039/D-046/D-048: an earlier version of this fail-closed path was silently
+ * absorbed by the handler - `unknownEntityType` was counted but nothing ever read it). Two
+ * independent reasons, checked in this order for a stable, deterministic message:
+ * unrecognized GSI3SK shape (fail-closed, never a retry-race) first, then genuine per-occurrence
+ * claim failures.
+ */
+export function shouldAlarm(result: ProducerTickResult): { alarm: boolean; reason?: string } {
+  if (result.unknownEntityType > 0) {
+    return { alarm: true, reason: `reminder-producer: ${result.unknownEntityType} GSI3 row(s) matched neither the reminder nor the chasing entityType - fail-closed` };
+  }
+  if (result.failed.length > 0) {
+    return { alarm: true, reason: `reminder-producer: ${result.failed.length} occurrence(s) failed to claim` };
+  }
+  return { alarm: false };
 }
 
 /** Runs one producer tick for wall-clock minute `tickMinute` (already floored to the minute by the caller/Lambda trigger). */
@@ -92,7 +131,9 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
   }
 
   const claimed: DispatchCommand[] = [];
+  const chasingClaimed: ChasingDispatchCommand[] = [];
   const failed: { occurrenceId: string; tenantId: string; error: unknown }[] = [];
+  let unknownEntityType = 0;
   let scanned = 0;
   let partitions = 0;
 
@@ -109,7 +150,36 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
         const rows = await deps.store.queryGsi3<{ PK: string; SK: string; GSI3SK: string }>({ gsi3pk });
         for (const row of rows) {
           scanned += 1;
-          const { tenantId, occurrenceId } = parseGsi3Sk(row.GSI3SK);
+
+          // M10 cluster 4: try the chasing shape FIRST (never throws, `undefined` on no
+          // match) - the reminder branch below is completely unchanged otherwise.
+          const chasingParsed = parseChasingGsi3Sk(row.GSI3SK);
+          if (chasingParsed) {
+            if (seen.has(chasingParsed.occurrenceId)) continue;
+            seen.add(chasingParsed.occurrenceId);
+            try {
+              const outcome = await claimChasingOccurrence(
+                { store: deps.store, tableName: deps.tableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+                { PK: row.PK, SK: row.SK },
+              );
+              if (outcome.kind === "CLAIMED") chasingClaimed.push(outcome.command);
+              // SKIPPED_NOT_SCHEDULED / LOST_CLAIM_RACE: not failures, same as the reminder path below.
+            } catch (err) {
+              failed.push({ occurrenceId: chasingParsed.occurrenceId, tenantId: chasingParsed.tenantId, error: err });
+            }
+            continue;
+          }
+
+          let reminderParsed: { tenantId: string; occurrenceId: string };
+          try {
+            reminderParsed = parseGsi3Sk(row.GSI3SK);
+          } catch {
+            // Fail-closed (D-039): neither pattern matched - never process a row we can't
+            // identify, never skip it silently either. Alarm-worthy, surfaced via the tick result.
+            unknownEntityType += 1;
+            continue;
+          }
+          const { tenantId, occurrenceId } = reminderParsed;
           if (seen.has(occurrenceId)) continue;
           seen.add(occurrenceId);
 
@@ -206,7 +276,9 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
 
   return {
     claimed,
+    chasingClaimed,
     failed,
+    unknownEntityType,
     scanned,
     minutesScanned: minutesToScan.map((d) => d.toISOString()),
     shardPartitionsScanned: partitions,

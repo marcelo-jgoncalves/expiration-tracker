@@ -18,6 +18,7 @@ import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { LambdaPdfParser } from "../../../modules/document/persistence/lambda-pdf-parser.js";
 import { UlidIdGenerator } from "../ids.js";
+import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 
 /** Adapter somente-leitura: subject nunca importa expiration-store.ts/expiration-service.ts
  * diretamente no código de produção - só aqui, no composition root, onde plugar módulos é
@@ -47,7 +48,9 @@ export function buildSubjectDeps(client: DynamoDBDocumentClient, tableName: stri
 export function buildDocumentRequestDeps(client: DynamoDBDocumentClient, tableName: string, guestTokenPepper: string) {
   const store = new DynamoDbSubjectStore(client, tableName);
   const ids = new UlidIdGenerator();
-  const requests = new DocumentRequestService({ store, tableName, ids, guestTokenPepper });
+  // M10 cluster 4 (D-046): mesma config de shard usada por reminder-producer-handler.ts - o
+  // GSI3 é fisicamente o mesmo índice, as duas gerações não devem divergir em v1.
+  const requests = new DocumentRequestService({ store, tableName, ids, guestTokenPepper, shardConfig: defaultShardConfig() });
   return { store, requests };
 }
 
