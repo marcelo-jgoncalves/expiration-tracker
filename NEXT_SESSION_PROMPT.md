@@ -1,52 +1,57 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## M10, cluster 4 (Automated Document Chasing) — NÚCLEO IMPLEMENTADO EM `develop`, NÃO DEPLOYADO — falta só D-049 (convite inicial) — leia isto primeiro
+## M10 (Guest Collection & Automated Chasing) — COMPLETO EM `develop`, NÃO DEPLOYADO — leia isto primeiro
 
-Continuação direta da mesma sessão/autorização do guest upload (seção seguinte). Sequência real:
+M10 inteiro (guest upload + automated chasing + convite inicial automatizado) está implementado
+de ponta a ponta nesta sessão contínua, seguindo o roadmap de D-043. Sequência real de decisões:
 mini-revisão de capacidade do GSI3 (D-046, fechada — pico orgânico combinado ~220× abaixo do SLO
-de drenagem de pico extremo) → gap de design real descoberto e fechado via protocolo Claude↔Codex
-como **D-048** (`roadmap-evolution/13-guest-link-delivery-design.md`, 3 rodadas, Claude 9,2/Codex
-9,4): rotação de token a cada disparo de chasing, sem KMS, sem secret cifrado persistido → Marcelo
-delegou ao mesmo protocolo a decisão de automatizar o convite inicial, fechada como **D-049**
-(`roadmap-evolution/14-document-request-initial-invite-design.md`, outras 3 rodadas, Claude
-9,2/Codex 9,4): APROVADO, com preferência de tenant nova + kill switch + rate limit.
+de drenagem de pico extremo) → gap de design real (entrega/reenvio do link) fechado via protocolo
+Claude↔Codex como **D-048** (`roadmap-evolution/13-guest-link-delivery-design.md`, 3 rodadas,
+Claude 9,2/Codex 9,4): rotação de token a cada disparo de chasing, sem KMS, sem secret cifrado
+persistido → Marcelo delegou ao mesmo protocolo a decisão de automatizar o convite inicial,
+fechada como **D-049** (`roadmap-evolution/14-document-request-initial-invite-design.md`, outras 3
+rodadas, Claude 9,2/Codex 9,4): APROVADO.
 
-**Núcleo de cluster 4 (D-039/D-046/D-048) implementado de ponta a ponta nesta sessão** — domínio
+**Cluster 4 (automated chasing, D-039/D-046/D-048) implementado de ponta a ponta**: domínio
 (`DocumentChasingOccurrence`/`DocumentChasingIntent`, agregados-irmãos de `ReminderOccurrence`/
 `NotificationIntent`, nunca os generaliza), materializer (preset fechado T7/T3/EXPIRED ancorado em
 `tokenExpiresAt`), producer branch (`src/workers/reminder-producer/producer.ts` — o arquivo mais
 sensível do projeto, discrimina `entityType` pela FORMA da GSI3SK antes de qualquer I/O, caminho
 reminder comprovadamente byte-idêntico ao anterior; revisão adversarial Codex dedicada nesse diff
 achou e corrigiu um bug real: `unknownEntityType` nunca de fato alarmava, corrigido com
-`shouldAlarm()` extraído/testado), worker de dispatch+delivery fundido (rotação de token só para
-T7/T3, tier EXPIRED nunca reenvia link externo — notifica `requestedByUserId`, envio SES
-best-effort fora da transação), reconciliação de claim-expiry alargada para cobrir
-`DocumentChasingOccurrence` pelo mesmo mecanismo, e todo o wiring de infra real (fila SQS+DLQ,
-Lambda `document-chasing-dispatch-handler`, relay/sweeper estendidos com o novo destino
-`SQS_DOCUMENT_CHASING_DISPATCH_V1` nas MESMAS roles existentes, alarme de erro novo no módulo
-`reminder-observability`). **`terraform plan` real contra `dev` verificado (53 a criar, 55 a
-atualizar, 0 a destruir) — nunca aplicado.** 446 testes totais, zero regressão.
+`shouldAlarm()` extraído/testado), worker de dispatch+delivery fundido, reconciliação de
+claim-expiry alargada, e todo o wiring de infra real (fila SQS+DLQ, Lambda
+`document-chasing-dispatch-handler`, relay/sweeper estendidos, alarme novo em
+`reminder-observability`).
 
-**Achado colateral real, corrigido antes de implementar rotação**: `GuestTokenPointer`/
-`GuestTokenRateLimit` (cluster 2, já commitado) nunca setavam `purgeAfterTtl` — o atributo real de
-TTL físico da tabela é esse, não `expiresAt` (só um campo lido pela lógica de validação). Corrigido
-em `guest-token.ts`/`guest-rate-limiter.ts`/`document-request-service.ts`.
+**D-049 (convite inicial automatizado) implementado**: `DocumentRequestDeliveryPreference`
+(preferência de TENANT, default `MANUAL`, action `tenant:configure-document-request-delivery`
+`ADMIN_ROLES`), override por chamada em `createDocumentRequest`, kill switch global
+`document_request_initial_invite_email_enabled` (default `false`), `InitialInviteRateLimiter` (20/h
+e 100/dia por tenant, 3/24h por destinatário — bloqueia CRIAÇÃO com 429 antes de qualquer escrita),
+envio best-effort fora da transação (reaproveita `SesEmailAdapter`/templates já usados por
+`EmailDeliveryWorker`/`DocumentChasingDispatch`), trilha de auditoria dos 5 desfechos, rotas HTTP
+novas (`GET`/`PUT /subjects/document-request-delivery-preference`).
+
+**Achados reais corrigidos no caminho** (nenhum deles no escopo original, descobertos ao
+implementar): (1) `GuestTokenPointer`/`GuestTokenRateLimit` (cluster 2) nunca setavam
+`purgeAfterTtl` — o atributo real de TTL físico da tabela, não `expiresAt` — corrigido antes da
+rotação multiplicar o acúmulo; (2) as 4 rotas HTTP autenticadas de `DocumentRequest`
+(create/list/get/revoke, com handler completo desde a sessão anterior) nunca tinham sido
+registradas no API Gateway real — 404 garantido em produção apesar do código pronto — corrigido
+junto das 2 rotas novas de D-049.
+
+**Estado final verificado**: `terraform plan` real contra `dev` (60 a criar, 55 a atualizar, **0 a
+destruir**) — nunca aplicado. **466 testes totais, zero regressão.**
+typecheck/lint/check-boundaries/validate-schemas/build:lambdas/check-docs todos limpos.
 
 **Autorização explícita do Marcelo para o restante deste trabalho**: "no fim de todo esse
 trabalho, pode fazer o push e o merge" — `develop→main` está autorizado ao final, sem precisar de
 nova confirmação (ainda assim, verificar CI verde e `terraform plan` limpo antes).
 
-**Pendente real, não implementado ainda**: **D-049 (convite inicial automatizado do guest upload)**
-— entidade `DocumentRequestDeliveryPreference`, action `tenant:configure-document-request-delivery`
-(`ADMIN_ROLES`), kill switch `document_request_initial_invite_email_enabled` (default `false`),
-rate limit concreto (20/h e 100/dia por tenant, 3/24h por destinatário), override por chamada em
-`createDocumentRequest`. Templates (`document-request-chasing`, `document-request-chasing-expired-internal`,
-`document-request-initial-invite`) já existem em `email-templates.ts` — só falta o mecanismo de
-preferência/rate-limit/kill-switch em torno do convite inicial em si.
-
-**Próxima ação real**: (1) implementar D-049; (2) depois, seguir para M11 (CSV import/export,
-cluster 7, D-042, design já aprovado) per o roadmap de D-043. Ao final de tudo, push + merge
-`develop→main` já autorizado.
+**Próxima ação real**: M11 (CSV import/export, cluster 7, D-042, design já aprovado 9,2/9,4) per o
+roadmap de D-043 — próximo milestone com design fechado, pronto para implementar seguindo o mesmo
+padrão desta sessão. Ao final de tudo, push + merge `develop→main` já autorizado.
 
 ## M10 (Guest Collection & Automated Chasing) — fatia de guest upload IMPLEMENTADA EM `develop`, NÃO DEPLOYADA (2026-08-23)
 
