@@ -81,6 +81,12 @@ Convenção de IDs: `FR-xxx`, `NFR-xxx`, `SEC-xxx`, `PRIV-xxx`, `COST-xxx`, `SCA
 - **FR-077** — Um `DocumentRequest` deve expirar no primeiro entre 14 dias da emissão ou seu `deadline` opcional, o que ocorrer primeiro; após expirar, revogado ou já submetido, o token deixa de resolver.
 - **FR-078** — O documento submetido por um convidado deve passar pelo mesmo pipeline de triagem de malware/quarentena já usado para uploads autenticados (M6), antes de avançar a `RequirementAssignment` associada.
 
+### 1.10 Entrega automática de link e cobrança automatizada (M10 cluster 4 — D-047/D-048/D-049)
+- **FR-079** — Sistema deve poder reenviar automaticamente um link de guest upload funcional em cada nível de cobrança (`DocumentChasingOccurrence`, antes do `deadline`) sem jamais persistir o `secret` do token em qualquer forma (nem cifrado) — cada reenvio gera um token novo via rotação (`D-048`), nunca reconstrói o token original.
+- **FR-080** — Depois do `deadline`/expiração do token, o sistema não deve gerar nem enviar um novo link externo funcional; deve notificar o usuário interno que criou a solicitação (`DocumentRequest.requestedByUserId`) em vez do destinatário externo.
+- **FR-081** — Usuário (tenant) deve poder optar, por preferência persistente (`DocumentRequestDeliveryPreference`, default `MANUAL`) ou por chamada individual, entre enviar automaticamente o e-mail de convite inicial do guest upload ou continuar entregando o link manualmente — automação nunca é o comportamento implícito sem essa escolha explícita, e fica sob um kill switch global desligado por padrão (`D-049`).
+- **FR-082** — Todo envio automático de e-mail a um destinatário externo (convite inicial ou cobrança) deve respeitar um limite de taxa por tenant e por destinatário, verificado antes da criação do recurso quando o envio for solicitado — excedê-lo bloqueia a criação (não cria parcialmente) em vez de silenciosamente pular o envio.
+
 ---
 
 ## 2. Non-Functional Requirements (NFR)
