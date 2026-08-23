@@ -1,5 +1,41 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## Evolução estratégica do roadmap — Fase 1 (gap analysis) concluída (2026-08-23), Fase 2 ainda não começou
+
+Marcelo trouxe um prompt de evolução estratégica (`Prompt — Evolução Estratégica e Arquitetural do
+Roadmap do Expiration Tracker.md`, raiz do repo) propondo capacidades comerciais novas
+(TrackedSubject, Requirement, ExternalContact, DocumentRequest, guest upload/magic link,
+automated chasing, digest, custom fields, Organization/RBAC, billing, CSV import/export,
+WhatsApp, e-mail ingestion, API/webhooks) para evoluir o produto de "cadastre uma data" para
+"vendor/employee document compliance leve", sem virar ERP/GRC/CLM. Processo acordado em 3 fases:
+(1) auditoria + gap analysis, (2) pesquisa de mercado + modelagem de domínio + protocolo
+Claude↔Codex por tema (nível 5-6, `change-risk-scale.md` — não dispensável), (3) roadmap final +
+ADRs. **Implementação de qualquer milestone novo só começa depois da Fase 3, com decisão explícita
+do Marcelo** — mesmo padrão já usado para M7.
+
+**Fase 1 concluída**: `docs/architecture/roadmap-evolution/01-gap-analysis.md` — estado real dos
+milestones + classificação de cada capacidade proposta contra o código real (7 investigações
+paralelas factuais, com citação arquivo:linha). Achados centrais: nenhuma das ~20 capacidades
+propostas já existe implementada; `Organization`/`Membership`/RBAC é a única com readiness formal
+real (`ADR-0002`, `evolution.md` já tem gatilho e plano de migração de 3 fases nunca disparado);
+`WhatsApp` está parcialmente scaffolded (enum+router+kill switch reservados); nenhuma rota de API
+Gateway é pública/sem-JWT hoje (bloqueio de infra real para guest upload/webhook); `Document`/M7
+sempre exigem `ExpirationItem` pai já existente (sem caminho para "requisito ausente, sem item
+ainda"); billing já tem lacuna formalmente registrada em `evolution.md` (não drift, lacuna
+conhecida). Documento é insumo de análise, não normativo — supersedido pelos entregáveis de
+domínio/roadmap da Fase 2-3 quando produzidos.
+
+**Próxima ação real**: Fase 2 — pesquisa de mercado externa (Remindax, Doc Warden, SubCompliant,
+VendorJot, TrustLayer, Certificial etc.), tentativa de refutar cada capacidade proposta, e rodadas
+do protocolo Claude↔Codex agrupadas por tema (ex. TrackedSubject+Requirement via eixos
+Arquitetura+Contexto; guest upload via Segurança+Privacidade; Organization/RBAC/Billing via
+Produto-Multi-tenant+Jurídico+Privacidade — ver `docs/engineering/joint-review-criteria.md`).
+
+Ambiente desta sessão (2026-08-23, continuação em máquina nova): branch `develop`, identidade Git
+local alinhada à conta GitHub pessoal (`marcelo-jgoncalves`), `gh` CLI instalado e autenticado,
+profile AWS `claude-dev` configurado, MCP `codex` instalado e aprovado (Codex CLI logado em
+`tchelojg@gmail.com`, plano ChatGPT Plus).
+
 ## M7 (Extraction e confirmação) — DESIGN APROVADO (2026-08-22), IMPLEMENTAÇÃO AINDA NÃO INICIADA
 
 Decisão explícita do Marcelo: "design completo primeiro, depois eu decido implementar" — dado o

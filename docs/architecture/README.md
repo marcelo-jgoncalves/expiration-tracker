@@ -47,6 +47,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
 | `diagrams/project-status.html` | resumo/índice (visual) | **O documento de status do projeto** — painel visual (timeline de marcos, achados reais, pendências); abrir no navegador para uma visão executiva rápida, mais legível que `NEXT_SESSION_PROMPT.md` para esse fim (que continua sendo a fonte de estado detalhado por sessão) |
 | `session-log.md` | histórico | Log cronológico compacto por sessão |
+| `roadmap-evolution/01-gap-analysis.md` | informativo (rascunho, não normativo) | Fase 1 da evolução estratégica do roadmap (2026-08-23): estado real dos milestones + classificação de cada capacidade comercial proposta contra o código real. Insumo para a Fase 2 (pesquisa de mercado + modelagem de domínio + protocolo Claude↔Codex por tema), nunca decisão fechada |
 | `reviews/` | histórico/evidência de rodada (protocolo `AGENTS.md` §4, pós-M0) | Artefatos de revisão Claude↔Codex de implementação real, por milestone (ex. `reviews/m3.5-runtime-design/`) — mesmo papel de `history/` (evidência, nunca normativo), mas para rodadas ocorridas depois que código passou a existir, em vez das rodadas de design conceitual pré-implementação |
 | `history/` | histórico/supersedido | Artefatos de rodada (propostas, críticas, red team) que produziram os documentos normativos acima — ver subseção |
 
