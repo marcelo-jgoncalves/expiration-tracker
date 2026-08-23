@@ -60,6 +60,47 @@ module "items_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
+# GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
+# faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
+# runtime real. Trade-off consciente (registrado, não escondido): valor vai como env var
+# Lambda (nunca hardcoded/commitado), não via Secrets Manager fetch em runtime - proporcional
+# ao estágio atual sem dado real de tenant em risco. Upgrade fica como follow-up.
+resource "random_password" "guest_token_pepper" {
+  length  = 64
+  special = false
+}
+
+module "subjects_handler" {
+  source = "./modules/lambda-function"
+
+  # M9 (D-036/D-040): TrackedSubject + RequirementAssignment + ItemWatch (watchers ficam no
+  # items_handler existente, reaproveitando a mesma Lambda de expiration - ver api-gateway).
+  # Sem capability nova alem da geral: GSI7 e tenant-scoped, ja incluido em
+  # tenant_facing_read_write_policy_json (dynamo-table module).
+  function_name  = "${local.name_prefix}-subjects-handler"
+  handler_name   = "subjects-handler"
+  source_dir     = "${local.dist_dir}/subjects-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
+    # M10 cluster 4 (D-049): mecanismo de convite inicial automatizado é sempre implementado -
+    # SES_FROM_ADDRESS/SES_CONFIGURATION_SET sempre wireados (reaproveita o MESMO SES já usado
+    # por EmailDeliveryWorker/DocumentChasingDispatch, nenhum recurso novo), mas o ENVIO real
+    # só acontece se o kill switch abaixo estiver true - default false em todos os ambientes.
+    DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED = tostring(var.document_request_initial_invite_email_enabled)
+    SES_FROM_ADDRESS                              = var.ses_from_address
+    SES_CONFIGURATION_SET                         = module.ses_notifications.configuration_set_name
+    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado do
+    # document_chasing_dispatch_handler (ver comentário lá).
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
 module "reminders_handler" {
   source = "./modules/lambda-function"
 
@@ -158,15 +199,24 @@ data "aws_iam_policy_document" "dispatch_outbox_relay_stream_read" {
 module "dispatch_outbox_relay" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-dispatch-outbox-relay"
-  handler_name                   = "dispatch-outbox-relay-handler"
-  source_dir                     = "${local.dist_dir}/dispatch-outbox-relay-handler"
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
+  function_name  = "${local.name_prefix}-dispatch-outbox-relay"
+  handler_name   = "dispatch-outbox-relay-handler"
+  source_dir     = "${local.dist_dir}/dispatch-outbox-relay-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # M10 cluster 4 (D-039/D-046/D-048): second destination on this SAME relay Lambda/DynamoDB
+  # Streams event source mapping (below) - never a new relay function just for one more queue.
+  # M11 (D-042) adds a third destination, same reasoning.
+  environment_variables = merge(local.common_env, {
+    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.send_policy_json,
+    module.document_chasing_dispatch_queue.send_policy_json,
+    module.import_commit_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -184,20 +234,24 @@ module "outbox_sweeper" {
   source_dir     = "${local.dist_dir}/outbox-sweeper-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    DISPATCH_QUEUE_URL      = module.dispatch_queue.queue_url
-    EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url
+    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
+    EMAIL_DELIVER_QUEUE_URL             = module.email_deliver_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
-  # M4 extends this SAME privileged role
-  # to also send to the notification email queue (docs/architecture/m4-notification-engine-design.md
-  # §7.4: one sweeper covering both destinations, not a second sweeper querying the same
-  # global GSI6 partition).
+  # M4 extends this SAME privileged role to also send to the notification email queue
+  # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
+  # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
+  # for document-chasing-dispatch, and M11 (D-042) once more for import-commit, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
     module.dispatch_queue.send_policy_json,
     module.email_deliver_queue.send_policy_json,
+    module.document_chasing_dispatch_queue.send_policy_json,
+    module.import_commit_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -213,17 +267,33 @@ module "api" {
   aws_region          = var.aws_region
   # Rollback design entrega 1: API Gateway integrates against the `live` alias (never
   # $LATEST) so an emergency alias repoint actually changes what a real request invokes.
-  test_ping_invoke_arn        = module.test_ping_handler.live_alias_invoke_arn
-  test_ping_function_name     = module.test_ping_handler.function_name
-  items_invoke_arn            = module.items_handler.live_alias_invoke_arn
-  items_function_name         = module.items_handler.function_name
-  reminders_invoke_arn        = module.reminders_handler.live_alias_invoke_arn
-  reminders_function_name     = module.reminders_handler.function_name
-  notifications_invoke_arn    = module.notifications_handler.live_alias_invoke_arn
-  notifications_function_name = module.notifications_handler.function_name
-  documents_invoke_arn        = module.documents_handler.live_alias_invoke_arn
-  documents_function_name     = module.documents_handler.function_name
-  tags                        = { Project = local.project_name, Environment = var.environment }
+  test_ping_invoke_arn          = module.test_ping_handler.live_alias_invoke_arn
+  test_ping_function_name       = module.test_ping_handler.function_name
+  items_invoke_arn              = module.items_handler.live_alias_invoke_arn
+  items_function_name           = module.items_handler.function_name
+  reminders_invoke_arn          = module.reminders_handler.live_alias_invoke_arn
+  reminders_function_name       = module.reminders_handler.function_name
+  notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
+  notifications_function_name   = module.notifications_handler.function_name
+  documents_invoke_arn          = module.documents_handler.live_alias_invoke_arn
+  documents_function_name       = module.documents_handler.function_name
+  subjects_invoke_arn           = module.subjects_handler.live_alias_invoke_arn
+  subjects_function_name        = module.subjects_handler.function_name
+  guest_documents_invoke_arn    = module.guest_documents_handler.live_alias_invoke_arn
+  guest_documents_function_name = module.guest_documents_handler.function_name
+  imports_invoke_arn            = module.imports_handler.live_alias_invoke_arn
+  imports_function_name         = module.imports_handler.function_name
+  tags                          = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- WAF (M10, D-037): pré-requisito antes da rota pública /guest/* estar exposta -----------
+
+module "waf" {
+  source = "./modules/waf"
+
+  name_prefix   = local.name_prefix
+  api_stage_arn = module.api.stage_arn
+  tags          = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Observability: SNS alert topic (m5-observability-design.md §4) -----------------------
@@ -488,14 +558,15 @@ module "schedule" {
 module "observability" {
   source = "./modules/reminder-observability"
 
-  reminder_producer_function_name       = module.reminder_producer.function_name
-  reminder_dispatch_function_name       = module.reminder_dispatch.function_name
-  reminder_reconciliation_function_name = module.reminder_reconciliation.function_name
-  dispatch_outbox_relay_function_name   = module.dispatch_outbox_relay.function_name
-  outbox_sweeper_function_name          = module.outbox_sweeper.function_name
-  dispatch_queue_name                   = module.dispatch_queue.queue_name
-  alert_topic_arn                       = module.alert_topic.topic_arn
-  tags                                  = { Project = local.project_name, Environment = var.environment }
+  reminder_producer_function_name         = module.reminder_producer.function_name
+  reminder_dispatch_function_name         = module.reminder_dispatch.function_name
+  reminder_reconciliation_function_name   = module.reminder_reconciliation.function_name
+  dispatch_outbox_relay_function_name     = module.dispatch_outbox_relay.function_name
+  outbox_sweeper_function_name            = module.outbox_sweeper.function_name
+  document_chasing_dispatch_function_name = module.document_chasing_dispatch_handler.function_name
+  dispatch_queue_name                     = module.dispatch_queue.queue_name
+  alert_topic_arn                         = module.alert_topic.topic_arn
+  tags                                    = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Cost governance ------------------------------------------------------------------------
@@ -689,6 +760,77 @@ module "documents_handler" {
     data.aws_iam_policy_document.documents_presign_quarantine_put.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) ------------------
+# PRIMEIRA Lambda do projeto atrás de rota pública (sem JWT) - reusa exatamente a mesma
+# capability de presign de documents_handler (mesmo bucket de quarentena), nunca uma nova.
+
+module "guest_documents_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-guest-documents-handler"
+  handler_name   = "guest-documents-handler"
+  source_dir     = "${local.dist_dir}/guest-documents-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
+    GUEST_TOKEN_PEPPER     = random_password.guest_token_pepper.result
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- DocumentChasingDispatch: automated document chasing (M10 cluster 4, D-039/D-046/D-048) -
+
+module "document_chasing_dispatch_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-document-chasing-dispatch"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "document_chasing_dispatch_handler" {
+  source = "./modules/lambda-function"
+
+  # Worker de dispatch+delivery fundido (D-048: chasing v1 é single-channel, sem lease/retry -
+  # não justifica um par dispatch/delivery separado como o de M3/M4). Reaproveita o mesmo SES
+  # já usado por EmailDeliveryWorker (mesma policy data.aws_iam_policy_document.ses_send_email,
+  # mesmo configuration set) - nenhum recurso SES novo.
+  function_name  = "${local.name_prefix}-document-chasing-dispatch"
+  handler_name   = "document-chasing-dispatch-handler"
+  source_dir     = "${local.dist_dir}/document-chasing-dispatch-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER    = random_password.guest_token_pepper.result
+    SES_FROM_ADDRESS      = var.ses_from_address
+    SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
+    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - código tem um placeholder documentado
+    # (https://app.example.invalid/guest/document-requests, mesma postura já aceita para
+    # cors_allow_origins, implementation-blueprint.md §4.2) até existir domínio real de
+    # frontend (D-047: frontend não tem milestone atribuído ainda).
+  })
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.document_chasing_dispatch_queue.consume_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "document_chasing_dispatch_from_queue" {
+  event_source_arn        = module.document_chasing_dispatch_queue.queue_arn
+  function_name           = module.document_chasing_dispatch_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
 }
 
 # --- UploadFinalizerWorker: S3 event (via queue) -> validate + invoke ParserSandbox ---------
@@ -929,4 +1071,207 @@ module "document_observability" {
   upload_slot_reconciliation_function_name = module.upload_slot_reconciliation_handler.function_name
   alert_topic_arn                          = module.alert_topic.topic_arn
   tags                                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- M11: CSV Import de TrackedSubject (D-042) ---------------------------------------------
+# Um único bucket (raw CSV + plano JSONL, nunca quarentena/malware scanning - fora do escopo
+# de v1) e 3 novas funções: ImportsHandler (HTTP), ImportParseWorker (S3 event via fila) e
+# ImportCommitWorker (SQS_IMPORT_COMMIT_V1, roteado pelo dispatch_outbox_relay/outbox_sweeper
+# já existentes acima - nunca um relay/sweeper novo). Alarme de observabilidade por função
+# fica como residual documentado (NEXT_SESSION_PROMPT.md) - a idade da DLQ de cada fila abaixo
+# (já embutida em sqs-worker-queue) é a rede de segurança mínima herdada "de graça".
+
+module "import_bucket" {
+  source = "./modules/import-bucket"
+
+  name_prefix = local.name_prefix
+  tags        = { Project = local.project_name, Environment = var.environment }
+}
+
+module "import_parse_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-import-parse"
+  consumer_timeout_seconds = 30
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# S3 "Object Created" in the import bucket -> ImportParseWorker. Filtered to the literal
+# `raw.csv` suffix (same bucket also receives the parse worker's OWN plan JSONL writes, which
+# must never re-trigger it - defense in depth alongside parseImportRawKey's own key check).
+resource "aws_cloudwatch_event_rule" "import_raw_object_created" {
+  name           = "${local.name_prefix}-import-raw-object-created"
+  event_bus_name = "default"
+  event_pattern = jsonencode({
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = { name = [module.import_bucket.bucket_name] }
+      object = { key = [{ suffix = "raw.csv" }] }
+    }
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "import_raw_object_created_to_parse_queue" {
+  rule      = aws_cloudwatch_event_rule.import_raw_object_created.name
+  target_id = "import-parse-queue"
+  arn       = module.import_parse_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "eventbridge_to_import_parse_queue" {
+  statement {
+    sid       = "AllowEventBridgeRuleToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.import_parse_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.import_raw_object_created.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "import_parse_queue" {
+  queue_url = module.import_parse_queue.queue_url
+  policy    = data.aws_iam_policy_document.eventbridge_to_import_parse_queue.json
+}
+
+data "aws_iam_policy_document" "import_parse_object_access" {
+  statement {
+    sid       = "ReadWriteImportObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptEncryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "import_parse_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-import-parse-handler"
+  handler_name    = "import-parse-handler"
+  source_dir      = "${local.dist_dir}/import-parse-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    IMPORT_RAW_BUCKET_NAME  = module.import_bucket.bucket_name
+    IMPORT_PLAN_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.import_parse_object_access.json,
+    module.import_parse_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "import_parse_from_queue" {
+  event_source_arn        = module.import_parse_queue.queue_arn
+  function_name           = module.import_parse_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- ImportCommitWorker: SQS_IMPORT_COMMIT_V1, fed by dispatch_outbox_relay/outbox_sweeper --
+
+module "import_commit_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-import-commit"
+  consumer_timeout_seconds = 60 # replaying up to 5.000 linhas via SubjectService.createSubject() pode levar um tempo real
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "import_commit_plan_object_access" {
+  statement {
+    sid       = "ReadPlanObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "import_commit_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-import-commit-handler"
+  handler_name    = "import-commit-handler"
+  source_dir      = "${local.dist_dir}/import-commit-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60
+  environment_variables = merge(local.common_env, {
+    IMPORT_PLAN_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.import_commit_plan_object_access.json,
+    module.import_commit_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "import_commit_from_queue" {
+  event_source_arn        = module.import_commit_queue.queue_arn
+  function_name           = module.import_commit_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- ImportsHandler: HTTP (POST /imports, GET /imports/{jobId}, POST .../commit) -----------
+
+data "aws_iam_policy_document" "imports_presign_raw_put" {
+  statement {
+    sid       = "PresignImportRawPut"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.import_bucket.bucket_arn}/*"]
+  }
+  statement {
+    sid       = "EncryptImportObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey"]
+    resources = [module.import_bucket.kms_key_arn]
+  }
+}
+
+module "imports_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-imports-handler"
+  handler_name   = "imports-handler"
+  source_dir     = "${local.dist_dir}/imports-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    IMPORT_RAW_BUCKET_NAME = module.import_bucket.bucket_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.imports_presign_raw_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }

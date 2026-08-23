@@ -36,4 +36,12 @@ export interface ExpirationStore {
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
   /** Eventually consistent GSI1 query (data-model.md §3: vencimentos/dashboard). */
   queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]>;
+  /**
+   * Query pela partição do item com prefixo opcional de SK — adição puramente aditiva
+   * (07-domain-model-escalation-watchers-digest.md, D-040) para listar `ItemWatch` sob a
+   * mesma partição de `ExpirationItem`, mesmo padrão de coleção que `Document` (M6) já usa.
+   * Não muda nenhum método/comportamento existente — zero risco de regressão ao agregado
+   * ExpirationItem já em produção.
+   */
+  queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;
 }

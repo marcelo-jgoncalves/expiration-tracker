@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json",
+  "title": "document-chasing.dispatch.v1",
+  "description": "SQS command emitted by the shared ReminderProducer's chasing branch (M10 cluster 4, D-039/D-046/D-048) after the SCHEDULED->CLAIMED transition of a DocumentChasingOccurrence, consumed by the DocumentChasingDispatch worker.",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "document-chasing.dispatch.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectId", "assignmentId", "documentRequestId", "occurrenceId", "occurrenceVersion", "tier", "scheduledAt", "documentRequestVersion"],
+      "properties": {
+        "subjectId": { "type": "string", "minLength": 1 },
+        "assignmentId": { "type": "string", "minLength": 1 },
+        "documentRequestId": { "type": "string", "minLength": 1 },
+        "occurrenceId": { "type": "string", "minLength": 1 },
+        "occurrenceVersion": { "type": "integer", "minimum": 1 },
+        "tier": { "enum": ["T7", "T3", "EXPIRED"] },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "documentRequestVersion": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

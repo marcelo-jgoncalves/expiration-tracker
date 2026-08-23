@@ -38,6 +38,12 @@ output "lambda_function_names" {
     module.malware_result_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
     module.parser_sandbox.function_name,
+    module.subjects_handler.function_name,
+    module.guest_documents_handler.function_name,
+    module.document_chasing_dispatch_handler.function_name,
+    module.imports_handler.function_name,
+    module.import_parse_handler.function_name,
+    module.import_commit_handler.function_name,
   ]
 }
 
@@ -64,6 +70,12 @@ output "lambda_published_versions" {
     (module.malware_result_handler.function_name)             = module.malware_result_handler.published_version
     (module.upload_slot_reconciliation_handler.function_name) = module.upload_slot_reconciliation_handler.published_version
     (module.parser_sandbox.function_name)                     = module.parser_sandbox.published_version
+    (module.subjects_handler.function_name)                   = module.subjects_handler.published_version
+    (module.guest_documents_handler.function_name)            = module.guest_documents_handler.published_version
+    (module.document_chasing_dispatch_handler.function_name)  = module.document_chasing_dispatch_handler.published_version
+    (module.imports_handler.function_name)                    = module.imports_handler.published_version
+    (module.import_parse_handler.function_name)               = module.import_parse_handler.published_version
+    (module.import_commit_handler.function_name)              = module.import_commit_handler.published_version
   }
 }
 
@@ -81,4 +93,8 @@ output "document_clean_bucket_name" {
 
 output "malware_protection_enabled" {
   value = module.document_malware_protection.enabled
+}
+
+output "import_bucket_name" {
+  value = module.import_bucket.bucket_name
 }

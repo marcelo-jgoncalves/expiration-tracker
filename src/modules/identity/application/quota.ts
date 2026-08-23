@@ -7,7 +7,17 @@
 import { QuotaExceededError } from "../../../shared/errors/app-error.js";
 import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
 
-export type QuotaType = "API_REQUEST" | "UPLOAD_BYTES" | "UPLOAD_COUNT" | "AI_CALL" | "NOTIFICATION_EMAIL";
+export type QuotaType =
+  | "API_REQUEST"
+  | "UPLOAD_BYTES"
+  | "UPLOAD_COUNT"
+  | "AI_CALL"
+  | "NOTIFICATION_EMAIL"
+  // M11 (CSV import/export, D-042, 09-domain-model-csv-import.md): separados de UPLOAD_* (M6) -
+  // import é uma superfície de processamento em massa com um perfil de abuso diferente.
+  | "IMPORT_COUNT"
+  | "IMPORT_BYTES"
+  | "IMPORT_ROWS";
 
 export interface TenantQuotaRecord {
   PK: string;

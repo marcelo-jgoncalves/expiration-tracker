@@ -68,6 +68,32 @@ Convenção de IDs: `FR-xxx`, `NFR-xxx`, `SEC-xxx`, `PRIV-xxx`, `COST-xxx`, `SCA
 - **FR-060** — Sistema deve registrar evento de auditoria para: criação, edição, exclusão/arquivamento de item; substituição de documento; renovação; agendamento de alerta; envio de alerta; falha de alerta; confirmação do usuário; alteração de responsável.
 - **FR-061** — Eventos de auditoria devem ser imutáveis após gravação (append-only) e associados a ator, timestamp e item afetado.
 
+### 1.8 TrackedSubject e Requisitos (M9 — evolução estratégica do roadmap, D-036/D-038/D-040, implementado em `develop`, ainda não deployado)
+- **FR-070** — Usuário deve poder cadastrar um `TrackedSubject` (fornecedor, cliente, funcionário, ativo, local ou tipo customizado) como entidade própria do tenant, distinta de `Organization`/`User` (`roadmap-evolution/03-domain-model-tracked-subject-requirement.md`).
+- **FR-071** — Usuário deve poder associar um ou mais requisitos (`RequirementAssignment`) a um `TrackedSubject`, cujo estado pode ser `MISSING` mesmo sem nenhum `ExpirationItem`/documento existir ainda — estado não representável hoje por `ExpirationItem` sozinho.
+- **FR-072** — Um `RequirementAssignment` pode ser vinculado manualmente a um `ExpirationItem` já existente do tenant, marcando-o como satisfeito (`SATISFIED`); a validade exibida (`VALID`/`EXPIRING`/`EXPIRED`) deve ser sempre derivada do `ExpirationItem` linkado no momento da leitura, nunca persistida de forma concorrente em `RequirementAssignment` (evita fonte-dupla-de-verdade).
+- **FR-073** — Sistema deve limitar o número de `TrackedSubject` ativos por tenant conforme o plano vigente (`TenantEntitlement`, default 25 no plano free — `roadmap-evolution/05-domain-model-organization-billing.md`), rejeitando a criação de forma fail-closed (nunca parcial) ao atingir o limite.
+- **FR-074** — Usuário deve poder observar (`watch`) um `ExpirationItem` sem ser o responsável (`assigneeUserId`) primário, e deixar de observá-lo a qualquer momento — sem que isso altere a versão OCC do item observado (`roadmap-evolution/07-domain-model-escalation-watchers-digest.md`).
+
+### 1.9 Guest Upload / Magic Link (M10 — evolução estratégica do roadmap, D-037/D-045, implementado em `develop`, ainda não deployado)
+- **FR-075** — Usuário (tenant) deve poder emitir um `DocumentRequest` para um `RequirementAssignment`, gerando um link/token opaco enviado a um destinatário externo (`recipientEmail`) sem exigir que esse destinatário tenha conta no sistema (`roadmap-evolution/04-domain-model-guest-upload.md`).
+- **FR-076** — O destinatário externo (convidado) deve poder consultar o `DocumentRequest` e submeter um documento usando somente o token — nunca por login/senha/JWT — e o sistema nunca deve distinguir, pela resposta observável, um token inexistente de um token existente mas com secret incorreto ou com quota de requisições excedida (anti-enumeração).
+- **FR-077** — Um `DocumentRequest` deve expirar no primeiro entre 14 dias da emissão ou seu `deadline` opcional, o que ocorrer primeiro; após expirar, revogado ou já submetido, o token deixa de resolver.
+- **FR-078** — O documento submetido por um convidado deve passar pelo mesmo pipeline de triagem de malware/quarentena já usado para uploads autenticados (M6), antes de avançar a `RequirementAssignment` associada.
+
+### 1.10 Entrega automática de link e cobrança automatizada (M10 cluster 4 — D-047/D-048/D-049)
+- **FR-079** — Sistema deve poder reenviar automaticamente um link de guest upload funcional em cada nível de cobrança (`DocumentChasingOccurrence`, antes do `deadline`) sem jamais persistir o `secret` do token em qualquer forma (nem cifrado) — cada reenvio gera um token novo via rotação (`D-048`), nunca reconstrói o token original.
+- **FR-080** — Depois do `deadline`/expiração do token, o sistema não deve gerar nem enviar um novo link externo funcional; deve notificar o usuário interno que criou a solicitação (`DocumentRequest.requestedByUserId`) em vez do destinatário externo.
+- **FR-081** — Usuário (tenant) deve poder optar, por preferência persistente (`DocumentRequestDeliveryPreference`, default `MANUAL`) ou por chamada individual, entre enviar automaticamente o e-mail de convite inicial do guest upload ou continuar entregando o link manualmente — automação nunca é o comportamento implícito sem essa escolha explícita, e fica sob um kill switch global desligado por padrão (`D-049`).
+- **FR-082** — Todo envio automático de e-mail a um destinatário externo (convite inicial ou cobrança) deve respeitar um limite de taxa por tenant e por destinatário, verificado antes da criação do recurso quando o envio for solicitado — excedê-lo bloqueia a criação (não cria parcialmente) em vez de silenciosamente pular o envio.
+
+### 1.11 CSV Import de TrackedSubject (M11 — evolução estratégica do roadmap, D-042/D-050, implementado em `develop`, ainda não deployado)
+- **FR-083** — Usuário deve poder importar `TrackedSubject` em lote via arquivo CSV (até 5 MiB / 5.000 linhas por importação), com uma etapa de preview (plano linha-a-linha, nunca persistido em DynamoDB por linha) antes de qualquer criação real ser efetivada (`roadmap-evolution/09-domain-model-csv-import.md`).
+- **FR-084** — Sistema deve rejeitar linhas estruturalmente inválidas (caractere de controle embutido, nome de exibição ausente) individualmente, sem falhar o arquivo inteiro — o preview deve reportar total de linhas aceitas/rejeitadas/duplicadas antes do usuário confirmar o commit.
+- **FR-085** — Sistema deve deduplicar linhas por `externalId` (forte, contra importações anteriores do mesmo tenant e contra o próprio arquivo) e, na ausência de `externalId`, por `type`+nome normalizado contra os `TrackedSubject` ativos já existentes (fallback fraco) — uma linha identificada como duplicata nunca cria um segundo registro.
+- **FR-086** — O commit de uma importação confirmada deve ser seguro sob reentrega (SQS at-least-once): reexecutar o commit de um job parcialmente processado nunca deve duplicar um `TrackedSubject` já criado por uma tentativa anterior.
+- **FR-087** — Valor com aparência de fórmula de planilha (prefixo `=`/`+`/`-`/`@`) deve ser aceito na importação com um aviso registrado no preview, nunca rejeitado — a mitigação de CSV/formula injection pertence à futura exportação, não à entrada (DynamoDB nunca interpreta o valor como fórmula).
+
 ---
 
 ## 2. Non-Functional Requirements (NFR)

@@ -73,6 +73,36 @@ variable "documents_function_name" {
   type        = string
 }
 
+variable "subjects_invoke_arn" {
+  description = "Invoke ARN of the SubjectsHandler Lambda (M9, D-036/D-040) — backs every /subjects* route (TrackedSubject + RequirementAssignment)."
+  type        = string
+}
+
+variable "subjects_function_name" {
+  description = "Function name of the SubjectsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
+variable "guest_documents_invoke_arn" {
+  description = "Invoke ARN of the GuestDocumentsHandler Lambda (M10, D-037) — backs /guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route, primeira do projeto."
+  type        = string
+}
+
+variable "guest_documents_function_name" {
+  description = "Function name of the GuestDocumentsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
+variable "imports_invoke_arn" {
+  description = "Invoke ARN of the ImportsHandler Lambda (M11, D-042) — backs every /imports* route (CSV import reserve/get/commit)."
+  type        = string
+}
+
+variable "imports_function_name" {
+  description = "Function name of the ImportsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)

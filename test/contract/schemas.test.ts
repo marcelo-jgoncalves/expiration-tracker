@@ -210,6 +210,53 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid document-chasing.dispatch.v1 command (M10 cluster 4, D-039/D-046/D-048)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_02",
+      commandType: "document-chasing.dispatch.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_02",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|chase_01|2",
+      data: {
+        subjectId: "subject_01",
+        assignmentId: "assignment_01",
+        documentRequestId: "docreq_01",
+        occurrenceId: "chase_01",
+        occurrenceVersion: 2,
+        tier: "T7",
+        scheduledAt: "2026-09-03T12:00:00.000Z",
+        documentRequestVersion: 1,
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a document-chasing.dispatch.v1 command with an invalid tier", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_02",
+      commandType: "document-chasing.dispatch.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_02",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|chase_01|2",
+      data: {
+        subjectId: "subject_01",
+        assignmentId: "assignment_01",
+        documentRequestId: "docreq_01",
+        occurrenceId: "chase_01",
+        occurrenceVersion: 2,
+        tier: "T30", // invalid - only T7/T3/EXPIRED exist
+        scheduledAt: "2026-09-03T12:00:00.000Z",
+        documentRequestVersion: 1,
+      },
+    });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid WebhookInbox record", () => {
     const { valid, errors } = registry.validate(
       "https://expiration-tracker/schemas/api/webhook-inbox.v1.json",
@@ -348,6 +395,161 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
       locale: "pt-BR",
       quietHours: { enabled: true, startLocal: "22:00" },
     });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid update-document-request-delivery-preference-request (PUT /subjects/document-request-delivery-preference, M10 cluster 4, D-049)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
+      initialInviteDeliveryDefault: "EMAIL",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-document-request-delivery-preference-request with an invalid mode", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
+      initialInviteDeliveryDefault: "AUTOMATIC", // only MANUAL/EMAIL exist
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an update-document-request-delivery-preference-request missing the required field", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid import-commit.v1 command (M11, D-042)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/import-commit.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_03",
+      commandType: "import.commit.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_03",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|importjob_01|2",
+      data: { jobId: "importjob_01" },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an import-commit.v1 command missing jobId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/import-commit.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_03",
+      commandType: "import.commit.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_03",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|importjob_01|2",
+      data: {},
+    });
+    expect(valid).toBe(false);
+  });
+
+  // M11 (D-042) - schema novo do modulo import.
+
+  it("accepts a valid reserve-import-request (POST /imports, M11, D-042)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "a".repeat(64),
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reserve-import-request over the 5 MiB file size limit", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 5 * 1024 * 1024 + 1,
+      checksumSha256: "a".repeat(64),
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reserve-import-request with a malformed checksumSha256", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "not-hex",
+    });
+    expect(valid).toBe(false);
+  });
+
+  // Evolucao estrategica do roadmap (M9, D-036) - schemas novos do modulo subject.
+
+  it("accepts a valid create-subject-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "VENDOR",
+      displayName: "ACME Seguros",
+      tags: ["seguro", "sp"],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a create-subject-request with an unknown type", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "NOT_A_REAL_TYPE",
+      displayName: "ACME Seguros",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid update-subject-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
+      notes: "Contato principal: financeiro@acme.com",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-subject-request with an additional undeclared property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
+      displayName: "ACME",
+      ownerUserId: "user_01",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid assign-requirement-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
+      requirementName: "Seguro RC",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an assign-requirement-request missing requirementName", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
+      notes: "sem nome",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid update-requirement-assignment-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
+      requirementName: "Seguro RC atualizado",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-requirement-assignment-request carrying status directly (status is never client-settable)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
+      status: "SATISFIED",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid link-requirement-item-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {
+      itemId: "item_01",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a link-requirement-item-request missing itemId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {});
     expect(valid).toBe(false);
   });
 });

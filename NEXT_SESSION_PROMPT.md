@@ -1,5 +1,348 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## M11 (CSV Import de TrackedSubject) — COMPLETO EM `develop`, NÃO DEPLOYADO — leia isto primeiro (D-042/D-050)
+
+M11 (cluster 7, último cluster do roadmap de D-043) implementado de ponta a ponta na mesma
+sessão contínua que fechou M10, seguindo o design já aprovado em D-042
+(`roadmap-evolution/09-domain-model-csv-import.md`, Claude 9,2/Codex 9,4). Registrado como
+**D-050** em `decisions-log.md`.
+
+**Módulo novo `src/modules/import`** (domain/ports/persistence/application/http completos,
+v1 deliberadamente estreito: só CSV, só `TrackedSubject`, per o próprio D-042):
+- `ImportService` (`reserveImport`/`getImportJob`/`requestCommit`) — presign+idempotência,
+  mirror exato de `DocumentService.reserveUpload`; consome quotas novas `IMPORT_COUNT`/
+  `IMPORT_BYTES` (identity's `TenantQuotaService`, reaproveitado diretamente — nunca duplicado,
+  ao contrário de `GuestRateLimiter`/`InitialInviteRateLimiter`, que SÃO duplicados
+  deliberadamente para não acoplar módulos, ver decisions-log D-049).
+- `parseImportJob` (worker, disparado por evento S3 real) — parser CSV próprio (RFC4180
+  mínimo), dedupe forte por `externalId` (contra DynamoDB + contra o próprio arquivo) e
+  fallback fraco por `type`+nome normalizado (preload único de GSI7 — o teto do
+  `TenantEntitlement`, hoje 25, garante que isso nunca é um scan caro), plano JSONL + SHA-256
+  gravado em S3 (nunca linha-a-linha em DynamoDB, per `ADR-0001`).
+- `commitImportJob` (worker, disparado por `SQS_IMPORT_COMMIT_V1`) — replay do plano validado
+  via `SubjectService.createSubject()` **inalterado** (sibling-aggregate principle: nunca uma
+  segunda implementação de criação de subject só para este worker); idempotência de retry
+  (SQS at-least-once) via cursor `lastCommittedRowNumber` na própria `ImportJob` + claim de
+  `ImportDedupRecord` por linha ANTES de criar o subject (chave real `externalId` quando existe,
+  senão sintética `job:<jobId>:row:<rowNumber>`); fail-fast (não pula linhas) em
+  `QuotaExceededError`.
+
+**Bug real corrigido antes do commit da infra** (nenhum teste teria pego sem inspecionar o
+wire format real): `ImportService.requestCommit()` gravava `data: { jobId }` no `OutboxRecord`,
+mas `DispatchOutboxRelay`/`OutboxSweeper` só reenviam `OutboxRecord.payload` (== `event.data`)
+para a fila SQS — nunca o `DomainEvent` completo, então `tenantId` nunca chegaria ao worker de
+commit. Corrigido para o MESMO padrão já usado por `DispatchCommand` em
+`reminder-producer/producer.ts`: o comando inteiro (`messageVersion`/`messageId`/`tenantId`/
+`deduplicationKey`/`data`, exigido por `command-envelope.v1.json`) vira `event.data`. Schema
+novo `import-commit.v1.json`; teste dedicado (`import-service.test.ts`) valida o outbox record
+real contra esse schema, não apenas contra o shape do TypeScript.
+
+**Infra nova**: um único bucket S3 (`import-bucket`, deliberadamente SEM quarentena/malware
+scan — fora do escopo de v1 por decisão do próprio D-042: DynamoDB nunca interpreta fórmula de
+planilha, a mitigação de CSV injection pertence à futura exportação); 2 filas SQS novas
+(`import-parse`, `import-commit`); 3 Lambdas (`ImportsHandler` HTTP, `ImportParseWorker` via
+regra EventBridge filtrada pelo sufixo literal `raw.csv` — o mesmo bucket também recebe a
+escrita do PRÓPRIO plano JSONL do worker, que nunca deve re-disparar o parser — e
+`ImportCommitWorker`, roteado pelo `dispatch_outbox_relay`/`outbox_sweeper` JÁ existentes, nunca
+um relay novo, mesmo padrão do cluster 4/D-039). Rotas `/imports*` novas no API Gateway.
+**Observabilidade por função para as 2 Lambdas novas foi deliberadamente deixada como residual**
+(ver seção de pendências abaixo) — a DLQ-age alarm de cada fila (já embutida em
+`sqs-worker-queue`) é a rede mínima herdada, sem estender `reminder-observability`/
+`document-observability` (ambos já revisados/aprovados) para escopo fora do que foram
+desenhados a cobrir.
+
+**Estado final verificado**: `terraform fmt`/`validate` limpos; `terraform test` real
+(`AWS_PROFILE=claude-dev`, plan-only, nunca apply) verde no módulo novo `import-bucket`, no
+módulo `api-gateway` (rotas `/imports*`) e na suíte raiz `stack.tftest.hcl` (24 funções Lambda,
+contagem atualizada de 21→24). **527 testes totais, zero regressão.**
+typecheck/lint/check-boundaries/validate-schemas/build:lambdas/check-docs todos limpos.
+
+**Pendência residual explícita (não bloqueante)**: alarme CloudWatch por função para
+`ImportParseWorker`/`ImportCommitWorker` (paralelo ao que `document-observability` faz para
+M6) não foi criado nesta sessão — decisão deliberada de não estender um módulo já
+revisado/aprovado para escopo novo sem justificativa forte o bastante (a DLQ-age alarm
+genérica já cobre "está falhando repetidamente"). Fica para quando a próxima rodada de
+observabilidade holística for decidida (mesmo padrão já registrado para M4 em
+`stack.tftest.hcl`'s próprio comentário).
+
+**Autorização explícita do Marcelo para o restante deste trabalho** (ainda em vigor):
+"no fim de todo esse trabalho, pode fazer o push e o merge" — `develop→main` está autorizado ao
+final, sem precisar de nova confirmação (ainda assim, verificar CI verde e `terraform plan`
+limpo antes).
+
+**Próxima ação real**: M11 era o ÚLTIMO cluster (7) do roadmap de evolução estratégica (D-043).
+Com M9/M10/M11 completos em `develop`, os candidatos naturais são: (a) M12 (Organization/
+Membership/RBAC — D-038 já decidiu que billing por `TrackedSubject` vem ANTES desta ordem
+original do prompt estratégico, então billing pode já estar coberto por `TenantEntitlement`;
+confirmar o que realmente falta de M12 antes de implementar), ou (b) finalmente executar o
+push+merge `develop→main` já autorizado, dado que M9/M10/M11 se acumularam sem deploy real. Ver
+`roadmap-evolution/10-phase3-scoring-and-roadmap.md` para a sequência completa M9-M13.
+
+## M10 (Guest Collection & Automated Chasing) — COMPLETO EM `develop`, NÃO DEPLOYADO
+
+M10 inteiro (guest upload + automated chasing + convite inicial automatizado) está implementado
+de ponta a ponta nesta sessão contínua, seguindo o roadmap de D-043. Sequência real de decisões:
+mini-revisão de capacidade do GSI3 (D-046, fechada — pico orgânico combinado ~220× abaixo do SLO
+de drenagem de pico extremo) → gap de design real (entrega/reenvio do link) fechado via protocolo
+Claude↔Codex como **D-048** (`roadmap-evolution/13-guest-link-delivery-design.md`, 3 rodadas,
+Claude 9,2/Codex 9,4): rotação de token a cada disparo de chasing, sem KMS, sem secret cifrado
+persistido → Marcelo delegou ao mesmo protocolo a decisão de automatizar o convite inicial,
+fechada como **D-049** (`roadmap-evolution/14-document-request-initial-invite-design.md`, outras 3
+rodadas, Claude 9,2/Codex 9,4): APROVADO.
+
+**Cluster 4 (automated chasing, D-039/D-046/D-048) implementado de ponta a ponta**: domínio
+(`DocumentChasingOccurrence`/`DocumentChasingIntent`, agregados-irmãos de `ReminderOccurrence`/
+`NotificationIntent`, nunca os generaliza), materializer (preset fechado T7/T3/EXPIRED ancorado em
+`tokenExpiresAt`), producer branch (`src/workers/reminder-producer/producer.ts` — o arquivo mais
+sensível do projeto, discrimina `entityType` pela FORMA da GSI3SK antes de qualquer I/O, caminho
+reminder comprovadamente byte-idêntico ao anterior; revisão adversarial Codex dedicada nesse diff
+achou e corrigiu um bug real: `unknownEntityType` nunca de fato alarmava, corrigido com
+`shouldAlarm()` extraído/testado), worker de dispatch+delivery fundido, reconciliação de
+claim-expiry alargada, e todo o wiring de infra real (fila SQS+DLQ, Lambda
+`document-chasing-dispatch-handler`, relay/sweeper estendidos, alarme novo em
+`reminder-observability`).
+
+**D-049 (convite inicial automatizado) implementado**: `DocumentRequestDeliveryPreference`
+(preferência de TENANT, default `MANUAL`, action `tenant:configure-document-request-delivery`
+`ADMIN_ROLES`), override por chamada em `createDocumentRequest`, kill switch global
+`document_request_initial_invite_email_enabled` (default `false`), `InitialInviteRateLimiter` (20/h
+e 100/dia por tenant, 3/24h por destinatário — bloqueia CRIAÇÃO com 429 antes de qualquer escrita),
+envio best-effort fora da transação (reaproveita `SesEmailAdapter`/templates já usados por
+`EmailDeliveryWorker`/`DocumentChasingDispatch`), trilha de auditoria dos 5 desfechos, rotas HTTP
+novas (`GET`/`PUT /subjects/document-request-delivery-preference`).
+
+**Achados reais corrigidos no caminho** (nenhum deles no escopo original, descobertos ao
+implementar): (1) `GuestTokenPointer`/`GuestTokenRateLimit` (cluster 2) nunca setavam
+`purgeAfterTtl` — o atributo real de TTL físico da tabela, não `expiresAt` — corrigido antes da
+rotação multiplicar o acúmulo; (2) as 4 rotas HTTP autenticadas de `DocumentRequest`
+(create/list/get/revoke, com handler completo desde a sessão anterior) nunca tinham sido
+registradas no API Gateway real — 404 garantido em produção apesar do código pronto — corrigido
+junto das 2 rotas novas de D-049.
+
+**Estado final verificado**: `terraform plan` real contra `dev` (60 a criar, 55 a atualizar, **0 a
+destruir**) — nunca aplicado. **466 testes totais, zero regressão.**
+typecheck/lint/check-boundaries/validate-schemas/build:lambdas/check-docs todos limpos.
+
+**Autorização explícita do Marcelo para o restante deste trabalho**: "no fim de todo esse
+trabalho, pode fazer o push e o merge" — `develop→main` está autorizado ao final, sem precisar de
+nova confirmação (ainda assim, verificar CI verde e `terraform plan` limpo antes).
+
+**Próxima ação real**: M11 (CSV import/export, cluster 7, D-042, design já aprovado 9,2/9,4) per o
+roadmap de D-043 — próximo milestone com design fechado, pronto para implementar seguindo o mesmo
+padrão desta sessão. Ao final de tudo, push + merge `develop→main` já autorizado.
+
+## M10 (Guest Collection & Automated Chasing) — fatia de guest upload IMPLEMENTADA EM `develop`, NÃO DEPLOYADA (2026-08-23)
+
+Continuação direta da mesma autorização usada para M9 ("prossiga... o mais longe possível...
+registre e pule para a etapa seguinte", Marcelo indisponível). Implementada a fatia de **guest
+upload/magic link** de M10 (design já fechado em D-037, `roadmap-evolution/04-domain-model-guest-upload.md`)
+— **automated chasing (a outra metade de M10, cluster 4) não foi iniciado nesta sessão**, fica
+como próxima ação real.
+
+**Implementado** (commits `c7ecf77`, `12da47b`, `f5b87dc`, branch `develop`, D-045):
+- `DocumentRequest`/`DocumentSubmission` (`src/modules/subject/domain/`) — coleções sob a mesma
+  partição/assignment de `RequirementAssignment` (M9), sem GSI novo. `DocumentSubmission`
+  reaproveita `DocumentStatus`/`UploadEvidence`/`MalwareEvidence`/`DocumentObjectReference` do
+  módulo `document` (M6), não redefine.
+- `GuestTokenPointer` (`GUESTTOKEN#<selectorHash>`/`POINTER`) — terceira exceção tenantless do
+  modelo (depois de `IdentityMapping` e o scheduler GSI3): token opaco `selector.secret`, só o
+  hash HMAC-SHA256+pepper é persistido, comparação via `timingSafeEqual`. `GuestSubmissionService`
+  nunca passa por `RequestContext`/`authorize()` — é a primeira superfície não-autenticada do
+  projeto, validada só pelo token.
+- `src/workers/{submission-finalizer,submission-malware-result}` — espelhos estruturais dos
+  workers de M6, roteados por um namespace de quarantine-key deliberadamente não-sobreposto ao de
+  `item/` (`parseSubmissionQuarantineKey`), plugados nos handlers Lambda existentes
+  (`upload-finalizer-handler`/`malware-result-handler`) via branch aditivo — só tenta o parser
+  novo quando o de M6 retorna `undefined`. Pipeline de malware scanning de M6 (já verificado em
+  produção real) permanece intocado.
+- **Revisão adversarial dedicada (Codex) antes do commit**, justificada pela impossibilidade de
+  testar contra AWS real nesta sessão (Camada 3) — achou 2 ALTO + 3 MÉDIO reais, todos corrigidos
+  antes de commitar: (1) `GUEST_TOKEN_PEPPER` exigido no cold start mas nunca wireado na infra;
+  (2) rota `/guest/*` e WAF pré-requisito não estavam provisionados; (3) oráculo de enumeração —
+  rate limit só era consumido depois da checagem de existência do pointer, deixando
+  `QuotaExceededError` (token real sem quota) distinguível de `GuestTokenInvalidError` (token
+  inexistente) — corrigido consumindo o rate limit por `selectorHash` ANTES do lookup do pointer,
+  convertendo qualquer falha no mesmo erro genérico; (4) ausência de caminho dummy contra timing
+  attack — corrigido com um hash determinístico calculado mesmo quando o pointer não existe; (5)
+  `deadline` do `DocumentRequest` decidido em design mas nunca aplicado — corrigido, TTL do token
+  agora é `min(now+14d, deadline)`, revalidado em `resolveToken()`.
+- 4 schemas/testes novos, 405 testes totais, zero regressão (confirmado depois das correções de
+  segurança, incluindo o teste de rate-limit que precisou ser reescrito para verificar o novo
+  comportamento anti-enumeração).
+- Infra nova (`infra/`, código apenas — nenhum `terraform apply` executado): módulo `waf` (WAFv2
+  Web ACL regional, `AWSManagedRulesCommonRuleSet`+`AWSManagedRulesKnownBadInputsRuleSet`+
+  rate-based rule por IP escopada só a `/guest/*` via `scope_down_statement`, associado ao stage
+  do API Gateway); módulo Lambda `guest_documents_handler` (rotas `authorization_type = NONE` —
+  primeira rota pública do projeto); `random_password` para `GUEST_TOKEN_PEPPER`, wireado em
+  `subjects_handler` e `guest_documents_handler`. Todos os `.tftest.hcl` atualizados (20 Lambdas,
+  novas rotas/variáveis de `guest_documents`, novo módulo `waf/tests/waf.tftest.hcl`) e
+  verificados: `terraform fmt`/`validate`/`test` (mock + real-provider plan-only,
+  `AWS_PROFILE=claude-dev`) todos verdes.
+- **`terraform plan` real contra `dev` executado e verificado (nunca aplicado)**: 38 a criar, 54
+  a atualizar, **0 a destruir**.
+- `docs/architecture/data-model.md` (§2/§3, novas entidades + nota da 3ª exceção tenantless) e
+  `requirements.md` (§1.9, FR-075..078) atualizados. `decisions-log.md` ganhou D-045.
+
+**Pendência real, não resolvida nesta sessão — decisão do Marcelo**: igual a M9, deploy real
+(merge `develop→main`) não foi executado — ação visível/compartilhada que exige confirmação
+explícita (`AGENTS.md` §3).
+
+**Próxima ação real**: (1) Marcelo decide se/quando mergear `develop→main` para deploy real de
+M9+M10 (guest upload); (2) implementar a outra metade de M10 — **automated chasing**
+(`DocumentChasingOccurrence`/`DocumentChasingIntent`, reaproveitando GSI3 condicionalmente, design
+já fechado em `roadmap-evolution/04-domain-model-guest-upload.md` cluster 4) — não iniciado nesta
+sessão; (3) considerar uma rodada extra de revisão Codex confirmando que as 5 correções de
+segurança realmente fecham os achados originais (não estritamente necessário, mas consistente com
+a cultura de verificação do projeto).
+
+## M9 (Commercial Domain Foundation) — IMPLEMENTADO EM `develop`, NÃO DEPLOYADO (2026-08-23)
+
+Depois das Fases 1-3 da evolução estratégica (seção abaixo) ficarem prontas, Marcelo decidiu
+diretamente prosseguir para implementação ("prossiga... o mais longe possível... se encontrar
+algum impedimento que depende de minha aprovação, registre e pule para a etapa seguinte")
+enquanto estava indisponível. M9 foi implementado de ponta a ponta seguindo exatamente o design
+já fechado nos clusters 1/3/5 (D-036/D-038/D-040) — **nenhum código escrito antes dessa decisão
+explícita, mesmo padrão de autorização já usado para M6/M7**.
+
+**Implementado** (commits `154b7e1`..`bdd409b`, branch `develop`, D-044):
+- `src/modules/subject/` — módulo novo: `TrackedSubject` (agregado raiz), `RequirementAssignment`
+  (coleção sob a partição do subject, sem GSI novo — mesmo padrão de `identity`/`document` já em
+  produção), `TenantEntitlement` (contador `activeTrackedSubjectsCount` incrementado/decrementado
+  na MESMA transação que cria/arquiva um subject, mais forte que o padrão `release()` best-effort
+  de `TenantQuotaService`). Ciclo real de `RequirementAssignment` em M9: `MISSING⇄SATISFIED` via
+  link/unlink manual de `ExpirationItem` existente (validado via porta `ExpirationItemLookup`,
+  nunca aceito só pelo `itemId` informado). `REQUESTED`/`SUBMITTED`/`UNDER_REVIEW`/`REJECTED`
+  existem só no enum — sem transição implementada (isso é M10, guest upload/chasing).
+- `ItemWatch` — extensão do módulo `expiration` (coleção sob a partição do item, mesmo padrão que
+  `Document`/M6 já usa) — nunca muta `ExpirationItem`. `ExpirationStore` ganhou `queryByPk`
+  (aditivo, zero risco ao agregado já em produção).
+- Matriz de autorização (`identity/authorization.ts`): actions `subject:*`, `requirement:*`,
+  `item:watch`.
+- 5 schemas JSON novos + 10 testes de contrato + 22 testes unitários novos — **377 testes
+  totais, zero regressão** (confirmado antes de cada commit).
+- Infra (`infra/`, código apenas — nenhum `terraform apply` executado): GSI7 novo no
+  `dynamo-table` (tenant-scoped, incluído na política geral — não isolado como GSI3/GSI6);
+  módulo Lambda `subjects_handler`; 13 rotas `/subjects*` + 3 rotas `/items/{itemId}/watchers*`
+  (reaproveitando o Lambda já existente de `items_handler`, sem infra nova) no `api-gateway`.
+  Todos os `.tftest.hcl` atualizados (7 GSIs, 19 Lambdas, contagens de rota) e verificados:
+  `terraform test` mock_provider (dynamo-table + api-gateway, 5/5) e real provider plan-only
+  (`AWS_PROFILE=claude-dev`, dynamo_table_policy 2/2 + stack.tftest.hcl 13/13). `terraform fmt
+  -check` limpo.
+- **`terraform plan` real contra `dev` executado e verificado (nunca aplicado)**: 24 a criar, 54
+  a atualizar (bump de versão esperado — mesmo padrão já documentado em M5/M6, toda função ganha
+  nova versão porque o módulo `table` compartilhado mudou), **0 a destruir**. GSI7 é adição pura
+  in-place na tabela existente, nunca replace.
+- `docs/architecture/data-model.md` (§2/§3) e `requirements.md` (§1.8, FR-070..074) atualizados
+  com as entidades/GSI7/requisitos reais — não ficam mais só no `roadmap-evolution/`.
+  `decisions-log.md` ganhou D-044.
+
+**Pendência real, não resolvida nesta sessão — decisão do Marcelo**: deploy real (merge
+`develop→main`, que aciona `cd.yml` automaticamente) não foi executado. `terraform plan` está
+limpo e verificado, mas abrir/mergear o PR é ação visível/compartilhada que exige confirmação
+explícita (`AGENTS.md` §3) — diferente de "implementar", que já estava autorizado.
+
+**Próxima ação real**: superada pela seção M10 acima — a fatia de guest upload de M10 já foi
+implementada na sequência desta mesma sessão. Ver seção do topo para o estado vigente e a próxima
+ação real atual (automated chasing + decisão de deploy).
+
+## Evolução estratégica do roadmap — Fases 1-3 CONCLUÍDAS (2026-08-23), aguardando decisão do Marcelo sobre implementação
+
+Marcelo trouxe um prompt de evolução estratégica (`Prompt — Evolução Estratégica e Arquitetural do
+Roadmap do Expiration Tracker.md`, raiz do repo) propondo capacidades comerciais novas
+(TrackedSubject, Requirement, ExternalContact, DocumentRequest, guest upload/magic link,
+automated chasing, digest, custom fields, Organization/RBAC, billing, CSV import/export,
+WhatsApp, e-mail ingestion, API/webhooks) para evoluir o produto de "cadastre uma data" para
+"vendor/employee document compliance leve", sem virar ERP/GRC/CLM. Processo acordado em 3 fases:
+(1) auditoria + gap analysis, (2) pesquisa de mercado + modelagem de domínio + protocolo
+Claude↔Codex por tema (nível 5-6, `change-risk-scale.md` — não dispensável), (3) roadmap final +
+ADRs. **Implementação de qualquer milestone novo só começa depois da Fase 3, com decisão explícita
+do Marcelo** — mesmo padrão já usado para M7.
+
+**Fase 1 concluída**: `docs/architecture/roadmap-evolution/01-gap-analysis.md` — estado real dos
+milestones + classificação de cada capacidade proposta contra o código real (7 investigações
+paralelas factuais, com citação arquivo:linha). Achados centrais: nenhuma das ~20 capacidades
+propostas já existe implementada; `Organization`/`Membership`/RBAC é a única com readiness formal
+real (`ADR-0002`, `evolution.md` já tem gatilho e plano de migração de 3 fases nunca disparado);
+`WhatsApp` está parcialmente scaffolded (enum+router+kill switch reservados); nenhuma rota de API
+Gateway é pública/sem-JWT hoje (bloqueio de infra real para guest upload/webhook); `Document`/M7
+sempre exigem `ExpirationItem` pai já existente (sem caminho para "requisito ausente, sem item
+ainda"); billing já tem lacuna formalmente registrada em `evolution.md` (não drift, lacuna
+conhecida). Documento é insumo de análise, não normativo — supersedido pelos entregáveis de
+domínio/roadmap da Fase 2-3 quando produzidos.
+
+**Fase 2a (pesquisa de mercado) concluída**: `docs/architecture/roadmap-evolution/
+02-market-research.md` — 6 concorrentes reais pesquisados (TrustLayer, Certificial,
+SubCompliant, VendorJot, Remindax, categoria ampla). Achado central: billing por sujeito
+rastreado (`TrackedSubject`) e guest upload/magic link sem conta são padrões de mercado
+dominantes, não especulação — múltiplos concorrentes independentes convergem na mesma mecânica.
+
+**Fase 2b (modelagem de domínio) concluída — 7/7 clusters fechados via protocolo Claude↔Codex
+completo (MCP `codex mcp-server`, sandbox read-only, nota cega, 3 rodadas reais cada)**, todos
+≥9,0 dos dois lados:
+
+| # | Cluster | Nota | Documento |
+|---|---|---|---|
+| 1 | `TrackedSubject`+`RequirementAssignment` | 9,1/9,1 | `03-domain-model-tracked-subject-requirement.md` |
+| 2 | Guest upload/magic link (`DocumentRequest`+`DocumentSubmission`) | 9,2/9,2 | `04-domain-model-guest-upload.md` |
+| 3 | Organization/Membership/RBAC + Billing/Entitlements | 9,2/9,2 | `05-domain-model-organization-billing.md` |
+| 4 | Automated document chasing (Reminder Engine) | 9,1/9,2 | `06-domain-model-automated-chasing.md` |
+| 5 | Escalation/watchers/digest | 9,2/9,4 | `07-domain-model-escalation-watchers-digest.md` |
+| 6 | Custom fields (rejeitado/adiado por padrão) | 9,1/9,0 | `08-domain-model-custom-fields.md` |
+| 7 | CSV import/export | 9,2/9,4 | `09-domain-model-csv-import.md` |
+
+Achados técnicos reais capturados pelo protocolo adversarial (não só concordância): GSI novo
+evitado 2x reaproveitando padrões já existentes no código (`IdentityMapping` para guest token
+lookup; coleção sob partição do item/subject para `ItemWatch`/`RequirementAssignment`/
+`DocumentRequest`/`DocumentSubmission`); generalização de `NotificationIntent`/
+`ReminderOccurrence` (já em produção) rejeitada em favor de agregados-irmãos, aplicando o mesmo
+precedente que o próprio projeto já usou em M7 (parser-sandbox isolado); billing reordenado para
+vir por `TrackedSubject` ANTES de Organization/Membership (inverte a ordem do prompt original,
+com base em evidência de mercado); guest upload/chasing desacoplados de billing pago (free tier,
+padrão de mercado real); formula/CSV injection mitigada na exportação, não na entrada (evita
+falso positivo); plano de import linha-a-linha em S3, não DynamoDB por linha (custo); correção
+pendente real identificada em `evolution.md:13` (plano de migração de 3 fases subestima que
+`tenantId` está embutido em chaves físicas/GSIs, não só atributo) — registrada para correção
+formal, não editada especulativamente.
+
+**Fase 3 (síntese final) concluída**: `docs/architecture/roadmap-evolution/
+10-phase3-scoring-and-roadmap.md` (executive summary, feature score ponderado, roadmap M9-M13
+completo por milestone, dependency graph) e `11-phase3-impacts-and-closing.md` (domain model
+antes/depois, impactos de arquitetura/segurança/persistência/custo, 10 ADRs candidatos,
+estratégia de teste/migração, 8 perguntas abertas reais, 9 capacidades rejeitadas/adiadas).
+**Roadmap proposto**: M9 Commercial Domain Foundation (`TrackedSubject`/`RequirementAssignment`/
+Entitlement mínimo/watchers) → M10 Guest Collection & Automated Chasing (guest upload+chasing) →
+M11 Bulk Operations (CSV import/export) → M12 Commercial Monetization (billing real) → M13
+Commercial Accounts (Organization/RBAC, gatilho B2B, independente do resto). O pacote completo
+passou por revisão adversarial final de coerência (nota 8,2/10, 8 achados reais corrigidos:
+contagem de GSI errada, CSV export sem milestone, ADR faltante, contradição no dependency graph,
+residuais fora de P/Q, nota de risco de Organization/RBAC contradizendo o próprio texto,
+descrição errada de `notes?` como mudança de core).
+
+**Nenhuma implementação de código foi feita ou autorizada.** Próxima ação real: Marcelo decide
+quais milestones (M9-M13) priorizar e quando autorizar o início de implementação de cada um —
+mesmo padrão de decisão explícita já usado para M7. Esta sessão trabalhou autonomamente durante
+o período em que Marcelo estava indisponível (instrução explícita: "não pare o trabalho... adie
+a etapa que exigir minha decisão e siga em frente") — por isso o roadmap está pronto até o ponto
+de decisão de priorização, sem ter cruzado a linha de "começar a implementar sem autorização".
+
+**Próxima ação real**: cluster 7 (último antes da Fase 3) — CSV import/export, eixo Qualidade de
+Engenharia + Segurança. Depois disso, síntese da Fase 3 (roadmap final milestone-a-milestone,
+lista de ADRs candidatos, DAG de dependências, impacto de segurança/privacidade/persistência/
+custo, estratégia de teste/migração, perguntas abertas reais, lista de rejeitados — entregáveis
+A-Q do prompt estratégico). **Implementação de qualquer milestone novo continua não autorizada
+sem decisão explícita do Marcelo**, mesmo depois da Fase 3 pronta.
+
+**Próxima ação real**: Fase 2 — pesquisa de mercado externa (Remindax, Doc Warden, SubCompliant,
+VendorJot, TrustLayer, Certificial etc.), tentativa de refutar cada capacidade proposta, e rodadas
+do protocolo Claude↔Codex agrupadas por tema (ex. TrackedSubject+Requirement via eixos
+Arquitetura+Contexto; guest upload via Segurança+Privacidade; Organization/RBAC/Billing via
+Produto-Multi-tenant+Jurídico+Privacidade — ver `docs/engineering/joint-review-criteria.md`).
+
+Ambiente desta sessão (2026-08-23, continuação em máquina nova): branch `develop`, identidade Git
+local alinhada à conta GitHub pessoal (`marcelo-jgoncalves`), `gh` CLI instalado e autenticado,
+profile AWS `claude-dev` configurado, MCP `codex` instalado e aprovado (Codex CLI logado em
+`tchelojg@gmail.com`, plano ChatGPT Plus).
+
 ## M7 (Extraction e confirmação) — DESIGN APROVADO (2026-08-22), IMPLEMENTAÇÃO AINDA NÃO INICIADA
 
 Decisão explícita do Marcelo: "design completo primeiro, depois eu decido implementar" — dado o
@@ -533,6 +876,15 @@ exigido pelo design §5 estava ausente (3 records, 2º falha — adicionado, exi
 `dispatch-outbox-relay-processor.ts`/`notification-email-outbox-relay-processor.ts` sem efeitos
 colaterais de topo para ficarem unit-testáveis).
 
+**[Correção de 2026-08-23: o parágrafo abaixo já está RESOLVIDO — preservado como histórico do
+achado, não como pendência vigente. `producer.ts`'s `DispatchCommand` já emite
+`messageVersion`/`messageId`/`createdAt`/`correlationId` reais desde o commit `dd90174`
+(2026-08-21, revisão Claude↔Codex 9,2/10, `test/unit/reminder/producer.test.ts` prova que um
+`DispatchCommand` real construído pelo producer satisfaz seu próprio schema) — ver linha 611-614
+acima, que já registrava isso corretamente. Este bloco ficou contraditório internamente com aquele
+por nunca ter sido atualizado após o fix — corrigido agora (achado de manutenção de contexto,
+`AGENTS.md` §6), sem reabrir a decisão em si.]**
+
 **Achado novo e real, descoberto durante a revisão, registrado como pendência separada — não é
 escopo de M5, mas é bloqueante para prontidão operacional real do Reminder Dispatch**:
 `schemas/queues/reminder-dispatch.v1.json` exige (via `allOf` de `command-envelope.v1.json`)
@@ -552,13 +904,11 @@ relay/sweeper já propaga corretamente), não `record.body` como o design prescr
 SQS — isso não é evidência de que o envelope atual está correto, é uma exceção temporária até o
 bug ser corrigido.
 
-**Próxima ação real (nova, alta severidade para prontidão operacional, antes do próximo deploy
-que exercite Reminder Dispatch de verdade)**: decidir formalmente o formato de wire completo de
-`reminder.dispatch.v1` (adicionar `messageVersion`/`messageId`/`createdAt` reais ao
-`DispatchCommand`, ou revisar o schema/envelope) — muda um contrato SQS já em uso desde M3,
-provavelmente Type 1 (`AGENTS.md` §4, avaliar se precisa do protocolo Claude↔Codex) — e então
-adicionar um teste de contrato real producer→outbox→relay→body JSON→validação do consumer, que
-hoje não existe em lugar nenhum (o gap que deixou esse bug invisível).
+**Próxima ação real (histórica — RESOLVIDA em `dd90174`, 2026-08-21, ver correção acima)**: o
+parágrafo original pedia decidir o formato de wire completo e adicionar um teste de contrato real
+producer→schema. Ambos feitos: `DispatchCommand` ganhou os campos de envelope reais, revisado via
+protocolo Claude↔Codex (9,2/10), e `test/unit/reminder/producer.test.ts` cobre exatamente o gap
+citado (prova que um comando real construído pelo producer satisfaz `reminder-dispatch.v1.json`).
 
 **Ainda não feito (pendências explícitas do design, registradas como critério de aceite, não
 "resolvido" por este `terraform plan`)**: confirmação manual da subscription SNS→e-mail (passo

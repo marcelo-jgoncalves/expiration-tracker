@@ -28,12 +28,23 @@ import notificationIntentCreatedV1 from "../../../schemas/events/notification-in
 import itemDueDateChangedV1 from "../../../schemas/events/item-due-date-changed.v1.json";
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
+import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-dispatch.v1.json";
 import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
 import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
 import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 import reserveDocumentUploadRequestV1 from "../../../schemas/api/reserve-document-upload-request.v1.json";
+import createSubjectRequestV1 from "../../../schemas/api/create-subject-request.v1.json";
+import updateSubjectRequestV1 from "../../../schemas/api/update-subject-request.v1.json";
+import assignRequirementRequestV1 from "../../../schemas/api/assign-requirement-request.v1.json";
+import updateRequirementAssignmentRequestV1 from "../../../schemas/api/update-requirement-assignment-request.v1.json";
+import linkRequirementItemRequestV1 from "../../../schemas/api/link-requirement-item-request.v1.json";
+import createDocumentRequestRequestV1 from "../../../schemas/api/create-document-request-request.v1.json";
+import updateDocumentRequestDeliveryPreferenceRequestV1 from "../../../schemas/api/update-document-request-delivery-preference-request.v1.json";
+import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
+import reserveImportRequestV1 from "../../../schemas/api/reserve-import-request.v1.json";
+import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -95,10 +106,21 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   itemDueDateChangedV1,
   notificationEmailDeliverV1,
   reminderDispatchV1,
+  documentChasingDispatchV1,
   createItemRequestV1,
   updateItemRequestV1,
   renewItemRequestV1,
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
   reserveDocumentUploadRequestV1,
+  createSubjectRequestV1,
+  updateSubjectRequestV1,
+  assignRequirementRequestV1,
+  updateRequirementAssignmentRequestV1,
+  linkRequirementItemRequestV1,
+  createDocumentRequestRequestV1,
+  startGuestSubmissionRequestV1,
+  updateDocumentRequestDeliveryPreferenceRequestV1,
+  reserveImportRequestV1,
+  importCommitV1,
 ]);

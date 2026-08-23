@@ -18,7 +18,7 @@ export type OutboxStatus = "PENDING" | "PUBLISHED";
  * M2/M3 caller today) - `OutboxPublisher` must explicitly skip any record whose
  * `destination` it doesn't recognize as its own default, never process-by-omission.
  */
-export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1" | "SQS_NOTIFICATION_EMAIL_V1";
+export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1" | "SQS_NOTIFICATION_EMAIL_V1" | "SQS_DOCUMENT_CHASING_DISPATCH_V1" | "SQS_IMPORT_COMMIT_V1";
 
 export interface OutboxRecord {
   PK: string;

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/create-document-request-request.v1.json",
+  "title": "CreateDocumentRequestRequest v1",
+  "description": "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests request body (CreateDocumentRequestInput). 04-domain-model-guest-upload.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recipientEmail"],
+  "properties": {
+    "recipientEmail": { "type": "string", "format": "email", "maxLength": 254 },
+    "recipientDisplayName": { "type": "string", "maxLength": 160 },
+    "deadline": { "type": "string", "format": "date-time" }
+  }
+}

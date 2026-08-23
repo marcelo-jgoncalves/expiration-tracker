@@ -17,20 +17,26 @@ run "jwt_authorizer_attached_to_every_route" {
   command = apply
 
   variables {
-    api_name                    = "expiration-tracker-test-api"
-    user_pool_id                = "us-east-1_testpool"
-    user_pool_client_id         = "test-client-id"
-    aws_region                  = "us-east-1"
-    test_ping_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
-    test_ping_function_name     = "test-ping"
-    items_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
-    items_function_name         = "items"
-    reminders_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
-    reminders_function_name     = "reminders"
-    notifications_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
-    notifications_function_name = "notifications"
-    documents_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
-    documents_function_name     = "documents"
+    api_name                      = "expiration-tracker-test-api"
+    user_pool_id                  = "us-east-1_testpool"
+    user_pool_client_id           = "test-client-id"
+    aws_region                    = "us-east-1"
+    test_ping_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
+    test_ping_function_name       = "test-ping"
+    items_invoke_arn              = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
+    items_function_name           = "items"
+    reminders_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
+    reminders_function_name       = "reminders"
+    notifications_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
+    notifications_function_name   = "notifications"
+    documents_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
+    documents_function_name       = "documents"
+    subjects_invoke_arn           = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
+    subjects_function_name        = "subjects"
+    guest_documents_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:guest-documents/invocations"
+    guest_documents_function_name = "guest-documents"
+    imports_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
+    imports_function_name         = "imports"
   }
 
   assert {
@@ -72,8 +78,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.items) == 7
-    error_message = "Expected exactly 7 /items* routes (create, dashboard, get, update, delete, archive, renew)"
+    condition     = length(aws_apigatewayv2_route.items) == 10
+    error_message = "Expected exactly 10 /items* routes (create, dashboard, get, update, delete, archive, renew, add_watcher, remove_watcher, list_watchers)"
   }
 
   assert {
@@ -154,6 +160,11 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "DocumentsHandler invoke permission must be scoped to the 'live' alias"
   }
 
+  assert {
+    condition     = aws_lambda_permission.subjects.qualifier == "live"
+    error_message = "SubjectsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
   # Every /items/{itemId}/documents* route exists and is JWT-authorized (M6).
   assert {
     condition = alltrue([
@@ -173,5 +184,95 @@ run "jwt_authorizer_attached_to_every_route" {
       "DELETE /items/{itemId}/documents/{documentId}",
     )
     error_message = "DELETE /items/{itemId}/documents/{documentId} route must exist"
+  }
+
+  # Every /subjects* route exists and is JWT-authorized (M9, D-036/D-040).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.subjects : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /subjects* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.subjects) == 19
+    error_message = "Expected exactly 19 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests",
+    )
+    error_message = "POST .../document-requests route (create) must exist - achado real, faltava desde a sessão M10 anterior"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "GET /subjects/document-request-delivery-preference",
+    )
+    error_message = "GET /subjects/document-request-delivery-preference route must exist (D-049)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "POST /subjects/{subjectId}/requirements/{assignmentId}/link",
+    )
+    error_message = "POST /subjects/{subjectId}/requirements/{assignmentId}/link route must exist"
+  }
+
+  # /guest/document-requests/* routes (M10, D-037) are the project's first PUBLIC routes —
+  # no JWT authorizer, auth happens inside the handler via the opaque guest token.
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.guest_documents : r.authorization_type == "NONE"
+    ])
+    error_message = "Every /guest/document-requests/* route must be public (authorization_type = NONE) — auth happens via the opaque guest token inside the handler, not API Gateway"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.guest_documents) == 2
+    error_message = "Expected exactly 2 /guest/document-requests/* routes (get_request, start_submission)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.guest_documents : r.route_key],
+      "POST /guest/document-requests/{token}/uploads",
+    )
+    error_message = "POST /guest/document-requests/{token}/uploads route must exist"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.guest_documents.qualifier == "live"
+    error_message = "GuestDocumentsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  # Every /imports* route exists and is JWT-authorized (M11, D-042).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.imports : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /imports* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.imports) == 3
+    error_message = "Expected exactly 3 /imports* routes (reserve, get, commit)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.imports : r.route_key],
+      "POST /imports/{jobId}/commit",
+    )
+    error_message = "POST /imports/{jobId}/commit route must exist"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.imports.qualifier == "live"
+    error_message = "ImportsHandler invoke permission must be scoped to the 'live' alias"
   }
 }

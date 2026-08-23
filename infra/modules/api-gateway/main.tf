@@ -81,6 +81,11 @@ locals {
     delete    = { method = "DELETE", path = "/items/{itemId}" }
     archive   = { method = "POST", path = "/items/{itemId}/archive" }
     renew     = { method = "POST", path = "/items/{itemId}/renew" }
+    # D-040 (07-domain-model-escalation-watchers-digest.md): ItemWatch reaproveita o mesmo
+    # Lambda/integracao de ItemsHandler, nao introduz funcao/infra nova.
+    add_watcher    = { method = "POST", path = "/items/{itemId}/watchers/{userId}" }
+    remove_watcher = { method = "DELETE", path = "/items/{itemId}/watchers/{userId}" }
+    list_watchers  = { method = "GET", path = "/items/{itemId}/watchers" }
   }
 
   reminders_routes = {
@@ -173,6 +178,104 @@ resource "aws_lambda_permission" "documents" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/documents*"
 }
 
+# --- SubjectsHandler: /subjects* (M9, D-036/D-040 - TrackedSubject + RequirementAssignment) --
+
+resource "aws_apigatewayv2_integration" "subjects" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.subjects_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  subjects_routes = {
+    create      = { method = "POST", path = "/subjects" }
+    dashboard   = { method = "GET", path = "/subjects/dashboard" }
+    get_by_id   = { method = "GET", path = "/subjects/{subjectId}" }
+    update      = { method = "PUT", path = "/subjects/{subjectId}" }
+    delete      = { method = "DELETE", path = "/subjects/{subjectId}" }
+    archive     = { method = "POST", path = "/subjects/{subjectId}/archive" }
+    assign_req  = { method = "POST", path = "/subjects/{subjectId}/requirements" }
+    list_req    = { method = "GET", path = "/subjects/{subjectId}/requirements" }
+    get_req     = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    update_req  = { method = "PUT", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    delete_req  = { method = "DELETE", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    link_item   = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/link" }
+    unlink_item = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/unlink" }
+    # Achado real (M10 cluster 4): estas 4 rotas de DocumentRequest (lado autenticado, D-037)
+    # já tinham handler HTTP completo (document-request-handlers.ts) e roteamento real dentro
+    # do Lambda (subjects-handler.ts) desde a sessão anterior, mas NUNCA tinham sido
+    # registradas aqui - o API Gateway real nunca teria uma rota que as alcançasse (404),
+    # apesar do código estar pronto e testado. Corrigido junto das 2 rotas novas de D-049
+    # abaixo, mesmo padrão.
+    create_document_request = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
+    list_document_requests  = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
+    get_document_request    = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}" }
+    revoke_document_request = { method = "POST", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" }
+    # M10 cluster 4 (D-049): preferência de TENANT (não por subject) para o convite inicial
+    # automatizado - fora do namespace /{subjectId}/... de propósito.
+    get_delivery_preference    = { method = "GET", path = "/subjects/document-request-delivery-preference" }
+    update_delivery_preference = { method = "PUT", path = "/subjects/document-request-delivery-preference" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "subjects" {
+  for_each = local.subjects_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.subjects.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "subjects" {
+  statement_id  = "AllowApiGatewayInvokeSubjects"
+  action        = "lambda:InvokeFunction"
+  function_name = var.subjects_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/subjects*"
+}
+
+# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) -----------------
+# PRIMEIRA rota pública do projeto: authorization_type = NONE, sem authorizer JWT. Validação
+# fica inteiramente na aplicação (GuestSubmissionService#resolveToken) - decisão explícita do
+# cluster 2 (evita duplicar lógica de token/contexto num Lambda authorizer, e o risco de cache
+# stale de authorizer). WAF na frente (módulo "waf") é pré-requisito, não opcional.
+
+resource "aws_apigatewayv2_integration" "guest_documents" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.guest_documents_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  guest_documents_routes = {
+    get_request      = { method = "GET", path = "/guest/document-requests/{token}" }
+    start_submission = { method = "POST", path = "/guest/document-requests/{token}/uploads" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "guest_documents" {
+  for_each = local.guest_documents_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.guest_documents.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "guest_documents" {
+  statement_id  = "AllowApiGatewayInvokeGuestDocuments"
+  action        = "lambda:InvokeFunction"
+  function_name = var.guest_documents_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/guest/document-requests*"
+}
+
 # --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------
 
 resource "aws_apigatewayv2_integration" "notifications" {
@@ -206,4 +309,40 @@ resource "aws_lambda_permission" "notifications" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications/preferences"
+}
+
+# --- ImportsHandler: /imports* (M11, D-042 - CSV import de TrackedSubject) -----------------
+
+resource "aws_apigatewayv2_integration" "imports" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.imports_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  imports_routes = {
+    reserve = { method = "POST", path = "/imports" }
+    get     = { method = "GET", path = "/imports/{jobId}" }
+    commit  = { method = "POST", path = "/imports/{jobId}/commit" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "imports" {
+  for_each = local.imports_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.imports.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "imports" {
+  statement_id  = "AllowApiGatewayInvokeImports"
+  action        = "lambda:InvokeFunction"
+  function_name = var.imports_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/imports*"
 }

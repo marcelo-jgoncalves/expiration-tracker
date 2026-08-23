@@ -43,6 +43,20 @@ variable "enable_reserved_concurrency" {
   default     = true
 }
 
+variable "document_request_initial_invite_email_enabled" {
+  description = <<-EOT
+    Kill switch global do convite inicial automatizado de guest upload (M10 cluster 4, D-049).
+    Default `false` em todos os ambientes, inclusive prod - o mecanismo técnico (SES/templates/
+    rate limit) já é implementado independente deste valor, mas o ENVIO em si nunca acontece
+    com o switch desligado, mesmo que a preferência de tenant ou o override por chamada peçam
+    EMAIL explicitamente. Ligar este switch em produção real exige primeiro o gate operacional
+    registrado em D-049 (spike de validação SES em sandbox real, alarme de bounce/complaint,
+    runbook de desligamento) - nenhum desses itens está fechado ainda.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "mfa_policy" {
   description = "Cognito MFA enforcement policy: OFF, OPTIONAL, or REQUIRED. UNK-006 is pending external research — default OPTIONAL matches infra/lib/expiration-tracker-stack.ts's own default (props.mfaPolicy undefined -> ExpirationTrackerAuth's default)."
   type        = string

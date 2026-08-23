@@ -30,7 +30,95 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
+  // M10 cluster 4 (D-039/D-046/D-048): reenvio automático de guest upload, tiers T7/T3 (antes
+  // do deadline/expiração do token) - SEMPRE ao destinatário EXTERNO, SEMPRE com um link
+  // recém-rotacionado (nunca o secret original, que nunca é persistido). Nunca envia depois de
+  // EXPIRED (ver "document-request-chasing-expired-internal" abaixo).
+  "document-request-chasing": {
+    1: {
+      "pt-BR": (context) => {
+        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
+        const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
+        const guestLink = String(context["guestLink"] ?? "");
+        const subject = `Lembrete: envio de ${requirementName} pendente`;
+        const text = [
+          `Ainda estamos aguardando o envio de "${requirementName}".`,
+          deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
+          `Envie pelo link: ${guestLink}`,
+          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const html = [
+          `<p>Ainda estamos aguardando o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
+          deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
+          `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
+          `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        return { subject, html, text };
+      },
+    },
+  },
+  // Tier EXPIRED (D-048): nunca envia link externo funcional (o token já expirou por design) -
+  // notifica o usuário INTERNO que criou a solicitação (`requestedByUserId`), não o fornecedor.
+  "document-request-chasing-expired-internal": {
+    1: {
+      "pt-BR": (context) => {
+        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
+        const recipientDisplayName = sanitizeTenantText(context["recipientDisplayName"] as string | undefined, "o destinatário");
+        const subject = `Prazo expirado sem envio: ${requirementName}`;
+        const text = `A solicitação de "${requirementName}" para ${recipientDisplayName} expirou sem envio do documento. Considere abrir uma nova solicitação.`;
+        const html = `<p>A solicitação de <strong>${escapeHtml(requirementName)}</strong> para ${escapeHtml(recipientDisplayName)} expirou sem envio do documento. Considere abrir uma nova solicitação.</p>`;
+        return { subject, html, text };
+      },
+    },
+  },
+  // D-049: convite inicial automatizado (feature separada, gate de kill switch/preferência de
+  // tenant fora deste template) - mesmo link/sanitização do chasing, texto de primeira solicitação.
+  "document-request-initial-invite": {
+    1: {
+      "pt-BR": (context) => {
+        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "um documento");
+        const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
+        const guestLink = String(context["guestLink"] ?? "");
+        const subject = `Solicitação de envio: ${requirementName}`;
+        const text = [
+          `Foi solicitado o envio de "${requirementName}".`,
+          deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
+          `Envie pelo link: ${guestLink}`,
+          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const html = [
+          `<p>Foi solicitado o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
+          deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
+          `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
+          `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        return { subject, html, text };
+      },
+    },
+  },
 };
+
+/** Sanitização de campo fornecido pelo tenant antes de interpolar num e-mail externo (D-049):
+ * trim, colapsa espaços, remove caracteres de controle/CRLF (nunca injeta cabeçalho/linha nova
+ * via nome), limite de 80 caracteres, cai no fallback se ficar vazio depois disso. O escape de
+ * HTML acontece separadamente em cada renderer (`escapeHtml`), nunca aqui - este helper só
+ * normaliza o TEXTO, não decide o formato de saída. */
+export function sanitizeTenantText(raw: string | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  // eslint-disable-next-line no-control-regex -- remoção deliberada de caracteres de controle/CRLF de um campo fornecido pelo tenant antes de interpolar em e-mail externo (D-049).
+  const withoutControlChars = raw.replace(/[\x00-\x1F\x7F]/g, " ");
+  const collapsed = withoutControlChars.replace(/\s+/g, " ").trim();
+  if (!collapsed) return fallback;
+  return collapsed.slice(0, 80);
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {

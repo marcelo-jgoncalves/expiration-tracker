@@ -51,10 +51,32 @@ export interface ReconciliationResult {
   dstDivergences: number;
 }
 
+/**
+ * M10 cluster 4 (D-039/D-046/D-048): minimal structural shape claim-expiry reconciliation
+ * actually touches - widened from the original `ReminderOccurrence[]`-only signature so
+ * `DocumentChasingOccurrence` claims (same GSI6 `WORKSTATE#CLAIMED` workstate, same
+ * SCHEDULED<->CLAIMED lifecycle) revert through the EXACT SAME mechanism, no duplicated
+ * reconciliation path. Deliberately a PLAIN interface, not the existing `ExpiredClaimCandidate`
+ * (`reconciliation-candidate-source.ts`) - that type intersects `Record<string, unknown>` for
+ * an unrelated reason (mock/page shape elsewhere), and TypeScript does NOT consider a plain
+ * interface like `ReminderOccurrence` (no index signature) assignable to an intersection that
+ * requires one, even with every named property present - confirmed by trying the reuse first
+ * and hitting exactly that compiler error. Pure type-level widening either way: the function
+ * body is byte-for-byte unchanged, `ReminderOccurrence` already satisfies THIS shape
+ * structurally, so every existing caller/test keeps compiling and behaving identically. */
+export interface ClaimExpiryCandidate {
+  PK: string;
+  SK: string;
+  tenantId: string;
+  status: string;
+  claimExpiresAt?: string;
+  version: number;
+}
+
 /** Pass (a): any CLAIMED occurrence whose claimExpiresAt is in the past reverts to SCHEDULED. */
 export async function reconcileExpiredClaims(
   deps: ReconciliationDeps,
-  candidateOccurrences: ReminderOccurrence[],
+  candidateOccurrences: ClaimExpiryCandidate[],
 ): Promise<number> {
   let reverted = 0;
   const now = deps.now();
@@ -209,7 +231,7 @@ export async function reconcileDst(
 
 export async function runReconciliation(
   deps: ReconciliationDeps,
-  input: { expiredClaimCandidates: ReminderOccurrence[]; dstCandidates: DstReconciliationCandidate[] },
+  input: { expiredClaimCandidates: ClaimExpiryCandidate[]; dstCandidates: DstReconciliationCandidate[] },
 ): Promise<ReconciliationResult> {
   const claimsReverted = await reconcileExpiredClaims(deps, input.expiredClaimCandidates);
   const dst = await reconcileDst(deps, input.dstCandidates);

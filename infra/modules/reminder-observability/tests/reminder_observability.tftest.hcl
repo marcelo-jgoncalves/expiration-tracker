@@ -5,23 +5,29 @@
 
 mock_provider "aws" {}
 
-run "exactly_five_function_error_alarms_plus_one_backlog_alarm" {
+run "exactly_six_function_error_alarms_plus_one_backlog_alarm" {
   command = apply
 
   variables {
-    reminder_producer_function_name       = "reminder-producer"
-    reminder_dispatch_function_name       = "reminder-dispatch"
-    reminder_reconciliation_function_name = "reminder-reconciliation"
-    dispatch_outbox_relay_function_name   = "dispatch-outbox-relay"
-    outbox_sweeper_function_name          = "outbox-sweeper-reminder-dispatch"
-    dispatch_queue_name                   = "reminder-dispatch-queue"
-    alert_topic_arn                       = "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts"
+    reminder_producer_function_name         = "reminder-producer"
+    reminder_dispatch_function_name         = "reminder-dispatch"
+    reminder_reconciliation_function_name   = "reminder-reconciliation"
+    dispatch_outbox_relay_function_name     = "dispatch-outbox-relay"
+    outbox_sweeper_function_name            = "outbox-sweeper-reminder-dispatch"
+    document_chasing_dispatch_function_name = "document-chasing-dispatch"
+    dispatch_queue_name                     = "reminder-dispatch-queue"
+    alert_topic_arn                         = "arn:aws:sns:us-east-1:123456789012:exptrk-test-alerts"
   }
 
-  # Exactly 5 critical-function error alarms - not more, not fewer.
+  # Exactly 6 critical-function error alarms - not more, not fewer.
   assert {
-    condition     = length(aws_cloudwatch_metric_alarm.function_errors) == 5
-    error_message = "Expected exactly 5 Lambda Errors alarms (producer/dispatch/reconciliation/relay/sweeper)"
+    condition     = length(aws_cloudwatch_metric_alarm.function_errors) == 6
+    error_message = "Expected exactly 6 Lambda Errors alarms (producer/dispatch/reconciliation/relay/sweeper/document-chasing-dispatch)"
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.function_errors["DocumentChasingDispatch"].dimensions["FunctionName"] == "document-chasing-dispatch"
+    error_message = "DocumentChasingDispatch alarm must watch the document-chasing-dispatch function (M10 cluster 4, D-039/D-046/D-048)"
   }
 
   assert {

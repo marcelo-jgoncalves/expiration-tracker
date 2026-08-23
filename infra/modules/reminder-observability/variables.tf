@@ -28,6 +28,11 @@ variable "outbox_sweeper_function_name" {
   type        = string
 }
 
+variable "document_chasing_dispatch_function_name" {
+  description = "Name of the DocumentChasingDispatch Lambda (M10 cluster 4, D-039/D-046/D-048) - the fused dispatch+delivery worker for automated document chasing, sharing GSI3 with the reminder pipeline."
+  type        = string
+}
+
 variable "dispatch_queue_name" {
   description = "Name of the main ReminderDispatchQueue (reminder-queue module's queue_name output) — the backlog-age alarm watches this queue's ApproximateAgeOfOldestMessage metric."
   type        = string

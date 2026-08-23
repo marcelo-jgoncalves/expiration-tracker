@@ -82,6 +82,14 @@ export class InMemoryExpirationStore implements ExpirationStore {
     }
   }
 
+  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+    const matches = [...this.items.values()].filter(
+      (item) => item["PK"] === pk && (!skPrefix || String(item["SK"]).startsWith(skPrefix)),
+    );
+    matches.sort((a, b) => String(a["SK"]).localeCompare(String(b["SK"])));
+    return matches as unknown as T[];
+  }
+
   async queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]> {
     const matches = [...this.items.values()].filter((item) => item["GSI1PK"] === input.gsi1pk);
     matches.sort((a, b) => {

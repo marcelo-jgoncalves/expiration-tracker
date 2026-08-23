@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/assign-requirement-request.v1.json",
+  "title": "AssignRequirementRequest v1",
+  "description": "POST /subjects/{subjectId}/requirements request body (AssignRequirementInput). requirementDefinitionId e um escape hatch opcional - RequirementDefinition/RequirementTemplate ficam deferidos por completo (03-domain-model-tracked-subject-requirement.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirementName"],
+  "properties": {
+    "requirementName": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "requirementDefinitionId": { "type": "string", "maxLength": 100 },
+    "notes": { "type": "string", "maxLength": 2000 }
+  }
+}

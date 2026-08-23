@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/reserve-import-request.v1.json",
+  "title": "ReserveImportRequest v1",
+  "description": "POST /imports request body (src/modules/import/application/import-service.ts ReserveImportInput). M11 design (D-042).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contentLength", "checksumSha256"],
+  "properties": {
+    "contentLength": { "type": "integer", "minimum": 1, "maximum": 5242880 },
+    "checksumSha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+  }
+}
