@@ -418,6 +418,33 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // M11 (D-042) - schema novo do modulo import.
+
+  it("accepts a valid reserve-import-request (POST /imports, M11, D-042)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "a".repeat(64),
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reserve-import-request over the 5 MiB file size limit", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 5 * 1024 * 1024 + 1,
+      checksumSha256: "a".repeat(64),
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reserve-import-request with a malformed checksumSha256", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "not-hex",
+    });
+    expect(valid).toBe(false);
+  });
+
   // Evolucao estrategica do roadmap (M9, D-036) - schemas novos do modulo subject.
 
   it("accepts a valid create-subject-request", () => {
