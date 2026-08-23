@@ -1,5 +1,55 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## M9 (Commercial Domain Foundation) — IMPLEMENTADO EM `develop`, NÃO DEPLOYADO (2026-08-23) — leia isto primeiro
+
+Depois das Fases 1-3 da evolução estratégica (seção abaixo) ficarem prontas, Marcelo decidiu
+diretamente prosseguir para implementação ("prossiga... o mais longe possível... se encontrar
+algum impedimento que depende de minha aprovação, registre e pule para a etapa seguinte")
+enquanto estava indisponível. M9 foi implementado de ponta a ponta seguindo exatamente o design
+já fechado nos clusters 1/3/5 (D-036/D-038/D-040) — **nenhum código escrito antes dessa decisão
+explícita, mesmo padrão de autorização já usado para M6/M7**.
+
+**Implementado** (commits `154b7e1`..`bdd409b`, branch `develop`, D-044):
+- `src/modules/subject/` — módulo novo: `TrackedSubject` (agregado raiz), `RequirementAssignment`
+  (coleção sob a partição do subject, sem GSI novo — mesmo padrão de `identity`/`document` já em
+  produção), `TenantEntitlement` (contador `activeTrackedSubjectsCount` incrementado/decrementado
+  na MESMA transação que cria/arquiva um subject, mais forte que o padrão `release()` best-effort
+  de `TenantQuotaService`). Ciclo real de `RequirementAssignment` em M9: `MISSING⇄SATISFIED` via
+  link/unlink manual de `ExpirationItem` existente (validado via porta `ExpirationItemLookup`,
+  nunca aceito só pelo `itemId` informado). `REQUESTED`/`SUBMITTED`/`UNDER_REVIEW`/`REJECTED`
+  existem só no enum — sem transição implementada (isso é M10, guest upload/chasing).
+- `ItemWatch` — extensão do módulo `expiration` (coleção sob a partição do item, mesmo padrão que
+  `Document`/M6 já usa) — nunca muta `ExpirationItem`. `ExpirationStore` ganhou `queryByPk`
+  (aditivo, zero risco ao agregado já em produção).
+- Matriz de autorização (`identity/authorization.ts`): actions `subject:*`, `requirement:*`,
+  `item:watch`.
+- 5 schemas JSON novos + 10 testes de contrato + 22 testes unitários novos — **377 testes
+  totais, zero regressão** (confirmado antes de cada commit).
+- Infra (`infra/`, código apenas — nenhum `terraform apply` executado): GSI7 novo no
+  `dynamo-table` (tenant-scoped, incluído na política geral — não isolado como GSI3/GSI6);
+  módulo Lambda `subjects_handler`; 13 rotas `/subjects*` + 3 rotas `/items/{itemId}/watchers*`
+  (reaproveitando o Lambda já existente de `items_handler`, sem infra nova) no `api-gateway`.
+  Todos os `.tftest.hcl` atualizados (7 GSIs, 19 Lambdas, contagens de rota) e verificados:
+  `terraform test` mock_provider (dynamo-table + api-gateway, 5/5) e real provider plan-only
+  (`AWS_PROFILE=claude-dev`, dynamo_table_policy 2/2 + stack.tftest.hcl 13/13). `terraform fmt
+  -check` limpo.
+- **`terraform plan` real contra `dev` executado e verificado (nunca aplicado)**: 24 a criar, 54
+  a atualizar (bump de versão esperado — mesmo padrão já documentado em M5/M6, toda função ganha
+  nova versão porque o módulo `table` compartilhado mudou), **0 a destruir**. GSI7 é adição pura
+  in-place na tabela existente, nunca replace.
+- `docs/architecture/data-model.md` (§2/§3) e `requirements.md` (§1.8, FR-070..074) atualizados
+  com as entidades/GSI7/requisitos reais — não ficam mais só no `roadmap-evolution/`.
+  `decisions-log.md` ganhou D-044.
+
+**Pendência real, não resolvida nesta sessão — decisão do Marcelo**: deploy real (merge
+`develop→main`, que aciona `cd.yml` automaticamente) não foi executado. `terraform plan` está
+limpo e verificado, mas abrir/mergear o PR é ação visível/compartilhada que exige confirmação
+explícita (`AGENTS.md` §3) — diferente de "implementar", que já estava autorizado.
+
+**Próxima ação real**: (1) Marcelo decide se/quando mergear `develop→main` para deploy real de
+M9; (2) depois disso, seguir para M10 (Guest Collection & Automated Chasing) seguindo o mesmo
+padrão desta sessão, ou repriorizar conforme `10-phase3-scoring-and-roadmap.md`.
+
 ## Evolução estratégica do roadmap — Fases 1-3 CONCLUÍDAS (2026-08-23), aguardando decisão do Marcelo sobre implementação
 
 Marcelo trouxe um prompt de evolução estratégica (`Prompt — Evolução Estratégica e Arquitetural do

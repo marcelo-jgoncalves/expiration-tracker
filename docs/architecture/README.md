@@ -4,7 +4,7 @@
 Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
 Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
-Last verified:           2026-08-22 (M6 implementado/deployado/verificado em produção real; design de M7 aprovado, implementação não iniciada — ver `NEXT_SESSION_PROMPT.md`)
+Last verified:           2026-08-23 (M6 implementado/deployado/verificado em produção real; M9 implementado em `develop`, NÃO deployado; design de M7 aprovado, implementação não iniciada — ver `NEXT_SESSION_PROMPT.md`)
 ```
 
 Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a próxima ação concreta.

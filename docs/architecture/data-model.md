@@ -41,6 +41,10 @@ Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<i
 | UploadSlot | objectKey exato, limite, status (PENDING/CONFIRMED/REFUNDED), expiresAt | `TENANT#t#UPLOAD` / `SLOT#<id>` |
 | AuditEvent | auditEventId, tipo, ator, ação, recurso, itemId?, versões anterior/nova, mudanças redigidas, timestamp, correlation/causation IDs — **append-only, sem update/delete normal** | `TENANT#t#AUDIT#<yyyyMM>` / `EVT#<timestamp>#<id>` |
 | IdentityMapping | cognitoSub, userId, tenantId — criado atomicamente (`ConditionExpression attribute_not_exists`) no primeiro login | `IDENTITY#cognitoSub#<sub>` / `MAP` |
+| TrackedSubject *(M9, D-036, `roadmap-evolution/03-domain-model-tracked-subject-requirement.md`)* | subjectId, type (COMPANY/VENDOR/CLIENT/EMPLOYEE/ASSET/LOCATION/CUSTOM), displayName/displayNameNormalized, notes?, tags[], status (ACTIVE/ARCHIVED/DELETED), version | `TENANT#t#SUBJECT#s` / `META` |
+| RequirementAssignment *(M9, D-036)* | assignmentId, subjectId, requirementName, requirementDefinitionId? (escape hatch — `RequirementDefinition`/`RequirementTemplate` deferidos por completo), notes?, status (MISSING/REQUESTED/SUBMITTED/UNDER_REVIEW/REJECTED/SATISFIED — só MISSING⇄SATISFIED tem transição implementada em M9), linkedItemId?, version. Coleção sob a partição do subject, mesmo padrão já usado por `User`/sessão e `Document`/item — sem GSI novo | `TENANT#t#SUBJECT#s` / `REQASSIGN#a` |
+| TenantEntitlement *(M9, D-038)* | planId (default `"free"`), activeTrackedSubjectsLimit, activeTrackedSubjectsCount — incrementado/decrementado na MESMA transação que cria/arquiva um `TrackedSubject`, version | `TENANT#t#ENTITLEMENT` / `PLAN` |
+| ItemWatch *(M9, D-040, extensão do módulo expiration)* | itemId, userId, status (ACTIVE/REMOVED), version. Coleção sob a partição do `ExpirationItem`, nunca muta o agregado item | `TENANT#t#ITEM#i` / `WATCH#USER#u` |
 
 **IdentityMapping — segunda e única outra exceção de particionamento (`implementation-blueprint.md` §23.1)**: fora do agregado `TENANT#...` porque a busca `cognitoSub → userId/tenantId` ocorre *antes* de `tenantId` ser conhecido — mesmo motivo estrutural do GSI3 (a chave não pode depender de um dado ainda não resolvido no momento da consulta).
 
@@ -51,6 +55,7 @@ Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<i
 - **GSI4 — membership por usuário**: `PK=TENANT#t#USER#u`, `SK=ORG#o#MEMBERSHIP#m`.
 - **GSI5 — provider callback**: `PK=TENANT#t#PROVIDER#p`, `SK=MSG#<providerMessageId>`. Localiza a tentativa correta a partir de webhook de delivery/bounce.
 - **GSI6 — retenção/reconciliação**: `PK=TENANT#t#PURGE#yyyyMM` ou `...#WORKSTATE#<status>`, `SK=<purgeAfter/expiresAt>#<type>#<id>`. Suporta purge, upload slots vencidos, inbox/outbox e jobs pendentes num índice único. TTL é limpeza auxiliar, nunca gatilho operacional (evita depender de timing assíncrono do TTL para correção — mesma lição do reconciliador de upload da Fase 3 Rodada 6).
+- **GSI7 — listagem de `TrackedSubject`** *(M9, D-036)*: `PK=TENANT#t#SUBJECTSTATUS#<status>`, `SK=TYPE#<type>#NAME#<displayNameNormalized>#SUBJECT#<subjectId>`. Escopo único (só listagem de subject por status/tipo/nome — decisão explícita de não misturar com outro access pattern no mesmo índice, `roadmap-evolution/03-...md` rodada 2). Tenant-scoped, entra na política geral `tenant_facing_read_write`/`tenant_facing_read`, nunca isolado como GSI3/GSI6. `RequirementAssignment` não usa GSI novo — é coleção sob a partição do subject (ver §2).
 
 ## 4. Idempotência
 Chaves materializadas com `PutItem attribute_not_exists(PK)`:

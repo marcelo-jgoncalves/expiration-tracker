@@ -68,6 +68,13 @@ Convenção de IDs: `FR-xxx`, `NFR-xxx`, `SEC-xxx`, `PRIV-xxx`, `COST-xxx`, `SCA
 - **FR-060** — Sistema deve registrar evento de auditoria para: criação, edição, exclusão/arquivamento de item; substituição de documento; renovação; agendamento de alerta; envio de alerta; falha de alerta; confirmação do usuário; alteração de responsável.
 - **FR-061** — Eventos de auditoria devem ser imutáveis após gravação (append-only) e associados a ator, timestamp e item afetado.
 
+### 1.8 TrackedSubject e Requisitos (M9 — evolução estratégica do roadmap, D-036/D-038/D-040, implementado em `develop`, ainda não deployado)
+- **FR-070** — Usuário deve poder cadastrar um `TrackedSubject` (fornecedor, cliente, funcionário, ativo, local ou tipo customizado) como entidade própria do tenant, distinta de `Organization`/`User` (`roadmap-evolution/03-domain-model-tracked-subject-requirement.md`).
+- **FR-071** — Usuário deve poder associar um ou mais requisitos (`RequirementAssignment`) a um `TrackedSubject`, cujo estado pode ser `MISSING` mesmo sem nenhum `ExpirationItem`/documento existir ainda — estado não representável hoje por `ExpirationItem` sozinho.
+- **FR-072** — Um `RequirementAssignment` pode ser vinculado manualmente a um `ExpirationItem` já existente do tenant, marcando-o como satisfeito (`SATISFIED`); a validade exibida (`VALID`/`EXPIRING`/`EXPIRED`) deve ser sempre derivada do `ExpirationItem` linkado no momento da leitura, nunca persistida de forma concorrente em `RequirementAssignment` (evita fonte-dupla-de-verdade).
+- **FR-073** — Sistema deve limitar o número de `TrackedSubject` ativos por tenant conforme o plano vigente (`TenantEntitlement`, default 25 no plano free — `roadmap-evolution/05-domain-model-organization-billing.md`), rejeitando a criação de forma fail-closed (nunca parcial) ao atingir o limite.
+- **FR-074** — Usuário deve poder observar (`watch`) um `ExpirationItem` sem ser o responsável (`assigneeUserId`) primário, e deixar de observá-lo a qualquer momento — sem que isso altere a versão OCC do item observado (`roadmap-evolution/07-domain-model-escalation-watchers-digest.md`).
+
 ---
 
 ## 2. Non-Functional Requirements (NFR)
