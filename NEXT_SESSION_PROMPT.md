@@ -1,6 +1,61 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## M10 (Guest Collection & Automated Chasing) — fatia de guest upload IMPLEMENTADA EM `develop`, NÃO DEPLOYADA (2026-08-23) — leia isto primeiro
+## M10, cluster 4 (Automated Document Chasing) — pré-requisito de capacidade FECHADO (D-046), implementação BLOQUEADA por um gap real de design descoberto nesta sessão — leia isto primeiro
+
+Continuação direta da mesma sessão/autorização do guest upload (seção seguinte). Antes de
+escrever qualquer código de cluster 4, fiz a mini-revisão de capacidade que `06-domain-model-automated-chasing.md`
+(D-039) exigia como pré-requisito — **fechada** (D-046,
+`roadmap-evolution/12-automated-chasing-capacity-review.md`, `data-model.md` GSI3 atualizado):
+pico orgânico combinado (~15,2/s) fica ~220× abaixo do SLO de drenagem de pico extremo
+(`slo.md`, ~3.333/s) — GSI3 reaproveitado sem shards adicionais, aprovado.
+
+**Ao planejar a implementação real (materializer → producer → dispatch/delivery), encontrei um
+gap de design real, nunca antes decidido — nem em `04-domain-model-guest-upload.md` (cluster 2,
+guest upload em si) nem em `06-domain-model-automated-chasing.md` (cluster 4): não existe, em
+lugar nenhum do código ou do design, um mecanismo de ENVIO do link/token para o destinatário
+externo.** `DocumentRequestService.createDocumentRequest` (M10 desta sessão) só retorna o token
+na resposta da API — quem entrega esse link ao fornecedor hoje é 100% manual (o usuário do tenant
+copia/cola). Isso nunca foi um problema até agora porque nada precisava reconstruir o link depois
+da criação. **Automated chasing muda isso**: por design, precisa reenviar um link funcional em
+cada nível de cobrança (T-7/T-3/EXPIRED) — mas o `secret` do token **nunca é persistido em lugar
+nenhum** (só o hash HMAC-SHA256+pepper, decisão de segurança já implementada e correta para o
+guest upload em si) — então **não há como reconstruir o link original para reenviar**.
+
+**Por que isso bloqueia, e não é uma escolha que eu deva fazer sozinho**: resolver isso exige uma
+decisão nova de segurança/modelo de dados — não coberta por nenhum dos dois designs já aprovados
+via protocolo. Duas rotas plausíveis identificadas (não avaliadas a fundo, não decididas):
+(a) **rotacionar o token a cada disparo de chasing** — o worker de dispatch emite um novo
+`GuestTokenPointer` (via `issueGuestToken`, já existente) e atualiza `DocumentRequest.tokenSelectorHash`/
+`tokenVersion` (ambos os campos já existem no schema atual, exatamente para isso), embutindo o
+link novo no e-mail; o pointer antigo simplesmente expira pelo próprio TTL, sem precisar ser
+revogado ativamente. Mais simples de implementar, mais seguro (reduz a janela de exposição de
+qualquer link único), mas muda a UX (só o e-mail mais recente tem o link válido); ou (b)
+**persistir o secret cifrado** (KMS) separado do hash de autenticação, decifrável só pelo worker de
+chasing no momento do envio — preserva um único link estável, mas adiciona uma chave/política KMS
+nova e um segundo "algo secreto" no modelo, contrariando a postura atual ("nunca o secret em texto
+puro persistido"). **Nenhuma das duas foi escolhida** — decisão de segurança/modelo de dados nova,
+nível 5-6 da escala de risco (`AGENTS.md` §4 torna o protocolo Claude↔Codex obrigatório aqui, não
+opcional), fora do escopo do que já foi decidido e aprovado. Também descobri, como consequência
+direta do mesmo gap, que **o guest upload em si (cluster 2, já implementado) nunca teve um
+mecanismo de e-mail de convite inicial automatizado** — hoje é 100% manual; se isso for resolvido
+junto (mesma infraestrutura de envio serviria as duas pontas), vale decidir as duas de uma vez.
+
+**O que ficou pronto e não-bloqueado, seguro para reaproveitar quando a decisão acima for tomada**:
+a mini-revisão de capacidade (D-046) e a atualização de `data-model.md`/GSI3 para "scheduler
+global discriminado por `entityType`" — nenhum dos dois precisa ser refeito. **Nada de
+`DocumentChasingOccurrence`/`DocumentChasingIntent`/producer/dispatch foi escrito** — não faz
+sentido tocar `src/workers/reminder-producer/producer.ts` (o arquivo mais maduro/sensível do
+projeto) para uma feature cujo mecanismo de entrega ainda não está decidido.
+
+**Próxima ação real**: (1) decidir a rota de entrega do link (rotação vs. secret cifrado) — via
+protocolo Claude↔Codex (`AGENTS.md` §4) ou decisão direta do Marcelo, cobrindo também o e-mail de
+convite inicial do cluster 2 se fizer sentido resolver junto; (2) só depois disso, implementar
+cluster 4 de ponta a ponta (domain/materializer/producer branch — que exige editar `producer.ts`
+para discriminar `entityType` na leitura do GSI3, um ponto de risco alto que deve ganhar revisão
+Codex dedicada antes do commit — /dispatch+delivery worker/infra/testes), seguindo o mesmo padrão
+de rigor desta sessão.
+
+## M10 (Guest Collection & Automated Chasing) — fatia de guest upload IMPLEMENTADA EM `develop`, NÃO DEPLOYADA (2026-08-23)
 
 Continuação direta da mesma autorização usada para M9 ("prossiga... o mais longe possível...
 registre e pule para a etapa seguinte", Marcelo indisponível). Implementada a fatia de **guest
