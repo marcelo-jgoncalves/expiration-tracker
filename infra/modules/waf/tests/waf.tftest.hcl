@@ -78,6 +78,16 @@ run "web_acl_has_managed_rules_and_guest_path_rate_limit" {
     condition     = aws_wafv2_web_acl_association.api.resource_arn == "arn:aws:apigateway:us-east-1::/apis/mockapiid/stages/$default"
     error_message = "Web ACL must associate with the API Gateway stage ARN passed in"
   }
+
+  # Real deploy failure (2026-08-23, first real apply of this resource): the real WAFV2
+  # CreateWebACL API rejects any description containing characters outside
+  # ^[\w+=:#@/\-,\.][\w+=:#@/\-,\.\s]+[\w+=:#@/\-,\.]$ (no parentheses/asterisk/em-dash/
+  # accented characters) - mock_provider never calls the real API so it can't catch this by
+  # itself; this regex assertion is the plan-time proxy for that validation.
+  assert {
+    condition     = can(regex("^[\\w+=:#@/\\-,\\.][\\w+=:#@/\\-,\\.\\s]+[\\w+=:#@/\\-,\\.]$", aws_wafv2_web_acl.this.description))
+    error_message = "Web ACL description must match AWS WAFv2's real character restriction - no parentheses, asterisk, em-dash, or accented characters"
+  }
 }
 
 run "guest_path_rate_limit_is_overridable" {
