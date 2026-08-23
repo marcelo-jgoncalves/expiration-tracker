@@ -3,8 +3,14 @@
 # protegidas já existentes) não deve ser afetada pela regra de rate-limit escopada a /guest/*.
 
 resource "aws_wafv2_web_acl" "this" {
-  name        = "${var.name_prefix}-waf"
-  description = "WAF na frente do API Gateway — pré-requisito da rota publica /guest/* (M10, D-037)."
+  name = "${var.name_prefix}-waf"
+  # AWS WAFv2's description field only accepts a narrow character set
+  # (^[\w+=:#@/\-,\.][\w+=:#@/\-,\.\s]+[\w+=:#@/\-,\.]$ - word chars, +=:#@/-,. and whitespace
+  # only; no parentheses, asterisk, em-dash or accented characters) - real deploy failure
+  # (2026-08-23, first real apply of this resource) found this the hard way against the
+  # actual WAFV2 API, not caught by any local plan/validate/mock_provider test since none of
+  # them call the real AWS API to validate free-text field contents.
+  description = "WAF na frente do API Gateway, pre-requisito da rota publica guest, M10 D-037."
   scope       = "REGIONAL"
 
   default_action {
