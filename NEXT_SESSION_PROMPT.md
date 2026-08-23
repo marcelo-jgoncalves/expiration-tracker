@@ -1,6 +1,6 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Evolução estratégica do roadmap — Fase 2b (modelagem de domínio) em andamento (2026-08-23)
+## Evolução estratégica do roadmap — Fases 1-3 CONCLUÍDAS (2026-08-23), aguardando decisão do Marcelo sobre implementação
 
 Marcelo trouxe um prompt de evolução estratégica (`Prompt — Evolução Estratégica e Arquitetural do
 Roadmap do Expiration Tracker.md`, raiz do repo) propondo capacidades comerciais novas
@@ -31,9 +31,9 @@ SubCompliant, VendorJot, Remindax, categoria ampla). Achado central: billing por
 rastreado (`TrackedSubject`) e guest upload/magic link sem conta são padrões de mercado
 dominantes, não especulação — múltiplos concorrentes independentes convergem na mesma mecânica.
 
-**Fase 2b (modelagem de domínio) — 6 de ~8 clusters fechados via protocolo Claude↔Codex completo
-(MCP `codex mcp-server`, sandbox read-only, nota cega, 3 rodadas reais cada)**, todos ≥9,0 dos
-dois lados:
+**Fase 2b (modelagem de domínio) concluída — 7/7 clusters fechados via protocolo Claude↔Codex
+completo (MCP `codex mcp-server`, sandbox read-only, nota cega, 3 rodadas reais cada)**, todos
+≥9,0 dos dois lados:
 
 | # | Cluster | Nota | Documento |
 |---|---|---|---|
@@ -43,17 +43,42 @@ dois lados:
 | 4 | Automated document chasing (Reminder Engine) | 9,1/9,2 | `06-domain-model-automated-chasing.md` |
 | 5 | Escalation/watchers/digest | 9,2/9,4 | `07-domain-model-escalation-watchers-digest.md` |
 | 6 | Custom fields (rejeitado/adiado por padrão) | 9,1/9,0 | `08-domain-model-custom-fields.md` |
+| 7 | CSV import/export | 9,2/9,4 | `09-domain-model-csv-import.md` |
 
 Achados técnicos reais capturados pelo protocolo adversarial (não só concordância): GSI novo
 evitado 2x reaproveitando padrões já existentes no código (`IdentityMapping` para guest token
-lookup; coleção sob partição do item/subject para `ItemWatch`/`RequirementAssignment`);
-generalização de `NotificationIntent`/`ReminderOccurrence` (já em produção) rejeitada em favor de
-agregados-irmãos, aplicando o mesmo precedente que o próprio projeto já usou em M7
-(parser-sandbox isolado); billing reordenado para vir por `TrackedSubject` ANTES de
-Organization/Membership (inverte a ordem do prompt original, com base em evidência de mercado);
-correção pendente real identificada em `evolution.md:13` (plano de migração de 3 fases subestima
-que `tenantId` está embutido em chaves físicas/GSIs, não só atributo) — registrada para correção
-formal na Fase 3, não editada especulativamente agora.
+lookup; coleção sob partição do item/subject para `ItemWatch`/`RequirementAssignment`/
+`DocumentRequest`/`DocumentSubmission`); generalização de `NotificationIntent`/
+`ReminderOccurrence` (já em produção) rejeitada em favor de agregados-irmãos, aplicando o mesmo
+precedente que o próprio projeto já usou em M7 (parser-sandbox isolado); billing reordenado para
+vir por `TrackedSubject` ANTES de Organization/Membership (inverte a ordem do prompt original,
+com base em evidência de mercado); guest upload/chasing desacoplados de billing pago (free tier,
+padrão de mercado real); formula/CSV injection mitigada na exportação, não na entrada (evita
+falso positivo); plano de import linha-a-linha em S3, não DynamoDB por linha (custo); correção
+pendente real identificada em `evolution.md:13` (plano de migração de 3 fases subestima que
+`tenantId` está embutido em chaves físicas/GSIs, não só atributo) — registrada para correção
+formal, não editada especulativamente.
+
+**Fase 3 (síntese final) concluída**: `docs/architecture/roadmap-evolution/
+10-phase3-scoring-and-roadmap.md` (executive summary, feature score ponderado, roadmap M9-M13
+completo por milestone, dependency graph) e `11-phase3-impacts-and-closing.md` (domain model
+antes/depois, impactos de arquitetura/segurança/persistência/custo, 10 ADRs candidatos,
+estratégia de teste/migração, 8 perguntas abertas reais, 9 capacidades rejeitadas/adiadas).
+**Roadmap proposto**: M9 Commercial Domain Foundation (`TrackedSubject`/`RequirementAssignment`/
+Entitlement mínimo/watchers) → M10 Guest Collection & Automated Chasing (guest upload+chasing) →
+M11 Bulk Operations (CSV import/export) → M12 Commercial Monetization (billing real) → M13
+Commercial Accounts (Organization/RBAC, gatilho B2B, independente do resto). O pacote completo
+passou por revisão adversarial final de coerência (nota 8,2/10, 8 achados reais corrigidos:
+contagem de GSI errada, CSV export sem milestone, ADR faltante, contradição no dependency graph,
+residuais fora de P/Q, nota de risco de Organization/RBAC contradizendo o próprio texto,
+descrição errada de `notes?` como mudança de core).
+
+**Nenhuma implementação de código foi feita ou autorizada.** Próxima ação real: Marcelo decide
+quais milestones (M9-M13) priorizar e quando autorizar o início de implementação de cada um —
+mesmo padrão de decisão explícita já usado para M7. Esta sessão trabalhou autonomamente durante
+o período em que Marcelo estava indisponível (instrução explícita: "não pare o trabalho... adie
+a etapa que exigir minha decisão e siga em frente") — por isso o roadmap está pronto até o ponto
+de decisão de priorização, sem ter cruzado a linha de "começar a implementar sem autorização".
 
 **Próxima ação real**: cluster 7 (último antes da Fase 3) — CSV import/export, eixo Qualidade de
 Engenharia + Segurança. Depois disso, síntese da Fase 3 (roadmap final milestone-a-milestone,
