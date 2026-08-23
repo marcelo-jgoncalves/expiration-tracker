@@ -31,6 +31,8 @@ run "jwt_authorizer_attached_to_every_route" {
     notifications_function_name = "notifications"
     documents_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
     documents_function_name     = "documents"
+    subjects_invoke_arn         = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
+    subjects_function_name      = "subjects"
   }
 
   assert {
@@ -72,8 +74,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.items) == 7
-    error_message = "Expected exactly 7 /items* routes (create, dashboard, get, update, delete, archive, renew)"
+    condition     = length(aws_apigatewayv2_route.items) == 10
+    error_message = "Expected exactly 10 /items* routes (create, dashboard, get, update, delete, archive, renew, add_watcher, remove_watcher, list_watchers)"
   }
 
   assert {
@@ -154,6 +156,11 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "DocumentsHandler invoke permission must be scoped to the 'live' alias"
   }
 
+  assert {
+    condition     = aws_lambda_permission.subjects.qualifier == "live"
+    error_message = "SubjectsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
   # Every /items/{itemId}/documents* route exists and is JWT-authorized (M6).
   assert {
     condition = alltrue([
@@ -173,5 +180,26 @@ run "jwt_authorizer_attached_to_every_route" {
       "DELETE /items/{itemId}/documents/{documentId}",
     )
     error_message = "DELETE /items/{itemId}/documents/{documentId} route must exist"
+  }
+
+  # Every /subjects* route exists and is JWT-authorized (M9, D-036/D-040).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.subjects : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /subjects* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.subjects) == 13
+    error_message = "Expected exactly 13 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "POST /subjects/{subjectId}/requirements/{assignmentId}/link",
+    )
+    error_message = "POST /subjects/{subjectId}/requirements/{assignmentId}/link route must exist"
   }
 }

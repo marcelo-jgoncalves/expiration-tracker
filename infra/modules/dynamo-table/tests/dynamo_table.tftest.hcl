@@ -1,5 +1,6 @@
-# Recreates the acceptance criteria from test/infra/stack.test.ts (6-GSI /
-# KEYS_ONLY-projection test) as native `terraform test` assertions. Uses a mocked AWS
+# Recreates the acceptance criteria from test/infra/stack.test.ts (originally 6-GSI,
+# now 7 after GSI7 - M9, D-036 - / KEYS_ONLY-projection test) as native `terraform test`
+# assertions. Uses a mocked AWS
 # provider (no real credentials/resources needed or created — see ADR-0009 and the repo's
 # hard rule against `terraform apply` against real AWS; this mocked apply never touches
 # AWS at all).
@@ -11,7 +12,7 @@
 
 mock_provider "aws" {}
 
-run "creates_one_table_with_six_gsis" {
+run "creates_one_table_with_seven_gsis" {
   # command = apply here (not plan): with the mocked provider, the
   # global_secondary_index set's identity can't be resolved from an unapplied plan alone.
   # mock_provider means no real AWS resources are ever created — safe, same as `terraform
@@ -25,8 +26,8 @@ run "creates_one_table_with_six_gsis" {
   }
 
   assert {
-    condition     = length(aws_dynamodb_table.this.global_secondary_index) == 6
-    error_message = "Expected exactly 6 GSIs on the table"
+    condition     = length(aws_dynamodb_table.this.global_secondary_index) == 7
+    error_message = "Expected exactly 7 GSIs on the table"
   }
 
   assert {

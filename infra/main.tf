@@ -60,6 +60,22 @@ module "items_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+module "subjects_handler" {
+  source = "./modules/lambda-function"
+
+  # M9 (D-036/D-040): TrackedSubject + RequirementAssignment + ItemWatch (watchers ficam no
+  # items_handler existente, reaproveitando a mesma Lambda de expiration - ver api-gateway).
+  # Sem capability nova alem da geral: GSI7 e tenant-scoped, ja incluido em
+  # tenant_facing_read_write_policy_json (dynamo-table module).
+  function_name         = "${local.name_prefix}-subjects-handler"
+  handler_name          = "subjects-handler"
+  source_dir            = "${local.dist_dir}/subjects-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 module "reminders_handler" {
   source = "./modules/lambda-function"
 
@@ -223,6 +239,8 @@ module "api" {
   notifications_function_name = module.notifications_handler.function_name
   documents_invoke_arn        = module.documents_handler.live_alias_invoke_arn
   documents_function_name     = module.documents_handler.function_name
+  subjects_invoke_arn         = module.subjects_handler.live_alias_invoke_arn
+  subjects_function_name      = module.subjects_handler.function_name
   tags                        = { Project = local.project_name, Environment = var.environment }
 }
 

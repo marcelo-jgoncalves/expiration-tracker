@@ -25,7 +25,7 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "thirteen_lambda_functions_exist_no_placeholder" {
+run "nineteen_lambda_functions_exist_no_placeholder" {
   command = plan
 
   # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
@@ -33,13 +33,13 @@ run "thirteen_lambda_functions_exist_no_placeholder" {
   # here - the lambda-function module always zips an on-disk directory via data.archive_file
   # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 18
-    error_message = "Expected exactly 18 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6)"
+    condition     = length(output.lambda_function_names) == 19
+    error_message = "Expected exactly 19 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 18
-    error_message = "All 18 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 19
+    error_message = "All 19 Lambda function names must be distinct"
   }
 }
 
@@ -338,8 +338,8 @@ run "gsi3_has_keys_only_projection" {
   }
 
   assert {
-    condition     = module.table.gsi_count == 6
-    error_message = "Table must have exactly 6 GSIs"
+    condition     = module.table.gsi_count == 7
+    error_message = "Table must have exactly 7 GSIs"
   }
 }
 
@@ -475,8 +475,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 18
-    error_message = "Deploy manifest map must cover exactly the 18 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 19
+    error_message = "Deploy manifest map must cover exactly the 19 real Lambda functions"
   }
 
   assert {

@@ -35,10 +35,10 @@ output "gsi6_read_policy_json" {
 # addressable from a caller's .tftest.hcl). Literal values, not read off
 # aws_dynamodb_table.this.global_secondary_index - that computed attribute is only known
 # after apply for a not-yet-created table, which would make plan-mode `terraform test`
-# assertions on it fail with "Unknown condition value". The GSI set (GSI1-GSI6, GSI3
+# assertions on it fail with "Unknown condition value". The GSI set (GSI1-GSI7, GSI3
 # KEYS_ONLY) is hardcoded in main.tf, not variable-driven, so literals here are exact.
 output "gsi_count" {
-  value = 6
+  value = 7
 }
 
 output "gsi3_projection_type" {

@@ -81,6 +81,11 @@ locals {
     delete    = { method = "DELETE", path = "/items/{itemId}" }
     archive   = { method = "POST", path = "/items/{itemId}/archive" }
     renew     = { method = "POST", path = "/items/{itemId}/renew" }
+    # D-040 (07-domain-model-escalation-watchers-digest.md): ItemWatch reaproveita o mesmo
+    # Lambda/integracao de ItemsHandler, nao introduz funcao/infra nova.
+    add_watcher    = { method = "POST", path = "/items/{itemId}/watchers/{userId}" }
+    remove_watcher = { method = "DELETE", path = "/items/{itemId}/watchers/{userId}" }
+    list_watchers  = { method = "GET", path = "/items/{itemId}/watchers" }
   }
 
   reminders_routes = {
@@ -171,6 +176,52 @@ resource "aws_lambda_permission" "documents" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/documents*"
+}
+
+# --- SubjectsHandler: /subjects* (M9, D-036/D-040 - TrackedSubject + RequirementAssignment) --
+
+resource "aws_apigatewayv2_integration" "subjects" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.subjects_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  subjects_routes = {
+    create      = { method = "POST", path = "/subjects" }
+    dashboard   = { method = "GET", path = "/subjects/dashboard" }
+    get_by_id   = { method = "GET", path = "/subjects/{subjectId}" }
+    update      = { method = "PUT", path = "/subjects/{subjectId}" }
+    delete      = { method = "DELETE", path = "/subjects/{subjectId}" }
+    archive     = { method = "POST", path = "/subjects/{subjectId}/archive" }
+    assign_req  = { method = "POST", path = "/subjects/{subjectId}/requirements" }
+    list_req    = { method = "GET", path = "/subjects/{subjectId}/requirements" }
+    get_req     = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    update_req  = { method = "PUT", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    delete_req  = { method = "DELETE", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
+    link_item   = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/link" }
+    unlink_item = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/unlink" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "subjects" {
+  for_each = local.subjects_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.subjects.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "subjects" {
+  statement_id  = "AllowApiGatewayInvokeSubjects"
+  action        = "lambda:InvokeFunction"
+  function_name = var.subjects_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/subjects*"
 }
 
 # --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------

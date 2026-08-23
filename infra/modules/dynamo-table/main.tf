@@ -73,6 +73,14 @@ resource "aws_dynamodb_table" "this" {
     name = "GSI6SK"
     type = "S"
   }
+  attribute {
+    name = "GSI7PK"
+    type = "S"
+  }
+  attribute {
+    name = "GSI7SK"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "GSI1"
@@ -118,6 +126,16 @@ resource "aws_dynamodb_table" "this" {
     projection_type = "ALL"
   }
 
+  # GSI7 - listagem de TrackedSubject por status/tipo/nome (M9, D-036,
+  # 03-domain-model-tracked-subject-requirement.md). Tenant-scoped (nao e exceção
+  # tenantless como GSI3/GSI6) - entra na politica geral de leitura/escrita abaixo.
+  global_secondary_index {
+    name            = "GSI7"
+    hash_key        = "GSI7PK"
+    range_key       = "GSI7SK"
+    projection_type = "ALL"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
@@ -148,7 +166,7 @@ locals {
   # Resource ARNs for every GSI EXCEPT GSI3/GSI6 (data-model.md §3's isolation safeguard).
   # DynamoDB IAM cannot restrict by SK prefix, so grants are table-level per index
   # (documented judgment call, same as the CDK construct's tenantFacingResources()).
-  tenant_facing_index_names = ["GSI1", "GSI2", "GSI4", "GSI5"]
+  tenant_facing_index_names = ["GSI1", "GSI2", "GSI4", "GSI5", "GSI7"]
   tenant_facing_resources = concat(
     [local.table_arn],
     [for name in local.tenant_facing_index_names : "${local.table_arn}/index/${name}"],

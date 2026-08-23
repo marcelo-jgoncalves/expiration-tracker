@@ -38,6 +38,7 @@ output "lambda_function_names" {
     module.malware_result_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
     module.parser_sandbox.function_name,
+    module.subjects_handler.function_name,
   ]
 }
 
@@ -64,6 +65,7 @@ output "lambda_published_versions" {
     (module.malware_result_handler.function_name)             = module.malware_result_handler.published_version
     (module.upload_slot_reconciliation_handler.function_name) = module.upload_slot_reconciliation_handler.published_version
     (module.parser_sandbox.function_name)                     = module.parser_sandbox.published_version
+    (module.subjects_handler.function_name)                   = module.subjects_handler.published_version
   }
 }
 
