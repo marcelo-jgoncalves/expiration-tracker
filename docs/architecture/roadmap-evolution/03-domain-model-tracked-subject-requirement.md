@@ -14,6 +14,13 @@ sandbox read-only, 3 rodadas reais.
 
 **Nota final: Claude 9,1 / Codex 9,1 — gate ≥9,0 atingido, sem arredondar.**
 
+> **Emenda registrada no cluster 6** (`08-domain-model-custom-fields.md`, 2026-08-23):
+> `TrackedSubject.notes?: string` e `RequirementAssignment.notes?: string` (observação humana não
+> indexada, tenant-only) foram adicionados como ajuste posterior a este cluster, para cobrir
+> customização leve sem introduzir `FieldDefinition`/`FieldValue` genérico. Não faziam parte da
+> decisão original abaixo — a fonte de verdade para esses 2 campos é o cluster 6, este documento
+> não foi retroativamente reescrito para não duplicar/divergir.
+
 ## Processo
 
 - **Rodada 1 (propostas independentes, nota cega)**: Claude e Codex propuseram modelagem

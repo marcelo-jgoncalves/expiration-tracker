@@ -130,6 +130,16 @@ tenantless já existentes (`IdentityMapping`). Ambos os lados concordam: não bl
 do modelo de domínio/API/token, mas deve virar gate explícito de segurança antes da implementação
 real — candidato a rodada de debate dedicada ou a verificação factual direta do IAM atual.
 
+## Achado colateral registrado no cluster 6 (não decidido aqui)
+
+O cluster de custom fields (`08-domain-model-custom-fields.md`, 2026-08-23) identificou um caso
+legítimo não coberto: o convidado pode querer deixar uma observação livre ao submeter
+("não tenho esse documento, só a versão anterior"). Isso NÃO é `RequirementAssignment.notes`
+(tenant-only, cluster 6) — se entrar, seria campo próprio em `DocumentSubmission`, ex.
+`submitterMessage?: string`, append-only. **Não decidido nesta rodada nem na do cluster 6** —
+extensão pequena possível deste cluster, registrada para avaliação futura, não parte do modelo
+fechado abaixo.
+
 ## Próxima ação
 
 Terceiro cluster de debate (Fase 2b continua): `Organization`/`Membership`/RBAC + billing —

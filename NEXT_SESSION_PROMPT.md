@@ -1,6 +1,6 @@
 # Expiration Tracker — Status e Próxima Sessão
 
-## Evolução estratégica do roadmap — Fase 1 (gap analysis) concluída (2026-08-23), Fase 2 ainda não começou
+## Evolução estratégica do roadmap — Fase 2b (modelagem de domínio) em andamento (2026-08-23)
 
 Marcelo trouxe um prompt de evolução estratégica (`Prompt — Evolução Estratégica e Arquitetural do
 Roadmap do Expiration Tracker.md`, raiz do repo) propondo capacidades comerciais novas
@@ -24,6 +24,43 @@ sempre exigem `ExpirationItem` pai já existente (sem caminho para "requisito au
 ainda"); billing já tem lacuna formalmente registrada em `evolution.md` (não drift, lacuna
 conhecida). Documento é insumo de análise, não normativo — supersedido pelos entregáveis de
 domínio/roadmap da Fase 2-3 quando produzidos.
+
+**Fase 2a (pesquisa de mercado) concluída**: `docs/architecture/roadmap-evolution/
+02-market-research.md` — 6 concorrentes reais pesquisados (TrustLayer, Certificial,
+SubCompliant, VendorJot, Remindax, categoria ampla). Achado central: billing por sujeito
+rastreado (`TrackedSubject`) e guest upload/magic link sem conta são padrões de mercado
+dominantes, não especulação — múltiplos concorrentes independentes convergem na mesma mecânica.
+
+**Fase 2b (modelagem de domínio) — 6 de ~8 clusters fechados via protocolo Claude↔Codex completo
+(MCP `codex mcp-server`, sandbox read-only, nota cega, 3 rodadas reais cada)**, todos ≥9,0 dos
+dois lados:
+
+| # | Cluster | Nota | Documento |
+|---|---|---|---|
+| 1 | `TrackedSubject`+`RequirementAssignment` | 9,1/9,1 | `03-domain-model-tracked-subject-requirement.md` |
+| 2 | Guest upload/magic link (`DocumentRequest`+`DocumentSubmission`) | 9,2/9,2 | `04-domain-model-guest-upload.md` |
+| 3 | Organization/Membership/RBAC + Billing/Entitlements | 9,2/9,2 | `05-domain-model-organization-billing.md` |
+| 4 | Automated document chasing (Reminder Engine) | 9,1/9,2 | `06-domain-model-automated-chasing.md` |
+| 5 | Escalation/watchers/digest | 9,2/9,4 | `07-domain-model-escalation-watchers-digest.md` |
+| 6 | Custom fields (rejeitado/adiado por padrão) | 9,1/9,0 | `08-domain-model-custom-fields.md` |
+
+Achados técnicos reais capturados pelo protocolo adversarial (não só concordância): GSI novo
+evitado 2x reaproveitando padrões já existentes no código (`IdentityMapping` para guest token
+lookup; coleção sob partição do item/subject para `ItemWatch`/`RequirementAssignment`);
+generalização de `NotificationIntent`/`ReminderOccurrence` (já em produção) rejeitada em favor de
+agregados-irmãos, aplicando o mesmo precedente que o próprio projeto já usou em M7
+(parser-sandbox isolado); billing reordenado para vir por `TrackedSubject` ANTES de
+Organization/Membership (inverte a ordem do prompt original, com base em evidência de mercado);
+correção pendente real identificada em `evolution.md:13` (plano de migração de 3 fases subestima
+que `tenantId` está embutido em chaves físicas/GSIs, não só atributo) — registrada para correção
+formal na Fase 3, não editada especulativamente agora.
+
+**Próxima ação real**: cluster 7 (último antes da Fase 3) — CSV import/export, eixo Qualidade de
+Engenharia + Segurança. Depois disso, síntese da Fase 3 (roadmap final milestone-a-milestone,
+lista de ADRs candidatos, DAG de dependências, impacto de segurança/privacidade/persistência/
+custo, estratégia de teste/migração, perguntas abertas reais, lista de rejeitados — entregáveis
+A-Q do prompt estratégico). **Implementação de qualquer milestone novo continua não autorizada
+sem decisão explícita do Marcelo**, mesmo depois da Fase 3 pronta.
 
 **Próxima ação real**: Fase 2 — pesquisa de mercado externa (Remindax, Doc Warden, SubCompliant,
 VendorJot, TrustLayer, Certificial etc.), tentativa de refutar cada capacidade proposta, e rodadas
