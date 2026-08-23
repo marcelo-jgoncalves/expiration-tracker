@@ -51,6 +51,11 @@ export interface ImportJob extends EntityKey {
    * o commit worker validar que está lendo exatamente o plano que o preview mostrou. */
   planObjectKey?: string;
   planSha256?: string;
+  /** Cursor de progresso do commit (D-042 "Residuais": política de commit parcial não
+   * decidida na rodada de design - resolvida aqui como: commit sequencial com cursor,
+   * retomável de forma segura após um retry do worker (SQS at-least-once) sem duplicar linhas
+   * já committadas. Avança só DEPOIS de cada linha confirmada. */
+  lastCommittedRowNumber?: number;
   failureReason?: string;
   /** TTL lógico (não confundir com `purgeAfterTtl` de outras entidades tenantless) - um job
    * nunca commitado expira depois de 7 dias, liberando o operador de decidir manualmente. */

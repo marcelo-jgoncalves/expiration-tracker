@@ -40,7 +40,12 @@ export type Action =
   // upload — decisão de comunicação externa/reputação de todo o tenant, não uma ação por
   // request individual (essa é `requirement:request-document` acima) - ADMIN_ROLES, nunca
   // WRITE_ROLES.
-  | "tenant:configure-document-request-delivery";
+  | "tenant:configure-document-request-delivery"
+  // M11 (CSV import/export, D-042, 09-domain-model-csv-import.md, cluster 7): superfície de
+  // processamento em massa - mesma granularidade de document:reserve-upload/document:read.
+  | "import:create"
+  | "import:read"
+  | "import:commit";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -91,6 +96,9 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "requirement:review": WRITE_ROLES,
   "requirement:request-document": WRITE_ROLES,
   "tenant:configure-document-request-delivery": ADMIN_ROLES,
+  "import:create": WRITE_ROLES,
+  "import:read": READ_ONLY_ROLES,
+  "import:commit": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
