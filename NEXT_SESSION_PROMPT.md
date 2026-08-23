@@ -1,5 +1,53 @@
 # Expiration Tracker — Status e Próxima Sessão
 
+## D-052 (M12 bloqueado) + alarmes de import worker deployados — leia isto primeiro (2026-08-23, sessão autônoma)
+
+Continuação da mesma autorização de sessões anteriores (Marcelo indisponível, "trabalhe de forma
+mais autônoma possível"). Confirmado primeiro: o CD pós-D-051 (PR #39/#40) completou com sucesso
+— **M9+M10+M11 estão de fato deployados e funcionais em `dev`** (`docs/architecture/README.md`
+atualizado, estava desatualizado apontando "não deployado"). Gasto real do mês confirmado via
+Cost Explorer antes de qualquer trabalho novo: ~US$0,66 (23 dias), bem abaixo do teto de US$5/mês.
+
+**M12 (Commercial Monetization/Billing) avaliado e registrado como BLOQUEADO — zero código
+novo**, via protocolo Claude↔Codex (D-052, 2 rodadas, 9,3/9,4,
+`docs/architecture/roadmap-evolution/15-m12-billing-scope-decision.md`). Achado real: a
+mensagem de handoff anterior chamava a próxima etapa de "M12 (Organization/Membership/RBAC)",
+mas isso está invertido no roadmap fechado — Organization/RBAC é **M13**, gated por gatilho
+comercial real (primeira venda B2B, `evolution.md:13`) que não disparou; **M12 real é Billing**,
+bloqueado por decisão de produto (fornecedor de pagamento, "fora deste roadmap" por decisão
+explícita). Mesmo a fatia mínima cogitada (override manual de `TenantEntitlement` para um
+early-adopter negociado direto) foi descartada depois de checar
+`src/modules/identity/domain/authorization.ts` inteiro: o projeto não tem nenhum conceito de
+"platform staff" cross-tenant hoje — criar essa ação exigiria um role novo para um caso ainda
+inexistente, ou deixaria o próprio tenant `OWNER` aumentar seu limite sozinho (bypass de quota
+self-service). Caminho aceito se o caso aparecer: `UpdateItem` manual pontual via
+`buildVersionedUpdate` (`src/shared/dynamodb/occ.ts`), nunca um script/endpoint dedicado hoje.
+
+**Débito técnico residual de M11 fechado nesta sessão**: novo módulo Terraform
+`infra/modules/import-observability` (mesmo padrão de `document-observability`) — alarmes reais
+`ImportParseWorkerErrors` (exceção do handler ou outcome `FAILED`) e `ImportCommitWorkerErrors`
+(exceção, payload schema-inválido, ou `FAILED_INTEGRITY_MISMATCH`) wireados ao SNS `alert_topic`
+já existente. `FAILED_ENTITLEMENT_EXCEEDED` deliberadamente não alarmado (desfecho de negócio
+esperado). `terraform test` (módulo novo + suíte raiz `stack.tftest.hcl`, 13/13) e `terraform
+plan` real contra `dev` verificados (8 a criar — exatamente os recursos do módulo novo — 0 a
+destruir) antes do merge. PR #41 mergeado, CI verde, **CD real acompanhado até completar com
+sucesso** — confirmado via `aws cloudwatch describe-alarms` que os 2 alarmes existem de fato em
+`dev` (`INSUFFICIENT_DATA`, esperado - nenhum import rodou ainda).
+
+**Próxima ação real**: nenhum milestone novo tem autorização explícita para começar agora — M7
+(design aprovado) segue aguardando decisão explícita do Marcelo sobre quando começar (gate
+distinto, não coberto pela autorização desta sessão); M12 e M13 seguem bloqueados por decisão de
+produto/gatilho comercial (ver D-052 acima). Candidatos de trabalho não-especulativo ainda
+abertos, se uma sessão futura quiser continuar sem nova decisão de produto: (1) Camada 3 de M6
+— teste real de reconciliação de upload slot expirado (mecanismo implementado/testado
+unitariamente, nunca exercitado contra AWS real); (2) observação menor não investigada a fundo
+nesta sessão — `npm audit --omit=dev` no job `guardrails` segue com annotation "npm audit found
+dev-dependency findings" apontando pacotes (`testcontainers`/`dockerode`/`tar-fs`/`undici`) que
+não batem com os pacotes descritos em `docs/engineering/exceptions.md` EX-001 (vitest/vite/
+esbuild) — pré-existente (confirmado que já aparecia antes desta sessão, run da PR #40), não
+bloqueante (job é informacional), mas `exceptions.md` pode estar desatualizado e vale
+reavaliar/re-registrar quando houver tempo.
+
 ## M9+M10+M11 DEPLOYADOS EM `main` + achado real de WAF corrigido (D-051) — leia isto primeiro
 
 Marcelo autorizou explicitamente o merge `develop→main` (PR #38) depois de M11 completo — CI
