@@ -398,6 +398,26 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid update-document-request-delivery-preference-request (PUT /subjects/document-request-delivery-preference, M10 cluster 4, D-049)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
+      initialInviteDeliveryDefault: "EMAIL",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an update-document-request-delivery-preference-request with an invalid mode", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
+      initialInviteDeliveryDefault: "AUTOMATIC", // only MANUAL/EMAIL exist
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an update-document-request-delivery-preference-request missing the required field", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
   // Evolucao estrategica do roadmap (M9, D-036) - schemas novos do modulo subject.
 
   it("accepts a valid create-subject-request", () => {

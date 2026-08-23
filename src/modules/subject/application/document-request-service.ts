@@ -5,16 +5,25 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ConflictError, NotFoundError, QuotaExceededError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { requirementAssignmentKey, REQUIREMENT_ASSIGNMENT_SK_PREFIX, type RequirementAssignment } from "../domain/requirement-assignment.js";
 import { documentRequestKey, type DocumentRequest, type CreateDocumentRequestInput } from "../domain/document-request.js";
 import { guestTokenPointerKey, issueGuestToken, epochSecondsFromIso, GUEST_TOKEN_TTL_SECONDS, type GuestTokenPointer } from "../domain/guest-token.js";
-import { buildSubjectAuditEvent, appendSubjectAuditToTransaction } from "../domain/audit-event.js";
+import { buildSubjectAuditEvent, appendSubjectAuditToTransaction, type SubjectAuditAction, type SubjectAuditResourceType } from "../domain/audit-event.js";
+import {
+  documentRequestDeliveryPreferenceKey,
+  resolveInitialInviteDeliveryMode,
+  type DocumentRequestDeliveryPreference,
+  type DocumentRequestDeliveryMode,
+} from "../domain/document-request-delivery-preference.js";
 import { isTransactionCanceled, type SubjectStore, type TransactWriteEntry } from "../ports/subject-store.js";
 import type { SubjectIdGenerator } from "./id-generator.js";
 import { DocumentChasingMaterializer } from "./document-chasing-materializer.js";
+import { InitialInviteRateLimiter } from "./initial-invite-rate-limiter.js";
 import type { ShardConfig } from "../../reminder/domain/shard-config.js";
+import type { EmailProviderAdapter } from "../../notification/ports/email-provider.js";
+import { sanitizeTenantText } from "../../notification/providers/email-templates.js";
 
 export interface DocumentRequestServiceDeps {
   store: SubjectStore;
@@ -25,6 +34,14 @@ export interface DocumentRequestServiceDeps {
   /** M10 cluster 4 (D-039/D-046): MESMA config de shard do GSI3 usado por reminders — o índice
    * é fisicamente compartilhado, não faz sentido as duas gerações divergirem em v1. */
   shardConfig: ShardConfig;
+  /** M10 cluster 4 (D-049): convite inicial automatizado — kill switch global, default
+   * `false` (env/Terraform, não AppConfig - esse mecanismo só existe no design do M7, ainda
+   * não implementado). Envio NUNCA acontece se `false`, independente de preferência/override. */
+  initialInviteEmailEnabled: boolean;
+  /** Ausentes quando o kill switch está `false` - o serviço nunca tenta enviar nesse caso,
+   * então não precisa forçar essas deps em todo composition root/teste que não usa a feature. */
+  emailProvider?: EmailProviderAdapter;
+  guestUploadBaseUrl?: string;
   now?: () => string;
 }
 
@@ -32,6 +49,9 @@ export interface CreatedDocumentRequest {
   request: DocumentRequest;
   /** Token completo (`selector.secret`) — retornado UMA ÚNICA VEZ, nunca reconstruível depois (só o hash é persistido). */
   guestToken: string;
+  /** M10 cluster 4 (D-049): resultado do convite inicial automatizado, se solicitado -
+   * `undefined` quando `deliveryMode` era `MANUAL` (comportamento inalterado, sem tentativa de envio). */
+  initialInviteDeliveryStatus?: "SENT" | "FAILED" | "DISABLED_BY_KILL_SWITCH";
 }
 
 export class DocumentRequestService {
@@ -40,8 +60,12 @@ export class DocumentRequestService {
   private readonly ids: SubjectIdGenerator;
   private readonly pepper: string;
   private readonly shardConfig: ShardConfig;
+  private readonly initialInviteEmailEnabled: boolean;
+  private readonly emailProvider?: EmailProviderAdapter;
+  private readonly guestUploadBaseUrl: string;
   private readonly now: () => string;
   private readonly chasingMaterializer: DocumentChasingMaterializer;
+  private readonly initialInviteRateLimiter: InitialInviteRateLimiter;
 
   constructor(deps: DocumentRequestServiceDeps) {
     this.store = deps.store;
@@ -49,13 +73,43 @@ export class DocumentRequestService {
     this.ids = deps.ids;
     this.pepper = deps.guestTokenPepper;
     this.shardConfig = deps.shardConfig;
+    this.initialInviteEmailEnabled = deps.initialInviteEmailEnabled;
+    this.emailProvider = deps.emailProvider;
+    this.guestUploadBaseUrl = deps.guestUploadBaseUrl ?? "https://app.example.invalid/guest/document-requests";
     this.now = deps.now ?? (() => new Date().toISOString());
     this.chasingMaterializer = new DocumentChasingMaterializer(this.store, this.now);
+    this.initialInviteRateLimiter = new InitialInviteRateLimiter(this.store, this.now);
   }
 
   async createDocumentRequest(ctx: RequestContext, subjectId: string, assignmentId: string, input: CreateDocumentRequestInput): Promise<CreatedDocumentRequest> {
     const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:request-document", resource: { tenantId: assignment.tenantId } });
+
+    // M10 cluster 4 (D-049): resolve o modo de entrega ANTES de criar qualquer coisa - se
+    // EMAIL foi solicitado (por override ou preferência de tenant) mas o kill switch global
+    // está desligado, o convite simplesmente permanece MANUAL (nunca um erro - o kill switch
+    // é uma válvula de segurança, não uma feature que o chamador precisa saber que existe).
+    const tenantDeliveryDefault = await this.getDocumentRequestDeliveryPreferenceDefault(assignment.tenantId);
+    const deliveryMode = resolveInitialInviteDeliveryMode({ override: input.initialInviteDelivery, tenantDefault: tenantDeliveryDefault });
+    const willAttemptEmail = deliveryMode === "EMAIL" && this.initialInviteEmailEnabled;
+
+    if (deliveryMode === "EMAIL" && !this.initialInviteEmailEnabled) {
+      await this.writeInitialInviteAudit(ctx, assignmentId, "INITIAL_INVITE_EMAIL_DISABLED_BY_KILL_SWITCH", {});
+    }
+
+    // Rate limit verificado ANTES da criação, quando o envio foi de fato solicitado -
+    // bloqueia com 429, nunca cria parcialmente (mesma disciplina fail-closed de
+    // TenantEntitlement/D-038) - diferente de falha de SES pós-criação, que é best-effort.
+    if (willAttemptEmail) {
+      try {
+        await this.initialInviteRateLimiter.consumeInitialInvite(assignment.tenantId, input.recipientEmail);
+      } catch (err) {
+        if (err instanceof QuotaExceededError) {
+          await this.writeInitialInviteAudit(ctx, assignmentId, "INITIAL_INVITE_EMAIL_RATE_LIMITED", {});
+        }
+        throw err;
+      }
+    }
 
     const documentRequestId = this.ids.newAssignmentId();
     const now = this.now();
@@ -139,7 +193,117 @@ export class DocumentRequestService {
       shardConfig: this.shardConfig,
     });
 
-    return { request, guestToken: issued.token };
+    if (deliveryMode === "EMAIL" && !this.initialInviteEmailEnabled) {
+      return { request, guestToken: issued.token, initialInviteDeliveryStatus: "DISABLED_BY_KILL_SWITCH" };
+    }
+    if (!willAttemptEmail) {
+      return { request, guestToken: issued.token };
+    }
+
+    // Best-effort, fora da transação acima (D-049): falha de SES nunca desfaz a criação do
+    // request - o token continua disponível na resposta para fallback manual.
+    await this.writeInitialInviteAudit(ctx, documentRequestId, "INITIAL_INVITE_EMAIL_REQUESTED", {});
+    const guestLink = `${this.guestUploadBaseUrl}?token=${encodeURIComponent(issued.token)}`;
+    try {
+      await this.emailProvider!.send({
+        to: input.recipientEmail,
+        templateId: "document-request-initial-invite",
+        templateVersion: 1,
+        locale: "pt-BR",
+        renderContext: {
+          requirementName: sanitizeTenantText(assignment.requirementName, "documento solicitado"),
+          deadlineLocal: input.deadline?.slice(0, 10),
+          guestLink,
+        },
+        tags: { attemptId: documentRequestId, intentId: documentRequestId, tenantId: assignment.tenantId, correlationId: ctx.correlationId },
+      });
+      await this.writeInitialInviteAudit(ctx, documentRequestId, "INITIAL_INVITE_EMAIL_SENT", {});
+      return { request, guestToken: issued.token, initialInviteDeliveryStatus: "SENT" };
+    } catch (err) {
+      await this.writeInitialInviteAudit(ctx, documentRequestId, "INITIAL_INVITE_EMAIL_FAILED", { after: { reason: err instanceof Error ? err.message : "SEND_FAILED" } });
+      return { request, guestToken: issued.token, initialInviteDeliveryStatus: "FAILED" };
+    }
+  }
+
+  /** M10 cluster 4 (D-049): preferência de TENANT (não por subject/assignment) - default
+   * `MANUAL` quando nunca configurada. */
+  async getDocumentRequestDeliveryPreference(ctx: RequestContext): Promise<DocumentRequestDeliveryMode> {
+    authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.getDocumentRequestDeliveryPreferenceDefault(ctx.tenant.tenantId);
+  }
+
+  async setDocumentRequestDeliveryPreference(ctx: RequestContext, mode: DocumentRequestDeliveryMode): Promise<void> {
+    authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
+
+    const now = this.now();
+    const key = documentRequestDeliveryPreferenceKey(ctx.tenant.tenantId);
+    const existing = await this.store.get<DocumentRequestDeliveryPreference>(key);
+    const entries: TransactWriteEntry[] = existing
+      ? [
+          {
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key,
+              tenantId: ctx.tenant.tenantId,
+              expectedVersion: existing.version,
+              set: { initialInviteDeliveryDefault: mode, updatedByUserId: ctx.principal.userId },
+            }),
+          },
+        ]
+      : [
+          {
+            Put: buildVersionedCreate(this.tableName, {
+              ...key,
+              entityType: "DocumentRequestDeliveryPreference",
+              tenantId: ctx.tenant.tenantId,
+              initialInviteDeliveryDefault: mode,
+              updatedByUserId: ctx.principal.userId,
+              createdAt: now,
+              updatedAt: now,
+              version: 1,
+            } as unknown as Record<string, unknown> & { PK: string; SK: string }),
+          },
+        ];
+    this.appendAudit(entries, ctx, {
+      resourceType: "DocumentRequestDeliveryPreference",
+      resourceId: ctx.tenant.tenantId,
+      subjectId: ctx.tenant.tenantId, // preferência é de tenant, não de subject - sem subject real a referenciar
+      action: "CONFIGURE_DOCUMENT_REQUEST_DELIVERY",
+      previousVersion: existing?.version,
+      newVersion: (existing?.version ?? 0) + 1,
+      changes: { after: { initialInviteDeliveryDefault: mode } },
+    });
+
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("Failed to update document request delivery preference under contention.", { tenantId: ctx.tenant.tenantId });
+      throw err;
+    }
+  }
+
+  private async getDocumentRequestDeliveryPreferenceDefault(tenantId: string): Promise<DocumentRequestDeliveryMode> {
+    const preference = await this.store.get<DocumentRequestDeliveryPreference>(documentRequestDeliveryPreferenceKey(tenantId));
+    return preference?.initialInviteDeliveryDefault ?? "MANUAL";
+  }
+
+  private async writeInitialInviteAudit(
+    ctx: RequestContext,
+    resourceId: string,
+    action: "INITIAL_INVITE_EMAIL_REQUESTED" | "INITIAL_INVITE_EMAIL_SENT" | "INITIAL_INVITE_EMAIL_FAILED" | "INITIAL_INVITE_EMAIL_RATE_LIMITED" | "INITIAL_INVITE_EMAIL_DISABLED_BY_KILL_SWITCH",
+    changes: Record<string, unknown>,
+  ): Promise<void> {
+    const entries: TransactWriteEntry[] = [];
+    this.appendAudit(entries, ctx, {
+      resourceType: "DocumentRequest",
+      resourceId,
+      subjectId: ctx.tenant.tenantId, // trilha por tenant - sem e-mail bruto (D-049), subjectId real não é necessário aqui
+      action,
+      previousVersion: undefined,
+      newVersion: 1,
+      changes,
+    });
+    await this.store.transactWrite(entries);
   }
 
   async getDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
@@ -200,7 +364,7 @@ export class DocumentRequestService {
   private appendAudit(
     entries: TransactWriteEntry[],
     ctx: RequestContext,
-    input: { resourceType: "RequirementAssignment"; resourceId: string; subjectId: string; action: "ASSIGN_REQUIREMENT"; previousVersion: number | undefined; newVersion: number; changes: Record<string, unknown> },
+    input: { resourceType: SubjectAuditResourceType; resourceId: string; subjectId: string; action: SubjectAuditAction; previousVersion: number | undefined; newVersion: number; changes: Record<string, unknown> },
   ): void {
     const event = buildSubjectAuditEvent({
       auditEventId: this.ids.newAuditEventId(),

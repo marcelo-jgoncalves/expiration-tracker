@@ -19,6 +19,7 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 }
 
 const CREATE_DOCUMENT_REQUEST_SCHEMA_ID = "https://expiration-tracker/schemas/api/create-document-request-request.v1.json";
+const UPDATE_DELIVERY_PREFERENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json";
 
 export interface DocumentRequestHttpDeps extends SubjectHttpDeps {
   documentRequests: DocumentRequestService;
@@ -48,9 +49,29 @@ export async function handleCreateDocumentRequest(deps: DocumentRequestHttpDeps,
     validateAgainstSchema(CREATE_DOCUMENT_REQUEST_SCHEMA_ID, req.body);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
     await consumeQuota(deps, context);
-    const { request, guestToken } = await deps.documentRequests.createDocumentRequest(context, subjectId, assignmentId, req.body);
+    const { request, guestToken, initialInviteDeliveryStatus } = await deps.documentRequests.createDocumentRequest(context, subjectId, assignmentId, req.body);
     // guestToken só é retornado nesta chamada - nunca reconstruível depois (só o hash persiste).
-    return { statusCode: 201, body: { request, guestToken } };
+    return { statusCode: 201, body: { request, guestToken, initialInviteDeliveryStatus } };
+  });
+}
+
+export async function handleGetDocumentRequestDeliveryPreference(deps: DocumentRequestHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    await consumeQuota(deps, context);
+    const initialInviteDeliveryDefault = await deps.documentRequests.getDocumentRequestDeliveryPreference(context);
+    return { statusCode: 200, body: { initialInviteDeliveryDefault } };
+  });
+}
+
+export async function handleUpdateDocumentRequestDeliveryPreference(deps: DocumentRequestHttpDeps, req: HttpRequest<{ initialInviteDeliveryDefault: "MANUAL" | "EMAIL" }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(UPDATE_DELIVERY_PREFERENCE_SCHEMA_ID, req.body);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    await consumeQuota(deps, context);
+    await deps.documentRequests.setDocumentRequestDeliveryPreference(context, req.body.initialInviteDeliveryDefault);
+    return { statusCode: 204, body: {} };
   });
 }
 

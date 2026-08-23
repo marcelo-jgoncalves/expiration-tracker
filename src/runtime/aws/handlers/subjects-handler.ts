@@ -28,6 +28,8 @@ import {
   handleListDocumentRequests,
   handleGetDocumentRequest,
   handleRevokeDocumentRequest,
+  handleGetDocumentRequestDeliveryPreference,
+  handleUpdateDocumentRequestDeliveryPreference,
   type DocumentRequestHttpDeps,
 } from "../../../modules/subject/http/document-request-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -41,9 +43,19 @@ const tableName = process.env["TABLE_NAME"];
 const guestTokenPepper = process.env["GUEST_TOKEN_PEPPER"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!guestTokenPepper) throw new Error("GUEST_TOKEN_PEPPER env var is required.");
+// M10 cluster 4 (D-049): kill switch global do convite inicial automatizado - default `false`
+// (env var/Terraform, nunca AppConfig - esse mecanismo só existe no design do M7, ainda não
+// implementado). SES_FROM_ADDRESS/SES_CONFIGURATION_SET só são exigidos quando `true`.
+const initialInviteEmailEnabled = process.env["DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED"] === "true";
+const sesFromAddress = process.env["SES_FROM_ADDRESS"];
+const sesConfigurationSet = process.env["SES_CONFIGURATION_SET"];
+const guestUploadBaseUrl = process.env["GUEST_UPLOAD_BASE_URL"];
+if (initialInviteEmailEnabled && (!sesFromAddress || !sesConfigurationSet)) {
+  throw new Error("SES_FROM_ADDRESS/SES_CONFIGURATION_SET env vars are required when DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED=true.");
+}
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { subjects, requirements } = buildSubjectDeps(client, tableName);
-const { requests: documentRequests } = buildDocumentRequestDeps(client, tableName, guestTokenPepper);
+const { requests: documentRequests } = buildDocumentRequestDeps(client, tableName, guestTokenPepper, initialInviteEmailEnabled, sesFromAddress, sesConfigurationSet, guestUploadBaseUrl);
 const deps: RequirementHttpDeps & SubjectHttpDeps & DocumentRequestHttpDeps = { resolver, quota, subjects, requirements, documentRequests };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
@@ -99,6 +111,10 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
           return await handleGetDocumentRequest(deps, base);
         case "POST /subjects/{subjectId}/document-requests/{documentRequestId}/revoke":
           return await handleRevokeDocumentRequest(deps, base);
+        case "GET /subjects/document-request-delivery-preference":
+          return await handleGetDocumentRequestDeliveryPreference(deps, base);
+        case "PUT /subjects/document-request-delivery-preference":
+          return await handleUpdateDocumentRequestDeliveryPreference(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

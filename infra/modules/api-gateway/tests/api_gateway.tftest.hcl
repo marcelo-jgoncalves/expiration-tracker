@@ -193,8 +193,24 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.subjects) == 13
-    error_message = "Expected exactly 13 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item)"
+    condition     = length(aws_apigatewayv2_route.subjects) == 19
+    error_message = "Expected exactly 19 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests",
+    )
+    error_message = "POST .../document-requests route (create) must exist - achado real, faltava desde a sessão M10 anterior"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "GET /subjects/document-request-delivery-preference",
+    )
+    error_message = "GET /subjects/document-request-delivery-preference route must exist (D-049)"
   }
 
   assert {

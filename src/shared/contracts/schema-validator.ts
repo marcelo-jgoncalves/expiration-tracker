@@ -41,6 +41,7 @@ import assignRequirementRequestV1 from "../../../schemas/api/assign-requirement-
 import updateRequirementAssignmentRequestV1 from "../../../schemas/api/update-requirement-assignment-request.v1.json";
 import linkRequirementItemRequestV1 from "../../../schemas/api/link-requirement-item-request.v1.json";
 import createDocumentRequestRequestV1 from "../../../schemas/api/create-document-request-request.v1.json";
+import updateDocumentRequestDeliveryPreferenceRequestV1 from "../../../schemas/api/update-document-request-delivery-preference-request.v1.json";
 import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
 
 export class SchemaRegistry {
@@ -117,4 +118,5 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   linkRequirementItemRequestV1,
   createDocumentRequestRequestV1,
   startGuestSubmissionRequestV1,
+  updateDocumentRequestDeliveryPreferenceRequestV1,
 ]);

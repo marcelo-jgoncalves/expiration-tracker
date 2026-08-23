@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json",
+  "title": "UpdateDocumentRequestDeliveryPreferenceRequest v1",
+  "description": "PUT /subjects/document-request-delivery-preference request body (M10 cluster 4, D-049) - política de tenant para automatizar o convite inicial de guest upload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["initialInviteDeliveryDefault"],
+  "properties": {
+    "initialInviteDeliveryDefault": { "enum": ["MANUAL", "EMAIL"] }
+  }
+}

@@ -202,6 +202,20 @@ locals {
     delete_req  = { method = "DELETE", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
     link_item   = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/link" }
     unlink_item = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/unlink" }
+    # Achado real (M10 cluster 4): estas 4 rotas de DocumentRequest (lado autenticado, D-037)
+    # já tinham handler HTTP completo (document-request-handlers.ts) e roteamento real dentro
+    # do Lambda (subjects-handler.ts) desde a sessão anterior, mas NUNCA tinham sido
+    # registradas aqui - o API Gateway real nunca teria uma rota que as alcançasse (404),
+    # apesar do código estar pronto e testado. Corrigido junto das 2 rotas novas de D-049
+    # abaixo, mesmo padrão.
+    create_document_request = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
+    list_document_requests  = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
+    get_document_request    = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}" }
+    revoke_document_request = { method = "POST", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" }
+    # M10 cluster 4 (D-049): preferência de TENANT (não por subject) para o convite inicial
+    # automatizado - fora do namespace /{subjectId}/... de propósito.
+    get_delivery_preference    = { method = "GET", path = "/subjects/document-request-delivery-preference" }
+    update_delivery_preference = { method = "PUT", path = "/subjects/document-request-delivery-preference" }
   }
 }
 

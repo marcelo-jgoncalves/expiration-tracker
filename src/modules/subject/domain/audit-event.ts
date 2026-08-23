@@ -9,8 +9,24 @@ import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 
-export type SubjectAuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "DELETE" | "LINK_ITEM" | "UNLINK_ITEM" | "ASSIGN_REQUIREMENT" | "DELETE_REQUIREMENT";
-export type SubjectAuditResourceType = "TrackedSubject" | "RequirementAssignment";
+export type SubjectAuditAction =
+  | "CREATE"
+  | "UPDATE"
+  | "ARCHIVE"
+  | "DELETE"
+  | "LINK_ITEM"
+  | "UNLINK_ITEM"
+  | "ASSIGN_REQUIREMENT"
+  | "DELETE_REQUIREMENT"
+  // M10 cluster 4 (D-049): convite inicial automatizado - trilha completa dos 5 desfechos
+  // possíveis (nunca e-mail bruto no diff, `changes` já passa por `defaultRedactor` abaixo).
+  | "INITIAL_INVITE_EMAIL_REQUESTED"
+  | "INITIAL_INVITE_EMAIL_SENT"
+  | "INITIAL_INVITE_EMAIL_FAILED"
+  | "INITIAL_INVITE_EMAIL_RATE_LIMITED"
+  | "INITIAL_INVITE_EMAIL_DISABLED_BY_KILL_SWITCH"
+  | "CONFIGURE_DOCUMENT_REQUEST_DELIVERY";
+export type SubjectAuditResourceType = "TrackedSubject" | "RequirementAssignment" | "DocumentRequest" | "DocumentRequestDeliveryPreference";
 
 export interface SubjectAuditEvent extends EntityKey {
   entityType: "SubjectAuditEvent";

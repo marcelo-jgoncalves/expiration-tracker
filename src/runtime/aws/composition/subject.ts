@@ -46,13 +46,36 @@ export function buildSubjectDeps(client: DynamoDBDocumentClient, tableName: stri
 
 /** M10 (D-037): lado autenticado (criar/consultar DocumentRequest) — mesmo store do resto do
  * módulo subject. `guestTokenPepper` vem de Secrets Manager (env var já resolvida pelo
- * handler), nunca hardcoded aqui. */
-export function buildDocumentRequestDeps(client: DynamoDBDocumentClient, tableName: string, guestTokenPepper: string) {
+ * handler), nunca hardcoded aqui.
+ *
+ * M10 cluster 4 (D-049): `initialInviteEmailEnabled` é o kill switch global (default `false`,
+ * lido do env var pelo handler) - `emailProvider`/`sesFromAddress`/`sesConfigurationSet` só
+ * fazem sentido passar quando ele é `true` (reaproveita o MESMO `SesEmailAdapter`/templates já
+ * usados por `EmailDeliveryWorker`/`DocumentChasingDispatch`, nunca um provider novo). */
+export function buildDocumentRequestDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  guestTokenPepper: string,
+  initialInviteEmailEnabled: boolean,
+  sesFromAddress?: string,
+  sesConfigurationSet?: string,
+  guestUploadBaseUrl?: string,
+) {
   const store = new DynamoDbSubjectStore(client, tableName);
   const ids = new UlidIdGenerator();
+  const emailProvider = initialInviteEmailEnabled && sesFromAddress && sesConfigurationSet ? new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet) : undefined;
   // M10 cluster 4 (D-046): mesma config de shard usada por reminder-producer-handler.ts - o
   // GSI3 é fisicamente o mesmo índice, as duas gerações não devem divergir em v1.
-  const requests = new DocumentRequestService({ store, tableName, ids, guestTokenPepper, shardConfig: defaultShardConfig() });
+  const requests = new DocumentRequestService({
+    store,
+    tableName,
+    ids,
+    guestTokenPepper,
+    shardConfig: defaultShardConfig(),
+    initialInviteEmailEnabled,
+    emailProvider,
+    guestUploadBaseUrl,
+  });
   return { store, requests };
 }
 

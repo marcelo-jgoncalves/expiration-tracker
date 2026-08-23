@@ -46,7 +46,7 @@ describe("Guest upload flow (DocumentRequest -> GuestSubmissionService)", () => 
     const ids = makeSubjectIdGenerator();
     subjects = new SubjectService({ store, tableName: "MainTable", ids, now: () => "2026-08-23T12:00:00.000Z" });
     requirements = new RequirementService({ store, tableName: "MainTable", ids, itemLookup: makeItemLookup(new Set()), now: () => "2026-08-23T12:00:00.000Z" });
-    documentRequests = new DocumentRequestService({ store, tableName: "MainTable", ids, guestTokenPepper: PEPPER, shardConfig: defaultShardConfig(), now: () => "2026-08-23T12:00:00.000Z" });
+    documentRequests = new DocumentRequestService({ store, tableName: "MainTable", ids, guestTokenPepper: PEPPER, shardConfig: defaultShardConfig(), initialInviteEmailEnabled: false, now: () => "2026-08-23T12:00:00.000Z" });
     guestSubmissions = new GuestSubmissionService({
       store,
       tableName: "MainTable",

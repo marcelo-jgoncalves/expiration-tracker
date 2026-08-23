@@ -84,9 +84,21 @@ module "subjects_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
+    # M10 cluster 4 (D-049): mecanismo de convite inicial automatizado é sempre implementado -
+    # SES_FROM_ADDRESS/SES_CONFIGURATION_SET sempre wireados (reaproveita o MESMO SES já usado
+    # por EmailDeliveryWorker/DocumentChasingDispatch, nenhum recurso novo), mas o ENVIO real
+    # só acontece se o kill switch abaixo estiver true - default false em todos os ambientes.
+    DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED = tostring(var.document_request_initial_invite_email_enabled)
+    SES_FROM_ADDRESS                              = var.ses_from_address
+    SES_CONFIGURATION_SET                         = module.ses_notifications.configuration_set_name
+    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado do
+    # document_chasing_dispatch_handler (ver comentário lá).
   })
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 module "reminders_handler" {
