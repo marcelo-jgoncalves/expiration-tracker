@@ -150,7 +150,6 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
       emailProvider,
       resolveInternalUserEmail: async () => "internal-user@tenant.example",
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
-      correlationId: () => "cor-1",
     };
   });
 
@@ -168,6 +167,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
     const link = (emailProvider.sent[0]?.renderContext["guestLink"] as string) ?? "";
     expect(link).toContain(deps.guestUploadBaseUrl);
     expect(link).not.toContain(request.tokenSelectorHash); // never re-sends the ORIGINAL token
+    expect(emailProvider.sent[0]?.tags.correlationId).toBe("cor-1"); // continues the command's own causal chain, never a freshly generated id
 
     const updatedRequest = await store.get<DocumentRequest>(documentRequestKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ));
     expect(updatedRequest?.tokenVersion).toBe(2);

@@ -51,6 +51,7 @@ const HANDLERS = [
   "parser-sandbox-handler",
   "subjects-handler",
   "guest-documents-handler",
+  "document-chasing-dispatch-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

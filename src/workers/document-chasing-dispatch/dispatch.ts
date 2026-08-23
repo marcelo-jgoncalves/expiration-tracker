@@ -50,7 +50,6 @@ export interface ChasingDispatchDeps {
   /** Base do link de guest upload - placeholder documentado (`https://app.example.invalid/...`)
    * até existir domínio real de frontend, mesma postura já aceita para `cors_allow_origins`. */
   guestUploadBaseUrl: string;
-  correlationId: () => string;
   /** Mesma tolerância/motivo de `reminder-dispatch`'s `dispatch.ts` - generosa vs. o claim TTL,
    * cobre atraso legítimo de retry SQS/Lambda. */
   toleranceMs?: number;
@@ -185,7 +184,7 @@ export async function dispatchChasingOccurrence(deps: ChasingDispatchDeps, comma
         templateVersion: intent.templateVersion,
         locale: "pt-BR",
         renderContext: { requirementName, recipientDisplayName: sanitizeTenantText(request.recipientDisplayName, request.recipientEmail) },
-        tags: { attemptId: intentId, intentId, tenantId, correlationId: deps.correlationId() },
+        tags: { attemptId: intentId, intentId, tenantId, correlationId: command.correlationId },
       });
       await markIntentOutcome(deps.store, intent, deps.now(), { status: "SENT" });
       return { kind: "SENT", intent };
@@ -273,7 +272,7 @@ export async function dispatchChasingOccurrence(deps: ChasingDispatchDeps, comma
       templateVersion: intent.templateVersion,
       locale: "pt-BR",
       renderContext: { requirementName, deadlineLocal: request.deadline?.slice(0, 10), guestLink },
-      tags: { attemptId: intentId, intentId, tenantId, correlationId: deps.correlationId() },
+      tags: { attemptId: intentId, intentId, tenantId, correlationId: command.correlationId },
     });
     await markIntentOutcome(deps.store, intent, deps.now(), { status: "SENT" });
     return { kind: "SENT", intent };

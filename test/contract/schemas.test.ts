@@ -210,6 +210,53 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid document-chasing.dispatch.v1 command (M10 cluster 4, D-039/D-046/D-048)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_02",
+      commandType: "document-chasing.dispatch.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_02",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|chase_01|2",
+      data: {
+        subjectId: "subject_01",
+        assignmentId: "assignment_01",
+        documentRequestId: "docreq_01",
+        occurrenceId: "chase_01",
+        occurrenceVersion: 2,
+        tier: "T7",
+        scheduledAt: "2026-09-03T12:00:00.000Z",
+        documentRequestVersion: 1,
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a document-chasing.dispatch.v1 command with an invalid tier", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_02",
+      commandType: "document-chasing.dispatch.v1",
+      createdAt: "2026-09-03T12:00:05.000Z",
+      correlationId: "cor_02",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|chase_01|2",
+      data: {
+        subjectId: "subject_01",
+        assignmentId: "assignment_01",
+        documentRequestId: "docreq_01",
+        occurrenceId: "chase_01",
+        occurrenceVersion: 2,
+        tier: "T30", // invalid - only T7/T3/EXPIRED exist
+        scheduledAt: "2026-09-03T12:00:00.000Z",
+        documentRequestVersion: 1,
+      },
+    });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid WebhookInbox record", () => {
     const { valid, errors } = registry.validate(
       "https://expiration-tracker/schemas/api/webhook-inbox.v1.json",

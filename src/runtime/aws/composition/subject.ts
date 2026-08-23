@@ -19,6 +19,8 @@ import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-uplo
 import { LambdaPdfParser } from "../../../modules/document/persistence/lambda-pdf-parser.js";
 import { UlidIdGenerator } from "../ids.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 
 /** Adapter somente-leitura: subject nunca importa expiration-store.ts/expiration-service.ts
  * diretamente no código de produção - só aqui, no composition root, onde plugar módulos é
@@ -74,4 +76,43 @@ export function buildSubjectWorkerDeps(client: DynamoDBDocumentClient, tableName
   const objects = new S3DocumentObjectStore(new S3Client({}));
   const parser = new LambdaPdfParser(new LambdaClient({}), parserFunctionName);
   return { store, objects, parser, tableName, cleanBucket };
+}
+
+/** M10 cluster 4 (D-039/D-046/D-048): mesma consulta pontual de `User`/`PROFILE` já usada por
+ * `resolveRecipientEmail` em `composition/notification.ts` (não exportada de lá - duplicar essa
+ * leitura pontual de 1 item aqui é wiring de composition root, mesmo espírito de
+ * `buildExpirationItemLookup` acima, não lógica de negócio a compartilhar). */
+async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
+  const result = await client.send(
+    new GetCommand({ TableName: tableName, Key: { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "PROFILE" }, ConsistentRead: true }),
+  );
+  const profile = result.Item as { emailNormalized?: string } | undefined;
+  return profile?.emailNormalized;
+}
+
+/** M10 cluster 4 (D-039/D-046/D-048): worker de dispatch+delivery fundido -
+ * `guestUploadBaseUrl` é um placeholder documentado (mesma postura já aceita para
+ * `cors_allow_origins`, `implementation-blueprint.md` §4.2) até existir domínio real de
+ * frontend (D-047: frontend não tem milestone atribuído ainda). */
+export function buildDocumentChasingDispatchDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  guestTokenPepper: string,
+  sesFromAddress: string,
+  sesConfigurationSet: string,
+  guestUploadBaseUrl = "https://app.example.invalid/guest/document-requests",
+) {
+  const store = new DynamoDbSubjectStore(client, tableName);
+  const ids = new UlidIdGenerator();
+  const emailProvider = new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet);
+  return {
+    store,
+    tableName,
+    now: () => new Date().toISOString(),
+    newIntentId: () => ids.newIntentId(),
+    guestTokenPepper,
+    emailProvider,
+    resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => resolveInternalUserEmail(client, tableName, input.tenantId, input.userId),
+    guestUploadBaseUrl,
+  };
 }
