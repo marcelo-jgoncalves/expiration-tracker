@@ -745,6 +745,15 @@ exigido pelo design §5 estava ausente (3 records, 2º falha — adicionado, exi
 `dispatch-outbox-relay-processor.ts`/`notification-email-outbox-relay-processor.ts` sem efeitos
 colaterais de topo para ficarem unit-testáveis).
 
+**[Correção de 2026-08-23: o parágrafo abaixo já está RESOLVIDO — preservado como histórico do
+achado, não como pendência vigente. `producer.ts`'s `DispatchCommand` já emite
+`messageVersion`/`messageId`/`createdAt`/`correlationId` reais desde o commit `dd90174`
+(2026-08-21, revisão Claude↔Codex 9,2/10, `test/unit/reminder/producer.test.ts` prova que um
+`DispatchCommand` real construído pelo producer satisfaz seu próprio schema) — ver linha 611-614
+acima, que já registrava isso corretamente. Este bloco ficou contraditório internamente com aquele
+por nunca ter sido atualizado após o fix — corrigido agora (achado de manutenção de contexto,
+`AGENTS.md` §6), sem reabrir a decisão em si.]**
+
 **Achado novo e real, descoberto durante a revisão, registrado como pendência separada — não é
 escopo de M5, mas é bloqueante para prontidão operacional real do Reminder Dispatch**:
 `schemas/queues/reminder-dispatch.v1.json` exige (via `allOf` de `command-envelope.v1.json`)
@@ -764,13 +773,11 @@ relay/sweeper já propaga corretamente), não `record.body` como o design prescr
 SQS — isso não é evidência de que o envelope atual está correto, é uma exceção temporária até o
 bug ser corrigido.
 
-**Próxima ação real (nova, alta severidade para prontidão operacional, antes do próximo deploy
-que exercite Reminder Dispatch de verdade)**: decidir formalmente o formato de wire completo de
-`reminder.dispatch.v1` (adicionar `messageVersion`/`messageId`/`createdAt` reais ao
-`DispatchCommand`, ou revisar o schema/envelope) — muda um contrato SQS já em uso desde M3,
-provavelmente Type 1 (`AGENTS.md` §4, avaliar se precisa do protocolo Claude↔Codex) — e então
-adicionar um teste de contrato real producer→outbox→relay→body JSON→validação do consumer, que
-hoje não existe em lugar nenhum (o gap que deixou esse bug invisível).
+**Próxima ação real (histórica — RESOLVIDA em `dd90174`, 2026-08-21, ver correção acima)**: o
+parágrafo original pedia decidir o formato de wire completo e adicionar um teste de contrato real
+producer→schema. Ambos feitos: `DispatchCommand` ganhou os campos de envelope reais, revisado via
+protocolo Claude↔Codex (9,2/10), e `test/unit/reminder/producer.test.ts` cobre exatamente o gap
+citado (prova que um comando real construído pelo producer satisfaz `reminder-dispatch.v1.json`).
 
 **Ainda não feito (pendências explícitas do design, registradas como critério de aceite, não
 "resolvido" por este `terraform plan`)**: confirmação manual da subscription SNS→e-mail (passo
