@@ -187,15 +187,21 @@ data "aws_iam_policy_document" "dispatch_outbox_relay_stream_read" {
 module "dispatch_outbox_relay" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-dispatch-outbox-relay"
-  handler_name                   = "dispatch-outbox-relay-handler"
-  source_dir                     = "${local.dist_dir}/dispatch-outbox-relay-handler"
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = merge(local.common_env, { DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url })
+  function_name  = "${local.name_prefix}-dispatch-outbox-relay"
+  handler_name   = "dispatch-outbox-relay-handler"
+  source_dir     = "${local.dist_dir}/dispatch-outbox-relay-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # M10 cluster 4 (D-039/D-046/D-048): second destination on this SAME relay Lambda/DynamoDB
+  # Streams event source mapping (below) - never a new relay function just for one more queue.
+  environment_variables = merge(local.common_env, {
+    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.send_policy_json,
+    module.document_chasing_dispatch_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -213,20 +219,22 @@ module "outbox_sweeper" {
   source_dir     = "${local.dist_dir}/outbox-sweeper-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    DISPATCH_QUEUE_URL      = module.dispatch_queue.queue_url
-    EMAIL_DELIVER_QUEUE_URL = module.email_deliver_queue.queue_url
+    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
+    EMAIL_DELIVER_QUEUE_URL             = module.email_deliver_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
-  # M4 extends this SAME privileged role
-  # to also send to the notification email queue (docs/architecture/m4-notification-engine-design.md
-  # §7.4: one sweeper covering both destinations, not a second sweeper querying the same
-  # global GSI6 partition).
+  # M4 extends this SAME privileged role to also send to the notification email queue
+  # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
+  # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
+  # for document-chasing-dispatch, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
     module.dispatch_queue.send_policy_json,
     module.email_deliver_queue.send_policy_json,
+    module.document_chasing_dispatch_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -531,14 +539,15 @@ module "schedule" {
 module "observability" {
   source = "./modules/reminder-observability"
 
-  reminder_producer_function_name       = module.reminder_producer.function_name
-  reminder_dispatch_function_name       = module.reminder_dispatch.function_name
-  reminder_reconciliation_function_name = module.reminder_reconciliation.function_name
-  dispatch_outbox_relay_function_name   = module.dispatch_outbox_relay.function_name
-  outbox_sweeper_function_name          = module.outbox_sweeper.function_name
-  dispatch_queue_name                   = module.dispatch_queue.queue_name
-  alert_topic_arn                       = module.alert_topic.topic_arn
-  tags                                  = { Project = local.project_name, Environment = var.environment }
+  reminder_producer_function_name         = module.reminder_producer.function_name
+  reminder_dispatch_function_name         = module.reminder_dispatch.function_name
+  reminder_reconciliation_function_name   = module.reminder_reconciliation.function_name
+  dispatch_outbox_relay_function_name     = module.dispatch_outbox_relay.function_name
+  outbox_sweeper_function_name            = module.outbox_sweeper.function_name
+  document_chasing_dispatch_function_name = module.document_chasing_dispatch_handler.function_name
+  dispatch_queue_name                     = module.dispatch_queue.queue_name
+  alert_topic_arn                         = module.alert_topic.topic_arn
+  tags                                    = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Cost governance ------------------------------------------------------------------------
@@ -754,6 +763,55 @@ module "guest_documents_handler" {
     data.aws_iam_policy_document.documents_presign_quarantine_put.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- DocumentChasingDispatch: automated document chasing (M10 cluster 4, D-039/D-046/D-048) -
+
+module "document_chasing_dispatch_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-document-chasing-dispatch"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "document_chasing_dispatch_handler" {
+  source = "./modules/lambda-function"
+
+  # Worker de dispatch+delivery fundido (D-048: chasing v1 é single-channel, sem lease/retry -
+  # não justifica um par dispatch/delivery separado como o de M3/M4). Reaproveita o mesmo SES
+  # já usado por EmailDeliveryWorker (mesma policy data.aws_iam_policy_document.ses_send_email,
+  # mesmo configuration set) - nenhum recurso SES novo.
+  function_name  = "${local.name_prefix}-document-chasing-dispatch"
+  handler_name   = "document-chasing-dispatch-handler"
+  source_dir     = "${local.dist_dir}/document-chasing-dispatch-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER    = random_password.guest_token_pepper.result
+    SES_FROM_ADDRESS      = var.ses_from_address
+    SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
+    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - código tem um placeholder documentado
+    # (https://app.example.invalid/guest/document-requests, mesma postura já aceita para
+    # cors_allow_origins, implementation-blueprint.md §4.2) até existir domínio real de
+    # frontend (D-047: frontend não tem milestone atribuído ainda).
+  })
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.document_chasing_dispatch_queue.consume_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "document_chasing_dispatch_from_queue" {
+  event_source_arn        = module.document_chasing_dispatch_queue.queue_arn
+  function_name           = module.document_chasing_dispatch_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
 }
 
 # --- UploadFinalizerWorker: S3 event (via queue) -> validate + invoke ParserSandbox ---------

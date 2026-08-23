@@ -17,34 +17,33 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const reminderDispatchQueueUrl = process.env["DISPATCH_QUEUE_URL"];
 const emailDeliverQueueUrl = process.env["EMAIL_DELIVER_QUEUE_URL"];
+// M10 cluster 4 (D-039/D-046/D-048): third destination on this SAME shared privileged
+// sweeper role - same "router keyed by destination" pattern §7.4 already established for
+// SQS_NOTIFICATION_EMAIL_V1, never a second sweeper querying the same global GSI6 partition.
+const chasingDispatchQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
+if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
 
 const sqsClient = new SQSClient({});
 const store = new DynamoDbOutboxRelayStore(client, tableName);
+const send = (queueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
+  await sqsClient.send(
+    new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify(payload),
+      MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+    }),
+  );
+};
 const deps = {
   store,
   now: () => new Date().toISOString(),
   senders: {
-    SQS_REMINDER_DISPATCH_V1: async (payload: Record<string, unknown>, correlationId: string) => {
-      await sqsClient.send(
-        new SendMessageCommand({
-          QueueUrl: reminderDispatchQueueUrl,
-          MessageBody: JSON.stringify(payload),
-          MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
-        }),
-      );
-    },
-    SQS_NOTIFICATION_EMAIL_V1: async (payload: Record<string, unknown>, correlationId: string) => {
-      await sqsClient.send(
-        new SendMessageCommand({
-          QueueUrl: emailDeliverQueueUrl,
-          MessageBody: JSON.stringify(payload),
-          MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
-        }),
-      );
-    },
+    SQS_REMINDER_DISPATCH_V1: send(reminderDispatchQueueUrl),
+    SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
+    SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
   },
 };
 const logger = new SecureLogger({ baseContext: { service: "outbox-sweeper" } });

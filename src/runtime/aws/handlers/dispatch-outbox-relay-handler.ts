@@ -13,9 +13,13 @@ import { processStreamRecords } from "./dispatch-outbox-relay-processor.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const queueUrl = process.env["DISPATCH_QUEUE_URL"];
+// M10 cluster 4 (D-039/D-046/D-048): second destination on the SAME relay Lambda/DynamoDB
+// Streams event source mapping - never a new relay function just for this one extra queue.
+const chasingQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
-const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}));
+if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
+const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}), chasingQueueUrl);
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {

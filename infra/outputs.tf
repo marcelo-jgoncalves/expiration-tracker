@@ -40,6 +40,7 @@ output "lambda_function_names" {
     module.parser_sandbox.function_name,
     module.subjects_handler.function_name,
     module.guest_documents_handler.function_name,
+    module.document_chasing_dispatch_handler.function_name,
   ]
 }
 
@@ -68,6 +69,7 @@ output "lambda_published_versions" {
     (module.parser_sandbox.function_name)                     = module.parser_sandbox.published_version
     (module.subjects_handler.function_name)                   = module.subjects_handler.published_version
     (module.guest_documents_handler.function_name)            = module.guest_documents_handler.published_version
+    (module.document_chasing_dispatch_handler.function_name)  = module.document_chasing_dispatch_handler.published_version
   }
 }
 

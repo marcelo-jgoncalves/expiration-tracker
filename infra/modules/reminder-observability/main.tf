@@ -13,6 +13,12 @@ locals {
     ReminderReconciliation        = var.reminder_reconciliation_function_name
     DispatchOutboxRelay           = var.dispatch_outbox_relay_function_name
     OutboxSweeperReminderDispatch = var.outbox_sweeper_function_name
+    # M10 cluster 4 (D-039/D-046/D-048): ReminderProducer itself throws a distinct,
+    # alarm-worthy error whenever a GSI3 row matches neither the reminder nor the chasing
+    # entityType (producer.ts's `shouldAlarm()`) - already covered by the ReminderProducer
+    # entry above. This entry covers the SEPARATE failure mode of the dispatch+delivery
+    # worker itself (staleness/SES/rotation errors), which had zero alarm coverage until now.
+    DocumentChasingDispatch = var.document_chasing_dispatch_function_name
   }
 }
 

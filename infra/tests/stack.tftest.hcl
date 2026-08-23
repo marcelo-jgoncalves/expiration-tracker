@@ -25,7 +25,7 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "twenty_lambda_functions_exist_no_placeholder" {
+run "twentyone_lambda_functions_exist_no_placeholder" {
   command = plan
 
   # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
@@ -33,13 +33,13 @@ run "twenty_lambda_functions_exist_no_placeholder" {
   # here - the lambda-function module always zips an on-disk directory via data.archive_file
   # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 20
-    error_message = "Expected exactly 20 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10)"
+    condition     = length(output.lambda_function_names) == 21
+    error_message = "Expected exactly 21 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 20
-    error_message = "All 20 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 21
+    error_message = "All 21 Lambda function names must be distinct"
   }
 }
 
@@ -116,6 +116,14 @@ run "gsi3_access_granted_only_to_reminder_producer" {
   assert {
     condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "NotificationsHandler must NOT reference GSI3"
+  }
+
+  # M10 cluster 4 (D-039/D-046/D-048): DocumentChasingDispatch never queries GSI3 directly -
+  # only the shared ReminderProducer (already asserted above) does. This function only
+  # consumes claimed commands off SQS and mutates the base table + sends SES.
+  assert {
+    condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "DocumentChasingDispatch must NOT reference GSI3"
   }
 }
 
@@ -210,6 +218,14 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !strcontains(module.malware_result_handler.capability_policy_documents[0], "/index/GSI6")
     error_message = "MalwareResultWorker's table-access policy must NOT reference GSI6"
   }
+
+  # M10 cluster 4 (D-039/D-046/D-048): DocumentChasingDispatch is not one of the three
+  # GSI6-privileged roles - claim-expiry reconciliation for its occurrences is handled by
+  # the SAME ReminderReconciliation role (already privileged), never by this dispatch worker.
+  assert {
+    condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "DocumentChasingDispatch must NOT reference GSI6"
+  }
 }
 
 run "dlq_max_receive_count_5_and_age_alarm_exists" {
@@ -239,9 +255,12 @@ run "seven_reminder_alarms_plus_one_dlq_age_alarm_per_m4_queue" {
   # alarm for the new functions yet (docs/architecture observability milestone, planned as
   # the next work item after M4, is where that gets decided holistically rather than
   # duplicating reminder-observability's non-generic per-function-name module shape here).
+  # M10 cluster 4 (D-039/D-046/D-048) DOES extend this module's existing per-function-name
+  # shape (not a new pattern) with a 6th entry, DocumentChasingDispatch - the fused
+  # dispatch+delivery worker sharing GSI3 with this pipeline had zero alarm coverage before.
   assert {
-    condition     = length(module.observability.function_error_alarm_names) == 5
-    error_message = "Expected exactly 5 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper) - unchanged by M4"
+    condition     = length(module.observability.function_error_alarm_names) == 6
+    error_message = "Expected exactly 6 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper, document-chasing-dispatch)"
   }
 
   assert {
@@ -456,7 +475,7 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
   # itself isn't plan-time-known here since aws_sns_topic.this.arn depends on the real
   # account id/topic creation, unlike the other modules' deterministically-constructed ARNs).
   assert {
-    condition     = length(module.observability.function_error_alarm_names) == 5 && module.observability.dispatch_queue_backlog_alarm_name != ""
+    condition     = length(module.observability.function_error_alarm_names) == 6 && module.observability.dispatch_queue_backlog_alarm_name != ""
     error_message = "Observability module must still produce its alarms with the alert topic wired"
   }
   assert {
@@ -475,8 +494,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 20
-    error_message = "Deploy manifest map must cover exactly the 20 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 21
+    error_message = "Deploy manifest map must cover exactly the 21 real Lambda functions"
   }
 
   assert {
