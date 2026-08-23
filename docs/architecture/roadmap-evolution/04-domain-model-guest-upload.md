@@ -65,9 +65,15 @@ ponteiro na mesma transação.
 Rota pública `authorization_type=NONE` no API Gateway (hoje 100% JWT, confirmado em
 `01-gap-analysis.md`) — `GET /guest/document-requests/{token}`, `POST
 /guest/document-requests/{token}/uploads` — com validação completa na aplicação, não Lambda
-authorizer no v1 (evita duplicar lógica de token/contexto e risco de cache stale). **WAF é
+authorizer no v1 (evita duplicar lógica de token/contexto e risco de cache stale). ~~**WAF é
 pré-requisito antes de expor a rota, não item de M8**: rate-based rule por IP, AWS Managed Core
-Rule Set, limite dedicado a `/guest/*`, throttling por rota/stage, alarmes de 4xx/429/5xx.
+Rule Set, limite dedicado a `/guest/*`, throttling por rota/stage, alarmes de 4xx/429/5xx.~~
+**SUPERSEDED por D-051** (2026-08-23, achado real no primeiro `terraform apply` de fato):
+AWS WAFv2 não suporta associação com API Gateway HTTP API v2 — a arquitetura escolhida aqui
+(HTTP API) torna esse pré-requisito estruturalmente impossível como concebido. Mitigação
+imediata: throttling nativo do HTTP API por rota (`route_settings`, mais restritivo em
+`/guest/*`). CloudFront+WAF vira débito técnico bloqueante antes de produção real, não antes de
+`dev` — ver `decisions-log.md` D-051.
 
 ### Generalização do pipeline M6
 
