@@ -2,8 +2,8 @@
 
 ```text
 Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation → Validation Readiness + Product Focus Hardening → User Validation (próxima, não iniciada)
-Status vigente:  8 de 9 etapas APPROVED; protótipo com Participant Mode/Evaluator Mode separados, CREATE-IDEMPOTENCY-01 resolvido no backend real, nenhuma identidade visual/frontend de produção ainda
-Last verified:   2026-08-24
+Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; nenhuma identidade visual final ainda
+Last verified:   2026-08-24 (planejamento) / 2026-08-24 (Core Expiration Vertical Slice)
 ```
 
 Ver `docs/architecture/README.md` para o mapa de arquitetura de sistema (este índice cobre só o
@@ -14,6 +14,10 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 ## Full BFF + Frontend de Produção (implementação real, distinto do planejamento de interface abaixo)
 
 `docs/frontend/frontend-production-foundation.md` — Full BFF (D-053/D-054) implementado de ponta a ponta (`src/modules/bff/`, infra Terraform) e uma fundação de frontend de produção real (`frontend/`, projeto npm separado — Vite+React+TS+React Router v7+TanStack Query v5). `APPROVED AS FRONTEND PRODUCTION FOUNDATION` via protocolo Claude↔Codex (Rodada D levou 6 passagens até convergir — 5 achados bloqueantes reais de segurança de sessão encontrados e corrigidos, todos na família "leitura de Session/LoginAttempt tratada como autoridade sem checar todas as propriedades de validade"). Não confundir com os 8 documentos de planejamento de interface abaixo (que cobrem UX/IA/journeys, nunca código de produção).
+
+## Core Expiration Vertical Slice (primeiro vertical slice real do anchor Vencimentos)
+
+`docs/frontend/core-expiration-vertical-slice.md` — primeiro fluxo real e completo de Vencimentos (Expiration Collection, Expiration Detail, Create Expiration, Renew Expiration) sobre a Frontend Production Foundation, sem expandir para Documents/Reminders/External Collection. `APPROVED AS CORE EXPIRATION PRODUCTION VERTICAL SLICE` via protocolo Claude↔Codex (Round B adversarial achou 4 bugs reais — 1 S1: corrida TOCTOU na reaquisição de um registro de idempotência `ABORTED`; 3 S2: `abort()` podendo disparar depois de um commit bem-sucedido, hash de renovação ambíguo quando `cycle` é enviado independente de `newDueDate`, e um bug de fuso horário na formatação de data da Overview — todos corrigidos na Rodada C e reverificados sem achados novos na Rodada D). Durante a implementação também corrigiu um bug real pré-existente de liveness de idempotência (lock nunca liberado em falha de `renewItem`/`createItem`). 96 testes unitário/componente de frontend + 12 E2E Playwright (era 42+6 na fundação), 621 testes de backend.
 
 ## Índice por documento
 
@@ -44,8 +48,9 @@ solicitações pendentes inexistente (`interface-screen-and-state-inventory.md` 
 `interface-critical-user-journeys.md` §9) **resolvido no backend real** em
 `interface-validation-readiness.md` §14 (`createItem` ganhou `idempotencyKey` opcional, mesmo
 padrão de `IdempotencyStore` já usado por `renewItem`) — classificado formalmente como
-`PRODUCTION GATE`; ver matriz de gates para o status por estágio (ainda `REQUIRED` para Pilot,
-pois nenhum frontend/BFF real envia o header ainda).
+`PRODUCTION GATE`; ver matriz de gates para o status por estágio. Desde o Core Expiration
+Vertical Slice, o frontend/BFF reais enviam o header em ambos os fluxos (Create e Renew) — gap
+fechado para o caminho de item.
 
 ## Padrão de qualidade formalizado
 
