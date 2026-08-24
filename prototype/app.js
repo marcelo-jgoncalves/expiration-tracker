@@ -27,6 +27,45 @@
   var TODAY = '2026-08-23'; // fixed clock — never Date.now()
 
   // ---------------------------------------------------------------------
+  // Participant Mode vs Evaluator Mode (Validation Readiness hardening)
+  // ---------------------------------------------------------------------
+  // Evaluator Mode (?mode=evaluator) is this prototype's original audience: Claude, Codex,
+  // engineers, UX evaluators. It shows everything this file has always shown — Scenario IDs,
+  // the control bar, [BLOQUEADO: BLOCKER-x]/GTR-01 tags, "(EMPTY_TRUE)"-style state labels,
+  // a11y notes — because that technical visibility is exactly what makes this prototype
+  // auditable. Participant Mode is the NEW default: what gets put in front of a real User
+  // Validation participant, with none of the above, because none of it is part of the
+  // product being validated and all of it would contaminate a usability read (a participant
+  // seeing "[BLOQUEADO: BLOCKER-A]" cannot react to the intended experience — they react to a
+  // debug label). Hiding these annotations does NOT mean the underlying backend gap is
+  // resolved — see participantSafeBlock() below, which keeps the substance of every
+  // blocker's honest disclaimer, only removing the raw tag/bracket, and see GTR-01's guest
+  // route for the one deliberate exception (a genuinely simulated capability, documented as
+  // such in docs/frontend/interface-validation-readiness.md §9, never claimed as backend-real).
+  // Participant Mode is the default (no query param, or any value other than "evaluator") so
+  // that a session link handed to a real participant can never accidentally leak annotations
+  // just because someone forgot to append a query parameter.
+  var MODE = (function () {
+    try {
+      var params = new URLSearchParams(location.search);
+      return params.get('mode') === 'evaluator' ? 'evaluator' : 'participant';
+    } catch (e) {
+      return 'participant';
+    }
+  })();
+  var isEvaluator = MODE === 'evaluator';
+
+  // A parenthetical engineering/state annotation (Scenario IDs, "(EMPTY_TRUE)", a11y notes) —
+  // rendered only in Evaluator Mode, entirely absent (not just visually hidden) in Participant
+  // Mode, so it can never leak via view-source or a screen reader either.
+  function evalOnly(html) { return isEvaluator ? html : ''; }
+  // Same real content, two renderings — the evaluator gets the technical framing (tag names,
+  // "SIMULATED", route/backend references), the participant gets the same substance in plain
+  // language. Never use this to make the participant version claim more than the evaluator
+  // version does; only the VOCABULARY changes, never the epistemic content.
+  function modeText(evaluatorHtml, participantHtml) { return isEvaluator ? evaluatorHtml : participantHtml; }
+
+  // ---------------------------------------------------------------------
   // helpers
   // ---------------------------------------------------------------------
   function esc(s) {
@@ -94,9 +133,13 @@
     ];
     DB.importJobs = {};
     DB.guestTokens = {
-      'tok-valid': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', deadline: '2026-08-29', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: false, expired: false },
-      'tok-expired': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', deadline: '2026-08-01', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: false, expired: true },
-      'tok-revoked': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', deadline: '2026-08-29', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: true, expired: false }
+      // requesterOrgName: GTR-01 (docs/frontend/interface-critical-user-journeys.md) — the guest
+      // never sees who is asking. Participant Mode simulates the intended fix ("Solicitado por: ...")
+      // per the Validation Readiness mission's Workstream B; the real backend contract to derive
+      // this per-tenant/per-request still does not exist (see interface-validation-readiness.md §9).
+      'tok-valid': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', requesterOrgName: 'Empresa Alfa Ltda.', deadline: '2026-08-29', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: false, expired: false },
+      'tok-expired': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', requesterOrgName: 'Empresa Alfa Ltda.', deadline: '2026-08-01', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: false, expired: true },
+      'tok-revoked': { documentRequestId: 'dr-1', requirementName: 'Apólice de Seguro RC', requesterOrgName: 'Empresa Alfa Ltda.', deadline: '2026-08-29', allowedTypes: 'PDF, JPEG, PNG', maxBytes: '10 MB', revoked: true, expired: false }
       // 'tok-invalid' and 'tok-notfound' are deliberately absent from this map —
       // see resolveGuestToken(): missing key converges to the same external state
       // as expired/revoked, never a distinct message (anti-enumeration, §32).
@@ -118,14 +161,90 @@
     };
   }
 
-  function resetAll() {
-    seedDB();
+  function resetAll(seeder) {
+    (seeder || seedDB)();
     resetFlags();
     SESSION = { authenticated: true, pendingReturn: null };
     docSessionEntry = {};
     location.hash = '#/overview';
     announce('Estado do protótipo reiniciado.');
     render();
+  }
+
+  // ---------------------------------------------------------------------
+  // Data Density Stress Scenario (Validation Readiness, Workstream C) — UX stress test, NOT a
+  // performance/load test. Question: with realistic operational volume, can a user still tell
+  // what needs attention? Deterministic (modulo-cycled categories/assignees/offsets, never
+  // Math.random), layered on top of seedDB()'s small dataset rather than replacing it.
+  // ---------------------------------------------------------------------
+  function seedDensityStress() {
+    seedDB();
+    var CATEGORIES = ['Seguro', 'Licença', 'Certificado', 'Contrato', 'Alvará', 'Certidão'];
+    var ASSIGNEES = ['Financeiro', 'Operações', 'Jurídico', 'Comercial', 'TI', 'Qualidade'];
+    var NAME_STEMS = ['Apólice', 'Alvará de Funcionamento', 'Certificado Digital', 'Contrato de Prestação',
+      'Licença Ambiental', 'Certidão Negativa', 'Registro Profissional', 'Contrato de Locação',
+      'Seguro de Frota', 'Licença Sanitária'];
+
+    function pushItems(count, dueOffsetFn, status) {
+      for (var i = 0; i < count; i++) {
+        DB.items.push({
+          id: uid('item'),
+          name: NAME_STEMS[i % NAME_STEMS.length] + ' ' + (i + 1),
+          category: CATEGORIES[i % CATEGORIES.length],
+          dueDate: addDays(TODAY, dueOffsetFn(i)),
+          status: status,
+          assignee: ASSIGNEES[i % ASSIGNEES.length],
+          version: 1
+        });
+      }
+    }
+    pushItems(22, function (i) { return -1 - (i % 60); }, 'ACTIVE');    // overdue: 1-60 days late
+    pushItems(28, function (i) { return i % 8; }, 'ACTIVE');            // due today..7 days (soon)
+    pushItems(35, function (i) { return 8 + (i % 23); }, 'ACTIVE');     // 8-30 days out
+    pushItems(35, function (i) { return 31 + (i % 335); }, 'ACTIVE');   // 31-365 days out (later)
+    pushItems(15, function (i) { return 31 + (i % 200); }, 'ARCHIVED');
+    pushItems(15, function (i) { return 31 + (i % 200); }, 'RENEWED');  // standalone: not wired to a real lineage pair, only status/filtering matters at this fidelity
+
+    var SUBJECT_STEMS = ['Transportes', 'Contabilidade', 'Serviços Gerais', 'Segurança Patrimonial',
+      'Consultoria Jurídica', 'Manutenção Predial', 'Tecnologia', 'Locação de Equipamentos',
+      'Limpeza Industrial', 'Corretora de Seguros'];
+    var SUFFIXES = ['Ltda.', 'S.A.', 'ME', 'EIRELI', 'e Cia.'];
+    for (var s = 0; s < 35; s++) {
+      DB.subjects.push({
+        id: uid('subj'),
+        name: SUBJECT_STEMS[s % SUBJECT_STEMS.length] + ' ' + String.fromCharCode(65 + (s % 26)) + ' ' + SUFFIXES[s % SUFFIXES.length],
+        type: 'Fornecedor'
+      });
+    }
+    var REQ_STEMS = ['Apólice de Seguro RC', 'Certidão Negativa de Débitos', 'Alvará de Funcionamento',
+      'Contrato Social', 'Certidão de Antecedentes', 'Comprovante de Regularidade Fiscal', 'Certificado de Registro'];
+    for (var r = 0; r < 90; r++) {
+      var subj = DB.subjects[r % DB.subjects.length];
+      var isSatisfied = r % 5 < 2; // 40% satisfied, 60% missing — realistic backlog, not a showcase-clean dataset
+      DB.requirements.push({
+        id: uid('req'),
+        subjectId: subj.id,
+        name: REQ_STEMS[r % REQ_STEMS.length],
+        status: isSatisfied ? 'SATISFIED' : 'MISSING',
+        linkedItemId: isSatisfied ? DB.items[r % DB.items.length].id : null
+      });
+    }
+    var DR_STATUSES = ['REQUESTED', 'OPENED', 'SUBMITTED'];
+    for (var d = 0; d < 20; d++) {
+      var req = DB.requirements[(d * 3) % DB.requirements.length];
+      DB.documentRequests.push({
+        id: uid('dr'),
+        requirementId: req.id,
+        recipient: 'contato' + d + '@fornecedor.com.br',
+        status: DR_STATUSES[d % DR_STATUSES.length],
+        sentAt: addDays(TODAY, -(5 + (d % 20))),
+        deadline: addDays(TODAY, 5 + (d % 25)),
+        submission: null
+      });
+    }
+    // Totals with the 5 seed items/3 subjects/5 requirements/1 request already in DB:
+    // 155 items (22 overdue/28 soon/35 next-30d/35 later/15 archived/15 renewed),
+    // 38 subjects, 95 requirements, 21 active external requests.
   }
 
   // ---------------------------------------------------------------------
@@ -325,12 +444,22 @@
       '<h1>' + esc(title) + '</h1>' +
       (originHtml ? '<div class="origin">' + originHtml + '</div>' : '') +
       bodyHtml +
-      (opts.a11y ? '<div class="a11y-note">A11y: ' + opts.a11y + '</div>' : '') +
+      (opts.a11y ? evalOnly('<div class="a11y-note">A11y: ' + opts.a11y + '</div>') : '') +
       '</section>';
   }
 
-  function blockedBlock(tag, text) {
-    return '<div class="blocked-block"><span class="blocked-tag">[BLOQUEADO: ' + esc(tag) + ']</span>' + text + '</div>';
+  // evaluatorText: full engineering disclaimer, shown verbatim in Evaluator Mode with the raw
+  // [BLOQUEADO: <tag>] label — unchanged behavior, still the audit trail this prototype has
+  // always provided. participantText: the SAME real limitation, rewritten in plain language a
+  // real user would understand, with no tag/bracket/BLOCKER-id/"SIMULATED" jargon — required,
+  // never optional, because removing a technical annotation must never mean removing the
+  // honesty behind it (§9 of the Validation Readiness mission: hiding annotations is not the
+  // same as fabricating a capability the product doesn't have).
+  function blockedBlock(tag, evaluatorText, participantText) {
+    if (!isEvaluator) {
+      return '<div class="blocked-block-participant">' + participantText + '</div>';
+    }
+    return '<div class="blocked-block"><span class="blocked-tag">[BLOQUEADO: ' + esc(tag) + ']</span>' + evaluatorText + '</div>';
   }
 
   function feedback(kind, symbol, text) {
@@ -348,12 +477,17 @@
     }
     var active = DB.items.filter(function (i) { return i.status === 'ACTIVE'; });
     if (active.length === 0) {
-      return shell('Vencimentos — Visão Geral', '', '<p><strong>Nenhum vencimento cadastrado ainda.</strong> (EMPTY_TRUE — sucesso genuíno, não erro)</p>' +
+      return shell('Vencimentos — Visão Geral', '', '<p><strong>Nenhum vencimento cadastrado ainda.</strong>' + evalOnly(' (EMPTY_TRUE — sucesso genuíno, não erro)') + '</p>' +
         '<div class="actions"><a class="btn btn-primary" href="#/items/new">+ Novo vencimento</a></div>',
         { navKey: 'overview' });
     }
-    var overdue = active.filter(function (i) { return daysUntil(i.dueDate) < 0; });
-    var soon = active.filter(function (i) { return daysUntil(i.dueDate) >= 0 && daysUntil(i.dueDate) <= 7; });
+    // Sorted by dueDate ascending (most urgent first) — Validation Readiness Workstream C
+    // (density stress scenario) found these groups were rendered in insertion order, invisible
+    // at the original 5-item seed but a real scanning problem once VENCIDOS/VENCE EM BREVE can
+    // hold dozens of items: the most-overdue item should never be buried below a less-urgent one.
+    function byDueDate(a, b) { return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0; }
+    var overdue = active.filter(function (i) { return daysUntil(i.dueDate) < 0; }).sort(byDueDate);
+    var soon = active.filter(function (i) { return daysUntil(i.dueDate) >= 0 && daysUntil(i.dueDate) <= 7; }).sort(byDueDate);
     function row(i) {
       return '<li class="list-item">' +
         '<span>' + statusLabelHtml(i) + '<strong>' + esc(i.name) + '</strong><br>' +
@@ -367,10 +501,11 @@
     // collection rows had no programmatic list semantics anywhere in the app (WCAG 1.3.1).
     if (overdue.length) body += '<h2 style="font-size:13px">VENCIDOS (' + overdue.length + ')</h2><ul class="plain-list">' + overdue.map(row).join('') + '</ul>';
     if (soon.length) body += '<h2 style="font-size:13px">VENCE EM BREVE (' + soon.length + ')</h2><ul class="plain-list">' + soon.map(row).join('') + '</ul>';
-    if (!overdue.length && !soon.length) body += '<p>Nenhum item vencido ou vencendo em breve. (sucesso genuíno)</p>';
+    if (!overdue.length && !soon.length) body += '<p>Nenhum item vencido ou vencendo em breve.' + evalOnly(' (sucesso genuíno)') + '</p>';
     body += blockedBlock('BLOCKER-B',
       'Nenhum resumo de alertas aparece aqui — a materialização de lembretes não está ' +
-      'conectada ao caminho normal, então esta informação não é observável hoje.');
+      'conectada ao caminho normal, então esta informação não é observável hoje.',
+      'Nenhum resumo de alertas aparece aqui ainda nesta versão.');
     body += '<div class="actions"><a class="btn btn-secondary" href="#/items/new">+ Novo vencimento</a></div>';
     return shell('Vencimentos — Visão Geral', '', body,
       { navKey: 'overview', a11y: 'status nunca só por cor; loading inicial anunciado (simulado via feedback de carregamento na 1ª renderização).' });
@@ -386,7 +521,7 @@
       return shell('Vencimentos', '', feedback('failed', '✕', 'Falha de rede ao listar vencimentos.') +
         '<div class="actions"><button data-action="retryCollection" class="btn">Tentar novamente</button></div>', { navKey: 'items' });
     }
-    var items = DB.items.slice();
+    var items = DB.items.slice().sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0; }); // same ordering fix as Overview (Workstream C)
     if (filter === 'overdue') items = items.filter(function (i) { return i.status === 'ACTIVE' && daysUntil(i.dueDate) < 0; });
     else if (filter === 'soon') items = items.filter(function (i) { return i.status === 'ACTIVE' && daysUntil(i.dueDate) >= 0 && daysUntil(i.dueDate) <= 7; });
     else if (filter === 'active') items = items.filter(function (i) { return i.status === 'ACTIVE'; });
@@ -400,9 +535,9 @@
 
     var body = '<p>Filtro: ' + filters + '</p>';
     if (DB.items.length === 0) {
-      body += '<p><strong>Nenhum vencimento cadastrado ainda.</strong> (EMPTY_TRUE)</p>';
+      body += '<p><strong>Nenhum vencimento cadastrado ainda.</strong>' + evalOnly(' (EMPTY_TRUE)') + '</p>';
     } else if (items.length === 0) {
-      body += '<p><strong>Nenhum vencimento corresponde a este filtro.</strong> (EMPTY_FILTERED — dados existem, filtro não retornou nada) ' +
+      body += '<p><strong>Nenhum vencimento corresponde a este filtro.</strong>' + evalOnly(' (EMPTY_FILTERED — dados existem, filtro não retornou nada)') + ' ' +
         '<a href="#/items">limpar filtro</a></p>';
     } else {
       body += '<ul class="plain-list">' + items.map(function (i) {
@@ -411,7 +546,7 @@
           '<a class="btn btn-primary" href="#/items/' + i.id + '?from=items">Abrir</a></li>';
       }).join('') + '</ul>';
     }
-    body += '<p class="annot">(carregar mais — este protótipo não implementa paginação completa nesta lista)</p>';
+    body += evalOnly('<p class="annot">(carregar mais — este protótipo não implementa paginação completa nesta lista)</p>');
     body += '<div class="actions"><a class="btn btn-secondary" href="#/items/new">+ Novo</a> ' +
       '<a class="btn btn-secondary" href="#/import">Importar CSV</a></div>';
     return shell('Vencimentos', '', body, { navKey: 'items' });
@@ -443,13 +578,14 @@
     if (item.renewedToId) body += '<p class="contextual-info">Substituído por um novo ciclo: <a href="#/items/' + item.renewedToId + '">abrir</a></p>';
 
     body += '<h2 style="font-size:13px">DOCUMENTO</h2>' +
-      blockedBlock('BLOCKER-A', 'Não é possível saber hoje se já existe um documento associado a este vencimento — nenhuma rota de leitura existe.') +
+      blockedBlock('BLOCKER-A', 'Não é possível saber hoje se já existe um documento associado a este vencimento — nenhuma rota de leitura existe.',
+        'Ainda não é possível ver aqui se um documento já foi enviado para este vencimento.') +
       '<div class="actions"><a class="btn btn-secondary" href="#/items/' + id + '/document">Enviar documento</a></div>';
 
     body += '<h2 style="font-size:13px">ALERTA</h2>';
     if (item.alertPolicy) {
       body += '<p>✓ [ALERTA CONFIGURADO] Avisar ' + item.alertPolicy.offsetDays + ' dias antes · ' + esc(item.alertPolicy.channel) +
-        '<br><span class="annot">(política salva — não garante entrega, BLOCKER-B)</span></p>';
+        '<br><span class="annot">' + modeText('(política salva — não garante entrega, BLOCKER-B)', '(preferência salva)') + '</span></p>';
     } else {
       body += '<p>Nenhum alerta configurado para este vencimento.</p>';
     }
@@ -553,7 +689,7 @@
       if (FLAGS.createOutcome === 'unknown') {
         fb.innerHTML = feedback('unknown', '⚠',
           'Não foi possível confirmar se o vencimento foi criado. Isto pode acontecer por instabilidade de rede. ' +
-          'Não reenviamos automaticamente para evitar duplicidade (CREATE-IDEMPOTENCY-01). ' +
+          'Não reenviamos automaticamente para evitar duplicidade.' + evalOnly(' (CREATE-IDEMPOTENCY-01 — backend agora suporta idempotency-key opcional; ver docs/frontend/interface-validation-readiness.md §13-14. A UI simulada aqui não muda: nenhum cliente real envia esse header ainda, Full BFF/frontend real não implementados.)') + ' ' +
           '<div class="actions"><a class="btn btn-primary" href="#/items">Ver meus vencimentos e confirmar</a>' +
           ' <button class="btn btn-secondary" data-action="retryCreateManually">Preencher novamente</button></div>');
         announce('Resultado incerto: não foi possível confirmar a criação.');
@@ -585,7 +721,8 @@
       '<form novalidate data-form="submitRenew" data-id="' + id + '">' +
       '<div class="field"><label for="r-due">Nova data de vencimento *</label><input id="r-due" name="dueDate" type="date" required value="' + addDays(item.dueDate, 365) + '"></div>' +
       '<p>⚠ Renovar cria um <strong>novo ciclo</strong> — o ciclo atual será preservado como histórico ([RENOVADO]), não editado.</p>' +
-      blockedBlock('BLOCKER-A', 'Não é possível confirmar hoje qual documento pertence a qual ciclo.') +
+      blockedBlock('BLOCKER-A', 'Não é possível confirmar hoje qual documento pertence a qual ciclo.',
+        'Documentos enviados antes desta renovação podem não ficar organizados automaticamente pelo novo ciclo ainda.') +
       '<div id="renew-error"></div>' +
       '<div class="actions"><button type="submit" class="btn btn-dangerous">Confirmar renovação</button></div>' +
       '</form><div id="renew-feedback"></div>';
@@ -649,7 +786,8 @@
     if (!st) {
       body += blockedBlock('BLOCKER-A',
         'Não é possível saber hoje se já existe um documento enviado para este vencimento (nenhuma rota de leitura) — ' +
-        '"nenhum documento ainda" seria uma afirmação que a interface não tem como confirmar, não um vazio genuíno.') +
+        '"nenhum documento ainda" seria uma afirmação que a interface não tem como confirmar, não um vazio genuíno.',
+        'Ainda não é possível ver aqui se um documento já foi enviado para este vencimento.') +
         '<p>Você pode enviar um novo arquivo abaixo. Formatos aceitos: PDF, JPEG, PNG · até 10 MB.</p>' +
         '<div class="field"><label for="doc-file">Arquivo</label><input id="doc-file" type="file"></div>' +
         '<div class="actions"><button class="btn btn-primary" data-action="submitUpload" data-id="' + id + '">Enviar</button></div>';
@@ -663,7 +801,8 @@
         blockedBlock('BLOCKER-A',
           'A partir daqui não é possível consultar o que acontece com o arquivo (verificação de segurança, resultado, ou reabri-lo depois). ' +
           'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Esta seção mostraria "[ARQUIVO VERIFICADO]" ou ' +
-          '"[ARQUIVO REJEITADO PELA VERIFICAÇÃO DE SEGURANÇA]" assim que essa capacidade existir — nunca "Aprovado", nunca "verificando segurança" como fato confirmado.') +
+          '"[ARQUIVO REJEITADO PELA VERIFICAÇÃO DE SEGURANÇA]" assim que essa capacidade existir — nunca "Aprovado", nunca "verificando segurança" como fato confirmado.',
+          'Ainda não é possível ver aqui o resultado da verificação de segurança deste arquivo.') +
         '<div class="actions"><button class="btn btn-secondary" data-action="retryUpload" data-id="' + id + '">Enviar outro arquivo</button></div>';
     }
     return shell('DOCUMENTO — ' + item.name.toUpperCase(), 'Veio de: Detalhe', body,
@@ -694,7 +833,8 @@
       blockedBlock('BLOCKER-B',
         'Salvar esta política registra sua preferência, mas hoje não existe garantia de que o aviso será realmente ' +
         'enviado no momento configurado — a geração automática do aviso não está conectada. Esta seção nunca afirmará ' +
-        '"você será avisado" até isso ser corrigido.') +
+        '"você será avisado" até isso ser corrigido.',
+        'Sua preferência será salva. Ainda não garantimos que o aviso será enviado automaticamente no momento certo nesta versão.') +
       '<div id="alert-error"></div>' +
       '<div class="actions"><button type="submit" class="btn btn-primary">Salvar</button> ' +
       (item.alertPolicy ? '<button type="button" class="btn btn-secondary" data-action="disableAlert" data-id="' + id + '">Desabilitar alerta</button>' : '') + '</div>' +
@@ -718,7 +858,8 @@
     announce('Salvando política de alerta…');
     window.setTimeout(function () {
       findItem(id).alertPolicy = { offsetDays: offset, channel: 'E-mail' };
-      fb.innerHTML = feedback('success', '✓', '[ALERTA CONFIGURADO] Avisar ' + offset + ' dias antes · E-mail. (política salva — ver aviso de BLOCKER-B acima; nunca "agendado" ou "entregue")');
+      fb.innerHTML = feedback('success', '✓', '[ALERTA CONFIGURADO] Avisar ' + offset + ' dias antes · E-mail. ' +
+        modeText('(política salva — ver aviso de BLOCKER-B acima; nunca "agendado" ou "entregue")', '(preferência salva)'));
       announce('Política de alerta salva.');
       if (alertBtn) alertBtn.disabled = false;
     }, 400);
@@ -834,12 +975,14 @@
       '<p class="secondary-info">Enviada em ' + fmtDate(dr.sentAt) + ' · Prazo: ' + fmtDate(dr.deadline) + ' (' + daysUntil(dr.deadline) + ' dias)</p>' +
       '<p class="secondary-info">Enviada para: ' + esc(dr.recipient) + '</p>';
     if (dr.status === 'SUBMITTED') {
-      body += blockedBlock('BLOCKER-C', 'Documento recebido ≠ requisito atendido. Veja a fila de revisão (branch point não decidido).') +
-        '<div class="actions"><a class="btn btn-primary" href="#/submission-review?dr=' + id + '">Ver branch point (Submission Review)</a></div>';
+      body += blockedBlock('BLOCKER-C', 'Documento recebido ≠ requisito atendido. Veja a fila de revisão (branch point não decidido).',
+        'Documento recebido — ainda precisa ser revisado antes de contar como atendido.') +
+        '<div class="actions"><a class="btn btn-primary" href="#/submission-review?dr=' + id + '&variant=' + (isEvaluator ? 'select' : 'b') + '">' +
+        modeText('Ver branch point (Submission Review)', 'Revisar documento recebido') + '</a></div>';
     } else if (dr.status !== 'REVOKED') {
       body += '<div class="actions">' +
-        '<button class="btn btn-secondary" data-action="simulateOpen" data-id="' + id + '"' + (dr.status !== 'REQUESTED' ? ' disabled' : '') + '>PROTOTYPE-ONLY: simular fornecedor abrindo o link</button> ' +
-        '<button class="btn btn-secondary" data-action="simulateSubmit" data-id="' + id + '"' + (dr.status === 'REQUESTED' ? ' disabled' : '') + '>PROTOTYPE-ONLY: simular fornecedor enviando documento</button>' +
+        '<button class="btn btn-secondary" data-action="simulateOpen" data-id="' + id + '"' + (dr.status !== 'REQUESTED' ? ' disabled' : '') + '>' + modeText('PROTOTYPE-ONLY: simular fornecedor abrindo o link', 'Simular resposta do fornecedor: abriu o link') + '</button> ' +
+        '<button class="btn btn-secondary" data-action="simulateSubmit" data-id="' + id + '"' + (dr.status === 'REQUESTED' ? ' disabled' : '') + '>' + modeText('PROTOTYPE-ONLY: simular fornecedor enviando documento', 'Simular resposta do fornecedor: enviou o documento') + '</button>' +
         '</div>' +
         '<div class="actions"><button class="btn btn-dangerous" data-action="confirmRevoke" data-id="' + id + '">Revogar solicitação</button></div>' +
         '<div id="revoke-slot"></div>';
@@ -847,7 +990,7 @@
     return shell('SOLICITAÇÃO — ' + req.name.toUpperCase(), 'Veio de: Requisito', body,
       { navKey: 'subjects', a11y: 'revogação exige confirmação deliberada, navegável por teclado.' });
   });
-  actions.simulateOpen = function (el) { findDocRequest(el.getAttribute('data-id')).status = 'OPENED'; render(); announce('(prototype-only) Fornecedor abriu o link.'); };
+  actions.simulateOpen = function (el) { findDocRequest(el.getAttribute('data-id')).status = 'OPENED'; render(); announce(modeText('(prototype-only) Fornecedor abriu o link.', 'Fornecedor abriu o link.')); };
   actions.simulateSubmit = function (el) {
     var dr = findDocRequest(el.getAttribute('data-id'));
     dr.status = 'SUBMITTED';
@@ -857,7 +1000,8 @@
     // product-facing announcement below only states what "documento recebido" actually means.
     dr.submission = { status: 'CLEAN' };
     render();
-    announce('(prototype-only, ator externo simulado) Fornecedor enviou o documento. O resultado da verificação de segurança não é observável aqui.');
+    announce(modeText('(prototype-only, ator externo simulado) Fornecedor enviou o documento. O resultado da verificação de segurança não é observável aqui.',
+      'Fornecedor enviou o documento. O resultado da verificação de segurança não é observável aqui.'));
   };
   actions.confirmRevoke = function (el) {
     var id = el.getAttribute('data-id');
@@ -872,7 +1016,15 @@
   // SURF-012 — Submission Review (branch point, two variants — neither decided)
   // =======================================================================
   route('/submission-review', function (q) {
-    var variant = q.variant || 'select';
+    // BLOCKER-C's "choose a variant" screen is itself an internal design-exploration artifact —
+    // a real participant would never see a chooser for an undecided internal branch point. In
+    // Participant Mode the mainline path (reached from the document-request detail screen, and
+    // from any variant/select value) always lands on Variant B — Human Review, the current
+    // leading hypothesis (§59-60 of the Validation Readiness mission) — presented as simply "how
+    // the product works". Variant A remains reachable by its own explicit Prototype Scenario ID
+    // (PROTO-J06-A) for a future comparative round if one is ever needed (§62: preserve both
+    // scenarios separately, never as a participant-facing choice).
+    var variant = isEvaluator ? (q.variant || 'select') : (q.variant === 'a' ? 'a' : 'b');
     var dr = q.dr ? findDocRequest(q.dr) : null;
     if (variant === 'select') {
       var body = '<p>Esta superfície inteira é <strong>DESIGN REQUIRED / IMPLEMENTATION BLOCKED</strong> — sua existência ' +
@@ -885,33 +1037,37 @@
       var body = blockedBlock('BLOCKER-C — Variante A (hipótese, não decidida)',
         'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Se escolhida, SURF-012 deixaria de existir ' +
         'como superfície própria; o requisito seria gravado como [VINCULADO A UM VENCIMENTO] automaticamente, sem checkpoint humano. ' +
-        '"SATISFIED" continuaria significando só "vinculado", nunca "compliance atual".') +
-        '<div class="actions"><button class="btn btn-primary" data-action="simulateVariantA" data-dr="' + (dr ? dr.id : '') + '">Simular vínculo automático</button></div>' +
+        '"SATISFIED" continuaria significando só "vinculado", nunca "compliance atual".',
+        'O documento seria vinculado automaticamente ao vencimento correspondente, sem revisão manual antes de confirmar.') +
+        '<div class="actions"><button class="btn btn-primary" data-action="simulateVariantA" data-dr="' + (dr ? dr.id : '') + '">' + modeText('Simular vínculo automático', 'Vincular automaticamente') + '</button></div>' +
         '<div id="variant-a-fb"></div>';
-      return shell('SUBMISSION REVIEW — VARIANTE A', '', body, { navKey: 'requests' });
+      return shell(modeText('SUBMISSION REVIEW — VARIANTE A', 'Documento Recebido'), '', body, { navKey: 'requests' });
     }
     var body = blockedBlock('BLOCKER-C — Variante B (hipótese, não decidida)',
-      'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Fila de confirmação humana, hoje sem nenhuma rota de leitura real.') +
+      'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Fila de confirmação humana, hoje sem nenhuma rota de leitura real.',
+      'Documento recebido — aguardando revisão antes de confirmar o requisito como atendido.') +
       '<ul class="plain-list"><li class="list-item"><span>' + (dr ? esc(findSubject(findRequirement(dr.requirementId).subjectId).name) + ' — ' + esc(findRequirement(dr.requirementId).name) : 'Transportadora Silva Ltda. — Apólice de Seguro RC') + '<br>' +
       '<span class="secondary-info">Documento recebido em ' + TODAY + '</span></span></li></ul>' +
       '<div class="actions"><button class="btn btn-primary" data-action="simulateVariantB" data-dr="' + (dr ? dr.id : '') + '" data-decision="link">Vincular a vencimento existente</button>' +
       ' <button class="btn btn-dangerous" data-action="simulateVariantB" data-dr="' + (dr ? dr.id : '') + '" data-decision="reject">Rejeitar</button></div>' +
       '<div id="variant-b-fb"></div>';
-    return shell('SUBMISSION REVIEW — VARIANTE B', '', body, { navKey: 'requests' });
+    return shell(modeText('SUBMISSION REVIEW — VARIANTE B', 'Documento Recebido'), '', body, { navKey: 'requests' });
   });
   actions.simulateVariantA = function (el) {
     var drId = el.getAttribute('data-dr');
     if (drId) { var req = findRequirement(findDocRequest(drId).requirementId); req.status = 'SATISFIED'; }
-    document.getElementById('variant-a-fb').innerHTML = feedback('success', '✓', '(simulado) [VINCULADO A UM VENCIMENTO] — vínculo automático, sem passo humano.');
-    announce('(prototype-only) Variante A simulada.');
+    document.getElementById('variant-a-fb').innerHTML = feedback('success', '✓', modeText('(simulado) ', '') + '[VINCULADO A UM VENCIMENTO] — vínculo automático, sem passo humano.');
+    announce(modeText('(prototype-only) Variante A simulada.', 'Vínculo automático confirmado.'));
   };
   actions.simulateVariantB = function (el) {
     var decision = el.getAttribute('data-decision');
     var drId = el.getAttribute('data-dr');
     if (decision === 'link' && drId) { var req = findRequirement(findDocRequest(drId).requirementId); req.status = 'SATISFIED'; }
     document.getElementById('variant-b-fb').innerHTML = feedback(decision === 'link' ? 'success' : 'failed', decision === 'link' ? '✓' : '✕',
-      decision === 'link' ? '(simulado) Operador vinculou manualmente — [VINCULADO A UM VENCIMENTO].' : '(simulado) Operador rejeitou — requisito permanece [PENDENTE], nova solicitação pode ser criada.');
-    announce('(prototype-only) Variante B simulada: ' + decision + '.');
+      decision === 'link'
+        ? modeText('(simulado) Operador vinculou manualmente — [VINCULADO A UM VENCIMENTO].', 'Vinculado manualmente ao vencimento — [VINCULADO A UM VENCIMENTO].')
+        : modeText('(simulado) Operador rejeitou — requisito permanece [PENDENTE], nova solicitação pode ser criada.', 'Rejeitado — requisito permanece [PENDENTE], uma nova solicitação pode ser criada.'));
+    announce(modeText('(prototype-only) Variante B simulada: ' + decision + '.', decision === 'link' ? 'Documento vinculado.' : 'Documento rejeitado.'));
   };
 
   // =======================================================================
@@ -920,7 +1076,8 @@
   route('/requests-collection', function () {
     var body = blockedBlock('Consulta entre fornecedores indisponível',
       'Não existe hoje uma consulta que traga todas as solicitações pendentes de todos os fornecedores de uma vez — ' +
-      'cada uma só é acessível a partir do Requisito/Fornecedor específico.') +
+      'cada uma só é acessível a partir do Requisito/Fornecedor específico.',
+      'Esta lista não está disponível ainda — acesse pelo Fornecedor específico.') +
       '<div class="actions"><a class="btn" href="#/subjects">Ir para Fornecedores</a></div>';
     return shell('Solicitações (todos os fornecedores)', '', body, { navKey: 'requests' });
   });
@@ -940,12 +1097,20 @@
   route('/guest/:token', function (token) {
     var info = resolveGuestToken(token);
     if (!info) {
-      return shell('Solicitação de Documento', '', '<p>✕ Este link não está disponível.</p><p class="annot">(mesma mensagem para link inválido, expirado, revogado ou não encontrado — nunca diferenciado)</p>', { guest: true });
+      return shell('Solicitação de Documento', '', '<p>✕ Este link não está disponível.</p>' +
+        evalOnly('<p class="annot">(mesma mensagem para link inválido, expirado, revogado ou não encontrado — nunca diferenciado)</p>'), { guest: true });
     }
     var st = guestSession[token] || { state: 'loaded' };
     var body = '';
-    var gtr01 = blockedBlock('GTR-01', 'Quem está solicitando: não exibido hoje — nenhuma rota expõe a identidade da organização requisitante. ' +
-      'DESIGN REQUIRED — estrutura correta esperada: "Solicitado por: &lt;organização&gt;" nesta posição.') +
+    // GTR-01: both modes now show the requester identity (simulated — see requesterOrgName's
+    // definition in seedDB()). The two modes diverge only in whether the simulation is labeled
+    // as such: Evaluator Mode keeps the explicit disclaimer so nobody mistakes this for a
+    // resolved backend contract; Participant Mode shows exactly what a real guest would see if
+    // GTR-01 were fixed, with no meta-commentary, because that is the whole point of simulating it.
+    var gtr01 = '<p><strong>Solicitado por:</strong> ' + esc(info.requesterOrgName) + '</p>' +
+      evalOnly('<div class="a11y-note">GTR-01: identidade do solicitante é SIMULADA nesta etapa (Validation Readiness, ' +
+        'Workstream B) para não gastar participantes redescobrindo uma lacuna já conhecida. Nenhuma rota real deriva isso ' +
+        'hoje por tenant/solicitação — não tratar como resolvido tecnicamente.</div>') +
       '<p><strong>Documento solicitado:</strong> ' + esc(info.requirementName) + '</p>' +
       '<p>Prazo: ' + fmtDate(info.deadline) + '</p>' +
       '<p>Formatos aceitos: ' + esc(info.allowedTypes) + ' · até ' + esc(info.maxBytes) + '</p>';
@@ -961,7 +1126,7 @@
     } else if (st.state === 'reserving') {
       body += feedback('pending', '⏳', 'Reservando envio…');
     } else if (st.state === 'reservationAccepted') {
-      body += feedback('success', '✓', 'Reserva aceita.') + '<p class="annot">(isto não é "documento enviado" — é só "posso enviar agora")</p>' +
+      body += feedback('success', '✓', 'Reserva aceita.') + evalOnly('<p class="annot">(isto não é "documento enviado" — é só "posso enviar agora")</p>') +
         feedback('pending', '⏳', 'Enviando arquivo…');
     } else if (st.state === 'unknown') {
       body += feedback('unknown', '⚠', 'Não foi possível confirmar o envio (rede instável). O reenvio é seguro — pode tentar novamente.') +
@@ -970,7 +1135,8 @@
       body += feedback('success', '✓', 'Envio recebido pelo seu navegador.') +
         blockedBlock('Guest verification visibility gap',
           'Não é possível confirmar aqui se o arquivo passou pela verificação de segurança — esta página não tem essa informação. ' +
-          'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Se necessário, entre em contato com quem solicitou o documento.');
+          'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Se necessário, entre em contato com quem solicitou o documento.',
+          'Não é possível ver aqui se o arquivo já passou por alguma verificação. Se precisar, entre em contato com quem solicitou o documento.');
     }
     return shell('Solicitação de Documento', '', body, { guest: true, a11y: 'câmera/arquivo nativo — sem depender só de drag-and-drop.' });
   });
@@ -1042,7 +1208,8 @@
     if (job.status === 'PREVIEW_READY') {
       body = '<p>Total de linhas: ' + job.counts.total + '</p>' +
         '<p>Aceitas: ' + job.counts.accepted + ' · Rejeitadas: ' + job.counts.rejected + ' · Duplicadas: ' + job.counts.duplicated + '</p>' +
-        blockedBlock('Erro por linha', 'Não é possível hoje ver quais linhas foram rejeitadas nem por quê — só a contagem agregada está disponível.') +
+        blockedBlock('Erro por linha', 'Não é possível hoje ver quais linhas foram rejeitadas nem por quê — só a contagem agregada está disponível.',
+          'Ainda não é possível ver quais linhas específicas tiveram problema — só o total.') +
         '<div class="actions"><button class="btn btn-primary" data-action="commitImport" data-job="' + job.id + '">Confirmar importação</button>' +
         ' <a class="btn btn-secondary" href="#/import">Cancelar</a></div>';
       return shell('Importar Planilha (3/4 — revisar)', '', body, { navKey: 'items' });
@@ -1156,7 +1323,7 @@
     SESSION.pendingReturn = location.hash;
     SESSION.authenticated = false;
     render();
-    announce('(prototype-only) Sessão expirada simulada.');
+    announce(modeText('(prototype-only) Sessão expirada simulada.', 'Sessão expirada.'));
   }
 
   // ---------------------------------------------------------------------
@@ -1214,6 +1381,9 @@
       { id: 'PROTO-SESSION-DURING-CREATE', desc: 'Vá para Novo Vencimento e clique "Expirar sessão agora".', run: function () { resetAll(); navigate('#/items/new'); } },
       { id: 'PROTO-SESSION-DURING-IMPORT', desc: 'Inicie um import e expire a sessão — o progresso persistido é recuperável ao reautenticar.', run: function () { resetAll(); navigate('#/import'); } },
       { id: 'PROTO-EXPIRE-SESSION-NOW', desc: 'Expira a sessão a partir de onde você estiver agora.', run: function () { expireSessionNow(); } }
+    ]},
+    'STRESS': { label: 'Stress — Densidade de Dados', scenarios: [
+      { id: 'PROTO-STRESS-DENSITY-01', desc: 'Volume alto e realista (155 vencimentos, 38 fornecedores, 95 requisitos, 21 solicitações ativas) — UX stress test, não performance test.', run: function () { resetAll(seedDensityStress); } }
     ]}
   };
 
@@ -1279,7 +1449,21 @@
   });
   document.addEventListener('DOMContentLoaded', function () {
     bindDelegatedListeners(document.getElementById('app')); // once, ever — see definition for why
-    bootControlBar(); // must populate the journey <select> before the first render() call
+    document.body.className = 'mode-' + MODE; // drives the CSS that hides #banner/#control-bar entirely in Participant Mode (belt-and-suspenders alongside the removeChild calls below)
+    if (isEvaluator) {
+      bootControlBar(); // must populate the journey <select> before the first render() call
+    } else {
+      // Participant Mode never boots the control bar at all — removed from the DOM outright
+      // (not just visually hidden) so it can't be revealed by view-source, devtools, or a
+      // screen reader landmark scan. #banner ("PROTOTYPE ONLY...") is engineering framing too:
+      // whether/how a real User Validation participant is told this is a prototype is a
+      // facilitator/informed-consent decision for the next stage (User Validation Planning),
+      // not something the software itself should announce mid-experience.
+      ['control-bar', 'banner'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      });
+    }
     resetAll();
   });
 })();

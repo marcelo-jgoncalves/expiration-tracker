@@ -141,9 +141,10 @@ export async function handleCreateItem(deps: ExpirationHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CREATE_ITEM_SCHEMA_ID, req.body);
+    const idempotencyKey = req.headers?.["idempotency-key"];
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
     await consumeApiRequestQuota(deps.quota, context);
-    const item = await deps.expiration.createItem(context, req.body);
+    const item = await deps.expiration.createItem(context, req.body, idempotencyKey);
     return { statusCode: 201, body: { item } };
   });
 }
