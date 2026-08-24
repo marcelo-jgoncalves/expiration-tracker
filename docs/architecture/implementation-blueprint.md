@@ -236,7 +236,10 @@ O router remove ou rejeita `tenantId`, `userId`, `roles` e `membershipId` fornec
 - Access token: vida curta, alvo inicial de 5–15 minutos.
 - Refresh token: rotação obrigatória e detecção de reutilização.
 - Tokens não ficam em `localStorage` ou `sessionStorage`.
-- **Decidido (§23.1): sessão BFF** com cookie `HttpOnly`, `Secure`, `SameSite=Lax`, via endpoint de sessão dedicado (`/session/refresh`, `/session/logout`) — não Cognito diretamente no browser. Alternativa descartada explicitamente para eliminar a ambiguidade "BFF ou Cognito direto" presente nas propostas Rodada 1.
+- **Decidido (§23.1): sessão BFF** com cookie `HttpOnly`, `Secure`, `SameSite=Lax`, via endpoint de sessão dedicado (`/session/refresh`, `/session/logout`) — não Cognito diretamente no browser. Alternativa descartada explicitamente para eliminar a ambiguidade "BFF ou Cognito direto" presente nas propostas Rodada 1. **Refinado por D-053** (`decisions-log.md`, `docs/architecture/reviews/bff-full-vs-session-design/claude-reconciliation-final-design.md`): esta decisão nunca especificou como o SPA autenticaria as rotas de recurso já existentes, protegidas por JWT authorizer nativo (só valida `Authorization: Bearer`, não lê cookie) — D-053 fecha isso a favor de **Full BFF** (toda chamada de recurso passa por um BFF que anexa Bearer server-side; browser só recebe o cookie de sessão opaco). Ver D-053 para PKCE/`state`, CSRF, modelo de sessão e criptografia de refresh token. **Endurecido
+por D-054** (auditoria adversarial, mesma data): rotação nativa do Cognito (não geração local) no
+refresh, tabela de sessão dedicada IAM-isolada (não ponteiro na tabela single-table), cookies de
+login/sessão com `SameSite` diferenciado, lifetime de sessão explícito.
 - Logout por dispositivo atualiza `deviceLogoutAfter`/revoga a família de refresh.
 - Logout global atualiza `globalLogoutAfter` e revoga tokens suportados pelo Cognito.
 - Sessões têm `sessionId`, `deviceId`, `refreshFamilyId`, `createdAt`, `lastSeenAt`, `expiresAt` e status.
