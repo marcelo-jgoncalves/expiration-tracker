@@ -33,11 +33,17 @@ interface IdempotencyRecord {
   tenantId: string;
   operation: string;
   requestHash: string;
-  status: "IN_PROGRESS" | "COMPLETED";
+  status: "IN_PROGRESS" | "COMPLETED" | "ABORTED";
   responseRef?: string;
   expiresAt: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface IdempotencyAbortInput {
+  tenantId: string;
+  operation: string;
+  key: string;
 }
 
 /** Minimal DynamoDB surface this module needs - implemented against the real
@@ -107,6 +113,24 @@ export class IdempotencyStore {
       return "ACQUIRED";
     }
 
+    if (existing.status === "ABORTED") {
+      // The previous holder of this key never completed its guarded operation - it failed for
+      // a reason unrelated to "this exact request already succeeded" (e.g. an OCC version
+      // conflict on the aggregate write, ExpirationService.renewItem calling abort() in its
+      // catch block) and explicitly released the lock via abort(). The aborted record's stale
+      // requestHash is irrelevant here - unlike a genuine key-reuse conflict (below), there is
+      // no cached success this new attempt could collide with, so it is safe to acquire fresh
+      // regardless of whether the new hash matches the aborted one.
+      await this.client.update({
+        ...existing,
+        status: "IN_PROGRESS",
+        requestHash: input.requestHash,
+        responseRef: undefined,
+        completedAt: undefined,
+      });
+      return "ACQUIRED";
+    }
+
     if (existing.requestHash !== input.requestHash) {
       throw new ConcurrentOperationError(input.operation, input.key);
     }
@@ -133,5 +157,22 @@ export class IdempotencyStore {
       responseRef: input.responseRef,
       completedAt: this.now(),
     });
+  }
+
+  /**
+   * Releases a lock this caller acquired via begin() but never completed, because the
+   * guarded operation itself failed (mission's "idempotency liveness residual", docs/frontend
+   * core-expiration-vertical-slice.md - discovered building Renew's OCC-conflict path: without
+   * this, a version conflict on the aggregate write would leave the key permanently
+   * IN_PROGRESS, and every retry - even with a freshly re-fetched expectedVersion - would hit
+   * ConcurrentOperationError forever, since begin() never re-acquires an IN_PROGRESS record).
+   * A no-op if the record is missing or already COMPLETED (a real cached success must never be
+   * discarded just because a caller mistakenly aborts after the fact).
+   */
+  async abort(input: IdempotencyAbortInput): Promise<void> {
+    const { PK, SK } = buildIdempotencyKey(this.tableName, input.tenantId, input.operation, input.key);
+    const existing = await this.client.get({ PK, SK });
+    if (!existing || existing.status !== "IN_PROGRESS") return;
+    await this.client.update({ ...existing, status: "ABORTED" });
   }
 }

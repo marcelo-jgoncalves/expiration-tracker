@@ -193,6 +193,55 @@ describe("ExpirationService", () => {
     expect(allItems).toHaveLength(2); // source + one renewed successor, not two
   });
 
+  it("renewItem: an OCC conflict (stale expectedVersion) releases the idempotency key, so a retry with a freshly-fetched version succeeds - it does not permanently fail with ConcurrentOperationError", async () => {
+    // Regression for a real bug found implementing the Renew vertical slice's OCC-recovery
+    // flow (docs/frontend/core-expiration-vertical-slice.md §16): begin() acquired the lock
+    // (status IN_PROGRESS) BEFORE the OCC-guarded write ran; the write then failed its
+    // condition and threw ConflictError, but nothing released the lock - idempotency.complete()
+    // was never reached. A retry under the SAME client-generated idempotency key (which the
+    // frontend correctly reuses per mission §29 - a retry of the same logical submission
+    // reuses its key) computed a DIFFERENT requestHash (the caller re-fetched the item and
+    // supplied the new expectedVersion), so begin() saw a hash mismatch against the still-
+    // IN_PROGRESS record and threw ConcurrentOperationError forever, even though the renewal
+    // never actually happened. ExpirationService.renewItem's catch block must call
+    // idempotency.abort() before rethrowing so this retry can acquire fresh.
+    const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+    // Simulate the "someone else changed it concurrently" version conflict - expectedVersion
+    // is stale (source.version + 1 instead of source.version).
+    await expect(
+      service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version + 1, "same-client-key"),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    // The failed attempt must not have created a successor or transitioned the source.
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1);
+
+    // Retry: the caller re-fetched the item (same version as before, nothing actually changed
+    // in this test - a real concurrent writer isn't needed to prove the key is unblocked) and
+    // resubmits with the SAME idempotency key, per mission §29.
+    const renewed = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "same-client-key");
+
+    expect(renewed.renewedFromId).toBe(source.itemId);
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(2);
+  });
+
+  it("renewItem: retrying under the same key after a wrong-status conflict (already renewed) also releases the lock rather than blocking forever", async () => {
+    const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-01-01T00:00:00.000Z" }, source.version); // no key - unrelated attempt, transitions source to RENEWED
+
+    await expect(
+      service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "another-client-key"),
+    ).rejects.toBeInstanceOf(ConflictError); // source is RENEWED now, not ACTIVE
+
+    // A subsequent, genuinely different renewal attempt (real product flow: the user reloads
+    // the now-RENEWED item and gives up, or the item continues to be RENEWED and this key is
+    // simply never retried) must not leave "another-client-key" poisoned for unrelated future
+    // use under a different itemId - abort() must have released it.
+    const other = await service.createItem(ctx(), { name: "c", category: "d", dueDate: "2026-09-10T00:00:00.000Z" });
+    const renewedOther = await service.renewItem(ctx(), other.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, other.version, "another-client-key");
+    expect(renewedOther.renewedFromId).toBe(other.itemId);
+  });
+
   it("listDashboard queries GSI1 by tenant+status and returns items ordered by dueDate", async () => {
     await service.createItem(ctx(), { name: "later", category: "b", dueDate: "2026-12-01T00:00:00.000Z" });
     await service.createItem(ctx(), { name: "sooner", category: "b", dueDate: "2026-09-01T00:00:00.000Z" });

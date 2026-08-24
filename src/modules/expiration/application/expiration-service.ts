@@ -175,7 +175,20 @@ export class ExpirationService {
       changes: { after: item },
     });
 
-    await this.commit(entries);
+    try {
+      await this.commit(entries);
+    } catch (err) {
+      // Idempotency liveness (docs/frontend/core-expiration-vertical-slice.md - discovered
+      // via renewItem's identical failure shape, applied here defensively too): the write
+      // itself failed (in practice, near-impossible for a freshly generated itemId, but not
+      // provably impossible), so the lock this begin() acquired must be released - otherwise
+      // every retry under the same key would hit ConcurrentOperationError forever, even
+      // though the create never actually happened.
+      if (idempotencyState) {
+        await this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation, key: idempotencyState.key });
+      }
+      throw err;
+    }
 
     if (idempotencyState) {
       await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key: idempotencyState.key, responseRef: itemId });
@@ -341,10 +354,31 @@ export class ExpirationService {
       return this.getItem(ctx, newItemId);
     }
 
-    if (source.status !== "ACTIVE") {
-      throw new ConflictError(`Cannot renew item in status ${source.status}.`, { itemId, status: source.status });
+    try {
+      if (source.status !== "ACTIVE") {
+        throw new ConflictError(`Cannot renew item in status ${source.status}.`, { itemId, status: source.status });
+      }
+      return await this.completeRenewal(ctx, itemId, source, input, expectedVersion, key, operation);
+    } catch (err) {
+      // Idempotency liveness (mission's residual, docs/frontend/core-expiration-vertical-
+      // slice.md §16): without releasing the lock here, a genuine OCC conflict on the
+      // aggregate write (or the status-guard above) would leave this key permanently
+      // IN_PROGRESS - every retry, even after the caller re-fetches the item and supplies a
+      // fresh expectedVersion, would hit ConcurrentOperationError instead of a real retry.
+      await this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation, key });
+      throw err;
     }
+  }
 
+  private async completeRenewal(
+    ctx: RequestContext,
+    itemId: string,
+    source: ExpirationItem,
+    input: RenewItemInput,
+    expectedVersion: number,
+    key: string,
+    operation: string,
+  ): Promise<ExpirationItem> {
     const newItemId = this.ids.newItemId();
     const now = this.now();
     const newVersion = expectedVersion + 1;
