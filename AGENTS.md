@@ -15,8 +15,9 @@ Princípios de engenharia, tiers de gate de qualidade, escala de risco que calib
 1. Ler `NEXT_SESSION_PROMPT.md` (estado atual + próxima ação).
 2. Ler `docs/architecture/README.md` (mapa de fontes de arquitetura/sistema, status vigente, regra de precedência).
 3. Se a tarefa envolver processo de qualidade/revisão (rubrica, protocolo Claude↔Codex, achados de auditoria por eixo), ler `docs/engineering/README.md` em vez de navegar `docs/engineering/` às cegas.
-4. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
-5. Não carregar todo `docs/architecture/history/` (nem `docs/engineering/reviews/`) por padrão — é evidência histórica, consultar sob demanda.
+4. Se a tarefa envolver planejamento de interface (UX, IA, journeys, telas), ler `docs/frontend/README.md` primeiro — inclui os 3 blockers técnicos de backend (BLOCKER-A/B/C) e GTR-01, citados por ID em todo o planejamento, que não devem ser reabertos nem mascarados.
+5. Consultar `docs/project/working-memory.md` só quando a tarefa envolver COMO trabalhar com Marcelo (ferramentas, processo), não O QUE decidir sobre o produto.
+6. Não carregar todo `docs/architecture/history/` (nem `docs/engineering/reviews/`) por padrão — é evidência histórica, consultar sob demanda.
 
 ## 3. Estratégia de branch (padrão a partir de 2026-08-19)
 
