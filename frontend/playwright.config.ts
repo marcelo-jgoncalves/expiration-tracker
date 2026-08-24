@@ -18,10 +18,14 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "npm run preview -- --port 4173 --strictPort",
+    command: "npm run preview -- --port 4173 --strictPort --host 127.0.0.1",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env["CI"],
-    timeout: 30_000,
+    timeout: 60_000,
+    // Surfaces the preview server's own output on failure - a silent 30s timeout with no
+    // server log gave no signal about why it never became ready in CI.
+    stdout: "pipe",
+    stderr: "pipe",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
