@@ -15,7 +15,7 @@ import { Link } from "react-router-dom";
 import { apiClient } from "../api/apiClient.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
 import type { ExpirationItem } from "../api/types.js";
-import { presentItemStatus, sortByDueDateAscending } from "../api/presentation.js";
+import { formatAbsoluteDate, presentItemStatus, sortByDueDateAscending } from "../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { ApiError } from "../api/errors.js";
 
@@ -59,7 +59,10 @@ export function Overview() {
           return (
             <li key={item.itemId}>
               <span data-tone={presentation.tone}>[{presentation.label}]</span> <Link to={`/items/${item.itemId}`}>{item.name}</Link>{" "}
-              <span>{new Date(item.dueDate).toLocaleDateString("pt-BR")}</span>
+              {/* formatAbsoluteDate (not `new Date(...).toLocaleDateString`, a real Codex Round B
+                  finding): dueDate is a UTC-midnight instant - formatting it through local time
+                  shows the previous calendar day in any negative UTC offset (e.g. Brazil). */}
+              <span>{formatAbsoluteDate(item.dueDate)}</span>
             </li>
           );
         })}

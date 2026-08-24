@@ -11,7 +11,7 @@ import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
-import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
+import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { importJobKey, IMPORT_JOB_TTL_SECONDS, MAX_IMPORT_FILE_BYTES, type ImportJob } from "../domain/import-job.js";
@@ -82,6 +82,7 @@ export class ImportService {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
       get: (key) => this.store.get(key),
       update: (item) => this.store.update(item),
+      transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(this.store, this.tableName, item, expectedStatus),
     };
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);
   }

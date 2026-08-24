@@ -17,7 +17,7 @@ import { MAX_UPLOAD_BYTES } from "./upload-validation.js";
 import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.js";
 import type { UploadUrlSigner } from "../ports/upload-url-signer.js";
 import type { DocumentIdGenerator } from "./id-generator.js";
-import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
+import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 
 const ALLOWED_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const PRESIGN_TTL_SECONDS = 600; // 10 minutes, M6 design §2 (fluxo de reserva).
@@ -67,6 +67,7 @@ export class DocumentService {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
       get: (key) => this.store.get(key),
       update: (item) => this.store.update(item),
+      transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(this.store, this.tableName, item, expectedStatus),
     };
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);
   }

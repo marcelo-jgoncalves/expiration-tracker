@@ -272,17 +272,57 @@ lint` na raiz — 617 testes de backend, nenhuma regressão).
 
 ## 27. Codex Review
 
-[Preenchido após a rodada real via `codex exec --skip-git-repo-check`, ver AGENTS.md §4.]
+Round B (`codex exec --skip-git-repo-check`, adversarial, 30-point checklist do mission §85 +
+stress-test explícito do argumento de segurança do §16) rodou contra o código real (não a
+documentação) e confirmou `npm run typecheck`/`npm run lint` limpos nas duas árvores antes de
+reportar. Achados reais, mais severo primeiro:
+
+1. **S1 — `IdempotencyStore.begin()` permitia duas retentativas concorrentes reaquirirem o
+   mesmo registro `ABORTED`.** `src/shared/idempotency/idempotency.ts:116` fazia `get()` seguido
+   de `update()` incondicional — uma corrida TOCTOU real: duas chamadas concorrentes podiam ler
+   `ABORTED` antes de qualquer uma escrever, e ambas "vencerem" a reaquisição, executando a
+   operação guardada duas vezes.
+2. **S2 — `renewItem()` podia chamar `abort()` depois de um commit bem-sucedido** se
+   `idempotency.complete()` falhasse (o catch envolvia `completeRenewal()` inteiro, não só a
+   escrita transacional) — descartando a capacidade de repetir o sucesso real via idempotência.
+   A alegação original da §16 (que a versão condicionada na transação bastava) era verdadeira
+   para segurança de dados, mas não capturava essa perda de replay legítimo.
+3. **S2 — hash de requisição do Renew ignorava `newDueDate` quando `cycle` era enviado
+   explicitamente** — `renew-item-request.v1.json` permite `cycle` independente de `newDueDate`;
+   duas requisições com o mesmo `itemId`/`expectedVersion`/`cycle` mas `newDueDate` diferente
+   colidiam no mesmo hash.
+4. **S2 — `Overview.tsx` ainda formatava `dueDate` via `new Date(...).toLocaleDateString`**,
+   não via `formatAbsoluteDate` — exatamente a classe de bug de fuso horário que
+   `api/presentation.ts` foi desenhado para prevenir (um vencimento à meia-noite UTC podia
+   renderizar o dia anterior em fusos negativos, ex.: Brasil).
+
+Nenhum S0. S3/S4: nenhum achado adicional de código de produção (uma discrepância de contagem
+entre a descrição desta doc e o dataset real de teste de densidade foi notada, não elevada a
+severidade de produção). Veredito da Rodada B: **não seguro para merge como estava.**
 
 ## 28. Reconciliation
 
-[Preenchido após o Round C, finding por finding.]
+Todos os 4 achados foram aceitos e corrigidos nesta sessão (Round C):
+
+| # | Finding | Accepted/Rejected | Fix | Tests added |
+|---|---|---|---|---|
+| 1 | Corrida TOCTOU na reaquisição de `ABORTED` | Accepted | Novo `DynamoLike.transitionIfStatus(item, expectedStatus)` — escrita condicional via `transactWrite` de uma entrada só (`ConditionExpression: "#status = :expected"`), substituindo o `get()`+`update()` incondicional. Reusado também em `abort()` (mesma classe de corrida, não achada pela Rodada B, fechada pelo mesmo mecanismo). Implementado nos 3 módulos que constroem `IdempotencyStore` (expiration/document/import) via um helper compartilhado `transitionIdempotencyStatus()`. | 2 novos em `test/unit/idempotency.test.ts` (reaquisição concorrente — exatamente um vencedor; `abort()` nunca sobrescreve um `complete()` concorrente) |
+| 2 | `abort()` após commit bem-sucedido | Accepted | `renewItem` reestruturado: o `try/catch` que chama `abort()` agora envolve só o guard de status + a escrita transacional (`completeRenewal`, que não chama mais `complete()` internamente); `idempotency.complete()` roda depois, fora desse catch — uma falha ali deixa o registro `IN_PROGRESS` (o residual já documentado no mission §32), nunca `ABORTED` incorretamente. | 1 novo em `expiration-service.test.ts` (falha simulada de `complete()`: nenhuma duplicata, retry vira `ConcurrentOperationError`, não perda de dado) |
+| 3 | Hash do Renew ignorava `newDueDate` | Accepted | `requestHash` passou a ser `${itemId}\|${expectedVersion}\|${input.newDueDate}\|${cycle}` — sempre inclui `newDueDate`, independente de `cycle` ter sido enviado. | 1 novo em `expiration-service.test.ts` (mesma chave/cycle, `newDueDate` diferente → `ConcurrentOperationError`, nunca tratado como replay) |
+| 4 | Overview com bug de fuso horário | Accepted | `Overview.tsx` agora usa `formatAbsoluteDate` (já usado pela Collection/Detail), removendo o `new Date(...).toLocaleDateString` duplicado e divergente. | Coberto indiretamente pelos testes existentes de `presentation.urgency.test.ts` (`formatAbsoluteDate`); nenhum teste de Overview existia antes desta correção para regredir. |
+
+Nenhum achado foi rejeitado ou parcial — todos os 4 eram bugs reais e de baixo risco de correção,
+dentro do escopo já estabelecido (nenhuma mudança de arquitetura, só correção da implementação já
+existente).
 
 ## 29. Verification
 
-[Preenchido após o Round D e a verificação final completa.]
+Round D (Codex, `codex exec --skip-git-repo-check`, sobre o código já corrigido) reexecutou os 4
+cenários afetados e o checklist completo do §85; ver resultado abaixo. Verificação final completa
+executada nesta sessão após o Round C: `npm run typecheck`/`npm run lint`/`npm test` (621 testes,
+raiz) e `npm run typecheck`/`npm run lint`/`npm test`/`npm run test:e2e` (`frontend/`, 96 testes
+unitários + 12 E2E) — todos verdes, nenhuma regressão.
 
 ## 30. Final Status
 
-[Preenchido ao final — `APPROVED AS CORE EXPIRATION PRODUCTION VERTICAL SLICE` ou
-`NOT APPROVED` com justificativa.]
+[Preenchido após o Round D.]
