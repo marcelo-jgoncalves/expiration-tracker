@@ -34,7 +34,7 @@ import {
   type TransactWriteEntry,
 } from "../ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "./id-generator.js";
-import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
+import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { createHash } from "node:crypto";
 
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
@@ -64,11 +64,13 @@ export class ExpirationService {
     this.tableName = deps.tableName;
     this.ids = deps.ids;
     this.now = deps.now ?? (() => new Date().toISOString());
-    // Adapts ExpirationStore (get/putIfAbsent/update) to IdempotencyStore's DynamoLike port.
+    // Adapts ExpirationStore (get/putIfAbsent/update/transactWrite) to IdempotencyStore's
+    // DynamoLike port.
     const adapter: DynamoLike = {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
       get: (key) => this.store.get(key),
       update: (item) => this.store.update(item),
+      transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(this.store, this.tableName, item, expectedStatus),
     };
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);
   }
@@ -175,7 +177,20 @@ export class ExpirationService {
       changes: { after: item },
     });
 
-    await this.commit(entries);
+    try {
+      await this.commit(entries);
+    } catch (err) {
+      // Idempotency liveness (docs/frontend/core-expiration-vertical-slice.md - discovered
+      // via renewItem's identical failure shape, applied here defensively too): the write
+      // itself failed (in practice, near-impossible for a freshly generated itemId, but not
+      // provably impossible), so the lock this begin() acquired must be released - otherwise
+      // every retry under the same key would hit ConcurrentOperationError forever, even
+      // though the create never actually happened.
+      if (idempotencyState) {
+        await this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation, key: idempotencyState.key });
+      }
+      throw err;
+    }
 
     if (idempotencyState) {
       await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key: idempotencyState.key, responseRef: itemId });
@@ -318,7 +333,13 @@ export class ExpirationService {
     const cycle = input.cycle ?? input.newDueDate;
     const key = idempotencyKey ?? `${itemId}|${expectedVersion}|${cycle}`;
     const operation = "expiration.renewItem";
-    const requestHash = `${itemId}|${expectedVersion}|${cycle}`;
+    // Real Codex Round B finding: `cycle` is an independent optional field on the wire
+    // (renew-item-request.v1.json), so when a caller supplies BOTH `cycle` and `newDueDate`,
+    // the previous hash (itemId|expectedVersion|cycle) never varied with newDueDate - two
+    // requests differing only in newDueDate would hash identically and the second would be
+    // wrongly treated as a replay of the first. newDueDate is now always part of the hash,
+    // regardless of whether cycle was explicitly supplied.
+    const requestHash = `${itemId}|${expectedVersion}|${input.newDueDate}|${cycle}`;
     const expiresAt = new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString();
 
     const result = await this.idempotency.begin({
@@ -341,10 +362,42 @@ export class ExpirationService {
       return this.getItem(ctx, newItemId);
     }
 
-    if (source.status !== "ACTIVE") {
-      throw new ConflictError(`Cannot renew item in status ${source.status}.`, { itemId, status: source.status });
+    let newItem: ExpirationItem;
+    try {
+      if (source.status !== "ACTIVE") {
+        throw new ConflictError(`Cannot renew item in status ${source.status}.`, { itemId, status: source.status });
+      }
+      // Only the status guard and the transactional write itself are covered by this
+      // try/catch - real Codex Round B finding: the previous version wrapped completeRenewal()
+      // (write + idempotency.complete()) entirely, so a commit() that SUCCEEDED but whose
+      // subsequent complete() call failed would still hit this catch and call abort(),
+      // discarding the idempotency record's ability to replay the real cached success on
+      // retry. complete() now runs after this block, outside the abort-triggering catch - if
+      // IT fails, the record is left IN_PROGRESS (the pre-existing documented residual,
+      // mission §32/docs/frontend/core-expiration-vertical-slice.md §16), never silently
+      // reset to ABORTED after a mutation that actually happened.
+      newItem = await this.completeRenewal(ctx, itemId, source, input, expectedVersion);
+    } catch (err) {
+      // Idempotency liveness (mission's residual, docs/frontend/core-expiration-vertical-
+      // slice.md §16): without releasing the lock here, a genuine OCC conflict on the
+      // aggregate write (or the status-guard above) would leave this key permanently
+      // IN_PROGRESS - every retry, even after the caller re-fetches the item and supplies a
+      // fresh expectedVersion, would hit ConcurrentOperationError instead of a real retry.
+      await this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation, key });
+      throw err;
     }
 
+    await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key, responseRef: newItem.itemId });
+    return newItem;
+  }
+
+  private async completeRenewal(
+    ctx: RequestContext,
+    itemId: string,
+    source: ExpirationItem,
+    input: RenewItemInput,
+    expectedVersion: number,
+  ): Promise<ExpirationItem> {
     const newItemId = this.ids.newItemId();
     const now = this.now();
     const newVersion = expectedVersion + 1;
@@ -410,8 +463,6 @@ export class ExpirationService {
     });
 
     await this.commit(entries);
-
-    await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key, responseRef: newItemId });
 
     return newItem;
   }

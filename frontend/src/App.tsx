@@ -11,6 +11,10 @@ import { AuthProvider } from "./auth/AuthContext.js";
 import { ProtectedRoute } from "./auth/ProtectedRoute.js";
 import { AppShell } from "./shell/AppShell.js";
 import { Overview } from "./routes/Overview.js";
+import { ItemsCollection } from "./routes/items/ItemsCollection.js";
+import { ItemDetail } from "./routes/items/ItemDetail.js";
+import { CreateItem } from "./routes/items/CreateItem.js";
+import { RenewItem } from "./routes/items/RenewItem.js";
 import { NotImplementedPlaceholder } from "./routes/NotImplementedPlaceholder.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
@@ -44,7 +48,10 @@ export function App() {
               >
                 <Route index element={<Navigate to="/overview" replace />} />
                 <Route path="overview" element={<Overview />} />
-                <Route path="items" element={<NotImplementedPlaceholder title="Vencimentos" />} />
+                <Route path="items" element={<ItemsCollection />} />
+                <Route path="items/new" element={<CreateItem />} />
+                <Route path="items/:itemId" element={<ItemDetail />} />
+                <Route path="items/:itemId/renew" element={<RenewItem />} />
                 <Route path="subjects" element={<NotImplementedPlaceholder title="Fornecedores" />} />
                 <Route path="settings" element={<NotImplementedPlaceholder title="Configurações" />} />
               </Route>

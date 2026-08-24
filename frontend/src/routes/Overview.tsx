@@ -11,19 +11,16 @@
  * rediscovered.
  */
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { apiClient } from "../api/apiClient.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
 import type { ExpirationItem } from "../api/types.js";
-import { presentItemStatus } from "../api/presentation.js";
+import { formatAbsoluteDate, presentItemStatus, sortByDueDateAscending } from "../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { ApiError } from "../api/errors.js";
 
 interface DashboardResponse {
   items: ExpirationItem[];
-}
-
-function sortByDueDateAscending(items: ExpirationItem[]): ExpirationItem[] {
-  return [...items].sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
 }
 
 export function Overview() {
@@ -45,7 +42,12 @@ export function Overview() {
   const items = sortByDueDateAscending(query.data.items);
 
   if (items.length === 0) {
-    return <EmptyState kind="true-empty" message="Nenhum vencimento cadastrado ainda." />;
+    return (
+      <div>
+        <h1>Vencimentos — Visão Geral</h1>
+        <EmptyState kind="true-empty" message="Nenhum vencimento cadastrado ainda." action={<Link to="/items/new">+ Novo vencimento</Link>} />
+      </div>
+    );
   }
 
   return (
@@ -56,12 +58,18 @@ export function Overview() {
           const presentation = presentItemStatus(item.status);
           return (
             <li key={item.itemId}>
-              <span data-tone={presentation.tone}>[{presentation.label}]</span> <strong>{item.name}</strong>{" "}
-              <span>{new Date(item.dueDate).toLocaleDateString("pt-BR")}</span>
+              <span data-tone={presentation.tone}>[{presentation.label}]</span> <Link to={`/items/${item.itemId}`}>{item.name}</Link>{" "}
+              {/* formatAbsoluteDate (not `new Date(...).toLocaleDateString`, a real Codex Round B
+                  finding): dueDate is a UTC-midnight instant - formatting it through local time
+                  shows the previous calendar day in any negative UTC offset (e.g. Brazil). */}
+              <span>{formatAbsoluteDate(item.dueDate)}</span>
             </li>
           );
         })}
       </ul>
+      <p>
+        <Link to="/items">Ver todos os vencimentos</Link>
+      </p>
     </div>
   );
 }

@@ -10,7 +10,8 @@
  * anchors, no single hierarchy) - the same structural nav convention already established in
  * prototype/app.js's structuralNav(), carried into real routing rather than reinvented.
  */
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef, type RefObject } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
 
@@ -18,8 +19,31 @@ function navLinkClassName({ isActive }: { isActive: boolean }): string {
   return isActive ? "nav-current" : "";
 }
 
+/**
+ * Focus management on route transitions (mission §56) - client-side navigation never resets
+ * focus the way a real page load would, so without this, a screen reader user who follows a
+ * link (Collection -> Detail -> Renew, etc.) gets no announcement that the page changed at
+ * all. Moves focus to the `#surface-content` landmark (already `tabIndex={-1}` for exactly
+ * this purpose) on every pathname change AFTER the first render - skipping the initial mount
+ * so it never steals focus from the skip-link a keyboard user may have just activated.
+ */
+function useFocusMainOnRouteChange(mainRef: RefObject<HTMLElement>) {
+  const location = useLocation();
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    mainRef.current?.focus();
+  }, [location.pathname, mainRef]);
+}
+
 export function AppShell() {
   const { logout } = useAuth();
+  const mainRef = useRef<HTMLElement>(null);
+  useFocusMainOnRouteChange(mainRef);
 
   return (
     <div>
@@ -43,7 +67,7 @@ export function AppShell() {
           Sair
         </button>
       </nav>
-      <main id="surface-content" tabIndex={-1}>
+      <main id="surface-content" tabIndex={-1} ref={mainRef}>
         <ErrorBoundary>
           <Outlet />
         </ErrorBoundary>
