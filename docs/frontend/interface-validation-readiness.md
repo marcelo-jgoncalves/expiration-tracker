@@ -113,6 +113,20 @@ simular fornecedor, variantes de submission review) em Participant Mode, zero oc
   participante).
 - Blockers continuam comunicados, em linguagem sem jargão — ver §9 do prompt-fonte e a distinção
   detalhada em §8 abaixo.
+- **Exceção documentada, decisão deliberada (não um esquecimento)**: rótulos entre colchetes tipo
+  `[PENDENTE]`, `[VINCULADO A UM VENCIMENTO]`, `[RENOVADO]`, `[ALERTA CONFIGURADO]` **permanecem
+  visíveis em ambos os modos**. Estes não são anotações de engenharia no sentido que esta etapa
+  proíbe (nomes de rota, Scenario IDs, tags `BLOCKER-x`) — são uma convenção de fidelidade de
+  wireframe estabelecida desde `interface-low-fidelity-wireframes.md` (junto de `[PRIMARY]`/
+  `⚠[DANGEROUS]`), preservada deliberadamente em toda etapa desde então precisamente para não
+  reabrir a decisão de Epistemic Integrity da Conceptual Model (`SATISFIED` nunca vira "Em dia",
+  `[VINCULADO A UM VENCIMENTO]` nunca vira "Aprovado") sob pressão de polimento visual. Reescrever
+  esses rótulos em prosa mais "natural" é trabalho de identidade visual real (crachás/ícones
+  coloridos substituindo texto em colchetes) — pertence à etapa de Visual Language/High-Fidelity
+  UI, não a este hardening. Risco residual aceito: um participante pode achar `[COLCHETES]`
+  visualmente "não polido"; isto não é o mesmo risco que a missão desta etapa existe para
+  eliminar (vazamento de informação técnica capaz de enviesar a leitura do teste), e por isso não
+  foi tratado como um achado desta etapa.
 
 ## 8. Evaluator Mode Rules
 
@@ -296,7 +310,11 @@ existente em `IdempotencyStore`, sem mecanismo novo (§29 do prompt-fonte).
 | Timeout/retry path is safe | coberto pelo mesmo teste de "same key" — é exatamente o cenário de retry pós-timeout |
 | Backward compatibility (sem key) | duas chamadas idênticas sem `idempotencyKey` → dois itens distintos (comportamento pré-existente preservado) |
 
-`npm run typecheck`/`npm run lint`/`npm test` (532 testes, suite completa) — todos verdes após a
+Um 6º teste foi adicionado na Rodada C (§26, achado #2 de Codex), documentando explicitamente o
+caso de crash entre `commit()` e `idempotency.complete()` — comportamento seguro (nunca duplica),
+herdado do mecanismo compartilhado com `renewItem`, não uma lacuna introduzida aqui.
+
+`npm run typecheck`/`npm run lint`/`npm test` (532 testes na Rodada A, 533 após a Rodada C) — todos verdes após a
 mudança (§27).
 
 ## 15. Product Validation Thesis
@@ -361,15 +379,27 @@ Métricas enxutas, não um programa de analytics:
 
 ## 18. Time-to-First-Value
 
+**Correção desta rodada (achado real da Rodada B, §26)**: a versão original desta seção descrevia
+o estado inicial como "Overview vazia ou tela de boas-vindas" — nenhum dos dois existe no
+protótipo real. O estado inicial observável de fato, em ambos os modos, é a Overview já com o
+seed padrão (5 vencimentos pré-existentes, nenhuma tela de boas-vindas/onboarding desenhada ainda
+nesta etapa):
+
 ```
-start (Overview vazia ou tela de boas-vindas, ainda não desenhada)
+start (carregamento da página — Overview com o seed padrão, 5 vencimentos já existentes,
+  não um estado vazio)
   ↓
-primeiro vencimento cadastrado com sucesso (J-02, PROTO-J02-SUCCESS)
+primeiro vencimento NOVO cadastrado com sucesso (J-02, tarefa "Cadastre um novo vencimento")
 ```
 
-Tratado conceitualmente nesta etapa (nenhuma instrumentação/analytics real) — o objetivo em `User
-Validation Planning` é observar quantos passos, quanta hesitação e quanto backtracking ocorrem
-até esse primeiro sucesso, não medir tempo em segundos com precisão estatística.
+Isto significa que a métrica desta primeira rodada não é uma "ativação a partir de zero dados"
+genuína (o participante nunca vê uma conta realmente vazia) — é o tempo/fricção para completar a
+tarefa de criação a partir de uma Overview já povoada. Tratado conceitualmente nesta etapa
+(nenhuma instrumentação/analytics real) — o objetivo em `User Validation Planning` é observar
+quantos passos, quanta hesitação e quanto backtracking ocorrem até esse primeiro sucesso, não medir
+tempo em segundos com precisão estatística. Um verdadeiro cold-start (conta nova, zero dados) fica
+como candidato de instrumentação para uma etapa de Visual Design/Onboarding futura, não construído
+aqui.
 
 ## 19. Interface Quality Standard Status
 
@@ -454,6 +484,21 @@ em aberto que User Validation pode ajudar a responder**: o custo operacional de 
 aceitável na prática? A Variante A permanece preservada como cenário separado
 (`PROTO-J06-A`) para uma eventual rodada comparativa futura (§62 do prompt-fonte), não removida.
 
+**Esclarecimento explícito adicionado na Rodada C (achado real da Rodada B, §26)**: existe uma
+tensão genuína entre "não decidir `BLOCKER-C`" e "escolher uma variante concreta para o
+Participant Mode mostrar" — um teste de usabilidade não consegue apresentar um conceito
+abstrato/indeciso a um participante; alguma experiência concreta única precisa existir na sessão.
+A escolha da Variante B como o que o Participant Mode mostra é uma **decisão de construção de
+teste** (nenhum teste de usabilidade consegue rodar sem escolher uma experiência concreta para
+mostrar), não uma **decisão de produto** sobre `BLOCKER-C` — as duas coisas são categorias
+diferentes e não devem ser confundidas. A decisão de produto (qual variante o Expiration Tracker
+real implementará) continua tão aberta quanto antes desta etapa; o que mudou é apenas qual
+variante é mais barata/coerente de simular para uma primeira leitura de usuário, dado que alguma
+tinha que ser escolhida para a sessão funcionar. Se User Validation ou uma decisão comercial
+posterior apontarem para a Variante A, nada nesta etapa impede essa mudança — não haveria dado
+"perdido" nem inconsistência a reconciliar, porque a Variante A nunca deixou de existir como
+Prototype Scenario ID completo.
+
 ## 23. User Validation Constraints
 
 Tarefas candidatas (derivadas de outcomes, sem instruir onde clicar — herdadas de
@@ -498,17 +543,107 @@ ativação inicial.
 
 ## 25. Claude↔Codex Review
 
-*(preenchido após a Rodada B)*
+Codex revisou, em sandbox read-only, o código real (`prototype/app.js`, `prototype/styles.css`,
+`src/modules/expiration/application/expiration-service.ts`,
+`src/modules/expiration/http/item-handlers.ts`, `src/shared/idempotency/idempotency.ts`,
+`test/unit/expiration/expiration-service.test.ts`) e os dois documentos novos, contra 20 pontos
+adversariais. Resultado: 16 pontos `SEM FURO`, **4 pontos com `FURO REAL`**:
+
+| # | Achado | Evidência (antes da correção) | Severidade |
+|---|---|---|---|
+| 1 | Anotações técnicas vazando em Participant Mode fora dos mecanismos `blockedBlock`/`modeText`/`evalOnly`: `CONFLICT:` (2 sites, OCC de item/renovação) e `(EMPTY_NOT_READY)` (Requirement Context) | `app.js:645`, `748`, `915` (linhas pré-correção) | S2 |
+| 10 | Testes de idempotência de `createItem` não cobrem o caso de crash entre `commit()` e `idempotency.complete()` — retry nesse cenário recebe `ConcurrentOperationError` em vez de reconciliar | `expiration-service.ts` (`commit()`/`complete()` não atômicos) | S2 (comportamento seguro, não duplica — mas não documentado/testado) |
+| 14 | `Time to First Value` (§18) descrevia um estado inicial ("Overview vazia ou tela de boas-vindas") que não existe no protótipo real | `interface-validation-readiness.md` §18 original | S1 (documentação) |
+| 18 | `BLOCKER-C` "não decidido" no texto, mas Participant Mode força a Variante B como caminho normal — tensão não explicada | `app.js` (rota `/submission-review`), §7/§22 originais | S1 (documentação/clareza, não código) |
+
+Veredito geral de Codex (verbatim): *"4 furos reais. Severidade maior em #10 e #18. Eu não
+aprovaria 'as-is'; após corrigir/qualificar #10 e #18, os demais são ajustes de
+documentação/copy e não parecem invalidar User Validation Planning."* Codex também confirmou (não
+como furo, mas como pendência aceitável em rascunho): `docs/frontend/README.md` e
+`NEXT_SESSION_PROMPT.md` ainda não atualizados nesta rodada — obrigatório antes da aprovação final
+(§28), feito em conjunto com o fechamento desta etapa.
+
+Os 16 pontos `SEM FURO` confirmaram, entre outros: nenhuma mudança de verdade de domínio além das
+simulações declaradas; `GTR-01` não tratado como resolvido tecnicamente; guest não vê resultado de
+scan; anti-enumeração preservada; cenário de densidade plausível e sem product creep implementado;
+classificação e implementação de `CREATE-IDEMPOTENCY-01` consistentes com o padrão de
+`renewItem`; `UNKNOWN_OUTCOME` preservado nos 3 fluxos (create/renew/import); tese de produto
+claramente marcada como hipótese; `interface-quality-standard.md` sem divergência dos eixos/gates/
+threshold já usados; matriz de gates não subestima produção; `BLOCKER-B` corretamente não tratado
+como opcional.
 
 ## 26. Reconciliation
 
-*(preenchido após a Rodada C)*
+**1. Anotações técnicas vazando (`CONFLICT:`, `(EMPTY_NOT_READY)`) — ACEITO, S2**
+Raciocínio: mesma classe de bug já corrigida em `(EMPTY_TRUE)`/`(EMPTY_FILTERED)` noutros pontos
+do arquivo — minha própria varredura da Rodada A não foi exaustiva o suficiente. `CONFLICT:` é
+jargão de estilo HTTP/técnico em inglês, sem relação com a convenção deliberada de rótulos entre
+colchetes (ver abaixo). Mudança aplicada: `CONFLICT: ` agora passa por `modeText('CONFLICT: ',
+'')` nos 2 call sites (`showDetailConflict`, conflito de renovação); `(EMPTY_NOT_READY)` agora
+passa por `evalOnly(...)`. Reverificado em navegador: Evaluator Mode preserva `CONFLICT:` e a tag
+(regressão nula), Participant Mode não mostra nenhum dos dois.
+
+**Achado relacionado, não levantado por Codex mas decidido nesta reconciliação — documentação da
+exceção deliberada dos rótulos entre colchetes**: ao investigar #1, ficou claro que a Rodada A
+nunca tinha escrito explicitamente a razão de `[PENDENTE]`/`[VINCULADO A UM VENCIMENTO]`/
+`[RENOVADO]`/`[ALERTA CONFIGURADO]` permanecerem em ambos os modos — uma decisão real, tomada
+durante a implementação, mas não documentada até agora. Corrigido: §7 ganhou um bullet explícito
+com o raciocínio completo (convenção de fidelidade de wireframe desde
+`interface-low-fidelity-wireframes.md`, preserva a decisão de Epistemic Integrity da Conceptual
+Model, pertence à etapa de Visual Language, não a este hardening).
+
+**2. Teste de idempotência não cobre crash entre `commit()` e `complete()` — ACEITO, S2, mas NÃO
+corrigido no mecanismo (seria reabertura de arquitetura fora de escopo)**
+Verificado tecnicamente correto: `IdempotencyStore.begin()` lança `ConcurrentOperationError` para
+uma chave com o mesmo `requestHash` ainda `IN_PROGRESS` — se o processo morrer entre `commit()`
+(que já criou o item) e `idempotency.complete()`, o registro fica `IN_PROGRESS` para sempre, e um
+retry legítimo recebe erro em vez de ser reconciliado ao item já criado. Raciocínio: este é um
+comportamento **pré-existente do mecanismo compartilhado `IdempotencyStore`**, idêntico em
+`renewItem` desde M2 e em `import` desde M11 — não foi introduzido por esta mudança, é herdado ao
+reutilizar fielmente o padrão já existente (exigido pelo §29 do prompt-fonte: "não crie um
+terceiro mecanismo"). Corrigir a não-atomicidade exigiria redesenhar `IdempotencyStore` (ex.: um
+padrão de saga/compensação, ou mover `complete()` para dentro da mesma transação), o que é
+exatamente o tipo de "reabertura de arquitetura" que o §28 do prompt-fonte instrui a NÃO fazer
+nesta fase de hardening — o gate do §28 ("implemente agora SE não reabrir arquitetura") não é
+satisfeito aqui. **Mudança aplicada**: um teste novo (`expiration-service.test.ts`) documenta
+explicitamente o comportamento atual — simula a falha via `vi.spyOn(store, 'update')
+.mockRejectedValueOnce(...)`, confirma que (a) o item É criado exatamente uma vez antes da falha
+simulada, e (b) o retry subsequente falha com `ConcurrentOperationError` de forma segura, **sem
+nunca duplicar o item** — ou seja, o defeito original de `CREATE-IDEMPOTENCY-01` (duplicação
+silenciosa) continua corrigido; o que existe é uma janela rara de indisponibilidade/necessidade de
+intervenção manual, não uma regressão de segurança de dados. Registrado como limitação conhecida
+compartilhada, não como pendência desta etapa.
+
+**3. `Time to First Value` descrevia um estado inicial inexistente — ACEITO, S1**
+Raciocínio: a versão original era aspiracional (assumia uma tela de boas-vindas/estado vazio que
+nunca foi construído), não uma descrição do protótipo real. Mudança aplicada: §18 reescrito para
+descrever o estado inicial real (Overview com o seed padrão de 5 itens, não vazio), com nota
+explícita de que esta rodada mede fricção de criação a partir de uma conta já povoada, não um
+cold-start genuíno — que fica como candidato de instrumentação futura.
+
+**4. `BLOCKER-C` "não decidido" vs. Participant Mode forçando Variante B — ACEITO, S1
+(clareza/documentação, não código)**
+Raciocínio: o código está correto (a Variante B precisa ser escolhida como *algo* concreto para um
+teste de usabilidade funcionar — nenhum teste consegue apresentar um conceito abstrato/indeciso a
+um participante), mas a Rodada A não deixou explícito que "escolher o que mostrar numa sessão de
+teste" e "decidir o que o produto real fará" são categorias diferentes — a ambiguidade textual era
+real, mesmo o código estando certo. Mudança aplicada: §22 ganhou um parágrafo explícito
+distinguindo "decisão de construção de teste" de "decisão de produto", com a garantia de que a
+Variante A não foi removida nem prejudicada (continua um Prototype Scenario ID completo,
+`PROTO-J06-A`) e que nada nesta etapa impede uma mudança de rumo posterior.
+
+**Regressão verificada após todas as correções**: `npm run typecheck`/`npm run lint`/`npm test`
+(533 testes, +1 desde a Rodada A) — todos verdes; suíte completa de navegador headless
+recorrida — 35 Prototype Scenario IDs sem erro de console, varredura de contaminação de
+Participant Mode (15 superfícies estáticas + 5 fluxos dinâmicos) repetida com zero ocorrências,
+`CONFLICT:`/tag `EMPTY_NOT_READY` confirmados presentes em Evaluator Mode (regressão nula) e
+ausentes em Participant Mode; `npm run check-docs` — PASS (194 arquivos).
 
 ## 27. Tests / Verification
 
 **Backend** (`src/modules/expiration/`): `npm run typecheck` — PASS. `npm run lint` — PASS
-(`--max-warnings=0`). `npm test` — 532/532 testes passando (73 arquivos), incluindo os 5 testes
-novos de `createItem` idempotente (§14).
+(`--max-warnings=0`). `npm test` — 533/533 testes passando (73 arquivos), incluindo os 6 testes
+de `createItem` idempotente (5 da Rodada A + 1 da Rodada C, §14/§26).
 
 **Protótipo** (`prototype/`), verificado em Chromium headless (Playwright), nunca só por leitura
 de código:

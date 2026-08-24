@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { InMemoryExpirationStore, makeExpirationIdGenerator } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
@@ -81,6 +81,17 @@ describe("ExpirationService", () => {
 
     expect(tenantB.itemId).not.toBe(tenantA.itemId);
     expect(tenantB.tenantId).toBe("tenant-2");
+  });
+
+  it("createItem: KNOWN LIMITATION shared with renewItem (pre-existing, not introduced by this change) - if the process dies between commit() and idempotency.complete(), the record is stuck IN_PROGRESS forever and a legitimate retry gets ConcurrentOperationError instead of the reconciled item. Documented here so the behavior is explicit, not a silent duplicate: the item is still created exactly once, never twice.", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    vi.spyOn(store, "update").mockRejectedValueOnce(new Error("simulated crash before idempotency.complete()"));
+
+    await expect(service.createItem(ctx(), input, "crash-key")).rejects.toThrow("simulated crash");
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1); // the item WAS created - commit() already succeeded before the simulated crash
+
+    await expect(service.createItem(ctx(), input, "crash-key")).rejects.toBeInstanceOf(ConcurrentOperationError); // retry fails safe (no duplicate), it does not silently succeed nor duplicate
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1); // still exactly one item - the original defect (duplicate creation) does not resurface
   });
 
   it("createItem denies a VIEWER role", async () => {

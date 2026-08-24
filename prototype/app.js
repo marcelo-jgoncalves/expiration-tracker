@@ -642,7 +642,7 @@
     var app = document.getElementById('app');
     var slot = document.getElementById('confirm-slot');
     if (slot) slot.innerHTML = feedback('unknown', '⚠',
-      'CONFLICT: este vencimento foi alterado por outro processo desde que você o abriu. Não foi possível ' + verb + '-lo. ' +
+      modeText('CONFLICT: ', '') + 'Este vencimento foi alterado por outro processo desde que você o abriu. Não foi possível ' + verb + '-lo. ' +
       '<button class="btn" data-action="reloadDetail" data-id="' + id + '">Reler estado atual</button>');
   }
   actions.reloadDetail = function (el) { render(); announce('Estado atual recarregado.'); };
@@ -745,7 +745,7 @@
     if (FLAGS.forceConflictOnNextMutation) {
       FLAGS.forceConflictOnNextMutation = false;
       document.getElementById('renew-feedback').innerHTML = feedback('unknown', '⚠',
-        'CONFLICT: este vencimento foi alterado desde que você abriu esta tela. Releia o estado atual antes de renovar. ' +
+        modeText('CONFLICT: ', '') + 'Este vencimento foi alterado desde que você abriu esta tela. Releia o estado atual antes de renovar. ' +
         '<button class="btn" data-action="reloadRenew" data-id="' + id + '">Reler estado atual</button>');
       announce('Conflito de concorrência detectado.');
       if (renewBtn) renewBtn.disabled = false;
@@ -912,7 +912,7 @@
         '<div class="actions"><button class="btn btn-secondary" data-action="unlinkReq" data-id="' + rid + '">Desvincular</button></div>';
     } else {
       body += '<h2 style="font-size:13px">SOLICITAÇÕES</h2>' +
-        (reqs4this.length === 0 ? '<p>Nenhuma solicitação criada ainda. (EMPTY_NOT_READY)</p>' : '<ul class="plain-list">' + reqs4this.map(function (dr) {
+        (reqs4this.length === 0 ? '<p>Nenhuma solicitação criada ainda.' + evalOnly(' (EMPTY_NOT_READY)') + '</p>' : '<ul class="plain-list">' + reqs4this.map(function (dr) {
           return '<li class="list-item"><span>[' + drStatusLabel(dr) + '] ' + fmtDate(dr.sentAt) + ' → prazo ' + fmtDate(dr.deadline) + '</span>' +
             '<a class="btn btn-primary" href="#/requests/' + dr.id + '">Abrir</a></li>';
         }).join('') + '</ul>') +
