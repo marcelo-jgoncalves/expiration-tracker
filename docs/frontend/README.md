@@ -11,6 +11,10 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 `AGENTS.md` > decisão reconciliada > documento temático corrente > `NEXT_SESSION_PROMPT.md`
 (estado, nunca normativo).
 
+## Full BFF + Frontend de Produção (implementação real, distinto do planejamento de interface abaixo)
+
+`docs/frontend/frontend-production-foundation.md` — Full BFF (D-053/D-054) implementado de ponta a ponta (`src/modules/bff/`, infra Terraform) e uma fundação de frontend de produção real (`frontend/`, projeto npm separado — Vite+React+TS+React Router v7+TanStack Query v5). `APPROVED AS FRONTEND PRODUCTION FOUNDATION` via protocolo Claude↔Codex (Rodada D levou 6 passagens até convergir — 5 achados bloqueantes reais de segurança de sessão encontrados e corrigidos, todos na família "leitura de Session/LoginAttempt tratada como autoridade sem checar todas as propriedades de validade"). Não confundir com os 8 documentos de planejamento de interface abaixo (que cobrem UX/IA/journeys, nunca código de produção).
+
 ## Índice por documento
 
 | Documento | Status | Do que trata |
