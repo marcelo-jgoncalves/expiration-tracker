@@ -53,19 +53,33 @@ Autonomia operacional total foi concedida pelo usuário para esta missão (inspe
 - Schemas já existentes e presumivelmente em uso real (a confirmar): `schemas/queues/reminder-dispatch.v1.json`, `notification-intent-created.v1.json`, `notification-email-deliver.v1.json`, `notification-ses-callback.v1.json`.
 - O achado "wire contract `reminder.dispatch.v1` incompleto" citado em `AGENTS.md §7` **já foi corrigido** (commit `dd90174`, Claude↔Codex 9.2/10) — texto do `AGENTS.md` está desatualizado nesse ponto específico (drift menor, não bloqueia BLOCKER-B, mas vale corrigir `AGENTS.md` §7 num commit de documentação futuro).
 
+### 3.3 Infra Terraform (`infra/**`) — CONFIRMADO NO CÓDIGO (recon chegou a terminar, apesar do timeout)
+
+- **Toda a infraestrutura downstream de uma `ReminderOccurrence` já materializada está provisionada, testada e sem módulos/handlers órfãos.** Nenhum módulo Terraform existe sem estar instanciado na raiz; os 26 handlers Lambda reais em `src/runtime/aws/handlers/` batem 1:1 com `handler_name` em `infra/main.tf`.
+- `infra/modules/reminder-schedule/` — 4 `aws_scheduler_schedule`: `reminder_producer` (`rate(1 minute)`), `reminder_claim_reconciliation` (`rate(5 minutes)`), `reminder_dst_reconciliation` (`cron(0 3 * * ? *)` UTC), `outbox_sweeper` (`rate(5 minutes)`). Kill-switch `var.schedules_enabled` existe mas está `true` por padrão (habilitado).
+- Filas via `infra/modules/sqs-worker-queue/` (genérico, reusado): DLQ retenção 14d, redrive `maxReceiveCount=5`, alarme de idade de DLQ embutido (threshold 3600s). Instâncias relevantes: `dispatch_queue`, `router_queue`, `email_deliver_queue`, `ses_callback_queue` (política restrita ao ARN do tópico SNS via `ArnEquals`). Nenhuma FIFO/dedup em lugar nenhum.
+- EventBridge Rule `notification_intent_created` (padrão `detail-type: ["notification.intent-created.v1"]`) → `router_queue`.
+- IAM: só 2 grants com `Resource:"*"` em todo `infra/` — `ses:SendEmail` (SESv2 não suporta restrição por remetente, aceitável) e um wildcard de `events:PutRule/PutTargets` justificado por ARN interno imprevisível do GuardDuty (não relacionado a reminders). GSI3/GSI6 seguem isolamento por role já estabelecido (só as roles corretas têm `dynamodb:Query`).
+- Alarmes: 6 alarmes de erro por função + 1 alarme de backlog do dispatch (idade>900s) + alarme de idade de DLQ por fila — todos apontando para o SNS `alert_topic` real (M5).
+- `infra/tests/stack.tftest.hcl` (13 run blocks) já cobre: isolamento GSI3/GSI6, `maxReceiveCount`+alarme de DLQ, contrato de schedule (regressão do bug de HTML-escaping em `<aws.scheduler.scheduled-time>`), concorrência reservada, partial batch failure nos event source mappings.
+- CI/CD: `ci.yml` roda `terraform plan` em PR; `cd.yml` roda `apply -auto-approve` via OIDC em push a `main` — ambos confirmados como realmente wired, não só documentados.
+- **Único gap real de infraestrutura**: **não existe `aws_sesv2_email_identity` (identidade/domínio SES) em nenhum lugar do Terraform** — nunca foi gerenciado por IaC, é uma etapa manual externa pendente. `var.ses_from_address` não tem default; `dev.tfvars` usa um placeholder (`noreply@example.com`). Isso confirma a nota do `AGENTS.md §4`/`NEXT_SESSION_PROMPT.md` sobre o "spike de validação das tags SES em sandbox" ainda bloqueado externamente — **este é o candidato mais forte para justificar o status mais fraco da missão (`IMPLEMENTATION COMPLETE — EXTERNAL PROVIDER ACTIVATION REQUIRED`) em vez de `RESOLVED`, mas só se o resto do pipeline (materialização) for corrigido.**
+- Só existe um ambiente real provisionado (`infra/env/dev.tfvars`); não há `infra/environments/` nem separação dev/prod — `infra/variables.tf` valida `environment == "dev"` apenas. Sem staging/prod real ainda.
+- **Conclusão**: a infraestrutura para tudo que já existe (producer/dispatch/reconciliation/notification) está sólida. Isso significa que a implementação de BLOCKER-B provavelmente não precisa de infraestrutura nova de scheduling/queue — só (a) o trigger de materialização em si, e possivelmente (b) Terraform para expor o `EmailProviderAdapter` real ao invés de um placeholder quando a identidade SES for verificada.
+
 ## 4. Reconhecimento **NÃO concluído** — próxima sessão deve fazer isso primeiro
 
-1. **Confirmação a nível de código** (não só de doc) de que:
-   - `src/modules/reminder/**` — o materializer existe, sua assinatura real, e **quem de fato o chama hoje** (grep por todos os call sites). O fork de recon dedicado a isso foi interrompido (timeout de tokens do usuário) antes de reportar — refazer do zero.
-   - `src/workers/reminder-producer/reminder-dispatch/reminder-reconciliation/**` — o que cada um realmente faz e o que dispara cada um (EventBridge Scheduler? qual regra/rate?).
-   - Se `createItem`/`updateItem`/`renewItem` (em `src/modules/expiration/**`) chamam o materializer sincronamente, de forma alguma, ou só através de reconciliação assíncrona de DST.
-2. **Infra Terraform real** (`infra/**`) — inventário de módulos, wiring raiz, schedules do EventBridge Scheduler para producer/dispatch/reconciliation, filas+DLQ+alarmes, isolamento de IAM por role — nenhum fork chegou a reportar isso (interrompido).
-3. Com base em (1) e (2), fazer o **Gap Analysis** real (seção 5 do template de `docs/architecture/reminder-delivery-pipeline.md` sugerido pela missão) e só então decidir a estratégia de materialização (antecipada vs just-in-time vs híbrida — a missão pede avaliação explícita, não assumir).
+Resta só a confirmação a nível de código do lado da **materialização** (o infra e o notification module já estão confirmados — ver 3.1/3.3):
+
+1. `src/modules/reminder/**` — o materializer existe, sua assinatura real, e **quem de fato o chama hoje** (grep por todos os call sites). O fork de recon dedicado a isso foi interrompido (timeout de tokens do usuário) antes de reportar — refazer do zero.
+2. `src/workers/reminder-producer/reminder-dispatch/reminder-reconciliation/**` — o que cada um realmente faz (a infra confirma os *schedules*, falta confirmar a *lógica interna*).
+3. Se `createItem`/`updateItem`/`renewItem` (em `src/modules/expiration/**`) chamam o materializer sincronamente, de forma alguma, ou só através de reconciliação assíncrona de DST.
+4. Com base nisso, fazer o **Gap Analysis** real (seção 5 do template de `docs/architecture/reminder-delivery-pipeline.md` sugerido pela missão) e só então decidir a estratégia de materialização (antecipada vs just-in-time vs híbrida — a missão pede avaliação explícita, não assumir).
 
 ## 5. Próxima ação recomendada (início da próxima sessão)
 
 1. Reconfirmar branch/estado (`git status`, `git branch --show-current`, `git log -5`, `git pull`) — não presumir que nada mudou.
 2. Reler este documento + `NEXT_SESSION_PROMPT.md` + `docs/architecture/README.md`.
 3. Pedir ao usuário (ou reusar, se ainda disponível) o prompt de missão completo original (~138 seções) — este handoff só resume os pontos essenciais de Definition of Done/protocolo, não reproduz o texto integral.
-4. Refazer o reconhecimento de código dos itens da seção 4 acima (pode reusar em paralelo: 1 fork para `src/modules/reminder` + `src/workers/reminder-*`, 1 fork para `infra/**`).
+4. Refazer o reconhecimento de código dos itens da seção 4 acima (infra já confirmada na seção 3.3 — só falta `src/modules/reminder/**` + `src/workers/reminder-*/**`).
 5. Produzir o Gap Analysis real e a decisão de arquitetura de materialização antes de escrever qualquer código.
