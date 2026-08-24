@@ -55,6 +55,7 @@ const HANDLERS = [
   "imports-handler",
   "import-parse-handler",
   "import-commit-handler",
+  "bff-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

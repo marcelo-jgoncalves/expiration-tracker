@@ -122,6 +122,64 @@ jobs:
       - name: DynamoDB Local integration tests
         run: npm run test:dynamodb
 
+  # Frontend Production Foundation (docs/frontend/frontend-production-foundation.md) -
+  # frontend/ is a separate npm project (own package.json/lockfile), not part of the root
+  # workspace, so it gets its own install/cache/job rather than folding into `guardrails`.
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version-file: "frontend/.nvmrc"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Install (immutable)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit + component tests
+        run: npm test
+
+      - name: Build (production bundle)
+        run: npm run build
+
+      - name: Dependency audit (production - blocking)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Dependency audit (dev - informational, known exceptions in docs/engineering/exceptions.md)
+        run: npm audit --audit-level=high || echo "::warning::npm audit found dev-dependency findings in frontend/ - cross-check against docs/engineering/exceptions.md (EX-002); anything not listed there is a new finding and must be triaged"
+
+      - name: Install Playwright browsers (chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke tests (mocked BFF - see e2e/smoke.spec.ts header)
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
   # ADR-0009: CDK replaced by Terraform. Plan-only here (Tier A/every PR) - apply only
   # happens in cd.yml on push to main, never in this workflow.
   infra:

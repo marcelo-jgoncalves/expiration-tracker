@@ -74,6 +74,19 @@ describe("ExpirationService", () => {
     ).rejects.toBeInstanceOf(ConcurrentOperationError);
   });
 
+  it("createItem: requestHash does not collide across field boundaries - a delimiter character inside free-text fields must not make two different payloads look like the same request", async () => {
+    // Before the canonical-JSON fix, joining fields as `${name}|${category}|${dueDate}|...`
+    // meant these two payloads produced the byte-identical string
+    // "Foo|Bar|Baz|2026-09-10T00:00:00.000Z|||||||" - a "|" inside `name` shifted every field
+    // after it, so the second call would have been misclassified as COMPLETED_SAME_REQUEST
+    // (silently returning the first item) instead of correctly detecting a genuine conflict.
+    await service.createItem(ctx(), { name: "Foo|Bar", category: "Baz", dueDate: "2026-09-10T00:00:00.000Z" }, "collision-key");
+
+    await expect(
+      service.createItem(ctx(), { name: "Foo", category: "Bar|Baz", dueDate: "2026-09-10T00:00:00.000Z" }, "collision-key"),
+    ).rejects.toBeInstanceOf(ConcurrentOperationError);
+  });
+
   it("createItem: the same idempotency key is isolated per tenant - two tenants using the same key each get their own item", async () => {
     const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
     const tenantA = await service.createItem(ctx({ tenant: { tenantId: "tenant-1", roles: ["OWNER"] } }), input, "shared-key");

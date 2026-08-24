@@ -35,6 +35,7 @@ import {
 } from "../ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "./id-generator.js";
 import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
+import { createHash } from "node:crypto";
 
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
 
@@ -90,19 +91,30 @@ export class ExpirationService {
 
     if (idempotencyKey) {
       const key = idempotencyKey;
-      const requestHash = [
-        input.name,
-        input.category,
-        input.dueDate,
-        input.description ?? "",
-        input.issueDate ?? "",
-        input.periodicity ?? "",
-        input.issuer ?? "",
-        input.number ?? "",
-        input.assigneeUserId ?? "",
-        (input.tags ?? []).join(","),
-        input.priority ?? "",
-      ].join("|");
+      // Canonical structured serialization + SHA-256, not delimiter-joined fields: name/category/
+      // description/issuer/number/tags are free text with no character restriction, so a
+      // delimiter-joined string (`${a}|${b}|...`) can collide across two genuinely different
+      // payloads (e.g. a "|" inside `name` shifting every field after it) - unlike renewItem's
+      // `itemId|expectedVersion|cycle` (generated id + number + ISO date, none of which can
+      // contain "|") or import's `contentLength|checksumSha256` (number + fixed-length hex),
+      // which have no such risk and were left unchanged.
+      const requestHash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            name: input.name,
+            category: input.category,
+            dueDate: input.dueDate,
+            description: input.description ?? null,
+            issueDate: input.issueDate ?? null,
+            periodicity: input.periodicity ?? null,
+            issuer: input.issuer ?? null,
+            number: input.number ?? null,
+            assigneeUserId: input.assigneeUserId ?? null,
+            tags: input.tags ?? [],
+            priority: input.priority ?? null,
+          }),
+        )
+        .digest("hex");
       const expiresAt = new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString();
 
       const result = await this.idempotency.begin({

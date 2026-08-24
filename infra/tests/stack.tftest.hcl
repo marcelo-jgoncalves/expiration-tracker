@@ -25,7 +25,7 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "twentyfour_lambda_functions_exist_no_placeholder" {
+run "twentyfive_lambda_functions_exist_no_placeholder" {
   command = plan
 
   # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
@@ -33,13 +33,13 @@ run "twentyfour_lambda_functions_exist_no_placeholder" {
   # here - the lambda-function module always zips an on-disk directory via data.archive_file
   # - but we still assert the expected count and distinct names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 24
-    error_message = "Expected exactly 24 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11)"
+    condition     = length(output.lambda_function_names) == 25
+    error_message = "Expected exactly 25 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 24
-    error_message = "All 24 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 25
+    error_message = "All 25 Lambda function names must be distinct"
   }
 }
 
@@ -506,8 +506,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 24
-    error_message = "Deploy manifest map must cover exactly the 24 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 25
+    error_message = "Deploy manifest map must cover exactly the 25 real Lambda functions"
   }
 
   assert {

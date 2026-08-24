@@ -59,6 +59,9 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   newImportJobId(): string {
     return `importjob_${ulid()}`;
   }
+  newDeviceId(): string {
+    return `device_${ulid()}`;
+  }
 }
 
 export function newCorrelationId(): string {
