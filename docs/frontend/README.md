@@ -1,8 +1,8 @@
 # docs/frontend/ — Índice do Planejamento de Interface
 
 ```text
-Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation + User Validation (próxima, não iniciada)
-Status vigente:  6 de 7 etapas APPROVED; protótipo interativo navegável real produzido (prototype/), nenhuma identidade visual/frontend de produção ainda
+Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation → User Validation (próxima, não iniciada)
+Status vigente:  7 de 8 etapas APPROVED; protótipo interativo navegável real corrigido e reverificado (prototype/), nenhuma identidade visual/frontend de produção ainda
 Last verified:   2026-08-24
 ```
 
@@ -21,6 +21,7 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 | `interface-screen-and-state-inventory.md` | `APPROVED AS INPUT FOR LOW-FIDELITY WIREFRAMES` | 17 Interaction Surfaces (`SURF-001` a `SURF-017`) derivadas das 8 journeys, com taxonomia de estado compartilhada (loading/empty/error/persistence/visibility), Epistemic Integrity Matrix, e as 3 matrizes Surface↔Journey/Concept/Transition. Achado real da revisão: `Document.SCANNING` estava classificado `PERSISTED` incorretamente como `REMOTE_ASYNC`/`USER_KNOWN` — corrigido para `NOT_CURRENTLY_OBSERVABLE` (o mesmo gap de leitura de `BLOCKER-A` começa em `SCANNING`, não só em `CLEAN`). |
 | `interface-low-fidelity-wireframes.md` | `APPROVED AS INPUT FOR INTERACTION PROTOTYPE` | Wireframe ASCII de baixa fidelidade das 17 `SURF-xxx`, agrupadas em 3 lotes (âncora Vencimento → âncora Fornecedor → isoladas/utility), com hierarquia primary/secondary/contextual, convenções estruturais fixas (`[PRIMARY]`/`⚠[DANGEROUS]`/`[BLOQUEADO: BLOCKER-X]`), 8 journey walkthroughs e State Coverage Matrix. Achados reais da revisão: affordance de ação primária ausente em 4 coleções, `BLOCKER-A` mascarado no estado inicial de Document Context (afirmava "nenhum documento" quando a interface não pode saber isso), `SATISFIED` reaproximado de "compliance atual" numa das variantes de branch de `BLOCKER-C`, e um canal (WhatsApp) sem lastro — todos corrigidos. |
 | `interface-interaction-prototype.md` + `prototype/` | `APPROVED AS INPUT FOR HEURISTIC + ACCESSIBILITY EVALUATION AND USER VALIDATION` | Protótipo interativo real (HTML/CSS/JS sem dependências, `prototype/app.js`), 17 rotas 1:1 com `SURF-001`–`SURF-017`, 34 Prototype Scenario IDs determinísticos cobrindo J-01–J-08 (happy path + alternates + falha + recovery + re-entry), verificado com testes automatizados de navegador headless. Achados reais da revisão: compressão de estados no guest upload (faltava validação de arquivo e o estado "reserva aceita" distinto de "enviado"), uma simulação de coleta externa anunciando ao operador uma verificação de segurança que `BLOCKER-A`/`BLOCKER-C` tornam `NOT_CURRENTLY_OBSERVABLE`, dois campos de formulário sem `<label>`, e uma reincidência de menção a WhatsApp — todos corrigidos e reverificados funcionalmente. |
+| `interface-heuristic-accessibility-evaluation.md` | `APPROVED AS INPUT FOR USER VALIDATION` | Avaliação do protótipo **executável** (Nielsen H1-H10, WCAG 2.2 AA, teclado/foco/semântica/forms real em navegador headless, `axe-core`, re-execução de J-01–J-08, Epistemic Integrity, `BLOCKER-A/B/C`/`GTR-01`/`CREATE-IDEMPOTENCY-01`). Protocolo completo de 4 rodadas Claude↔Codex: Rodada A (autoavaliação, 9 achados corrigidos) concluiu aprovação prematuramente — Rodada B (adversarial) achou 6 problemas-raiz reais não vistos, o mais grave sendo a própria guarda anti-duplo-submit da Rodada A quebrando recovery de validação (S3) e `reconcileImport()` afirmando ter criado registros sem materializá-los (violação epistêmica real); Rodada C corrigiu os 6, mas errou ao manter jargão técnico ("SIMULATED...BACKEND") numa superfície pública de guest; Rodada D (nova adversarial) achou essa lacuna e uma correção incompleta em `submitAlert` (travava após sucesso, não só após erro) — ambos corrigidos e reverificados no fechamento. Quality Score final **9.04/10**, calculado após esse histórico, não apenas sobre o estado final do código. |
 
 ## Blockers técnicos de backend (citados por ID em todo o planejamento, nenhum resolvido)
 
@@ -49,9 +50,10 @@ decidido.
 
 ## Próxima etapa
 
-**Heuristic Evaluation + Accessibility Evaluation + User Validation** — ainda não iniciada. Recebe
-como input o protótipo interativo real (`prototype/`, ver `prototype/README.md` para como rodar) e
-`interface-interaction-prototype.md` (manifest, matrizes de cobertura, walkthroughs cognitivo/
-epistêmico/trust/acessibilidade, Prototype Decision Brief de `BLOCKER-C`) — sem redescobrir
-estrutura, estados ou semântica já fechados. Não obriga o início imediato de Visual Design/Design
-System.
+**User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
+Planning`, não produzido em `interface-heuristic-accessibility-evaluation.md` §42 por decisão
+explícita de escopo). Recebe como input o protótipo interativo real já corrigido (`prototype/`, ver
+`prototype/README.md` para como rodar) e `interface-heuristic-accessibility-evaluation.md` §42
+(tarefas candidatas, limitações conhecidas a comunicar ao facilitador, observações a capturar) —
+sem redescobrir estrutura, estados, semântica ou achados de acessibilidade já fechados. Não obriga
+o início imediato de Visual Design/Design System.
