@@ -51,6 +51,10 @@ test("E2E-01: login -> collection -> open detail", async ({ page }) => {
   await expect(page).toHaveURL(/\/items\/item-1$/);
   await expect(page.getByRole("heading", { name: "Apólice de Seguro" })).toBeVisible();
   await expect(page.getByText("Financeiro")).toBeVisible();
+  // Focus management on route transitions (mission §56): client-side navigation doesn't reset
+  // focus the way a full page load would - #surface-content (AppShell.tsx) must receive it
+  // explicitly so a screen reader user is actually told the page changed.
+  await expect(page.locator("#surface-content")).toBeFocused();
 });
 
 test("E2E-02: create expiration -> success -> item visible", async ({ page }) => {
