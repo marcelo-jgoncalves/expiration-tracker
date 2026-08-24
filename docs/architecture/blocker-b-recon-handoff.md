@@ -1,6 +1,6 @@
-# BLOCKER-B — Recon Handoff (sessão interrompida por limite de tokens)
+# BLOCKER-B — Recon Handoff
 
-> **Status: RECON PARCIAL — nenhum código alterado.** Sessão abortada por limite de tokens do usuário antes da fase de implementação; será retomada em outra sessão/conta. Este documento existe só para que a próxima sessão não repita o reconhecimento já feito. Não é o deliverable final (`docs/architecture/reminder-delivery-pipeline.md`, ainda não criado) nem uma decisão de arquitetura.
+> **Status: RECON QUASE COMPLETO — nenhum código alterado ainda.** Notification/delivery (M4) e infra Terraform confirmados no código; arquitetura/decisions-log/ADRs mapeados. Falta só a confirmação de código do materializer/trigger de materialização (fork em andamento — ver §4/§6). Este documento existe para que qualquer sessão retomando o trabalho não repita o reconhecimento já feito. Não é o deliverable final (`docs/architecture/reminder-delivery-pipeline.md`, ainda não criado) nem uma decisão de arquitetura.
 
 ## 1. Missão (condensada)
 
@@ -49,7 +49,11 @@ Autonomia operacional total foi concedida pelo usuário para esta missão (inspe
 - `m4-notification-engine-design.md` (APPROVED, Claude 9.3/Codex 9.4): base spec completa em `docs/architecture/reviews/m4-notification-engine-design/codex-proposal-round1.md`. Confirma o state machine, a política de `UNKNOWN` (at-most-once definitivo, sem retry automático), correlação via tags SES, `NotificationIntent.kind`: `REPLACEMENT` vs `CORRECTIVE`.
 - **Tensão real não resolvida por nenhum doc**: M4 assume `assigneeUserId` resolve para um perfil de usuário real e ativo no mesmo tenant; mas `interface-conceptual-model-and-information-architecture.md:124` e `interface-context-and-critical-tasks.md:657` documentam `assigneeUserId` como **texto livre hoje, sem validação contra usuário real**. Isso precisa ser resolvido (ou pelo menos formalmente reconhecido como finding) antes de fechar BLOCKER-B — se a resolução de destinatário depende de um campo não validado, o pipeline pode falhar silenciosamente a resolver destinatário para itens reais.
 - **Nenhum ADR/decisions-log entry aborda BLOCKER-B diretamente** (a desconexão entre policy save e materialização) — é citado identicamente em 3 lugares (`NEXT_SESSION_PROMPT.md`, `docs/frontend/README.md`, `session-log.md`) mas nunca analisado tecnicamente em `docs/architecture/`. A causa raiz exata (por que só o worker de reconciliação de DST chama o materializer) ainda precisa ser confirmada no código — ver gap abaixo.
-- `docs/architecture/incident-runbooks.md` (draft operacional): runbooks existentes cobrem falha de disparo, DLQ, provider indisponível — todos assumindo que a materialização já aconteceu. **Não existe runbook para "materialização nunca disparada"** (o próprio modo de falha do BLOCKER-B) — precisará de seção nova se o fix mudar o trigger path.
+- ADRs vigentes e não supersedidos, relevantes ao redesign: **ADR-0003** (Reminder Engine — shards por minuto `DUE#yyyyMMddHHmm#NN` + Lambda scanner + SQS; rejeita EventBridge Scheduler por-ocorrência por quota/cancelamento em escala, e scan global por hot partition), **ADR-0004** (EventBridge + outbox seletivo com sweeper; rejeita outbox só-via-Streams por risco de retenção de 24h), **ADR-0008** (Notification Engine — 1 fila SQS por canal + contrato de adapter comum; rejeita fila única compartilhada e chamada síncrona direta). Qualquer redesign do trigger de materialização deve respeitar essas 3 decisões aceitas (não as reabrir sem motivo).
+- decisions-log relevantes (nenhum aborda BLOCKER-B diretamente, mas dão o pano de fundo): D-017 (Reminder Engine shards/min+SQS, APPROVED), D-018 (Notification Engine SQS por canal, APPROVED), D-020 (Event backbone EventBridge+outbox, APPROVED), D-028 (correção de GSI global no blueprint, APPROVED), D-030 (M5 Observability — achou e já corrigiu o wire contract `reminder.dispatch.v1`, ver acima), D-039 (Automated Chasing reusa GSI3, nunca generaliza `NotificationIntent`/`ReminderOccurrence` — precedente relevante: prefira agregados-irmãos a generalizar essas entidades), D-046 (mini-revisão de capacidade GSI3 antes de reusar em chasing — modelo a seguir se o novo trigger de materialização aumentar tráfego em GSI3/GSI6).
+- `docs/engineering/principles.md` princípio #4, diretamente aplicável ao redesign: "idempotência/outbox/reconciliação existem para que uma falha de fila/rede nunca perca um lembrete silenciosamente — mas o inverso também vale: a materialização de ocorrências não pode ficar bloqueada esperando o outbox confirmar publicação." Ou seja, o novo trigger de materialização (seja síncrono no create/update/renew, seja via evento) não deve tornar a escrita do item/policy dependente da confirmação de um efeito colateral assíncrono.
+- `docs/architecture/incident-runbooks.md` (draft operacional, não passou pelo protocolo de 3 rodadas — classificado processo/documentação, não Type 1): runbooks existentes (§2 falha de disparo, §3 DLQ crescendo, §4 provider indisponível) cobrem falha de disparo, DLQ, provider indisponível — todos assumindo que a materialização já aconteceu. **Não existe runbook para "materialização nunca disparada"** (o próprio modo de falha do BLOCKER-B) — precisará de seção nova se o fix mudar o trigger path. Gaps já reconhecidos no próprio doc: sem alarme dedicado de profundidade de DLQ (só idade), sem alarme dedicado de taxa de erro por provider/canal.
+- **Distinção importante, não confundir**: `GTR-01` (identidade do solicitante interno não exposta ao guest externo no fluxo de upload) é um blocker **diferente** de BLOCKER-B — pertence a BLOCKER-C (guest upload), não a reminders. Não misturar as duas linhas de trabalho.
 - Schemas já existentes e presumivelmente em uso real (a confirmar): `schemas/queues/reminder-dispatch.v1.json`, `notification-intent-created.v1.json`, `notification-email-deliver.v1.json`, `notification-ses-callback.v1.json`.
 - O achado "wire contract `reminder.dispatch.v1` incompleto" citado em `AGENTS.md §7` **já foi corrigido** (commit `dd90174`, Claude↔Codex 9.2/10) — texto do `AGENTS.md` está desatualizado nesse ponto específico (drift menor, não bloqueia BLOCKER-B, mas vale corrigir `AGENTS.md` §7 num commit de documentação futuro).
 
@@ -67,14 +71,41 @@ Autonomia operacional total foi concedida pelo usuário para esta missão (inspe
 - Só existe um ambiente real provisionado (`infra/env/dev.tfvars`); não há `infra/environments/` nem separação dev/prod — `infra/variables.tf` valida `environment == "dev"` apenas. Sem staging/prod real ainda.
 - **Conclusão**: a infraestrutura para tudo que já existe (producer/dispatch/reconciliation/notification) está sólida. Isso significa que a implementação de BLOCKER-B provavelmente não precisa de infraestrutura nova de scheduling/queue — só (a) o trigger de materialização em si, e possivelmente (b) Terraform para expor o `EmailProviderAdapter` real ao invés de um placeholder quando a identidade SES for verificada.
 
-## 4. Reconhecimento **NÃO concluído** — próxima sessão deve fazer isso primeiro
+## 4. Reconhecimento **NÃO concluído** — em andamento
 
-Resta só a confirmação a nível de código do lado da **materialização** (o infra e o notification module já estão confirmados — ver 3.1/3.3):
+Resta só a confirmação a nível de código do lado da **materialização** (o infra e o notification module já estão confirmados — ver 3.1/3.3). Um fork de reconhecimento dedicado (substituto do primeiro, que foi morto sem relatar nada útil) está rodando com este escopo exato:
 
-1. `src/modules/reminder/**` — o materializer existe, sua assinatura real, e **quem de fato o chama hoje** (grep por todos os call sites). O fork de recon dedicado a isso foi interrompido (timeout de tokens do usuário) antes de reportar — refazer do zero.
-2. `src/workers/reminder-producer/reminder-dispatch/reminder-reconciliation/**` — o que cada um realmente faz (a infra confirma os *schedules*, falta confirmar a *lógica interna*).
-3. Se `createItem`/`updateItem`/`renewItem` (em `src/modules/expiration/**`) chamam o materializer sincronamente, de forma alguma, ou só através de reconciliação assíncrona de DST.
-4. Com base nisso, fazer o **Gap Analysis** real (seção 5 do template de `docs/architecture/reminder-delivery-pipeline.md` sugerido pela missão) e só então decidir a estratégia de materialização (antecipada vs just-in-time vs híbrida — a missão pede avaliação explícita, não assumir).
+1. `src/modules/reminder/**` — o materializer existe, sua assinatura real, e **quem de fato o chama hoje** (grep por todos os call sites em toda a árvore `src/`).
+2. `src/workers/reminder-producer/reminder-dispatch/reminder-reconciliation/**` — lógica interna de cada um (a infra já confirma os *schedules*), e confirmação de que só `reminder-reconciliation` (caminho DST) chama o materializer.
+3. Se `createItem`/`updateItem`/`renewItem` (em `src/modules/expiration/**`) chamam o materializer sincronamente, de alguma forma, ou não chamam de forma alguma.
+4. Como `ReminderPolicy` em si é persistida (rota HTTP própria?) e se essa rota faz algo além de um write simples.
+5. Cobertura de teste existente do materializer (duplicidade, renovação, policy desabilitada, item arquivado).
+
+Quando esse fork retornar, atualizar a seção 6 (Gap Analysis) abaixo confirmando ou refutando a hipótese de trabalho, e só então prosseguir para decisão de arquitetura.
+
+## 5. Próxima ação recomendada
+
+1. Reconfirmar branch/estado (`git status`, `git branch --show-current`, `git log -5`, `git pull`) — não presumir que nada mudou.
+2. Reler este documento + `NEXT_SESSION_PROMPT.md` + `docs/architecture/README.md`.
+3. Se a seção 6 abaixo ainda estiver marcada como hipótese não confirmada, aguardar/checar o fork de recon do materializer antes de decidir arquitetura.
+4. Produzir a decisão de arquitetura de materialização (antecipada vs just-in-time vs híbrida — avaliar explicitamente, não assumir) e só então implementar.
+
+## 6. Gap Analysis (síntese) — materializer wiring ainda pendente de confirmação de código
+
+**Hipótese de trabalho (confirmada por 3 fontes documentais independentes, ainda não confirmada em código — fork de recon rodando):** o `ReminderMaterializer` (ou equivalente) só é chamado pelo caminho de reconciliação de DST (`reminder-reconciliation`, GSI6 `WORKSTATE#DST_PENDING`); nenhuma rota HTTP de `ReminderPolicy` nem `createItem`/`updateItem`/`renewItem` de `ExpirationItem` chama o materializer ou emite evento que o dispare. Isso explicaria exatamente o sintoma relatado: salvar uma policy hoje não produz nenhuma ocorrência futura, exceto no raro caso em que uma ocorrência pré-existente cruza uma transição de DST.
+
+**O que já está confirmado e NÃO precisa ser redesenhado:**
+- Downstream de uma `ReminderOccurrence` já `SCHEDULED`: claim→outbox→relay→sweeper→dispatch (M3.5) e dispatch→NotificationIntent→router→SES→callback (M4) — ambos reais, testados, com idempotência e estado `UNKNOWN` para resultado ambíguo. **A implementação de BLOCKER-B não deve tocar esse trecho**, só garantir que ele receba occurrences reais.
+- Infraestrutura (schedules, filas, DLQs, alarmes, IAM) para tudo que já existe — sólida, sem gaps de infra novos necessários para o trigger em si (só possivelmente para expor a identidade SES real quando verificada — gap externo, não de código).
+- Estratégia de materialização **antecipada/eager** já decidida em `architecture-fase3-consolidada.md` (não é uma decisão em aberto para esta missão — não redecidir de novo "antecipada vs just-in-time" do zero; a pergunta real é só *o que dispara* a chamada ao materializer já existente, não *como* ele calcula as ocorrências).
+
+**O que falta decidir (arquitetura real da correção), depois de confirmado o call-site real:**
+- Onde plugar o trigger: síncrono dentro da mesma transação de `createItem`/`updateItem`/`renewItem`/policy-save (mais simples, mas acopla a escrita do item à materialização — tensão com o princípio #4 de engenharia citado acima) vs. assíncrono via outbox/evento (`ReminderPolicySaved`/`ExpirationItemCreated` → materializer como consumidor, consistente com o padrão outbox já usado em M3/M3.5) vs. híbrido.
+- Backfill: o que fazer com `ReminderPolicy`s já salvas antes do deploy da correção — precisam de materialização retroativa seguem, mas sem disparar lembretes históricos em massa no primeiro deploy (item 66-68 da missão).
+- Renovação: confirmar que ocorrências do ciclo antigo não ficam entregáveis após `renewItem` — a materialização precisa saber invalidar/versionar ocorrências futuras do ciclo anterior, não só criar novas.
+- Idempotência de materialização: identidade lógica (tenant+item+ciclo+policy+ocorrência) precisa ser confirmada/definida a partir do desenho real do materializer, não assumida.
+
+**Este Gap Analysis será atualizado assim que o fork de recon do materializer retornar** — a hipótese acima pode ser refutada (call site adicional encontrado) ou refinada com os detalhes exatos de assinatura/idempotência do materializer.
 
 ## 5. Próxima ação recomendada (início da próxima sessão)
 
