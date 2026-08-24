@@ -49,3 +49,19 @@ export interface DashboardQuery {
   ascending?: boolean;
   limit?: number;
 }
+
+/** POST /items/{itemId}/renew request body (src/modules/expiration/domain/expiration-item.ts
+ * RenewItemInput). `cycle` defaults server-side to `newDueDate` when omitted - the Renew form
+ * never sends it explicitly, there is no product reason yet to expose a distinct cycle label. */
+export interface RenewItemInput {
+  newDueDate: string;
+  cycle?: string;
+}
+
+export interface ItemResponse {
+  item: ExpirationItem;
+}
+
+export interface DashboardResponse {
+  items: ExpirationItem[];
+}
