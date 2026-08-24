@@ -603,7 +603,10 @@
   });
 
   actions.editItem = function () {
-    var msg = 'Edição de campos administrativos — fora do escopo desta etapa de prototipação (mesma seção estrutural do wireframe SURF-003).';
+    var msg = modeText(
+      'Edição de campos administrativos — fora do escopo desta etapa de prototipação (mesma seção estrutural do wireframe SURF-003).',
+      'Edição de campos administrativos ainda não está disponível nesta versão.'
+    );
     var slot = document.getElementById('confirm-slot');
     if (slot) slot.innerHTML = '<div class="confirm-row">' + esc(msg) + '</div>';
     announce(msg);
@@ -792,7 +795,7 @@
         '<div class="field"><label for="doc-file">Arquivo</label><input id="doc-file" type="file"></div>' +
         '<div class="actions"><button class="btn btn-primary" data-action="submitUpload" data-id="' + id + '">Enviar</button></div>';
     } else if (st.state === 'uploading') {
-      body += feedback('pending', '⏳', 'Enviando… (TTL da reserva: 10 min)');
+      body += feedback('pending', '⏳', 'Enviando…' + modeText(' (TTL da reserva: 10 min)', ' (a reserva expira em 10 min)'));
     } else if (st.state === 'unknown') {
       body += feedback('unknown', '⚠', 'Não sabemos se o arquivo chegou (falha de rede durante o envio). Envie novamente — uma nova reserva é necessária, nunca assumimos sucesso parcial.') +
         '<div class="actions"><button class="btn btn-primary" data-action="retryUpload" data-id="' + id + '">Enviar novamente</button></div>';
@@ -880,7 +883,7 @@
     body += '<div class="actions"><button class="btn btn-secondary" data-action="notImplemented">+ Novo fornecedor</button></div>';
     return shell('Fornecedores', '', body, { navKey: 'subjects' });
   });
-  actions.notImplemented = function () { announce('Ação fora do escopo de prototipação desta etapa (não afeta as journeys críticas).'); };
+  actions.notImplemented = function () { announce(modeText('Ação fora do escopo de prototipação desta etapa (não afeta as journeys críticas).', 'Esta ação ainda não está disponível nesta versão.')); };
 
   // =======================================================================
   // SURF-009 — Subject Detail
@@ -937,7 +940,7 @@
     var box = document.createElement('div');
     box.className = 'confirm-row';
     box.innerHTML = '<label for="link-select">Vincular a</label> <select id="link-select">' + options + '</select> ' +
-      '<button class="btn btn-primary" data-action="doLink" data-id="' + rid + '">Confirmar vínculo (CONFIRMED)</button>';
+      '<button class="btn btn-primary" data-action="doLink" data-id="' + rid + '">Confirmar vínculo</button>';
     app.querySelector('section').appendChild(box);
   };
   actions.doLink = function (el) {
@@ -1187,7 +1190,7 @@
       return shell('Importar Planilha (1/4 — selecionar)', '', body, { navKey: 'items' });
     }
     if (job.status === 'UPLOADING') {
-      body = feedback('pending', '⏳', 'Enviando planilha_fornecedores.csv… (TTL: 15 min)');
+      body = feedback('pending', '⏳', 'Enviando planilha_fornecedores.csv…' + modeText(' (TTL: 15 min)', ' (o link expira em 15 min)'));
       return shell('Importar Planilha (2/4 — enviando)', '', body, { navKey: 'items' });
     }
     if (job.status === 'PARSING') {
@@ -1196,12 +1199,14 @@
       return shell('Importar Planilha (3/4 — processando)', '', body, { navKey: 'items' });
     }
     if (job.status === 'FAILED') {
-      body = feedback('failed', '✕', 'Falha ao processar o CSV (formato inválido). Não é possível retomar este job — inicie uma nova importação.') +
+      body = feedback('failed', '✕', 'Falha ao processar o CSV (formato inválido). Não é possível retomar esta importação — inicie uma nova.') +
         '<div class="actions"><a class="btn" href="#/import">Nova importação</a></div>';
       return shell('Importar Planilha — Falha', '', body, { navKey: 'items' });
     }
     if (job.status === 'EXPIRED') {
-      body = feedback('failed', '✕', 'Este job expirou sem ser confirmado (prazo de revisão encerrado). Diferente de FAILED: nada deu errado no processamento — o job só ficou parado tempo demais. Não é possível retomá-lo — inicie uma nova importação.') +
+      body = feedback('failed', '✕', 'Esta importação expirou sem ser confirmada (prazo de revisão encerrado).' +
+        modeText(' Diferente de FAILED: nada deu errado no processamento — o job só ficou parado tempo demais.', ' Nada deu errado no processamento — ela só ficou parada tempo demais.') +
+        ' Não é possível retomá-la — inicie uma nova importação.') +
         '<div class="actions"><a class="btn" href="#/import">Nova importação</a></div>';
       return shell('Importar Planilha — Expirado', '', body, { navKey: 'items' });
     }

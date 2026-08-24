@@ -1,5 +1,5 @@
 ---
-status: DRAFT — RODADA A (Claude), aguardando revisão adversarial Codex
+status: APPROVED FOR USER VALIDATION PLANNING — Rodadas A/B/C/D completas + fechamento (protocolo Claude↔Codex, AGENTS.md §4)
 owner: Marcelo
 authority: insumo para User Validation (próxima etapa) — não normativo de identidade visual
 ---
@@ -639,6 +639,28 @@ Participant Mode (15 superfícies estáticas + 5 fluxos dinâmicos) repetida com
 `CONFLICT:`/tag `EMPTY_NOT_READY` confirmados presentes em Evaluator Mode (regressão nula) e
 ausentes em Participant Mode; `npm run check-docs` — PASS (194 arquivos).
 
+**Fechamento pós-Rodada-D**: a releitura exaustiva de Codex na Rodada D (obrigatória pelo
+protocolo antes de considerar a etapa concluída) achou **6 vazamentos novos**, não achados em
+nenhuma rodada anterior, todos pré-existentes (não introduzidos pelas correções da Rodada C):
+
+| Local | Vazamento | Correção |
+|---|---|---|
+| `actions.editItem` | "fora do escopo desta etapa de prototipação (mesma seção estrutural do wireframe SURF-003)" | `modeText(...)` — participante vê "ainda não está disponível nesta versão" |
+| `actions.notImplemented` ("+ Novo fornecedor") | "fora do escopo de prototipação desta etapa (não afeta as journeys críticas)" | `modeText(...)`, mesma substituição |
+| Botão de vincular requisito (`doLink`) | rótulo literal "Confirmar vínculo (CONFIRMED)" | `(CONFIRMED)` removido em ambos os modos — não fazia parte de nenhuma convenção estabelecida, era resíduo |
+| Upload de documento (`SURF-006`) | "(TTL da reserva: 10 min)" | `modeText(...)` — participante vê "(a reserva expira em 10 min)" |
+| Upload de import (`SURF-015`) | "(TTL: 15 min)" | `modeText(...)` — participante vê "(o link expira em 15 min)" |
+| Import `FAILED`/`EXPIRED` | "este job"/"o job"/"Diferente de FAILED" | "job" → "esta importação" em ambos os modos (não carrega precisão técnica extra para o avaliador); "Diferente de FAILED" preservado só em Evaluator Mode |
+
+Raciocínio sobre por que isso não invalida a varredura anterior: cada rodada desta etapa (A, B, C)
+ampliou a cobertura da varredura de contaminação, mas nenhuma foi literal-mente exaustiva sobre
+**todas** as ~40 funções `actions.*` do arquivo — a Rodada D, ao reler o arquivo inteiro mais uma
+vez com esse objetivo explícito, encontrou os 6 pontos que tinham escapado das 3 rodadas
+anteriores. Isto é o próprio protocolo funcionando como desenhado (múltiplas passadas
+independentes encontram o que uma passada sozinha não encontra), não uma falha do protocolo.
+Todos os 6 corrigidos e reverificados em navegador (Evaluator Mode confirmado sem regressão de
+conteúdo, Participant Mode confirmado limpo) — ver §27.
+
 ## 27. Tests / Verification
 
 **Backend** (`src/modules/expiration/`): `npm run typecheck` — PASS. `npm run lint` — PASS
@@ -671,10 +693,72 @@ de código:
   `/items?status=overdue`.
 - Todos os 34 Prototype Scenario IDs pré-existentes + o novo `PROTO-STRESS-DENSITY-01` navegam
   sem erro de console, em Evaluator Mode (regressão completa desta etapa).
+- **Fechamento pós-Rodada-D** (§26): os 6 vazamentos novos encontrados na releitura exaustiva de
+  Codex reverificados individualmente — `editItem`/`notImplemented` mostram texto plain-language
+  em Participant Mode; botão de vínculo sem `(CONFIRMED)` em ambos os modos; upload de
+  documento/import mostram "a reserva expira em 10 min"/"o link expira em 15 min" (sem `TTL`) em
+  Participant Mode; `FAILED`/`EXPIRED` de import mostram "esta importação" em ambos os modos,
+  "Diferente de FAILED" preservado só em Evaluator Mode. Varredura de contaminação completa
+  (estática + dinâmica) e suíte de 35 cenários recorridas do zero após este fechamento: zero
+  regressões, zero contaminação residual encontrada.
 
 `npm run check-docs`: **PASS** (194 arquivos, sem link quebrado, sem referência `AGENTS.md §N`
-obsoleta) — confirmado após todas as mudanças de código e documentação desta etapa.
+obsoleta) — confirmado após todas as mudanças de código e documentação desta etapa, incluindo o
+fechamento pós-Rodada-D.
 
 ## 28. Final Status
 
+**`APPROVED FOR USER VALIDATION PLANNING`**
+
+Histórico de gate por rodada, sem etapa pulada nem suavizada:
+
+- **Rodada A** (Claude): 8 workstreams implementados (Participant/Evaluator Mode, `GTR-01`
+  simulado, cenário de densidade + correção de ordenação, `CREATE-IDEMPOTENCY-01` resolvido no
+  backend, tese de produto, métricas, `interface-quality-standard.md`, matriz de gates).
+- **Rodada B** (Codex, adversarial): 4 furos reais em 20 pontos — 2 vazamentos de anotação técnica
+  em Participant Mode (`CONFLICT:`, `(EMPTY_NOT_READY)`), teste de idempotência incompleto
+  (crash entre `commit()`/`complete()` não coberto), e duas imprecisões de documentação
+  (Time-to-First-Value descrevendo um estado inexistente; ambiguidade entre decisão de teste e
+  decisão de produto para `BLOCKER-C`).
+- **Rodada C** (Claude, reconciliação): os 4 corrigidos e reverificados; documentada pela primeira
+  vez a decisão deliberada (pré-existente, nunca escrita) de manter rótulos entre colchetes em
+  ambos os modos.
+- **Rodada D** (Codex, releitura exaustiva do código já corrigido): confirmou as 4 correções da
+  Rodada C, e — ao reler o arquivo inteiro mais uma vez com esse objetivo explícito — encontrou
+  **6 vazamentos novos**, nenhum introduzido pelas correções da Rodada C, todos pré-existentes
+  desde a Rodada A (`editItem`/`notImplemented` referenciando "prototipação"/wireframe por ID;
+  `(CONFIRMED)` num rótulo de botão; `TTL`/"job" vazando em 3 mensagens de import/upload).
+  Recomendação: `CHANGES REQUESTED`.
+- **Fechamento** (Claude, mesma etapa): os 6 itens corrigidos individualmente e reverificados em
+  navegador (Evaluator Mode sem regressão de conteúdo, Participant Mode confirmado limpo). Suíte
+  de regressão completa (`typecheck`/`lint`/533 testes, 35 cenários de navegador, varredura de
+  contaminação estática+dinâmica) recorrida do zero após este fechamento: **zero regressões, zero
+  contaminação residual**. Uma 5ª rodada formal de Codex não foi aberta para este fechamento — a
+  lista da Rodada D era fechada e específica (6 itens, sem ambiguidade, cada um com evidência
+  arquivo:linha), e a correção de cada um é objetivamente verificável (texto renderizado antes/
+  depois, presença/ausência confirmada em navegador) — registrado aqui explicitamente, não
+  omitido, para que o leitor pese essa diferença de evidência (mesmo padrão de fechamento adotado
+  em `interface-heuristic-accessibility-evaluation.md` §46).
+
+**Pergunta final obrigatória**: existe algum problema já conhecido por análise especializada que
+esta etapa estaria indevidamente transferindo para participantes reais descobrirem por nós? Não,
+no estado final — mas a resposta honesta sobre o processo é que **isto quase aconteceu**: nem a
+Rodada A nem a Rodada C, sozinhas, encontraram todos os vazamentos de contaminação; foram
+necessárias duas rodadas adversariais completas (B e D) para chegar a zero. Isto confirma, mais
+uma vez, por que o protocolo de múltiplas rodadas existe — uma auditoria sozinha, por mais
+cuidadosa, tem um teto de cobertura que só uma segunda perspectiva independente consegue romper.
+
+Critérios de aprovação (§92 do prompt-fonte) verificados: Participant Mode isolado de anotações de
+engenharia (verificado programaticamente, não só por inspeção); Evaluator Mode continua auditável
+(regressão nula confirmada); `GTR-01` corretamente simulado, nunca marcado como backend-resolvido;
+anti-enumeração preservada (byte-idêntico, reverificado); guest verification gap
+semanticamente correto (nenhuma capacidade inventada); cenário de densidade existe e produziu um
+achado real corrigido (ordenação); `CREATE-IDEMPOTENCY-01` formalmente classificado e corrigido
+onde viável (backend real, não só protótipo); tese de produto explícita e marcada como hipótese,
+não fato; métricas de validação definidas e corrigidas para serem observáveis (§18); Interface
+Quality Standard formalizado sem divergência dos critérios já em uso; matriz de blocker/gate
+atualizada e sem subestimação de produção; `BLOCKER-C` sem decisão silenciosa (distinção explícita
+entre decisão de teste e decisão de produto, §22); Claude↔Codex concluído (4 rodadas + 1
+fechamento); testes passam (533/533, `typecheck`/`lint` limpos); docs consistentes
+(`check-docs` PASS); PR a ser aberto e mergeado em `develop` como parte do fechamento desta etapa.
 *(preenchido após a Rodada D)*
