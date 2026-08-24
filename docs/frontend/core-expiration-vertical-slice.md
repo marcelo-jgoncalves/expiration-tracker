@@ -154,10 +154,17 @@ contra o código) de concatenação por delimitador para JSON canônico + SHA-25
 delimitador-concatenado ambíguo; hash de JSON estruturado não tem essa colisão. Nenhuma mudança
 adicional foi necessária (mission §31 — verificado, sem risco material).
 
-**Request hash — Renew**: permanece `itemId|expectedVersion|cycle` (concatenação por
-delimitador), deliberadamente inalterado — `itemId` é um id gerado opaco, `expectedVersion` é um
-inteiro, `cycle` é uma data ISO; nenhum pode conter `|`, logo não há colisão real possível
-(comentário em `expiration-service.ts:94-100`/`:318-321`). Documentado, não expandido.
+**Request hash — Renew**: a análise inicial desta sessão (mission §31) concluiu erroneamente que
+`itemId|expectedVersion|cycle` não tinha colisão real possível — verdade apenas quando `cycle`
+sempre iguala `newDueDate` por omissão. A Rodada B do Claude↔Codex (§27) achou que
+`renew-item-request.v1.json` permite `cycle` independente de `newDueDate`, tornando duas
+requisições com o mesmo `itemId`/`expectedVersion`/`cycle` mas `newDueDate` diferente
+indistinguíveis. Corrigido (§28): o hash agora é sempre
+`itemId|expectedVersion|newDueDate|cycle` — `newDueDate` faz parte do hash independentemente de
+`cycle` ter sido enviado (`expiration-service.ts`). A chave por omissão (quando o chamador não
+fornece `idempotencyKey`) permanece `itemId|expectedVersion|cycle`, sem mudança — é um formato de
+contrato de dados documentado (data-model.md §4), distinto do hash (uma ferramenta interna de
+detecção de ambiguidade).
 
 ## 16. OCC
 
@@ -172,14 +179,19 @@ nova submissão.
 `IN_PROGRESS` para sempre, e toda retentativa sob a mesma chave (mesmo com uma `expectedVersion`
 recém-buscada) atingia `ConcurrentOperationError` permanentemente. Corrigido com um novo estado
 terminal `ABORTED` em `IdempotencyStore` (`src/shared/idempotency/idempotency.ts`) e um `abort()`
-chamado nos catch-paths de `renewItem`/`createItem`. Verificado (revisão de código desta sessão):
-`abort()` só é acionado quando a escrita transacional realmente falhou (nunca depois de um commit
-bem-sucedido) — no único caso residual onde o commit tem sucesso mas a chamada de `complete()`
-falha, a condição de versão da própria transação atômica (não o registro de idempotência) segue
-sendo a proteção real contra duplicação; uma retentativa nesse caso raro resulta em um 409 (que o
-Renew já trata como recuperação dedicada) em vez do 500 genérico que ocorria antes — uma melhoria
-de UX, não uma regressão de segurança. 9 testes novos (`test/unit/idempotency.test.ts`,
-`test/unit/expiration/expiration-service.test.ts`).
+chamado nos catch-paths de `renewItem`/`createItem`.
+
+A autorrevisão original (Round A) concluiu que `abort()` só era acionado quando a escrita
+transacional realmente falhava, nunca depois de um commit bem-sucedido — **essa conclusão estava
+errada**: `renewItem`'s catch envolvia `completeRenewal()` inteiro (escrita + `complete()`), então
+uma falha isolada de `complete()` após um commit bem-sucedido ainda acionava `abort()`,
+descartando a capacidade de repetir o sucesso real via idempotência (achado real da Rodada B do
+Claude↔Codex, §27). Corrigido na Rodada C (§28): `complete()` agora roda fora do bloco que aciona
+`abort()` — uma falha isolada de `complete()` deixa o registro `IN_PROGRESS` (o residual já
+aceito pelo mission §32), nunca `ABORTED` incorretamente. A própria Rodada B também achou (e a
+Rodada C corrigiu) uma corrida TOCTOU real na reaquisição de um registro `ABORTED` — ver §27-28.
+6 testes novos no total (`test/unit/idempotency.test.ts`, `test/unit/expiration/expiration-
+service.test.ts`), cobrindo especificamente os dois achados.
 
 ## 17. Error Model
 
@@ -224,8 +236,9 @@ introduzido.
 ## 22. Testing
 
 96 testes unitário/componente de frontend (era 42 na fundação — 54 novos), 12 testes Playwright
-E2E (era 6 — 6 novos cobrindo E2E-01 a E2E-06 do mission), 9 testes novos de backend
-(`idempotency.test.ts`, `expiration-service.test.ts`) para o achado de §16. Cobertura explícita:
+E2E (era 6 — 6 novos cobrindo E2E-01 a E2E-06 do mission), 621 testes de backend no total (+4
+desta sessão só na reconciliação do Round C — §27-28 — em cima dos já adicionados pelo achado de
+liveness do §16), nenhuma regressão. Cobertura explícita:
 semântica de status/urgência/data, ordenação por urgência, ciclo de vida de idempotency-key
 (reuso em retry, nova chave só após `newIntent()`, persistência entre reload), mapeamento de erro
 (validação/conflito/desconhecido), comportamento de validação (preservação de valores), OCC
@@ -233,13 +246,14 @@ semântica de status/urgência/data, ordenação por urgência, ciclo de vida de
 
 ## 23. Density Validation
 
-`ItemsCollection.test.tsx` inclui um cenário com itens espalhados pelos três buckets de urgência
-(vencidos/vence em breve/demais ativos) para provar que o agrupamento e a ordenação por
-`dueDate` ascendente seguem corretos além do caso trivial de poucos registros — a mesma classe de
-defeito que `PROTO-STRESS-DENSITY-01` encontrou no protótipo (ordenação por urgência ausente em
-volume) não se repete aqui porque `sortByDueDateAscending` é aplicado antes de qualquer
-agrupamento, e é testado isoladamente (`presentation.urgency.test.ts`) independente do
-componente.
+`ItemsCollection.test.tsx` cobre densidade em dois testes distintos e complementares: um com 3
+itens espalhados pelos três buckets de urgência (vencidos/vence em breve/demais ativos), provando
+o agrupamento correto no caso funcional mínimo; e um segundo, dedicado, com **150 itens ACTIVE**
+(`dueDate` distribuído dia a dia), provando que a Collection renderiza os 150 `<li>` esperados
+sem erro em volume — a mesma classe de defeito que `PROTO-STRESS-DENSITY-01` encontrou no
+protótipo (ordenação por urgência ausente em volume) não se repete aqui porque
+`sortByDueDateAscending` é aplicado antes de qualquer agrupamento, e é testado isoladamente
+(`presentation.urgency.test.ts`) independente do componente.
 
 ## 24. Deferred UX Decisions
 
@@ -265,10 +279,14 @@ requeridos presentes e só os aplicáveis), integração de API (verificada linh
 `item-handlers.ts`/`expiration-service.ts`, nunca assumida), auth/sessão (E2E-06), idempotência
 (rastreada até o mecanismo real de hash e o novo `abort()`), OCC (rastreada até a transação
 atômica que é a proteção real contra duplicação), semântica de erro, acessibilidade (label/foco/
-associação de erro), segurança (BFF único caminho, sem token exposto), testes (96 unit + 12 E2E +
-9 backend, todos verificados passando nesta sessão: `npm test`/`npm run typecheck`/`npm run
-lint`/`npm run build`/`npm run test:e2e` no `frontend/`, e `npm test`/`npm run typecheck`/`npm run
-lint` na raiz — 617 testes de backend, nenhuma regressão).
+associação de erro), segurança (BFF único caminho, sem token exposto), testes (96 unit + 12 E2E de
+frontend, 621 de backend). A autorrevisão concluiu (incorretamente, ver §27-28) que o `abort()`
+adicionado para o achado de §16 era seguro em todos os casos — dois achados reais da Rodada B do
+Claude↔Codex (uma corrida TOCTOU na reaquisição de `ABORTED`, e o próprio `abort()` disparando após
+um commit bem-sucedido) mostraram que não era. Todos os comandos de verificação (`npm test`/`npm
+run typecheck`/`npm run lint`/`npm run build`/`npm run test:e2e` no `frontend/`, e `npm test`/`npm
+run typecheck`/`npm run lint` na raiz) foram executados diretamente nesta sessão antes E depois do
+Round C, sem regressão.
 
 ## 27. Codex Review
 
@@ -317,12 +335,37 @@ existente).
 
 ## 29. Verification
 
-Round D (Codex, `codex exec --skip-git-repo-check`, sobre o código já corrigido) reexecutou os 4
-cenários afetados e o checklist completo do §85; ver resultado abaixo. Verificação final completa
-executada nesta sessão após o Round C: `npm run typecheck`/`npm run lint`/`npm test` (621 testes,
-raiz) e `npm run typecheck`/`npm run lint`/`npm test`/`npm run test:e2e` (`frontend/`, 96 testes
-unitários + 12 E2E) — todos verdes, nenhuma regressão.
+Round D (Codex, `codex exec --skip-git-repo-check`, sobre o código já corrigido, cético por
+design — não aceitou a alegação de conserto sem reler o código real) reverificou os 4 achados
+individualmente contra o código atual e rodou uma passagem nova em busca de bugs introduzidos
+pelo próprio conserto (o foco explícito de qualquer Round D): **os 4 — VERIFIED FIXED, nenhum
+achado novo de código de produção.** O sandbox do Codex é read-only (não conseguiu rodar
+Vitest/Playwright, `EROFS` ao escrever configs temporárias do Vite) — confirmou apenas
+`typecheck`/`lint` (raiz e `frontend/`) diretamente; a suíte completa de testes foi verificada
+nesta sessão, diretamente (não pelo Codex): `npm run typecheck`/`npm run lint`/`npm test` (raiz,
+**621 testes**, incluindo os 4 novos de regressão desta rodada) e
+`npm run typecheck`/`npm run lint`/`npm test`/`npm run test:e2e` (`frontend/`, **96 testes
+unitários + 12 E2E**, incluindo os 6 cenários E2E-01 a E2E-06 do mission) — todos verdes, nenhuma
+regressão, reexecutados depois do Round C e novamente confirmados depois do Round D (nenhuma
+mudança de código adicional foi necessária).
+
+`npm run check-docs` também executado (ver §77-79) — sem quebra de link relativo nem referência
+de seção `AGENTS.md` inválida.
 
 ## 30. Final Status
 
-[Preenchido após o Round D.]
+**APPROVED AS CORE EXPIRATION PRODUCTION VERTICAL SLICE.**
+
+Resposta à pergunta de arquitetura do mission §103: sim — o frontend real executa as jornadas
+centrais de Vencimentos (Collection, Detail, Create, Renew) usando os contratos reais de
+produção (BFF real, backend real, persistência real), preservando segurança (nenhum bypass de
+BFF, nenhum token exposto, CSRF herdado), idempotência real (chave por submissão, nunca
+regenerada em retry, agora com hash sem ambiguidade também no Renew), OCC real (409 nunca
+genérico, recuperação dedicada, nunca retry cego), acessibilidade estrutural (label/foco/
+associação de erro desde o início) e epistemic integrity (nenhuma alegação além do que
+`BLOCKER-A`/`BLOCKER-B`/`BLOCKER-C`/`GTR-01` permitem observar) — sem depender de nenhuma decisão
+visual ainda não validada (aparência neutra/funcional, nenhum design system novo). Um bug real e
+pré-existente de liveness de idempotência (mission §32) foi corrigido durante a implementação, e
+4 achados reais adicionais (1 S1, 3 S2) foram encontrados pelo protocolo Claude↔Codex e
+corrigidos antes deste status — nenhum mascarado, nenhum blocker técnico revisitado ou
+reclassificado.
