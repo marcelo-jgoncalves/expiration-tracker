@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expiration Tracker — Interaction Prototype (NOT PRODUCTION)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="banner" role="note">
+  ⚠ PROTOTYPE ONLY — this is not the production frontend. No visual design decided. See README.md.
+</div>
+
+<div id="app-shell">
+  <main id="app" tabindex="-1"></main>
+</div>
+
+<div id="live-region" role="status" aria-live="polite" class="sr-live"></div>
+
+<div id="control-bar" aria-label="Prototype Scenario Control (PROTOTYPE-ONLY, not part of the product)">
+  <div class="control-row control-row-top">
+    <strong>🧪 PROTOTYPE SCENARIO CONTROL — PROTOTYPE-ONLY</strong>
+    <button id="ctl-reset" type="button">Reset prototype state</button>
+    <button id="ctl-mobile" type="button" aria-pressed="false">📱 Simulate mobile guest viewport</button>
+    <button id="ctl-collapse" type="button" aria-expanded="true">Hide ▾</button>
+  </div>
+  <div class="control-row control-row-body" id="control-body">
+    <label for="ctl-journey">Journey</label>
+    <select id="ctl-journey"></select>
+    <span id="ctl-scenarios"></span>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

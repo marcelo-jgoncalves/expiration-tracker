@@ -1,9 +1,9 @@
 # docs/frontend/ — Índice do Planejamento de Interface
 
 ```text
-Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory (próxima, não iniciada)
-Status vigente:  3 de 4 etapas APPROVED; nenhum wireframe/componente/layout produzido ainda
-Last verified:   2026-08-23
+Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation + User Validation (próxima, não iniciada)
+Status vigente:  6 de 7 etapas APPROVED; protótipo interativo navegável real produzido (prototype/), nenhuma identidade visual/frontend de produção ainda
+Last verified:   2026-08-24
 ```
 
 Ver `docs/architecture/README.md` para o mapa de arquitetura de sistema (este índice cobre só o
@@ -17,7 +17,10 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 |---|---|---|
 | `interface-context-and-critical-tasks.md` | `APPROVED AS INPUT FOR CONCEPTUAL MODEL + INFORMATION ARCHITECTURE` | Papéis funcionais (`Internal Operator`, `External Submitter`), Jobs to Be Done, inventário completo de tarefas, classificação de criticidade (T0-T3) × frequência × `Implementation Readiness` (READY/PARTIAL/BLOCKED/FUTURE) — eixos deliberadamente separados após amendment metodológico. Descobriu os 3 blockers técnicos de backend (ver abaixo). |
 | `interface-conceptual-model-and-information-architecture.md` | `APPROVED AS INPUT FOR CRITICAL USER JOURNEYS` | Modelo conceitual de usuário (Vencimento/Documento/Fornecedor/Requisito/Solicitação/Alerta), Information Architecture recomendada (**dual-anchor**: Vencimentos + Fornecedor/Subject como dois anchors mentais coexistentes, sem hierarquia única — `ExpirationItem` não tem `subjectId`). Amendment semântico corrigiu `Document.CLEAN`="Aprovado" e `RequirementAssignment.SATISFIED`="Em dia" (nenhum dos dois é verdade — verificado em código) e formalizou `GTR-01`. |
-| `interface-critical-user-journeys.md` | `APPROVED AS INPUT FOR SCREEN + STATE INVENTORY` | 8 journeys (J-01 a J-08) mapeadas outcome-a-outcome, com fluxo passo-a-passo classificado por `System Knowledge` (KNOWN/INFERRED/PENDING/CONFIRMED/FAILED/UNKNOWN), failure/recovery paths, matrizes de dependência de backend. Achou que `POST /items` não tem idempotência e que o guest flow comprime "enviado" com "verificado". |
+| `interface-critical-user-journeys.md` | `APPROVED AS INPUT FOR SCREEN + STATE INVENTORY` | 8 journeys (J-01 a J-08) mapeadas outcome-a-outcome, com fluxo passo-a-passo classificado por `System Knowledge` (KNOWN/INFERRED/PENDING/CONFIRMED/FAILED/UNKNOWN), failure/recovery paths, matrizes de dependência de backend. Achou que `POST /items` não tem idempotência (`CREATE-IDEMPOTENCY-01`) e que o guest flow comprime "enviado" com "verificado". |
+| `interface-screen-and-state-inventory.md` | `APPROVED AS INPUT FOR LOW-FIDELITY WIREFRAMES` | 17 Interaction Surfaces (`SURF-001` a `SURF-017`) derivadas das 8 journeys, com taxonomia de estado compartilhada (loading/empty/error/persistence/visibility), Epistemic Integrity Matrix, e as 3 matrizes Surface↔Journey/Concept/Transition. Achado real da revisão: `Document.SCANNING` estava classificado `PERSISTED` incorretamente como `REMOTE_ASYNC`/`USER_KNOWN` — corrigido para `NOT_CURRENTLY_OBSERVABLE` (o mesmo gap de leitura de `BLOCKER-A` começa em `SCANNING`, não só em `CLEAN`). |
+| `interface-low-fidelity-wireframes.md` | `APPROVED AS INPUT FOR INTERACTION PROTOTYPE` | Wireframe ASCII de baixa fidelidade das 17 `SURF-xxx`, agrupadas em 3 lotes (âncora Vencimento → âncora Fornecedor → isoladas/utility), com hierarquia primary/secondary/contextual, convenções estruturais fixas (`[PRIMARY]`/`⚠[DANGEROUS]`/`[BLOQUEADO: BLOCKER-X]`), 8 journey walkthroughs e State Coverage Matrix. Achados reais da revisão: affordance de ação primária ausente em 4 coleções, `BLOCKER-A` mascarado no estado inicial de Document Context (afirmava "nenhum documento" quando a interface não pode saber isso), `SATISFIED` reaproximado de "compliance atual" numa das variantes de branch de `BLOCKER-C`, e um canal (WhatsApp) sem lastro — todos corrigidos. |
+| `interface-interaction-prototype.md` + `prototype/` | `APPROVED AS INPUT FOR HEURISTIC + ACCESSIBILITY EVALUATION AND USER VALIDATION` | Protótipo interativo real (HTML/CSS/JS sem dependências, `prototype/app.js`), 17 rotas 1:1 com `SURF-001`–`SURF-017`, 34 Prototype Scenario IDs determinísticos cobrindo J-01–J-08 (happy path + alternates + falha + recovery + re-entry), verificado com testes automatizados de navegador headless. Achados reais da revisão: compressão de estados no guest upload (faltava validação de arquivo e o estado "reserva aceita" distinto de "enviado"), uma simulação de coleta externa anunciando ao operador uma verificação de segurança que `BLOCKER-A`/`BLOCKER-C` tornam `NOT_CURRENTLY_OBSERVABLE`, dois campos de formulário sem `<label>`, e uma reincidência de menção a WhatsApp — todos corrigidos e reverificados funcionalmente. |
 
 ## Blockers técnicos de backend (citados por ID em todo o planejamento, nenhum resolvido)
 
@@ -29,8 +32,10 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 | `GTR-01` | Guest flow não expõe identidade do solicitante ao fornecedor externo — risco de Trust/phishing | J-07 (guest submission), UX trust readiness `NOT READY` |
 
 Achados menores registrados, não elevados a blocker nomeado: `POST /items` sem proteção de
-idempotência (`interface-critical-user-journeys.md` §9); guest flow sem rota pública de
-confirmação pós-envio (`interface-critical-user-journeys.md` §14).
+idempotência, `CREATE-IDEMPOTENCY-01` (`interface-critical-user-journeys.md` §9); guest flow sem
+rota pública de confirmação pós-envio (`interface-critical-user-journeys.md` §14); query
+tenant-wide de solicitações pendentes inexistente (`interface-screen-and-state-inventory.md` §41,
+bloqueia `SURF-013`).
 
 ## Pendência de formalização
 
@@ -44,6 +49,9 @@ decidido.
 
 ## Próxima etapa
 
-**Screen + State Inventory** — ainda não iniciada. Transforma as 8 journeys aprovadas em
-superfícies de interação, estados, transições e condições (loading/erro/vazio/permissão)
-necessárias, ainda antes de wireframe/design visual.
+**Heuristic Evaluation + Accessibility Evaluation + User Validation** — ainda não iniciada. Recebe
+como input o protótipo interativo real (`prototype/`, ver `prototype/README.md` para como rodar) e
+`interface-interaction-prototype.md` (manifest, matrizes de cobertura, walkthroughs cognitivo/
+epistêmico/trust/acessibilidade, Prototype Decision Brief de `BLOCKER-C`) — sem redescobrir
+estrutura, estados ou semântica já fechados. Não obriga o início imediato de Visual Design/Design
+System.
