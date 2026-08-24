@@ -1,0 +1,70 @@
+/* FOUNDATION / PROVISIONAL (mission §81) - structural tokens only, never a design system.
+   Grayscale, no brand identity, no icon set - same deliberate posture as prototype/styles.css
+   until Visual Language + Design System (post-User-Validation) replaces this file entirely. */
+
+:root {
+  --line: #888;
+  --line-strong: #222;
+  --bg: #fff;
+  --text: #111;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* Skip link (WCAG 2.4.1 Bypass Blocks) - same visually-hidden-until-focused pattern already
+   proven in prototype/styles.css, carried into real code from the start. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--bg);
+  border: 2px solid var(--line-strong);
+  padding: 6px 10px;
+  z-index: 2000;
+}
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--line-strong);
+  outline-offset: 1px;
+}
+
+nav[aria-label="Navegação principal"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+nav .nav-current {
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+main {
+  padding: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+main:focus {
+  outline: 2px solid var(--line-strong);
+  outline-offset: 2px;
+}
