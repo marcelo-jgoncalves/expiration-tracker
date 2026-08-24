@@ -72,8 +72,61 @@ export class ExpirationService {
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);
   }
 
-  async createItem(ctx: RequestContext, input: CreateItemInput): Promise<ExpirationItem> {
+  /**
+   * createItem — CREATE-IDEMPOTENCY-01 (docs/frontend/interface-critical-user-journeys.md
+   * §9): a retry after a client-side timeout could previously create a duplicate item,
+   * since there was no way to recognize "this is the same creation request, not a new
+   * one". `idempotencyKey` is optional (unlike import's mandatory key, there is no
+   * pre-existing aggregate to derive a natural fallback composite key from, the way
+   * renewItem derives one from `itemId|expectedVersion|cycle`) - a caller that omits it
+   * gets today's unprotected behavior unchanged; a caller that sends it gets the same
+   * begin/complete protection renewItem already uses.
+   */
+  async createItem(ctx: RequestContext, input: CreateItemInput, idempotencyKey?: string): Promise<ExpirationItem> {
     authorize({ context: ctx, action: "item:create", resource: { tenantId: ctx.tenant.tenantId } });
+
+    const operation = "expiration.createItem";
+    let idempotencyState: { key: string } | undefined;
+
+    if (idempotencyKey) {
+      const key = idempotencyKey;
+      const requestHash = [
+        input.name,
+        input.category,
+        input.dueDate,
+        input.description ?? "",
+        input.issueDate ?? "",
+        input.periodicity ?? "",
+        input.issuer ?? "",
+        input.number ?? "",
+        input.assigneeUserId ?? "",
+        (input.tags ?? []).join(","),
+        input.priority ?? "",
+      ].join("|");
+      const expiresAt = new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString();
+
+      const result = await this.idempotency.begin({
+        tenantId: ctx.tenant.tenantId,
+        operation,
+        key,
+        requestHash,
+        expiresAt,
+      });
+
+      if (result === "COMPLETED_SAME_REQUEST") {
+        const record = await this.store.get({
+          PK: `TENANT#${ctx.tenant.tenantId}#IDEMPOTENCY#${operation}`,
+          SK: `KEY#${key}`,
+        });
+        const existingItemId = (record as { responseRef?: string } | undefined)?.responseRef;
+        if (!existingItemId) {
+          throw new ConflictError("Create idempotency record missing responseRef.", { idempotencyKey: key });
+        }
+        return this.getItem(ctx, existingItemId);
+      }
+
+      idempotencyState = { key };
+    }
 
     const itemId = this.ids.newItemId();
     const now = this.now();
@@ -111,6 +164,11 @@ export class ExpirationService {
     });
 
     await this.commit(entries);
+
+    if (idempotencyState) {
+      await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key: idempotencyState.key, responseRef: itemId });
+    }
+
     return item;
   }
 

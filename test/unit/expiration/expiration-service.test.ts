@@ -1,7 +1,8 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { InMemoryExpirationStore, makeExpirationIdGenerator } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
+import { ConcurrentOperationError } from "../../../src/shared/idempotency/idempotency.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
@@ -37,6 +38,60 @@ describe("ExpirationService", () => {
     const audits = store.allItems().filter((i) => i["entityType"] === "AuditEvent");
     expect(audits).toHaveLength(1);
     expect(audits[0]?.["action"]).toBe("CREATE");
+  });
+
+  it("createItem is idempotent (CREATE-IDEMPOTENCY-01): a retry with the same key and payload returns the same item instead of creating a second one", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    const first = await service.createItem(ctx(), input, "fixed-create-key");
+    const second = await service.createItem(ctx(), input, "fixed-create-key");
+
+    expect(second.itemId).toBe(first.itemId);
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1);
+  });
+
+  it("createItem without an idempotency key never dedupes (unprotected, backward-compatible default) - two calls with identical payload create two distinct items", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    const first = await service.createItem(ctx(), input);
+    const second = await service.createItem(ctx(), input);
+
+    expect(second.itemId).not.toBe(first.itemId);
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(2);
+  });
+
+  it("createItem: a different idempotency key creates a distinct item even with the same payload", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    const first = await service.createItem(ctx(), input, "key-a");
+    const second = await service.createItem(ctx(), input, "key-b");
+
+    expect(second.itemId).not.toBe(first.itemId);
+  });
+
+  it("createItem: reusing the same idempotency key with a different payload is rejected (ConcurrentOperationError), not silently accepted", async () => {
+    await service.createItem(ctx(), { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" }, "reused-key");
+
+    await expect(
+      service.createItem(ctx(), { name: "Contrato diferente", category: "Contrato", dueDate: "2026-10-01T00:00:00.000Z" }, "reused-key"),
+    ).rejects.toBeInstanceOf(ConcurrentOperationError);
+  });
+
+  it("createItem: the same idempotency key is isolated per tenant - two tenants using the same key each get their own item", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    const tenantA = await service.createItem(ctx({ tenant: { tenantId: "tenant-1", roles: ["OWNER"] } }), input, "shared-key");
+    const tenantB = await service.createItem(ctx({ tenant: { tenantId: "tenant-2", roles: ["OWNER"] } }), input, "shared-key");
+
+    expect(tenantB.itemId).not.toBe(tenantA.itemId);
+    expect(tenantB.tenantId).toBe("tenant-2");
+  });
+
+  it("createItem: KNOWN LIMITATION shared with renewItem (pre-existing, not introduced by this change) - if the process dies between commit() and idempotency.complete(), the record is stuck IN_PROGRESS forever and a legitimate retry gets ConcurrentOperationError instead of the reconciled item. Documented here so the behavior is explicit, not a silent duplicate: the item is still created exactly once, never twice.", async () => {
+    const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
+    vi.spyOn(store, "update").mockRejectedValueOnce(new Error("simulated crash before idempotency.complete()"));
+
+    await expect(service.createItem(ctx(), input, "crash-key")).rejects.toThrow("simulated crash");
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1); // the item WAS created - commit() already succeeded before the simulated crash
+
+    await expect(service.createItem(ctx(), input, "crash-key")).rejects.toBeInstanceOf(ConcurrentOperationError); // retry fails safe (no duplicate), it does not silently succeed nor duplicate
+    expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1); // still exactly one item - the original defect (duplicate creation) does not resurface
   });
 
   it("createItem denies a VIEWER role", async () => {
