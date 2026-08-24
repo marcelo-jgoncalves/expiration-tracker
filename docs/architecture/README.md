@@ -4,7 +4,7 @@
 Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
 Operational architecture: NOT APPROVED
 Current phase:           Implementação real (código/infra/testes) — Implementation Blueprint concluído
-Last verified:           2026-08-23 (M6/M9/M10/M11 deployados em `main`/`dev`; M7 design aprovado, implementação não iniciada; M12 bloqueado por decisão de produto (D-052); Full BFF — D-053/D-054 — design fechado, zero código; 3 documentos de planejamento de interface aprovados em `docs/frontend/`, 3 blockers técnicos de backend descobertos (BLOCKER-A/B/C, não resolvidos) — ver `NEXT_SESSION_PROMPT.md`)
+Last verified:           2026-08-24 (M6/M9/M10/M11 deployados em `main`/`dev`; M7 design aprovado, implementação não iniciada; M12 bloqueado por decisão de produto (D-052); Full BFF — D-053/D-054 — design fechado, zero código; planejamento de interface concluído — 7 de 8 etapas `APPROVED` em `docs/frontend/`, só falta User Validation; 3 blockers técnicos de backend descobertos (BLOCKER-A/B/C, não resolvidos) — ver `NEXT_SESSION_PROMPT.md`)
 ```
 
 Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a próxima ação concreta.
