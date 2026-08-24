@@ -64,16 +64,33 @@ resource "aws_cognito_user_pool_client" "web_client" {
   name         = "WebClient"
   user_pool_id = aws_cognito_user_pool.this.id
 
-  # authFlows: { userSrp: true }
-  explicit_auth_flows = ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  # authFlows: { userSrp: true } - D-054 (Full BFF hardening amendment) removed
+  # ALLOW_REFRESH_TOKEN_AUTH: it is mutually exclusive with refresh_token_rotation below (a
+  # client that can call /oauth2/token's refresh_token grant AND has native rotation enabled
+  # would let a caller bypass rotation via InitiateAuth directly) - the only supported way to
+  # refresh a token for this client is now the Hosted UI's /oauth2/token endpoint, which the
+  # BFF alone calls server-side (src/modules/bff/persistence/fetch-cognito-oidc-client.ts).
+  explicit_auth_flows = ["ALLOW_USER_SRP_AUTH"]
 
   # BFF session pattern (blueprint §4.2): client secret held server-side only, never in the
   # browser.
   generate_secret = true
 
+  # D-054: Cognito's own native refresh token rotation is the source of truth for replay
+  # safety, replacing the original design's local rotation counter (found fragile under
+  # normal SPA concurrency - two legitimate concurrent requests both needing to refresh could
+  # each observe a stale counter and incorrectly treat the other as a reuse attempt).
+  # retry_grace_period_seconds=30 gives the BFF's own short-lived lease
+  # (src/modules/bff/application/bff-auth-service.ts's refreshState/refreshLeaseId) a safety
+  # margin under Cognito's own reuse-detection window, never the other way around.
+  refresh_token_rotation {
+    feature                    = "ENABLED"
+    retry_grace_period_seconds = 30
+  }
+
   # Access/ID tokens short-lived per blueprint §4.2 (5-15 min target); refresh rotation +
-  # reuse detection is enforced by the BFF /session/refresh endpoint, not by Cognito's own
-  # (non-rotating) refresh token alone.
+  # reuse detection is now enforced natively by Cognito (refresh_token_rotation above), not a
+  # custom BFF-side mechanism.
   access_token_validity  = 15
   id_token_validity      = 15
   refresh_token_validity = 30
@@ -91,4 +108,12 @@ resource "aws_cognito_user_pool_client" "web_client" {
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
   supported_identity_providers         = ["COGNITO"]
   callback_urls                        = var.callback_urls
+}
+
+# Full BFF (D-053/D-054): the OAuth2 endpoints (/oauth2/authorize, /oauth2/token,
+# /oauth2/revoke) the BFF calls server-side are served by this domain, not by the User Pool
+# API directly - `allowed_oauth_flows = ["code"]` above is inert without one.
+resource "aws_cognito_user_pool_domain" "this" {
+  domain       = var.domain_prefix
+  user_pool_id = aws_cognito_user_pool.this.id
 }

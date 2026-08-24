@@ -95,7 +95,7 @@ export class BffAuthService {
       nonce,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
-      scope: "openid",
+      scope: "openid email", // matches infra/modules/cognito's allowed_oauth_scopes - "email" is what populates idClaims.email below
     });
 
     return { loginToken: issued.token, redirectUrl: `${this.deps.authorizeUrl}?${params.toString()}` };

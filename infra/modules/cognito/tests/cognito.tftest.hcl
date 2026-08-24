@@ -111,4 +111,22 @@ run "web_client_uses_srp_auth_and_generates_a_secret" {
     ])
     error_message = "Web client must request email, openid, and profile OAuth scopes"
   }
+
+  # D-054 (Full BFF hardening amendment): ALLOW_REFRESH_TOKEN_AUTH is mutually exclusive with
+  # native refresh_token_rotation - a client with both would let a caller bypass rotation via
+  # InitiateAuth directly instead of the Hosted UI's /oauth2/token endpoint.
+  assert {
+    condition     = !contains(aws_cognito_user_pool_client.web_client.explicit_auth_flows, "ALLOW_REFRESH_TOKEN_AUTH")
+    error_message = "Web client must NOT allow REFRESH_TOKEN_AUTH directly - refresh_token_rotation requires the Hosted UI /oauth2/token endpoint to be the only refresh path"
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_client.web_client.refresh_token_rotation[0].feature == "ENABLED"
+    error_message = "Native Cognito refresh token rotation must be ENABLED (D-054 - replaces the fragile local rotation counter)"
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_client.web_client.refresh_token_rotation[0].retry_grace_period_seconds == 30
+    error_message = "Refresh token rotation grace period must be 30s, under which the BFF's own short-lived refresh lease operates"
+  }
 }

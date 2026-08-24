@@ -134,13 +134,33 @@ variable "malware_protection_enabled" {
 }
 
 variable "cognito_callback_urls" {
-  description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module."
+  description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module. Overridden at the module.auth call site by local.bff_redirect_uri (derived from var.app_origin) so both stay consistent - this variable's own default is only ever hit if that override is removed."
   type        = list(string)
   default     = ["https://example.com/callback"]
 }
 
+variable "app_origin" {
+  description = "The CloudFront-fronted app origin (e.g. https://app.example.com) - same placeholder posture as api-gateway's cors_allow_origins pending a real frontend domain decision. Used to derive the OIDC redirect_uri (<app_origin>/bff/callback) and the BFF's APP_ORIGIN env var (post-login redirect target)."
+  type        = string
+  default     = "https://app.example.invalid"
+}
+
+variable "bff_cognito_domain_prefix" {
+  description = <<-EOT
+    Prefix for the Cognito Hosted UI domain (Full BFF, D-053/D-054) - must be globally
+    unique across every AWS Cognito user, not just this account/region. The default below is
+    a reasonable per-environment guess, not a guaranteed-available value; a real `apply` that
+    hits a collision fails with a clear, obvious Cognito error naming the conflicting domain,
+    which the operator resolves by picking a different prefix - same placeholder-until-
+    verified posture as ses_from_address/app_origin elsewhere in this environment's tfvars.
+  EOT
+  type        = string
+  default     = "exptrk-dev-bff"
+}
+
 locals {
-  project_name = "expiration-tracker"
+  bff_redirect_uri = "${var.app_origin}/bff/callback"
+  project_name     = "expiration-tracker"
   # Matches infra/bin/app.ts's stack id (ExpirationTrackerStack-Dev) in spirit, lowercased/
   # kebab-cased for Terraform resource naming (CDK/CloudFormation and Terraform/AWS resource
   # names follow different casing conventions; the stack's logical identity is what's
