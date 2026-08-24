@@ -19,7 +19,9 @@ module.exports = {
     node: true,
     es2022: true,
   },
-  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/"],
+  // prototype/ is plain browser JS (window/document/location globals), deliberately isolated
+  // from production code (see prototype/README.md) — it is not part of this Node/TS ruleset.
+  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/"],
   rules: {
     "no-console": "error",
     "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
