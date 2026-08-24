@@ -39,10 +39,20 @@ function toBffRequest(event: APIGatewayProxyEventV2): BffHttpRequest {
   return { method: event.requestContext.http.method, path: event.rawPath, queryStringParameters: query, headers, body };
 }
 
+// Every BFF response is JSON or a redirect, never HTML with embedded scripts - a maximally
+// restrictive CSP is correct here (unlike the SPA's own index.html, which needs to allow its
+// own bundle). API Gateway HTTP API is HTTPS-only already, so declaring HSTS is safe.
+const SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "strict-transport-security": "max-age=63072000; includeSubDomains",
+  "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+};
+
 function toApiGatewayResult(res: BffHttpResponse): APIGatewayProxyStructuredResultV2 {
   return {
     statusCode: res.statusCode,
-    headers: { "content-type": "application/json", "cache-control": "no-store", ...res.headers },
+    headers: { "content-type": "application/json", "cache-control": "no-store", ...SECURITY_HEADERS, ...res.headers },
     cookies: res.cookies,
     body: JSON.stringify(res.body ?? {}),
   };

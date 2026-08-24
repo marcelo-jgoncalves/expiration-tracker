@@ -79,6 +79,7 @@ export class BffAuthService {
       returnTo: safeReturnTo,
       purgeAfterTtl: epochSeconds(now) + LOGIN_ATTEMPT_TTL_SECONDS,
       createdAt: now,
+      version: 1,
     };
     const created = await this.deps.sessionStore.putIfAbsent(attempt);
     if (!created) {
@@ -117,10 +118,24 @@ export class BffAuthService {
     if (!opaqueTokenSecretMatches(this.deps.pepper, parsed.secret, attempt.secretHash)) {
       throw new AuthenticationError("Invalid login session.");
     }
+    // DynamoDB TTL deletion is best-effort and can lag well past the item's TTL timestamp
+    // (found in Round D re-verification) - a short-lived, single-use auth object like this
+    // must never rely on that alone to enforce its own window; check the timestamp directly.
+    if (epochSeconds(this.deps.now()) > attempt.purgeAfterTtl) {
+      throw new AuthenticationError("Login session expired.");
+    }
     // Single-use: consume immediately, before the Cognito round trip, so a duplicate/retried
     // callback (double-click, browser back button) can never replay the same code twice
-    // against a still-valid LoginAttempt.
-    await this.deps.sessionStore.update<LoginAttempt>({ ...attempt, consumedAt: this.deps.now() });
+    // against a still-valid LoginAttempt. Conditional on `version` (not a plain update) -
+    // two concurrent callbacks could otherwise both read consumedAt=undefined and both
+    // proceed before either write landed (found in review); only one wins this race.
+    const consumed = await this.deps.sessionStore.updateConditional<LoginAttempt>(
+      { ...attempt, consumedAt: this.deps.now(), version: attempt.version + 1 },
+      { version: attempt.version },
+    );
+    if (!consumed) {
+      throw new AuthenticationError("Login session not found or already used.");
+    }
 
     if (input.state !== attempt.state) {
       throw new AuthenticationError("State mismatch - possible CSRF on the OIDC callback itself.");
@@ -228,6 +243,15 @@ export class BffAuthService {
     if (now >= session.absoluteExpiresAt) {
       throw new AuthenticationError("Session expired (absolute lifetime).");
     }
+    // Idle timeout (`purgeAfterTtl`) checked explicitly too, same reasoning as the
+    // LoginAttempt TTL fix above (found in Round D re-verification): DynamoDB's own TTL
+    // deletion is best-effort and can lag well past this timestamp, so an idle-expired
+    // session that is still physically present must never be resolved as authenticated -
+    // this method's own doc comment already promised that, this closes the gap between the
+    // promise and the code.
+    if (this.isPastIdleTimeout(session)) {
+      throw new AuthenticationError("Session expired (idle timeout).");
+    }
 
     if (now >= session.accessTokenExpiresAt) {
       const outcome = await this.refresh(session);
@@ -239,29 +263,67 @@ export class BffAuthService {
       }
       if (outcome.kind === "UNKNOWN_OUTCOME") {
         // Mirrors this codebase's other UNKNOWN_OUTCOME handling (import/renew): never
-        // silently treated as failure, but the caller gets a retryable signal rather than a
-        // token that might not actually be fresh.
-        throw new DependencyUnavailableError("Refresh outcome unknown - retry the request.");
+        // silently treated as a definitive failure, but also never marked retryable - Cognito
+        // may have already rotated the refresh token, so a blind automatic retry could race
+        // an already-consumed credential. `retryable: false` here matches the frontend's own
+        // ApiError.unknownOutcome() convention (frontend/src/api/errors.ts).
+        throw new DependencyUnavailableError("Refresh outcome unknown - do not retry automatically.", undefined, undefined, false);
       }
       if (outcome.kind === "CONCURRENT_REFRESH") {
         // Another request is refreshing right now; briefly back off and re-read rather than
         // racing a second call to Cognito for the same session.
         await sleep(75);
         const reread = await this.deps.sessionStore.get<Session>(sessionKey(selectorHash));
-        if (!reread) throw new AuthenticationError("Session not found.");
+        // Checks revokedAt again, not just existence (found in Round D re-verification): a
+        // concurrent logout landing during this backoff window would otherwise let an
+        // already-revoked session be returned as authenticated - it never resurrects the
+        // DB record itself, but it would let a request cross the BFF's auth boundary right
+        // after the user logged out.
+        if (!reread || reread.revokedAt) throw new AuthenticationError("Session not found.");
+        // Also re-checks absolute AND idle expiry against a fresh `now` (the initial checks
+        // above used the `now` from before this backoff/refresh round trip) - narrow window,
+        // but free to close.
+        if (this.deps.now() >= reread.absoluteExpiresAt) throw new AuthenticationError("Session expired (absolute lifetime).");
+        if (this.isPastIdleTimeout(reread)) throw new AuthenticationError("Session expired (idle timeout).");
         session = reread;
       } else if (outcome.kind === "SUCCESS") {
         const refreshed = await this.deps.sessionStore.get<Session>(sessionKey(selectorHash));
-        if (!refreshed) throw new AuthenticationError("Session not found.");
+        if (!refreshed || refreshed.revokedAt) throw new AuthenticationError("Session not found.");
+        if (this.deps.now() >= refreshed.absoluteExpiresAt) throw new AuthenticationError("Session expired (absolute lifetime).");
+        if (this.isPastIdleTimeout(refreshed)) throw new AuthenticationError("Session expired (idle timeout).");
         session = refreshed;
       }
     }
 
     // Bumps idle TTL on every successful resolution, capped at the absolute expiry - activity
-    // extends idle timeout, never the absolute session lifetime (D-054).
+    // extends idle timeout, never the absolute session lifetime (D-054). Conditional on
+    // `version` (not a plain update) - the same residual variant of the Item 11 bug found in
+    // review: an unconditional write here using this function's own (possibly slightly stale)
+    // `session` snapshot could silently overwrite a `revokedAt` a concurrent logout had just
+    // written, resurrecting a session the user explicitly logged out of.
     const nextPurge = Math.min(epochSeconds(now) + SESSION_IDLE_TTL_SECONDS, epochSeconds(session.absoluteExpiresAt));
     if (nextPurge !== session.purgeAfterTtl) {
-      await this.deps.sessionStore.update<Session>({ ...session, purgeAfterTtl: nextPurge });
+      const bumped = await this.deps.sessionStore.updateConditional<Session>(
+        { ...session, purgeAfterTtl: nextPurge, updatedAt: now, version: session.version + 1 },
+        { version: session.version },
+      );
+      if (!bumped) {
+        // Something else modified this session concurrently - re-read rather than returning
+        // a snapshot that might now be stale or revoked. If someone else's write superseded
+        // ours for an unrelated benign reason (e.g. another resolveSession call's own idle
+        // bump), that's fine; only a genuine revocation should fail this call.
+        const current = await this.deps.sessionStore.get<Session>(sessionKey(selectorHash));
+        if (!current || current.revokedAt) {
+          throw new AuthenticationError("Session revoked concurrently.");
+        }
+        if (this.deps.now() >= current.absoluteExpiresAt) {
+          throw new AuthenticationError("Session expired (absolute lifetime).");
+        }
+        if (this.isPastIdleTimeout(current)) {
+          throw new AuthenticationError("Session expired (idle timeout).");
+        }
+        return current;
+      }
     }
     return session;
   }
@@ -319,18 +381,55 @@ export class BffAuthService {
 
     const { response } = cognitoOutcome;
     const refreshedAt = this.deps.now();
-    await this.deps.sessionStore.update<Session>({
-      ...session,
-      accessToken: response.accessToken,
-      accessTokenExpiresAt: new Date(Date.parse(refreshedAt) + response.expiresInSeconds * 1000).toISOString(),
-      encryptedRefreshToken: await this.deps.tokenEncryptor.encrypt(response.refreshToken),
-      refreshState: "IDLE",
-      refreshLeaseId: undefined,
-      refreshLeaseUntil: undefined,
-      updatedAt: refreshedAt,
-      version: session.version + 2,
-    });
+    // Conditional on the lease's own version (session.version + 1, set when the lease was
+    // acquired above) - a plain unconditional overwrite here (the bug found in review) could
+    // silently resurrect a session that was revoked (e.g. a concurrent logout) between lease
+    // acquisition and this commit, since it would blindly spread the pre-lease `session`
+    // snapshot back over whatever the revocation had written.
+    const committed = await this.deps.sessionStore.updateConditional<Session>(
+      {
+        ...session,
+        accessToken: response.accessToken,
+        accessTokenExpiresAt: new Date(Date.parse(refreshedAt) + response.expiresInSeconds * 1000).toISOString(),
+        encryptedRefreshToken: await this.deps.tokenEncryptor.encrypt(response.refreshToken),
+        refreshState: "IDLE",
+        refreshLeaseId: undefined,
+        refreshLeaseUntil: undefined,
+        updatedAt: refreshedAt,
+        version: session.version + 2,
+      },
+      { version: session.version + 1 },
+    );
+    if (!committed) {
+      // Something else modified the session between lease acquisition and this commit. Cognito
+      // already rotated the refresh token at this point - re-read to find out what actually
+      // happened rather than guessing.
+      const current = await this.deps.sessionStore.get<Session>(sessionKey(session.selectorHash));
+      if (!current || current.revokedAt) {
+        return { kind: "DEFINITIVE_AUTH_FAILURE", reason: "session_revoked_during_refresh" };
+      }
+      return { kind: "UNKNOWN_OUTCOME" };
+    }
     return { kind: "SUCCESS", accessToken: response.accessToken, accessTokenExpiresAt: refreshedAt, encryptedRefreshToken: session.encryptedRefreshToken };
+  }
+
+  /** Existence is checked by the caller (via a truthy `session`) before this runs - this only
+   * covers the three remaining validity properties every use of a Session must check: not
+   * revoked, not past its absolute lifetime, not past its idle timeout. Token-secret
+   * verification is a fourth, separate concern callers must do themselves (not every caller
+   * has parsed a token to check against - resolveSession()'s internal re-reads, for instance,
+   * already know they hold a token-matched selectorHash from the top of the call). */
+  private sessionIsCurrentlyValid(session: Session): boolean {
+    return !session.revokedAt && this.deps.now() < session.absoluteExpiresAt && !this.isPastIdleTimeout(session);
+  }
+
+  /** `purgeAfterTtl` (the idle timeout) is a DynamoDB TTL attribute - TTL deletion there is
+   * best-effort and can lag well past this timestamp (AWS's own documented behavior), so it
+   * must never be the only enforcement of the idle window. Same reasoning as LoginAttempt's
+   * `purgeAfterTtl` check in handleCallback() (found in Round D re-verification, then found to
+   * be missing here too on the very next pass). */
+  private isPastIdleTimeout(session: Session): boolean {
+    return epochSeconds(this.deps.now()) >= session.purgeAfterTtl;
   }
 
   private async releaseLease(session: Session, leaseId: string, now: string): Promise<void> {
@@ -350,9 +449,25 @@ export class BffAuthService {
     if (!parsed) return;
     const session = await this.deps.sessionStore.get<Session>(sessionKey(hmacTokenCrypto.hash(this.deps.pepper, parsed.selector)));
     if (!session || session.entityType !== "Session") return;
+    // Verifies the secret half of the token too, same as resolveSession() (found in Round D
+    // re-verification: without this, knowing only a session's selector - e.g. leaked via a
+    // log line or timing side-channel, never meant to be treated as sufficient on its own -
+    // was enough to force-revoke or globally log out an account this cookie never proved
+    // possession of).
+    if (!opaqueTokenSecretMatches(this.deps.pepper, parsed.secret, session.secretHash)) return;
+    // An already-revoked or already-expired session must never be treated as valid enough to
+    // authorize anything, even a no-op-shaped re-revocation (found in Round D re-verification,
+    // applied symmetrically to logout() even though its own blast radius is smaller than
+    // logoutAll()'s - consistency, not just this one call site).
+    if (!this.sessionIsCurrentlyValid(session)) return;
 
     const now = this.deps.now();
-    await this.deps.sessionStore.update<Session>({ ...session, revokedAt: now, updatedAt: now });
+    // Bumps version even though this write itself is unconditional (revocation always wins,
+    // no concurrent-writer safety issue at logout itself) - a later conditional writer
+    // elsewhere (refresh()'s final commit) depends on `version` actually changing on every
+    // Session mutation to detect that the row moved out from under it (found in review: a
+    // concurrent logout mid-refresh could otherwise be silently overwritten back to "alive").
+    await this.deps.sessionStore.update<Session>({ ...session, revokedAt: now, updatedAt: now, version: session.version + 1 });
     await this.deps.users.logoutDevice(session.tenantId, session.userId, session.deviceId);
 
     try {
@@ -373,6 +488,13 @@ export class BffAuthService {
     if (!parsed) return;
     const session = await this.deps.sessionStore.get<Session>(sessionKey(hmacTokenCrypto.hash(this.deps.pepper, parsed.selector)));
     if (!session || session.entityType !== "Session") return;
+    // Same secret verification as logout() - a selector alone must never be sufficient to
+    // trigger a global logout of someone else's account.
+    if (!opaqueTokenSecretMatches(this.deps.pepper, parsed.secret, session.secretHash)) return;
+    // An already-revoked or already-expired session must never authorize a cross-device
+    // action (found in Round D re-verification: this is exactly the blast-radius case Codex
+    // called out - a stale cookie forcing every OTHER active session/device to log out).
+    if (!this.sessionIsCurrentlyValid(session)) return;
 
     await this.deps.users.logoutAll(session.tenantId, session.userId);
     await this.logout(sessionCookie);

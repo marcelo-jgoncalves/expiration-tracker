@@ -16,6 +16,10 @@ export class FakeCognitoOidcClient implements CognitoOidcClient {
   revokeCalls: { refreshToken: string }[] = [];
   nextRefreshOutcome: CognitoRefreshOutcome = { kind: "SUCCESS", response: { accessToken: fakeAccessToken({ jti: "jti-2" }), idToken: "id-2", refreshToken: "refresh-2", expiresInSeconds: 900 } };
   refreshShouldThrow = false;
+  /** Test-only seam: runs right before refreshAccessToken returns, simulating a concurrent
+   * mutation (e.g. a logout) that lands while the BFF is mid-flight talking to Cognito - the
+   * exact window the refresh lease's final commit needs to stay safe across. */
+  onBeforeRefreshReturns?: () => Promise<void> | void;
 
   async exchangeAuthorizationCode(input: { code: string; codeVerifier: string; redirectUri: string }): Promise<CognitoTokenResponse> {
     this.exchangeCalls.push(input);
@@ -25,6 +29,7 @@ export class FakeCognitoOidcClient implements CognitoOidcClient {
   async refreshAccessToken(input: { refreshToken: string }): Promise<CognitoRefreshOutcome> {
     this.refreshCalls.push(input);
     if (this.refreshShouldThrow) throw new Error("simulated network failure");
+    await this.onBeforeRefreshReturns?.();
     return this.nextRefreshOutcome;
   }
 

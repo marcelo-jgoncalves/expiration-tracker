@@ -68,6 +68,10 @@ export interface LoginAttempt {
   purgeAfterTtl: number;
   consumedAt?: string;
   createdAt: string;
+  /** Guards single-use consumption via SessionStore.updateConditional - without this, two
+   * concurrent callbacks (double-click, browser back+resubmit) racing on the same LoginAttempt
+   * could both read it as not-yet-consumed before either write lands (found in review). */
+  version: number;
 }
 
 export function loginAttemptKey(selectorHash: string): { PK: string; SK: "POINTER" } {

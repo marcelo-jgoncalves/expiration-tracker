@@ -3,7 +3,7 @@
  * JWT authorizer runs before them (unlike src/modules/expiration/http/item-handlers.ts),
  * so every handler here is responsible for its own cookie/CSRF verification.
  */
-import { AppError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AppError, AuthenticationError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { BffAuthService } from "../application/bff-auth-service.js";
 import { ProxyService } from "../application/proxy-service.js";
 import { checkCsrf } from "../domain/csrf.js";
@@ -92,30 +92,46 @@ export async function handleGetSession(deps: BffHttpDeps, req: BffHttpRequest): 
   try {
     const session = await deps.auth.resolveSession(cookiesOf(req)[SESSION_COOKIE_NAME]);
     return { statusCode: 200, body: { authenticated: true, tenantId: session.tenantId, userId: session.userId } };
-  } catch {
-    // Never leak WHY resolution failed to the browser (expired vs. revoked vs. malformed all
-    // look identical from here) - the frontend only needs to know "not authenticated".
-    return { statusCode: 200, body: { authenticated: false } };
+  } catch (err) {
+    if (err instanceof AuthenticationError) {
+      // Definitive: no session, or one that is genuinely gone (expired/revoked/malformed) -
+      // never leak WHICH of those to the browser, they all look identical from here.
+      return { statusCode: 200, body: { authenticated: false } };
+    }
+    // Anything else (e.g. a DependencyUnavailableError from a transient/unknown refresh
+    // outcome) means resolution genuinely could not be completed - collapsing this into
+    // "authenticated: false" would tell the frontend a stronger claim than we can support
+    // (AuthContext's SESSION_MISSING vs. REFRESH_FAILED distinction exists precisely so this
+    // case surfaces as "we don't know", not "definitely logged out" - found in review).
+    return toErrorResponse(err);
   }
 }
 
 async function checkCsrfForSession(deps: BffHttpDeps, req: BffHttpRequest, sessionCookie: string | undefined): Promise<boolean> {
   const cookies = cookiesOf(req);
+  let session;
   try {
-    const session = await deps.auth.resolveSession(sessionCookie);
-    return checkCsrf({
-      method: req.method,
-      secFetchSite: req.headers["sec-fetch-site"],
-      headerToken: req.headers["x-csrf-token"],
-      cookieToken: cookies[CSRF_COOKIE_NAME],
-      sessionCsrfSecret: session.csrfSecret,
-    });
-  } catch {
-    // No resolvable session at all - nothing to protect against forging, logout of a
-    // nonexistent/expired session is a harmless no-op either way (see logout()'s own
-    // early-return on a missing/invalid cookie).
-    return true;
+    session = await deps.auth.resolveSession(sessionCookie);
+  } catch (err) {
+    if (err instanceof AuthenticationError) {
+      // No resolvable session at all (missing/malformed/expired/revoked) - nothing to
+      // protect against forging, logout of a nonexistent session is a harmless no-op either
+      // way (see logout()'s own early-return on a missing/invalid cookie).
+      return true;
+    }
+    // Any other failure (e.g. a transient dependency issue while resolving) means we cannot
+    // rule out that a real, valid session exists to protect - fail closed rather than assume
+    // there is nothing there (found in review: the previous blanket catch treated every
+    // failure the same as "definitely no session").
+    return false;
   }
+  return checkCsrf({
+    method: req.method,
+    secFetchSite: req.headers["sec-fetch-site"],
+    headerToken: req.headers["x-csrf-token"],
+    cookieToken: cookies[CSRF_COOKIE_NAME],
+    sessionCsrfSecret: session.csrfSecret,
+  });
 }
 
 export async function handleLogout(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {

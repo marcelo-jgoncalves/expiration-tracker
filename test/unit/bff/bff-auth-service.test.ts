@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-service.js";
-import { InMemorySessionStore } from "./in-memory-session-store.js";
+import { InMemorySessionStore, HookableSessionStore } from "./in-memory-session-store.js";
 import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor, fakeAccessToken } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
@@ -145,6 +145,35 @@ describe("BffAuthService.handleCallback", () => {
     await expect(ctx.service.handleCallback({ loginCookie: started.loginToken, code: "c", state })).rejects.toBeInstanceOf(AuthenticationError);
   });
 
+  it("two concurrent callbacks racing on the SAME LoginAttempt: exactly one succeeds, the other is rejected - never both (found in review: consumption used to be get-then-plain-update, not conditional)", async () => {
+    const ctx = buildService();
+    const started = await ctx.service.startLogin("/");
+    const url = new URL(started.redirectUrl);
+    const state = url.searchParams.get("state")!;
+
+    const results = await Promise.allSettled([
+      ctx.service.handleCallback({ loginCookie: started.loginToken, code: "c", state }),
+      ctx.service.handleCallback({ loginCookie: started.loginToken, code: "c", state }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(AuthenticationError);
+  });
+
+  it("rejects a LoginAttempt past its own TTL timestamp even if the record is still physically present (found in Round D re-verification: DynamoDB TTL deletion is best-effort/eventually-consistent, never a substitute for an explicit server-side check on a short-lived single-use auth object)", async () => {
+    const ctx = buildService();
+    const started = await ctx.service.startLogin("/");
+    const url = new URL(started.redirectUrl);
+    const state = url.searchParams.get("state")!;
+
+    ctx.setClock("2026-08-24T12:11:00.000Z"); // LOGIN_ATTEMPT_TTL_SECONDS is 10 minutes
+
+    await expect(ctx.service.handleCallback({ loginCookie: started.loginToken, code: "c", state })).rejects.toBeInstanceOf(AuthenticationError);
+  });
+
   it("rejects when ID token verification fails (bad signature/issuer/audience/nonce)", async () => {
     const ctx = buildService();
     ctx.idTokenVerifier.shouldThrow = true;
@@ -199,6 +228,25 @@ describe("BffAuthService.resolveSession", () => {
     await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
   });
 
+  it("rejects a session past its idle timeout even though the record is still physically present (found in Round D re-verification, 5th pass: DynamoDB TTL deletion is best-effort, same class of bug as LoginAttempt's purgeAfterTtl)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    ctx.setClock("2026-09-01T12:00:00.000Z"); // 8 days later - past the 7-day idle timeout, well within the 30-day absolute lifetime
+    await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
+  });
+
+  it("logoutAll with the CORRECT token but an idle-expired session never triggers a global logout", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    ctx.setClock("2026-09-01T12:00:00.000Z"); // 8 days later - past the 7-day idle timeout
+
+    await ctx.service.logoutAll(result.sessionToken);
+
+    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
+    expect(profile?.globalLogoutAfter).toBeFalsy();
+  });
+
   it("rejects a revoked session", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
@@ -239,17 +287,148 @@ describe("BffAuthService.resolveSession", () => {
     expect(session).toBeDefined();
   });
 
-  it("UNKNOWN_OUTCOME on refresh (response lost after Cognito rotated) surfaces as a retryable error, never silently treated as failure", async () => {
+  it("UNKNOWN_OUTCOME on refresh (response lost after Cognito rotated) surfaces as a NON-retryable error, never silently treated as failure and never blindly retried automatically (found in review: this used to be marked retryable=true, same as a plain transient failure)", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
     ctx.cognitoClient.nextRefreshOutcome = { kind: "UNKNOWN_OUTCOME" };
     ctx.setClock("2026-08-24T12:20:00.000Z");
-    await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(DependencyUnavailableError);
+    const error = await ctx.service.resolveSession(result.sessionToken).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DependencyUnavailableError);
+    expect((error as InstanceType<typeof DependencyUnavailableError>).retryable).toBe(false);
 
     // The session must still be resolvable afterward (UNKNOWN_OUTCOME never revokes).
     ctx.cognitoClient.nextRefreshOutcome = { kind: "SUCCESS", response: { accessToken: "a2", idToken: "i2", refreshToken: "r2", expiresInSeconds: 900 } };
     const session = await ctx.service.resolveSession(result.sessionToken);
     expect(session.accessToken).toBe("a2");
+  });
+
+  it("a session revoked (e.g. concurrent logout) WHILE a refresh is in flight is never resurrected by that refresh's final commit (found in review: the commit used to be an unconditional overwrite)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    ctx.setClock("2026-08-24T12:20:00.000Z"); // access token expired, triggers a refresh attempt
+    ctx.cognitoClient.onBeforeRefreshReturns = async () => {
+      // Simulate a concurrent logout landing exactly between Cognito's response and this
+      // refresh's own final commit to the session store.
+      await ctx.service.logout(result.sessionToken);
+    };
+    const error = await ctx.service.resolveSession(result.sessionToken).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AuthenticationError);
+    // The session must stay revoked - never come back to life because a stale refresh
+    // finished after the logout.
+    await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
+  });
+
+  it("a session revoked (e.g. concurrent logout) between resolveSession's initial read and its own idle-TTL bump write is never resurrected by that bump - same residual bug class found by Codex's Round D re-verification, outside the refresh path entirely", async () => {
+    const rawStore = new InMemorySessionStore();
+    const identityStore = new InMemoryIdentityStore();
+    const identityMappings = new IdentityMappingRepository(identityStore);
+    const users = new UserRepository(identityStore);
+    const cognitoClient = new FakeCognitoOidcClient();
+    const idTokenVerifier = new FakeIdTokenVerifier();
+    const tokenEncryptor = new FakeTokenEncryptor();
+    let userCounter = 0;
+    let deviceCounter = 0;
+    let clock = "2026-08-24T12:00:00.000Z";
+    const now = () => clock;
+
+    // Build a throwaway service (same store) only to perform the login and the concurrent
+    // logout - the service under test below shares the same underlying data via the hookable
+    // wrapper, so writes from either are visible to both.
+    const setupService = new BffAuthService({
+      sessionStore: rawStore,
+      cognitoClient,
+      idTokenVerifier,
+      tokenEncryptor,
+      identityMappings,
+      users,
+      pepper: "test-pepper",
+      redirectUri: "https://app.example.com/bff/callback",
+      authorizeUrl: "https://auth.example.com/oauth2/authorize",
+      clientId: "client-1",
+      now,
+      newUserId: () => `user-${++userCounter}`,
+      newDeviceId: () => `device-${++deviceCounter}`,
+    });
+    const started = await setupService.startLogin("/");
+    const state = new URL(started.redirectUrl).searchParams.get("state")!;
+    const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
+
+    // 5 minutes later: access token (900s TTL) is still valid, but enough idle time passed
+    // that resolveSession's idle-TTL bump will actually attempt a write.
+    clock = "2026-08-24T12:05:00.000Z";
+
+    const hookableStore = new HookableSessionStore(rawStore, async () => {
+      await setupService.logout(sessionToken);
+    });
+    const serviceUnderTest = new BffAuthService({
+      sessionStore: hookableStore,
+      cognitoClient,
+      idTokenVerifier,
+      tokenEncryptor,
+      identityMappings,
+      users,
+      pepper: "test-pepper",
+      redirectUri: "https://app.example.com/bff/callback",
+      authorizeUrl: "https://auth.example.com/oauth2/authorize",
+      clientId: "client-1",
+      now,
+      newUserId: () => `user-${++userCounter}`,
+      newDeviceId: () => `device-${++deviceCounter}`,
+    });
+
+    // The concurrent logout fires right after resolveSession's own initial read - before it
+    // reaches the idle-TTL bump write.
+    const error = await serviceUnderTest.resolveSession(sessionToken).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AuthenticationError);
+    await expect(setupService.resolveSession(sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
+  });
+
+  it("a session revoked (concurrent logout) exactly between refresh()'s successful commit and resolveSession's own subsequent re-read is never returned as authenticated (found in Round D re-verification: the re-read only checked existence, not revokedAt)", async () => {
+    const rawStore = new InMemorySessionStore();
+    const identityStore = new InMemoryIdentityStore();
+    const identityMappings = new IdentityMappingRepository(identityStore);
+    const users = new UserRepository(identityStore);
+    const cognitoClient = new FakeCognitoOidcClient();
+    const idTokenVerifier = new FakeIdTokenVerifier();
+    const tokenEncryptor = new FakeTokenEncryptor();
+    let userCounter = 0;
+    let deviceCounter = 0;
+    let clock = "2026-08-24T12:00:00.000Z";
+    const now = () => clock;
+    const depsBase = {
+      cognitoClient,
+      idTokenVerifier,
+      tokenEncryptor,
+      identityMappings,
+      users,
+      pepper: "test-pepper",
+      redirectUri: "https://app.example.com/bff/callback",
+      authorizeUrl: "https://auth.example.com/oauth2/authorize",
+      clientId: "client-1",
+      now,
+      newUserId: () => `user-${++userCounter}`,
+      newDeviceId: () => `device-${++deviceCounter}`,
+    };
+
+    const setupService = new BffAuthService({ ...depsBase, sessionStore: rawStore });
+    const started = await setupService.startLogin("/");
+    const state = new URL(started.redirectUrl).searchParams.get("state")!;
+    const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
+
+    clock = "2026-08-24T12:20:00.000Z"; // access token (900s TTL) is now expired - triggers a refresh
+
+    let loggedOut = false;
+    const hookableStore = new HookableSessionStore(rawStore, undefined, async (item) => {
+      const refreshState = (item as unknown as { refreshState?: string }).refreshState;
+      if (!loggedOut && refreshState === "IDLE") {
+        loggedOut = true;
+        await setupService.logout(sessionToken);
+      }
+    });
+    const serviceUnderTest = new BffAuthService({ ...depsBase, sessionStore: hookableStore });
+
+    const error = await serviceUnderTest.resolveSession(sessionToken).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AuthenticationError);
   });
 
   it("a concurrent refresh (lease already held) backs off and re-reads instead of racing a second Cognito call", async () => {
@@ -294,6 +473,58 @@ describe("BffAuthService.logout / logoutAll", () => {
     const ctx = buildService();
     await expect(ctx.service.logout(undefined)).resolves.toBeUndefined();
     await expect(ctx.service.logout("a".repeat(32) + "." + "b".repeat(64))).resolves.toBeUndefined();
+  });
+
+  it("logout with the correct selector but a WRONG secret never revokes the real session - a selector alone must never be sufficient to force-logout someone else's account (found in Round D re-verification)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const [selector] = result.sessionToken.split(".");
+    const forged = `${selector}.${"f".repeat(64)}`; // real selector, made-up secret
+
+    await ctx.service.logout(forged);
+
+    // The real session must be completely unaffected.
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    expect(session).toBeDefined();
+    expect(ctx.cognitoClient.revokeCalls).toHaveLength(0);
+  });
+
+  it("logoutAll with the correct selector but a WRONG secret never triggers a global logout of someone else's account (found in Round D re-verification)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const [selector] = result.sessionToken.split(".");
+    const forged = `${selector}.${"f".repeat(64)}`;
+
+    await ctx.service.logoutAll(forged);
+
+    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
+    expect(profile?.globalLogoutAfter).toBeFalsy();
+    await expect(ctx.service.resolveSession(result.sessionToken)).resolves.toBeDefined();
+  });
+
+  it("logoutAll with the CORRECT token but an already-expired session never triggers a global logout - a stale cookie must never authorize a cross-device action (found in Round D re-verification)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    ctx.setClock("2026-10-24T12:00:00.000Z"); // 30+ days later - past absoluteExpiresAt
+
+    await ctx.service.logoutAll(result.sessionToken);
+
+    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
+    expect(profile?.globalLogoutAfter).toBeFalsy();
+  });
+
+  it("logoutAll with the CORRECT token but an already-revoked session never triggers a global logout", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    await ctx.service.logout(result.sessionToken); // revokes it first
+
+    await ctx.service.logoutAll(result.sessionToken);
+
+    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
+    expect(profile?.globalLogoutAfter).toBeFalsy();
   });
 
   it("logoutAll revokes the current session AND sets the global logout watermark used by every Bearer-authenticated request", async () => {

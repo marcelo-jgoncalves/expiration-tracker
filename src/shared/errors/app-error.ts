@@ -106,10 +106,14 @@ export class QuotaExceededError extends AppError {
   }
 }
 
-/** Downstream/provider failure that IS worth retrying (throttling, timeout, 5xx). */
+/** Downstream/provider failure - `retryable` defaults to true (throttling, timeout, 5xx are
+ * worth retrying), but pass `false` for a genuinely ambiguous outcome (e.g. the BFF's own
+ * UNKNOWN_OUTCOME refresh result, src/modules/bff/application/bff-auth-service.ts) where a
+ * blind retry could race an already-rotated credential rather than just re-hit a flaky
+ * dependency. */
 export class DependencyUnavailableError extends AppError {
-  constructor(message: string, details?: Record<string, unknown>, cause?: unknown) {
-    super({ code: "DEPENDENCY_UNAVAILABLE", category: "DEPENDENCY_UNAVAILABLE", message, retryable: true, details, cause });
+  constructor(message: string, details?: Record<string, unknown>, cause?: unknown, retryable = true) {
+    super({ code: "DEPENDENCY_UNAVAILABLE", category: "DEPENDENCY_UNAVAILABLE", message, retryable, details, cause });
     this.name = "DependencyUnavailableError";
   }
 }
