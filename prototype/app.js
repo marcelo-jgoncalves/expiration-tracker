@@ -209,29 +209,62 @@
     return out;
   }
 
+  // Actions/forms that resolve via setTimeout (a real async gap exists between the click/submit
+  // and the eventual render()) — reproduced during evaluation: two rapid clicks on "Criar
+  // vencimento" before the 500ms timeout resolved created two separate items (H5 Error
+  // Prevention / §43 accidental-duplicate-prevention finding). Synchronous handlers (archive,
+  // delete, link, etc.) mutate + re-render/navigate within the same tick, so a second click
+  // physically can't land on the same button — no guard needed there.
+  var ASYNC_MUTATING_ACTIONS = { submitUpload: 1, guestSubmit: 1, startImport: 1, commitImport: 1 };
+  var ASYNC_MUTATING_FORMS = { submitCreate: 1, submitRenew: 1, submitAlert: 1 };
+
+  // Event delegation, bound exactly ONCE at boot (see bindDelegatedListeners below) — never
+  // per-render. This replaces an earlier per-render qsa(...).forEach(addEventListener) pattern
+  // that re-bound a NEW listener on every persistent element each time a partial update (a
+  // confirm dialog, an OCC conflict message, an UNKNOWN_OUTCOME message) called afterRender()
+  // without replacing #app's innerHTML. Verified during evaluation (headless instrumentation of
+  // addEventListener): 3 rounds of opening/cancelling the Archive confirm on the same Detail
+  // visit grew the "Excluir" button to 8 accumulated click listeners (compounding, since
+  // "Arquivar" itself was also re-bound each round and so re-fired its own handler multiple times
+  // per click) — a real, escalating duplicate-invocation bug, not just a single-race condition.
+  // #app itself is never replaced (only its .innerHTML is), so binding once here is permanent and
+  // correct for the life of the page, and automatically covers any element rendered later.
+  function bindDelegatedListeners(app) {
+    app.addEventListener('click', function (ev) {
+      var el = ev.target.closest('[data-action]');
+      if (!el || !app.contains(el)) return;
+      ev.preventDefault();
+      if (el.disabled) return;
+      var action = el.getAttribute('data-action');
+      var handler = actions[action];
+      if (!handler) return;
+      if (ASYNC_MUTATING_ACTIONS[action] && el.tagName === 'BUTTON') el.disabled = true;
+      handler(el);
+    });
+    app.addEventListener('submit', function (ev) {
+      var form = ev.target.closest('form[data-form]');
+      if (!form || !app.contains(form)) return;
+      ev.preventDefault();
+      var name = form.getAttribute('data-form');
+      var submitBtn = form.querySelector('button[type=submit]');
+      if (submitBtn && submitBtn.disabled) return;
+      var handler = actions[name];
+      if (!handler) return;
+      if (ASYNC_MUTATING_FORMS[name] && submitBtn) submitBtn.disabled = true;
+      handler(form);
+    });
+    app.addEventListener('change', function (ev) {
+      var el = ev.target.closest('[data-onchange]');
+      if (!el || !app.contains(el)) return;
+      var handler = actions[el.getAttribute('data-onchange')];
+      if (handler) handler(el);
+    });
+  }
+
+  // Full-render-only concern now (focus management) — listener binding moved to
+  // bindDelegatedListeners() above, called once at boot, never per-render.
   function afterRender(app) {
     app.focus();
-    qsa('[data-action]', app).forEach(function (el) {
-      el.addEventListener('click', function (ev) {
-        ev.preventDefault();
-        var action = el.getAttribute('data-action');
-        var handler = actions[action];
-        if (handler) handler(el);
-      });
-    });
-    qsa('form[data-form]', app).forEach(function (form) {
-      form.addEventListener('submit', function (ev) {
-        ev.preventDefault();
-        var handler = actions[form.getAttribute('data-form')];
-        if (handler) handler(form);
-      });
-    });
-    qsa('[data-onchange]', app).forEach(function (el) {
-      el.addEventListener('change', function () {
-        var handler = actions[el.getAttribute('data-onchange')];
-        if (handler) handler(el);
-      });
-    });
   }
 
   // ---- fresh-entry side effects (this is what makes re-entry honest, §37) ----
@@ -254,6 +287,11 @@
       '<div class="actions"><a class="btn" href="#/overview">Voltar à Overview</a></div>', {});
   }
 
+  actions.skipToContent = function () {
+    var target = document.getElementById('surface-content');
+    if (target) target.focus();
+  };
+
   // ---------------------------------------------------------------------
   // shell / structural chrome shared by all authenticated surfaces
   // ---------------------------------------------------------------------
@@ -275,8 +313,15 @@
     opts = opts || {};
     var nav = opts.guest || opts.noNav ? '' : structuralNav(opts.navKey);
     var cls = 'surface' + (opts.guest ? ' guest-shell' : '');
-    return nav +
-      '<section class="' + cls + '">' +
+    // Skip link (WCAG 2.4.1 Bypass Blocks, heuristic finding HE-001/A11Y-001, evaluation round):
+    // the structural nav repeats on every authenticated surface and precedes the main content in
+    // both tab order and reading order — this lets keyboard/AT users jump past it in one press.
+    // Uses data-action, not a real #fragment href: this app routes on location.hash itself, so a
+    // literal href="#surface-content" would be swallowed by the router as an unknown route instead
+    // of jumping focus — caught during this evaluation before it shipped as a second bug.
+    var skipLink = nav ? '<a class="skip-link" href="#" data-action="skipToContent">Pular para o conteúdo</a>' : '';
+    return skipLink + nav +
+      '<section class="' + cls + '" id="surface-content" tabindex="-1">' +
       '<h1>' + esc(title) + '</h1>' +
       (originHtml ? '<div class="origin">' + originHtml + '</div>' : '') +
       bodyHtml +
@@ -310,16 +355,18 @@
     var overdue = active.filter(function (i) { return daysUntil(i.dueDate) < 0; });
     var soon = active.filter(function (i) { return daysUntil(i.dueDate) >= 0 && daysUntil(i.dueDate) <= 7; });
     function row(i) {
-      return '<div class="list-item">' +
+      return '<li class="list-item">' +
         '<span>' + statusLabelHtml(i) + '<strong>' + esc(i.name) + '</strong><br>' +
         '<span class="secondary-info">' + (daysUntil(i.dueDate) < 0 ? 'Venceu em ' : 'Vence em ') + fmtDate(i.dueDate) +
         ' (' + (daysUntil(i.dueDate) < 0 ? 'há ' + Math.abs(daysUntil(i.dueDate)) + ' dias' : 'em ' + daysUntil(i.dueDate) + ' dias') + ') · ' + esc(i.assignee) + '</span></span>' +
         '<a class="btn btn-primary" href="#/items/' + i.id + '?from=overview">Abrir</a>' +
-        '</div>';
+        '</li>';
     }
     var body = '';
-    if (overdue.length) body += '<h2 style="font-size:13px">VENCIDOS (' + overdue.length + ')</h2>' + overdue.map(row).join('');
-    if (soon.length) body += '<h2 style="font-size:13px">VENCE EM BREVE (' + soon.length + ')</h2>' + soon.map(row).join('');
+    // <ul>/<li> (not <div>), one list per group — evaluation finding A11Y-003: repeating
+    // collection rows had no programmatic list semantics anywhere in the app (WCAG 1.3.1).
+    if (overdue.length) body += '<h2 style="font-size:13px">VENCIDOS (' + overdue.length + ')</h2><ul class="plain-list">' + overdue.map(row).join('') + '</ul>';
+    if (soon.length) body += '<h2 style="font-size:13px">VENCE EM BREVE (' + soon.length + ')</h2><ul class="plain-list">' + soon.map(row).join('') + '</ul>';
     if (!overdue.length && !soon.length) body += '<p>Nenhum item vencido ou vencendo em breve. (sucesso genuíno)</p>';
     body += blockedBlock('BLOCKER-B',
       'Nenhum resumo de alertas aparece aqui — a materialização de lembretes não está ' +
@@ -358,13 +405,13 @@
       body += '<p><strong>Nenhum vencimento corresponde a este filtro.</strong> (EMPTY_FILTERED — dados existem, filtro não retornou nada) ' +
         '<a href="#/items">limpar filtro</a></p>';
     } else {
-      body += items.map(function (i) {
-        return '<div class="list-item"><span>' + statusLabelHtml(i) + '<strong>' + esc(i.name) + '</strong> ' +
+      body += '<ul class="plain-list">' + items.map(function (i) {
+        return '<li class="list-item"><span>' + statusLabelHtml(i) + '<strong>' + esc(i.name) + '</strong> ' +
           '<span class="secondary-info">' + fmtDate(i.dueDate) + ' · ' + esc(i.assignee) + '</span></span>' +
-          '<a class="btn btn-primary" href="#/items/' + i.id + '?from=items">Abrir</a></div>';
-      }).join('');
+          '<a class="btn btn-primary" href="#/items/' + i.id + '?from=items">Abrir</a></li>';
+      }).join('') + '</ul>';
     }
-    body += '<p class="annot">(carregar mais — paginação real do backend é PARTIAL)</p>';
+    body += '<p class="annot">(carregar mais — este protótipo não implementa paginação completa nesta lista)</p>';
     body += '<div class="actions"><a class="btn btn-secondary" href="#/items/new">+ Novo</a> ' +
       '<a class="btn btn-secondary" href="#/import">Importar CSV</a></div>';
     return shell('Vencimentos', '', body, { navKey: 'items' });
@@ -377,7 +424,7 @@
   route('/items/:id', function (id, q) {
     var item = findItem(id);
     if (!item) {
-      return shell('VENCIMENTO NÃO ENCONTRADO', '', '<p>Este vencimento não existe mais (excluído/arquivado por outro processo, ou pertence a outro tenant — mesmo estado externo, §20 SSI).</p>' +
+      return shell('VENCIMENTO NÃO ENCONTRADO', '', '<p>Este vencimento não existe mais, ou você não tem mais acesso a ele.</p>' +
         '<div class="actions"><a class="btn" href="#/overview">Voltar</a></div>', { navKey: 'items' });
     }
     var origin = q.from ? 'Veio de: ' + (q.from === 'overview' ? 'Overview' : 'Vencimentos') : '';
@@ -419,7 +466,12 @@
       { navKey: 'items', a11y: 'ações de alta consequência navegáveis por teclado, com confirmação deliberada.' });
   });
 
-  actions.editItem = function () { announce('Edição de campos administrativos — fora do escopo desta etapa de prototipação (mesma seção estrutural do wireframe SURF-003).'); };
+  actions.editItem = function () {
+    var msg = 'Edição de campos administrativos — fora do escopo desta etapa de prototipação (mesma seção estrutural do wireframe SURF-003).';
+    var slot = document.getElementById('confirm-slot');
+    if (slot) slot.innerHTML = '<div class="confirm-row">' + esc(msg) + '</div>';
+    announce(msg);
+  };
 
   actions.confirmArchive = function (el) {
     var id = el.getAttribute('data-id');
@@ -427,7 +479,6 @@
       '<div class="confirm-row">Arquivar "' + esc(findItem(id).name) + '"? Ele deixa de aparecer nas listas ativas.' +
       ' <button class="btn btn-dangerous" data-action="doArchive" data-id="' + id + '">Confirmar arquivamento</button>' +
       ' <button class="btn" data-action="cancelConfirm">Cancelar</button></div>';
-    afterRender(document.getElementById('app'));
   };
   actions.confirmDelete = function (el) {
     var id = el.getAttribute('data-id');
@@ -435,7 +486,6 @@
       '<div class="confirm-row">Excluir "' + esc(findItem(id).name) + '"? Esta ação não pode ser desfeita pela interface.' +
       ' <button class="btn btn-dangerous" data-action="doDelete" data-id="' + id + '">Confirmar exclusão</button>' +
       ' <button class="btn" data-action="cancelConfirm">Cancelar</button></div>';
-    afterRender(document.getElementById('app'));
   };
   actions.cancelConfirm = function () { document.getElementById('confirm-slot').innerHTML = ''; };
   actions.doArchive = function (el) {
@@ -458,7 +508,6 @@
     if (slot) slot.innerHTML = feedback('unknown', '⚠',
       'CONFLICT: este vencimento foi alterado por outro processo desde que você o abriu. Não foi possível ' + verb + '-lo. ' +
       '<button class="btn" data-action="reloadDetail" data-id="' + id + '">Reler estado atual</button>');
-    afterRender(app);
   }
   actions.reloadDetail = function (el) { render(); announce('Estado atual recarregado.'); };
 
@@ -493,6 +542,8 @@
     if (errors.length) {
       errBox.innerHTML = errors.map(function (e) { return '<div class="field-error">' + esc(e) + '</div>'; }).join('');
       announce('Formulário com erro de validação. Dados preenchidos foram preservados.');
+      var createBtn = form.querySelector('button[type=submit]');
+      if (createBtn) createBtn.disabled = false;
       return;
     }
     var fb = document.getElementById('create-feedback');
@@ -505,7 +556,6 @@
           'Não reenviamos automaticamente para evitar duplicidade (CREATE-IDEMPOTENCY-01). ' +
           '<div class="actions"><a class="btn btn-primary" href="#/items">Ver meus vencimentos e confirmar</a>' +
           ' <button class="btn btn-secondary" data-action="retryCreateManually">Preencher novamente</button></div>');
-        afterRender(document.getElementById('app'));
         announce('Resultado incerto: não foi possível confirmar a criação.');
         return;
       }
@@ -548,9 +598,11 @@
     var newDue = form.querySelector('[name=dueDate]').value;
     var errBox = document.getElementById('renew-error');
     errBox.innerHTML = '';
+    var renewBtn = form.querySelector('button[type=submit]');
     if (!newDue || newDue <= item.dueDate) {
       errBox.innerHTML = '<div class="field-error">Nova data de vencimento — deve ser posterior à data atual (' + fmtDate(item.dueDate) + ').</div>';
       announce('Erro de validação: data inválida.');
+      if (renewBtn) renewBtn.disabled = false;
       return;
     }
     if (FLAGS.forceConflictOnNextMutation) {
@@ -558,8 +610,8 @@
       document.getElementById('renew-feedback').innerHTML = feedback('unknown', '⚠',
         'CONFLICT: este vencimento foi alterado desde que você abriu esta tela. Releia o estado atual antes de renovar. ' +
         '<button class="btn" data-action="reloadRenew" data-id="' + id + '">Reler estado atual</button>');
-      afterRender(document.getElementById('app'));
       announce('Conflito de concorrência detectado.');
+      if (renewBtn) renewBtn.disabled = false;
       return;
     }
     var fb = document.getElementById('renew-feedback');
@@ -567,8 +619,7 @@
     announce('Renovando…');
     window.setTimeout(function () {
       if (FLAGS.renewOutcome === 'unknown') {
-        fb.innerHTML = feedback('unknown', '⚠', 'Não foi possível confirmar a renovação — reconsultando o estado atual (idempotência real existe para esta operação, diferente de criação)…');
-        afterRender(document.getElementById('app'));
+        fb.innerHTML = feedback('unknown', '⚠', 'Não foi possível confirmar a renovação — verificando automaticamente o que aconteceu. Isso é seguro e não cria um ciclo duplicado.');
         window.setTimeout(function () { doRenew(item, newDue); }, 700);
         return;
       }
@@ -611,7 +662,7 @@
       body += feedback('success', '✓', 'Upload enviado.') +
         blockedBlock('BLOCKER-A',
           'A partir daqui não é possível consultar o que acontece com o arquivo (verificação de segurança, resultado, ou reabri-lo depois). ' +
-          'SIMULATED FOR UX VALIDATION — NOT CURRENTLY SUPPORTED BY BACKEND. Esta seção mostraria "[ARQUIVO VERIFICADO]" ou ' +
+          'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Esta seção mostraria "[ARQUIVO VERIFICADO]" ou ' +
           '"[ARQUIVO REJEITADO PELA VERIFICAÇÃO DE SEGURANÇA]" assim que essa capacidade existir — nunca "Aprovado", nunca "verificando segurança" como fato confirmado.') +
         '<div class="actions"><button class="btn btn-secondary" data-action="retryUpload" data-id="' + id + '">Enviar outro arquivo</button></div>';
     }
@@ -654,14 +705,22 @@
     var id = form.getAttribute('data-id');
     var offset = parseInt(form.querySelector('[name=offset]').value, 10);
     var errBox = document.getElementById('alert-error');
-    if (!offset || offset < 1) { errBox.innerHTML = '<div class="field-error">Informe um número de dias válido (maior que zero).</div>'; return; }
+    var alertBtn = form.querySelector('button[type=submit]');
+    if (!offset || offset < 1) {
+      errBox.innerHTML = '<div class="field-error">Informe um número de dias válido (maior que zero).</div>';
+      announce('Erro de validação: número de dias inválido.');
+      if (alertBtn) alertBtn.disabled = false;
+      return;
+    }
     errBox.innerHTML = '';
     var fb = document.getElementById('alert-feedback');
     fb.innerHTML = feedback('pending', '⏳', 'Salvando…');
+    announce('Salvando política de alerta…');
     window.setTimeout(function () {
       findItem(id).alertPolicy = { offsetDays: offset, channel: 'E-mail' };
       fb.innerHTML = feedback('success', '✓', '[ALERTA CONFIGURADO] Avisar ' + offset + ' dias antes · E-mail. (política salva — ver aviso de BLOCKER-B acima; nunca "agendado" ou "entregue")');
       announce('Política de alerta salva.');
+      if (alertBtn) alertBtn.disabled = false;
     }, 400);
   };
   actions.disableAlert = function (el) { findItem(el.getAttribute('data-id')).alertPolicy = null; render(); announce('Alerta desabilitado.'); };
@@ -672,11 +731,11 @@
   route('/subjects', function () {
     var body = DB.subjects.length === 0
       ? '<p><strong>Nenhum fornecedor cadastrado ainda.</strong></p>'
-      : DB.subjects.map(function (s) {
-        return '<div class="list-item"><span><strong>' + esc(s.name) + '</strong> <span class="secondary-info">' +
+      : '<ul class="plain-list">' + DB.subjects.map(function (s) {
+        return '<li class="list-item"><span><strong>' + esc(s.name) + '</strong> <span class="secondary-info">' +
           pendingCount(s.id) + ' pendentes · ' + linkedCount(s.id) + ' vinculados</span></span>' +
-          '<a class="btn btn-primary" href="#/subjects/' + s.id + '">Abrir</a></div>';
-      }).join('');
+          '<a class="btn btn-primary" href="#/subjects/' + s.id + '">Abrir</a></li>';
+      }).join('') + '</ul>';
     body += '<div class="actions"><button class="btn btn-secondary" data-action="notImplemented">+ Novo fornecedor</button></div>';
     return shell('Fornecedores', '', body, { navKey: 'subjects' });
   });
@@ -690,11 +749,11 @@
     if (!subj) return notFoundSurface('/subjects/' + id);
     var reqs = requirementsOf(id);
     var body = '<p class="secondary-info">Tipo: ' + esc(subj.type) + '</p><h2 style="font-size:13px">REQUISITOS</h2>' +
-      (reqs.length === 0 ? '<p>Nenhum requisito ainda.</p>' : reqs.map(function (r) {
+      (reqs.length === 0 ? '<p>Nenhum requisito ainda.</p>' : '<ul class="plain-list">' + reqs.map(function (r) {
         var label = r.status === 'MISSING' ? '[PENDENTE]' : '[VINCULADO A UM VENCIMENTO]';
-        return '<div class="list-item"><span>' + label + ' ' + esc(r.name) + '</span>' +
-          '<a class="btn btn-primary" href="#/subjects/' + id + '/requirements/' + r.id + '">Abrir</a></div>';
-      }).join('')) +
+        return '<li class="list-item"><span>' + label + ' ' + esc(r.name) + '</span>' +
+          '<a class="btn btn-primary" href="#/subjects/' + id + '/requirements/' + r.id + '">Abrir</a></li>';
+      }).join('') + '</ul>') +
       '<div class="actions"><button class="btn btn-secondary" data-action="notImplemented">+ Novo requisito</button></div>';
     return shell(subj.name.toUpperCase(), 'Veio de: Fornecedores', body, { navKey: 'subjects' });
   });
@@ -712,10 +771,10 @@
         '<div class="actions"><button class="btn btn-secondary" data-action="unlinkReq" data-id="' + rid + '">Desvincular</button></div>';
     } else {
       body += '<h2 style="font-size:13px">SOLICITAÇÕES</h2>' +
-        (reqs4this.length === 0 ? '<p>Nenhuma solicitação criada ainda. (EMPTY_NOT_READY)</p>' : reqs4this.map(function (dr) {
-          return '<div class="list-item"><span>[' + drStatusLabel(dr) + '] ' + fmtDate(dr.sentAt) + ' → prazo ' + fmtDate(dr.deadline) + '</span>' +
-            '<a class="btn btn-primary" href="#/requests/' + dr.id + '">Abrir</a></div>';
-        }).join('')) +
+        (reqs4this.length === 0 ? '<p>Nenhuma solicitação criada ainda. (EMPTY_NOT_READY)</p>' : '<ul class="plain-list">' + reqs4this.map(function (dr) {
+          return '<li class="list-item"><span>[' + drStatusLabel(dr) + '] ' + fmtDate(dr.sentAt) + ' → prazo ' + fmtDate(dr.deadline) + '</span>' +
+            '<a class="btn btn-primary" href="#/requests/' + dr.id + '">Abrir</a></li>';
+        }).join('') + '</ul>') +
         '<div class="actions"><a class="btn btn-primary" href="#/requests/new?rid=' + rid + '">Nova solicitação</a> ' +
         '<button class="btn btn-secondary" data-action="linkExisting" data-id="' + rid + '">Vincular a um vencimento existente</button></div>';
     }
@@ -739,7 +798,6 @@
     box.innerHTML = '<label for="link-select">Vincular a</label> <select id="link-select">' + options + '</select> ' +
       '<button class="btn btn-primary" data-action="doLink" data-id="' + rid + '">Confirmar vínculo (CONFIRMED)</button>';
     app.querySelector('section').appendChild(box);
-    afterRender(app);
   };
   actions.doLink = function (el) {
     var rid = el.getAttribute('data-id');
@@ -806,7 +864,6 @@
     document.getElementById('revoke-slot').innerHTML = '<div class="confirm-row">O fornecedor perde acesso ao link imediatamente — irreversível. ' +
       '<button class="btn btn-dangerous" data-action="doRevoke" data-id="' + id + '">Confirmar revogação</button> ' +
       '<button class="btn" data-action="cancelConfirm2">Cancelar</button></div>';
-    afterRender(document.getElementById('app'));
   };
   actions.cancelConfirm2 = function () { document.getElementById('revoke-slot').innerHTML = ''; };
   actions.doRevoke = function (el) { findDocRequest(el.getAttribute('data-id')).status = 'REVOKED'; render(); announce('Solicitação revogada.'); };
@@ -826,7 +883,7 @@
     }
     if (variant === 'a') {
       var body = blockedBlock('BLOCKER-C — Variante A (hipótese, não decidida)',
-        'SIMULATED FOR UX VALIDATION — NOT CURRENTLY SUPPORTED BY BACKEND. Se escolhida, SURF-012 deixaria de existir ' +
+        'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Se escolhida, SURF-012 deixaria de existir ' +
         'como superfície própria; o requisito seria gravado como [VINCULADO A UM VENCIMENTO] automaticamente, sem checkpoint humano. ' +
         '"SATISFIED" continuaria significando só "vinculado", nunca "compliance atual".') +
         '<div class="actions"><button class="btn btn-primary" data-action="simulateVariantA" data-dr="' + (dr ? dr.id : '') + '">Simular vínculo automático</button></div>' +
@@ -834,9 +891,9 @@
       return shell('SUBMISSION REVIEW — VARIANTE A', '', body, { navKey: 'requests' });
     }
     var body = blockedBlock('BLOCKER-C — Variante B (hipótese, não decidida)',
-      'SIMULATED FOR UX VALIDATION — NOT CURRENTLY SUPPORTED BY BACKEND. Fila de confirmação humana, hoje sem nenhuma rota de leitura real.') +
-      '<div class="list-item"><span>' + (dr ? esc(findSubject(findRequirement(dr.requirementId).subjectId).name) + ' — ' + esc(findRequirement(dr.requirementId).name) : 'Transportadora Silva Ltda. — Apólice de Seguro RC') + '<br>' +
-      '<span class="secondary-info">Documento recebido em ' + TODAY + '</span></span></div>' +
+      'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Fila de confirmação humana, hoje sem nenhuma rota de leitura real.') +
+      '<ul class="plain-list"><li class="list-item"><span>' + (dr ? esc(findSubject(findRequirement(dr.requirementId).subjectId).name) + ' — ' + esc(findRequirement(dr.requirementId).name) : 'Transportadora Silva Ltda. — Apólice de Seguro RC') + '<br>' +
+      '<span class="secondary-info">Documento recebido em ' + TODAY + '</span></span></li></ul>' +
       '<div class="actions"><button class="btn btn-primary" data-action="simulateVariantB" data-dr="' + (dr ? dr.id : '') + '" data-decision="link">Vincular a vencimento existente</button>' +
       ' <button class="btn btn-dangerous" data-action="simulateVariantB" data-dr="' + (dr ? dr.id : '') + '" data-decision="reject">Rejeitar</button></div>' +
       '<div id="variant-b-fb"></div>';
@@ -861,7 +918,7 @@
   // SURF-013 — Requests Collection (always BLOCKED)
   // =======================================================================
   route('/requests-collection', function () {
-    var body = blockedBlock('Query tenant-wide inexistente',
+    var body = blockedBlock('Consulta entre fornecedores indisponível',
       'Não existe hoje uma consulta que traga todas as solicitações pendentes de todos os fornecedores de uma vez — ' +
       'cada uma só é acessível a partir do Requisito/Fornecedor específico.') +
       '<div class="actions"><a class="btn" href="#/subjects">Ir para Fornecedores</a></div>';
@@ -883,7 +940,7 @@
   route('/guest/:token', function (token) {
     var info = resolveGuestToken(token);
     if (!info) {
-      return shell('Solicitação de Documento', '', '<p>✕ Este link não está disponível.</p><p class="annot">(mesma mensagem para link inválido, expirado, revogado ou não encontrado — nunca diferenciado, anti-enumeração)</p>', { guest: true });
+      return shell('Solicitação de Documento', '', '<p>✕ Este link não está disponível.</p><p class="annot">(mesma mensagem para link inválido, expirado, revogado ou não encontrado — nunca diferenciado)</p>', { guest: true });
     }
     var st = guestSession[token] || { state: 'loaded' };
     var body = '';
@@ -913,7 +970,7 @@
       body += feedback('success', '✓', 'Envio recebido pelo seu navegador.') +
         blockedBlock('Guest verification visibility gap',
           'Não é possível confirmar aqui se o arquivo passou pela verificação de segurança — esta página não tem essa informação. ' +
-          'SIMULATED FOR UX VALIDATION — NOT CURRENTLY SUPPORTED BY BACKEND. Se necessário, entre em contato com quem solicitou o documento.');
+          'SIMULADO PARA VALIDAR A EXPERIÊNCIA — CAPACIDADE AINDA NÃO DISPONÍVEL. Se necessário, entre em contato com quem solicitou o documento.');
     }
     return shell('Solicitação de Documento', '', body, { guest: true, a11y: 'câmera/arquivo nativo — sem depender só de drag-and-drop.' });
   });
@@ -968,7 +1025,7 @@
       return shell('Importar Planilha (2/4 — enviando)', '', body, { navKey: 'items' });
     }
     if (job.status === 'PARSING') {
-      body = feedback('pending', '⏳', 'Processando planilha… (você pode sair e voltar — o progresso é recuperável, GET /imports/{jobId})') +
+      body = feedback('pending', '⏳', 'Processando planilha… você pode sair e voltar mais tarde — o progresso fica salvo.') +
         '<div class="actions"><button class="btn btn-secondary" data-action="checkImport" data-job="' + job.id + '">Consultar status</button></div>';
       return shell('Importar Planilha (3/4 — processando)', '', body, { navKey: 'items' });
     }
@@ -985,7 +1042,7 @@
     if (job.status === 'PREVIEW_READY') {
       body = '<p>Total de linhas: ' + job.counts.total + '</p>' +
         '<p>Aceitas: ' + job.counts.accepted + ' · Rejeitadas: ' + job.counts.rejected + ' · Duplicadas: ' + job.counts.duplicated + '</p>' +
-        blockedBlock('Erro por linha (PARTIAL)', 'Não é possível hoje ver quais linhas foram rejeitadas nem por quê — só a contagem agregada está disponível.') +
+        blockedBlock('Erro por linha', 'Não é possível hoje ver quais linhas foram rejeitadas nem por quê — só a contagem agregada está disponível.') +
         '<div class="actions"><button class="btn btn-primary" data-action="commitImport" data-job="' + job.id + '">Confirmar importação</button>' +
         ' <a class="btn btn-secondary" href="#/import">Cancelar</a></div>';
       return shell('Importar Planilha (3/4 — revisar)', '', body, { navKey: 'items' });
@@ -995,7 +1052,7 @@
       return shell('Importar Planilha — aplicando', '', body, { navKey: 'items' });
     }
     if (job.status === 'UNKNOWN_OUTCOME') {
-      body = feedback('unknown', '⚠', 'Não foi possível confirmar o resultado do commit — reconsultando automaticamente (idempotente via GET /imports/{jobId})…') +
+      body = feedback('unknown', '⚠', 'Não foi possível confirmar o resultado da importação — verificando automaticamente. Isso é seguro e não duplica registros.') +
         '<div class="actions"><button class="btn btn-secondary" data-action="reconcileImport" data-job="' + job.id + '">Reconsultar agora</button></div>';
       return shell('Importar Planilha — resultado incerto', '', body, { navKey: 'items' });
     }
@@ -1049,6 +1106,9 @@
   actions.reconcileImport = function (el) {
     var job = DB.importJobs[el.getAttribute('data-job')];
     job.status = 'COMMITTED';
+    for (var i = 0; i < job.counts.accepted; i++) {
+      DB.items.push({ id: uid('item'), name: 'Item importado ' + (i + 1), category: 'Importado', dueDate: addDays(TODAY, 60 + i), status: 'ACTIVE', assignee: '(importado)', version: 1 });
+    }
     render();
     announce('Reconsulta confirmou: importação concluída.');
   };
@@ -1207,7 +1267,18 @@
   // boot
   // ---------------------------------------------------------------------
   window.addEventListener('hashchange', render);
+  // Escape dismisses an open high-consequence confirmation prompt (evaluation finding HE-002,
+  // H3 User Control and Freedom) — a "Cancelar" button was already reachable by Tab, but Escape
+  // is the convention most keyboard users try first on any confirm/cancel prompt.
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    ['confirm-slot', 'revoke-slot'].forEach(function (id) {
+      var slot = document.getElementById(id);
+      if (slot && slot.innerHTML) slot.innerHTML = '';
+    });
+  });
   document.addEventListener('DOMContentLoaded', function () {
+    bindDelegatedListeners(document.getElementById('app')); // once, ever — see definition for why
     bootControlBar(); // must populate the journey <select> before the first render() call
     resetAll();
   });
