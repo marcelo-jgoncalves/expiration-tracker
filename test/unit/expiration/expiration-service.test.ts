@@ -137,21 +137,67 @@ describe("ExpirationService", () => {
     const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
     await service.updateItem(ctx(), item.itemId, { dueDate: "2026-10-01T00:00:00.000Z" }, item.version);
 
-    const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
-    expect(outboxRecords).toHaveLength(1);
-    expect(outboxRecords[0]?.["eventType"]).toBe("expiration.item-due-date-changed.v1");
-    const payload = outboxRecords[0]?.["payload"] as Record<string, unknown>;
+    // BLOCKER-B: createItem itself now also emits expiration.item-due-date-changed.v1
+    // (previousDueDate: null) - filter to the UPDATE's own event specifically.
+    const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-due-date-changed.v1");
+    expect(outboxRecords).toHaveLength(2);
+    const updateEvent = outboxRecords.find((r) => (r["payload"] as Record<string, unknown>)["previousDueDate"] !== null)!;
+    const payload = updateEvent["payload"] as Record<string, unknown>;
     expect(payload["previousDueDate"]).toBe("2026-09-10T00:00:00.000Z");
     expect(payload["newDueDate"]).toBe("2026-10-01T00:00:00.000Z");
     expect(payload["itemVersion"]).toBe(2);
   });
 
-  it("updateItem without a dueDate change writes no outbox record", async () => {
+  it("createItem emits ItemDueDateChanged (BLOCKER-B: a new item's due date is 'the due date changing' from nonexistent, so a policy attached at creation time can materialize immediately)", async () => {
+    const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+    const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
+    expect(outboxRecords).toHaveLength(1);
+    expect(outboxRecords[0]?.["eventType"]).toBe("expiration.item-due-date-changed.v1");
+    const payload = outboxRecords[0]?.["payload"] as Record<string, unknown>;
+    expect(payload["previousDueDate"]).toBeNull();
+    expect(payload["newDueDate"]).toBe("2026-09-10T00:00:00.000Z");
+    expect(payload["itemVersion"]).toBe(1);
+    expect(outboxRecords[0]?.["aggregateId"]).toBe(item.itemId);
+  });
+
+  it("updateItem without a dueDate change writes no ADDITIONAL outbox record beyond createItem's own", async () => {
     const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
     await service.updateItem(ctx(), item.itemId, { name: "renamed" }, item.version);
 
     const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
-    expect(outboxRecords).toHaveLength(0);
+    expect(outboxRecords).toHaveLength(1); // only createItem's - updateItem itself added none
+  });
+
+  it("archiveItem emits expiration.item-deactivated.v1", async () => {
+    const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    await service.archiveItem(ctx(), item.itemId, item.version);
+
+    const deactivated = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-deactivated.v1");
+    expect(deactivated).toHaveLength(1);
+    expect((deactivated[0]?.["payload"] as Record<string, unknown>)["itemId"]).toBe(item.itemId);
+  });
+
+  it("deleteItem emits expiration.item-deactivated.v1", async () => {
+    const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    await service.deleteItem(ctx(), item.itemId, item.version);
+
+    const deactivated = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-deactivated.v1");
+    expect(deactivated).toHaveLength(1);
+  });
+
+  it("renewItem emits expiration.item-deactivated.v1 for the OLD item alongside item-due-date-changed.v1 for the NEW item", async () => {
+    const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    const renewed = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version);
+
+    const deactivated = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-deactivated.v1");
+    expect(deactivated).toHaveLength(1);
+    expect((deactivated[0]?.["payload"] as Record<string, unknown>)["itemId"]).toBe(source.itemId);
+
+    const dueDateChanged = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-due-date-changed.v1");
+    // source's own createItem event + the renewed item's own creation event
+    expect(dueDateChanged).toHaveLength(2);
+    expect(dueDateChanged.some((r) => r["aggregateId"] === renewed.itemId)).toBe(true);
   });
 
   it("every mutation appends exactly one append-only AuditEvent - no update/delete API is exposed for it", async () => {
