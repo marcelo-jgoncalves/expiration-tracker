@@ -18,12 +18,28 @@ export type OutboxStatus = "PENDING" | "PUBLISHED";
  * M2/M3 caller today) - `OutboxPublisher` must explicitly skip any record whose
  * `destination` it doesn't recognize as its own default, never process-by-omission.
  */
-export type OutboxDestination = "SQS_REMINDER_DISPATCH_V1" | "SQS_NOTIFICATION_EMAIL_V1" | "SQS_DOCUMENT_CHASING_DISPATCH_V1" | "SQS_IMPORT_COMMIT_V1";
+export type OutboxDestination =
+  | "SQS_REMINDER_DISPATCH_V1"
+  | "SQS_NOTIFICATION_EMAIL_V1"
+  | "SQS_DOCUMENT_CHASING_DISPATCH_V1"
+  | "SQS_IMPORT_COMMIT_V1"
+  /** BLOCKER-B (reminder-delivery-pipeline.md §4): the ONLY real delivery path for an
+   * outbox record - the "generic EventBridge path" every other destination's comment
+   * describes as the default for an unset `destination` was never actually implemented in
+   * this codebase (no PutEventsCommand call exists anywhere) - confirmed during BLOCKER-B
+   * implementation, not previously known. Every outbox-driven consumer in production is
+   * destination-routed through DispatchOutboxRelay; this destination follows the same
+   * proven mechanism rather than the never-built one the original design doc assumed. */
+  | "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1";
 
 export interface OutboxRecord {
   PK: string;
   SK: string;
   entityType: "OutboxEvent";
+  /** BLOCKER-B addition: previously only embedded in `PK` (`TENANT#<t>#OUTBOX#<shard>`),
+   * never its own field - a sender whose payload doesn't already self-describe its tenant
+   * (unlike DispatchCommand) needs this explicitly, without every caller re-parsing `PK`. */
+  tenantId: string;
   eventId: string;
   eventType: string;
   aggregateType: string;
@@ -59,6 +75,7 @@ export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestin
     PK: `TENANT#${event.tenantId}#OUTBOX#${shard}`,
     SK: `EVENT#${event.occurredAt}#${event.eventId}`,
     entityType: "OutboxEvent",
+    tenantId: event.tenantId,
     eventId: event.eventId,
     eventType: event.eventType,
     aggregateType: event.aggregate.type,

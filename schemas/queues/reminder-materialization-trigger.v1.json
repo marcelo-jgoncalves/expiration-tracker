@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json",
+  "title": "reminder-materialization-trigger.v1 (SQS message)",
+  "description": "BLOCKER-B (reminder-delivery-pipeline.md #4, Codex Round H APPROVED 9.2/10): the SQS message body the reminder-materialization-trigger worker consumes. Deliberately NOT a full SqsCommandEnvelope (schemas/queues/command-envelope.v1.json) - this destination (SQS_REMINDER_MATERIALIZATION_TRIGGER_V1) forwards the bare outbox domain-event payload, so the sender (composition/reminder.ts) folds in only the two envelope fields (tenantId, eventType) the worker actually needs for routing, that its payload doesn't already self-describe. `data` itself matches one of the three domain event schemas exactly (item-due-date-changed.v1.json, item-deactivated.v1.json, reminder-policy-changed.v1.json) depending on `eventType`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventType", "tenantId", "data"],
+  "properties": {
+    "eventType": {
+      "enum": ["expiration.item-due-date-changed.v1", "expiration.item-deactivated.v1", "reminder.policy-changed.v1"]
+    },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "data": { "type": "object" }
+  }
+}

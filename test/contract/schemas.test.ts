@@ -428,6 +428,33 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid reminder-materialization-trigger.v1 SQS message (BLOCKER-B)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-due-date-changed.v1",
+      tenantId: "t_01",
+      data: { itemId: "item_01", previousDueDate: null, newDueDate: "2026-09-17T00:00:00.000Z", itemVersion: 1 },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reminder-materialization-trigger.v1 message with an unrecognized eventType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "not-a-real-event",
+      tenantId: "t_01",
+      data: {},
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reminder-materialization-trigger.v1 message missing tenantId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-deactivated.v1",
+      data: { itemId: "item_01", itemVersion: 1 },
+    });
+    expect(valid).toBe(false);
+  });
+
   it("rejects an item-due-date-changed event missing itemVersion", () => {
     const { valid } = registry.validate(
       "https://expiration-tracker/schemas/events/item-due-date-changed.v1.json",

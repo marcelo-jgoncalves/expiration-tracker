@@ -23,11 +23,14 @@ const emailDeliverQueueUrl = process.env["EMAIL_DELIVER_QUEUE_URL"];
 const chasingDispatchQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
 // M11 (D-042): fourth destination, same reasoning.
 const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
+// BLOCKER-B (reminder-delivery-pipeline.md §4): fifth destination, same reasoning.
+const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
 if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
 if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
+if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
 
 const sqsClient = new SQSClient({});
 const store = new DynamoDbOutboxRelayStore(client, tableName);
@@ -40,6 +43,19 @@ const send = (queueUrl: string) => async (payload: Record<string, unknown>, corr
     }),
   );
 };
+// BLOCKER-B: unlike the other destinations' payloads, this one is the bare domain event
+// data (matches schemas/events/*.json), not a self-describing command - fold in the
+// record's own tenantId/eventType before sending (composition/reminder.ts's
+// buildOutboxRelayDeps documents the same shape for the relay's own sender).
+const sendMaterializationTrigger = (queueUrl: string) => async (payload: Record<string, unknown>, correlationId: string, tenantId: string, eventType: string) => {
+  await sqsClient.send(
+    new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify({ eventType, tenantId, data: payload }),
+      MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+    }),
+  );
+};
 const deps = {
   store,
   now: () => new Date().toISOString(),
@@ -48,6 +64,7 @@ const deps = {
     SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
     SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
     SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
+    SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
   },
 };
 const logger = new SecureLogger({ baseContext: { service: "outbox-sweeper" } });

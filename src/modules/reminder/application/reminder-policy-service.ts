@@ -257,7 +257,7 @@ export class ReminderPolicyService {
       // which DynamoDB marshalling and JSON Schema validation both handle more predictably.
       data: { policyId: data.policyId, itemId: data.itemId ?? null, previousItemId: data.previousItemId ?? null },
     };
-    appendToTransaction(entries, this.tableName, event);
+    appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
   }
 
   /** Marker so createPolicy can also build the first Put via the shared OCC builder if a caller needs the raw command (kept for symmetry/documentation). */

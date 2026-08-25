@@ -184,3 +184,46 @@ export async function handleTriggerEvent(deps: TriggerDeps, event: TriggerEvent)
       return onPolicyChanged(deps, event);
   }
 }
+
+/**
+ * The SQS message body this worker's queue actually receives - built by the
+ * SQS_REMINDER_MATERIALIZATION_TRIGGER_V1 outbox sender (composition/reminder.ts), which
+ * folds the OutboxRecord's own `tenantId`/`eventType` envelope fields around the bare
+ * domain event `data` (matching schemas/events/item-due-date-changed.v1.json,
+ * item-deactivated.v1.json, reminder-policy-changed.v1.json exactly - no extra wrapping).
+ */
+export interface TriggerMessage {
+  eventType: string;
+  tenantId: string;
+  data: Record<string, unknown>;
+}
+
+export class UnrecognizedTriggerEventTypeError extends Error {
+  constructor(eventType: string) {
+    super(`Unrecognized reminder-materialization-trigger eventType: ${eventType}`);
+    this.name = "UnrecognizedTriggerEventTypeError";
+  }
+}
+
+/** Maps one SQS message body to a `TriggerEvent` - the only place that knows the wire
+ * shape, so `handleTriggerEvent` above stays wire-format-agnostic (testable with plain
+ * TriggerEvent objects, as reminder-materialization-trigger.test.ts already does). */
+export function parseTriggerEvent(message: TriggerMessage): TriggerEvent {
+  const { tenantId, data } = message;
+  switch (message.eventType) {
+    case "expiration.item-due-date-changed.v1":
+      return { kind: "ITEM_DUE_DATE_CHANGED", tenantId, itemId: data["itemId"] as string };
+    case "expiration.item-deactivated.v1":
+      return { kind: "ITEM_DEACTIVATED", tenantId, itemId: data["itemId"] as string };
+    case "reminder.policy-changed.v1":
+      return {
+        kind: "POLICY_CHANGED",
+        tenantId,
+        policyId: data["policyId"] as string,
+        itemId: (data["itemId"] as string | null) ?? null,
+        previousItemId: (data["previousItemId"] as string | null) ?? null,
+      };
+    default:
+      throw new UnrecognizedTriggerEventTypeError(message.eventType);
+  }
+}

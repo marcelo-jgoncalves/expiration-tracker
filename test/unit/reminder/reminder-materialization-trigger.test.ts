@@ -298,3 +298,32 @@ describe("reminder-materialization-trigger", () => {
     });
   });
 });
+
+describe("parseTriggerEvent (SQS message -> TriggerEvent)", () => {
+  it("maps expiration.item-due-date-changed.v1 to ITEM_DUE_DATE_CHANGED", async () => {
+    const { parseTriggerEvent } = await import("../../../src/workers/reminder-materialization-trigger/trigger.js");
+    const event = parseTriggerEvent({
+      eventType: "expiration.item-due-date-changed.v1",
+      tenantId: "t1",
+      data: { itemId: "item-1", previousDueDate: null, newDueDate: "2026-09-10T00:00:00.000Z", itemVersion: 1 },
+    });
+    expect(event).toEqual({ kind: "ITEM_DUE_DATE_CHANGED", tenantId: "t1", itemId: "item-1" });
+  });
+
+  it("maps expiration.item-deactivated.v1 to ITEM_DEACTIVATED", async () => {
+    const { parseTriggerEvent } = await import("../../../src/workers/reminder-materialization-trigger/trigger.js");
+    const event = parseTriggerEvent({ eventType: "expiration.item-deactivated.v1", tenantId: "t1", data: { itemId: "item-1", itemVersion: 2 } });
+    expect(event).toEqual({ kind: "ITEM_DEACTIVATED", tenantId: "t1", itemId: "item-1" });
+  });
+
+  it("maps reminder.policy-changed.v1 to POLICY_CHANGED, preserving null itemId/previousItemId", async () => {
+    const { parseTriggerEvent } = await import("../../../src/workers/reminder-materialization-trigger/trigger.js");
+    const event = parseTriggerEvent({ eventType: "reminder.policy-changed.v1", tenantId: "t1", data: { policyId: "policy-1", itemId: null, previousItemId: "item-old" } });
+    expect(event).toEqual({ kind: "POLICY_CHANGED", tenantId: "t1", policyId: "policy-1", itemId: null, previousItemId: "item-old" });
+  });
+
+  it("throws UnrecognizedTriggerEventTypeError for an unknown eventType (poison-message signal, not a silent no-op)", async () => {
+    const { parseTriggerEvent, UnrecognizedTriggerEventTypeError } = await import("../../../src/workers/reminder-materialization-trigger/trigger.js");
+    expect(() => parseTriggerEvent({ eventType: "not-a-real-event", tenantId: "t1", data: {} })).toThrow(UnrecognizedTriggerEventTypeError);
+  });
+});

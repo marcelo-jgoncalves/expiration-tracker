@@ -192,7 +192,7 @@ export class ExpirationService {
       aggregate: { type: "ExpirationItem", id: itemId, version: 1 },
       data: { itemId, previousDueDate: null, newDueDate: input.dueDate, itemVersion: 1 },
     };
-    appendToTransaction(entries, this.tableName, createdEvent);
+    appendToTransaction(entries, this.tableName, createdEvent, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
 
     this.appendAudit(entries, ctx, {
       itemId,
@@ -307,7 +307,7 @@ export class ExpirationService {
           itemVersion: newVersion,
         },
       };
-      appendToTransaction(entries, this.tableName, event);
+      appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
     }
 
     this.appendAudit(entries, ctx, {
@@ -477,7 +477,7 @@ export class ExpirationService {
       aggregate: { type: "ExpirationItem", id: newItemId, version: 1 },
       data: { itemId: newItemId, previousDueDate: null, newDueDate: input.newDueDate, itemVersion: 1 },
     };
-    appendToTransaction(entries, this.tableName, event);
+    appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
 
     // BLOCKER-B (reminder-delivery-pipeline.md §4/§8, Codex Round H APPROVED 9.2/10): the
     // OLD item transitions to RENEWED in this same transaction (above) - its own live
@@ -571,7 +571,7 @@ export class ExpirationService {
       aggregate: { type: "ExpirationItem", id: input.itemId, version: input.itemVersion },
       data: { itemId: input.itemId, itemVersion: input.itemVersion },
     };
-    appendToTransaction(entries, this.tableName, event);
+    appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
   }
 
   private appendAudit(
