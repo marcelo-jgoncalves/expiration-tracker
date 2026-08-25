@@ -310,6 +310,124 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(true);
   });
 
+  it("accepts a valid expiration.item-deactivated.v1 event (BLOCKER-B: archive/delete/renewal-old-side)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/item-deactivated.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "expiration.item-deactivated.v1",
+        source: "expiration-tracker.expiration",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ExpirationItem", id: "item_01", version: 3 },
+        data: { itemId: "item_01", itemVersion: 3 },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an item-deactivated event missing itemVersion", () => {
+    const { valid } = registry.validate(
+      "https://expiration-tracker/schemas/events/item-deactivated.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "expiration.item-deactivated.v1",
+        source: "expiration-tracker.expiration",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ExpirationItem", id: "item_01", version: 3 },
+        data: { itemId: "item_01" },
+      },
+    );
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid reminder.policy-changed.v1 event with itemId set and previousItemId null (BLOCKER-B: plain ITEM-scoped create)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/reminder-policy-changed.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "reminder.policy-changed.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ReminderPolicy", id: "policy_01", version: 1 },
+        data: { policyId: "policy_01", itemId: "item_01", previousItemId: null },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid reminder.policy-changed.v1 event with both itemId and previousItemId set (a policy move)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/reminder-policy-changed.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "reminder.policy-changed.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ReminderPolicy", id: "policy_01", version: 2 },
+        data: { policyId: "policy_01", itemId: "item_02", previousItemId: "item_01" },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid reminder.policy-changed.v1 event with itemId null (TEMPLATE scope)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/reminder-policy-changed.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "reminder.policy-changed.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ReminderPolicy", id: "policy_01", version: 1 },
+        data: { policyId: "policy_01", itemId: null, previousItemId: null },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reminder.policy-changed.v1 event missing previousItemId entirely (must be present, even if null)", () => {
+    const { valid } = registry.validate(
+      "https://expiration-tracker/schemas/events/reminder-policy-changed.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_01",
+        eventType: "reminder.policy-changed.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-08-19T14:03:22.481Z",
+        correlationId: "cor_01",
+        tenantId: "t_01",
+        actor: { type: "USER", userId: "usr_01" },
+        aggregate: { type: "ReminderPolicy", id: "policy_01", version: 1 },
+        data: { policyId: "policy_01", itemId: "item_01" },
+      },
+    );
+    expect(valid).toBe(false);
+  });
+
   it("rejects an item-due-date-changed event missing itemVersion", () => {
     const { valid } = registry.validate(
       "https://expiration-tracker/schemas/events/item-due-date-changed.v1.json",

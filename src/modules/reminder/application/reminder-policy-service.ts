@@ -251,7 +251,11 @@ export class ReminderPolicyService {
       tenantId: ctx.tenant.tenantId,
       actor: { type: "USER", userId: ctx.principal.userId },
       aggregate: { type: "ReminderPolicy", id: data.policyId, version: aggregateVersion },
-      data: { ...data },
+      // Explicit null rather than an omitted/undefined key for "not applicable" - matches
+      // the ItemDueDateChanged convention (previousDueDate: null) and keeps the field
+      // required-but-nullable in the schema instead of optional-and-possibly-undefined,
+      // which DynamoDB marshalling and JSON Schema validation both handle more predictably.
+      data: { policyId: data.policyId, itemId: data.itemId ?? null, previousItemId: data.previousItemId ?? null },
     };
     appendToTransaction(entries, this.tableName, event);
   }

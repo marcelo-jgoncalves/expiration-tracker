@@ -114,7 +114,7 @@ describe("ReminderPolicyService - createPolicy", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.["eventType"]).toBe("reminder.policy-changed.v1");
     expect((events[0]?.["payload"] as { itemId?: string }).itemId).toBe("item1");
-    expect((events[0]?.["payload"] as { previousItemId?: string }).previousItemId).toBeUndefined();
+    expect((events[0]?.["payload"] as { previousItemId?: string }).previousItemId).toBeNull();
   });
 
   it("creates a TEMPLATE-scoped policy with no pointer, no item check, and no itemId in the event", async () => {
@@ -125,7 +125,7 @@ describe("ReminderPolicyService - createPolicy", () => {
     expect(policy.scope).toBe("TEMPLATE");
 
     const events = outboxEvents(store);
-    expect((events[0]?.["payload"] as { itemId?: string }).itemId).toBeUndefined();
+    expect((events[0]?.["payload"] as { itemId?: string }).itemId).toBeNull();
   });
 });
 
@@ -180,7 +180,7 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
     expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeUndefined();
     const events = outboxEvents(store).filter((e) => e["eventType"] === "reminder.policy-changed.v1");
     const updateEvent = events[1]!;
-    expect((updateEvent["payload"] as { itemId?: string }).itemId).toBeUndefined();
+    expect((updateEvent["payload"] as { itemId?: string }).itemId).toBeNull();
     expect((updateEvent["payload"] as { previousItemId?: string }).previousItemId).toBe("item1");
   });
 
@@ -233,6 +233,6 @@ describe("ReminderPolicyService - disablePolicy", () => {
     const events = outboxEvents(store).filter((e) => e["eventType"] === "reminder.policy-changed.v1");
     const disableEvent = events[1]!;
     expect((disableEvent["payload"] as { itemId?: string }).itemId).toBe("item1");
-    expect((disableEvent["payload"] as { previousItemId?: string }).previousItemId).toBeUndefined();
+    expect((disableEvent["payload"] as { previousItemId?: string }).previousItemId).toBeNull();
   });
 });
