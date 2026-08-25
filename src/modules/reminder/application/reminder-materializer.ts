@@ -301,7 +301,17 @@ export class ReminderMaterializer {
         ]);
         cancelled += 1;
       } catch (err) {
-        if (isTransactionCanceled(err)) continue; // occurrence advanced or policy moved on again - safe skip
+        // Codex implementation-review finding (real defect, same class D/E/F already fixed
+        // in dispatch.ts): TransactionCanceledException is not synonymous with "the occurrence
+        // advanced or the policy moved on" - throttling/an unrelated cancellation reason must
+        // be retried, not silently treated as an already-resolved race. Only entry 0 (the
+        // occurrence's own condition) or entry 1 (the policy fence) failing with
+        // ConditionalCheckFailed is provably one of the two expected/safe races; anything else
+        // rethrows so the caller (the trigger worker's SQS handler) reports a batch item
+        // failure and SQS retries.
+        const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+        const occurrenceOrFenceFailed = reasons?.[0]?.Code === "ConditionalCheckFailed" || reasons?.[1]?.Code === "ConditionalCheckFailed";
+        if (isTransactionCanceled(err) && occurrenceOrFenceFailed) continue;
         throw err;
       }
     }
@@ -358,7 +368,10 @@ export class ReminderMaterializer {
         ]);
         cancelled += 1;
       } catch (err) {
-        if (isTransactionCanceled(err)) continue;
+        // Same fix as cancelOccurrencesFencedByPolicy above - only the occurrence's own
+        // (sole) condition failing is provably safe to swallow.
+        const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+        if (isTransactionCanceled(err) && reasons?.[0]?.Code === "ConditionalCheckFailed") continue;
         throw err;
       }
     }

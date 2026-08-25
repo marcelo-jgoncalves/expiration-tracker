@@ -336,6 +336,11 @@ function buildEmailOutboxRecord(intent: NotificationIntent, attempt: Notificatio
     PK: `TENANT#${intent.tenantId}#OUTBOX#${shard}`,
     SK: `EVENT#${now}#${eventId}`,
     entityType: "OutboxEvent",
+    // BLOCKER-B added tenantId as an explicit OutboxRecord field (previously only embedded
+    // in PK) for a different destination's sender to use - added here too for the same
+    // reason (and so every real OutboxEvent row is consistently shaped), even though this
+    // destination's own payload already self-describes its tenant.
+    tenantId: intent.tenantId,
     eventId,
     eventType: "notification.email-deliver.v1",
     aggregateType: "NotificationAttempt",

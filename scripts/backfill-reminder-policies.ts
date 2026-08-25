@@ -151,7 +151,12 @@ async function main(): Promise<void> {
   const nextToken = encodeKey(scanResult.LastEvaluatedKey);
 
   console.log(
-    `[backfill] page done: scanned=${policies.length} itemScoped=${page.itemScoped} ` +
+    // Codex implementation-review finding: DynamoDB applies FilterExpression AFTER
+    // evaluating up to Limit items - ScannedCount (items evaluated, matched or not) is what
+    // "scanned" means; policies.length is the matched count, already reported separately
+    // (itemScoped counts the ITEM-scoped subset of it) and would otherwise double as a
+    // misleading "scanned" figure whenever many non-ReminderPolicy rows share this segment.
+    `[backfill] page done: scannedByDynamo=${scanResult.ScannedCount ?? "?"} matchedReminderPolicy=${policies.length} itemScoped=${page.itemScoped} ` +
       `skippedMissingOrInactiveItem=${page.skippedMissingOrInactiveItem} ` +
       `pointersWritten=${page.pointersWritten} occurrencesCreated=${page.occurrencesCreated}`,
   );

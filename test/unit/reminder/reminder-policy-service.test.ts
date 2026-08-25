@@ -201,6 +201,26 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
     expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeDefined();
   });
 
+  it("rejects a same-item update (unrelated field edit) when the target item is no longer ACTIVE (Codex implementation-review finding: this integrity check must not be skipped just because the pointer write is)", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+
+    const item = await store.get<{ PK: string; SK: string; status: string; version: number }>({ PK: "TENANT#t1#ITEM#item1", SK: "META" });
+    await store.update({ ...item!, status: "ARCHIVED" });
+
+    await expect(
+      service.updatePolicy(
+        ctx,
+        policy.policyId,
+        { scope: "ITEM", itemId: "item1", rule: { name: "renamed", triggers: policy.triggers, timeZone: policy.timeZone, channels: policy.channels } },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
   it("rejects moving a policy to an item that does not exist", async () => {
     const policy = await service.createPolicy(ctx, {
       scope: "ITEM",

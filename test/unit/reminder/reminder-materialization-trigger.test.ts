@@ -327,3 +327,33 @@ describe("parseTriggerEvent (SQS message -> TriggerEvent)", () => {
     expect(() => parseTriggerEvent({ eventType: "not-a-real-event", tenantId: "t1", data: {} })).toThrow(UnrecognizedTriggerEventTypeError);
   });
 });
+
+describe("reminder-materialization-trigger-handler's schema, validated against the REAL production registry", () => {
+  // Closes the exact gap M3's own history already found once ("a schema existed but no
+  // runtime handler ever validated against it" - see producer.test.ts's identical pattern):
+  // test/contract/schemas.test.ts only proves the schema FILE is well-formed via the
+  // disk-loaded registry - it does NOT prove the handler's actual `defaultSchemaRegistry`
+  // singleton (src/shared/contracts/schema-validator.ts, the one Lambda code really calls)
+  // has this schema registered at all. It didn't, until this exact defect was found and
+  // fixed during implementation review - this test is what would have caught it.
+  it("validates a real ITEM_DUE_DATE_CHANGED-shaped message against defaultSchemaRegistry, not just the disk-loaded test registry", async () => {
+    const { defaultSchemaRegistry } = await import("../../../src/shared/contracts/schema-validator.js");
+    const { valid, errors } = defaultSchemaRegistry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-due-date-changed.v1",
+      tenantId: "t1",
+      data: { itemId: "item-1", previousDueDate: null, newDueDate: "2026-09-10T00:00:00.000Z", itemVersion: 1 },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a malformed message against the REAL production registry too (the conditional data validation isn't disk-registry-only)", async () => {
+    const { defaultSchemaRegistry } = await import("../../../src/shared/contracts/schema-validator.js");
+    const { valid } = defaultSchemaRegistry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-deactivated.v1",
+      tenantId: "t1",
+      data: {},
+    });
+    expect(valid).toBe(false);
+  });
+});

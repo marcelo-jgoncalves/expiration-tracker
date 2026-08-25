@@ -455,6 +455,55 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // Codex implementation-review finding (real gap): the queue schema previously accepted
+  // ANY object as `data` regardless of `eventType`, so a malformed/empty `data` passed
+  // handler-level validation and was only caught (if at all) by an unchecked `as string`
+  // cast inside parseTriggerEvent(). `data` is now conditionally validated (if/then $ref
+  // into each event schema's own `data` sub-schema) - these prove it actually rejects.
+  it("rejects a reminder-materialization-trigger.v1 message whose data is empty for eventType item-deactivated.v1 (missing itemId/itemVersion)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-deactivated.v1",
+      tenantId: "t_01",
+      data: {},
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reminder-materialization-trigger.v1 message whose data doesn't match eventType item-due-date-changed.v1 (missing previousDueDate/newDueDate/itemVersion)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "expiration.item-due-date-changed.v1",
+      tenantId: "t_01",
+      data: { itemId: "item_01" },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reminder-materialization-trigger.v1 message whose data doesn't match eventType reminder.policy-changed.v1 (missing previousItemId - required-but-nullable)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+      eventType: "reminder.policy-changed.v1",
+      tenantId: "t_01",
+      data: { policyId: "policy_01", itemId: "item_01" },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a reminder-materialization-trigger.v1 message for each eventType with the exact matching data shape", () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["expiration.item-deactivated.v1", { itemId: "item_01", itemVersion: 2 }],
+      ["expiration.item-due-date-changed.v1", { itemId: "item_01", previousDueDate: null, newDueDate: "2026-09-17T00:00:00.000Z", itemVersion: 2 }],
+      ["reminder.policy-changed.v1", { policyId: "policy_01", itemId: "item_01", previousItemId: null }],
+    ];
+    for (const [eventType, data] of cases) {
+      const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-materialization-trigger.v1.json", {
+        eventType,
+        tenantId: "t_01",
+        data,
+      });
+      expect(errors).toEqual([]);
+      expect(valid).toBe(true);
+    }
+  });
+
   it("rejects an item-due-date-changed event missing itemVersion", () => {
     const { valid } = registry.validate(
       "https://expiration-tracker/schemas/events/item-due-date-changed.v1.json",

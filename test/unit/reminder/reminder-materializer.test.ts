@@ -161,6 +161,30 @@ describe("ReminderMaterializer (implementation-blueprint.md §9.2)", () => {
       const all = (await store.queryByItem<ReminderOccurrence>("t1", "item1")) as ReminderOccurrence[];
       expect(all.every((o) => o.status === "SCHEDULED")).toBe(true); // nothing was wrongly cancelled
     });
+
+    it("rethrows (does not silently swallow) a transaction cancellation unrelated to the occurrence/policy-fence conditions - e.g. throttling", async () => {
+      const v1 = policy({ version: 1 });
+      await materializer.materialize({ tenantId: "t1", itemId: "item1", itemVersion: 1, itemDueDate: "2026-09-10", policy: v1, shardConfig: defaultShardConfig() });
+
+      // Wraps the real store so the cancellation reasons show something OTHER than the
+      // occurrence's own condition (index 0) or the policy fence (index 1) failing -
+      // simulating a genuine unrelated cancellation (throttling, an unclassified reason)
+      // that must be retried by the caller, never mistaken for one of the two expected
+      // safe races (Codex implementation-review finding: this exact class of bug was
+      // already fixed twice in dispatch.ts before being found here too).
+      const throttlingStore: typeof store = Object.assign(Object.create(Object.getPrototypeOf(store)), store, {
+        transactWrite: async () => {
+          throw { name: "TransactionCanceledException", message: "Throttled", CancellationReasons: [{ Code: "None" }, { Code: "ThrottlingException" }] };
+        },
+      });
+      const throttledMaterializer = new ReminderMaterializer(throttlingStore, "MainTable", () => "2026-08-01T00:00:00.000Z");
+
+      // reconcilePolicyOccurrencesUnconditionally's shouldCancel is always true, so it's
+      // guaranteed to attempt (and thus hit the stubbed throw on) the freshly-materialized
+      // occurrence, unlike reconcilePolicyOccurrences which would correctly skip it (same
+      // version, still enabled - nothing stale to cancel).
+      await expect(throttledMaterializer.reconcilePolicyOccurrencesUnconditionally({ tenantId: "t1", itemId: "item1", policy: v1 })).rejects.toMatchObject({ message: "Throttled" });
+    });
   });
 
   describe("BLOCKER-B: reconcilePolicyOccurrencesUnconditionally (non-current-target partition, policy-version fenced)", () => {
@@ -220,6 +244,19 @@ describe("ReminderMaterializer (implementation-blueprint.md §9.2)", () => {
 
       const all = (await store.queryByItem<ReminderOccurrence>("t1", "item1")) as ReminderOccurrence[];
       expect(all.every((o) => o.status === "CANCELLED")).toBe(true);
+    });
+
+    it("rethrows a transaction cancellation unrelated to the occurrence's own condition, rather than silently swallowing it", async () => {
+      await materializer.materialize({ tenantId: "t1", itemId: "item1", itemVersion: 1, itemDueDate: "2026-09-10", policy: policy(), shardConfig: defaultShardConfig() });
+
+      const throttlingStore: typeof store = Object.assign(Object.create(Object.getPrototypeOf(store)), store, {
+        transactWrite: async () => {
+          throw { name: "TransactionCanceledException", message: "Throttled", CancellationReasons: [{ Code: "ThrottlingException" }] };
+        },
+      });
+      const throttledMaterializer = new ReminderMaterializer(throttlingStore, "MainTable", () => "2026-08-01T00:00:00.000Z");
+
+      await expect(throttledMaterializer.cancelAllOccurrences({ tenantId: "t1", itemId: "item1" })).rejects.toMatchObject({ message: "Throttled" });
     });
 
     it("does not touch occurrences already DELIVERED/TRIGGERED/CANCELLED", async () => {

@@ -143,8 +143,16 @@ export class ReminderPolicyService {
     // Only write a NEW pointer when the target item actually changed (or scope just became
     // ITEM) - re-Put-ing an unchanged pointer with attribute_not_exists would otherwise
     // fail its own condition every time an unrelated field (e.g. triggers) is edited.
+    // Codex implementation-review finding (real defect): an earlier version passed
+    // `itemId: undefined` for the unchanged-target case to suppress the pointer Put, but
+    // that ALSO suppressed the item existence/ACTIVE/tenant ConditionCheck entirely - a
+    // same-item policy edit could commit without ever re-asserting its target is still
+    // valid, even though every OTHER ITEM-scoped write does. The two concerns (which
+    // itemId's existence to assert vs. whether to also write a pointer for it) are now
+    // separated: `itemId` always carries the real target when scope is ITEM;
+    // `skipPointerWrite` alone controls the pointer.
     const needsNewPointer = input.scope === "ITEM" && (policy.scope !== "ITEM" || input.itemId !== policy.itemId);
-    this.appendItemLinkage(entries, { tenantId, itemId: needsNewPointer ? input.itemId : undefined, scope: input.scope, policyId, skipPointerWrite: !needsNewPointer });
+    this.appendItemLinkage(entries, { tenantId, itemId: input.scope === "ITEM" ? input.itemId : undefined, scope: input.scope, policyId, skipPointerWrite: !needsNewPointer });
 
     this.appendPolicyChangedEvent(
       entries,
