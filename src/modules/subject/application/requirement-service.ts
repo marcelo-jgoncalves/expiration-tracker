@@ -18,6 +18,7 @@ import {
   type AssignRequirementInput,
   type UpdateRequirementAssignmentInput,
 } from "../domain/requirement-assignment.js";
+import { documentSubmissionKey, type DocumentSubmission } from "../domain/document-submission.js";
 import { buildSubjectAuditEvent, appendSubjectAuditToTransaction, type SubjectAuditAction } from "../domain/audit-event.js";
 import { isTransactionCanceled, type SubjectStore, type TransactWriteEntry } from "../ports/subject-store.js";
 import type { SubjectIdGenerator } from "./id-generator.js";
@@ -211,6 +212,33 @@ export class RequirementService {
     });
     await this.commit(entries);
     return { ...assignment, ...set, linkedItemId: undefined, satisfiedAt: undefined, version: expectedVersion + 1, updatedAt: this.now() };
+  }
+
+  /** BLOCKER-A (segunda metade): DocumentSubmission é agregado-irmão de Document (M6),
+   * ancorado no RequirementAssignment, não no ExpirationItem — mesma leitura por partição
+   * sem GSI novo (data-model.md, `document-submission.ts` linha 42), reusando
+   * `requirement:read` já que a submissão é evidência do próprio assignment, sem action
+   * dedicada reservada de antemão (diferente de `document:read`, que já existia na matriz). */
+  async getDocumentSubmission(ctx: RequestContext, subjectId: string, assignmentId: string, submissionId: string): Promise<DocumentSubmission> {
+    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
+    const submission = await this.store.get<DocumentSubmission>(documentSubmissionKey(assignment.tenantId, subjectId, assignmentId, submissionId));
+    if (!submission || submission.deletedAt) {
+      throw new NotFoundError("DocumentSubmission not found.", { subjectId, assignmentId, submissionId });
+    }
+    return submission;
+  }
+
+  /** Query pela partição do subject (SK begins_with REQASSIGN#assignmentId#SUBMISSION#) —
+   * sem GSI novo, mesmo padrão de listRequirementAssignments. */
+  async listDocumentSubmissions(ctx: RequestContext, subjectId: string, assignmentId: string): Promise<DocumentSubmission[]> {
+    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
+    const rows = await this.store.queryByPk<DocumentSubmission>(
+      subjectKey(assignment.tenantId, subjectId).PK,
+      `${REQUIREMENT_ASSIGNMENT_SK_PREFIX}${assignmentId}#SUBMISSION#`,
+    );
+    return rows.filter((row) => !row.deletedAt);
   }
 
   async deleteRequirementAssignment(ctx: RequestContext, subjectId: string, assignmentId: string, expectedVersion: number): Promise<void> {

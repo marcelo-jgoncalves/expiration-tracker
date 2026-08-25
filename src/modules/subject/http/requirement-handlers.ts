@@ -121,3 +121,34 @@ export async function handleUnlinkExpirationItem(deps: RequirementHttpDeps, req:
     return { statusCode: 200, body: { assignment } };
   });
 }
+
+function requireSubmissionId(req: HttpRequest): string {
+  const submissionId = req.pathParameters?.["submissionId"];
+  if (!submissionId) throw new ValidationError("Missing submissionId path parameter.");
+  return submissionId;
+}
+
+/** BLOCKER-A (segunda metade): GET /subjects/{subjectId}/requirements/{assignmentId}/submissions. */
+export async function handleListDocumentSubmissions(deps: RequirementHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const assignmentId = requireAssignmentId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
+    const submissions = await deps.requirements.listDocumentSubmissions(context, subjectId, assignmentId);
+    return { statusCode: 200, body: { submissions } };
+  });
+}
+
+/** BLOCKER-A (segunda metade): GET /subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}. */
+export async function handleGetDocumentSubmission(deps: RequirementHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const assignmentId = requireAssignmentId(req);
+    const submissionId = requireSubmissionId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
+    const submission = await deps.requirements.getDocumentSubmission(context, subjectId, assignmentId, submissionId);
+    return { statusCode: 200, body: { ...submission } };
+  });
+}

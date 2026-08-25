@@ -223,6 +223,11 @@ locals {
     delete_req  = { method = "DELETE", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
     link_item   = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/link" }
     unlink_item = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/unlink" }
+    # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission (M10, ancorada no
+    # RequirementAssignment) nunca teve rota de leitura para o lado autenticado do tenant -
+    # mesmo gap que Document/M6 tinha antes desta sessão.
+    list_submissions = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/submissions" }
+    get_submission   = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}" }
     # Achado real (M10 cluster 4): estas 4 rotas de DocumentRequest (lado autenticado, D-037)
     # já tinham handler HTTP completo (document-request-handlers.ts) e roteamento real dentro
     # do Lambda (subjects-handler.ts) desde a sessão anterior, mas NUNCA tinham sido
