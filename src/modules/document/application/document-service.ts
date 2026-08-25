@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ValidationError, ConflictError } from "../../../shared/errors/app-error.js";
+import { ValidationError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
@@ -201,5 +201,26 @@ export class DocumentService {
       requiredHeaders: presigned.requiredHeaders,
       expiresAt,
     };
+  }
+
+  /** BLOCKER-A: closes the read gap — only upload/delete existed before. Mirrors
+   * ExpirationService.readActiveItem's convention of treating a soft-deleted row as not
+   * found rather than exposing it, tenant isolation coming from documentKey's PK. */
+  async getDocument(ctx: RequestContext, itemId: string, documentId: string): Promise<Document> {
+    authorize({ context: ctx, action: "document:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const document = await this.store.get<Document>(documentKey(ctx.tenant.tenantId, itemId, documentId));
+    if (!document || document.status === "DELETED") {
+      throw new NotFoundError("Document not found.", { itemId, documentId });
+    }
+    return document;
+  }
+
+  /** BLOCKER-A: lists an item's documents via the existing item partition (no new GSI —
+   * Document is already keyed under `TENANT#t#ITEM#i`/`DOC#d`, data-model.md line 34).
+   * Excludes DELETED rows, same visibility rule as getDocument. */
+  async listDocuments(ctx: RequestContext, itemId: string): Promise<Document[]> {
+    authorize({ context: ctx, action: "document:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const documents = await this.store.queryByPk<Document>(`TENANT#${ctx.tenant.tenantId}#ITEM#${itemId}`, "DOC#");
+    return documents.filter((document) => document.status !== "DELETED");
   }
 }

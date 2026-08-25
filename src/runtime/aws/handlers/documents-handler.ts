@@ -3,7 +3,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildDocumentHttpDeps } from "../composition/document.js";
-import { handleReserveUpload, handleDeleteDocument, type DocumentHttpDeps } from "../../../modules/document/http/document-handlers.js";
+import { handleReserveUpload, handleDeleteDocument, handleGetDocument, handleListDocuments, type DocumentHttpDeps } from "../../../modules/document/http/document-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -31,6 +31,10 @@ async function handleDocumentsRoute(event: APIGatewayProxyEventV2WithJWTAuthoriz
       switch (routeKey) {
         case "POST /items/{itemId}/documents":
           return await handleReserveUpload(deps, { ...base, body: parseBody(event) });
+        case "GET /items/{itemId}/documents":
+          return await handleListDocuments(deps, base);
+        case "GET /items/{itemId}/documents/{documentId}":
+          return await handleGetDocument(deps, base);
         case "DELETE /items/{itemId}/documents/{documentId}":
           return await handleDeleteDocument(deps, base);
         default:

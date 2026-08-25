@@ -174,8 +174,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.documents) == 2
-    error_message = "Expected exactly 2 /items/{itemId}/documents* routes (reserve upload, delete)"
+    condition     = length(aws_apigatewayv2_route.documents) == 4
+    error_message = "Expected exactly 4 /items/{itemId}/documents* routes (reserve upload, list, get, delete)"
   }
 
   assert {
@@ -184,6 +184,24 @@ run "jwt_authorizer_attached_to_every_route" {
       "DELETE /items/{itemId}/documents/{documentId}",
     )
     error_message = "DELETE /items/{itemId}/documents/{documentId} route must exist"
+  }
+
+  # BLOCKER-A: read routes exist (docs/architecture reminder-delivery-pipeline.md's sibling
+  # blocker — no route previously read/listed Document/DocumentSubmission).
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "GET /items/{itemId}/documents",
+    )
+    error_message = "GET /items/{itemId}/documents route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "GET /items/{itemId}/documents/{documentId}",
+    )
+    error_message = "GET /items/{itemId}/documents/{documentId} route must exist"
   }
 
   # Every /subjects* route exists and is JWT-authorized (M9, D-036/D-040).

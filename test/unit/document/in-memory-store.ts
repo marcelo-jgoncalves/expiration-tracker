@@ -75,4 +75,8 @@ export class InMemoryDocumentStore implements DocumentStore {
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }
+
+  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+    return [...this.items.values()].filter((item) => item.PK === pk && (skPrefix === undefined || item.SK.startsWith(skPrefix))) as T[];
+  }
 }

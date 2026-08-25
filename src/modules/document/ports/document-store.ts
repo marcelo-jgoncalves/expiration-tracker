@@ -9,6 +9,11 @@ export interface DocumentStore {
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
   update<T extends EntityKey>(item: T): Promise<void>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
+  /** BLOCKER-A: lists a Document's item partition (`TENANT#t#ITEM#i`) filtered by SK prefix
+   * (`DOC#`) — same shape as ExpirationStore.queryByPk/ReminderStore's item-partition query,
+   * no new GSI needed since Document is already keyed under the item's own partition
+   * (data-model.md line 34). */
+  queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;
 }
 
 /** Global (non-tenant-prefixed) GSI6 key for slots pending reconciliation — same convention

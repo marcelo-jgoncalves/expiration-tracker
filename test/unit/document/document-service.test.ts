@@ -110,3 +110,44 @@ describe("DocumentService.reserveUpload", () => {
     expect(second.uploadUrl).not.toBe(first.uploadUrl);
   });
 });
+
+describe("DocumentService.getDocument/listDocuments (BLOCKER-A)", () => {
+  it("getDocument returns the document reserved via reserveUpload", async () => {
+    const { service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-get-1");
+    const document = await service.getDocument(ctx(), "item1", reserved.documentId);
+    expect(document.documentId).toBe(reserved.documentId);
+    expect(document.status).toBe("PENDING_UPLOAD");
+  });
+
+  it("getDocument throws NotFoundError for a document that never existed", async () => {
+    const { service } = buildService();
+    await expect(service.getDocument(ctx(), "item1", "no-such-doc")).rejects.toThrow(/not found/i);
+  });
+
+  it("getDocument throws NotFoundError for a DELETED document (soft-deleted rows never surface, same convention as ExpirationService.readActiveItem)", async () => {
+    const { store, service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-get-2");
+    const doc = store.allItems().find((i) => i["entityType"] === "Document") as Record<string, unknown> & { PK: string; SK: string };
+    await store.update({ ...doc, status: "DELETED" });
+    await expect(service.getDocument(ctx(), "item1", reserved.documentId)).rejects.toThrow(/not found/i);
+  });
+
+  it("listDocuments returns every non-deleted document under the item, excludes DELETED", async () => {
+    const { store, service } = buildService();
+    const first = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-list-1");
+    const second = await service.reserveUpload(ctx(), "item1", { fileName: "b.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-list-2");
+    const secondDoc = store.allItems().find((i) => i["entityType"] === "Document" && i["documentId"] === second.documentId) as Record<string, unknown> & { PK: string; SK: string };
+    await store.update({ ...secondDoc, status: "DELETED" });
+
+    const documents = await service.listDocuments(ctx(), "item1");
+    expect(documents.map((d) => d.documentId)).toEqual([first.documentId]);
+  });
+
+  it("listDocuments never returns another item's documents (partition isolation)", async () => {
+    const { service } = buildService();
+    await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-list-3");
+    const documents = await service.listDocuments(ctx(), "item2");
+    expect(documents).toEqual([]);
+  });
+});

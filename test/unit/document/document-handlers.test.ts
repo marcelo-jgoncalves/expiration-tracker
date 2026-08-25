@@ -10,7 +10,7 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { DocumentService } from "../../../src/modules/document/application/document-service.js";
 import { DocumentDeletionService } from "../../../src/modules/document/application/document-deletion-service.js";
-import { handleDeleteDocument, handleReserveUpload, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
+import { handleDeleteDocument, handleGetDocument, handleListDocuments, handleReserveUpload, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 
 const TABLE = "MainTable";
@@ -100,5 +100,48 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
     expect(auditSpy).toHaveBeenCalledTimes(1);
     expect(auditSpy).toHaveBeenCalledWith({ reason: "NO_MEMBERSHIP", action: "document:reserve-upload" });
     auditSpy.mockRestore();
+  });
+
+  it("handleGetDocument returns the reserved document (BLOCKER-A)", async () => {
+    const deps = buildDeps();
+    const reserved = await handleReserveUpload(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      pathParameters: { itemId: "item1" },
+      headers: { "idempotency-key": "idem-get-1" },
+      body: { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 1000, checksumSha256: VALID_SHA256 },
+    });
+    const response = await handleGetDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId: reserved.body["documentId"] as string } });
+    expect(response.statusCode).toBe(200);
+    expect(response.body["documentId"]).toBe(reserved.body["documentId"]);
+  });
+
+  it("handleGetDocument returns 404 for a document that doesn't exist (BLOCKER-A)", async () => {
+    const deps = buildDeps();
+    const response = await handleGetDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId: "missing" } });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("handleListDocuments returns every document reserved under the item (BLOCKER-A)", async () => {
+    const deps = buildDeps();
+    await handleReserveUpload(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      pathParameters: { itemId: "item1" },
+      headers: { "idempotency-key": "idem-list-1" },
+      body: { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 1000, checksumSha256: VALID_SHA256 },
+    });
+    const response = await handleListDocuments(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1" } });
+    expect(response.statusCode).toBe(200);
+    expect((response.body["documents"] as unknown[]).length).toBe(1);
+  });
+
+  it("handleListDocuments returns an empty list for an item with no documents (BLOCKER-A)", async () => {
+    const deps = buildDeps();
+    const response = await handleListDocuments(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item-empty" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.body["documents"]).toEqual([]);
   });
 });

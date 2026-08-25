@@ -110,3 +110,24 @@ export async function handleDeleteDocument(deps: DocumentHttpDeps, req: HttpRequ
     return { statusCode: 204, body: {} };
   });
 }
+
+/** BLOCKER-A: GET /items/{itemId}/documents/{documentId}. */
+export async function handleGetDocument(deps: DocumentHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const itemId = requireItemId(req);
+    const documentId = requireDocumentId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const document = await deps.documents.getDocument(context, itemId, documentId);
+    return { statusCode: 200, body: { ...document } };
+  });
+}
+
+/** BLOCKER-A: GET /items/{itemId}/documents. */
+export async function handleListDocuments(deps: DocumentHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const itemId = requireItemId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const documents = await deps.documents.listDocuments(context, itemId);
+    return { statusCode: 200, body: { documents } };
+  });
+}

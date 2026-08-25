@@ -382,6 +382,15 @@ architecture from proceeding (both outcomes —
 BLOCKER-B's `Definition of Done` cannot honestly claim renewal is fully handled until
 Marcelo picks one.
 
+**Decision (Marcelo, 2026-08-25):** copy the source item's `ReminderPolicy` automatically
+onto the renewed item, plus surface a user-facing notice on the renewal response/UI that
+the copied policy may need adjustment (e.g. new notice period). This overrides the
+fail-safe "no copy" default proposed above. Not yet implemented — `completeRenewal`
+(`expiration-service.ts:419`) still creates renewed items with zero policies; this needs
+its own scoped implementation pass (cross-module `expiration`→`reminder` read inside the
+existing transaction, plus a wire-level notice field) rather than being folded into
+BLOCKER-A work. Tracked in `NEXT_SESSION_PROMPT.md`.
+
 ## 9. Backfill safety — corrected (Round B HIGH finding: the original claim was false)
 
 **The original claim in this document ("policies remain inert until their item's due date

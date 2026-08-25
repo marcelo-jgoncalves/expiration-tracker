@@ -174,6 +174,8 @@ resource "aws_apigatewayv2_integration" "documents" {
 locals {
   documents_routes = {
     reserve_upload = { method = "POST", path = "/items/{itemId}/documents" }
+    list           = { method = "GET", path = "/items/{itemId}/documents" }
+    get            = { method = "GET", path = "/items/{itemId}/documents/{documentId}" }
     delete         = { method = "DELETE", path = "/items/{itemId}/documents/{documentId}" }
   }
 }
