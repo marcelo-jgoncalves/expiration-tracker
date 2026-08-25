@@ -44,7 +44,8 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `reminder-delivery-pipeline.md` | normativo atual | BLOCKER-B — pipeline real de materialização/entrega de lembretes: event taxonomy (`expiration.item-due-date-changed.v1`/`item-deactivated.v1`/`reminder.policy-changed.v1`), lifecycle do ponteiro `POLICYREF#`, fencing de concorrência (dispatch + reconciliação), backfill — APPROVED (arquitetura, Codex 9.2/10, rodadas B-H; implementação, Codex 9.2/10, 2 rodadas) |
 | `decisions-log.md` | decisão/ADR (log vivo) | D-000 a D-043 (a numeração não é sequencial na ordem das linhas — D-024 a D-028 foram inseridas antes de D-010 a D-023 no arquivo), nota Claude/Codex, status |
 | `reviews/m7-extraction-design/` | histórico/evidência de rodada | Artefatos do protocolo Claude↔Codex de M7 (proposta Claude, proposta Codex, crítica, reconciliação final aprovada — D-035) |
-| `adr/` | decisão/ADR | 10 ADRs formais para decisões Type 1 |
+| `adr/` | decisão/ADR | 11 ADRs formais para decisões Type 1 |
+| `reviews/spa-hosting-cloudfront-bff/` | histórico/evidência de rodada (protocolo `AGENTS.md` §4) | Debate de 6 rodadas que produziu ADR-0011 (coexistência CloudFront + Full BFF) — nota final 9,2/9,3 |
 | `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
 | `diagrams/project-status.html` | resumo/índice (visual) | **O documento de status do projeto** — painel visual (timeline de marcos, achados reais, pendências); abrir no navegador para uma visão executiva rápida, mais legível que `NEXT_SESSION_PROMPT.md` para esse fim (que continua sendo a fonte de estado detalhado por sessão) |
 | `session-log.md` | histórico | Log cronológico compacto por sessão |

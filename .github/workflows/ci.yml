@@ -160,6 +160,12 @@ jobs:
       - name: Build (production bundle)
         run: npm run build
 
+      # ADR-0011: contract that makes the CloudFront SPA-routing function's extension-based
+      # heuristic safe (infra/modules/spa-hosting/spa-routing.js) - runs here (every PR) AND in
+      # cd.yml (before syncing to S3), same script both times, never two divergent checkers.
+      - name: SPA build artifact policy (ADR-0011)
+        run: node ../scripts/check-spa-build-artifacts.mjs dist
+
       - name: Dependency audit (production - blocking)
         run: npm audit --omit=dev --audit-level=high
 

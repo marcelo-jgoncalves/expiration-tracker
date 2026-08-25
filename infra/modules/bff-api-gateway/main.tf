@@ -17,10 +17,14 @@ resource "aws_apigatewayv2_api" "bff" {
   protocol_type = "HTTP"
   description   = "Expiration Tracker Full BFF (D-053/D-054) - session/auth boundary, never JWT-protected"
 
+  # ADR-0011 (achado real da revisão): faltavam Idempotency-Key/If-Match (client.ts já os
+  # envia desde CREATE-IDEMPOTENCY-01/OCC) e PATCH (MUTATING_METHODS de client.ts trata PATCH
+  # como mutação mesmo sem uso atual). Só afeta o fallback de dev/invocação direta - produção
+  # via CloudFront é same-origin e não passa por esta config (ver comentário no topo do arquivo).
   cors_configuration {
     allow_origins     = [var.app_origin]
-    allow_methods     = ["GET", "POST", "PUT", "DELETE"]
-    allow_headers     = ["Content-Type", "X-CSRF-Token"]
+    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    allow_headers     = ["Content-Type", "X-CSRF-Token", "Idempotency-Key", "If-Match"]
     allow_credentials = true
   }
 

@@ -23,7 +23,11 @@ module.exports = {
   // from production code (see prototype/README.md) — it is not part of this Node/TS ruleset.
   // frontend/ is a separate npm project (own package.json/lockfile/.eslintrc.cjs, its own CI
   // job) — its plugins live in frontend/node_modules, unreachable from this root install.
-  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/", "frontend/"],
+  // infra/modules/spa-hosting/spa-routing.js is CloudFront Function runtime JS (ADR-0011) -
+  // its `handler` export is invoked by the CloudFront runtime itself, never imported by any
+  // TS module here, so no-unused-vars flags it incorrectly; it has its own unit test coverage
+  // (test/unit/infra/spa-routing.test.ts) instead of lint coverage.
+  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/", "frontend/", "infra/modules/spa-hosting/spa-routing.js"],
   rules: {
     "no-console": "error",
     "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
