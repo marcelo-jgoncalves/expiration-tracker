@@ -3,10 +3,6 @@
 # Desenho completo debatido em docs/architecture/reviews/spa-hosting-cloudfront-bff/ (6 rodadas
 # do protocolo Claude<->Codex, nota final 9,2/9,3).
 
-data "aws_kms_key" "s3_managed" {
-  key_id = "alias/aws/s3"
-}
-
 # --- S3: private bucket, never a public URL ------------------------------------------------
 
 resource "aws_s3_bucket" "spa" {
@@ -30,14 +26,26 @@ resource "aws_s3_bucket_ownership_controls" "spa" {
   }
 }
 
+# Real bug found via Camada 3 verification (2026-08-25) against this exact config: SSE-KMS
+# with the AWS-managed "alias/aws/s3" key (the pattern document-buckets/deploy-manifest-bucket
+# use) made every CloudFront request 403 - CloudFront's OAC needs kms:Decrypt on whatever key
+# encrypts the object, and the AWS-managed key's policy CANNOT be customized to grant a
+# cross-service principal (cloudfront.amazonaws.com) that permission - only a customer-managed
+# KMS key's policy can. Confirmed empirically: `aws s3api get-bucket-encryption` showed
+# `aws:kms` + the managed key ARN, `curl` against the real distribution returned 403
+# AccessDenied on every path (root, a real asset, and the SPA-fallback route), while the
+# bucket policy and OAC association were both independently confirmed correct via
+# `aws cloudfront get-distribution-config`/`get-origin-access-control`. SSE-S3 (no KMS
+# involved at all) is not a downgrade here - this bucket holds only public static frontend
+# assets meant to be served to any browser via CloudFront; OAC + the bucket policy above are
+# the real access control, KMS added no confidentiality benefit a customer-managed key
+# wasn't worth provisioning for.
 resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
   bucket = aws_s3_bucket.spa.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = data.aws_kms_key.s3_managed.arn
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true
   }
 }
 
