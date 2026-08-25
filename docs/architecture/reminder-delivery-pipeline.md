@@ -1,8 +1,9 @@
 # BLOCKER-B — End-to-End Reminder Delivery: Gap Analysis + Architecture Decision
 
-> **Status: DRAFT, Round F candidate (Round B: 5.8/10 → Round D: 7.3/10 → Round E: 8.1/10 →
-> Round F: 7.8/10, all NOT APPROVED; findings from every round and their fixes are in
-> §11/§12/§13, and Round F's own findings are being closed in this revision).** One
+> **Status: DRAFT, Round H candidate (Round B: 5.8/10 → Round D: 7.3/10 → Round E: 8.1/10 →
+> Round F: 7.8/10 → Round G: 8.8/10, all NOT APPROVED; findings from every round and their
+> fixes are in §11/§12/§13/§13.5/§13.6, and Round G's own finding is being closed in this
+> revision).** One
 > CRITICAL finding (dispatch-time freshness fencing) plus the real code defects later rounds
 > found in it are already implemented and tested (commits `3eeda33`, `55b7b5e`, ahead of
 > this doc revision — reconciliation is architecture-first per AGENTS.md §4, but
@@ -107,7 +108,7 @@ on item-due-date-changed(itemId):
     policy = strongly-consistent GET ReminderPolicy(policyId)
     if !policy or policy.tenantId != tenantId or policy.scope != "ITEM"
        or policy.itemId != itemId: skip (orphaned/stale pointer, never trusted — §5)
-    reconcilePolicyOccurrences(item, policy)   // cancel stale-version/disabled (§6)
+    reconcilePolicyOccurrences(tenantId, itemId, policy)   // cancel stale-version/disabled (§6)
     if policy.enabled: materializer.materialize(item, policy)
   materializer.cancelStaleOccurrences(itemVersion)  // existing itemVersion safety net
 
@@ -116,35 +117,29 @@ on item-deactivated(itemId):
                                             // same one-conditional-update-per-row pattern
 
 on policy-changed(policyId, itemId?, previousItemId?):
-  policy = strongly-consistent GET ReminderPolicy(policyId)   // read FIRST, before touching previousItemId
-  if previousItemId and (!policy or policy.itemId != previousItemId):
-    // Codex Round E fix (read-before-cancel) + Round F fix (the read-then-cancel gap
-    // itself was still a TOCTOU race - see below): only cancel under previousItemId if the
-    // CURRENT policy read confirms it genuinely no longer targets that item - a plain
-    // unconditional cancel here is unsafe under out-of-order delivery even WITH this
-    // pre-check, because the policy can move again in the gap between this read and the
-    // cancel actually committing (a delayed A->B worker reads "B", but B->A commits and
-    // re-materializes A before this worker's cancel runs on A). materialize() cannot
-    // recreate a wrongly-cancelled occurrence (putIfAbsent on the same deterministic key
-    // is a no-op - see reminder-materializer.ts).
-    //
-    // Fix: EACH occurrence cancellation under previousItemId is committed in a
-    // TransactWriteItems that ALSO includes a ConditionCheck on the policy row asserting
-    // policy.version == (the version just read above) - the exact same fencing pattern
-    // buildVersionConditionCheck already established for the dispatch fence (§6/commit
-    // `3eeda33`). If the policy has moved again by commit time, the ConditionCheck fails,
-    // the transaction aborts, and that occurrence is left UNTOUCHED rather than wrongly
-    // cancelled - a safe no-op, not a silent loss: the worker invocation that caused the
-    // policy to move again always fires its own policy-changed event, which will correctly
-    // reconcile (or skip) this same occurrence with fresh state. This is a real atomic
-    // fence, not just "read recently" - it closes the gap Round F correctly found the
-    // read-then-cancel version still had.
-    reconcilePolicyOccurrencesUnconditionally(tenantId, previousItemId, policyId, policy.version)
-  if !policy or policy.scope != "ITEM": no-op for the current-item side (TEMPLATE scope out of scope, §2)
-  item = strongly-consistent GET ExpirationItem(policy.itemId)
-  if !item or item.status != ACTIVE: no-op (item-deactivated event, if any, handles cleanup)
-  reconcilePolicyOccurrences(item, policy)
-  if policy.enabled: materializer.materialize(item, policy)
+  // Codex Round G simplification: after 4 rounds of patching the previousItemId branching
+  // logic separately from the current-item logic (E: read-gate it; F: atomically fence it;
+  // G: fix a !policy edge case the branching missed), Codex correctly named the real
+  // problem - two bespoke code paths for "old side" vs "current side" was exactly the
+  // shape that kept growing new edge cases. Replaced with ONE unified operation applied to
+  // every candidate partition, current or previous, with the same fence every time.
+  policy = strongly-consistent GET ReminderPolicy(policyId)
+  if !policy:
+    return   // hard-delete unsupported today (§5) - nothing to reconcile against, and no
+             // version exists to fence a cancellation with; not a production path yet
+  targets = dedupe(nonNull([previousItemId, policy.scope == "ITEM" ? policy.itemId : null]))
+  for target in targets:
+    isCurrentTarget = (policy.scope == "ITEM" and target == policy.itemId)
+    if isCurrentTarget:
+      item = strongly-consistent GET ExpirationItem(target)
+      if !item or item.status != ACTIVE: continue   // item-deactivated event, if any, handles cleanup
+      reconcilePolicyOccurrences(tenantId, target, policy)   // cancel only stale-version/disabled (§6),
+                                                              // fenced by policy.version (buildVersionConditionCheck)
+      if policy.enabled: materializer.materialize(item, policy)
+    else:
+      reconcilePolicyOccurrencesUnconditionally(tenantId, target, policy)   // cancel ALL live occurrences,
+                                                                             // fenced by policy.version - never
+                                                                             // materialize a non-current target
 ```
 
 This keeps the write path exactly as fast/simple as today, reuses infra that's already
@@ -213,6 +208,17 @@ item read) in the trigger worker. No new alarms, no new capacity model entry nee
   a safe no-op (the move that invalidated this cancel always fires its own event, which
   reconciles with fresh state), never a wrongly-cancelled currently-valid occurrence that
   `materialize()` could never recreate (its deterministic key would already exist).
+  **Codex Round G finding (MEDIUM, closing out this area) + simplification**: the
+  read-first-then-branch pseudocode had a `!policy` edge case (hard-delete, unsupported
+  today, but the branch modeled it) that dereferenced `policy.version` on a value that
+  didn't exist. Rather than patch that one case, §4's pseudocode was restructured per
+  Codex's own suggestion into a single unified operation applied identically to every
+  candidate partition (`previousItemId` and the current `itemId`, deduplicated) — cancel
+  everything if the partition isn't the policy's current target, cancel only stale/disabled
+  occurrences (and materialize) if it is, fenced by `policy.version` either way, with a
+  single early `return` if the policy is altogether missing. Four rounds of incrementally
+  patching two separate "old side"/"current side" code paths kept producing new edge cases
+  in the seam between them; one rule applied uniformly has no seam left to have a bug in.
 - `disablePolicy`: pointer is left in place (still discoverable — a disabled policy must
   still be reachable so its occurrences get cancelled, not orphaned).
 - No hard-delete of a policy exists anywhere in the current API (`reminder-policy-service.ts`
@@ -456,7 +462,15 @@ boundary-rule change, not implied by this document.
 | F3 | `reminder.policy-changed.v1`'s payload required `itemId` unconditionally, self-contradictory for an ITEM→TEMPLATE transition where the domain forbids `itemId` on a TEMPLATE-scope policy | MEDIUM | `itemId` is now optional in the payload (present iff current scope is ITEM); worker logic already never used the event's `itemId` for a decision (always re-reads the policy), so this was a payload-contract fix only (§4) | Design fixed |
 | F4 | Document header still said "Round E candidate" with Round E already complete | LOW | Header updated to "Round F candidate" with the full round-score history | Fixed |
 
-## 14. Claude self-review (Round A/C/E/F/G)
+## 13.6. Codex Round G findings and disposition (score 8.8/10, NOT APPROVED — re-review after the F1-F4 fixes above)
+
+| # | Finding | Severity | Fix | Status |
+|---|---|---|---|---|
+| G1 | The `!policy` branch of the previous "read-then-branch" pseudocode dereferenced `policy.version` on a value that couldn't exist in that branch, and no version-based fence can gate a cancellation against a row that doesn't exist | MEDIUM | Restructured §4's `on policy-changed` into one unified operation over every candidate partition (`previousItemId` + current `itemId`, deduplicated), with a single early return if the policy is missing — closes the edge case AND removes the "old side vs current side" branching seam Codex identified as the real source of 3 consecutive rounds of edge cases in this area | Design fixed |
+
+Codex's own assessment after this round: "F1–F4 are genuinely fixed" and the remaining item was this one MEDIUM pseudocode contradiction — explicitly not a design-soundness objection to the fence itself. The fresh-design-pass suggestion (a single unified reconcile operation instead of bespoke old/current branches) is adopted directly above, per Codex's own recommendation, rather than left as a "nice to have."
+
+## 14. Claude self-review (Round A/C/E/F/G/H)
 
 - E1 is the most important finding across all three Codex rounds so far: it's the only one
   that was a genuine logic bug in the CORRECTED design (D1's fix), not just an
@@ -500,10 +514,11 @@ boundary-rule change, not implied by this document.
   untouched — no further redesign risk introduced into the already-approved M3.5/M4
   pipeline.
 
-Next step: a fresh Codex round (G) on this revision, since F found the same class of
-TOCTOU gap surviving one more fix attempt (F1) plus a repeat code defect (F2) that both
-needed correction, not just confirmation of Round E's fixes. If Round G approves (≥9.0
-both sides, blind-score per AGENTS.md §4), proceed to implement §4-§9 (trigger worker,
-pointer lifecycle, lifecycle events, backfill script, Terraform) with the concurrency/
-tenant-isolation/renewal/backfill/out-of-order/true-concurrency test coverage Rounds B, D,
-E and F all asked for.
+Next step: a fresh Codex round (H) on this revision. Round G explicitly confirmed F1-F4
+were genuinely fixed and scored 8.8/10 with exactly one remaining MEDIUM finding (G1),
+now closed along with the unification simplification Codex itself recommended — this is
+the first round where the reviewer's own assessment, not just the fix count, points toward
+approval. If Round H confirms ≥9.0 (blind-score per AGENTS.md §4), proceed to implement
+§4-§9 (trigger worker, pointer lifecycle, lifecycle events, backfill script, Terraform)
+with the concurrency/tenant-isolation/renewal/backfill/out-of-order/true-concurrency test
+coverage every round from B through G asked for.
