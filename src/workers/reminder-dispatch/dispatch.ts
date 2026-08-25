@@ -114,7 +114,14 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         },
       ]);
     } catch (err) {
-      if (!isTransactionCanceled(err)) throw err;
+      // Codex Round E finding: mirrors D2's exact defect on this second, older transaction -
+      // TransactionCanceledException is not synonymous with "the occurrence's own condition
+      // lost" (throttling/other cancellation reasons must be retried, not silently treated as
+      // an already-resolved stale occurrence). Only entry 0 (this transaction's sole Update)
+      // failing its own ConditionalCheckFailed is provably safe to swallow.
+      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      const occurrenceConditionFailed = reasons?.[0]?.Code === "ConditionalCheckFailed";
+      if (!isTransactionCanceled(err) || (reasons && !occurrenceConditionFailed)) throw err;
     }
     return { kind: "CANCELLED_STALE", reason };
   }
