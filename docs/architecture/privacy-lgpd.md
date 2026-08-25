@@ -42,6 +42,9 @@ Endpoint autenticado + canal alternativo verificado criam `DataSubjectRequest` (
 | `TRANSIENT` | WebhookInbox, UploadSlot | 7 dias; slot incompleto: 24h | não | não |
 | `SECURITY_AUDIT` | AuditEvent/logs redigidos | criação + 365 dias | incidente/litígio | backup regional |
 | `QUOTA_TELEMETRY` | quotas/métricas identificáveis | fim da janela + 30 dias | não | não |
+| `EXTRACTION_TRANSIENT` | texto OCR (Textract) do pipeline de extração M7, artefato transitório em bucket/prefixo dedicado | exclusão explícita ao concluir/falhar/descartar o run; lifecycle S3 de 24h como safety net (nunca o prazo real esperado) | não | não |
+
+`EXTRACTION_TRANSIENT` (adicionado 2026-08-25, pré-requisito de design registrado antes de qualquer implementação de M7 — `docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md` §1.4/§4, GATE atingido 9,2/9,3): o texto OCR nunca é o dado final do sistema (`ExtractedField`/`USER_DOCUMENT` acima são as classes do resultado persistido) — é um artefato de trabalho intermediário entre `RunTextract` e `ExtractionValidationTaskHandler`, sem versionamento/backup/replicação (nada aqui deve sobreviver a uma restauração de disaster recovery), nunca entra em DynamoDB/logs/traces/eventos/DLQ. Único bucket/prefixo cujo prazo padrão é medido em horas, não dias — reflete que seu único propósito é existir pelo tempo mínimo entre duas etapas de um mesmo pipeline.
 
 Nenhuma classe aceita prazo nulo, salvo conta ainda ativa. `LEGAL_EVIDENCE` sem fundamento e data final regride automaticamente para `USER_DOCUMENT` — nunca fica em limbo indefinido. **Validar juridicamente**: prazos, documentos probatórios, obrigações fiscais/consumeristas/contratuais.
 
