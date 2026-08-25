@@ -25,6 +25,19 @@ export interface DocumentStore {
  * milestone to include upload-slot-reconciliation. */
 export const GSI6PK_RECON_UPLOAD_PENDING = "RECON#UPLOAD#PENDING";
 
+/** Real bug found via Camada 3 verification against AWS real (2026-08-25, dev account):
+ * `reserveUpload` never actually wrote `GSI6PK`/`GSI6SK` onto the `UploadSlot` it created -
+ * confirmed empirically (a fabricated expired RESERVED slot with no GSI6 attributes was
+ * invisible to the real deployed worker, `resultCount: 0`; the SAME item with these two
+ * attributes added manually was found and correctly reconciled on the next invocation).
+ * Every expired upload reservation in production was silently never cleaned up. Same
+ * `<sortKey>#TENANT#<tenantId>#<ENTITY>#<id>` uniqueness-suffix convention as
+ * `buildExpiredClaimGsi6Sk`/`buildDstCandidateGsi6Sk` (reminder module) - required because
+ * GSI6SK must be unique per GSI6PK partition, and two slots can share the same expiresAt. */
+export function buildUploadSlotGsi6Sk(expiresAt: string, tenantId: string, uploadSlotId: string): string {
+  return `${expiresAt}#TENANT#${tenantId}#SLOT#${uploadSlotId}`;
+}
+
 export interface Gsi6QueryInput {
   gsi6pk: string;
   before: string;

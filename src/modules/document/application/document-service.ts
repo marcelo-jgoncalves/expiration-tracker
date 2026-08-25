@@ -14,7 +14,7 @@ import { buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import { MAX_UPLOAD_BYTES } from "./upload-validation.js";
-import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.js";
+import { GSI6PK_RECON_UPLOAD_PENDING, buildUploadSlotGsi6Sk, type DocumentStore, type TransactWriteEntry } from "../ports/document-store.js";
 import type { UploadUrlSigner } from "../ports/upload-url-signer.js";
 import type { DocumentIdGenerator } from "./id-generator.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
@@ -167,6 +167,14 @@ export class DocumentService {
         purgeAfter: expiresAt,
         version: 1,
         updatedAt: now,
+        // Real bug found via Camada 3 verification against AWS real (2026-08-25): this write
+        // was missing entirely - every expired reservation was invisible to
+        // UploadSlotReconciliationWorker's GSI6 sweep, confirmed empirically against the
+        // deployed dev Lambda (0 results without these two fields, correctly reconciled once
+        // added). Removed the moment the slot leaves RESERVED (reconciliation.ts on EXPIRED,
+        // advance-after-evidence.ts on CONSUMED).
+        GSI6PK: GSI6PK_RECON_UPLOAD_PENDING,
+        GSI6SK: buildUploadSlotGsi6Sk(expiresAt, ctx.tenant.tenantId, uploadSlotId),
       };
 
       const entries: TransactWriteEntry[] = [

@@ -55,7 +55,20 @@ async function processOneSlot(deps: ReconciliationDeps, slot: UploadSlot): Promi
 
   try {
     await deps.store.transactWrite([
-      { Update: buildVersionedUpdate({ tableName: deps.tableName, key: uploadSlotKey(slot.tenantId, slot.uploadSlotId), tenantId: slot.tenantId, expectedVersion: slot.version, set: { status: "EXPIRED" } }) },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: uploadSlotKey(slot.tenantId, slot.uploadSlotId),
+          tenantId: slot.tenantId,
+          expectedVersion: slot.version,
+          set: { status: "EXPIRED" },
+          // Real bug found via Camada 3 verification against AWS real (2026-08-25): this slot
+          // is leaving RESERVED for good - its GSI6 discovery pointer must go with it, or it
+          // stays visible to every future sweep forever (confirmed empirically: the pointer
+          // was still present after the real deployed worker processed it, before this fix).
+          remove: ["GSI6PK", "GSI6SK"],
+        }),
+      },
     ]);
   } catch (err) {
     if (isTransactionCanceled(err)) return; // concurrent sweep already claimed it.

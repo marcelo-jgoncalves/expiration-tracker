@@ -25,6 +25,11 @@ function baseSlot(overrides: Partial<UploadSlot> = {}): UploadSlot {
     purgeAfter: "2026-08-23T00:00:00.000Z",
     version: 1,
     updatedAt: "2026-08-22T00:00:00.000Z",
+    // Real bug found via Camada 3 verification against AWS real (2026-08-25): reserveUpload
+    // never actually wrote these two fields - mirrored here now that it does, so this
+    // fixture matches the real production shape instead of an idealized one.
+    GSI6PK: "RECON#UPLOAD#PENDING",
+    GSI6SK: "2026-08-22T00:10:00.000Z#TENANT#t1#SLOT#slot1",
     ...overrides,
   };
 }
@@ -80,6 +85,10 @@ describe("reconcileExpiredUploadSlots", () => {
     expect(result).toEqual({ slotsExpired: 1, documentsTimedOut: 0, errors: 0 });
     const slot = (await store.get(uploadSlotKey("t1", "slot1"))) as UploadSlot;
     expect(slot.status).toBe("EXPIRED");
+    // Real bug found via Camada 3 (2026-08-25): the GSI6 discovery pointer must be removed
+    // the moment the slot leaves RESERVED, or it stays visible to every future sweep forever.
+    expect(slot.GSI6PK).toBeUndefined();
+    expect(slot.GSI6SK).toBeUndefined();
     const doc = (await store.get(documentKey("t1", "item1", "doc1"))) as Document;
     expect(doc.status).toBe("TIMEOUT");
 

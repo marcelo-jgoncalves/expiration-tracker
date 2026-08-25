@@ -60,6 +60,14 @@ describe("DocumentService.reserveUpload", () => {
     expect(doc?.["quarantineObject"]).toBeDefined();
   });
 
+  it("real bug found via Camada 3 verification against AWS real (2026-08-25): the created UploadSlot must carry GSI6PK/GSI6SK, or UploadSlotReconciliationWorker's sweep never discovers it - confirmed empirically against the deployed dev Lambda (0 results without these fields, correctly reconciled once added)", async () => {
+    const { store, service } = buildService();
+    const result = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-gsi6-1");
+    const slot = store.allItems().find((i) => i["entityType"] === "UploadSlot") as Record<string, unknown> | undefined;
+    expect(slot?.["GSI6PK"]).toBe("RECON#UPLOAD#PENDING");
+    expect(slot?.["GSI6SK"]).toBe(`${result.expiresAt}#TENANT#t1#SLOT#${result.uploadSlotId}`);
+  });
+
   it("never embeds the original file name in the quarantine object key (tenantId/itemId/documentId ARE embedded deliberately - see quarantine-key.ts)", async () => {
     const { store, service } = buildService();
     const result = await service.reserveUpload(ctx(), "item1", { fileName: "sensitive-name-joão.pdf", mediaType: "application/pdf", contentLength: 1000, checksumSha256: VALID_SHA256 }, "idem-2");

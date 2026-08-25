@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryDocumentStore } from "./in-memory-store.js";
 import { advanceAfterEvidence } from "../../../src/modules/document/application/advance-after-evidence.js";
 import { documentKey, type Document } from "../../../src/modules/document/domain/document.js";
+import { uploadSlotKey, type UploadSlot } from "../../../src/modules/document/domain/upload-slot.js";
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
 
 const TABLE = "MainTable";
@@ -26,6 +27,28 @@ function baseDocument(overrides: Partial<Document> = {}): Document {
     version: 1,
     createdAt: "2026-08-22T00:00:00.000Z",
     updatedAt: "2026-08-22T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function baseSlot(overrides: Partial<UploadSlot> = {}): UploadSlot {
+  return {
+    ...uploadSlotKey("t1", "slot1"),
+    entityType: "UploadSlot",
+    tenantId: "t1",
+    uploadSlotId: "slot1",
+    documentId: "doc1",
+    itemId: "item1",
+    status: "RESERVED",
+    quarantineKey: "quarantine/doc1/slot1/abc",
+    reservedAt: "2026-08-22T00:00:00.000Z",
+    expiresAt: "2026-08-22T00:10:00.000Z",
+    retentionClass: "TRANSIENT",
+    purgeAfter: "2026-08-23T00:00:00.000Z",
+    version: 1,
+    updatedAt: "2026-08-22T00:00:00.000Z",
+    GSI6PK: "RECON#UPLOAD#PENDING",
+    GSI6SK: "2026-08-22T00:10:00.000Z#TENANT#t1#SLOT#slot1",
     ...overrides,
   };
 }
@@ -195,5 +218,79 @@ describe("advanceAfterEvidence — corrida real entre upload e malware", () => {
     });
     const outcome = await advanceAfterEvidence({ store, objects: flakyObjects, tableName: TABLE, cleanBucket: CLEAN_BUCKET }, { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT });
     expect(outcome).toBe("PROMOTED");
+  });
+
+  describe("UploadSlot consumption (real bug found via Camada 3 verification against AWS real, 2026-08-25)", () => {
+    it("marks the associated RESERVED slot CONSUMED and strips its GSI6 pointer on PROMOTE", async () => {
+      const store = new InMemoryDocumentStore();
+      await store.putIfAbsent(baseSlot());
+      await store.putIfAbsent(
+        baseDocument({
+          status: "SCANNING",
+          uploadEvidence: { object: QUARANTINE_OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+          malwareEvidence: { object: QUARANTINE_OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+        }),
+      );
+      const outcome = await advanceAfterEvidence(
+        { store, objects: fakeObjectStore(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT },
+      );
+      expect(outcome).toBe("PROMOTED");
+      const slot = (await store.get(uploadSlotKey("t1", "slot1"))) as UploadSlot;
+      expect(slot.status).toBe("CONSUMED");
+      expect(slot.GSI6PK).toBeUndefined();
+      expect(slot.GSI6SK).toBeUndefined();
+    });
+
+    it("marks the associated RESERVED slot CONSUMED and strips its GSI6 pointer on REJECT", async () => {
+      const store = new InMemoryDocumentStore();
+      await store.putIfAbsent(baseSlot());
+      await store.putIfAbsent(baseDocument({ status: "PENDING_UPLOAD", malwareEvidence: { object: QUARANTINE_OBJECT, status: "THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:01:00.000Z" } }));
+      const outcome = await advanceAfterEvidence(
+        { store, objects: fakeObjectStore(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT },
+      );
+      expect(outcome).toBe("REJECTED");
+      const slot = (await store.get(uploadSlotKey("t1", "slot1"))) as UploadSlot;
+      expect(slot.status).toBe("CONSUMED");
+      expect(slot.GSI6PK).toBeUndefined();
+      expect(slot.GSI6SK).toBeUndefined();
+    });
+
+    it("never errors and leaves an already-EXPIRED slot untouched (a concurrent reconciliation sweep resolving the same race is legitimate, not a defect)", async () => {
+      const store = new InMemoryDocumentStore();
+      await store.putIfAbsent(baseSlot({ status: "EXPIRED", GSI6PK: undefined, GSI6SK: undefined }));
+      await store.putIfAbsent(
+        baseDocument({
+          status: "SCANNING",
+          uploadEvidence: { object: QUARANTINE_OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+          malwareEvidence: { object: QUARANTINE_OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+        }),
+      );
+      const outcome = await advanceAfterEvidence(
+        { store, objects: fakeObjectStore(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT },
+      );
+      expect(outcome).toBe("PROMOTED"); // the document side is unaffected either way.
+      const slot = (await store.get(uploadSlotKey("t1", "slot1"))) as UploadSlot;
+      expect(slot.status).toBe("EXPIRED"); // never overwritten back to CONSUMED.
+    });
+
+    it("never errors when no UploadSlot exists at all for the document's uploadSlotId", async () => {
+      const store = new InMemoryDocumentStore();
+      await store.putIfAbsent(
+        baseDocument({
+          status: "SCANNING",
+          uploadSlotId: "slot-never-existed",
+          uploadEvidence: { object: QUARANTINE_OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+          malwareEvidence: { object: QUARANTINE_OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+        }),
+      );
+      const outcome = await advanceAfterEvidence(
+        { store, objects: fakeObjectStore(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT },
+      );
+      expect(outcome).toBe("PROMOTED");
+    });
   });
 });
