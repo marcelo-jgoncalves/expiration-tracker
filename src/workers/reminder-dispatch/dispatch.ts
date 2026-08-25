@@ -114,14 +114,18 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         },
       ]);
     } catch (err) {
-      // Codex Round E finding: mirrors D2's exact defect on this second, older transaction -
-      // TransactionCanceledException is not synonymous with "the occurrence's own condition
-      // lost" (throttling/other cancellation reasons must be retried, not silently treated as
-      // an already-resolved stale occurrence). Only entry 0 (this transaction's sole Update)
-      // failing its own ConditionalCheckFailed is provably safe to swallow.
+      // Codex Round E/F finding: mirrors D2's exact defect on this second, older
+      // transaction - TransactionCanceledException is not synonymous with "the occurrence's
+      // own condition lost" (throttling/other cancellation reasons must be retried, not
+      // silently treated as an already-resolved stale occurrence). Only entry 0 (this
+      // transaction's sole Update) failing its own ConditionalCheckFailed is provably safe
+      // to swallow - Round F caught that the first fix still fell through to "swallow" when
+      // `CancellationReasons` was absent entirely (`reasons && !occurrenceConditionFailed`
+      // is falsy when `reasons` is undefined); this must rethrow whenever it cannot prove
+      // the specific reason, exactly like the success-path catch below already does.
       const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
       const occurrenceConditionFailed = reasons?.[0]?.Code === "ConditionalCheckFailed";
-      if (!isTransactionCanceled(err) || (reasons && !occurrenceConditionFailed)) throw err;
+      if (!isTransactionCanceled(err) || !occurrenceConditionFailed) throw err;
     }
     return { kind: "CANCELLED_STALE", reason };
   }

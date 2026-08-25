@@ -1,7 +1,8 @@
 # BLOCKER-B — End-to-End Reminder Delivery: Gap Analysis + Architecture Decision
 
-> **Status: DRAFT, Round E candidate (Round B: 5.8/10 → Round D: 7.3/10 → Round E: 8.1/10,
-> all NOT APPROVED; findings from every round and their fixes are in §11/§12).** One
+> **Status: DRAFT, Round F candidate (Round B: 5.8/10 → Round D: 7.3/10 → Round E: 8.1/10 →
+> Round F: 7.8/10, all NOT APPROVED; findings from every round and their fixes are in
+> §11/§12/§13, and Round F's own findings are being closed in this revision).** One
 > CRITICAL finding (dispatch-time freshness fencing) plus the real code defects later rounds
 > found in it are already implemented and tested (commits `3eeda33`, `55b7b5e`, ahead of
 > this doc revision — reconciliation is architecture-first per AGENTS.md §4, but
@@ -75,13 +76,21 @@ expiration.item-deactivated.v1  (NEW)
 
 reminder.policy-changed.v1  (NEW)
   emitted by: createPolicy, updatePolicy, disablePolicy (ReminderPolicyService)
-  payload: { policyId, itemId, previousItemId? }  — previousItemId set ONLY when
-  updatePolicy moves an ITEM-scoped policy to a different item or changes its scope away
-  from ITEM (Codex Round D HIGH finding — see §5: without this, occurrences left under the
-  OLD item are unreachable by any event path, since there is no global policy->occurrence
-  index and the old pointer is gone by the time this event is processed)
+  payload: { policyId, itemId?, previousItemId? }  — Codex Round F MEDIUM finding, now
+  fixed: an earlier revision required `itemId` unconditionally, which is contradictory for
+  an ITEM->TEMPLATE transition (§5's domain invariant: TEMPLATE scope forbids `itemId`).
+  `itemId` is present iff the policy's CURRENT scope is ITEM (i.e. it's the policy's own
+  `itemId` at emission time, omitted for TEMPLATE); `previousItemId` is present ONLY when
+  updatePolicy moves an ITEM-scoped policy to a different item, or changes scope AWAY from
+  ITEM (Codex Round D HIGH finding — see §5: without this, occurrences left under the OLD
+  item are unreachable by any event path, since there is no global policy->occurrence index
+  and the old pointer is gone by the time this event is processed). The worker's own
+  decision logic (§4) never actually reads the event's `itemId` field for anything beyond
+  routing — it always re-derives the current `itemId` from a fresh `GET` of the policy row
+  itself — so this field's presence/absence only needed to stop being self-contradictory,
+  not to carry a new decision.
   meaning: "this policy's state changed — reconcile the occurrences it owns, under BOTH
-  itemId and previousItemId if the latter is present"
+  the current item (if scope is still ITEM) and previousItemId if the latter is present"
 ```
 
 All three -> EventBridge (default outbox path, no `destination` override) -> one new
@@ -106,19 +115,31 @@ on item-deactivated(itemId):
   cancelAllOccurrences(tenantId, itemId)   // new materializer method, unconditional,
                                             // same one-conditional-update-per-row pattern
 
-on policy-changed(policyId, itemId, previousItemId?):
+on policy-changed(policyId, itemId?, previousItemId?):
   policy = strongly-consistent GET ReminderPolicy(policyId)   // read FIRST, before touching previousItemId
   if previousItemId and (!policy or policy.itemId != previousItemId):
-    // Codex Round E fix: only cancel under previousItemId if the CURRENT policy read
-    // confirms it genuinely no longer targets that item - an unconditional cancel here
-    // (the original design) is unsafe under out-of-order delivery: a delayed A->B event
-    // arriving after a later B->A move had already restored A as current would wrongly
-    // cancel the NOW-current occurrence on A, and materialize() cannot recreate it
-    // (putIfAbsent on the same deterministic key is a no-op - see reminder-materializer.ts).
-    // Gating on a fresh read makes this convergent regardless of arrival order: the delayed
-    // event's cancel only fires if A is genuinely still not the policy's target by the time
-    // this event is actually processed, never based on the payload's own (possibly stale) claim.
-    reconcilePolicyOccurrencesUnconditionally(tenantId, previousItemId, policyId)
+    // Codex Round E fix (read-before-cancel) + Round F fix (the read-then-cancel gap
+    // itself was still a TOCTOU race - see below): only cancel under previousItemId if the
+    // CURRENT policy read confirms it genuinely no longer targets that item - a plain
+    // unconditional cancel here is unsafe under out-of-order delivery even WITH this
+    // pre-check, because the policy can move again in the gap between this read and the
+    // cancel actually committing (a delayed A->B worker reads "B", but B->A commits and
+    // re-materializes A before this worker's cancel runs on A). materialize() cannot
+    // recreate a wrongly-cancelled occurrence (putIfAbsent on the same deterministic key
+    // is a no-op - see reminder-materializer.ts).
+    //
+    // Fix: EACH occurrence cancellation under previousItemId is committed in a
+    // TransactWriteItems that ALSO includes a ConditionCheck on the policy row asserting
+    // policy.version == (the version just read above) - the exact same fencing pattern
+    // buildVersionConditionCheck already established for the dispatch fence (§6/commit
+    // `3eeda33`). If the policy has moved again by commit time, the ConditionCheck fails,
+    // the transaction aborts, and that occurrence is left UNTOUCHED rather than wrongly
+    // cancelled - a safe no-op, not a silent loss: the worker invocation that caused the
+    // policy to move again always fires its own policy-changed event, which will correctly
+    // reconcile (or skip) this same occurrence with fresh state. This is a real atomic
+    // fence, not just "read recently" - it closes the gap Round F correctly found the
+    // read-then-cancel version still had.
+    reconcilePolicyOccurrencesUnconditionally(tenantId, previousItemId, policyId, policy.version)
   if !policy or policy.scope != "ITEM": no-op for the current-item side (TEMPLATE scope out of scope, §2)
   item = strongly-consistent GET ExpirationItem(policy.itemId)
   if !item or item.status != ACTIVE: no-op (item-deactivated event, if any, handles cleanup)
@@ -180,13 +201,18 @@ item read) in the trigger worker. No new alarms, no new capacity model entry nee
   partition is only reachable if something tells the worker which partition to look under.
   `previousItemId` is that something — the worker reconciles occurrences under
   `previousItemId` when present, in addition to its normal reconcile of the current
-  `itemId` (§4's pseudocode), but **not unconditionally** (Codex Round E HIGH finding,
-  now fixed — see §4 and §7): the worker re-reads the CURRENT policy first and only cancels
-  under `previousItemId` if that fresh read confirms the policy no longer targets it. An
-  unconditional cancel was a genuine out-of-order bug (a delayed move-away event processed
-  after a later move-back had already restored the item as current would otherwise cancel
-  a currently-valid occurrence that `materialize()` can never recreate, since its
-  deterministic key already exists).
+  `itemId` (§4's pseudocode), but **never as a plain unconditional cancel** (Codex Round E
+  HIGH finding, then Round F HIGH finding on the SAME area — see §4 and §7 for the full
+  history): a read-then-cancel version (Round E's fix) still had a TOCTOU gap — the policy
+  can move again in the window between the worker's read and its cancel actually
+  committing. The real fix (Round F) is an atomic fence: each occurrence cancellation under
+  `previousItemId` commits in the same `TransactWriteItems` as a `ConditionCheck` on the
+  policy row (via `buildVersionConditionCheck`, the identical mechanism the dispatch fence
+  uses, §6/commit `3eeda33`) asserting the policy is still at the version just read. If the
+  policy moved again, the whole transaction aborts and that occurrence is left untouched —
+  a safe no-op (the move that invalidated this cancel always fires its own event, which
+  reconciles with fresh state), never a wrongly-cancelled currently-valid occurrence that
+  `materialize()` could never recreate (its deterministic key would already exist).
 - `disablePolicy`: pointer is left in place (still discoverable — a disabled policy must
   still be reachable so its occurrences get cancelled, not orphaned).
 - No hard-delete of a policy exists anywhere in the current API (`reminder-policy-service.ts`
@@ -256,21 +282,28 @@ delivery:
   last simply reconciles against the version the other one already committed — this is the
   same race already analyzed in §6, closed at the dispatch boundary, not required to be
   impossible at materialize time.
-- **Policy moving old item → new item, including A→B→A out-of-order** (§5's pointer-move
-  case — **Codex Round E HIGH finding, real bug, now fixed**): the event carries
-  `previousItemId` (§4/§5) as a routing hint, but an earlier revision of this design let it
-  ALSO gate the cancel decision unconditionally — which broke exactly the out-of-order
-  guarantee this section claims. Counterexample that existed: policy moves A→B (event carries
-  `previousItemId=A`), then moves back B→A (event carries `previousItemId=B`); if the B→A
-  event is processed first (restoring A as current and re-materializing there), a later
-  delivery of the delayed A→B event would still unconditionally cancel A's now-current
-  occurrence — and `materialize()` can never recreate it, since `putIfAbsent` on the same
-  deterministic key (unchanged policy version) simply no-ops (`reminder-materializer.ts:151,203`).
-  **Fix**: the worker re-reads the CURRENT policy before touching `previousItemId` at all,
-  and only cancels under it if that fresh read confirms `policy.itemId !== previousItemId`
-  (§4's corrected pseudocode) — restoring the "decision from a fresh read, hint used only for
-  addressing" principle this whole section depends on. This needs its own explicit
-  out-of-order test (A→B→A, delayed A→B processed last) when the worker is implemented.
+- **Policy moving old item → new item, including A→B→A out-of-order AND true concurrency**
+  (§5's pointer-move case — real bugs found across two consecutive rounds, both now fixed):
+  the event carries `previousItemId` (§4/§5) as a routing hint, but two successive design
+  gaps let it gate the cancel decision without a real atomic guarantee. Round E found the
+  first: an unconditional cancel broke this section's own out-of-order claim (policy moves
+  A→B, then back B→A; if B→A is processed first — restoring A as current — a later delivery
+  of the delayed A→B event would still unconditionally cancel A's now-current occurrence,
+  which `materialize()` can never recreate since `putIfAbsent` on the unchanged deterministic
+  key is a no-op — `reminder-materializer.ts:151,203`). The read-before-cancel fix that
+  followed still had a second gap Round F found: a plain re-read only narrows the race
+  window, it doesn't close it — the policy can move again in the gap between that read and
+  the cancel actually committing, reproducing the identical failure mode under true
+  concurrency rather than mere reordering. **Final fix**: the cancel is not just
+  read-gated but atomically fenced — each occurrence cancellation under `previousItemId`
+  commits in the same `TransactWriteItems` as a `ConditionCheck` on the policy row (§4/§5,
+  `buildVersionConditionCheck`, the same mechanism as the dispatch fence, §6) asserting the
+  policy is still at the version just read. A concurrent move aborts that specific
+  transaction — the occurrence is left untouched, a safe no-op, not a wrongly-cancelled
+  currently-valid occurrence — restoring genuine convergence regardless of arrival order OR
+  timing. This needs explicit tests when the worker is implemented: the original A→B→A
+  out-of-order case, AND a true-concurrency case where the fencing ConditionCheck itself is
+  exercised (a policy move committing inside the read-to-cancel window).
 - **Disable immediately followed by enable**: two `policy-changed` events, processed in
   whatever order — final state always converges to a fresh re-read of the policy's true
   `enabled`/`version` at the time each event happens to run, and the last one to actually
@@ -414,7 +447,16 @@ boundary-rule change, not implied by this document.
 | E3 | Backfill checkpoint used the right token type (`LastEvaluatedKey`) but didn't specify where it lives, when it advances, or how partial-page failure is handled | MEDIUM | Explicit handoff contract added: advances only after a full page succeeds (each step already idempotent, so full-page replay is always safe), script prints/accepts the token itself — a manual operator's responsibility to carry forward, not a durably-stored system value (§9) | Design fixed |
 | E4 | Document header still said "Round C" and referenced a non-existent "§14"/"Final BLOCKER-B Status" section within this document | LOW | Header updated to reflect Round E; broken references corrected to point at `NEXT_SESSION_PROMPT.md` (where final status actually belongs) and the mission prompt's own §14 (not a self-reference) | Fixed |
 
-## 14. Claude self-review (Round A/C/E/F)
+## 13.5. Codex Round F findings and disposition (score 7.8/10, NOT APPROVED — re-review after the E1-E4 fixes above)
+
+| # | Finding | Severity | Fix | Status |
+|---|---|---|---|---|
+| F1 | E1's fix (read-then-cancel) still had a TOCTOU gap: the policy can move again between the worker's read and its cancel actually committing, reproducing the same failure mode under true concurrency rather than mere out-of-order delivery | HIGH — real design bug, second round on the same area | Cancellation under `previousItemId` is now atomically fenced via a `ConditionCheck` on the policy row (`buildVersionConditionCheck`, same mechanism as the dispatch fence) inside the same transaction as each cancel, not just read-gated (§4, §5, §7) | Design fixed, pending implementation + true-concurrency test |
+| F2 | The E2 fix for the `CANCELLED_STALE` catch still swallowed `TransactionCanceledException` when `CancellationReasons` was entirely absent (`reasons && !occurrenceConditionFailed` is falsy when `reasons` is `undefined`) — inconsistent with the success-path catch, which correctly rethrows this case | MEDIUM — real code defect, repeat of D2/E2's pattern a third time | Condition simplified to `!occurrenceConditionFailed` (true when `reasons` is absent), matching the success path exactly | **Fixed in code, commit (this revision)** |
+| F3 | `reminder.policy-changed.v1`'s payload required `itemId` unconditionally, self-contradictory for an ITEM→TEMPLATE transition where the domain forbids `itemId` on a TEMPLATE-scope policy | MEDIUM | `itemId` is now optional in the payload (present iff current scope is ITEM); worker logic already never used the event's `itemId` for a decision (always re-reads the policy), so this was a payload-contract fix only (§4) | Design fixed |
+| F4 | Document header still said "Round E candidate" with Round E already complete | LOW | Header updated to "Round F candidate" with the full round-score history | Fixed |
+
+## 14. Claude self-review (Round A/C/E/F/G)
 
 - E1 is the most important finding across all three Codex rounds so far: it's the only one
   that was a genuine logic bug in the CORRECTED design (D1's fix), not just an
@@ -422,11 +464,20 @@ boundary-rule change, not implied by this document.
   one, and that "re-read authoritative state" only works if EVERY use of a payload hint
   (not just the ones already flagged) is actually gated by that re-read, not just the
   primary decision path.
-- E2 is the same lesson as D2 landing twice: whenever a catch block classifies
-  `TransactionCanceledException` by assuming which entry failed, that assumption needs to be
-  verified against `CancellationReasons`, not inferred from "this is the only transaction in
-  this code path that could plausibly cancel for this reason." Both fenced transactions in
-  `dispatch.ts` now follow the same verify-don't-assume pattern.
+- E2/F2 is the same lesson as D2 landing a THIRD time: whenever a catch block classifies
+  `TransactionCanceledException`, every branch of that classification — including the
+  "reasons are absent" branch, which is easy to overlook because it feels like an edge case
+  rather than the main path — needs to default to rethrow, never to swallow, unless
+  specifically proven safe. Both fenced transactions in `dispatch.ts` now follow the same
+  verify-don't-assume pattern, written the same way, so a future reader can compare them
+  directly instead of re-deriving the reasoning each time.
+- F1 generalizes E1's lesson one level further: "gate the decision on a fresh read" is
+  still not enough when the action taken as a result of that read is not itself atomic with
+  the read — only wrapping the actual mutation in a `ConditionCheck` against the same fact
+  the read observed closes a TOCTOU gap for real. This is exactly the same principle the
+  original dispatch fence (finding #2) already established for a different data path; F1's
+  root cause was applying "read-then-act" to a NEW code path (policy-move reconciliation)
+  without carrying over the atomicity requirement that made the dispatch fence actually work.
 - The renewal policy-copy default (§8) is explicitly NOT framed as a completed product
   decision after Round D's correction — it's an implementation-ready engineering default
   ("no copy") pending Marcelo's confirmation, which is the accurate framing for something
@@ -449,9 +500,10 @@ boundary-rule change, not implied by this document.
   untouched — no further redesign risk introduced into the already-approved M3.5/M4
   pipeline.
 
-Next step: a fresh Codex round (F) on this revision, since E found one real design bug
-(E1) and one repeat code defect (E2) that both needed correction, not just confirmation of
-Round D's fixes. If Round F approves (≥9.0 both sides, blind-score per AGENTS.md §4),
-proceed to implement §4-§9 (trigger worker, pointer lifecycle, lifecycle events, backfill
-script, Terraform) with the concurrency/tenant-isolation/renewal/backfill/out-of-order test
-coverage Rounds B, D and E all asked for.
+Next step: a fresh Codex round (G) on this revision, since F found the same class of
+TOCTOU gap surviving one more fix attempt (F1) plus a repeat code defect (F2) that both
+needed correction, not just confirmation of Round E's fixes. If Round G approves (≥9.0
+both sides, blind-score per AGENTS.md §4), proceed to implement §4-§9 (trigger worker,
+pointer lifecycle, lifecycle events, backfill script, Terraform) with the concurrency/
+tenant-isolation/renewal/backfill/out-of-order/true-concurrency test coverage Rounds B, D,
+E and F all asked for.
