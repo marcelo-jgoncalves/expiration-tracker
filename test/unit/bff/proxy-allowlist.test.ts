@@ -43,4 +43,15 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("GET", "/subjects/subj-1/document-requests/dr-1")).toBeDefined();
     expect(matchAllowlistedRoute("POST", "/subjects/subj-1/document-requests/dr-1/revoke")).toBeDefined();
   });
+
+  // BLOCKER-A (2026-08-25): these backend routes existed but were never allowlisted here -
+  // the BFF would have rejected any frontend call to them, same class of gap the
+  // document-request routes had before a prior session's fix (infra/modules/api-gateway/
+  // main.tf's comment on that incident).
+  it("matches the Document/DocumentSubmission read routes closed for BLOCKER-A", () => {
+    expect(matchAllowlistedRoute("GET", "/items/item-1/documents")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/items/item-1/documents/doc-1")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions/sub-1")).toBeDefined();
+  });
 });
