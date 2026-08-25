@@ -197,7 +197,7 @@ describe("ExpirationService", () => {
     const dueDateChanged = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-due-date-changed.v1");
     // source's own createItem event + the renewed item's own creation event
     expect(dueDateChanged).toHaveLength(2);
-    expect(dueDateChanged.some((r) => r["aggregateId"] === renewed.itemId)).toBe(true);
+    expect(dueDateChanged.some((r) => r["aggregateId"] === renewed.item.itemId)).toBe(true);
   });
 
   it("every mutation appends exactly one append-only AuditEvent - no update/delete API is exposed for it", async () => {
@@ -216,10 +216,11 @@ describe("ExpirationService", () => {
     const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
     const renewed = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version);
 
-    expect(renewed.itemId).not.toBe(source.itemId);
-    expect(renewed.status).toBe("ACTIVE");
-    expect(renewed.renewedFromId).toBe(source.itemId);
-    expect(renewed.dueDate).toBe("2027-09-10T00:00:00.000Z");
+    expect(renewed.item.itemId).not.toBe(source.itemId);
+    expect(renewed.item.status).toBe("ACTIVE");
+    expect(renewed.item.renewedFromId).toBe(source.itemId);
+    expect(renewed.item.dueDate).toBe("2027-09-10T00:00:00.000Z");
+    expect(renewed.copiedReminderPolicyIds).toEqual([]); // source had no ReminderPolicy to copy
 
     const sourceAfter = await store.get<{ PK: string; SK: string; status: string; dueDate: string }>({
       PK: `TENANT#tenant-1#ITEM#${source.itemId}`,
@@ -234,7 +235,7 @@ describe("ExpirationService", () => {
     const first = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "fixed-key");
     const second = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "fixed-key");
 
-    expect(second.itemId).toBe(first.itemId);
+    expect(second.item.itemId).toBe(first.item.itemId);
     const allItems = store.allItems().filter((i) => i["entityType"] === "ExpirationItem");
     expect(allItems).toHaveLength(2); // source + one renewed successor, not two
   });
@@ -267,7 +268,7 @@ describe("ExpirationService", () => {
     // resubmits with the SAME idempotency key, per mission §29.
     const renewed = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "same-client-key");
 
-    expect(renewed.renewedFromId).toBe(source.itemId);
+    expect(renewed.item.renewedFromId).toBe(source.itemId);
     expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(2);
   });
 
@@ -285,7 +286,7 @@ describe("ExpirationService", () => {
     // use under a different itemId - abort() must have released it.
     const other = await service.createItem(ctx(), { name: "c", category: "d", dueDate: "2026-09-10T00:00:00.000Z" });
     const renewedOther = await service.renewItem(ctx(), other.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, other.version, "another-client-key");
-    expect(renewedOther.renewedFromId).toBe(other.itemId);
+    expect(renewedOther.item.renewedFromId).toBe(other.itemId);
   });
 
   it("renewItem: requestHash distinguishes two requests that share itemId/expectedVersion/cycle but differ in newDueDate (Codex Round B finding, fixed)", async () => {
@@ -296,7 +297,7 @@ describe("ExpirationService", () => {
     const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
 
     const first = await service.renewItem(ctx(), source.itemId, { newDueDate: "2027-01-01T00:00:00.000Z", cycle: "same-cycle-label" }, source.version, "same-key");
-    expect(first.dueDate).toBe("2027-01-01T00:00:00.000Z");
+    expect(first.item.dueDate).toBe("2027-01-01T00:00:00.000Z");
 
     // Same key, same cycle label, but a genuinely different newDueDate - must be rejected as a
     // real conflict (key reuse across different logical requests), never silently treated as

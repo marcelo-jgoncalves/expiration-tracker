@@ -385,11 +385,27 @@ Marcelo picks one.
 **Decision (Marcelo, 2026-08-25):** copy the source item's `ReminderPolicy` automatically
 onto the renewed item, plus surface a user-facing notice on the renewal response/UI that
 the copied policy may need adjustment (e.g. new notice period). This overrides the
-fail-safe "no copy" default proposed above. Not yet implemented — `completeRenewal`
-(`expiration-service.ts:419`) still creates renewed items with zero policies; this needs
-its own scoped implementation pass (cross-module `expiration`→`reminder` read inside the
-existing transaction, plus a wire-level notice field) rather than being folded into
-BLOCKER-A work. Tracked in `NEXT_SESSION_PROMPT.md`.
+fail-safe "no copy" default proposed above.
+
+**Implemented (2026-08-25)**: `ExpirationService.completeRenewal` (`expiration-service.ts`)
+now discovers the source item's `POLICYREF#` pointers (via `ExpirationStore.queryByPk`,
+already used elsewhere in this service — no new store method), re-dereferences and
+validates each one exactly like `reminder-materialization-trigger`'s `onItemDueDateChanged`
+does (orphaned/foreign/wrong-scope pointers silently skipped, never trusted), and mints a
+fresh `ReminderPolicy` + `POLICYREF#` pointer for the new item inside the SAME
+`TransactWriteItems` as the item creation itself — never a separate follow-up call, so a
+renewal can never half-succeed (item created, copy silently dropped). No item-existence
+`ConditionCheck` is needed the way `ReminderPolicyService.createPolicy` needs one for a
+client-supplied `itemId`: the new item is guaranteed to exist because this same transaction
+creates it. The copy rides the `expiration.item-due-date-changed.v1` event `completeRenewal`
+already emits for the new item — the trigger worker re-reads the new item's pointers at
+processing time regardless, so no separate `reminder.policy-changed.v1` was needed for this
+path. `renewItem`'s return type changed from `ExpirationItem` to `{ item, 
+copiedReminderPolicyIds: string[] }` (never inferred from absence — an explicit, positive
+signal the HTTP layer forwards in the renewal response body) so the caller/frontend can
+surface the "review your copied reminders" notice; the idempotency-replay branch
+re-derives the same list from the new item's current pointers rather than re-running the
+copy. Surfacing the notice in the actual frontend UI is separate, not-yet-started work.
 
 ## 9. Backfill safety — corrected (Round B HIGH finding: the original claim was false)
 

@@ -28,6 +28,7 @@ import {
   type RenewItemInput,
 } from "../domain/expiration-item.js";
 import { buildAuditEvent, appendAuditToTransaction, type AuditAction } from "../domain/audit-event.js";
+import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
 import {
   isTransactionCanceled,
   type ExpirationStore,
@@ -340,6 +341,12 @@ export class ExpirationService {
    * the source aggregate (implementation-blueprint.md §8, data-model.md §2
    * `renewedFromId`). Idempotent per data-model.md §4:
    * "tenantId|sourceItemId|sourceVersion|cycle".
+   *
+   * `copiedReminderPolicyIds` (reminder-delivery-pipeline.md §8, Marcelo's decision
+   * 2026-08-25): the source item's ITEM-scoped ReminderPolicy rows are copied onto the new
+   * item inside the SAME transaction as its creation - returned here (never silently) so
+   * the HTTP layer/frontend can surface a notice that the copied policy may need review
+   * (e.g. a renewed contract with a different notice period than its predecessor).
    */
   async renewItem(
     ctx: RequestContext,
@@ -347,7 +354,7 @@ export class ExpirationService {
     input: RenewItemInput,
     expectedVersion: number,
     idempotencyKey?: string,
-  ): Promise<ExpirationItem> {
+  ): Promise<{ item: ExpirationItem; copiedReminderPolicyIds: string[] }> {
     const source = await this.readActiveItem(ctx.tenant.tenantId, itemId);
     authorize({ context: ctx, action: "item:update", resource: { tenantId: source.tenantId } });
 
@@ -384,10 +391,17 @@ export class ExpirationService {
       if (!newItemId) {
         throw new ConflictError("Renewal idempotency record missing responseRef.", { itemId });
       }
-      return this.getItem(ctx, newItemId);
+      const item = await this.getItem(ctx, newItemId);
+      // Replay branch: the copy already happened on the original (committed) attempt - re-
+      // derive the notice from the new item's own pointers rather than re-running the copy,
+      // same "current state is authoritative" principle the reminder-materialization-trigger
+      // worker itself uses (trigger.ts's design note §7).
+      const copiedReminderPolicyIds = await this.findItemPolicyIds(ctx.tenant.tenantId, newItemId);
+      return { item, copiedReminderPolicyIds };
     }
 
     let newItem: ExpirationItem;
+    let copiedReminderPolicyIds: string[];
     try {
       if (source.status !== "ACTIVE") {
         throw new ConflictError(`Cannot renew item in status ${source.status}.`, { itemId, status: source.status });
@@ -401,7 +415,9 @@ export class ExpirationService {
       // IT fails, the record is left IN_PROGRESS (the pre-existing documented residual,
       // mission §32/docs/frontend/core-expiration-vertical-slice.md §16), never silently
       // reset to ABORTED after a mutation that actually happened.
-      newItem = await this.completeRenewal(ctx, itemId, source, input, expectedVersion);
+      const result = await this.completeRenewal(ctx, itemId, source, input, expectedVersion);
+      newItem = result.item;
+      copiedReminderPolicyIds = result.copiedReminderPolicyIds;
     } catch (err) {
       // Idempotency liveness (mission's residual, docs/frontend/core-expiration-vertical-
       // slice.md §16): without releasing the lock here, a genuine OCC conflict on the
@@ -413,7 +429,17 @@ export class ExpirationService {
     }
 
     await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation, key, responseRef: newItem.itemId });
-    return newItem;
+    return { item: newItem, copiedReminderPolicyIds };
+  }
+
+  /** Discovery read (eventually consistent, same as every other queryByPk caller in this
+   * codebase) of an item's current ITEM-scoped ReminderPolicy ids via its POLICYREF#
+   * pointers - informational only (used for the renewal notice on an idempotency replay,
+   * never for a correctness decision), same non-authoritative status trigger.ts's pointer
+   * reads always have. */
+  private async findItemPolicyIds(tenantId: string, forItemId: string): Promise<string[]> {
+    const pointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, forItemId).PK, POLICY_REF_SK_PREFIX);
+    return pointers.map((pointer) => pointer.policyId);
   }
 
   private async completeRenewal(
@@ -422,7 +448,7 @@ export class ExpirationService {
     source: ExpirationItem,
     input: RenewItemInput,
     expectedVersion: number,
-  ): Promise<ExpirationItem> {
+  ): Promise<{ item: ExpirationItem; copiedReminderPolicyIds: string[] }> {
     const newItemId = this.ids.newItemId();
     const now = this.now();
     const newVersion = expectedVersion + 1;
@@ -494,9 +520,57 @@ export class ExpirationService {
       changes: { renewedFromId: itemId, newItemId, newDueDate: input.newDueDate },
     });
 
+    // reminder-delivery-pipeline.md §8 (Marcelo's decision, 2026-08-25): copy the source
+    // item's ITEM-scoped ReminderPolicy rows onto the new item, inside this SAME
+    // transaction - never a separate follow-up call, so a renewal can never half-succeed
+    // (item created, copy silently dropped). No item-existence ConditionCheck is needed the
+    // way ReminderPolicyService.createPolicy needs one for a client-supplied itemId: newItem
+    // is guaranteed to exist because THIS transaction is what creates it. The copy rides the
+    // due-date-changed event already appended above - the reminder-materialization-trigger
+    // worker re-reads the new item's pointers at processing time (trigger.ts's "pure
+    // invalidation signal" design, §7), so no separate reminder.policy-changed.v1 is needed.
+    const copiedReminderPolicyIds: string[] = [];
+    const sourcePointers = await this.store.queryByPk<PolicyRef>(itemKey(source.tenantId, itemId).PK, POLICY_REF_SK_PREFIX);
+    for (const pointer of sourcePointers) {
+      const sourcePolicy = await this.store.get<ReminderPolicy>(policyKey(source.tenantId, pointer.policyId));
+      // Orphaned/stale pointer (reminder-delivery-pipeline.md §5) - never trusted, silently
+      // skipped, same defensive re-validation trigger.ts's onItemDueDateChanged performs
+      // before using any pointer.
+      if (!sourcePolicy || sourcePolicy.deletedAt || sourcePolicy.scope !== "ITEM" || sourcePolicy.itemId !== itemId) continue;
+
+      const newPolicyId = this.ids.newPolicyId();
+      const newPolicy: ReminderPolicy = {
+        ...policyKey(source.tenantId, newPolicyId),
+        entityType: "ReminderPolicy",
+        policyId: newPolicyId,
+        tenantId: source.tenantId,
+        scope: "ITEM",
+        itemId: newItemId,
+        name: sourcePolicy.name,
+        triggers: sourcePolicy.triggers,
+        timeZone: sourcePolicy.timeZone,
+        quietHours: sourcePolicy.quietHours,
+        channels: sourcePolicy.channels,
+        optOutChannels: sourcePolicy.optOutChannels,
+        enabled: sourcePolicy.enabled,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      entries.push({ Put: buildVersionedCreate(this.tableName, newPolicy as unknown as Record<string, unknown> & { PK: string; SK: string }) });
+      entries.push({
+        Put: {
+          TableName: this.tableName,
+          Item: { ...policyRefKey(source.tenantId, newItemId, newPolicyId), entityType: "ReminderPolicyRef", policyId: newPolicyId },
+          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+        },
+      });
+      copiedReminderPolicyIds.push(newPolicyId);
+    }
+
     await this.commit(entries);
 
-    return newItem;
+    return { item: newItem, copiedReminderPolicyIds };
   }
 
   /** Dashboard listing via GSI1 (implementation-blueprint.md §8.2). Eventually consistent - never used for authorization/pre-mutation decisions (data-model.md §5). */

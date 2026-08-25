@@ -203,8 +203,12 @@ export async function handleRenewItem(deps: ExpirationHttpDeps, req: HttpRequest
     const idempotencyKey = req.headers?.["idempotency-key"];
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
     await consumeApiRequestQuota(deps.quota, context);
-    const item = await deps.expiration.renewItem(context, itemId, req.body, expectedVersion, idempotencyKey);
-    return { statusCode: 201, body: { item } };
+    const { item, copiedReminderPolicyIds } = await deps.expiration.renewItem(context, itemId, req.body, expectedVersion, idempotencyKey);
+    // reminder-delivery-pipeline.md §8 (Marcelo's decision, 2026-08-25): never a silent
+    // copy - the caller/frontend gets an explicit, positive signal (never inferred from
+    // absence) whenever a policy was carried over, so it can be surfaced as a "review your
+    // reminders" notice rather than the user discovering it only much later.
+    return { statusCode: 201, body: { item, copiedReminderPolicyIds } };
   });
 }
 

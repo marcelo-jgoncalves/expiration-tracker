@@ -134,5 +134,6 @@ export function makeExpirationIdGenerator(): ExpirationIdGenerator {
     newItemId: () => `item-${++counter}`,
     newAuditEventId: () => `audit-${++counter}`,
     newEventId: () => `evt-${++counter}`,
+    newPolicyId: () => `policy-${++counter}`,
   };
 }

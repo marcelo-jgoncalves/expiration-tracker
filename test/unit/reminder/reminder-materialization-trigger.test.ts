@@ -58,6 +58,26 @@ class MirroredExpirationStore extends InMemoryExpirationStore {
     await this.mirror.transactWrite(entries as unknown as Parameters<InMemoryReminderStore["transactWrite"]>[0]);
     return super.transactWrite(entries);
   }
+  // renewItem's ReminderPolicy-copy (reminder-delivery-pipeline.md §8) reads ReminderPolicy/
+  // PolicyRef rows through ExpirationService's OWN store - rows that, in THIS fixture, are
+  // created by policyService directly against `mirror`, never through this class's own
+  // putIfAbsent/update/transactWrite overrides above. Delegating these two reads to `mirror`
+  // (the fixture's actual source of truth, per the class doc comment) is what makes this
+  // fixture behave like the single real DynamoDB table it stands in for; falling through to
+  // this class's own (incomplete) internal map would silently see zero policies to copy.
+  override async get<T extends { PK: string; SK: string } = Record<string, unknown> & { PK: string; SK: string }>(key: { PK: string; SK: string }): Promise<T | undefined> {
+    return this.mirror.get<T>(key);
+  }
+  override async queryByPk<T extends { PK: string; SK: string } = Record<string, unknown> & { PK: string; SK: string }>(pk: string, skPrefix?: string): Promise<T[]> {
+    // PK shape is always `TENANT#{tenantId}#ITEM#{itemId}` for this fixture's callers (the
+    // ReminderPolicy-copy pointer lookup) - parsed from the PK itself rather than assuming
+    // the module-level TENANT constant, so this stays correct under the multi-tenant test
+    // below even though that test never exercises renewal.
+    const match = /^TENANT#(.+)#ITEM#(.+)$/.exec(pk);
+    if (!match || !skPrefix) return super.queryByPk(pk, skPrefix);
+    const [, tenantId, itemId] = match;
+    return this.mirror.queryByItem<T>(tenantId!, itemId!, skPrefix);
+  }
 }
 
 describe("reminder-materialization-trigger", () => {
@@ -182,7 +202,7 @@ describe("reminder-materialization-trigger", () => {
   });
 
   describe("renewal cycle semantics", () => {
-    it("archiving the old item's occurrences via item-deactivated, then the new item gets its OWN fresh occurrence once its own policy is attached", async () => {
+    it("archiving the old item's occurrences via item-deactivated, then the new item gets its OWN fresh occurrence materialized off its copied policy", async () => {
       const source = await expirationService.createItem(ctx, { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
       await policyService.createPolicy(ctx, { scope: "ITEM", itemId: source.itemId, rule: RULE });
       await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: source.itemId });
@@ -196,18 +216,29 @@ describe("reminder-materialization-trigger", () => {
       const oldOccs = await liveOccurrences(source.itemId);
       expect(oldOccs.every((o) => o.status === "CANCELLED")).toBe(true);
 
-      // New item: per the approved design (§8), policies are NOT auto-copied on renewal -
-      // the new item has zero policies until one is explicitly attached, so its own
-      // due-date-changed event materializes nothing yet.
-      const noPolicyResult = await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: renewed.itemId });
-      expect(noPolicyResult.materialized).toBe(0);
-
-      // Once a policy IS attached to the renewed item, it materializes independently of
-      // the old (cancelled) cycle.
-      await policyService.createPolicy(ctx, { scope: "ITEM", itemId: renewed.itemId, rule: RULE });
-      const result = await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: renewed.itemId });
+      // New item: per Marcelo's decision (reminder-delivery-pipeline.md §8, 2026-08-25),
+      // renewItem auto-copies the source's ITEM-scoped policy onto the new item inside the
+      // SAME transaction - renewItem's own due-date-changed event (already fired above, as
+      // part of the renewal) is what the real deploy would use to materialize it; this test
+      // fires it explicitly the same way the other scenarios in this file do.
+      expect(renewed.copiedReminderPolicyIds).toHaveLength(1);
+      const result = await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: renewed.item.itemId });
       expect(result.materialized).toBe(1);
-      expect((await liveOccurrences(renewed.itemId))[0]?.status).toBe("SCHEDULED");
+      expect((await liveOccurrences(renewed.item.itemId))[0]?.status).toBe("SCHEDULED");
+    });
+
+    it("does not copy a policy that targets a DIFFERENT item, or a soft-deleted one", async () => {
+      const source = await expirationService.createItem(ctx, { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+      const other = await expirationService.createItem(ctx, { name: "c", category: "d", dueDate: "2026-09-10T00:00:00.000Z" });
+      await policyService.createPolicy(ctx, { scope: "ITEM", itemId: other.itemId, rule: RULE });
+      // An orphaned pointer under `source`'s own partition (never a real production shape,
+      // same defensive scenario "orphaned pointers" above exercises for the due-date-changed
+      // path) - must be skipped by the copy, not dereferenced blindly.
+      await store.putIfAbsent({ PK: itemKey(TENANT, source.itemId).PK, SK: "POLICYREF#ghost-policy", entityType: "ReminderPolicyRef", policyId: "ghost-policy" });
+
+      const renewed = await expirationService.renewItem(ctx, source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version);
+
+      expect(renewed.copiedReminderPolicyIds).toEqual([]);
     });
   });
 
