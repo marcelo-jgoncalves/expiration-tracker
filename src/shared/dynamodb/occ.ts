@@ -130,7 +130,60 @@ export interface TransactUpdateEntry {
   Update: DynamoUpdateCommandInput;
 }
 
-export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry;
+export interface DynamoConditionCheckCommandInput {
+  TableName: string;
+  Key: EntityKey;
+  ConditionExpression: string;
+  ExpressionAttributeNames?: Record<string, string>;
+  ExpressionAttributeValues?: Record<string, unknown>;
+}
+
+export interface TransactConditionCheckEntry {
+  ConditionCheck: DynamoConditionCheckCommandInput;
+}
+
+export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry | TransactConditionCheckEntry;
+
+/**
+ * Builds a TransactWriteItems `ConditionCheck` entry asserting a row is still at an
+ * expected version (and, optionally, still holds a given attribute value) - used to fence
+ * a commit against a fact read earlier in the same operation but not itself written by
+ * this transaction (e.g. reminder dispatch asserting the ReminderPolicy it read is still
+ * enabled at the version it read, per the BLOCKER-B freshness-fencing fix: reading a row
+ * and later writing elsewhere based on that read is a TOCTOU gap unless the read fact is
+ * re-asserted atomically inside the same TransactWriteItems as the write it gates).
+ */
+export function buildVersionConditionCheck(input: {
+  tableName: string;
+  key: EntityKey;
+  expectedVersion: number;
+  /** Extra attribute=value equality conditions beyond version, e.g. { enabled: true, status: "ACTIVE" }. */
+  extra?: Record<string, unknown>;
+}): TransactConditionCheckEntry {
+  const names: Record<string, string> = { "#version": "version" };
+  const values: Record<string, unknown> = { ":version": input.expectedVersion };
+  const clauses = ["#version = :version"];
+
+  let i = 0;
+  for (const [field, value] of Object.entries(input.extra ?? {})) {
+    const nameKey = `#c${i}`;
+    const valueKey = `:c${i}`;
+    names[nameKey] = field;
+    values[valueKey] = value;
+    clauses.push(`${nameKey} = ${valueKey}`);
+    i += 1;
+  }
+
+  return {
+    ConditionCheck: {
+      TableName: input.tableName,
+      Key: input.key,
+      ConditionExpression: clauses.join(" AND "),
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+    },
+  };
+}
 
 /** Name of the AWS SDK error thrown when any entry in a TransactWriteItems call fails its
  * ConditionExpression - used by callers to distinguish OCC/idempotency conflicts from other

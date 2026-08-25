@@ -12,6 +12,14 @@ import type { ReminderIdGenerator } from "../../../src/modules/reminder/applicat
  * verifies the structural separation at the port-interface level instead of relying on
  * this fake to enforce it.
  */
+/** Emulates the AWS SDK's per-entry CancellationReasons array (only the failing index gets
+ * a real code; the rest are reported "None", same as DynamoDB) - dispatch.ts inspects this
+ * to distinguish a genuine duplicate-delivery race (index 1, the occurrence's own condition)
+ * from the freshness-fence ConditionChecks losing a race against a concurrent change. */
+function cancellationReasons(entries: TransactWriteEntry[], failedIndex: number): { Code?: string }[] {
+  return entries.map((_, i) => (i === failedIndex ? { Code: "ConditionalCheckFailed" } : { Code: "None" }));
+}
+
 export class InMemoryReminderStore implements ReminderStore, ReminderProducerStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
 
@@ -35,30 +43,42 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
   }
 
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
-    for (const entry of entries) {
+    entries.forEach((entry, index) => {
       if ("Put" in entry) {
         const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put" };
+          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put", CancellationReasons: cancellationReasons(entries, index) };
+        }
+      } else if ("ConditionCheck" in entry) {
+        const existing = this.items.get(this.k(entry.ConditionCheck.Key));
+        const values = entry.ConditionCheck.ExpressionAttributeValues ?? {};
+        const names = entry.ConditionCheck.ExpressionAttributeNames ?? {};
+        const ok =
+          !!existing &&
+          Object.entries(names).every(([placeholder, attr]) => existing[attr] === values[`:${placeholder.slice(1)}`]);
+        if (!ok) {
+          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on ConditionCheck", CancellationReasons: cancellationReasons(entries, index) };
         }
       } else {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
         if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
           if (!existing) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing", CancellationReasons: cancellationReasons(entries, index) };
           }
           const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
           const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
           if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch" };
+            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch", CancellationReasons: cancellationReasons(entries, index) };
           }
         }
       }
-    }
+    });
 
     for (const entry of entries) {
-      if ("Put" in entry) {
+      if ("ConditionCheck" in entry) {
+        continue;
+      } else if ("Put" in entry) {
         this.items.set(this.k(entry.Put.Item as unknown as EntityKey), entry.Put.Item as Record<string, unknown> & EntityKey);
       } else {
         const key = entry.Update.Key;

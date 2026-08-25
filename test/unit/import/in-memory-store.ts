@@ -35,7 +35,7 @@ export class InMemoryImportStore implements ImportStore {
           throw Object.assign(new Error("TransactionCanceledException"), { name: "TransactionCanceledException" });
         }
         this.items.set(key, item);
-      } else {
+      } else if ("Update" in entry) {
         const existing = this.items.get(this.k(entry.Update.Key));
         if (!existing) throw Object.assign(new Error("TransactionCanceledException"), { name: "TransactionCanceledException" });
         // Same two ConditionExpression shapes as the other fakes - version-match update only.

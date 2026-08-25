@@ -16,7 +16,7 @@
  * (`tenantId|occurrenceId`, §9.4's exact key for NotificationIntentCreated consumers) +
  * outbox `notification.intent-created.v1` Put.
  */
-import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
+import { buildVersionConditionCheck, buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../shared/outbox/outbox.js";
 import { buildIdempotencyKey } from "../../shared/idempotency/idempotency.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
@@ -44,7 +44,8 @@ export type DispatchOutcome =
   | { kind: "TRIGGERED"; intent: NotificationIntent }
   | { kind: "ALREADY_TRIGGERED" }
   | { kind: "CANCELLED_STALE"; reason: string }
-  | { kind: "SKIPPED_NOT_CLAIMED" };
+  | { kind: "SKIPPED_NOT_CLAIMED" }
+  | { kind: "ABORTED_FRESHNESS_RACE" };
 
 /** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md §2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
 async function findOccurrence(store: ReminderStore, tenantId: string, itemId: string, occurrenceId: string): Promise<ReminderOccurrence | undefined> {
@@ -153,6 +154,20 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         remove: ["GSI6PK", "GSI6SK"],
       }),
     },
+    // Freshness fence (BLOCKER-B, Codex Round B CRITICAL finding): the `stale` check above
+    // reads item/policy moments before this transaction commits - without re-asserting those
+    // exact facts atomically here, a policy disable/update or item archive/delete landing in
+    // that gap would still produce a real NotificationIntent for an item/policy that is no
+    // longer current by the time this transaction is durable. Re-asserted as ConditionChecks
+    // (not re-reads) so the whole transaction, including the NotificationIntent Put, is
+    // atomically gated on both still holding.
+    buildVersionConditionCheck({ tableName: deps.tableName, key: itemKey(tenantId, itemId), expectedVersion: itemVersion, extra: { status: "ACTIVE" } }),
+    buildVersionConditionCheck({
+      tableName: deps.tableName,
+      key: policyKey(tenantId, occurrence.policyId),
+      expectedVersion: policyVersion,
+      extra: { enabled: true },
+    }),
   ];
 
   // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId").
@@ -208,8 +223,19 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     await deps.store.transactWrite(entries);
   } catch (err) {
     if (isTransactionCanceled(err)) {
-      // Duplicate delivery of the same command (SQS at-least-once) racing a prior success -
-      // either the idempotency Put or the occurrence's CLAIMED condition already advanced.
+      // Two distinct races land here, and CancellationReasons (index 1 = the occurrence's
+      // own CLAIMED->TRIGGERED condition) tells them apart: (a) duplicate delivery of the
+      // same command racing a prior success - the occurrence's own condition already
+      // advanced; (b) the freshness fence above lost a race against a concurrent
+      // policy/item change - the occurrence itself is untouched (still CLAIMED) and will be
+      // correctly re-evaluated by a later dispatch attempt or reconciliation, never
+      // silently retried as a duplicate send here. Falls back to (a)'s label if the SDK
+      // didn't populate CancellationReasons (some local/test doubles don't).
+      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      const occurrenceReasonFailed = reasons?.[1]?.Code === "ConditionalCheckFailed";
+      if (reasons && !occurrenceReasonFailed) {
+        return { kind: "ABORTED_FRESHNESS_RACE" };
+      }
       return { kind: "ALREADY_TRIGGERED" };
     }
     throw err;
