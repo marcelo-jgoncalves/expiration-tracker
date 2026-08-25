@@ -111,3 +111,18 @@ output "malware_protection_enabled" {
 output "import_bucket_name" {
   value = module.import_bucket.bucket_name
 }
+
+# ADR-0011: cd.yml reads these three to sync the frontend build and invalidate index.html
+# after every deploy (etapa 3/4 of NEXT_SESSION_PROMPT.md's plan).
+output "spa_bucket_name" {
+  value = module.spa_hosting.bucket_name
+}
+
+output "spa_distribution_id" {
+  value = module.spa_hosting.distribution_id
+}
+
+output "spa_distribution_domain_name" {
+  description = "The SPA's real origin (no custom domain yet - see the comment on module.spa_hosting in main.tf). This is what var.app_origin should be set to via -var after the first apply."
+  value       = module.spa_hosting.distribution_domain_name
+}
