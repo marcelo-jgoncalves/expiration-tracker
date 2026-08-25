@@ -41,6 +41,7 @@ Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT
 | `threat-model.md` | normativo atual | Threat model STRIDE, seção 33 — APPROVED (Claude ~9.05 / Codex 9.002) |
 | `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seção 60 — componentes, interfaces, eventos/schemas, ordem de deploy, milestones — APPROVED (Claude 9.20 / Codex 9.2) |
 | `m3.5-runtime-design.md` | normativo atual | Design do milestone M3.5 (runtime real do Reminder Engine, fechamento de G8) — adapters DynamoDB, handlers Lambda, outbox+relay SQS/DLQ, EventBridge Scheduler+GSI6, testes em 3 camadas — APPROVED (Claude 9.0 / Codex 9.3) |
+| `reminder-delivery-pipeline.md` | normativo atual | BLOCKER-B — pipeline real de materialização/entrega de lembretes: event taxonomy (`expiration.item-due-date-changed.v1`/`item-deactivated.v1`/`reminder.policy-changed.v1`), lifecycle do ponteiro `POLICYREF#`, fencing de concorrência (dispatch + reconciliação), backfill — APPROVED (arquitetura, Codex 9.2/10, rodadas B-H; implementação, Codex 9.2/10, 2 rodadas) |
 | `decisions-log.md` | decisão/ADR (log vivo) | D-000 a D-043 (a numeração não é sequencial na ordem das linhas — D-024 a D-028 foram inseridas antes de D-010 a D-023 no arquivo), nota Claude/Codex, status |
 | `reviews/m7-extraction-design/` | histórico/evidência de rodada | Artefatos do protocolo Claude↔Codex de M7 (proposta Claude, proposta Codex, crítica, reconciliação final aprovada — D-035) |
 | `adr/` | decisão/ADR | 10 ADRs formais para decisões Type 1 |

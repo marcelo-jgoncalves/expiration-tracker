@@ -547,12 +547,50 @@ Round H's own verdict: **"No CRITICAL, HIGH, or MEDIUM issues... No further adve
   untouched — no further redesign risk introduced into the already-approved M3.5/M4
   pipeline.
 
-**Architecture APPROVED as of Round H (9.2/10).** Next step: implement §4-§9 (trigger
-worker, pointer lifecycle, lifecycle events, backfill script, Terraform), with the
-concurrency/tenant-isolation/renewal/backfill/out-of-order/true-concurrency test coverage
-every round from B through H asked for — plus the two small implementation notes Round H
-surfaced (§6's `reconcilePolicyOccurrencesUnconditionally` and §5's version-less
-`ConditionCheck` helper for ITEM-policy integrity). Follow-up Claude self-review + a
-fresh Codex round on the actual implementation diff (not just the design) is still
-expected before this branch merges to `develop`, per the mission's own protocol (§106-110)
-— design approval is a gate on STARTING implementation, not a substitute for reviewing it.
+**Architecture APPROVED as of Round H (9.2/10).**
+
+## 15. Implementation status — COMPLETE, IMPLEMENTATION APPROVED (Codex, 9.2/10)
+
+§4-§9 are now real code, not design: `ReminderMaterializer`'s three reconciliation methods,
+the `POLICYREF#` pointer lifecycle in `ReminderPolicyService`, the two new lifecycle events
+wired into `ExpirationService`, the `reminder-materialization-trigger` worker implementing
+the unified Round-H loop, the real delivery mechanism (a correction found during
+implementation — see below), Terraform (queue+DLQ+Lambda+IAM), and the backfill script.
+
+**Real correction made during implementation, not caught by the architecture rounds**: the
+"generic EventBridge path" this document originally assumed for delivery (matching
+`notification.intent-created.v1`'s stated pattern) does not actually exist anywhere in this
+codebase — no `PutEventsCommand` call exists, and `router_queue` (EventBridge Rule → SQS)
+has no Lambda consumer at all. The only real, proven, end-to-end mechanism in production is
+the destination-routed `DispatchOutboxRelay`/`OutboxSweeper` pattern every other queue
+already uses. BLOCKER-B's three events are wired through that instead — same architectural
+family (durable outbox → queue → Lambda, at-least-once, idempotent), different AWS
+transport hop. This did not require redoing the Claude↔Codex architecture rounds (the
+event taxonomy, pointer lifecycle, and fencing decisions are unaffected), but is recorded
+here so this document stays accurate about what actually ships.
+
+**Implementation-level Claude↔Codex review** (separate from the architecture rounds above,
+per the mission's §106-110 protocol — design approval gates starting implementation, not a
+substitute for reviewing it): Round 1 scored the real diff 8.4/10, NOT APPROVED, finding
+three real MEDIUM defects — the two new materializer reconciliation methods repeated the
+exact exception-misclassification bug class already fixed twice in `dispatch.ts`
+(swallowing any `TransactionCanceledException` instead of checking `CancellationReasons`);
+a same-item policy update suppressed the ITEM-existence/ACTIVE/tenant `ConditionCheck`
+entirely instead of only suppressing the pointer write; and the new queue's message schema
+was never registered in the *production* `defaultSchemaRegistry` singleton at all (every
+real message would have thrown `Unknown schema $id`), on top of not validating `data`
+per-`eventType`. All fixed, each with a new regression test proving the fix (including one
+validating directly against the real production schema registry, not just the disk-loaded
+test registry — the same pattern `producer.test.ts` already established after an identical
+real-world gap surfaced during M5). Round 2: **9.2/10, APPROVED**, no findings remaining.
+
+**This branch is ready to merge to `develop`** once CI is green. Two things intentionally
+NOT resolved by this implementation, both already flagged and neither blocking:
+- §8's renewal policy-copy question remains an engineering default ("no copy") pending
+  Marcelo's confirmation — a product decision, not something this branch can close.
+- Per-function CloudWatch error alarm coverage for the new Lambda was intentionally not
+  added, matching the exact restraint M4's own queues (router/email-deliver/ses-callback)
+  already established in this codebase (DLQ-age alarms exist; per-function error alarms are
+  explicitly scoped to the reminder/chasing pipeline's existing module, with broader
+  observability coverage deferred to the dedicated Observability milestone already planned
+  right after M4/BLOCKER-B, not duplicated ad hoc here).
