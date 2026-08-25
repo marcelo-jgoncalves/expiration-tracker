@@ -21,8 +21,13 @@ module "auth" {
 
   user_pool_name = "${local.name_prefix}-user-pool"
   mfa_policy     = var.mfa_policy
-  callback_urls  = var.cognito_callback_urls
-  tags           = { Project = local.project_name, Environment = var.environment }
+  # Full BFF (D-053/D-054): the only real caller of this callback URL is the BFF Lambda's own
+  # /bff/callback route (src/modules/bff/http/bff-handlers.ts's handleCallback), never the
+  # browser directly - derived from var.app_origin so it can never drift from
+  # local.bff_redirect_uri, which the BFF Lambda's BFF_REDIRECT_URI env var also uses below.
+  callback_urls = [local.bff_redirect_uri]
+  domain_prefix = var.bff_cognito_domain_prefix
+  tags          = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Lambda functions --------------------------------------------------------------------
@@ -205,11 +210,12 @@ module "dispatch_outbox_relay" {
   adot_layer_arn = var.adot_layer_arn
   # M10 cluster 4 (D-039/D-046/D-048): second destination on this SAME relay Lambda/DynamoDB
   # Streams event source mapping (below) - never a new relay function just for one more queue.
-  # M11 (D-042) adds a third destination, same reasoning.
+  # M11 (D-042) adds a third destination; BLOCKER-B adds a fourth, same reasoning.
   environment_variables = merge(local.common_env, {
-    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
-    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
-    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
+    DISPATCH_QUEUE_URL                         = module.dispatch_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL        = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
+    REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -217,6 +223,7 @@ module "dispatch_outbox_relay" {
     module.dispatch_queue.send_policy_json,
     module.document_chasing_dispatch_queue.send_policy_json,
     module.import_commit_queue.send_policy_json,
+    module.reminder_materialization_trigger_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -234,17 +241,19 @@ module "outbox_sweeper" {
   source_dir     = "${local.dist_dir}/outbox-sweeper-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    DISPATCH_QUEUE_URL                  = module.dispatch_queue.queue_url
-    EMAIL_DELIVER_QUEUE_URL             = module.email_deliver_queue.queue_url
-    DOCUMENT_CHASING_DISPATCH_QUEUE_URL = module.document_chasing_dispatch_queue.queue_url
-    IMPORT_COMMIT_QUEUE_URL             = module.import_commit_queue.queue_url
+    DISPATCH_QUEUE_URL                         = module.dispatch_queue.queue_url
+    EMAIL_DELIVER_QUEUE_URL                    = module.email_deliver_queue.queue_url
+    DOCUMENT_CHASING_DISPATCH_QUEUE_URL        = module.document_chasing_dispatch_queue.queue_url
+    IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
+    REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
   # M4 extends this SAME privileged role to also send to the notification email queue
   # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
   # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
-  # for document-chasing-dispatch, and M11 (D-042) once more for import-commit, same reasoning.
+  # for document-chasing-dispatch, M11 (D-042) once more for import-commit, and BLOCKER-B once
+  # more for the reminder-materialization-trigger queue, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
@@ -252,6 +261,7 @@ module "outbox_sweeper" {
     module.email_deliver_queue.send_policy_json,
     module.document_chasing_dispatch_queue.send_policy_json,
     module.import_commit_queue.send_policy_json,
+    module.reminder_materialization_trigger_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -284,6 +294,68 @@ module "api" {
   imports_invoke_arn            = module.imports_handler.live_alias_invoke_arn
   imports_function_name         = module.imports_handler.function_name
   tags                          = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- Full BFF (D-053/D-054) ---------------------------------------------------------------
+
+module "bff_session_table" {
+  source = "./modules/bff-session-table"
+
+  table_name     = "${local.name_prefix}-bff-session"
+  aws_region     = var.aws_region
+  aws_account_id = var.aws_account_id
+  tags           = { Project = local.project_name, Environment = var.environment }
+}
+
+# Same posture as guest_token_pepper above: env var only (never Secrets Manager), a
+# conscious trade-off proportional to this stage without real tenant data at risk yet.
+resource "random_password" "session_token_pepper" {
+  length  = 64
+  special = false
+}
+
+module "bff_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-bff-handler"
+  handler_name   = "bff-handler"
+  source_dir     = "${local.dist_dir}/bff-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    BFF_SESSION_TABLE_NAME = module.bff_session_table.table_name
+    SESSION_TOKEN_PEPPER   = random_password.session_token_pepper.result
+    SESSION_KMS_KEY_ID     = module.bff_session_table.kms_key_id
+    COGNITO_USER_POOL_ID   = module.auth.user_pool_id
+    COGNITO_CLIENT_ID      = module.auth.user_pool_client_id
+    COGNITO_CLIENT_SECRET  = module.auth.user_pool_client_secret
+    COGNITO_DOMAIN         = "https://${module.auth.hosted_ui_domain}.auth.${var.aws_region}.amazoncognito.com"
+    BFF_REDIRECT_URI       = local.bff_redirect_uri
+    APP_ORIGIN             = var.app_origin
+    # Server-to-server calls stay on the real API's default execution endpoint (never
+    # through this same BFF's own API Gateway) - the JWT authorizer there is unaffected by
+    # any of this, exactly as designed (D-053: Full BFF is additive, resource routes keep
+    # accepting a direct Bearer token from any other caller too).
+    API_BASE_URL = module.api.api_endpoint
+  })
+  # Identity module reads/writes (User/IdentityMapping/DeviceSession) on the MAIN table -
+  # the SAME policy items_handler already uses, nothing new granted there. Session-table
+  # access is the separate, narrowly-scoped policy from bff_session_table (D-054: never
+  # merged into the general tenant_facing policy).
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.bff_session_table.bff_session_access_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+module "bff_api" {
+  source = "./modules/bff-api-gateway"
+
+  api_name          = "${local.name_prefix}-bff-api"
+  bff_invoke_arn    = module.bff_handler.live_alias_invoke_arn
+  bff_function_name = module.bff_handler.function_name
+  app_origin        = var.app_origin
+  tags              = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- WAF (M10, D-037) — REMOVIDO (D-051): AWS WAFv2 não suporta associação com API Gateway
@@ -324,6 +396,47 @@ module "dispatch_queue" {
 resource "aws_lambda_event_source_mapping" "reminder_dispatch_from_queue" {
   event_source_arn        = module.dispatch_queue.queue_arn
   function_name           = module.reminder_dispatch.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- SQS: ReminderMaterializationTriggerQueue + DLQ (BLOCKER-B) ---------------------------
+# reminder-delivery-pipeline.md §4 (Codex Round H APPROVED 9.2/10): the trigger that closes
+# BLOCKER-B - consumed by ReminderMaterializationTrigger, fed by the same DispatchOutboxRelay/
+# OutboxSweeperReminderDispatch roles every other destination already uses (the "generic
+# EventBridge path" the design doc originally assumed doesn't actually exist in this
+# codebase - see outbox.ts's OutboxDestination comment).
+
+module "reminder_materialization_trigger_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-reminder-materialization-trigger"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_materialization_trigger" {
+  source = "./modules/lambda-function"
+
+  function_name                  = "${local.name_prefix}-reminder-materialization-trigger"
+  handler_name                   = "reminder-materialization-trigger-handler"
+  source_dir                     = "${local.dist_dir}/reminder-materialization-trigger-handler"
+  adot_layer_arn                 = var.adot_layer_arn
+  environment_variables          = local.common_env
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 5 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.reminder_materialization_trigger_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_materialization_trigger_from_queue" {
+  event_source_arn        = module.reminder_materialization_trigger_queue.queue_arn
+  function_name           = module.reminder_materialization_trigger.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }

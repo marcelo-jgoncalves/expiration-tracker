@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Interim CSP via meta tag - no unsafe-inline/unsafe-eval. `frame-ancestors` and
+      X-Frame-Options have no meta-tag equivalent (ignored by spec when delivered this way) -
+      real clickjacking protection and HSTS need a CloudFront Response Headers Policy, which
+      does not exist yet (no S3/CloudFront static-hosting infra in this pass - see
+      docs/frontend/frontend-production-foundation.md's Security Baseline / Known Blockers
+      sections). Documented as a real gap, not silently dropped.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'" />
+    <title>Expiration Tracker</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -174,8 +174,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.documents) == 2
-    error_message = "Expected exactly 2 /items/{itemId}/documents* routes (reserve upload, delete)"
+    condition     = length(aws_apigatewayv2_route.documents) == 4
+    error_message = "Expected exactly 4 /items/{itemId}/documents* routes (reserve upload, list, get, delete)"
   }
 
   assert {
@@ -184,6 +184,24 @@ run "jwt_authorizer_attached_to_every_route" {
       "DELETE /items/{itemId}/documents/{documentId}",
     )
     error_message = "DELETE /items/{itemId}/documents/{documentId} route must exist"
+  }
+
+  # BLOCKER-A: read routes exist (docs/architecture reminder-delivery-pipeline.md's sibling
+  # blocker — no route previously read/listed Document/DocumentSubmission).
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "GET /items/{itemId}/documents",
+    )
+    error_message = "GET /items/{itemId}/documents route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "GET /items/{itemId}/documents/{documentId}",
+    )
+    error_message = "GET /items/{itemId}/documents/{documentId} route must exist"
   }
 
   # Every /subjects* route exists and is JWT-authorized (M9, D-036/D-040).
@@ -195,8 +213,25 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.subjects) == 19
-    error_message = "Expected exactly 19 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference)"
+    condition     = length(aws_apigatewayv2_route.subjects) == 21
+    error_message = "Expected exactly 21 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference, list/get_submission)"
+  }
+
+  # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission read routes.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions",
+    )
+    error_message = "GET .../submissions route (list) must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}",
+    )
+    error_message = "GET .../submissions/{submissionId} route (get) must exist"
   }
 
   assert {

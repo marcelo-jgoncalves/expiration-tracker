@@ -7,6 +7,7 @@
 import { buildVersionedUpdate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 import { decideNextAction } from "../domain/document-state-machine.js";
 import { documentKey, type Document } from "../domain/document.js";
+import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.js";
 import type { DocumentObjectStore } from "../ports/document-object-store.js";
 import { sameObjectVersion } from "../domain/document-object-reference.js";
@@ -21,6 +22,29 @@ export interface AdvanceAfterEvidenceDeps {
 export type AdvanceOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION";
 
 const MAX_OCC_RETRIES = 10;
+
+/** Real bug found via Camada 3 verification against AWS real (2026-08-25): a Document
+ * reaching a terminal outcome here never told its UploadSlot the reservation was resolved -
+ * the slot stayed `RESERVED` (and, once reserveUpload's GSI6-write fix lands, visible to
+ * every future reconciliation sweep) forever, even for a perfectly successful upload. This
+ * mirrors reconciliation.ts's own "remove the GSI6 pointer the moment the slot leaves
+ * RESERVED" rule - skips entirely (never a hard error) if the slot is missing or already
+ * left RESERVED, since a concurrent reconciliation sweep resolving the exact same race is a
+ * legitimate, already-handled outcome, not a defect. */
+async function appendSlotConsumption(deps: AdvanceAfterEvidenceDeps, entries: TransactWriteEntry[], tenantId: string, uploadSlotId: string): Promise<void> {
+  const slot = await deps.store.get<UploadSlot>(uploadSlotKey(tenantId, uploadSlotId));
+  if (!slot || slot.status !== "RESERVED") return;
+  entries.push({
+    Update: buildVersionedUpdate({
+      tableName: deps.tableName,
+      key: uploadSlotKey(tenantId, uploadSlotId),
+      tenantId,
+      expectedVersion: slot.version,
+      set: { status: "CONSUMED" },
+      remove: ["GSI6PK", "GSI6SK"],
+    }),
+  });
+}
 
 /**
  * Re-reads the document fresh on every attempt (never assumes the caller's in-memory copy is
@@ -58,10 +82,12 @@ export async function advanceAfterEvidence(
     if (decision.action === "AWAIT_MORE_EVIDENCE") return "AWAITING";
 
     if (decision.action === "REJECT") {
+      const rejectEntries: TransactWriteEntry[] = [
+        { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: doc.version, set: { status: decision.status } }) },
+      ];
+      await appendSlotConsumption(deps, rejectEntries, input.tenantId, doc.uploadSlotId);
       try {
-        await deps.store.transactWrite([
-          { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: doc.version, set: { status: decision.status } }) },
-        ]);
+        await deps.store.transactWrite(rejectEntries);
         return "REJECTED";
       } catch (err) {
         if (isTransactionCanceled(err)) continue; // concurrent update won the race, retry fresh.
@@ -98,6 +124,7 @@ export async function advanceAfterEvidence(
         }),
       },
     ];
+    await appendSlotConsumption(deps, entries, input.tenantId, doc.uploadSlotId);
     try {
       await deps.store.transactWrite(entries);
       // Quarantine object removal is best-effort cleanup, never a condition for CLEAN -

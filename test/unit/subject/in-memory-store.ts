@@ -42,7 +42,7 @@ export class InMemorySubjectStore implements SubjectStore {
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
           throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put" };
         }
-      } else {
+      } else if ("Update" in entry) {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
         if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
@@ -61,7 +61,7 @@ export class InMemorySubjectStore implements SubjectStore {
     for (const entry of entries) {
       if ("Put" in entry) {
         this.items.set(this.k(entry.Put.Item as unknown as EntityKey), entry.Put.Item as Record<string, unknown> & EntityKey);
-      } else {
+      } else if ("Update" in entry) {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };

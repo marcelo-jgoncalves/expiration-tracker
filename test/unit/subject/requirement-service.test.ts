@@ -6,6 +6,26 @@ import { ConflictError, NotFoundError, ValidationError } from "../../../src/shar
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { TrackedSubject } from "../../../src/modules/subject/domain/tracked-subject.js";
+import { documentSubmissionKey, type DocumentSubmission } from "../../../src/modules/subject/domain/document-submission.js";
+
+function makeSubmission(overrides: Partial<DocumentSubmission> & { subjectId: string; assignmentId: string; submissionId: string }): DocumentSubmission {
+  return {
+    ...documentSubmissionKey("tenant-1", overrides.subjectId, overrides.assignmentId, overrides.submissionId),
+    entityType: "DocumentSubmission",
+    tenantId: "tenant-1",
+    documentRequestId: "request-1",
+    fileName: "a.pdf",
+    mediaType: "application/pdf",
+    contentLength: 100,
+    checksumSha256: "a".repeat(64),
+    status: "PENDING_UPLOAD",
+    quarantineObject: { bucket: "b", key: "k", versionId: "" },
+    createdAt: "2026-08-23T12:00:00.000Z",
+    updatedAt: "2026-08-23T12:00:00.000Z",
+    version: 1,
+    ...overrides,
+  };
+}
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -100,5 +120,48 @@ describe("RequirementService", () => {
     const listed = await requirements.listRequirementAssignments(ctx(), subject.subjectId);
     expect(listed).toHaveLength(1);
     expect(listed[0]?.requirementName).toBe("b");
+  });
+
+  describe("getDocumentSubmission/listDocumentSubmissions (BLOCKER-A, segunda metade)", () => {
+    it("listDocumentSubmissions lists every submission under the assignment's SK range, excludes another assignment's submissions", async () => {
+      const a = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+      const other = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "other" });
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-1" }));
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-2" }));
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: other.assignmentId, submissionId: "sub-3" }));
+
+      const listed = await requirements.listDocumentSubmissions(ctx(), subject.subjectId, a.assignmentId);
+      expect(listed.map((s) => s.submissionId).sort()).toEqual(["sub-1", "sub-2"]);
+    });
+
+    it("listDocumentSubmissions excludes soft-deleted submissions", async () => {
+      const a = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-1" }));
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-2", deletedAt: "2026-08-24T00:00:00.000Z" }));
+
+      const listed = await requirements.listDocumentSubmissions(ctx(), subject.subjectId, a.assignmentId);
+      expect(listed.map((s) => s.submissionId)).toEqual(["sub-1"]);
+    });
+
+    it("getDocumentSubmission returns a real submission by id", async () => {
+      const a = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-1" }));
+
+      const submission = await requirements.getDocumentSubmission(ctx(), subject.subjectId, a.assignmentId, "sub-1");
+      expect(submission.submissionId).toBe("sub-1");
+    });
+
+    it("getDocumentSubmission throws NotFoundError for a submission that never existed", async () => {
+      const a = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+      await expect(requirements.getDocumentSubmission(ctx(), subject.subjectId, a.assignmentId, "no-such")).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("getDocumentSubmission denies a VIEWER-less/no-membership role the same way other reads do", async () => {
+      const a = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+      await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: a.assignmentId, submissionId: "sub-1" }));
+      await expect(
+        requirements.getDocumentSubmission(ctx({ tenant: { tenantId: "tenant-1", roles: [] } }), subject.subjectId, a.assignmentId, "sub-1"),
+      ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+    });
   });
 });

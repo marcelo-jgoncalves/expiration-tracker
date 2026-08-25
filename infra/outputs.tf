@@ -26,6 +26,7 @@ output "lambda_function_names" {
     module.reminder_producer.function_name,
     module.reminder_dispatch.function_name,
     module.reminder_reconciliation.function_name,
+    module.reminder_materialization_trigger.function_name,
     module.dispatch_outbox_relay.function_name,
     module.outbox_sweeper.function_name,
     module.notification_router.function_name,
@@ -44,6 +45,7 @@ output "lambda_function_names" {
     module.imports_handler.function_name,
     module.import_parse_handler.function_name,
     module.import_commit_handler.function_name,
+    module.bff_handler.function_name,
   ]
 }
 
@@ -58,6 +60,7 @@ output "lambda_published_versions" {
     (module.reminder_producer.function_name)                  = module.reminder_producer.published_version
     (module.reminder_dispatch.function_name)                  = module.reminder_dispatch.published_version
     (module.reminder_reconciliation.function_name)            = module.reminder_reconciliation.published_version
+    (module.reminder_materialization_trigger.function_name)   = module.reminder_materialization_trigger.published_version
     (module.dispatch_outbox_relay.function_name)              = module.dispatch_outbox_relay.published_version
     (module.outbox_sweeper.function_name)                     = module.outbox_sweeper.published_version
     (module.notification_router.function_name)                = module.notification_router.published_version
@@ -76,7 +79,17 @@ output "lambda_published_versions" {
     (module.imports_handler.function_name)                    = module.imports_handler.published_version
     (module.import_parse_handler.function_name)               = module.import_parse_handler.published_version
     (module.import_commit_handler.function_name)              = module.import_commit_handler.published_version
+    (module.bff_handler.function_name)                        = module.bff_handler.published_version
   }
+}
+
+output "bff_api_endpoint" {
+  description = "The BFF's own dedicated HTTP API endpoint (D-053/D-054) - in production this sits behind CloudFront at the same origin as the SPA under the /bff/* path, never called directly by the browser."
+  value       = module.bff_api.api_endpoint
+}
+
+output "bff_session_table_name" {
+  value = module.bff_session_table.table_name
 }
 
 output "deploy_manifest_bucket_name" {

@@ -9,15 +9,15 @@
 import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ValidationError, ConflictError } from "../../../shared/errors/app-error.js";
+import { ValidationError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import { MAX_UPLOAD_BYTES } from "./upload-validation.js";
-import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.js";
+import { GSI6PK_RECON_UPLOAD_PENDING, buildUploadSlotGsi6Sk, type DocumentStore, type TransactWriteEntry } from "../ports/document-store.js";
 import type { UploadUrlSigner } from "../ports/upload-url-signer.js";
 import type { DocumentIdGenerator } from "./id-generator.js";
-import { IdempotencyStore, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
+import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 
 const ALLOWED_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const PRESIGN_TTL_SECONDS = 600; // 10 minutes, M6 design §2 (fluxo de reserva).
@@ -67,6 +67,7 @@ export class DocumentService {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
       get: (key) => this.store.get(key),
       update: (item) => this.store.update(item),
+      transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(this.store, this.tableName, item, expectedStatus),
     };
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);
   }
@@ -166,6 +167,14 @@ export class DocumentService {
         purgeAfter: expiresAt,
         version: 1,
         updatedAt: now,
+        // Real bug found via Camada 3 verification against AWS real (2026-08-25): this write
+        // was missing entirely - every expired reservation was invisible to
+        // UploadSlotReconciliationWorker's GSI6 sweep, confirmed empirically against the
+        // deployed dev Lambda (0 results without these two fields, correctly reconciled once
+        // added). Removed the moment the slot leaves RESERVED (reconciliation.ts on EXPIRED,
+        // advance-after-evidence.ts on CONSUMED).
+        GSI6PK: GSI6PK_RECON_UPLOAD_PENDING,
+        GSI6SK: buildUploadSlotGsi6Sk(expiresAt, ctx.tenant.tenantId, uploadSlotId),
       };
 
       const entries: TransactWriteEntry[] = [
@@ -200,5 +209,26 @@ export class DocumentService {
       requiredHeaders: presigned.requiredHeaders,
       expiresAt,
     };
+  }
+
+  /** BLOCKER-A: closes the read gap — only upload/delete existed before. Mirrors
+   * ExpirationService.readActiveItem's convention of treating a soft-deleted row as not
+   * found rather than exposing it, tenant isolation coming from documentKey's PK. */
+  async getDocument(ctx: RequestContext, itemId: string, documentId: string): Promise<Document> {
+    authorize({ context: ctx, action: "document:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const document = await this.store.get<Document>(documentKey(ctx.tenant.tenantId, itemId, documentId));
+    if (!document || document.status === "DELETED") {
+      throw new NotFoundError("Document not found.", { itemId, documentId });
+    }
+    return document;
+  }
+
+  /** BLOCKER-A: lists an item's documents via the existing item partition (no new GSI —
+   * Document is already keyed under `TENANT#t#ITEM#i`/`DOC#d`, data-model.md line 34).
+   * Excludes DELETED rows, same visibility rule as getDocument. */
+  async listDocuments(ctx: RequestContext, itemId: string): Promise<Document[]> {
+    authorize({ context: ctx, action: "document:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const documents = await this.store.queryByPk<Document>(`TENANT#${ctx.tenant.tenantId}#ITEM#${itemId}`, "DOC#");
+    return documents.filter((document) => document.status !== "DELETED");
   }
 }

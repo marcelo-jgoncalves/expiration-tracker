@@ -54,3 +54,18 @@ variable "callback_urls" {
   type        = list(string)
   default     = ["https://example.com/callback"]
 }
+
+variable "domain_prefix" {
+  description = <<-EOT
+    Prefix for the Cognito-provided Hosted UI domain
+    (<prefix>.auth.<region>.amazoncognito.com), which serves the OAuth2 /oauth2/authorize,
+    /oauth2/token and /oauth2/revoke endpoints the Full BFF (D-053/D-054) needs. Must be
+    globally unique across all AWS accounts/regions - a per-environment prefix (dev/prod) is
+    the caller's responsibility. A custom domain (ACM cert + Route53) is deliberately out of
+    scope here: the Cognito-provided domain is simpler, has zero extra infra, and is
+    sufficient since the BFF (server-side) is the only caller that ever talks to it directly -
+    the browser never sees this domain (D-053: it only ever talks to the app's own origin via
+    CloudFront, which redirects to this domain only for the Hosted UI hop).
+  EOT
+  type        = string
+}

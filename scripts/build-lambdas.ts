@@ -38,6 +38,7 @@ const HANDLERS = [
   "reminder-producer-handler",
   "reminder-dispatch-handler",
   "reminder-reconciliation-handler",
+  "reminder-materialization-trigger-handler",
   "dispatch-outbox-relay-handler",
   "outbox-sweeper-handler",
   "notification-router-handler",
@@ -55,6 +56,7 @@ const HANDLERS = [
   "imports-handler",
   "import-parse-handler",
   "import-commit-handler",
+  "bff-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

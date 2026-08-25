@@ -21,7 +21,9 @@ module.exports = {
   },
   // prototype/ is plain browser JS (window/document/location globals), deliberately isolated
   // from production code (see prototype/README.md) — it is not part of this Node/TS ruleset.
-  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/"],
+  // frontend/ is a separate npm project (own package.json/lockfile/.eslintrc.cjs, its own CI
+  // job) — its plugins live in frontend/node_modules, unreachable from this root install.
+  ignorePatterns: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/", "frontend/"],
   rules: {
     "no-console": "error",
     "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],

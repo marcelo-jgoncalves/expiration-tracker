@@ -21,6 +21,8 @@ import {
   handleDeleteRequirementAssignment,
   handleLinkExpirationItem,
   handleUnlinkExpirationItem,
+  handleListDocumentSubmissions,
+  handleGetDocumentSubmission,
   type RequirementHttpDeps,
 } from "../../../modules/subject/http/requirement-handlers.js";
 import {
@@ -103,6 +105,10 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
           return await handleLinkExpirationItem(deps, { ...base, body: parseBody(event) });
         case "POST /subjects/{subjectId}/requirements/{assignmentId}/unlink":
           return await handleUnlinkExpirationItem(deps, base);
+        case "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions":
+          return await handleListDocumentSubmissions(deps, base);
+        case "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}":
+          return await handleGetDocumentSubmission(deps, base);
         case "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests":
           return await handleCreateDocumentRequest(deps, { ...base, body: parseBody(event) });
         case "GET /subjects/{subjectId}/requirements/{assignmentId}/document-requests":

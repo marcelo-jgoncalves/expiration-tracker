@@ -121,12 +121,16 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     );
     expect(reminderOrNotificationRecords).toHaveLength(0);
 
-    // ItemDueDateChanged fired exactly twice: once for the manual due-date edit, once for the renewal.
+    // BLOCKER-B: outbox events now cover the full item lifecycle, not just manual due-date
+    // edits - item-due-date-changed.v1 fires on create (x2, source+renewed), the manual
+    // edit (x1), and the renewed item's own creation (x1) = 3; item-deactivated.v1 fires on
+    // the source item's RENEWED transition, the archive, and the delete = 3.
     const outboxEvents = allRecords.filter((r) => r["entityType"] === "OutboxEvent");
-    expect(outboxEvents).toHaveLength(2);
-    for (const evt of outboxEvents) {
-      expect(evt["eventType"]).toBe("expiration.item-due-date-changed.v1");
-    }
+    expect(outboxEvents).toHaveLength(6);
+    const dueDateChanged = outboxEvents.filter((e) => e["eventType"] === "expiration.item-due-date-changed.v1");
+    const deactivated = outboxEvents.filter((e) => e["eventType"] === "expiration.item-deactivated.v1");
+    expect(dueDateChanged).toHaveLength(3);
+    expect(deactivated).toHaveLength(3);
   });
 
   it("cross-tenant: tenant A cannot read, update or delete tenant B's item, even by guessing its itemId", async () => {

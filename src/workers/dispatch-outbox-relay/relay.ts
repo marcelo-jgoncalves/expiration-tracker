@@ -24,9 +24,14 @@ export const SQS_NOTIFICATION_EMAIL_V1: OutboxDestination = "SQS_NOTIFICATION_EM
 
 /** One sender per recognized destination - a record whose `destination` has no entry here
  * is not this relay/sweeper's to touch (SKIPPED_WRONG_DESTINATION), same exclusivity
- * discipline as the single-destination M3.5 version. */
+ * discipline as the single-destination M3.5 version. `tenantId`/`eventType` (BLOCKER-B,
+ * reminder-delivery-pipeline.md §4) are the record's own envelope fields, passed through so
+ * a sender whose payload doesn't already self-describe them (unlike DispatchCommand, which
+ * embeds its own tenantId/commandType) can still build a self-contained SQS message -
+ * existing senders (dispatch/email/chasing/import, whose payloads already carry everything
+ * they need) simply ignore the two extra arguments. */
 export type DestinationSenders = Partial<
-  Record<OutboxDestination, (payload: Record<string, unknown>, correlationId: string) => Promise<void>>
+  Record<OutboxDestination, (payload: Record<string, unknown>, correlationId: string, tenantId: string, eventType: string) => Promise<void>>
 >;
 
 export interface RelayDeps {
@@ -72,7 +77,7 @@ export async function publishOne(deps: RelayDeps, record: OutboxRecord): Promise
 async function publishAcquiredOrPending(
   deps: RelayDeps,
   record: OutboxRecord,
-  send: (payload: Record<string, unknown>, correlationId: string) => Promise<void>,
+  send: (payload: Record<string, unknown>, correlationId: string, tenantId: string, eventType: string) => Promise<void>,
 ): Promise<PublishOutcome> {
   const leaseDurationMs = deps.leaseDurationMs ?? 30_000;
   const now = deps.now();
@@ -84,7 +89,7 @@ async function publishAcquiredOrPending(
   }
 
   try {
-    await send(record.payload, outboxRecordCorrelationId(record));
+    await send(record.payload, outboxRecordCorrelationId(record), record.tenantId, record.eventType);
   } catch (error) {
     // Failure here is expected and recoverable: the lease expires, the sweeper (or a later
     // Stream retry) will retry. A duplicate SendMessage after a retry is absorbed by the

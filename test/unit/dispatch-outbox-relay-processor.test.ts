@@ -12,6 +12,7 @@ function outboxRecord(overrides: Partial<OutboxRecord> = {}): OutboxRecord {
     PK: "TENANT#t1#OUTBOX#202608",
     SK: "EVENT#2026-08-19T10:00:00.000Z#evt-1",
     entityType: "OutboxEvent",
+    tenantId: "t1",
     eventId: "evt-1",
     eventType: "ReminderDispatchRequested",
     aggregateType: "ReminderOccurrence",

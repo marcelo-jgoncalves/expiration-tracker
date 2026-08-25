@@ -26,6 +26,9 @@ import commandEnvelopeV1 from "../../../schemas/queues/command-envelope.v1.json"
 import webhookInboxV1 from "../../../schemas/api/webhook-inbox.v1.json";
 import notificationIntentCreatedV1 from "../../../schemas/events/notification-intent-created.v1.json";
 import itemDueDateChangedV1 from "../../../schemas/events/item-due-date-changed.v1.json";
+import itemDeactivatedV1 from "../../../schemas/events/item-deactivated.v1.json";
+import reminderPolicyChangedV1 from "../../../schemas/events/reminder-policy-changed.v1.json";
+import reminderMaterializationTriggerV1 from "../../../schemas/queues/reminder-materialization-trigger.v1.json";
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
 import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-dispatch.v1.json";
@@ -104,6 +107,9 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   webhookInboxV1,
   notificationIntentCreatedV1,
   itemDueDateChangedV1,
+  itemDeactivatedV1,
+  reminderPolicyChangedV1,
+  reminderMaterializationTriggerV1,
   notificationEmailDeliverV1,
   reminderDispatchV1,
   documentChasingDispatchV1,

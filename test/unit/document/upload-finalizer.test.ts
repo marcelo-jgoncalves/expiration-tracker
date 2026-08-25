@@ -141,6 +141,7 @@ describe("finalizeUpload", () => {
       transactWrite: store.transactWrite.bind(store),
       putIfAbsent: store.putIfAbsent.bind(store),
       update: store.update.bind(store),
+      queryByPk: store.queryByPk.bind(store),
     };
 
     const outcome = await finalizeUpload(
