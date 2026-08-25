@@ -223,20 +223,32 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     await deps.store.transactWrite(entries);
   } catch (err) {
     if (isTransactionCanceled(err)) {
-      // Two distinct races land here, and CancellationReasons (index 1 = the occurrence's
-      // own CLAIMED->TRIGGERED condition) tells them apart: (a) duplicate delivery of the
-      // same command racing a prior success - the occurrence's own condition already
-      // advanced; (b) the freshness fence above lost a race against a concurrent
-      // policy/item change - the occurrence itself is untouched (still CLAIMED) and will be
-      // correctly re-evaluated by a later dispatch attempt or reconciliation, never
-      // silently retried as a duplicate send here. Falls back to (a)'s label if the SDK
-      // didn't populate CancellationReasons (some local/test doubles don't).
+      // Codex Round D real defect fix: entry index alone doesn't prove which race occurred -
+      // ANY entry can fail (throttling, a genuine idempotency collision at index 4, an
+      // unrelated outbox condition at index 5), and treating every cancellation as one of
+      // this handler's two known-safe outcomes silently swallowed failures the SQS handler
+      // needs to retry (it acks every returned outcome, never just an exception - see
+      // reminder-dispatch-handler.ts). Only the SPECIFIC entries whose failure is provably
+      // safe to swallow are recognized here; everything else rethrows so the caller retries.
       const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
-      const occurrenceReasonFailed = reasons?.[1]?.Code === "ConditionalCheckFailed";
-      if (reasons && !occurrenceReasonFailed) {
+      const failed = (i: number) => reasons?.[i]?.Code === "ConditionalCheckFailed";
+
+      // Entry 1: the occurrence's own CLAIMED->TRIGGERED condition already advanced -
+      // duplicate delivery of the same command racing a prior success on THIS occurrence.
+      if (failed(1)) {
+        return { kind: "ALREADY_TRIGGERED" };
+      }
+      // Entries 2/3: the freshness fence itself lost a race against a concurrent
+      // policy/item change - the occurrence is untouched (still CLAIMED), correctly
+      // re-evaluated by a later dispatch attempt or reconciliation, never a duplicate send.
+      if (failed(2) || failed(3)) {
         return { kind: "ABORTED_FRESHNESS_RACE" };
       }
-      return { kind: "ALREADY_TRIGGERED" };
+      // Any other cancellation (idempotency/outbox condition, throttling, missing
+      // CancellationReasons from a non-conforming store) is not provably safe to treat as a
+      // known no-op outcome - rethrow so the handler reports it as a batch item failure and
+      // SQS retries, rather than silently acknowledging an unexplained failure.
+      throw err;
     }
     throw err;
   }
