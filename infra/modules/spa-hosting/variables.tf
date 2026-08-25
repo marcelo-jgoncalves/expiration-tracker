@@ -44,11 +44,21 @@ variable "spa_content_security_policy" {
     CSP for the SPA's own responses (index.html/assets) - deliberately DIFFERENT from
     var.bff_edge_security_headers.content_security_policy (default-src 'none' is correct for
     JSON/redirects, not for an HTML document that needs to load its own scripts/styles/fonts).
-    No default - hashes are computed per build (implementation-blueprint.md §12/§23), must be
-    supplied by the CI/CD step that runs after `npm run build`. Fails fast rather than
-    deploying a permissive/placeholder CSP.
+
+    Etapa 2's ADR-0011 assumed per-build script hashes would be needed
+    (implementation-blueprint.md §12/§23's Day-0 CSP design predates a real frontend build).
+    Verified against the real Vite build output (frontend/dist/index.html) while implementing
+    etapa 3: the production build emits ZERO inline <script>/<style> content - every asset is
+    loaded via an external, content-hashed URL (script type=module src="/assets/index-*.js",
+    link rel=stylesheet href="/assets/index-*.css"). `script-src 'self'`/`style-src 'self'`
+    therefore cover every real asset without any hash, exactly like the interim CSP
+    frontend/index.html's own <meta> tag already uses - no per-build computation needed. The
+    default below mirrors that meta tag's directives, adding `frame-ancestors 'none'` (which a
+    meta tag cannot express, but a CloudFront Response Headers Policy can - this is the real
+    gap closed by moving the CSP here, not the values themselves).
   EOT
   type        = string
+  default     = "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
 }
 
 variable "price_class" {

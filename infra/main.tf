@@ -358,6 +358,23 @@ module "bff_api" {
   tags              = { Project = local.project_name, Environment = var.environment }
 }
 
+# --- SPA hosting: CloudFront + S3, coexisting with the Full BFF above (ADR-0011) -----------
+# docs/architecture/adr/ADR-0011-cloudfront-bff-coexistence.md - a single distribution with
+# dedicated /bff, /bff/* behaviors targeting module.bff_api above, default behavior serving
+# the SPA from S3+OAC. No custom domain/ACM certificate yet (CloudFront's own domain is
+# explicitly acceptable for dev per the ADR) - var.app_origin stays a placeholder until the
+# first apply's real distribution_domain_name is known and fed back via `-var app_origin=...`,
+# same placeholder-until-verified posture already used for ses_from_address/
+# bff_cognito_domain_prefix in this same file.
+
+module "spa_hosting" {
+  source = "./modules/spa-hosting"
+
+  name_prefix      = local.name_prefix
+  bff_api_endpoint = module.bff_api.api_endpoint
+  tags             = { Project = local.project_name, Environment = var.environment }
+}
+
 # --- WAF (M10, D-037) — REMOVIDO (D-051): AWS WAFv2 não suporta associação com API Gateway
 # HTTP API v2 (só REST API v1/ALB/AppSync/Cognito/App Runner/Verified Access/Amplify) -
 # achado real no primeiro `terraform apply` de fato deste recurso (WAFInvalidParameterException
