@@ -1,9 +1,13 @@
 # BLOCKER-B — End-to-End Reminder Delivery: Gap Analysis + Architecture Decision
 
-> **Status: DRAFT, Round H candidate (Round B: 5.8/10 → Round D: 7.3/10 → Round E: 8.1/10 →
-> Round F: 7.8/10 → Round G: 8.8/10, all NOT APPROVED; findings from every round and their
-> fixes are in §11/§12/§13/§13.5/§13.6, and Round G's own finding is being closed in this
-> revision).** One
+> **Status: ARCHITECTURE APPROVED (Round H: 9.2/10, APPROVED WITH CHANGES, clearing
+> AGENTS.md §4's Type 1 ≥9.0 gate). Round history: B 5.8/10 → D 7.3/10 → E 8.1/10 →
+> F 7.8/10 → G 8.8/10 → H 9.2/10 — findings from every round and their fixes are in
+> §11/§12/§13/§13.5/§13.6/§13.7.** This document is now a green light to implement against,
+> not an open design debate — new Type 1 sub-decisions found during implementation still
+> need their own protocol round, but the architecture itself (event taxonomy, pointer
+> lifecycle, dispatch fence, policy-move fencing, backfill design) does not need
+> re-litigating. One
 > CRITICAL finding (dispatch-time freshness fencing) plus the real code defects later rounds
 > found in it are already implemented and tested (commits `3eeda33`, `55b7b5e`, ahead of
 > this doc revision — reconciliation is architecture-first per AGENTS.md §4, but
@@ -228,21 +232,42 @@ item read) in the trigger worker. No new alarms, no new capacity model entry nee
   `itemId`; `scope: "TEMPLATE"` forbids it" — enforced in `ReminderPolicyService`, matching
   Round B's finding that neither the domain type nor the JSON schema enforced this today.
 - **ITEM policy integrity (Round B MEDIUM finding)**: `createPolicy`/`updatePolicy` for
-  `scope: "ITEM"` now condition-check (via the same `buildVersionConditionCheck` added for
-  the dispatch fence, existence-only form: no expected version, just
-  `attribute_exists(PK) AND tenantId = :tenantId AND #status = :active`) that the target
-  `itemId` exists, is `ACTIVE`, and belongs to the same tenant, inside the same transaction
-  as the policy write. A policy can never reference a nonexistent/foreign/inactive item.
+  `scope: "ITEM"` now condition-check that the target `itemId` exists, is `ACTIVE`, and
+  belongs to the same tenant, inside the same transaction as the policy write. **Round H
+  implementation note**: `buildVersionConditionCheck` as it exists today (§6/`occ.ts`)
+  requires an `expectedVersion` — this check has no version to assert (a policy referencing
+  an item doesn't pin that item to a specific version, only to existing/active/same-tenant),
+  so this needs either a small sibling helper (`buildExistenceConditionCheck`, no
+  `expectedVersion`, same `ConditionCheck` shape otherwise) or an optional-version extension
+  to the existing one — a small, low-risk addition, not a design decision, called out here
+  so implementation doesn't have to rediscover it.
 
 ## 6. Policy-version / disable staleness — reframed after the dispatch fence
 
-`cancelStaleOccurrences` only compares `itemVersion`. `ReminderMaterializer` gains a new
-method `reconcilePolicyOccurrences(tenantId, itemId, policy)` that, for the given policy,
-cancels `SCHEDULED`/`CLAIMED` occurrences where `occurrence.policyId === policy.policyId
-AND (occurrence.policyVersion !== policy.version OR !policy.enabled)` — same
-one-conditional-update-per-occurrence pattern already used (not a single unbounded
-transaction), and a sibling `cancelAllOccurrences(tenantId, itemId)` for the
-`item-deactivated` path (§4) that cancels every live occurrence regardless of policy.
+`cancelStaleOccurrences` only compares `itemVersion`. `ReminderMaterializer` gains three
+sibling methods (Codex Round H LOW finding: this trio was under-specified as a set —
+`reconcilePolicyOccurrences` and `cancelAllOccurrences` were each individually described,
+but `reconcilePolicyOccurrencesUnconditionally` — used by §4's unified policy-changed loop
+for a non-current target — was never formally introduced here; consolidated below):
+
+- `reconcilePolicyOccurrences(tenantId, itemId, policy)` — for the given policy's CURRENT
+  target item: cancels `SCHEDULED`/`CLAIMED` occurrences where `occurrence.policyId ===
+  policy.policyId AND (occurrence.policyVersion !== policy.version OR !policy.enabled)`.
+  Used when the item partition IS the policy's current target (§4).
+- `reconcilePolicyOccurrencesUnconditionally(tenantId, itemId, policy)` — for an item
+  partition that is NOT (or no longer) the policy's current target: cancels **every** live
+  `SCHEDULED`/`CLAIMED` occurrence for that `policyId` in that partition, regardless of
+  version (there's no "current version" to compare against — the policy doesn't target this
+  item at all anymore). Used for the `previousItemId` side of §4's unified loop.
+- `cancelAllOccurrences(tenantId, itemId)` — cancels every live occurrence for **any**
+  policy under the item, used only by the `item-deactivated` path (§4) where the whole item
+  is terminal, not just one policy's relationship to it.
+
+All three share the same one-conditional-update-per-occurrence pattern already used (never
+a single unbounded transaction), and both policy-scoped variants fence each individual
+cancellation with a `buildVersionConditionCheck(policy.version)` `ConditionCheck` in the
+same transaction (§5/§7's F1/G1 fix) — the difference between them is only which
+occurrences qualify for cancellation, not how the cancellation itself is committed.
 
 **Round B HIGH finding ("reconciliation can create stale occurrences after the current
 pass")**: correct that concurrent trigger-worker invocations racing a policy update can
@@ -470,6 +495,14 @@ boundary-rule change, not implied by this document.
 
 Codex's own assessment after this round: "F1–F4 are genuinely fixed" and the remaining item was this one MEDIUM pseudocode contradiction — explicitly not a design-soundness objection to the fence itself. The fresh-design-pass suggestion (a single unified reconcile operation instead of bespoke old/current branches) is adopted directly above, per Codex's own recommendation, rather than left as a "nice to have."
 
+## 13.7. Codex Round H findings and disposition (score 9.2/10, APPROVED WITH CHANGES — clears the Type 1 ≥9.0 gate)
+
+| # | Finding | Severity | Fix | Status |
+|---|---|---|---|---|
+| H1 | `reconcilePolicyOccurrencesUnconditionally` was used in §4's unified loop but never formally introduced/specified in §6 alongside its siblings `reconcilePolicyOccurrences`/`cancelAllOccurrences`; `buildVersionConditionCheck`'s "existence-only form" referenced in §5 doesn't exist as written (the real helper requires `expectedVersion`) | LOW — documentation/API-contract consolidation, explicitly not a correctness gap | All three materializer methods formally specified together in §6; §5's ITEM-policy-integrity check corrected to note it needs a small sibling helper or optional-version extension, not the nonexistent "existence-only form" | Fixed |
+
+Round H's own verdict: **"No CRITICAL, HIGH, or MEDIUM issues... No further adversarial design round is warranted for H1."** — first round to explicitly clear the AGENTS.md §4 Type 1 gate (≥9.0, blind score). **This architecture decision is APPROVED.** Implementation (the trigger worker, pointer lifecycle, lifecycle events, backfill script, Terraform, and the concurrency/tenant-isolation/renewal/backfill/out-of-order/true-concurrency test coverage every round from B through H asked for) may now proceed against this design without further Claude↔Codex debate on the architecture itself — new Type 1 sub-decisions surfaced during implementation still require the protocol per AGENTS.md §4.
+
 ## 14. Claude self-review (Round A/C/E/F/G/H)
 
 - E1 is the most important finding across all three Codex rounds so far: it's the only one
@@ -514,11 +547,12 @@ Codex's own assessment after this round: "F1–F4 are genuinely fixed" and the r
   untouched — no further redesign risk introduced into the already-approved M3.5/M4
   pipeline.
 
-Next step: a fresh Codex round (H) on this revision. Round G explicitly confirmed F1-F4
-were genuinely fixed and scored 8.8/10 with exactly one remaining MEDIUM finding (G1),
-now closed along with the unification simplification Codex itself recommended — this is
-the first round where the reviewer's own assessment, not just the fix count, points toward
-approval. If Round H confirms ≥9.0 (blind-score per AGENTS.md §4), proceed to implement
-§4-§9 (trigger worker, pointer lifecycle, lifecycle events, backfill script, Terraform)
-with the concurrency/tenant-isolation/renewal/backfill/out-of-order/true-concurrency test
-coverage every round from B through G asked for.
+**Architecture APPROVED as of Round H (9.2/10).** Next step: implement §4-§9 (trigger
+worker, pointer lifecycle, lifecycle events, backfill script, Terraform), with the
+concurrency/tenant-isolation/renewal/backfill/out-of-order/true-concurrency test coverage
+every round from B through H asked for — plus the two small implementation notes Round H
+surfaced (§6's `reconcilePolicyOccurrencesUnconditionally` and §5's version-less
+`ConditionCheck` helper for ITEM-policy integrity). Follow-up Claude self-review + a
+fresh Codex round on the actual implementation diff (not just the design) is still
+expected before this branch merges to `develop`, per the mission's own protocol (§106-110)
+— design approval is a gate on STARTING implementation, not a substitute for reviewing it.
