@@ -193,6 +193,19 @@ run "bff_origin_never_has_oac" {
   }
 }
 
+# Real bug found via Camada 3 verification against the real distribution (2026-08-25): SSE-KMS
+# with the AWS-managed "alias/aws/s3" key makes every CloudFront OAC request 403, because that
+# key's policy can't be customized to grant cloudfront.amazonaws.com kms:Decrypt. See the
+# comment on aws_s3_bucket_server_side_encryption_configuration.spa in main.tf.
+run "s3_bucket_uses_sse_s3_never_kms" {
+  command = apply
+
+  assert {
+    condition     = one([for r in aws_s3_bucket_server_side_encryption_configuration.spa.rule : r.apply_server_side_encryption_by_default[0].sse_algorithm]) == "AES256"
+    error_message = "The SPA bucket must use SSE-S3 (AES256), never SSE-KMS with the AWS-managed key - CloudFront's OAC cannot be granted kms:Decrypt on that key, which makes every request 403 in practice"
+  }
+}
+
 run "all_viewer_traffic_redirects_to_https" {
   command = apply
 
