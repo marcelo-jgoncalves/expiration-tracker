@@ -57,8 +57,8 @@ export class DynamoDbReminderStore implements ReminderStore {
     );
   }
 
-  /** Strongly consistent read of all `OCC#`-prefixed rows under the item's own partition (data-model.md §5). */
-  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]> {
+  /** Strongly consistent read of all `skPrefix`-prefixed rows under the item's own partition (default `"OCC#"`, data-model.md §5). */
+  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string, skPrefix = "OCC#"): Promise<T[]> {
     try {
       const items: T[] = [];
       let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -66,8 +66,8 @@ export class DynamoDbReminderStore implements ReminderStore {
         const result = await this.client.send(
           new QueryCommand({
             TableName: this.tableName,
-            KeyConditionExpression: "PK = :pk AND begins_with(SK, :occPrefix)",
-            ExpressionAttributeValues: { ":pk": `TENANT#${tenantId}#ITEM#${itemId}`, ":occPrefix": "OCC#" },
+            KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
+            ExpressionAttributeValues: { ":pk": `TENANT#${tenantId}#ITEM#${itemId}`, ":skPrefix": skPrefix },
             ConsistentRead: true,
             ExclusiveStartKey: exclusiveStartKey,
           }),

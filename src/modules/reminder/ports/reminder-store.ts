@@ -29,8 +29,14 @@ export interface ReminderStore {
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
   update<T extends EntityKey>(item: T): Promise<void>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** All rows under an item's own partition whose SK begins with "OCC#" (ReminderOccurrence rows). Strongly consistent - base-partition read, not a GSI (data-model.md §5). */
-  queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]>;
+  /**
+   * All rows under an item's own partition whose SK begins with `skPrefix` (default
+   * `"OCC#"`, ReminderOccurrence rows). Strongly consistent - base-partition read, not a
+   * GSI (data-model.md §5). BLOCKER-B reuses this exact query shape with `"POLICYREF#"` to
+   * discover which ITEM-scoped policies point at an item (reminder-delivery-pipeline.md
+   * §5) - deliberately generalized rather than adding a second near-identical method.
+   */
+  queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string, skPrefix?: string): Promise<T[]>;
 }
 
 export interface Gsi3QueryInput {

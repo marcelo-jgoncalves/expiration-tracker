@@ -59,6 +59,9 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
         if (!ok) {
           throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on ConditionCheck", CancellationReasons: cancellationReasons(entries, index) };
         }
+      } else if ("Delete" in entry) {
+        // Unconditional deletes (no ConditionExpression) always succeed, matching real
+        // DynamoDB semantics (deleting an absent key is a no-op, not an error).
       } else {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
@@ -78,6 +81,8 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
     for (const entry of entries) {
       if ("ConditionCheck" in entry) {
         continue;
+      } else if ("Delete" in entry) {
+        this.items.delete(this.k(entry.Delete.Key));
       } else if ("Put" in entry) {
         this.items.set(this.k(entry.Put.Item as unknown as EntityKey), entry.Put.Item as Record<string, unknown> & EntityKey);
       } else {
@@ -103,9 +108,9 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
     }
   }
 
-  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string): Promise<T[]> {
+  async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, itemId: string, skPrefix = "OCC#"): Promise<T[]> {
     const pk = `TENANT#${tenantId}#ITEM#${itemId}`;
-    return [...this.items.values()].filter((i) => i.PK === pk && String(i.SK).startsWith("OCC#")) as unknown as T[];
+    return [...this.items.values()].filter((i) => i.PK === pk && String(i.SK).startsWith(skPrefix)) as unknown as T[];
   }
 
   /** Emulates a GSI3 (KEYS_ONLY projection) query: returns only PK/SK/GSI3PK/GSI3SK, exactly like DynamoDB would. */

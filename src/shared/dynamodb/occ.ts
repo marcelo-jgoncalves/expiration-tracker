@@ -142,7 +142,17 @@ export interface TransactConditionCheckEntry {
   ConditionCheck: DynamoConditionCheckCommandInput;
 }
 
-export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry | TransactConditionCheckEntry;
+export interface DynamoDeleteCommandInput {
+  TableName: string;
+  Key: EntityKey;
+  ConditionExpression?: string;
+}
+
+export interface TransactDeleteEntry {
+  Delete: DynamoDeleteCommandInput;
+}
+
+export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry | TransactConditionCheckEntry | TransactDeleteEntry;
 
 /**
  * Builds a TransactWriteItems `ConditionCheck` entry asserting a row is still at an
