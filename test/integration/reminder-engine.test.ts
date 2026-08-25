@@ -148,10 +148,13 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     const allIntents = store.allItems().filter((i) => i["entityType"] === "NotificationIntent");
     expect(allIntents).toHaveLength(1);
 
-    // Outbox: exactly one durable ReminderDispatchRequested (M3.5, written by the producer's
-    // claim) and exactly one notification.intent-created.v1 (M3, written by dispatch).
+    // Outbox: exactly one reminder.policy-changed.v1 (BLOCKER-B, written by createPolicy),
+    // one durable ReminderDispatchRequested (M3.5, written by the producer's claim), and
+    // one notification.intent-created.v1 (M3, written by dispatch).
     const outboxEvents = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
-    expect(outboxEvents).toHaveLength(2);
+    expect(outboxEvents).toHaveLength(3);
+    const policyChanged = outboxEvents.filter((e) => e["eventType"] === "reminder.policy-changed.v1");
+    expect(policyChanged).toHaveLength(1);
     const dispatchRequested = outboxEvents.filter((e) => e["eventType"] === "ReminderDispatchRequested");
     expect(dispatchRequested).toHaveLength(1);
     expect(dispatchRequested[0]?.["destination"]).toBe("SQS_REMINDER_DISPATCH_V1");

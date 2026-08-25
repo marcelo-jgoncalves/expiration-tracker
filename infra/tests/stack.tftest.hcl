@@ -25,21 +25,22 @@ variables {
   alert_email      = "ops@example.com"
 }
 
-run "twentyfive_lambda_functions_exist_no_placeholder" {
+run "twentysix_lambda_functions_exist_no_placeholder" {
   command = plan
 
-  # M3.5+M4+notifications-handler: no Lambda function is left as an inline 501 placeholder -
-  # every function has a real asset bundle (Terraform structurally cannot have inline code
-  # here - the lambda-function module always zips an on-disk directory via data.archive_file
-  # - but we still assert the expected count and distinct names to catch a wiring mistake).
+  # M3.5+M4+notifications-handler+BLOCKER-B: no Lambda function is left as an inline 501
+  # placeholder - every function has a real asset bundle (Terraform structurally cannot have
+  # inline code here - the lambda-function module always zips an on-disk directory via
+  # data.archive_file - but we still assert the expected count and distinct names to catch a
+  # wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 25
-    error_message = "Expected exactly 25 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054)"
+    condition     = length(output.lambda_function_names) == 26
+    error_message = "Expected exactly 26 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 25
-    error_message = "All 25 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 26
+    error_message = "All 26 Lambda function names must be distinct"
   }
 }
 
@@ -124,6 +125,13 @@ run "gsi3_access_granted_only_to_reminder_producer" {
   assert {
     condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "DocumentChasingDispatch must NOT reference GSI3"
+  }
+
+  # BLOCKER-B: ReminderMaterializationTrigger only ever does get()/queryByItem() on base
+  # partitions - never queries GSI3 (that's exclusively ReminderProducer's).
+  assert {
+    condition     = !anytrue([for p in module.reminder_materialization_trigger.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "ReminderMaterializationTrigger must NOT reference GSI3"
   }
 }
 
@@ -226,6 +234,13 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "DocumentChasingDispatch must NOT reference GSI6"
   }
+
+  # BLOCKER-B: ReminderMaterializationTrigger is not one of the three GSI6-privileged roles
+  # either - it never does claim-expiry/DST reconciliation, only get()/queryByItem().
+  assert {
+    condition     = !anytrue([for p in module.reminder_materialization_trigger.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "ReminderMaterializationTrigger must NOT reference GSI6"
+  }
 }
 
 run "dlq_max_receive_count_5_and_age_alarm_exists" {
@@ -296,6 +311,12 @@ run "seven_reminder_alarms_plus_one_dlq_age_alarm_per_m4_queue" {
   assert {
     condition     = module.import_commit_queue.dlq_age_alarm_name != ""
     error_message = "ImportCommit queue DLQ age alarm must exist"
+  }
+
+  # BLOCKER-B: same generic module, same reasoning.
+  assert {
+    condition     = module.reminder_materialization_trigger_queue.dlq_age_alarm_name != ""
+    error_message = "ReminderMaterializationTrigger queue DLQ age alarm must exist"
   }
 }
 
@@ -461,6 +482,16 @@ run "event_source_mappings_use_partial_batch_failure" {
     condition     = contains(aws_lambda_event_source_mapping.malware_result_from_queue.function_response_types, "ReportBatchItemFailures")
     error_message = "MalwareResultWorker's SQS event source mapping must use ReportBatchItemFailures"
   }
+
+  # BLOCKER-B's new event source mapping - same discipline.
+  assert {
+    condition     = contains(aws_lambda_event_source_mapping.reminder_materialization_trigger_from_queue.function_response_types, "ReportBatchItemFailures")
+    error_message = "ReminderMaterializationTrigger's SQS event source mapping must use ReportBatchItemFailures"
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.reminder_materialization_trigger_from_queue.batch_size == 10
+    error_message = "ReminderMaterializationTrigger's SQS event source mapping batch size must be 10"
+  }
 }
 
 run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
@@ -506,8 +537,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 25
-    error_message = "Deploy manifest map must cover exactly the 25 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 26
+    error_message = "Deploy manifest map must cover exactly the 26 real Lambda functions"
   }
 
   assert {

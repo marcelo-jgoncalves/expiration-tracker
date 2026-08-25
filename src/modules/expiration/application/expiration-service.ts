@@ -38,6 +38,10 @@ import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "
 import { createHash } from "node:crypto";
 
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
+/** BLOCKER-B (reminder-delivery-pipeline.md §4): fired for every terminal item transition
+ * (archive, delete, renewal's old-item side) - tells the reminder-materialization-trigger
+ * worker to cancel every live occurrence under this item unconditionally, no materialize. */
+const ITEM_DEACTIVATED = "expiration.item-deactivated.v1";
 
 export interface ExpirationServiceDeps {
   store: ExpirationStore;
@@ -169,6 +173,27 @@ export class ExpirationService {
     };
 
     const entries: TransactWriteEntry[] = [{ Put: buildVersionedCreate(this.tableName, item as unknown as Record<string, unknown> & { PK: string; SK: string }) }];
+
+    // BLOCKER-B (reminder-delivery-pipeline.md §2/§4, Codex Round H APPROVED 9.2/10):
+    // createItem previously emitted no outbox event at all, so a brand-new item with an
+    // already-attached policy would never materialize a reminder even once a due-date-
+    // changed consumer existed - a newly created item's due date IS "the due date changing"
+    // from the reminder trigger's point of view (from nonexistent to input.dueDate), same
+    // semantic renewItem's own new-item creation already uses (previousDueDate: null).
+    const createdEvent: DomainEvent = {
+      specVersion: "1.0",
+      eventId: this.ids.newEventId(),
+      eventType: ITEM_DUE_DATE_CHANGED,
+      source: "expiration-tracker.expiration",
+      occurredAt: now,
+      correlationId: ctx.correlationId,
+      tenantId: ctx.tenant.tenantId,
+      actor: { type: "USER", userId: ctx.principal.userId },
+      aggregate: { type: "ExpirationItem", id: itemId, version: 1 },
+      data: { itemId, previousDueDate: null, newDueDate: input.dueDate, itemVersion: 1 },
+    };
+    appendToTransaction(entries, this.tableName, createdEvent, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
+
     this.appendAudit(entries, ctx, {
       itemId,
       action: "CREATE",
@@ -282,7 +307,7 @@ export class ExpirationService {
           itemVersion: newVersion,
         },
       };
-      appendToTransaction(entries, this.tableName, event);
+      appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
     }
 
     this.appendAudit(entries, ctx, {
@@ -452,7 +477,14 @@ export class ExpirationService {
       aggregate: { type: "ExpirationItem", id: newItemId, version: 1 },
       data: { itemId: newItemId, previousDueDate: null, newDueDate: input.newDueDate, itemVersion: 1 },
     };
-    appendToTransaction(entries, this.tableName, event);
+    appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
+
+    // BLOCKER-B (reminder-delivery-pipeline.md §4/§8, Codex Round H APPROVED 9.2/10): the
+    // OLD item transitions to RENEWED in this same transaction (above) - its own live
+    // reminder occurrences must be cancelled the same way archive/delete's are, otherwise
+    // a renewed item's superseded lineage keeps delivering reminders for a due date that no
+    // longer applies. Round D's CRITICAL finding #1 covered this alongside archive/delete.
+    this.appendItemDeactivated(entries, ctx, { itemId, itemVersion: newVersion, tenantId: source.tenantId });
 
     this.appendAudit(entries, ctx, {
       itemId,
@@ -490,6 +522,7 @@ export class ExpirationService {
       ...gsi1Keys(item.tenantId, status, item.dueDate, item.itemId),
       ...extraSet,
     };
+    const newVersion = expectedVersion + 1;
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
@@ -501,6 +534,14 @@ export class ExpirationService {
         }),
       },
     ];
+
+    // BLOCKER-B (reminder-delivery-pipeline.md §4/§8, Codex Round H APPROVED 9.2/10): both
+    // callers of transitionStatus (archive, delete) are terminal item transitions that must
+    // cancel any live reminder occurrence - previously nothing signalled this at all
+    // (Round B/D CRITICAL finding #1). renewItem's own old-item RENEWED transition emits
+    // the same event separately below, since it doesn't go through transitionStatus.
+    this.appendItemDeactivated(entries, ctx, { itemId: item.itemId, itemVersion: newVersion });
+
     this.appendAudit(entries, ctx, {
       itemId: item.itemId,
       action,
@@ -509,6 +550,28 @@ export class ExpirationService {
       changes: { before: { status: item.status }, after: { status } },
     });
     await this.commit(entries);
+  }
+
+  /** BLOCKER-B: appends `expiration.item-deactivated.v1` to `entries` - `tenantId` defaults to `ctx.tenant.tenantId` (every caller except completeRenewal, which already has `source.tenantId` on hand and can skip the extra property access). */
+  private appendItemDeactivated(
+    entries: TransactWriteEntry[],
+    ctx: RequestContext,
+    input: { itemId: string; itemVersion: number; tenantId?: string },
+  ): void {
+    const tenantId = input.tenantId ?? ctx.tenant.tenantId;
+    const event: DomainEvent = {
+      specVersion: "1.0",
+      eventId: this.ids.newEventId(),
+      eventType: ITEM_DEACTIVATED,
+      source: "expiration-tracker.expiration",
+      occurredAt: this.now(),
+      correlationId: ctx.correlationId,
+      tenantId,
+      actor: { type: "USER", userId: ctx.principal.userId },
+      aggregate: { type: "ExpirationItem", id: input.itemId, version: input.itemVersion },
+      data: { itemId: input.itemId, itemVersion: input.itemVersion },
+    };
+    appendToTransaction(entries, this.tableName, event, "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1");
   }
 
   private appendAudit(

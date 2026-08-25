@@ -16,7 +16,7 @@
  * (`tenantId|occurrenceId`, §9.4's exact key for NotificationIntentCreated consumers) +
  * outbox `notification.intent-created.v1` Put.
  */
-import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
+import { buildVersionConditionCheck, buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../shared/outbox/outbox.js";
 import { buildIdempotencyKey } from "../../shared/idempotency/idempotency.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
@@ -44,7 +44,8 @@ export type DispatchOutcome =
   | { kind: "TRIGGERED"; intent: NotificationIntent }
   | { kind: "ALREADY_TRIGGERED" }
   | { kind: "CANCELLED_STALE"; reason: string }
-  | { kind: "SKIPPED_NOT_CLAIMED" };
+  | { kind: "SKIPPED_NOT_CLAIMED" }
+  | { kind: "ABORTED_FRESHNESS_RACE" };
 
 /** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md §2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
 async function findOccurrence(store: ReminderStore, tenantId: string, itemId: string, occurrenceId: string): Promise<ReminderOccurrence | undefined> {
@@ -113,7 +114,18 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         },
       ]);
     } catch (err) {
-      if (!isTransactionCanceled(err)) throw err;
+      // Codex Round E/F finding: mirrors D2's exact defect on this second, older
+      // transaction - TransactionCanceledException is not synonymous with "the occurrence's
+      // own condition lost" (throttling/other cancellation reasons must be retried, not
+      // silently treated as an already-resolved stale occurrence). Only entry 0 (this
+      // transaction's sole Update) failing its own ConditionalCheckFailed is provably safe
+      // to swallow - Round F caught that the first fix still fell through to "swallow" when
+      // `CancellationReasons` was absent entirely (`reasons && !occurrenceConditionFailed`
+      // is falsy when `reasons` is undefined); this must rethrow whenever it cannot prove
+      // the specific reason, exactly like the success-path catch below already does.
+      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      const occurrenceConditionFailed = reasons?.[0]?.Code === "ConditionalCheckFailed";
+      if (!isTransactionCanceled(err) || !occurrenceConditionFailed) throw err;
     }
     return { kind: "CANCELLED_STALE", reason };
   }
@@ -153,6 +165,20 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
         remove: ["GSI6PK", "GSI6SK"],
       }),
     },
+    // Freshness fence (BLOCKER-B, Codex Round B CRITICAL finding): the `stale` check above
+    // reads item/policy moments before this transaction commits - without re-asserting those
+    // exact facts atomically here, a policy disable/update or item archive/delete landing in
+    // that gap would still produce a real NotificationIntent for an item/policy that is no
+    // longer current by the time this transaction is durable. Re-asserted as ConditionChecks
+    // (not re-reads) so the whole transaction, including the NotificationIntent Put, is
+    // atomically gated on both still holding.
+    buildVersionConditionCheck({ tableName: deps.tableName, key: itemKey(tenantId, itemId), expectedVersion: itemVersion, extra: { status: "ACTIVE" } }),
+    buildVersionConditionCheck({
+      tableName: deps.tableName,
+      key: policyKey(tenantId, occurrence.policyId),
+      expectedVersion: policyVersion,
+      extra: { enabled: true },
+    }),
   ];
 
   // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId").
@@ -208,9 +234,32 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     await deps.store.transactWrite(entries);
   } catch (err) {
     if (isTransactionCanceled(err)) {
-      // Duplicate delivery of the same command (SQS at-least-once) racing a prior success -
-      // either the idempotency Put or the occurrence's CLAIMED condition already advanced.
-      return { kind: "ALREADY_TRIGGERED" };
+      // Codex Round D real defect fix: entry index alone doesn't prove which race occurred -
+      // ANY entry can fail (throttling, a genuine idempotency collision at index 4, an
+      // unrelated outbox condition at index 5), and treating every cancellation as one of
+      // this handler's two known-safe outcomes silently swallowed failures the SQS handler
+      // needs to retry (it acks every returned outcome, never just an exception - see
+      // reminder-dispatch-handler.ts). Only the SPECIFIC entries whose failure is provably
+      // safe to swallow are recognized here; everything else rethrows so the caller retries.
+      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      const failed = (i: number) => reasons?.[i]?.Code === "ConditionalCheckFailed";
+
+      // Entry 1: the occurrence's own CLAIMED->TRIGGERED condition already advanced -
+      // duplicate delivery of the same command racing a prior success on THIS occurrence.
+      if (failed(1)) {
+        return { kind: "ALREADY_TRIGGERED" };
+      }
+      // Entries 2/3: the freshness fence itself lost a race against a concurrent
+      // policy/item change - the occurrence is untouched (still CLAIMED), correctly
+      // re-evaluated by a later dispatch attempt or reconciliation, never a duplicate send.
+      if (failed(2) || failed(3)) {
+        return { kind: "ABORTED_FRESHNESS_RACE" };
+      }
+      // Any other cancellation (idempotency/outbox condition, throttling, missing
+      // CancellationReasons from a non-conforming store) is not provably safe to treat as a
+      // known no-op outcome - rethrow so the handler reports it as a batch item failure and
+      // SQS retries, rather than silently acknowledging an unexplained failure.
+      throw err;
     }
     throw err;
   }

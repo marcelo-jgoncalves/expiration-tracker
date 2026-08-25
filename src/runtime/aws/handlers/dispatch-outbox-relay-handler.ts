@@ -18,11 +18,17 @@ const queueUrl = process.env["DISPATCH_QUEUE_URL"];
 const chasingQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
 // M11 (D-042): third destination, same reasoning.
 const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
+// BLOCKER-B (reminder-delivery-pipeline.md §4): fourth destination, same reasoning - the
+// generic "no destination -> EventBridge" path this design doc originally assumed was never
+// actually implemented in this codebase (confirmed during implementation, see outbox.ts's
+// OutboxDestination comment), so this is the only real delivery mechanism available.
+const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
 if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
-const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}), chasingQueueUrl, importCommitQueueUrl);
+if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
+const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}), chasingQueueUrl, importCommitQueueUrl, materializationTriggerQueueUrl);
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {

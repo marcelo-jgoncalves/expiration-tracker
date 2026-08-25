@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/item-deactivated.v1.json",
+  "title": "expiration.item-deactivated.v1",
+  "description": "BLOCKER-B (reminder-delivery-pipeline.md #4/#8, Codex Round H APPROVED 9.2/10): published via the transactional outbox for every terminal ExpirationItem transition (archive, delete, the OLD item's own RENEWED transition on renewal) - tells the reminder-materialization-trigger worker to cancel every live occurrence under this item unconditionally, no materialize.",
+  "allOf": [{ "$ref": "../events/domain-event-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "eventType": { "const": "expiration.item-deactivated.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "itemVersion"],
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1 },
+        "itemVersion": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

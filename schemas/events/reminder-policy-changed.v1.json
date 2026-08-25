@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/reminder-policy-changed.v1.json",
+  "title": "reminder.policy-changed.v1",
+  "description": "BLOCKER-B (reminder-delivery-pipeline.md #4/#5, Codex Round H APPROVED 9.2/10): published via the transactional outbox on every ReminderPolicy write (create/update/disable) - a pure invalidation signal (never authoritative state, see #7) that wakes the reminder-materialization-trigger worker to re-read the policy and reconcile the occurrences it owns. `itemId` is present iff the policy's CURRENT scope is ITEM (omitted for TEMPLATE or when scope just left ITEM). `previousItemId` is present ONLY when an update moves an ITEM-scoped policy to a different item, or changes its scope away from ITEM - it exists purely so the worker can additionally reconcile the OLD item's partition (there is no global policy->occurrence index), and is never used to gate a decision, only to address a second partition to re-check (#7's fencing: any cancellation there is itself atomically conditioned on a fresh policy read, not on this field's value).",
+  "allOf": [{ "$ref": "../events/domain-event-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "eventType": { "const": "reminder.policy-changed.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "itemId", "previousItemId"],
+      "properties": {
+        "policyId": { "type": "string", "minLength": 1 },
+        "itemId": { "type": ["string", "null"], "minLength": 1 },
+        "previousItemId": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}
