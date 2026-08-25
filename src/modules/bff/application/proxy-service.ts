@@ -11,7 +11,7 @@ import type { Session } from "../domain/session.js";
 /** Explicit allowlist of request headers forwarded to the backend, and response headers
  * forwarded back to the browser (D-054: "allowlist de headers", never implicit passthrough -
  * same discipline as toApiGatewayResult() only ever setting a fixed header set). */
-const FORWARDED_REQUEST_HEADERS = ["content-type", "if-match"];
+const FORWARDED_REQUEST_HEADERS = ["content-type", "if-match", "idempotency-key"];
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "etag"];
 
 export interface ProxyRequest {

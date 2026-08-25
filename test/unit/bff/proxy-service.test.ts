@@ -78,6 +78,23 @@ describe("ProxyService", () => {
     expect(seenHeaders["cookie"]).toBeUndefined();
   });
 
+  it("forwards idempotency-key so CREATE-IDEMPOTENCY-01 protection reaches the backend (ADR-0011)", async () => {
+    let seenHeaders: Record<string, string> = {};
+    const backend: BackendFetcher = {
+      fetch: async (input) => {
+        seenHeaders = input.headers;
+        return { statusCode: 201, headers: {}, body: "{}" };
+      },
+    };
+    const proxy = new ProxyService(backend, "https://api.example.com");
+    await proxy.forward(fakeSession(), {
+      method: "POST",
+      path: "/items",
+      headers: { "content-type": "application/json", "idempotency-key": "client-generated-key-1" },
+    });
+    expect(seenHeaders["idempotency-key"]).toBe("client-generated-key-1");
+  });
+
   it("only forwards allowlisted response headers back to the browser", async () => {
     const backend: BackendFetcher = {
       fetch: async () => ({ statusCode: 200, headers: { "content-type": "application/json", etag: '"v1"', "x-amzn-requestid": "internal-id" }, body: "{}" }),

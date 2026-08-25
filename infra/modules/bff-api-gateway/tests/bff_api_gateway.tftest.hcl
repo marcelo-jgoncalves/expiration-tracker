@@ -65,3 +65,45 @@ run "throttling_is_more_conservative_than_the_jwt_protected_api_default" {
     error_message = "Unauthenticated BFF routes must throttle at least as conservatively as /guest/* does in infra/modules/api-gateway (D-051)"
   }
 }
+
+# ADR-0011 (achado real da Rodada 5 do protocolo Claude<->Codex): a config de CORS de
+# fallback (dev/invocação direta - produção via CloudFront é same-origin) tinha 3 gaps reais
+# contra frontend/src/api/client.ts: faltavam Idempotency-Key/If-Match e PATCH. Testa o
+# conjunto completo, allow_credentials e allow_origins juntos - testar só headers/métodos
+# permitiria uma regressão silenciosa em allow_credentials ou allow_origins (ex. wildcard).
+run "cors_matches_every_header_method_and_credential_client_ts_actually_sends" {
+  command = apply
+
+  variables {
+    api_name          = "expiration-tracker-test-bff"
+    bff_invoke_arn    = "arn:aws:lambda:us-east-1:123456789012:function:test-bff:live"
+    bff_function_name = "test-bff"
+    app_origin        = "https://app.example.com"
+  }
+
+  assert {
+    condition = alltrue([
+      for h in ["Content-Type", "X-CSRF-Token", "Idempotency-Key", "If-Match"] :
+      contains(aws_apigatewayv2_api.bff.cors_configuration[0].allow_headers, h)
+    ])
+    error_message = "CORS allow_headers must include every header client.ts sends: Content-Type, X-CSRF-Token, Idempotency-Key, If-Match"
+  }
+
+  assert {
+    condition = alltrue([
+      for m in ["GET", "POST", "PUT", "PATCH", "DELETE"] :
+      contains(aws_apigatewayv2_api.bff.cors_configuration[0].allow_methods, m)
+    ])
+    error_message = "CORS allow_methods must include every method client.ts's MUTATING_METHODS + GET can send, including PATCH"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_api.bff.cors_configuration[0].allow_credentials == true
+    error_message = "allow_credentials must stay true - the session cookie IS the credential (D-053)"
+  }
+
+  assert {
+    condition     = tolist(aws_apigatewayv2_api.bff.cors_configuration[0].allow_origins) == tolist([var.app_origin])
+    error_message = "allow_origins must be the explicit app_origin, never a wildcard - required for allow_credentials=true to even be valid per the CORS spec"
+  }
+}

@@ -19,6 +19,7 @@
     "test:dynamodb": "vitest run --config vitest.dynamodb.config.ts",
     "validate-schemas": "tsx scripts/validate-schemas.ts",
     "check-docs": "tsx scripts/check-doc-drift.ts",
+    "check-spa-build-artifacts": "node scripts/check-spa-build-artifacts.mjs",
     "build:lambdas": "tsx scripts/build-lambdas.ts"
   },
   "devDependencies": {
