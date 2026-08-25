@@ -1,10 +1,10 @@
 /**
  * Expiration Detail (mission §24-25/§91): what is this, when does it expire, what's its
  * status, who's responsible, what actions are available. Deliberately has no Documents
- * section at all - BLOCKER-A (no route reads/lists Document/DocumentSubmission) means there is
- * no real contract to back one, and Documents are explicitly out of scope for this vertical
- * slice (mission §6) - omitting the section entirely is the honest choice, never a fabricated
- * "nenhum documento" claim the backend has no way to actually know (mission §25).
+ * section yet - BLOCKER-A's backend routes (GET .../documents, GET .../documents/{id}) were
+ * closed 2026-08-25 (NEXT_SESSION_PROMPT.md), so a real contract now exists, but Documents
+ * remain explicitly out of scope for this vertical slice (mission §6) - wiring the section
+ * itself is separate, not-yet-started frontend work, not a backend blocker anymore.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useItem } from "../../hooks/useItem.js";
@@ -52,7 +52,17 @@ function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
   );
 }
 
-function DetailBody({ item, justCreated, justRenewed }: { item: ExpirationItem; justCreated: boolean; justRenewed: boolean }) {
+function DetailBody({
+  item,
+  justCreated,
+  justRenewed,
+  copiedReminderPolicyIds,
+}: {
+  item: ExpirationItem;
+  justCreated: boolean;
+  justRenewed: boolean;
+  copiedReminderPolicyIds: string[];
+}) {
   const now = new Date();
   const urgency = presentItemUrgency(item, now);
 
@@ -63,6 +73,12 @@ function DetailBody({ item, justCreated, justRenewed }: { item: ExpirationItem; 
       </p>
       {justCreated ? <p role="status">Vencimento criado com sucesso.</p> : null}
       {justRenewed ? <p role="status">Renovação concluída - este é o novo ciclo.</p> : null}
+      {justRenewed && copiedReminderPolicyIds.length > 0 ? (
+        // reminder-delivery-pipeline.md §8 (Marcelo's decision, 2026-08-25): renewal
+        // auto-copies the source item's reminder policy - never silent, this notice is the
+        // required "review it" prompt, not an optional embellishment.
+        <p role="status">Os lembretes do ciclo anterior foram copiados para este vencimento. Revise se o prazo de aviso ainda faz sentido.</p>
+      ) : null}
       <h1>{item.name}</h1>
       <p>
         <span data-tone={urgency.tone}>[{urgency.label}]</span>
@@ -115,6 +131,13 @@ export function ItemDetail() {
     return <ErrorState message={message} onRetry={() => void query.refetch()} />;
   }
 
-  const state = location.state as { justCreated?: boolean; justRenewed?: boolean } | null;
-  return <DetailBody item={query.data.item} justCreated={Boolean(state?.justCreated)} justRenewed={Boolean(state?.justRenewed)} />;
+  const state = location.state as { justCreated?: boolean; justRenewed?: boolean; copiedReminderPolicyIds?: string[] } | null;
+  return (
+    <DetailBody
+      item={query.data.item}
+      justCreated={Boolean(state?.justCreated)}
+      justRenewed={Boolean(state?.justRenewed)}
+      copiedReminderPolicyIds={state?.copiedReminderPolicyIds ?? []}
+    />
+  );
 }

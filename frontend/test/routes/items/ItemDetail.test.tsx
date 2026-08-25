@@ -89,4 +89,19 @@ describe("ItemDetail", () => {
 
     await waitFor(() => expect(screen.getByText("Renovação concluída - este é o novo ciclo.")).toBeInTheDocument());
   });
+
+  it("shows the copied-reminders notice when the renewal copied a policy (reminder-delivery-pipeline.md §8)", async () => {
+    getMock.mockResolvedValue({ item: item({}) });
+    renderAtRoute("/items/:itemId", <ItemDetail />, { pathname: "/items/item-1", state: { justRenewed: true, copiedReminderPolicyIds: ["policy-1"] } });
+
+    await waitFor(() => expect(screen.getByText(/Os lembretes do ciclo anterior foram copiados/)).toBeInTheDocument());
+  });
+
+  it("does not show the copied-reminders notice when nothing was copied", async () => {
+    getMock.mockResolvedValue({ item: item({}) });
+    renderAtRoute("/items/:itemId", <ItemDetail />, { pathname: "/items/item-1", state: { justRenewed: true, copiedReminderPolicyIds: [] } });
+
+    await waitFor(() => expect(screen.getByText("Renovação concluída - este é o novo ciclo.")).toBeInTheDocument());
+    expect(screen.queryByText(/Os lembretes do ciclo anterior foram copiados/)).not.toBeInTheDocument();
+  });
 });

@@ -53,7 +53,7 @@ export function RenewItem() {
     try {
       const response = await mutation.mutateAsync({ newDueDate: `${newDueDate}T00:00:00.000Z`, expectedVersion: item.version });
       mutation.newIntent();
-      navigate(`/items/${response.item.itemId}`, { state: { justRenewed: true } });
+      navigate(`/items/${response.item.itemId}`, { state: { justRenewed: true, copiedReminderPolicyIds: response.copiedReminderPolicyIds } });
     } catch (err) {
       if (isConflict(err)) return; // surfaced by the derived `conflict` flag below, no separate copy needed
       if (isUnknownOutcome(err)) {

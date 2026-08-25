@@ -62,6 +62,14 @@ export interface ItemResponse {
   item: ExpirationItem;
 }
 
+/** renewItem's response also carries `copiedReminderPolicyIds` (reminder-delivery-
+ * pipeline.md §8, Marcelo's decision 2026-08-25): the backend auto-copies the source item's
+ * ReminderPolicy onto the new item and reports it explicitly, never inferred from absence,
+ * so the UI can prompt the user to review it. */
+export interface RenewItemResponse extends ItemResponse {
+  copiedReminderPolicyIds: string[];
+}
+
 export interface DashboardResponse {
   items: ExpirationItem[];
 }

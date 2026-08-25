@@ -52,7 +52,7 @@ describe("RenewItem", () => {
 
   it("submits the renewal with the item's current version as If-Match and navigates to the new cycle", async () => {
     getMock.mockResolvedValue({ item: item({}) });
-    postMock.mockResolvedValue({ item: { itemId: "item-2" } });
+    postMock.mockResolvedValue({ item: { itemId: "item-2" }, copiedReminderPolicyIds: [] });
     renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
@@ -65,7 +65,19 @@ describe("RenewItem", () => {
     expect(body).toMatchObject({ newDueDate: "2027-09-01T00:00:00.000Z" });
     expect(options.expectedVersion).toBe(3);
     expect(options.idempotencyKey).toBeTruthy();
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-2", { state: { justRenewed: true } }));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: [] } }));
+  });
+
+  it("passes copiedReminderPolicyIds through navigation state when the backend reports a copy", async () => {
+    getMock.mockResolvedValue({ item: item({}) });
+    postMock.mockResolvedValue({ item: { itemId: "item-2" }, copiedReminderPolicyIds: ["policy-1"] });
+    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+
+    await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar renovação" }));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: ["policy-1"] } }));
   });
 
   it("OCC conflict (409): shows the dedicated recovery notice, never a generic error, and blocks resubmission until Recarregar", async () => {
@@ -86,7 +98,7 @@ describe("RenewItem", () => {
   it("OCC recovery: clicking Recarregar refetches the item and re-enables submission with the fresh version", async () => {
     const { ApiError } = await import("../../../src/api/errors.js");
     getMock.mockResolvedValueOnce({ item: item({ version: 3 }) }).mockResolvedValue({ item: item({ version: 4 }) });
-    postMock.mockRejectedValueOnce(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "VERSION_CONFLICT", retryable: false })).mockResolvedValueOnce({ item: { itemId: "item-2" } });
+    postMock.mockRejectedValueOnce(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "VERSION_CONFLICT", retryable: false })).mockResolvedValueOnce({ item: { itemId: "item-2" }, copiedReminderPolicyIds: [] });
     renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
