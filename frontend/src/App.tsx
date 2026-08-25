@@ -2,8 +2,9 @@
  * Routing skeleton (mission §26) matching the approved dual-anchor IA's top-level areas only
  * - Overview, Vencimentos (Items), Fornecedores (Subjects), Configurações (Settings). No
  * route invented purely for technical convenience; no attempt to cover all 17 Interaction
- * Surfaces (mission §77) - only Overview has a real implementation (the First Vertical
- * Slice, kept deliberately thin - see routes/Overview.tsx), the rest are honest placeholders.
+ * Surfaces (mission §77). Overview, Vencimentos (Core Expiration Vertical Slice) and
+ * Fornecedores (BLOCKER-C review queue, Variante B - 2026-08-25) have real implementations;
+ * Configurações remains an honest placeholder.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -15,6 +16,8 @@ import { ItemsCollection } from "./routes/items/ItemsCollection.js";
 import { ItemDetail } from "./routes/items/ItemDetail.js";
 import { CreateItem } from "./routes/items/CreateItem.js";
 import { RenewItem } from "./routes/items/RenewItem.js";
+import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
+import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
 import { NotImplementedPlaceholder } from "./routes/NotImplementedPlaceholder.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
@@ -52,7 +55,8 @@ export function App() {
                 <Route path="items/new" element={<CreateItem />} />
                 <Route path="items/:itemId" element={<ItemDetail />} />
                 <Route path="items/:itemId/renew" element={<RenewItem />} />
-                <Route path="subjects" element={<NotImplementedPlaceholder title="Fornecedores" />} />
+                <Route path="subjects" element={<SubjectsCollection />} />
+                <Route path="subjects/:subjectId" element={<SubjectDetail />} />
                 <Route path="settings" element={<NotImplementedPlaceholder title="Configurações" />} />
               </Route>
               <Route path="*" element={<NotFound />} />

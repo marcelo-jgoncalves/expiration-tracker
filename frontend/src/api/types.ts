@@ -73,3 +73,77 @@ export interface RenewItemResponse extends ItemResponse {
 export interface DashboardResponse {
   items: ExpirationItem[];
 }
+
+/**
+ * BLOCKER-C review queue (Variante B, revisão humana explícita — decisão do Marcelo,
+ * 2026-08-25, reminder-delivery-pipeline.md's sibling decision brief). The domain-relevant
+ * subset of src/modules/subject/domain/{tracked-subject,requirement-assignment,document-
+ * submission}.ts, same convention as ExpirationItem above.
+ */
+export type TrackedSubjectStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
+export type TrackedSubjectType = "COMPANY" | "VENDOR" | "CLIENT" | "EMPLOYEE" | "ASSET" | "LOCATION" | "CUSTOM";
+
+export interface TrackedSubject {
+  subjectId: string;
+  tenantId: string;
+  type: TrackedSubjectType;
+  displayName: string;
+  notes?: string;
+  tags: string[];
+  status: TrackedSubjectStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export type RequirementAssignmentStatus = "MISSING" | "REQUESTED" | "SUBMITTED" | "UNDER_REVIEW" | "REJECTED" | "SATISFIED";
+
+export interface RequirementAssignment {
+  assignmentId: string;
+  subjectId: string;
+  tenantId: string;
+  requirementName: string;
+  notes?: string;
+  status: RequirementAssignmentStatus;
+  linkedItemId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+/** Same lifecycle vocabulary as Document (src/modules/document/domain/document.ts) - a
+ * DocumentSubmission is Document's sibling aggregate for guest-uploaded evidence, never
+ * merged into the same type (BLOCKER-A's own read routes keep them separate too). */
+export type DocumentSubmissionStatus = "PENDING_UPLOAD" | "SCANNING" | "CLEAN" | "REJECTED" | "UNSUPPORTED" | "TIMEOUT" | "DELETED";
+
+export interface DocumentSubmission {
+  submissionId: string;
+  subjectId: string;
+  assignmentId: string;
+  documentRequestId: string;
+  fileName: string;
+  status: DocumentSubmissionStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface SubjectResponse {
+  subject: TrackedSubject;
+}
+
+export interface SubjectsDashboardResponse {
+  subjects: TrackedSubject[];
+}
+
+export interface RequirementAssignmentResponse {
+  assignment: RequirementAssignment;
+}
+
+export interface RequirementAssignmentsResponse {
+  assignments: RequirementAssignment[];
+}
+
+export interface DocumentSubmissionsResponse {
+  submissions: DocumentSubmission[];
+}

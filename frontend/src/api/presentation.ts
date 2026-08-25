@@ -13,7 +13,7 @@
  * Every function here is a pure, testable mapping - no component should invent its own label
  * for a domain status.
  */
-import type { ExpirationItem, ExpirationItemStatus } from "./types.js";
+import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, RequirementAssignmentStatus } from "./types.js";
 
 export interface StatusPresentation {
   label: string;
@@ -126,4 +126,49 @@ export function formatRelativeDueDate(dueDate: string, now: Date): string {
  * rather than duplicated. */
 export function sortByDueDateAscending<T extends Pick<ExpirationItem, "dueDate">>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+}
+
+/**
+ * BLOCKER-C review queue labels. Same Epistemic Integrity discipline the interface planning
+ * docs established (interface-conceptual-model-and-information-architecture.md §44) and this
+ * file's own header comment restates: never a claim stronger than the domain actually
+ * supports. `SATISFIED` is a link recorded once, never revalidated against the linked item's
+ * own current status - it means "vinculado", never "em dia"/"válido" (that would require
+ * live recomputation this domain doesn't do). `CLEAN` on a submission means only that the
+ * malware scan passed, never that a human confirmed the document's content is correct.
+ */
+export function presentRequirementStatus(status: RequirementAssignmentStatus): StatusPresentation {
+  switch (status) {
+    case "MISSING":
+      return { label: "Faltando", tone: "warning" };
+    case "REQUESTED":
+      return { label: "Solicitado", tone: "neutral" };
+    case "SUBMITTED":
+      return { label: "Enviado, aguardando revisão", tone: "warning" };
+    case "UNDER_REVIEW":
+      return { label: "Em análise", tone: "neutral" };
+    case "REJECTED":
+      return { label: "Rejeitado", tone: "danger" };
+    case "SATISFIED":
+      return { label: "Vinculado a um vencimento", tone: "neutral" };
+  }
+}
+
+export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
+  switch (status) {
+    case "PENDING_UPLOAD":
+      return { label: "Aguardando envio", tone: "neutral" };
+    case "SCANNING":
+      return { label: "Verificando segurança", tone: "neutral" };
+    case "CLEAN":
+      return { label: "Verificado (segurança) — conteúdo não conferido", tone: "neutral" };
+    case "REJECTED":
+      return { label: "Rejeitado (ameaça detectada)", tone: "danger" };
+    case "UNSUPPORTED":
+      return { label: "Arquivo não suportado", tone: "danger" };
+    case "TIMEOUT":
+      return { label: "Envio expirado", tone: "warning" };
+    case "DELETED":
+      return { label: "Excluído", tone: "neutral" };
+  }
 }
