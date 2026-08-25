@@ -24,10 +24,10 @@ import {
   timeZoneObservesDst,
 } from "../domain/recurrence.js";
 import { gsi3Keys, occurrenceKey, stableHash, type ReminderOccurrence } from "../domain/reminder-occurrence.js";
-import type { ReminderPolicy, QuietHours } from "../domain/reminder-policy.js";
+import { policyKey, type ReminderPolicy, type QuietHours } from "../domain/reminder-policy.js";
 import type { ShardConfig } from "../domain/shard-config.js";
 import { activeGenerations } from "../domain/shard-config.js";
-import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { buildVersionConditionCheck, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../ports/reminder-store.js";
 import { GSI6PK_WORKSTATE_DST_PENDING, buildDstCandidateGsi6Sk } from "../ports/reconciliation-candidate-source.js";
 
@@ -252,6 +252,113 @@ export class ReminderMaterializer {
         cancelled += 1;
       } catch (err) {
         if (isTransactionCanceled(err)) continue; // lost a race (already advanced) - fine, not our job to cancel it
+        throw err;
+      }
+    }
+    return cancelled;
+  }
+
+  /**
+   * Shared implementation for the two policy-fenced reconcile methods below
+   * (reminder-delivery-pipeline.md §6/§4's unified policy-changed loop). Cancels
+   * SCHEDULED/CLAIMED occurrences belonging to `policy.policyId` under `itemId` that match
+   * `shouldCancel`, each in its own TransactWriteItems ALSO containing a ConditionCheck on
+   * the policy row asserting it is still at `policy.version` (Codex Round F/G finding -
+   * `buildVersionConditionCheck`, the same mechanism as the dispatch fence, commit
+   * `3eeda33`). If the policy has moved on by commit time, that specific cancellation is
+   * safely skipped rather than wrongly applied - the event that moved the policy again
+   * always fires its own reconcile, which sees fresh state.
+   */
+  private async cancelOccurrencesFencedByPolicy(input: {
+    tenantId: string;
+    itemId: string;
+    policy: ReminderPolicy;
+    shouldCancel: (occurrence: ReminderOccurrence) => boolean;
+  }): Promise<number> {
+    const occurrences = await this.store.queryByItem<ReminderOccurrence>(input.tenantId, input.itemId);
+    let cancelled = 0;
+    for (const occurrence of occurrences) {
+      if (occurrence.policyId !== input.policy.policyId) continue;
+      if (occurrence.status !== "SCHEDULED" && occurrence.status !== "CLAIMED") continue;
+      if (!input.shouldCancel(occurrence)) continue;
+      try {
+        await this.store.transactWrite([
+          {
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key: { PK: occurrence.PK, SK: occurrence.SK },
+              tenantId: input.tenantId,
+              expectedVersion: occurrence.version,
+              set: { status: "CANCELLED" },
+              remove: ["GSI3PK", "GSI3SK", "GSI6PK", "GSI6SK"],
+            }),
+          },
+          buildVersionConditionCheck({
+            tableName: this.tableName,
+            key: policyKey(input.tenantId, input.policy.policyId),
+            expectedVersion: input.policy.version,
+          }),
+        ]);
+        cancelled += 1;
+      } catch (err) {
+        if (isTransactionCanceled(err)) continue; // occurrence advanced or policy moved on again - safe skip
+        throw err;
+      }
+    }
+    return cancelled;
+  }
+
+  /**
+   * For `itemId` as `policy`'s CURRENT target (reminder-delivery-pipeline.md §6): cancels
+   * occurrences that are stale relative to the policy's current version, or whose policy is
+   * now disabled. Leaves occurrences already at the current version/enabled state alone.
+   */
+  async reconcilePolicyOccurrences(input: { tenantId: string; itemId: string; policy: ReminderPolicy }): Promise<number> {
+    return this.cancelOccurrencesFencedByPolicy({
+      ...input,
+      shouldCancel: (occurrence) => occurrence.policyVersion !== input.policy.version || !input.policy.enabled,
+    });
+  }
+
+  /**
+   * For `itemId` as a partition `policy` no longer targets (reminder-delivery-pipeline.md
+   * §4/§5's unified policy-changed loop, `previousItemId` side): cancels EVERY live
+   * occurrence for this policy under this item, regardless of version - there is no
+   * "current version" to compare against, since the policy doesn't target this item at all
+   * anymore. Never materializes here.
+   */
+  async reconcilePolicyOccurrencesUnconditionally(input: { tenantId: string; itemId: string; policy: ReminderPolicy }): Promise<number> {
+    return this.cancelOccurrencesFencedByPolicy({ ...input, shouldCancel: () => true });
+  }
+
+  /**
+   * For a terminal item transition (archive/delete/renewal-old-side,
+   * reminder-delivery-pipeline.md §4/§8's `item-deactivated` event): cancels every live
+   * occurrence under the item regardless of which policy owns it - no policy fence, since
+   * this isn't gated on any one policy's state, only on the item itself being terminal
+   * (already committed by the caller's own transaction before this event fires).
+   */
+  async cancelAllOccurrences(input: { tenantId: string; itemId: string }): Promise<number> {
+    const occurrences = await this.store.queryByItem<ReminderOccurrence>(input.tenantId, input.itemId);
+    let cancelled = 0;
+    for (const occurrence of occurrences) {
+      if (occurrence.status !== "SCHEDULED" && occurrence.status !== "CLAIMED") continue;
+      try {
+        await this.store.transactWrite([
+          {
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key: { PK: occurrence.PK, SK: occurrence.SK },
+              tenantId: input.tenantId,
+              expectedVersion: occurrence.version,
+              set: { status: "CANCELLED" },
+              remove: ["GSI3PK", "GSI3SK", "GSI6PK", "GSI6SK"],
+            }),
+          },
+        ]);
+        cancelled += 1;
+      } catch (err) {
+        if (isTransactionCanceled(err)) continue;
         throw err;
       }
     }
