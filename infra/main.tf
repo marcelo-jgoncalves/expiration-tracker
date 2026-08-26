@@ -1434,3 +1434,116 @@ module "feature_flags" {
   aws_account_id = var.aws_account_id
   tags           = { Project = local.project_name, Environment = var.environment }
 }
+
+# --- M7 (extração/OCR): ExtractionStarterWorker (item 2, D-035 §12.5) ---------------------
+# S3 "Object Created" no bucket limpo -> ExtractionStarterWorker: cria `ExtractionRun`
+# idempotente e inicia a execução Step Functions Standard (item 3, ASL, ainda não
+# implementada). Lambda/fila/IAM sempre existem (deployáveis/inspecionáveis em `dev`), mas o
+# ÚNICO recurso condicionado a `var.extraction_pipeline_enabled` é a regra EventBridge que
+# liga o bucket limpo à fila - sem o gate, nenhum evento real chega ao worker, mesmo com o
+# tráfego normal de upload do M6 já rodando continuamente em `dev` (mesma lógica descrita no
+# comentário do módulo feature-flags acima: o gate controla o pipeline, não a entrega do
+# AppConfig).
+#
+# `local.extraction_state_machine_arn` é determinístico a partir do nome que o item 3
+# (ASL/Step Functions) DEVE usar para a máquina de estados
+# (`aws_sfn_state_machine "document_extraction"`, nome `${local.name_prefix}-document-
+# extraction`) - convenção fixada aqui deliberadamente para que este ARN já esteja correto
+# quando a máquina real for criada, sem precisar trocar um placeholder depois. Inofensivo
+# enquanto o gate estiver `false`: `states:StartExecution` contra uma ARN de máquina que não
+# existe nunca é chamado, porque a regra EventBridge acima nunca entrega nenhum evento.
+
+locals {
+  extraction_state_machine_arn = "arn:aws:states:${var.aws_region}:${var.aws_account_id}:stateMachine:${local.name_prefix}-document-extraction"
+}
+
+module "extraction_starter_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-extraction-starter"
+  consumer_timeout_seconds = 15
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "extraction_starter_start_execution" {
+  statement {
+    sid       = "StartExtractionStateMachine"
+    effect    = "Allow"
+    actions   = ["states:StartExecution"]
+    resources = [local.extraction_state_machine_arn]
+  }
+}
+
+module "extraction_starter_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-extraction-starter-handler"
+  handler_name   = "extraction-starter-handler"
+  source_dir     = "${local.dist_dir}/extraction-starter-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_STATE_MACHINE_ARN = local.extraction_state_machine_arn
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.extraction_starter_start_execution.json,
+    module.extraction_starter_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "extraction_starter_from_queue" {
+  event_source_arn        = module.extraction_starter_queue.queue_arn
+  function_name           = module.extraction_starter_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+resource "aws_cloudwatch_event_rule" "clean_object_created" {
+  count          = var.extraction_pipeline_enabled ? 1 : 0
+  name           = "${local.name_prefix}-clean-object-created"
+  event_bus_name = "default"
+  event_pattern = jsonencode({
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = { name = [module.document_buckets.clean_bucket_name] }
+    }
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "clean_object_created_to_extraction_starter_queue" {
+  count     = var.extraction_pipeline_enabled ? 1 : 0
+  rule      = aws_cloudwatch_event_rule.clean_object_created[0].name
+  target_id = "extraction-starter-queue"
+  arn       = module.extraction_starter_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "eventbridge_to_extraction_starter_queue" {
+  count = var.extraction_pipeline_enabled ? 1 : 0
+  statement {
+    sid       = "AllowEventBridgeRuleToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.extraction_starter_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.clean_object_created[0].arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "extraction_starter_queue" {
+  count     = var.extraction_pipeline_enabled ? 1 : 0
+  queue_url = module.extraction_starter_queue.queue_url
+  policy    = data.aws_iam_policy_document.eventbridge_to_extraction_starter_queue[0].json
+}
