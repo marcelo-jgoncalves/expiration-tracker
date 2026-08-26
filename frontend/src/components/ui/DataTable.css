@@ -65,8 +65,11 @@
   color: var(--color-text-secondary);
 }
 
+/* text-secondary, not text-tertiary: measured against the group header's `surface-subtle`
+   background, tertiary lands at 4.48:1 - a real WCAG 1.4.3 miss found by rendering the page
+   and measuring computed colours, not by reading the palette table. */
 .ui-table__group-count {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-weight: var(--font-weight-regular);
   margin-left: var(--space-2);
 }
@@ -86,7 +89,12 @@
    remain unambiguously links by colour + weight + column position + hover/focus underline —
    they are standalone cell contents, never links embedded in a block of running text, which
    is the case WCAG 1.4.1 is about. */
+/* `display: inline-block` + vertical padding puts the target box at >= 25px tall, satisfying
+   WCAG 2.2 SC 2.5.8 (Target Size Minimum) on its own rather than relying on the spacing
+   exception that the ~68px row height would also grant. */
 .ui-table__cell--primary a {
+  display: inline-block;
+  padding: 3px 0;
   text-decoration: none;
   font-weight: var(--font-weight-semibold);
 }

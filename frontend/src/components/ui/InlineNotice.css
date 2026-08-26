@@ -2,7 +2,10 @@
    construction: it is normal flow content, never a toast, so important information can never
    disappear on a timer (checklist item 24). */
 
+/* Capped so a notice on a 1440px+ collection page does not become a single 200-character
+   line. Notices are read, not scanned. */
 .ui-notice {
+  max-width: 64rem;
   display: flex;
   gap: var(--space-4);
   align-items: flex-start;

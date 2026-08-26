@@ -80,9 +80,19 @@ export function daysUntilDueDate(dueDate: string, now: Date): number {
 
 const SOON_THRESHOLD_DAYS = 7;
 
+/**
+ * Visual Language milestone refinement (mission §32/§87, meaning unchanged, clarity improved):
+ * urgency and lifecycle status are now rendered as two adjacent columns/badges, which exposed
+ * a real ambiguity in the previous labels - an ACTIVE item more than 7 days out was labelled
+ * "Ativo" as its URGENCY, and a non-ACTIVE item repeated its own lifecycle label there. Side
+ * by side that read as "Urgência: Ativo · Situação: Ativo", which says nothing and blurs
+ * exactly the distinction mission §32 requires the system to keep. Both now say what they
+ * actually mean: there is no urgency, or urgency does not apply to a closed cycle. No
+ * threshold, grouping, ordering or tone changed - only the two labels.
+ */
 export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDate">, now: Date): UrgencyPresentation {
   if (item.status !== "ACTIVE") {
-    return { ...presentItemStatus(item.status), daysUntil: daysUntilDueDate(item.dueDate, now), group: "later" };
+    return { label: "Não se aplica", tone: "neutral", daysUntil: daysUntilDueDate(item.dueDate, now), group: "later" };
   }
   const daysUntil = daysUntilDueDate(item.dueDate, now);
   if (daysUntil < 0) {
@@ -94,7 +104,7 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   if (daysUntil <= SOON_THRESHOLD_DAYS) {
     return { label: daysUntil === 1 ? "Vence em 1 dia" : `Vence em ${daysUntil} dias`, tone: "warning", daysUntil, group: "soon" };
   }
-  return { label: "Ativo", tone: "neutral", daysUntil, group: "later" };
+  return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
 }
 
 /** DD/MM/YYYY - matches mission §20's example format exactly. Formats the date portion only

@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pretest:e2e": "npm run build",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --project=chromium",
+    "pretest:visual": "npm run build",
+    "test:visual": "playwright test --project=visual"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",

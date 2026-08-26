@@ -44,10 +44,12 @@ test("an authenticated session renders the dashboard sorted by due date ascendin
 
   await page.goto("/overview");
 
-  const items = page.locator("li");
-  await expect(items).toHaveCount(2);
-  await expect(items.first()).toContainText("Sooner");
-  await expect(items.last()).toContainText("Later");
+  // Overview is a semantic table since the Visual Language milestone (it was a <ul>), so the
+  // ordering assertion moved from <li> to data rows - same property, correct primitive.
+  const rows = page.locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("Sooner");
+  await expect(rows.last()).toContainText("Later");
 });
 
 test("a true-empty dashboard shows the true-empty state, distinct copy from a filtered/unavailable state", async ({ page }) => {
