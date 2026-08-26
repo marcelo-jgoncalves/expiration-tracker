@@ -104,19 +104,29 @@ export function formatAbsoluteDate(iso: string): string {
   return `${day}/${month}/${year}`;
 }
 
+/** Just the relative half - "Vence em 6 dias", "Venceu há 1 dia", "Vence hoje".
+ *
+ * Extracted (Visual Language milestone) because a table shows the absolute date and its
+ * relative context in two separate lines of the same cell, and reconstructing that by
+ * string-splitting `formatRelativeDueDate`'s " · " separator would make a display detail
+ * load-bearing. The absolute date is never replaced by this value - both are always shown
+ * together (mission §19). */
+export function formatRelativeDueContext(dueDate: string, now: Date): string {
+  const daysUntil = daysUntilDueDate(dueDate, now);
+  if (daysUntil < 0) {
+    const overdueDays = Math.abs(daysUntil);
+    return `Venceu ${overdueDays === 1 ? "há 1 dia" : `há ${overdueDays} dias`}`;
+  }
+  if (daysUntil === 0) {
+    return "Vence hoje";
+  }
+  return `Vence em ${daysUntil === 1 ? "1 dia" : `${daysUntil} dias`}`;
+}
+
 /** "30/08/2026 · Vence em 6 dias" - absolute date always paired with relative temporal context
  * (mission §20: never rely on "Em breve" alone). */
 export function formatRelativeDueDate(dueDate: string, now: Date): string {
-  const daysUntil = daysUntilDueDate(dueDate, now);
-  const absolute = formatAbsoluteDate(dueDate);
-  if (daysUntil < 0) {
-    const overdueDays = Math.abs(daysUntil);
-    return `${absolute} · Venceu ${overdueDays === 1 ? "há 1 dia" : `há ${overdueDays} dias`}`;
-  }
-  if (daysUntil === 0) {
-    return `${absolute} · Vence hoje`;
-  }
-  return `${absolute} · Vence em ${daysUntil === 1 ? "1 dia" : `${daysUntil} dias`}`;
+  return `${formatAbsoluteDate(dueDate)} · ${formatRelativeDueContext(dueDate, now)}`;
 }
 
 /** Most-urgent-first (mission §19/§72): plain ascending due-date sort already produces this -

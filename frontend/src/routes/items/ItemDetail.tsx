@@ -5,13 +5,22 @@
  * closed 2026-08-25 (NEXT_SESSION_PROMPT.md), so a real contract now exists, but Documents
  * remain explicitly out of scope for this vertical slice (mission §6) - wiring the section
  * itself is separate, not-yet-started frontend work, not a backend blocker anymore.
+ *
+ * Visual Language milestone: restyled only. Same fields, same order, same lineage rule, same
+ * action availability. The record's attributes stay a <dl> - a table would imply comparable
+ * rows, and there is exactly one record here.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useItem } from "../../hooks/useItem.js";
-import { presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
+import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem } from "../../api/types.js";
+import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
+import { ButtonLink } from "../../components/ui/Button.js";
+import { StatusBadge } from "../../components/ui/StatusBadge.js";
+import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
+import { InlineNotice } from "../../components/ui/InlineNotice.js";
 
 interface DetailField {
   label: string;
@@ -22,7 +31,7 @@ function DetailList({ fields }: { fields: DetailField[] }) {
   const present = fields.filter((field): field is { label: string; value: string } => Boolean(field.value));
   if (present.length === 0) return null;
   return (
-    <dl>
+    <dl className="ui-detail-list">
       {present.map((field) => (
         <div key={field.label}>
           <dt>{field.label}</dt>
@@ -43,7 +52,7 @@ function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
   if (!query.data) return null;
   const source = query.data.item;
   return (
-    <p>
+    <p className="u-text-secondary">
       Ciclo anterior:{" "}
       <Link to={`/items/${source.itemId}`}>
         {source.name} (venceu em {formatAbsoluteDate(source.dueDate)})
@@ -68,40 +77,63 @@ function DetailBody({
 
   return (
     <div>
-      <p>
-        <Link to="/items">← Voltar para Vencimentos</Link>
-      </p>
-      {justCreated ? <p role="status">Vencimento criado com sucesso.</p> : null}
-      {justRenewed ? <p role="status">Renovação concluída - este é o novo ciclo.</p> : null}
+      <PageHeader
+        above={<Link to="/items">← Voltar para Vencimentos</Link>}
+        title={item.name}
+        description={
+          // Urgency AND lifecycle status side by side, never merged into one token
+          // (mission §32) - "Vence em 3 dias" and "Ativo" are different questions.
+          <span className="ui-page-header__badges">
+            <UrgencyIndicator urgency={urgency} />
+            <StatusBadge presentation={presentItemStatus(item.status)} srPrefix="Situação" />
+          </span>
+        }
+        actions={
+          item.status === "ACTIVE" ? (
+            <ButtonLink to={`/items/${item.itemId}/renew`} variant="primary">
+              Renovar
+            </ButtonLink>
+          ) : null
+        }
+      />
+      {justCreated ? (
+        <InlineNotice tone="success" announce="status">
+          <p>Vencimento criado com sucesso.</p>
+        </InlineNotice>
+      ) : null}
+      {justRenewed ? (
+        <InlineNotice tone="success" announce="status">
+          <p>Renovação concluída - este é o novo ciclo.</p>
+        </InlineNotice>
+      ) : null}
       {justRenewed && copiedReminderPolicyIds.length > 0 ? (
         // reminder-delivery-pipeline.md §8 (Marcelo's decision, 2026-08-25): renewal
         // auto-copies the source item's reminder policy - never silent, this notice is the
-        // required "review it" prompt, not an optional embellishment.
-        <p role="status">Os lembretes do ciclo anterior foram copiados para este vencimento. Revise se o prazo de aviso ainda faz sentido.</p>
+        // required "review it" prompt, not an optional embellishment. Rendered `warning`,
+        // not `success`: it asks the operator to check something, and a green tick would
+        // claim the copied schedule is already correct, which nothing has verified.
+        <InlineNotice tone="warning" announce="status">
+          <p>Os lembretes do ciclo anterior foram copiados para este vencimento. Revise se o prazo de aviso ainda faz sentido.</p>
+        </InlineNotice>
       ) : null}
-      <h1>{item.name}</h1>
-      <p>
-        <span data-tone={urgency.tone}>[{urgency.label}]</span>
-      </p>
-      <DetailList
-        fields={[
-          { label: "Categoria", value: item.category },
-          { label: "Vencimento", value: formatRelativeDueDate(item.dueDate, now) },
-          { label: "Descrição", value: item.description },
-          { label: "Emissor", value: item.issuer },
-          { label: "Número", value: item.number },
-          { label: "Periodicidade", value: item.periodicity },
-          { label: "Responsável", value: item.assigneeUserId },
-          { label: "Prioridade", value: item.priority },
-          { label: "Tags", value: item.tags.length > 0 ? item.tags.join(", ") : undefined },
-        ]}
-      />
+      <Section heading="Dados do vencimento" headingId="detail-fields">
+        <Panel padded>
+          <DetailList
+            fields={[
+              { label: "Categoria", value: item.category },
+              { label: "Vencimento", value: formatRelativeDueDate(item.dueDate, now) },
+              { label: "Descrição", value: item.description },
+              { label: "Emissor", value: item.issuer },
+              { label: "Número", value: item.number },
+              { label: "Periodicidade", value: item.periodicity },
+              { label: "Responsável", value: item.assigneeUserId },
+              { label: "Prioridade", value: item.priority },
+              { label: "Tags", value: item.tags.length > 0 ? item.tags.join(", ") : undefined },
+            ]}
+          />
+        </Panel>
+      </Section>
       {item.renewedFromId ? <RenewalLineage sourceItemId={item.renewedFromId} /> : null}
-      {item.status === "ACTIVE" ? (
-        <p>
-          <Link to={`/items/${item.itemId}/renew`}>Renovar</Link>
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -122,7 +154,17 @@ export function ItemDetail() {
   if (query.isError) {
     const error = query.error;
     if (error instanceof ApiError && error.category === "NOT_FOUND") {
-      return <EmptyState kind="unavailable" message="Este vencimento não foi encontrado." action={<Link to="/items">Voltar para Vencimentos</Link>} />;
+      return (
+        <EmptyState
+          kind="unavailable"
+          message="Este vencimento não foi encontrado."
+          action={
+            <ButtonLink to="/items" variant="secondary">
+              Voltar para Vencimentos
+            </ButtonLink>
+          }
+        />
+      );
     }
     if (error instanceof ApiError && error.category === "AUTHORIZATION") {
       return <EmptyState kind="permission-limited" />;

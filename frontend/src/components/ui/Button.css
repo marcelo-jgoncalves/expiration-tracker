@@ -1,0 +1,102 @@
+/* Button — four variants only (mission §33). A screen must never look like it has five
+   primary actions, so `primary` is expected at most once per surface. */
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  min-height: var(--control-height-md);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-width-thin) solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-button--sm {
+  min-height: var(--control-height-sm);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-200);
+}
+
+.ui-button--primary {
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
+}
+.ui-button--primary:hover:not(:disabled) {
+  background: var(--color-action-primary-hover);
+}
+.ui-button--primary:active:not(:disabled) {
+  background: var(--color-action-primary-pressed);
+}
+
+.ui-button--secondary {
+  background: var(--color-surface-default);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-interactive);
+}
+.ui-button--secondary:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-strong);
+}
+.ui-button--secondary:active:not(:disabled) {
+  background: var(--color-surface-subtle);
+}
+
+/* Tertiary is a low-emphasis ACTION, still a button — it keeps a hover surface so it is not
+   mistaken for body text, and it is never used for a destructive action. */
+.ui-button--tertiary {
+  background: transparent;
+  color: var(--color-text-link);
+  padding-inline: var(--space-3);
+}
+.ui-button--tertiary:hover:not(:disabled) {
+  background: var(--color-surface-selected);
+  color: var(--color-action-primary-pressed);
+}
+
+/* Destructive actions never look neutral (mission §33). */
+.ui-button--danger {
+  background: var(--color-action-danger);
+  color: var(--color-text-on-accent);
+}
+.ui-button--danger:hover:not(:disabled) {
+  background: var(--color-action-danger-hover);
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  background: var(--color-surface-disabled);
+  color: var(--color-text-disabled);
+  border-color: var(--color-border-default);
+}
+
+/* Pending is a distinct state from disabled: the label changes AND the control is inert, so
+   the reason a disabled control is disabled is always readable (checklist item 25). */
+.ui-button[data-pending="true"] {
+  cursor: progress;
+}
+
+/* `ButtonLink` is a real <a> that looks like a button; the underline every other link in the
+   system carries would read as a rendering bug inside a filled control. */
+.ui-button--as-link,
+.ui-button--as-link:hover {
+  text-decoration: none;
+}
+.ui-button--as-link.ui-button--tertiary,
+.ui-button--as-link.ui-button--tertiary:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .ui-button {
+    border-color: ButtonBorder;
+  }
+}

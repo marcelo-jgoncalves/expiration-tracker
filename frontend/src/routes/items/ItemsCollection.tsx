@@ -1,21 +1,41 @@
 /**
- * Expiration Collection (mission §18-23): "o que precisa da minha atenção?" - a full,
- * filterable, browsable list, distinct from Overview's curated attention summary. The status
- * filter (Ativos/Arquivados/Renovados) drives ONE real backend query each (GET
+ * Expiration Collection (Core Expiration Vertical Slice §18-23): a full, filterable,
+ * browsable list, distinct from Overview's curated attention summary. The status filter
+ * (Ativos/Arquivados/Renovados) drives ONE real backend query each (GET
  * /items/dashboard?status=X queries a single GSI1 partition per status -
  * src/modules/expiration/application/expiration-service.ts's listDashboard - there is no
  * single-call "todos os status" the approved wireframes' flat filter list assumed; see
  * docs/frontend/core-expiration-vertical-slice.md §24, an IMPLEMENTATION FINDING). Within
  * Ativos, items group by urgency (Vencidos/Vence em breve/Demais ativos) using the exact
  * vocabulary and 7-day threshold already validated by the approved Interaction Prototype.
+ *
+ * Visual Language milestone — the one structural change, and why it is not a UX redesign:
+ * the collection was an `<ul>/<li>` of records that share attributes. That is the wrong
+ * primitive for finding/comparing/scanning at volume (mission §24-§26, NN/g on data tables),
+ * and the density stress scenario is precisely where it fails. It is now a real semantic
+ * `<table>` with the SAME data, SAME ordering, SAME grouping, SAME filter behaviour and SAME
+ * route contract. Urgency and lifecycle status are separate columns (mission §32) rather
+ * than one bracketed token doing both jobs.
  */
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useItemsDashboard } from "../../hooks/useItemsDashboard.js";
-import { presentItemUrgency, formatRelativeDueDate, sortByDueDateAscending, type UrgencyPresentation } from "../../api/presentation.js";
-import { InitialLoading, ErrorState, EmptyState, BackgroundRefreshIndicator } from "../../components/AsyncStates.js";
+import {
+  presentItemStatus,
+  presentItemUrgency,
+  formatAbsoluteDate,
+  formatRelativeDueContext,
+  sortByDueDateAscending,
+  type UrgencyPresentation,
+} from "../../api/presentation.js";
+import { CollectionSkeleton, ErrorState, EmptyState, BackgroundRefreshIndicator } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem, ExpirationItemStatus } from "../../api/types.js";
+import { PageHeader, Panel, Toolbar, ToolbarSpacer } from "../../components/ui/Layout.js";
+import { Button, ButtonLink } from "../../components/ui/Button.js";
+import { DataTable, CellSecondary, type DataTableColumn, type DataTableGroup } from "../../components/ui/DataTable.js";
+import { StatusBadge } from "../../components/ui/StatusBadge.js";
+import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
 
 const STATUS_TABS: { value: ExpirationItemStatus; label: string }[] = [
   { value: "ACTIVE", label: "Ativos" },
@@ -32,6 +52,61 @@ interface RowEntry {
   urgency: UrgencyPresentation;
 }
 
+function buildColumns(now: Date): DataTableColumn<RowEntry>[] {
+  return [
+    {
+      key: "name",
+      header: "Vencimento",
+      primary: true,
+      render: ({ item }) => (
+        <>
+          <Link to={`/items/${item.itemId}`}>{item.name}</Link>
+          {item.issuer || item.number ? <CellSecondary>{[item.issuer, item.number ? `nº ${item.number}` : undefined].filter(Boolean).join(" · ")}</CellSecondary> : null}
+        </>
+      ),
+    },
+    {
+      key: "category",
+      header: "Categoria",
+      render: ({ item }) => <span className="u-text-secondary">{item.category}</span>,
+    },
+    {
+      key: "dueDate",
+      header: "Data de vencimento",
+      numeric: true,
+      // Absolute date on the first line, relative context underneath (mission §19) - never
+      // "em breve" alone for a critical date.
+      render: ({ item }) => (
+        <>
+          {formatAbsoluteDate(item.dueDate)}
+          <CellSecondary>{formatRelativeDueContext(item.dueDate, now)}</CellSecondary>
+        </>
+      ),
+    },
+    {
+      key: "urgency",
+      header: "Urgência",
+      render: ({ urgency }) => <UrgencyIndicator urgency={urgency} />,
+    },
+    {
+      key: "status",
+      header: "Situação",
+      render: ({ item }) => <StatusBadge presentation={presentItemStatus(item.status)} srPrefix="Situação" />,
+    },
+    {
+      key: "actions",
+      header: "Ações",
+      actions: true,
+      render: ({ item }) =>
+        item.status === "ACTIVE" ? (
+          <ButtonLink to={`/items/${item.itemId}/renew`} variant="tertiary" size="sm">
+            Renovar
+          </ButtonLink>
+        ) : null,
+    },
+  ];
+}
+
 export function ItemsCollection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
@@ -40,115 +115,125 @@ export function ItemsCollection() {
   // Computed once per render, not re-derived per row - a long-lived tab drifting a few
   // minutes stale between renders is an accepted trade-off (Overview.tsx's existing pattern).
   const now = useMemo(() => new Date(), []);
+  const columns = useMemo(() => buildColumns(now), [now]);
 
   function selectStatus(next: ExpirationItemStatus) {
     setSearchParams(next === "ACTIVE" ? {} : { status: next });
   }
 
+  const header = (
+    <PageHeader
+      title="Vencimentos"
+      description="Tudo o que está sendo acompanhado, do mais urgente para o menos urgente."
+      actions={
+        <ButtonLink to="/items/new" variant="primary">
+          Novo vencimento
+        </ButtonLink>
+      }
+    />
+  );
+
+  const filters = (
+    <Toolbar>
+      <div className="ui-filter" role="group" aria-label="Filtrar por status">
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            className="ui-filter__option"
+            aria-current={tab.value === status ? "page" : undefined}
+            onClick={() => selectStatus(tab.value)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <ToolbarSpacer />
+      {query.isFetching && !query.isPending ? <BackgroundRefreshIndicator /> : null}
+      <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
+        Atualizar
+      </Button>
+    </Toolbar>
+  );
+
   if (query.isPending) {
-    return <InitialLoading label="Carregando vencimentos…" />;
+    return (
+      <>
+        {header}
+        {filters}
+        <Panel>
+          <CollectionSkeleton label="Carregando vencimentos…" rows={8} />
+        </Panel>
+      </>
+    );
   }
 
   if (query.isError) {
     const error = query.error;
     if (error instanceof ApiError && error.category === "AUTHORIZATION") {
-      return <EmptyState kind="permission-limited" />;
+      return (
+        <>
+          {header}
+          <EmptyState kind="permission-limited" />
+        </>
+      );
     }
     const message = error instanceof ApiError ? error.message : "Não foi possível carregar os vencimentos.";
-    return <ErrorState message={message} onRetry={() => void query.refetch()} />;
+    return (
+      <>
+        {header}
+        {filters}
+        <ErrorState message={message} onRetry={() => void query.refetch()} />
+      </>
+    );
   }
 
   const entries: RowEntry[] = sortByDueDateAscending(query.data.items).map((item) => ({ item, urgency: presentItemUrgency(item, now) }));
-  const isBackgroundRefreshing = query.isFetching && !query.isPending;
 
-  return (
-    <div>
-      <h1>Vencimentos</h1>
-      <nav aria-label="Filtrar por status">
-        {STATUS_TABS.map((tab) => (
-          <button key={tab.value} type="button" aria-current={tab.value === status ? "page" : undefined} onClick={() => selectStatus(tab.value)}>
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-      <p>
-        <Link to="/items/new">+ Novo vencimento</Link>{" "}
-        <button type="button" onClick={() => void query.refetch()}>
-          Atualizar
-        </button>{" "}
-        {isBackgroundRefreshing ? <BackgroundRefreshIndicator /> : null}
-      </p>
-      {entries.length === 0 ? (
+  if (entries.length === 0) {
+    return (
+      <>
+        {header}
+        {filters}
         <EmptyState
           kind={status === "ACTIVE" ? "true-empty" : "filtered-empty"}
           message={status === "ACTIVE" ? "Nenhum vencimento cadastrado ainda." : "Nenhum vencimento neste status."}
+          action={
+            status === "ACTIVE" ? (
+              <ButtonLink to="/items/new" variant="primary">
+                Novo vencimento
+              </ButtonLink>
+            ) : null
+          }
         />
-      ) : status === "ACTIVE" ? (
-        <GroupedActiveList entries={entries} now={now} />
-      ) : (
-        <FlatList entries={entries} now={now} />
-      )}
-    </div>
-  );
-}
+      </>
+    );
+  }
 
-function ItemRow({ entry, now }: { entry: RowEntry; now: Date }) {
-  const { item, urgency } = entry;
-  return (
-    <li>
-      <span data-tone={urgency.tone}>[{urgency.label}]</span> <Link to={`/items/${item.itemId}`}>{item.name}</Link> <span>{item.category}</span>{" "}
-      <span>{formatRelativeDueDate(item.dueDate, now)}</span>
-    </li>
-  );
-}
-
-function GroupedActiveList({ entries, now }: { entries: RowEntry[]; now: Date }) {
-  const overdue = entries.filter((entry) => entry.urgency.group === "overdue");
-  const soon = entries.filter((entry) => entry.urgency.group === "soon");
-  const later = entries.filter((entry) => entry.urgency.group === "later");
+  const groups: DataTableGroup<RowEntry>[] | undefined =
+    status === "ACTIVE"
+      ? (
+          [
+            { id: "overdue", label: "Vencidos", rows: entries.filter((entry) => entry.urgency.group === "overdue") },
+            { id: "soon", label: "Vence em breve", rows: entries.filter((entry) => entry.urgency.group === "soon") },
+            { id: "later", label: "Demais ativos", rows: entries.filter((entry) => entry.urgency.group === "later") },
+          ] as DataTableGroup<RowEntry>[]
+        ).filter((group) => group.rows.length > 0)
+      : undefined;
 
   return (
     <>
-      {overdue.length > 0 ? (
-        <section aria-labelledby="group-overdue">
-          <h2 id="group-overdue">Vencidos ({overdue.length})</h2>
-          <ul>
-            {overdue.map((entry) => (
-              <ItemRow key={entry.item.itemId} entry={entry} now={now} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {soon.length > 0 ? (
-        <section aria-labelledby="group-soon">
-          <h2 id="group-soon">Vence em breve ({soon.length})</h2>
-          <ul>
-            {soon.map((entry) => (
-              <ItemRow key={entry.item.itemId} entry={entry} now={now} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {later.length > 0 ? (
-        <section aria-labelledby="group-later">
-          <h2 id="group-later">Demais ativos ({later.length})</h2>
-          <ul>
-            {later.map((entry) => (
-              <ItemRow key={entry.item.itemId} entry={entry} now={now} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {header}
+      {filters}
+      <Panel>
+        <DataTable
+          caption={`Vencimentos — ${STATUS_TABS.find((tab) => tab.value === status)?.label ?? ""}`}
+          columns={columns}
+          groups={groups}
+          rows={groups ? undefined : entries}
+          rowKey={(entry) => entry.item.itemId}
+        />
+      </Panel>
     </>
-  );
-}
-
-function FlatList({ entries, now }: { entries: RowEntry[]; now: Date }) {
-  return (
-    <ul>
-      {entries.map((entry) => (
-        <ItemRow key={entry.item.itemId} entry={entry} now={now} />
-      ))}
-    </ul>
   );
 }

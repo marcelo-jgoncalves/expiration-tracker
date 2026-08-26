@@ -1,0 +1,86 @@
+/* InlineNotice — page/section-level feedback (mission §41's middle tier). Persistent by
+   construction: it is normal flow content, never a toast, so important information can never
+   disappear on a timer (checklist item 24). */
+
+.ui-notice {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width-thin) solid;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  color: var(--color-text-primary);
+}
+
+.ui-notice__marker {
+  flex: none;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-default);
+}
+
+.ui-notice__body {
+  min-width: 0;
+}
+
+.ui-notice__title {
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-notice__body > p:last-child {
+  margin-bottom: 0;
+}
+
+.ui-notice__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+.ui-notice--neutral {
+  background: var(--color-status-neutral-bg);
+  border-color: var(--color-status-neutral-border);
+}
+.ui-notice--neutral .ui-notice__marker {
+  color: var(--color-status-neutral-fg);
+}
+
+.ui-notice--info {
+  background: var(--color-status-info-bg);
+  border-color: var(--color-status-info-border);
+}
+.ui-notice--info .ui-notice__marker {
+  color: var(--color-status-info-fg);
+}
+
+.ui-notice--success {
+  background: var(--color-status-success-bg);
+  border-color: var(--color-status-success-border);
+}
+.ui-notice--success .ui-notice__marker {
+  color: var(--color-status-success-fg);
+}
+
+.ui-notice--warning {
+  background: var(--color-status-warning-bg);
+  border-color: var(--color-status-warning-border);
+}
+.ui-notice--warning .ui-notice__marker {
+  color: var(--color-status-warning-fg);
+}
+
+.ui-notice--critical {
+  background: var(--color-status-critical-bg);
+  border-color: var(--color-status-critical-border);
+}
+.ui-notice--critical .ui-notice__marker {
+  color: var(--color-status-critical-fg);
+}
+
+@media (forced-colors: active) {
+  .ui-notice {
+    border-color: CanvasText;
+  }
+}

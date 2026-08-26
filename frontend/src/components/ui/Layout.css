@@ -1,0 +1,175 @@
+/* Structural layout primitives: PageHeader, Section, Toolbar, Panel.
+   These carry hierarchy with border + spacing + type scale, before reaching for a card or a
+   shadow (mission §30/§52, course correction: "clear hierarchy without heavy containers"). */
+
+.ui-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.ui-page-header__text {
+  min-width: 0;
+}
+
+.ui-page-header__back {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-200);
+}
+
+.ui-page-header__description {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  max-width: var(--layout-reading-max);
+}
+
+.ui-page-header__badges {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ui-page-header__actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ui-section {
+  margin-bottom: var(--space-6);
+}
+
+.ui-section__heading {
+  margin-bottom: var(--space-4);
+}
+
+.ui-section__description {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--color-text-secondary);
+  max-width: var(--layout-reading-max);
+}
+
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.ui-toolbar__spacer {
+  flex: 1;
+}
+
+/* A "panel" is the ONE container this system uses to group a collection. It is a light
+   surface with a hairline border and no shadow — not a card, and never nested inside another
+   panel (course correction: no card explosion, no nested cards). */
+.ui-panel {
+  background: var(--color-surface-default);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ui-panel--padded {
+  padding: var(--space-5) var(--space-6);
+}
+
+/* Segmented filter control. Real <button>s, driven by aria-current — never a <div> role
+   soup, and never an ARIA tablist (these change a URL query param, they are not tabs
+   controlling adjacent tabpanels). */
+.ui-filter {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  background: var(--color-surface-subtle);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.ui-filter__option {
+  font: inherit;
+  font-size: var(--font-size-300);
+  background: transparent;
+  border: var(--border-width-thin) solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--control-height-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.ui-filter__option:hover {
+  color: var(--color-text-primary);
+}
+
+.ui-filter__option[aria-current="page"] {
+  background: var(--color-surface-default);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Definition list used by Expiration Detail. Two columns on desktop, stacked when narrow —
+   never a table (this is one record's attributes, not comparable rows). */
+/* Constrained, not full-bleed: at 1440px a two-column grid stretched across the whole
+   viewport puts a label and its value a screen apart, which is unreadable regardless of how
+   clean it looks. Wide layouts are for comparable rows, not for one record's attributes. */
+.ui-detail-list {
+  margin: 0;
+  max-width: 56rem;
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) 1fr;
+  gap: var(--space-1) var(--space-5);
+  align-items: baseline;
+}
+
+.ui-detail-list dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+  padding: var(--space-3) 0;
+}
+
+.ui-detail-list dd {
+  margin: 0;
+  padding: var(--space-3) 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-detail-list > div {
+  display: contents;
+}
+
+.ui-detail-list > div + div dt,
+.ui-detail-list > div + div dd {
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+@media (max-width: 600px) {
+  .ui-detail-list {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .ui-detail-list dt {
+    padding-bottom: 0;
+    border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  }
+
+  .ui-detail-list > div + div dd {
+    border-top: 0;
+  }
+
+  .ui-detail-list dd {
+    padding-top: var(--space-1);
+  }
+}

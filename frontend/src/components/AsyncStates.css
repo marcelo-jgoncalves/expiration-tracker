@@ -1,0 +1,118 @@
+/* Loading / empty / error treatments (mission §43-§46).
+   Four distinct loading patterns exist and they look different on purpose (mission §43):
+   initial load (skeleton, structure known), background refresh (inline, content stays put),
+   mutation pending (the button's own state — see Button.css), and empty/error blocks. */
+
+/* AsyncFeedback reuses the InlineNotice surface rather than inventing a second one for the
+   same concept (a persistent, toned, page-level message). */
+@import "./ui/InlineNotice.css";
+
+.ui-async-block {
+  background: var(--color-surface-default);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-7) var(--space-6);
+  text-align: center;
+}
+
+.ui-async-block__title {
+  margin: 0 0 var(--space-3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.ui-async-block__message {
+  margin: 0 auto var(--space-5);
+  color: var(--color-text-secondary);
+  max-width: var(--layout-reading-max);
+}
+
+.ui-async-block__message:last-child {
+  margin-bottom: 0;
+}
+
+.ui-async-block__actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* Error is a notice, not a decorative empty box: it is bordered in the critical tone so it
+   is never mistaken for "nothing here". */
+.ui-async-block--error {
+  border-color: var(--color-status-critical-border);
+  background: var(--color-status-critical-bg);
+  text-align: left;
+}
+
+.ui-async-block--error .ui-async-block__message,
+.ui-async-block--error .ui-async-block__actions {
+  margin-inline: 0;
+  justify-content: flex-start;
+}
+
+/* Background refresh: deliberately quiet and inline. It never replaces visible content
+   (mission §43) and never causes a layout jump — it reserves its own inline space. */
+.ui-refresh-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-200);
+}
+
+.ui-refresh-indicator__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-action-primary);
+  animation: ui-pulse 1.2s var(--easing-standard) infinite;
+}
+
+@keyframes ui-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Skeleton — used ONLY where the structure being waited on is genuinely known (mission §44):
+   the expiration collection's table rows. Never applied decoratively to a page whose shape
+   depends on the response. */
+.ui-skeleton {
+  padding: var(--space-2) 0;
+}
+
+.ui-skeleton__row {
+  display: flex;
+  gap: var(--space-5);
+  align-items: center;
+  padding: var(--density-row-padding-block) var(--density-row-padding-inline);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.ui-skeleton__bar {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-200);
+  animation: ui-pulse 1.4s var(--easing-standard) infinite;
+}
+
+.ui-skeleton__bar--wide {
+  flex: 1 1 40%;
+}
+.ui-skeleton__bar--medium {
+  flex: 0 0 8rem;
+}
+.ui-skeleton__bar--narrow {
+  flex: 0 0 5rem;
+}
+
+.ui-inline-loading {
+  color: var(--color-text-secondary);
+  padding: var(--space-5) 0;
+}
