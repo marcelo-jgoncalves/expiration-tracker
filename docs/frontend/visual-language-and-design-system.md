@@ -616,7 +616,7 @@ alterado (isso seria Type 1). Este addendum mapeia os critérios visuais aos 12 
 | **VL-G2** Contrast | **PASS** | `A11Y-contrast` em 3 superfícies, no CI: 0 falhas medindo cor computada de todo elemento renderizado; 1 achado real corrigido (4,48:1) |
 | **VL-G3** Color Independence | **PASS**, com o alcance de cada prova nomeado | **Asserido:** o badge — o carregador de status — mantém rótulo e borda sob forced-colors (`A11Y-forced-colors`) e traz marcador de forma com `aria-hidden` (`ui.test.tsx`); o campo inválido carrega mensagem textual associada por `aria-invalid`/`aria-describedby` (`A11Y-forms`). **Declarado em CSS e coberto por baseline visual, não por asserção:** a borda/régua do campo e o peso/barra da navegação atual (§28). Nenhum estado do sistema depende *só* de cor, e para o badge e o campo isso é executável |
 | **VL-G4** Focus | **PASS** | `A11Y-focus` (anel ≥2px em toda parada) + `A11Y-focus-not-obscured` (zero elementos sticky/fixed) + baseline visual dedicada |
-| **VL-G5** Core Task Hierarchy | **PASS**, com uma observação | Uma ação primária por superfície — com uma exceção observada na inspeção da Rodada O: a Collection **vazia** mostra "Novo vencimento" duas vezes (no cabeçalho e no empty state). São a *mesma* ação, não duas ações concorrentes, e o empty state é onde a ação é a tarefa inteira; fica registrado como observação em vez de ser omitido, e a colocação de ações secundárias já está adiada em D-05. identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
+| **VL-G5** Core Task Hierarchy | **PASS**, com uma observação | Uma ação primária por superfície — com uma exceção observada na inspeção da Rodada P: a Collection **vazia** mostra "Novo vencimento" duas vezes (no cabeçalho e no empty state). São a *mesma* ação, não duas ações concorrentes, e o empty state é onde a ação é a tarefa inteira; fica registrado como observação em vez de ser omitido, e a colocação de ações secundárias já está adiada em D-05. identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
 | **VL-G6** Density | **PASS** | 140 itens, nomes longos e quase-idênticos, 3 grupos; asserção automatizada + baseline visual |
 | **VL-G7** Responsive Integrity | **PASS** | Stacking mantém todos os campos; sem overflow a 375/640px; asserção automatizada |
 | **VL-G8** Token Consistency | **PASS** | Nenhum hex fora de `tokens.css`; nenhuma feature referencia primitivo |
@@ -897,7 +897,7 @@ passagem de revisão teria deixado passar por completo.
 | Regressão visual | `npm run test:visual` | **10 passed**, reproduzível em execução repetida |
 | Build de produção | `npm run build` | limpo; JS inalterado, CSS 22,7 kB (4,4 kB gzip) |
 | Acessibilidade executável | `npm run test:e2e` (`e2e/accessibility.spec.ts`) | **9 passed** — contraste, foco, target size, foco-não-obscurecido, reduced motion, forced colors, região de scroll condicional, forms |
-| Inspeção visual em navegador | manual | Overview, Collection densa (desktop + 375px), **Collection vazia (1440px)**, Detail (desktop + 375px), Create (1440px), **Create a 375px**, Create com erros, Renew/OCC, estado de erro, foco. As duas em negrito são as superfícies que a §31 identifica como cobertas **só** por baseline; foram inspecionadas explicitamente na Rodada O para que a afirmação da §31 fosse verdadeira em vez de conveniente (Codex, O-01) |
+| Inspeção visual em navegador | manual | Overview, Collection densa (desktop + 375px), **Collection vazia (1440px)**, Detail (desktop + 375px), Create (1440px), **Create a 375px**, Create com erros, Renew/OCC, estado de erro, foco. As duas em negrito são as superfícies que a §31 identifica como cobertas **só** por baseline; foram inspecionadas explicitamente na reconciliação da Rodada P para que a afirmação da §31 fosse verdadeira em vez de conveniente (Codex, O-01) |
 | Drift de documentação | `npm run check-docs` (raiz) | limpo |
 
 **Não executado, e declarado como tal:** teste com leitor de tela real (NVDA/VoiceOver
@@ -974,8 +974,24 @@ pergunta está fechada, a metade perceptual está explicitamente em aberto.
 | O | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; as duas superfícies sem equivalente funcional passam a ser nomeadas como tal |
 | O | Codex (verificação final) | **8,99** | N-01 `FIXED`; 1 achado S2 (O-01): a §31 dizia que a §39 registrava uma inspeção que a §39 não nomeava → reabre |
 | P | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; a inspeção faltante foi **executada**, não a alegação enfraquecida |
-| P | Codex (verificação final) | `PENDING_ROUND_P` | `PENDING_ROUND_P_RESULT` |
-| P | Claude (autoavaliação final) | `PENDING_CLAUDE_P` | — |
+| P | Codex (verificação final) | **9,04** | O-01 `FIXED`; `VL-G5` julgado correto; documento declarado limpo da classe que travou onze rodadas; 1 achado S3 de cronologia (P-01), corrigido. **"O protocolo convergiu"** |
+| P | Claude (autoavaliação final) | **9,2** | Ver abaixo |
+
+**Nota final: Codex 9,04 · Claude 9,2 — ambos ≥ 9,0, sem arredondamento.** O protocolo do
+`AGENTS.md` §4 pede mínimo 3 rodadas e 9,0 de ambos; foram necessárias **onze reaberturas** e
+16 rodadas ao todo.
+
+**Autoavaliação final Claude: 9,2/10.** O que a sustenta: tokens em duas camadas sem explosão,
+primitives nativos com Epistemic Integrity imposta por construção e não por convenção, o slice
+inteiro sob 140 registros reais, e uma suíte de acessibilidade que roda no CI e que já encontrou
+duas falhas reais. O que a segura abaixo de 9,5, honestamente: **eu introduzi dois dos defeitos
+que o Codex achou** (F-01 e G-01, ambos em rodadas de correção), e a classe dominante de achado
+deste milestone — documento afirmando prova mais ampla que a evidência nomeada — apareceu
+**seis vezes** e sempre por minha mão. Nenhuma delas era mentira deliberada; todas eram a mesma
+falha de rigor, e o fato de terem sido necessárias onze reaberturas para eliminá-la é o dado
+mais informativo desta revisão. Somem-se as limitações declaradas: sem leitor de tela real,
+baselines não gatilhadas no CI nesta plataforma, e a metade perceptual da pergunta do §181 não
+medida.
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
