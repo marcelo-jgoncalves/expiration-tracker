@@ -791,7 +791,7 @@ Nenhum dos dois achados foi rejeitado.
 | ID | Veredito | Correção | Evidência de regressão |
 |---|---|---|---|
 | F-01 | **Aceito** | O hook virou **dois** efeitos com responsabilidades separadas, o que resolve os dois lados em vez de trocar um pelo outro: (1) medição a cada render, sem array de dependências — o único gatilho correto, já que largura depende do conteúdo renderizado, não de contagens; (2) o `ResizeObserver`, que capta o que um render não capta (resize de viewport sem atualização React), montado **uma vez** com `[ref]`, que era o ganho legítimo que a otimização queria. O risco que o `exhaustive-deps` alega não existe aqui: `setOverflowing` desiste quando o booleano não muda | `A11Y-scroll-region` continua afirmando os três estados em larguras reais; suíte completa verde |
-| F-02 | **Aceito** | Cada parada é carimbada com seu índice, então uma **revisita** é detectável: o percurso agora precisa terminar (sair do documento ou voltar à primeira parada) e nenhuma parada pode repetir antes disso — é isso que descarta armadilha. Cada par consecutivo é comparado por `compareDocumentPosition`, provando ordem de tabulação = ordem do DOM, que é o requisito normativo real (SC 1.3.2/2.4.3). A alegação de *ordem visual* saiu da tabela e passou a ser atribuída a quem realmente a sustenta: baselines visuais e inspeção manual | `A11Y-focus` reescrito e verde; §28 corrigida junto, para o teste e o documento não voltarem a divergir |
+| F-02 | **Aceito** | Cada parada é carimbada com seu índice, então uma **revisita** é detectável: o percurso agora precisa terminar (sair do documento ou voltar à primeira parada) e nenhuma parada pode repetir antes disso. *(Esta redação inferia daí a ausência de armadilha — inferência que a Rodada I derrubou como I-01 e que a Rodada J corrigiu: quem descarta armadilha é a **cobertura**, não o término. Mantida aqui como registro do que a Rodada G de fato afirmou.)* Cada par consecutivo é comparado por `compareDocumentPosition`, provando ordem de tabulação = ordem do DOM, que é o requisito normativo real (SC 1.3.2/2.4.3). A alegação de *ordem visual* saiu da tabela e passou a ser atribuída a quem realmente a sustenta: baselines visuais e inspeção manual | `A11Y-focus` reescrito e verde; §28 corrigida junto, para o teste e o documento não voltarem a divergir |
 
 ### Codex Round H — verificação final, e o achado G-01
 
@@ -833,7 +833,32 @@ encontrou uma **alegação sem lastro** — a diferença entre um teste que pass
 prova, que é exatamente o padrão que a própria Rodada E (D-03) estabeleceu para este milestone e
 que eu não havia aplicado ao teste que escrevi para satisfazê-lo.
 
-Observação honesta sobre esta rodada: as cinco reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82) não
+### Codex Round J — J-01 e o limite declarado da heurística
+
+Sexta passagem. I-01 `FIXED`, com o Codex verificando explicitamente que uma armadilha em
+subconjunto agora falha por cobertura, que o seletor cobre todo focável que existe de fato sob
+`frontend/src`, que o escape de `position: absolute` não desculpa elemento oculto (faz o
+oposto), e que nada na Collection cria controles focáveis depois do percurso — sem flakiness
+material. **Nota Codex (Round J): 8,96/10**, reaberta por um único achado:
+
+| ID | Achado | Sev. |
+|---|---|---|
+| J-01 | Das três frases que superafirmavam, uma sobreviveu: a Rodada G (acima) ainda inferia ausência de armadilha a partir do término, contradizendo a §28 já corrigida e a própria justificativa do teste. O narrativo do protocolo preservava exatamente a inferência sem lastro que a rodada anterior existiu para eliminar | **S2** |
+
+**Reconciliação (aceito):** a frase da Rodada G foi marcada em linha como a inferência que a
+Rodada I derrubou, em vez de reescrita — o histórico deve continuar mostrando o que aquela
+rodada afirmou (`AGENTS.md` §6 / prompt §177), com a correção visível ao lado.
+
+**Limite declarado, levantado pelo Codex e registrado em vez de silenciado:** a heurística de
+visibilidade da asserção de cobertura é adequada ao DOM atual, não universal. `visibility:
+hidden`, controles dentro de `fieldset` desabilitado e descendentes de `inert` mantêm client
+rects e produziriam falha falsa; um focável sob `aria-hidden="true"` produziria passagem falsa.
+Nenhum desses casos existe hoje em `frontend/src` — não há `contenteditable`, `iframe`,
+controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nenhum, e os usos
+atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
+estender o seletor junto.
+
+Observação honesta sobre esta rodada: as seis reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -899,8 +924,10 @@ artificial).
 | I | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; parada de wrap terminal excluída da asserção de ordem |
 | I | Codex (verificação final) | **8,82** | G-01 `FIXED`; 1 achado S2 (I-01): a alegação "sem armadilha" não tinha prova → reabre |
 | J | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; o teste de foco passa a afirmar cobertura |
-| J | Codex (verificação final) | `PENDING_ROUND_J` | `PENDING_ROUND_J_RESULT` |
-| J | Claude (autoavaliação final) | `PENDING_CLAUDE_J` | — |
+| J | Codex (verificação final) | **8,96** | I-01 `FIXED`; 1 achado S2 (J-01): uma superafirmação sobrevivente no narrativo → reabre |
+| K | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; frase da Rodada G marcada em linha, limite da heurística declarado |
+| K | Codex (verificação final) | `PENDING_ROUND_K` | `PENDING_ROUND_K_RESULT` |
+| K | Claude (autoavaliação final) | `PENDING_CLAUDE_K` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
