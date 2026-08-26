@@ -1,5 +1,5 @@
 {
-  "Comment": "M7 extraction pipeline (D-035, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md, GATE 9.2/9.3). RunTextract is the ONLY real Task state implemented so far (item 4, TextractTaskHandler) - every other state below is a placeholder/stub referencing Lambdas from items 5-7 (PdfParserTaskHandler, BedrockExtractionTaskHandler, ExtractionValidationTaskHandler), which do not exist yet. This file documents the intended shape; it MUST NOT be applied via a real aws_sfn_state_machine resource until those Lambdas exist (a Task referencing a non-existent function ARN fails terraform apply, not just runtime) - see infra/modules/extraction-workflow/ (parameterized by Lambda ARN variables, deliberately not called from infra/main.tf yet) and NEXT_SESSION_PROMPT.md for wiring status.",
+  "Comment": "M7 extraction pipeline (D-035, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md, GATE 9.2/9.3). RunTextract/RunDeterministicParser/RunBedrock are real Task states now (items 4/5/6). ValidateSchema/CompareExtractors/PersistExtractedFields/MarkPendingConfirmation/CompleteRun (item 7, ExtractionValidationTaskHandler) are still placeholders/stubs. This file documents the intended shape; it MUST NOT be applied via a real aws_sfn_state_machine resource until item 7's Lambda exists (a Task referencing a non-existent function ARN fails terraform apply, not just runtime) - see infra/modules/extraction-workflow/ (parameterized by Lambda ARN variables, deliberately not called from infra/main.tf yet) and NEXT_SESSION_PROMPT.md for wiring status.",
   "StartAt": "RunTextract",
   "States": {
     "RunTextract": {
@@ -48,15 +48,19 @@
 
     "RunDeterministicParser": {
       "Type": "Task",
-      "Comment": "PdfParserTaskHandler (item 5, D-035 SS1.3) - real Lambda now. Runs a deterministic parser over the OCR artifact (when present) to produce candidate field values, per implementation-blueprint.md SS12.5. A RunTextract failure above (ocrFailure present) still reaches this state and must run degraded (no OCR text, returns no candidates rather than a fabricated file-metadata heuristic - see NEXT_SESSION_PROMPT.md pending decision) - never skipped. No OutputPath/ResultSelector here (kept as the pre-existing stub had it) - the raw arn:aws:states:::lambda:invoke response wraps the handler's real return value under $.Payload, so NeedsBedrock/CheckAiKillSwitch below read $.Payload.needsBedrock/$.Payload.aiExtractionEnabled, not $.needsBedrock directly. Revisit with a proper ResultSelector once item 6/7's stub states are implemented for real and the whole downstream shape is redesigned together.",
+      "Comment": "PdfParserTaskHandler (item 5, D-035 SS1.3) - real Lambda now. Runs a deterministic parser over the OCR artifact (when present) to produce candidate field values, per implementation-blueprint.md SS12.5. A RunTextract failure above (ocrFailure present) still reaches this state and must run degraded (no OCR text, returns no candidates rather than a fabricated file-metadata heuristic - see NEXT_SESSION_PROMPT.md pending decision) - never skipped. Item 6 correction: ResultSelector+OutputPath now unwrap the raw arn:aws:states:::lambda:invoke response (which wraps the handler's real return value under Payload/ExecutedVersion/StatusCode) down to the handler's own RunDeterministicParserOutput shape, so every state from here on (NeedsBedrock/CheckAiKillSwitch/RunBedrock) reads $.needsBedrock/$.aiExtractionEnabled/$.artifact directly - RunBedrock's own Payload.$: \"$\" therefore sends RunBedrockExtractionInput (mirroring RunDeterministicParserOutput exactly, see run-bedrock-extraction.ts) straight to BedrockExtractionTaskHandler, unwrapped. ValidateSchema (item 7, still a stub) will need its own OutputPath once RunBedrock's real output shape is finalized together with item 7.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "pdf-parser-task:live",
         "Payload.$": "$"
       },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "OutputPath": "$.Payload",
       "Catch": [
         {
-          "Comment": "The ONE failure that goes straight to MarkPendingConfirmation without trying Bedrock - a RunDeterministicParser failure itself, per design §1.2.",
+          "Comment": "The ONE failure that goes straight to MarkPendingConfirmation without trying Bedrock - a RunDeterministicParser failure itself, per design §1.2. ResultPath here means the Catch payload is NOT run through ResultSelector/OutputPath above (those only apply to a successful Task result), so $ keeps its pre-Task shape (either completeOcr's re-attached context, or the original execution input) with .parserFailure appended - the same shape MarkPendingConfirmation already expected before this state existed for real.",
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.parserFailure",
           "Next": "MarkPendingConfirmation"
@@ -67,10 +71,10 @@
 
     "NeedsBedrock": {
       "Type": "Choice",
-      "Comment": "STUB - evaluates decide-bedrock.ts's needsBedrock() contract (design §1.10) over the deterministic candidates. Real condition to be wired once ExtractionValidationTaskHandler (item 7) produces the BedrockDecisionInput shape as Step Functions JSONPath.",
+      "Comment": "Real condition (item 6) - $.needsBedrock is now a top-level field of RunDeterministicParser's unwrapped output (see that state's ResultSelector/OutputPath above).",
       "Choices": [
         {
-          "Variable": "$.Payload.needsBedrock",
+          "Variable": "$.needsBedrock",
           "BooleanEquals": true,
           "Next": "CheckAiKillSwitch"
         }
@@ -80,10 +84,10 @@
 
     "CheckAiKillSwitch": {
       "Type": "Choice",
-      "Comment": "STUB - AI_EXTRACTION kill switch gate before any paid Bedrock call, fail-closed per design §1.5.",
+      "Comment": "AI_EXTRACTION kill switch gate before any paid Bedrock call, fail-closed per design §1.5 - $.aiExtractionEnabled was read once by RunDeterministicParser (AppConfig call) and is re-checked again, defense in depth, inside BedrockExtractionTaskHandler itself (run-bedrock-extraction.ts) before it spends the quota reservation.",
       "Choices": [
         {
-          "Variable": "$.Payload.aiExtractionEnabled",
+          "Variable": "$.aiExtractionEnabled",
           "BooleanEquals": true,
           "Next": "RunBedrock"
         }
@@ -93,7 +97,7 @@
 
     "RunBedrock": {
       "Type": "Task",
-      "Comment": "STUB - references BedrockExtractionTaskHandler (item 6, not yet implemented). Converse API, prompt isolation per design §1.11, BedrockExtractionRequest carries only textArtifact (never raw OCR text), AI_CALL quota reserved before the call.",
+      "Comment": "BedrockExtractionTaskHandler (item 6, D-035 SS1.9/SS1.11) - real Lambda now. Converse API, prompt isolation (versioned immutable system message, untrusted user block, closed submit_extraction tool schema with forced tool choice, temperature 0, token limit), BedrockExtractionRequest carries only textArtifact (never raw OCR text - the adapter resolves it internally via OcrArtifactStore.get()), AI_CALL quota reserved (idempotent per runId|BEDROCK, same pattern as RunTextract's runId|TEXTRACT) before the call. Input is RunDeterministicParser's unwrapped output directly (Payload.$: \"$\" - see that state's comment); same invoke shape as RunDeterministicParser (no waitForTaskToken), so its own output needs the identical unwrap for whatever consumes it next (item 7, not yet implemented - left as a plain lambda:invoke wrapper here since ValidateSchema is still a stub).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "bedrock-extraction-task:live",
@@ -101,6 +105,7 @@
       },
       "Catch": [
         {
+          "Comment": "A RunBedrock failure never re-fabricates a value and never blocks the run - it still proceeds to ValidateSchema/CompareExtractors with only the deterministic candidates available, exactly like the ocrFailure/parserFailure Catches above degrade gracefully rather than dead-ending the execution.",
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.bedrockFailure",
           "Next": "ValidateSchema"

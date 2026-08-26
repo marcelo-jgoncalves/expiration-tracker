@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-appconfigdata": "3.1114.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1114.0",
     "@aws-sdk/client-dynamodb": "3.1114.0",
     "@aws-sdk/client-kms": "3.1114.0",
     "@aws-sdk/client-lambda": "3.1114.0",

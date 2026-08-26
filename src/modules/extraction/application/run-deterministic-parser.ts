@@ -69,6 +69,11 @@ export interface RunDeterministicParserOutput {
   extractedFields: DeterministicFieldCandidateOutput[];
   needsBedrock: boolean;
   aiExtractionEnabled: boolean;
+  /** Re-attached only when `ocrAvailable` - the SAME artifact ref `BedrockExtractionTaskHandler`
+   * (item 6) reads via `OcrArtifactStore.get()` when `needsBedrock`/`aiExtractionEnabled` route
+   * the ASL to `RunBedrock`. Never a second Textract read - this is the identical S3 object
+   * `completeOcr` (item 4) wrote. */
+  artifact?: ExtractionArtifactRef;
 }
 
 interface TextractLineBlock {
@@ -156,5 +161,6 @@ export async function runDeterministicParser(deps: RunDeterministicParserDeps, i
     extractedFields,
     needsBedrock: bedrockNeeded,
     aiExtractionEnabled,
+    artifact: ocrAvailable ? input.artifact : undefined,
   };
 }

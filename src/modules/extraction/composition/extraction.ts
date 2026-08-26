@@ -18,9 +18,12 @@ import { S3OcrArtifactStore } from "../persistence/s3-ocr-artifact-store.js";
 import { KmsTaskTokenEncryptor } from "../persistence/kms-task-token-encryptor.js";
 import { SfnTaskTokenSender } from "../persistence/sfn-task-token-sender.js";
 import { AppConfigFeatureFlagsReader } from "../persistence/appconfig-feature-flags-reader.js";
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import type { StartOcrDeps } from "../application/start-ocr.js";
 import type { CompleteOcrDeps } from "../application/complete-ocr.js";
 import type { RunDeterministicParserDeps } from "../application/run-deterministic-parser.js";
+import type { RunBedrockExtractionDeps } from "../application/run-bedrock-extraction.js";
+import { BedrockRuntimeConverseClient } from "../persistence/bedrock-runtime-client.js";
 
 export interface TextractTaskWorkerConfig {
   tableName: string;
@@ -113,5 +116,47 @@ export function buildPdfParserTaskWorkerDeps(
 export function createRealPdfParserTaskWorkerClients() {
   return {
     appConfigData: new AppConfigDataClient({}),
+  };
+}
+
+/** Composition root for `BedrockExtractionTaskHandler` (M7 item 6, D-035 §1.9/§1.11) - like
+ * item 5, a plain synchronous `lambda:invoke` with no task token, but needs DynamoDB (quota,
+ * via `TenantQuotaService`/`DynamoDbIdentityStore`, same as `TextractTaskHandler`), S3 (read the
+ * OCR artifact, same `S3OcrArtifactStore` as item 5), AppConfig (`AI_EXTRACTION` re-check), and
+ * `BedrockRuntimeClient`. No KMS, no Step Functions client, no Textract client. */
+export interface BedrockExtractionTaskWorkerConfig {
+  tableName: string;
+  extractionTransientBucket: string;
+  bedrockModelId: string;
+  appConfig: { applicationId: string; environmentId: string; configurationProfileId: string };
+}
+
+export interface BedrockExtractionTaskWorkerDeps {
+  runBedrockExtraction: RunBedrockExtractionDeps;
+}
+
+export function buildBedrockExtractionTaskWorkerDeps(
+  clients: { dynamo: DynamoDBDocumentClient; s3: S3Client; appConfigData: AppConfigDataClient; bedrockRuntime: BedrockRuntimeClient },
+  config: BedrockExtractionTaskWorkerConfig,
+): BedrockExtractionTaskWorkerDeps {
+  const identityStore = new DynamoDbIdentityStore(clients.dynamo, config.tableName);
+  const quota = new TenantQuotaService(identityStore);
+  const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
+  const featureFlags = new AppConfigFeatureFlagsReader(clients.appConfigData, config.appConfig);
+  const bedrock = new BedrockRuntimeConverseClient(clients.bedrockRuntime, artifacts, config.bedrockModelId);
+
+  return {
+    runBedrockExtraction: { featureFlags, quota, bedrock },
+  };
+}
+
+export function createRealBedrockExtractionTaskWorkerClients(region: string) {
+  return {
+    appConfigData: new AppConfigDataClient({}),
+    // Region is explicitly configurable (design §4 - model/region selection is a pre-production
+    // decision, deliberately never hardcoded here) - see BEDROCK_REGION/BEDROCK_MODEL_ID env
+    // vars in bedrock-extraction-task-handler.ts and their obviously-placeholder Terraform
+    // defaults.
+    bedrockRuntime: new BedrockRuntimeClient({ region }),
   };
 }

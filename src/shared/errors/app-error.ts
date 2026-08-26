@@ -197,6 +197,30 @@ export class DeterministicParserFailedError extends AppError {
   }
 }
 
+/** `BedrockExtractionTaskHandler`'s `RunBedrock` state (M7 item 6, D-035 §1.9/§1.11) - the
+ * `AI_EXTRACTION` kill switch was off (or unreadable, fail-closed) when the handler itself
+ * checked it, even though the ASL's `CheckAiKillSwitch` Choice state already gates this path -
+ * this is a defense-in-depth re-check, never the only gate. The ASL's `Catch` for `RunBedrock`
+ * is the generic `States.ALL`, so this `code` does not need to match a specific `ErrorEquals`. */
+export class AiExtractionDisabledError extends AppError {
+  constructor(message = "AI_EXTRACTION kill switch is off; failing closed.", details?: Record<string, unknown>) {
+    super({ code: "AiExtractionDisabled", category: "VALIDATION", message, retryable: false, details });
+    this.name = "AiExtractionDisabledError";
+  }
+}
+
+/** Bedrock Converse call failed, or the model's tool-call response could not be parsed/
+ * validated against the closed `submit_extraction` schema (malformed/missing tool call, wrong
+ * tool name, extra fields, token-limit truncation, etc. - design §1.11's adversarial corpus).
+ * Never thrown just because the model reported low/no confidence for a field - that is a
+ * normal, successful outcome (an empty or low-confidence candidate), not an error. */
+export class BedrockExtractionFailedError extends AppError {
+  constructor(message = "Bedrock extraction call failed or returned an unusable response.", details?: Record<string, unknown>) {
+    super({ code: "BedrockExtractionFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
+    this.name = "BedrockExtractionFailedError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {
