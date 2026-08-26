@@ -76,7 +76,7 @@ function Row<T>({ row, columns, rowKey }: { row: T; columns: DataTableColumn<T>[
  * stops tracking later resizes - degraded, not broken. In jsdom there is no layout, so the
  * measurement honestly reports `false` rather than fabricating one.
  */
-function useIsOverflowing(ref: React.RefObject<HTMLElement>, deps: unknown[]): boolean {
+function useIsOverflowing(ref: React.RefObject<HTMLElement>, contentKey: string): boolean {
   const [overflowing, setOverflowing] = useState(false);
 
   useEffect(() => {
@@ -95,10 +95,12 @@ function useIsOverflowing(ref: React.RefObject<HTMLElement>, deps: unknown[]): b
     const table = element.firstElementChild;
     if (table) observer.observe(table);
     return () => observer.disconnect();
-    // `deps` re-measures when the rendered content changes, which matters in the
-    // no-ResizeObserver path where nothing else would.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref, ...deps]);
+    // `contentKey` is a stable STRING, not the `columns`/`rows`/`groups` arrays themselves:
+    // those are fresh identities on almost every render, which would tear down and rebuild the
+    // observer each time for nothing. Keyed on the shape that can actually change the rendered
+    // width, it re-measures when the content changes - which is the only thing keeping the
+    // no-ResizeObserver path honest.
+  }, [ref, contentKey]);
 
   return overflowing;
 }
@@ -131,7 +133,8 @@ export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTab
       ];
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isScrollable = useIsOverflowing(scrollRef, [columns, rows, groups]);
+  const contentKey = `${columns.length}:${rows?.length ?? 0}:${groups?.map((group) => group.rows.length).join(",") ?? ""}`;
+  const isScrollable = useIsOverflowing(scrollRef, contentKey);
   /**
    * Keeps the wrapper exposed while it actually holds focus (Codex Round D, D-01). Without
    * this, a viewport change that removes the overflow would strip `role` and `aria-label`
