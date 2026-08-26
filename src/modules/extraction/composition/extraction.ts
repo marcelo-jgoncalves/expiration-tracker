@@ -24,6 +24,10 @@ import type { CompleteOcrDeps } from "../application/complete-ocr.js";
 import type { RunDeterministicParserDeps } from "../application/run-deterministic-parser.js";
 import type { RunBedrockExtractionDeps } from "../application/run-bedrock-extraction.js";
 import { BedrockRuntimeConverseClient } from "../persistence/bedrock-runtime-client.js";
+import { DynamoDbDocumentStore } from "../../document/persistence/dynamodb-document-store.js";
+import { DynamoDbExtractionRunStore } from "../persistence/dynamodb-extraction-run-store.js";
+import { DynamoDbExtractedFieldStore } from "../persistence/dynamodb-extracted-field-store.js";
+import type { RunExtractionValidationDeps } from "../application/run-extraction-validation.js";
 
 export interface TextractTaskWorkerConfig {
   tableName: string;
@@ -147,6 +151,35 @@ export function buildBedrockExtractionTaskWorkerDeps(
 
   return {
     runBedrockExtraction: { featureFlags, quota, bedrock },
+  };
+}
+
+/** Composition root for `ExtractionValidationTaskHandler` (M7 item 7, D-035 §2/§3) - the
+ * narrowest dependency set of the four extraction Lambdas: only DynamoDB (reads the `Document`
+ * discard-guard, writes `ExtractedField`/`ExtractionRun`) and S3 (deletes the transient OCR
+ * artifact at the run's terminal step). No Textract, no Bedrock, no KMS, no Step Functions
+ * client, no AppConfig (the kill switches were already read/enforced by items 4/5/6 upstream -
+ * this handler only ever validates/persists what they already decided). */
+export interface ExtractionValidationTaskWorkerConfig {
+  tableName: string;
+  extractionTransientBucket: string;
+}
+
+export interface ExtractionValidationTaskWorkerDeps {
+  runExtractionValidation: RunExtractionValidationDeps;
+}
+
+export function buildExtractionValidationTaskWorkerDeps(
+  clients: { dynamo: DynamoDBDocumentClient; s3: S3Client },
+  config: ExtractionValidationTaskWorkerConfig,
+): ExtractionValidationTaskWorkerDeps {
+  const documents = new DynamoDbDocumentStore(clients.dynamo, config.tableName);
+  const runs = new DynamoDbExtractionRunStore(clients.dynamo, config.tableName);
+  const fields = new DynamoDbExtractedFieldStore(clients.dynamo, config.tableName);
+  const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
+
+  return {
+    runExtractionValidation: { documents, runs, fields, artifacts },
   };
 }
 

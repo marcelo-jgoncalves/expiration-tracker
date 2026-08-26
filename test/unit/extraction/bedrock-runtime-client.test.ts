@@ -61,6 +61,9 @@ class FakeArtifactStore implements OcrArtifactStore {
     if (this.text === "__THROW__") throw new Error("s3 read failed");
     return this.text;
   }
+  async delete(): Promise<void> {
+    // not used by these tests
+  }
 }
 
 function textractBlocksJson(lines: string[]): string {

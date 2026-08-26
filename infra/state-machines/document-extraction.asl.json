@@ -103,9 +103,11 @@
         "FunctionName": "bedrock-extraction-task:live",
         "Payload.$": "$"
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
       "Catch": [
         {
-          "Comment": "A RunBedrock failure never re-fabricates a value and never blocks the run - it still proceeds to ValidateSchema/CompareExtractors with only the deterministic candidates available, exactly like the ocrFailure/parserFailure Catches above degrade gracefully rather than dead-ending the execution.",
+          "Comment": "A RunBedrock failure never re-fabricates a value and never blocks the run - it still proceeds to ValidateSchema/CompareExtractors with only the deterministic candidates available, exactly like the ocrFailure/parserFailure Catches above degrade gracefully rather than dead-ending the execution. ResultPath here means the Catch payload is NOT run through ResultSelector/OutputPath above (those only apply to a successful Task result), so $ keeps RunDeterministicParser's already-unwrapped output (extractedFields/needsBedrock/etc. all still top-level) with .bedrockFailure appended - ValidateSchema still finds $.extractedFields where it expects it.",
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.bedrockFailure",
           "Next": "ValidateSchema"
@@ -116,56 +118,116 @@
 
     "ValidateSchema": {
       "Type": "Task",
-      "Comment": "STUB - first of 4 distinct Task states from ExtractionValidationTaskHandler (item 7, not yet implemented), per design §2's closing paragraph (kept as separate states for per-stage audit/Catch, overhead is negligible next to Textract/Bedrock).",
+      "Comment": "ExtractionValidationTaskHandler (item 7, D-035 §2, real Lambda now) - first of 5 distinct operations of the SAME Lambda (kept as separate Task states for per-stage audit/Catch, design §2's closing paragraph - overhead is negligible next to Textract/Bedrock). Marks each candidate valid/invalid against field-schema.ts's declared valueType (run-extraction-validation.ts's validateSchema()); never drops a field, only flags it. Same unwrap pattern as RunDeterministicParser/RunBedrock (ResultSelector+OutputPath) - the handler's real return value becomes $ directly for CompareExtractors.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "extraction-validation-task:live",
         "Payload": { "operation": "VALIDATE_SCHEMA", "input.$": "$" }
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "Next": "CompareExtractors"
     },
 
     "CompareExtractors": {
       "Type": "Task",
-      "Comment": "STUB - compares deterministic vs. Bedrock candidates (when both ran), decides ExtractedFieldState (CONFIRMED/PENDING_CONFIRMATION/DISAGREEMENT) per data-model.md.",
+      "Comment": "Compares deterministic vs. Bedrock candidates per schema field (compare-extractors.ts's ExtractionAgreement: SINGLE_SOURCE/MATCH/MISMATCH) - pure, never touches DynamoDB/S3. Produces $.comparedFields for PersistExtractedFields.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "extraction-validation-task:live",
         "Payload": { "operation": "COMPARE_EXTRACTORS", "input.$": "$" }
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "Next": "PersistExtractedFields"
     },
 
     "PersistExtractedFields": {
       "Type": "Task",
-      "Comment": "STUB - writes ExtractedField rows transactionally.",
+      "Comment": "Writes ExtractedField rows + transitions ExtractionRun to a terminal status (COMPLETED, or DISCARDED on a concurrent-discard race - design §3's TOCTOU close) in ONE TransactWriteItems (DynamoDbExtractedFieldStore.commitRunOutcome). Deliberately NEVER deletes the transient OCR artifact here - only CompleteRun (next) does, per design §3's governing invariant. A transient DynamoDB failure is retried by this state's own Retry (never routed to MarkPendingConfirmation, which is reserved for the RunDeterministicParser hard-failure branch only).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "extraction-validation-task:live",
         "Payload": { "operation": "PERSIST_EXTRACTED_FIELDS", "input.$": "$" }
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["ExtractionCommitFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "Next": "CompleteRun"
     },
 
     "MarkPendingConfirmation": {
       "Type": "Task",
-      "Comment": "STUB - reached either from a RunDeterministicParser failure (no usable candidate at all) or from the normal path when a field needs human confirmation. Also the state responsible (per design §3) for deleting the transient OCR artifact when the run does NOT proceed to CompleteRun.",
+      "Comment": "Reached ONLY from RunDeterministicParser's own hard failure (design §1.2's parserFailure Catch, above) - no ValidateSchema/CompareExtractors/PersistExtractedFields ever ran for this execution. Writes every schema field as PENDING_CONFIRMATION with no candidate, transitions ExtractionRun to FAILED (or DISCARDED on the same concurrent-discard race), AND deletes the transient OCR artifact if one exists - design §3 names this state explicitly as a deletion point ('em caminho FAILED'), since this branch never reaches CompleteRun.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "extraction-validation-task:live",
         "Payload": { "operation": "MARK_PENDING_CONFIRMATION", "input.$": "$" }
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["ExtractionCommitFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "End": true
     },
 
     "CompleteRun": {
       "Type": "Task",
-      "Comment": "STUB - terminal success state. Deletes the transient OCR artifact (design §3: the only point in the system that knows for certain no later state will read it) and marks ExtractionRun COMPLETED.",
+      "Comment": "Terminal success state on the normal path - PersistExtractedFields already committed the DB outcome; this state's ONLY job is deleting the transient OCR artifact if one exists (design §3: 'o único ponto do sistema que sabe com certeza que nenhum estado subsequente vai mais ler o artefato' - true here because this state has no Next).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "extraction-validation-task:live",
         "Payload": { "operation": "COMPLETE_RUN", "input.$": "$" }
       },
+      "ResultSelector": { "Payload.$": "$.Payload" },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "End": true
     }
   }

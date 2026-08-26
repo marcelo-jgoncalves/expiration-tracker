@@ -14,6 +14,9 @@ class FakeArtifactStore implements OcrArtifactStore {
     if (value === undefined) throw new Error(`no artifact at ${ref.key}`);
     return value;
   }
+  async delete(): Promise<void> {
+    // not used by runDeterministicParser
+  }
 }
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {

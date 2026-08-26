@@ -78,6 +78,18 @@ export interface RunBedrockExtractionOutput {
   pipelineVersion: string;
   bedrockFields: BedrockFieldCandidateOutput[];
   bedrockSystemPromptVersion: string;
+  // Passthrough of RunDeterministicParser's own output (item 7 finding, D-035 §2: the ASL's
+  // RunBedrock -> ValidateSchema transition has no separate merge step, so whatever this
+  // function returns IS $ for ValidateSchema - without echoing these back, item 5's
+  // extractedFields/artifact/needsBedrock/aiExtractionEnabled would be silently lost on every
+  // run that actually reaches Bedrock, the exact class of ResultPath bug item 5 already found
+  // and fixed once for completeOcr's own success payload). Never recomputed - these are the
+  // SAME values `input` already carried in, just carried back out.
+  ocrAvailable: boolean;
+  extractedFields: RunBedrockExtractionFieldInput[];
+  needsBedrock: boolean;
+  aiExtractionEnabled: boolean;
+  artifact?: ExtractionArtifactRef;
 }
 
 const AI_CALL_RESERVATION_WINDOW_SECONDS = 7 * 24 * 60 * 60;
@@ -113,6 +125,11 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
       pipelineVersion: input.pipelineVersion,
       bedrockFields: [],
       bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
+      ocrAvailable: input.ocrAvailable,
+      extractedFields: input.extractedFields,
+      needsBedrock: input.needsBedrock,
+      aiExtractionEnabled: input.aiExtractionEnabled,
+      artifact: input.artifact,
     };
   }
 
@@ -166,6 +183,11 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
         pipelineVersion: input.pipelineVersion,
         bedrockFields,
         bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
+        ocrAvailable: input.ocrAvailable,
+        extractedFields: input.extractedFields,
+        needsBedrock: input.needsBedrock,
+        aiExtractionEnabled: input.aiExtractionEnabled,
+        artifact: input.artifact,
       };
     } catch (err) {
       lastErr = err;

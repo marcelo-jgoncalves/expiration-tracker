@@ -45,6 +45,9 @@ class FakeExtractionRunStore implements ExtractionRunStore {
     this.items.set(key, item);
     return true;
   }
+  async updateStatus(): Promise<boolean> {
+    throw new Error("not used by startExtractionRun");
+  }
 }
 
 class FakeExecutionStarter implements ExtractionExecutionStarter {

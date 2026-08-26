@@ -50,6 +50,9 @@ class FakeArtifactStore implements OcrArtifactStore {
   async get(): Promise<string> {
     throw new Error("not used by completeOcr");
   }
+  async delete(): Promise<void> {
+    throw new Error("not used by completeOcr - only ExtractionValidationTaskHandler deletes");
+  }
 }
 
 class FakeEncryptor implements TaskTokenEncryptor {
@@ -223,13 +226,18 @@ describe("completeOcr", () => {
     expect(jobsStore.updateCalls).toHaveLength(0);
   });
 
-  it("never calls any delete-like operation on the artifact store in any outcome (governing invariant, design §3)", async () => {
+  it("never calls delete() on the artifact store in any outcome (governing invariant, design §3 - only ExtractionValidationTaskHandler, item 7, ever deletes)", async () => {
+    let deleteCalls = 0;
     const artifacts = new FakeArtifactStore();
-    expect((artifacts as unknown as { delete?: unknown }).delete).toBeUndefined();
+    const originalDelete = artifacts.delete.bind(artifacts);
+    artifacts.delete = async (...args: Parameters<typeof originalDelete>) => {
+      deleteCalls += 1;
+      return originalDelete(...args);
+    };
     await completeOcr(
       { textract: new FakeTextractClient([{ status: "FAILED", blocks: [] }]), jobs: new FakeTextractJobStore(baseJob()), artifacts, tokenEncryptor: new FakeEncryptor(), sender: new FakeSender("SENT") },
       { jobId: "job_1" },
     );
-    // OcrArtifactStore's port type doesn't even expose a delete method - nothing to call.
+    expect(deleteCalls).toBe(0);
   });
 });

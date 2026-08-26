@@ -221,6 +221,18 @@ export class BedrockExtractionFailedError extends AppError {
   }
 }
 
+/** `ExtractionValidationTaskHandler`'s `PERSIST_EXTRACTED_FIELDS`/`MARK_PENDING_CONFIRMATION`
+ * operations (M7 item 7, D-035 §2/§3) failed to commit — a genuine DynamoDB error, not the
+ * expected `DOCUMENT_DISCARDED` outcome (which is not an error at all, see
+ * `run-extraction-validation.ts`). The ASL's `Catch` for these states is the generic
+ * `States.ALL`, so this `code` does not need to match a specific `ErrorEquals` entry. */
+export class ExtractionCommitFailedError extends AppError {
+  constructor(message = "Failed to commit extraction run outcome.", details?: Record<string, unknown>, cause?: unknown) {
+    super({ code: "ExtractionCommitFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: true, details, cause });
+    this.name = "ExtractionCommitFailedError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {
