@@ -1930,3 +1930,88 @@ locals {
   # local.textract_task_handler_function_arn above).
   pdf_parser_task_handler_function_arn = module.pdf_parser_task_handler.live_alias_arn
 }
+
+# --- M7 (extração/OCR): BedrockExtractionTaskHandler (item 6, D-035 §1.9/§1.11) ------------
+# Real runtime for the ASL's `RunBedrock` state - same "plain synchronous lambda:invoke, no
+# task token" shape as PdfParserTaskHandler above, but needs DynamoDB (TenantQuotaService's
+# AI_CALL reservation, same table/pattern as TextractTaskHandler), S3 read-only on the
+# EXTRACTION_TRANSIENT bucket (never write - this handler never produces a new OCR artifact,
+# only reads the one PdfParserTaskHandler already read), the shared feature-flags AppConfig
+# application, and `bedrock:InvokeModel`/`bedrock:Converse` scoped to the placeholder model ARN
+# pattern (var.bedrock_model_id/var.bedrock_region - design §4, model/region selection
+# deliberately out of scope for this session). No VPC, no Textract/other-service access - same
+# blast-radius isolation discipline as item 5. Same "deployable but inert until the state
+# machine exists" posture as items 2/4/5 - not gated by var.extraction_pipeline_enabled.
+
+data "aws_iam_policy_document" "bedrock_extraction_task_s3" {
+  statement {
+    sid       = "ReadExtractionTransientBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+data "aws_iam_policy_document" "bedrock_extraction_task_bedrock_calls" {
+  statement {
+    sid     = "BedrockConverse"
+    effect  = "Allow"
+    actions = ["bedrock:InvokeModel", "bedrock:Converse"]
+    # Scoped to the placeholder model ID's ARN pattern in the configured region/account, not
+    # "*" - narrowly scoped even though the model ID itself is a placeholder (design §4: the
+    # PERMISSION shape is not blocked on the model decision, only the model choice is).
+    resources = [
+      "arn:aws:bedrock:${var.bedrock_region}::foundation-model/${var.bedrock_model_id}",
+    ]
+  }
+}
+
+locals {
+  bedrock_extraction_task_handler_appconfig_ids = {
+    application_id           = module.feature_flags.application_id
+    environment_id           = module.feature_flags.environment_id
+    configuration_profile_id = module.feature_flags.configuration_profile_id
+  }
+}
+
+module "bedrock_extraction_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-bedrock-extraction-task-handler"
+  handler_name    = "bedrock-extraction-task-handler"
+  source_dir      = "${local.dist_dir}/bedrock-extraction-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60 # a Converse call is slower than the deterministic parser's plain S3 read
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME   = aws_s3_bucket.extraction_transient.bucket
+    BEDROCK_MODEL_ID                   = var.bedrock_model_id
+    BEDROCK_REGION                     = var.bedrock_region
+    APPCONFIG_APPLICATION_ID           = local.bedrock_extraction_task_handler_appconfig_ids.application_id
+    APPCONFIG_ENVIRONMENT_ID           = local.bedrock_extraction_task_handler_appconfig_ids.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = local.bedrock_extraction_task_handler_appconfig_ids.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json, # TenantQuotaService's AI_CALL reservation
+    module.feature_flags.feature_flags_read_policy_json,
+    data.aws_iam_policy_document.bedrock_extraction_task_s3.json,
+    data.aws_iam_policy_document.bedrock_extraction_task_bedrock_calls.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# `RunBedrock` invocation permission for Step Functions - same "deployable, not yet wired"
+# posture as the other task-handler permissions above.
+resource "aws_lambda_permission" "bedrock_extraction_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.bedrock_extraction_task_handler.live_alias_arn
+  qualifier     = module.bedrock_extraction_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as
+  # local.textract_task_handler_function_arn/local.pdf_parser_task_handler_function_arn above).
+  bedrock_extraction_task_handler_function_arn = module.bedrock_extraction_task_handler.live_alias_arn
+}

@@ -60,6 +60,7 @@ const HANDLERS = [
   "extraction-starter-handler",
   "textract-task-handler",
   "pdf-parser-task-handler",
+  "bedrock-extraction-task-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

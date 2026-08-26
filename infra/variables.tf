@@ -151,6 +151,33 @@ variable "extraction_pipeline_enabled" {
   default     = false
 }
 
+variable "bedrock_model_id" {
+  description = <<-EOT
+    Bedrock model ID for BedrockExtractionTaskHandler's Converse API call (M7 item 6, D-035
+    §1.9/§4). Placeholder default, same posture as ses_from_address/app_origin - design §4
+    explicitly defers "escolha/validação de modelo Bedrock + região" to a pre-production
+    decision that blocks only real production activation (AI_EXTRACTION stays a kill switch
+    defaulting off regardless). The placeholder value below is not a real, invokable model ID -
+    a real Converse call against it fails obviously (ValidationException) rather than silently
+    succeeding against the wrong model. Set via -var/TF_VAR_bedrock_model_id once a real model
+    is selected and its region availability confirmed.
+  EOT
+  type        = string
+  default     = "PLACEHOLDER_BEDROCK_MODEL_ID_NOT_SELECTED"
+}
+
+variable "bedrock_region" {
+  description = <<-EOT
+    AWS region BedrockExtractionTaskHandler's BedrockRuntimeClient targets for the Converse API
+    call - deliberately independent of the stack's own deploy region (`var.aws_region` /
+    provider default), since Bedrock model availability varies by region and the real region
+    choice is part of the same deferred model-selection decision as bedrock_model_id (design
+    §4). Placeholder default (the stack's typical dev region) until that decision is made.
+  EOT
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "cognito_callback_urls" {
   description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module. Overridden at the module.auth call site by local.bff_redirect_uri (derived from var.app_origin) so both stay consistent - this variable's own default is only ever hit if that override is removed."
   type        = list(string)
