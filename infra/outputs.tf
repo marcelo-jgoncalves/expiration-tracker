@@ -50,6 +50,7 @@ output "lambda_function_names" {
     module.textract_task_handler.function_name,
     module.pdf_parser_task_handler.function_name,
     module.bedrock_extraction_task_handler.function_name,
+    module.extraction_validation_task_handler.function_name,
   ]
 }
 
@@ -88,6 +89,7 @@ output "lambda_published_versions" {
     (module.textract_task_handler.function_name)              = module.textract_task_handler.published_version
     (module.pdf_parser_task_handler.function_name)            = module.pdf_parser_task_handler.published_version
     (module.bedrock_extraction_task_handler.function_name)    = module.bedrock_extraction_task_handler.published_version
+    (module.extraction_validation_task_handler.function_name) = module.extraction_validation_task_handler.published_version
   }
 }
 
@@ -104,6 +106,11 @@ output "pdf_parser_task_handler_function_arn" {
 output "bedrock_extraction_task_handler_function_arn" {
   description = "Live-alias ARN of BedrockExtractionTaskHandler (M7 item 6, D-035 §1.9/§1.11) - item 3's infra/modules/extraction-workflow module needs this once it's finally instantiated (currently still uninstantiated from infra/main.tf, see NEXT_SESSION_PROMPT.md)."
   value       = local.bedrock_extraction_task_handler_function_arn
+}
+
+output "extraction_validation_task_handler_function_arn" {
+  description = "Live-alias ARN of ExtractionValidationTaskHandler (M7 item 7, D-035 §2/§3) - the fourth and last Lambda item 3's infra/modules/extraction-workflow module needs. With this output, ALL FOUR ASL-referenced functions exist for real - item 3 (instantiating the actual aws_sfn_state_machine) is unblocked, see NEXT_SESSION_PROMPT.md."
+  value       = local.extraction_validation_task_handler_function_arn
 }
 
 output "bff_api_endpoint" {

@@ -2015,3 +2015,64 @@ locals {
   # local.textract_task_handler_function_arn/local.pdf_parser_task_handler_function_arn above).
   bedrock_extraction_task_handler_function_arn = module.bedrock_extraction_task_handler.live_alias_arn
 }
+
+# --- M7 (extração/OCR): ExtractionValidationTaskHandler (item 7, D-035 §2/§3) --------------
+# Real runtime for the ASL's `ValidateSchema`/`CompareExtractors`/`PersistExtractedFields`/
+# `MarkPendingConfirmation`/`CompleteRun` states - all five invoke this SAME Lambda with a
+# distinct `operation` payload field (kept as separate Task states in the ASL for per-stage
+# audit/Catch, never collapsed - design §2's closing paragraph). Narrowest footprint of the
+# four extraction Lambdas: only DynamoDB (read the `Document` discard-guard, write
+# `ExtractedField`/update `ExtractionRun`) and S3 delete on the `EXTRACTION_TRANSIENT` bucket
+# (the ONE Lambda in the whole pipeline allowed to delete there, per design §3 - deliberately
+# scoped to `s3:DeleteObject` only, no `s3:GetObject`/`PutObject`, this handler never reads or
+# writes the artifact's contents itself). No Textract/Bedrock/VPC/KMS/SNS/SQS/Step Functions
+# client, no AppConfig (the kill switches were already read/enforced by items 4/5/6 upstream).
+# Same "deployable but inert until the state machine exists" posture as items 2/4/5/6 - not
+# gated by var.extraction_pipeline_enabled.
+
+data "aws_iam_policy_document" "extraction_validation_task_s3_delete" {
+  statement {
+    sid       = "DeleteExtractionTransientArtifact"
+    effect    = "Allow"
+    actions   = ["s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+module "extraction_validation_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-extraction-validation-task-handler"
+  handler_name    = "extraction-validation-task-handler"
+  source_dir      = "${local.dist_dir}/extraction-validation-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME = aws_s3_bucket.extraction_transient.bucket
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json, # Document read, ExtractedField/ExtractionRun writes
+    data.aws_iam_policy_document.extraction_validation_task_s3_delete.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# Step Functions invokes this Lambda for FIVE distinct states (ValidateSchema/CompareExtractors/
+# PersistExtractedFields/MarkPendingConfirmation/CompleteRun) - one permission covers all of
+# them, since `lambda:InvokeFunction` isn't per-state.
+resource "aws_lambda_permission" "extraction_validation_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.extraction_validation_task_handler.live_alias_arn
+  qualifier     = module.extraction_validation_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as the other three ARNs
+  # above) - with this, ALL FOUR Lambdas the ASL references now exist for real, so item 3
+  # (instantiating the actual aws_sfn_state_machine resource) is unblocked. See
+  # NEXT_SESSION_PROMPT.md.
+  extraction_validation_task_handler_function_arn = module.extraction_validation_task_handler.live_alias_arn
+}
