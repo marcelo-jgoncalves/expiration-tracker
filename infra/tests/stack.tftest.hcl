@@ -588,3 +588,35 @@ run "security_audit_trail_alarms_exist_and_are_wired_to_the_real_alert_topic" {
     error_message = "SecurityGlobalIndexAccessDenied alarm must exist"
   }
 }
+
+run "extraction_workflow_state_machine_is_real_and_matches_starter_worker_target" {
+  command = plan
+
+  # M7 item 3 (D-035): the real aws_sfn_state_machine must resolve to EXACTLY the name
+  # ExtractionStarterWorker (item 2, already live in dev) has been calling StartExecution
+  # against since before this state machine existed for real - local.extraction_state_machine_arn.
+  # Asserted on the plan-time-known `name` (a config argument), not the ARN (a computed
+  # attribute unknown until apply) - this suite runs `plan` only against the real provider,
+  # never `apply` (see the file header).
+  assert {
+    condition     = output.extraction_state_machine_name == "exptrk-dev-document-extraction"
+    error_message = "The real state machine name must equal local.extraction_state_machine_arn's expected name segment - a mismatch means ExtractionStarterWorker's existing StartExecution calls would target a non-existent state machine"
+  }
+
+  assert {
+    condition     = strcontains(local.extraction_state_machine_arn, output.extraction_state_machine_name)
+    error_message = "local.extraction_state_machine_arn (already referenced by ExtractionStarterWorker since item 2) must embed this exact state machine name"
+  }
+}
+
+run "extraction_workflow_execution_role_is_scoped_not_wildcard" {
+  command = plan
+
+  # The state machine's own execution role must grant lambda:InvokeFunction on exactly the
+  # four handler ARNs it needs to call, never a wildcard resource - least privilege, same
+  # discipline as every other IAM policy document in this stack (AGENTS.md §7).
+  assert {
+    condition     = length(data.aws_iam_policy_document.extraction_workflow_invoke_lambdas.statement) == 3
+    error_message = "Expected exactly 3 statements: lambda:InvokeFunction (scoped to the 4 handler ARNs), CloudWatch Logs delivery, and X-Ray write"
+  }
+}

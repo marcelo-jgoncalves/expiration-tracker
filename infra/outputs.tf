@@ -113,6 +113,16 @@ output "extraction_validation_task_handler_function_arn" {
   value       = local.extraction_validation_task_handler_function_arn
 }
 
+output "extraction_state_machine_arn" {
+  description = "The real document-extraction Step Functions Standard state machine ARN (M7 item 3). MUST equal local.extraction_state_machine_arn - ExtractionStarterWorker (item 2, already live in dev) has been calling StartExecution against that deterministic name since before this state machine existed for real."
+  value       = module.extraction_workflow.state_machine_arn
+}
+
+output "extraction_state_machine_name" {
+  description = "Plan-time-known name of the state machine (unlike its ARN, a computed attribute only known after apply) - used by terraform test to assert the name matches local.extraction_state_machine_arn's expected name segment without needing command = apply against the real provider."
+  value       = module.extraction_workflow.state_machine_name
+}
+
 output "bff_api_endpoint" {
   description = "The BFF's own dedicated HTTP API endpoint (D-053/D-054) - in production this sits behind CloudFront at the same origin as the SPA under the /bff/* path, never called directly by the browser."
   value       = module.bff_api.api_endpoint

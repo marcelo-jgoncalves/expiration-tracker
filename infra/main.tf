@@ -2076,3 +2076,111 @@ locals {
   # NEXT_SESSION_PROMPT.md.
   extraction_validation_task_handler_function_arn = module.extraction_validation_task_handler.live_alias_arn
 }
+
+# --- M7 item 3: the real document-extraction Step Functions Standard state machine ---------
+# All four Lambdas the ASL references (items 4-7) now exist for real above - this instantiates
+# infra/modules/extraction-workflow/, which was deliberately left uncalled until now (an
+# aws_sfn_state_machine whose `definition` embeds a Lambda ARN fails terraform apply itself,
+# not just runtime, if any of those four functions doesn't exist yet).
+#
+# Gate discipline (same posture as items 2/4/5/6/7 above, D-035 §1.6): this resource, its
+# execution IAM role, and the four states.amazonaws.com invoke permissions (already granted on
+# each handler's own role, items 4-7) always exist - inspectable/deployable regardless of
+# var.extraction_pipeline_enabled. Nothing here is gated, because gating it would be
+# redundant: item 2 already gates the ONLY live entry point that can ever call
+# aws_sfn_state_machine:StartExecution on this state machine (the EventBridge rule connecting
+# the M6 clean-bucket event to ExtractionStarterWorker) - with that gate at `false` (default),
+# this state machine can exist, be inspected, and even be started manually for a scratch/test
+# execution, but never receives real traffic. A second gate at this layer would just duplicate
+# item 2's without adding any real protection.
+data "aws_iam_policy_document" "extraction_workflow_assume_role" {
+  statement {
+    sid     = "StatesAssumeRole"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["states.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "extraction_workflow_state_machine" {
+  name               = "${local.name_prefix}-extraction-workflow-role"
+  assume_role_policy = data.aws_iam_policy_document.extraction_workflow_assume_role.json
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+
+# lambda:InvokeFunction on the exact four live-alias ARNs the ASL's Task states target -
+# never a wildcard. Each handler's own execution role already grants states.amazonaws.com
+# permission to invoke IT (aws_lambda_permission.*_from_state_machine, items 4-7 above,
+# scoped to this same state machine's deterministic ARN) - this is the other half of that
+# trust relationship, the state machine's own permission to call out to them.
+data "aws_iam_policy_document" "extraction_workflow_invoke_lambdas" {
+  statement {
+    sid    = "InvokeExtractionPipelineLambdas"
+    effect = "Allow"
+    actions = [
+      "lambda:InvokeFunction",
+    ]
+    resources = [
+      local.textract_task_handler_function_arn,
+      local.pdf_parser_task_handler_function_arn,
+      local.bedrock_extraction_task_handler_function_arn,
+      local.extraction_validation_task_handler_function_arn,
+    ]
+  }
+
+  # CloudWatch Logs delivery for aws_sfn_state_machine's logging_configuration - AWS requires
+  # these exact actions on "*" (they operate on the account-level log delivery subsystem, not
+  # a specific log group ARN); documented by AWS as the minimum IAM for state machine logging.
+  statement {
+    sid    = "StateMachineLogDelivery"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
+      "logs:PutResourcePolicy",
+      "logs:DescribeResourcePolicies",
+      "logs:DescribeLogGroups",
+    ]
+    resources = ["*"]
+  }
+
+  # X-Ray - same AWSXRayDaemonWriteAccess-equivalent actions the lambda-function module
+  # attaches to every Lambda when tracing_active is true (main.tf's adot_layer_arn wiring),
+  # replicated here for the state machine's own X-Ray participation (tracing_configuration
+  # above). AWS's own X-Ray managed policy for Step Functions uses this same "*" resource.
+  statement {
+    sid    = "StateMachineXRayWrite"
+    effect = "Allow"
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+      "xray:GetSamplingRules",
+      "xray:GetSamplingTargets",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "extraction_workflow_state_machine" {
+  name   = "${local.name_prefix}-extraction-workflow-policy"
+  role   = aws_iam_role.extraction_workflow_state_machine.id
+  policy = data.aws_iam_policy_document.extraction_workflow_invoke_lambdas.json
+}
+
+module "extraction_workflow" {
+  source = "./modules/extraction-workflow"
+
+  name_prefix                             = local.name_prefix
+  textract_task_function_arn              = local.textract_task_handler_function_arn
+  pdf_parser_task_function_arn            = local.pdf_parser_task_handler_function_arn
+  bedrock_extraction_task_function_arn    = local.bedrock_extraction_task_handler_function_arn
+  extraction_validation_task_function_arn = local.extraction_validation_task_handler_function_arn
+  state_machine_role_arn                  = aws_iam_role.extraction_workflow_state_machine.arn
+  tags                                    = { Project = local.project_name, Environment = var.environment }
+}
