@@ -117,14 +117,42 @@ test("A11Y-focus: every keyboard stop on the Collection has a visible ring and a
   await page.goto("/items");
   await page.waitForLoadState("networkidle");
 
-  const stops: { tag: string; label: string; outlineWidth: number; outlineStyle: string; width: number; height: number }[] = [];
-  for (let index = 0; index < 30; index++) {
+  /**
+   * Each stop is stamped with its index as it is visited, so a SECOND visit to the same
+   * element is detectable rather than silently indistinguishable (Codex Round F, F-02). The
+   * earlier version of this test pressed Tab a fixed number of times and asserted properties
+   * of whatever it landed on: a trap cycling between three controls would have satisfied it,
+   * and the document claimed "no trap" on that basis.
+   *
+   * `precededByPrevious` compares each stop against the one before it in DOM order. Tab order
+   * following DOM order is the actual normative requirement (SC 1.3.2 / 2.4.3 meaningful
+   * sequence); it is what this test can prove. Whether the DOM order also reads correctly on
+   * screen is carried by the visual baselines and by manual inspection, and the document says
+   * so rather than claiming this test proves it.
+   */
+  const MAX_TABS = 60;
+  const stops: {
+    tag: string;
+    label: string;
+    outlineWidth: number;
+    outlineStyle: string;
+    width: number;
+    height: number;
+    revisitOf: number | null;
+    precededByPrevious: boolean;
+  }[] = [];
+  let terminated = false;
+
+  for (let index = 0; index < MAX_TABS; index++) {
     await page.keyboard.press("Tab");
-    const stop = await page.evaluate(() => {
-      const element = document.activeElement;
+    const stop = await page.evaluate((visitIndex) => {
+      const element = document.activeElement as HTMLElement | null;
       if (!element || element === document.body) return null;
       const style = getComputedStyle(element);
       const box = element.getBoundingClientRect();
+      const seen = element.dataset.a11yVisit;
+      const previous = document.querySelector<HTMLElement>(`[data-a11y-visit="${visitIndex - 1}"]`);
+      if (seen === undefined) element.dataset.a11yVisit = String(visitIndex);
       return {
         tag: element.tagName.toLowerCase(),
         label: (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 48),
@@ -132,14 +160,37 @@ test("A11Y-focus: every keyboard stop on the Collection has a visible ring and a
         outlineStyle: style.outlineStyle,
         width: Math.round(box.width),
         height: Math.round(box.height),
+        revisitOf: seen === undefined ? null : Number(seen),
+        precededByPrevious:
+          previous === null ||
+          previous === element ||
+          Boolean(previous.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING),
       };
-    });
-    if (!stop) break;
+    }, index);
+    if (!stop) {
+      // Focus left the document (browser chrome). The traversal terminates - it does not trap.
+      terminated = true;
+      break;
+    }
     stops.push(stop);
+    if (stop.revisitOf !== null) break;
   }
 
-  expect(stops.length).toBeGreaterThan(10);
+  expect(stops.length, "the Collection should expose a substantial keyboard path").toBeGreaterThan(10);
+
+  const revisit = stops.findIndex((stop) => stop.revisitOf !== null);
+  if (revisit !== -1) {
+    // Returning to the FIRST stop after visiting everything is a normal wrap, not a trap.
+    expect(
+      stops[revisit]?.revisitOf,
+      `keyboard trap: stop ${revisit} ("${stops[revisit]?.label}") returned to stop ${stops[revisit]?.revisitOf} without covering the page`,
+    ).toBe(0);
+    terminated = true;
+  }
+  expect(terminated, `the tab path neither wrapped nor left the document within ${MAX_TABS} presses - likely a trap`).toBe(true);
+
   for (const stop of stops) {
+    expect(stop.precededByPrevious, `tab order departs from DOM order at <${stop.tag}> "${stop.label}"`).toBe(true);
     expect(stop.outlineStyle, `no focus ring on <${stop.tag}> "${stop.label}"`).not.toBe("none");
     expect(stop.outlineWidth, `focus ring too thin on <${stop.tag}> "${stop.label}"`).toBeGreaterThanOrEqual(2);
     // SC 2.5.8 Target Size (Minimum). Every interactive control in this system clears 24px in

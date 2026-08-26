@@ -76,31 +76,56 @@ function Row<T>({ row, columns, rowKey }: { row: T; columns: DataTableColumn<T>[
  * stops tracking later resizes - degraded, not broken. In jsdom there is no layout, so the
  * measurement honestly reports `false` rather than fabricating one.
  */
-function useIsOverflowing(ref: React.RefObject<HTMLElement>, contentKey: string): boolean {
+function useIsOverflowing(ref: React.RefObject<HTMLElement>): boolean {
   const [overflowing, setOverflowing] = useState(false);
 
+  /**
+   * Measurement, after EVERY render - deliberately no dependency array (Codex Round F, F-01).
+   *
+   * An earlier attempt keyed this on a string derived from the data's *shape* (column count,
+   * row count, per-group counts) to stop the observer churning. That confused shape with
+   * content: a refetch can return the same number of rows with a longer licence name, which
+   * changes the rendered width while every count stays identical. In the degraded path below
+   * that miss is not cosmetic - the wrapper would keep or lose its tab stop against the truth.
+   * Reading `scrollWidth`/`clientWidth` is a layout read, and renders here are data-fetch
+   * driven, so measuring on each one is the cheap half of the trade.
+   *
+   * The initial measurement therefore also runs unconditionally, BEFORE any `ResizeObserver`
+   * check (Codex Round D, D-01): bailing out early where the API is missing would leave a
+   * genuinely overflowing table permanently unreachable by keyboard, which is the exact
+   * failure the conditional focusability was introduced to avoid. In jsdom there is no layout,
+   * so the measurement honestly reports `false` rather than fabricating one.
+   */
+  // `exhaustive-deps` proposes `[ref]` here, which is precisely the bug F-01 describes: it
+  // would pin the measurement to mount and never see a content change. The rule's stated risk
+  // - an infinite chain of updates - does not apply, because `setOverflowing` bails out when
+  // the boolean is unchanged, so the loop settles after at most one extra render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const element = ref.current;
-    if (!element) return;
+    if (element) setOverflowing(element.scrollWidth > element.clientWidth + 1);
+  });
 
-    const measure = () => setOverflowing(element.scrollWidth > element.clientWidth + 1);
-    measure();
+  /**
+   * The observer catches the case a re-render cannot: a viewport or container resize that
+   * produces no React update at all. Nothing about it depends on the data, so it is set up
+   * once - which is the churn the reverted commit was right to want, obtained here without
+   * paying for it in correctness.
+   */
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
 
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => {
+      setOverflowing(element.scrollWidth > element.clientWidth + 1);
+    });
     observer.observe(element);
     // The table itself, too: a column growing without the container changing size is exactly
     // the case observing only the container would miss.
     const table = element.firstElementChild;
     if (table) observer.observe(table);
     return () => observer.disconnect();
-    // `contentKey` is a stable STRING, not the `columns`/`rows`/`groups` arrays themselves:
-    // those are fresh identities on almost every render, which would tear down and rebuild the
-    // observer each time for nothing. Keyed on the shape that can actually change the rendered
-    // width, it re-measures when the content changes - which is the only thing keeping the
-    // no-ResizeObserver path honest.
-  }, [ref, contentKey]);
+  }, [ref]);
 
   return overflowing;
 }
@@ -133,8 +158,7 @@ export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTab
       ];
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const contentKey = `${columns.length}:${rows?.length ?? 0}:${groups?.map((group) => group.rows.length).join(",") ?? ""}`;
-  const isScrollable = useIsOverflowing(scrollRef, contentKey);
+  const isScrollable = useIsOverflowing(scrollRef);
   /**
    * Keeps the wrapper exposed while it actually holds focus (Codex Round D, D-01). Without
    * this, a viewport change that removes the overflow would strip `role` and `aria-label`

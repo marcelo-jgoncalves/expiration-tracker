@@ -448,7 +448,7 @@ ser re-executada é uma alegação, não um gate.
 
 | Verificação | Resultado | Onde re-executar |
 |---|---|---|
-| Navegação só por teclado | Todas as paradas da Collection percorridas; ordem DOM = ordem visual; sem armadilha | `A11Y-focus` |
+| Navegação só por teclado | Percurso completo da Collection até terminar (sai do documento ou volta à primeira parada); **nenhuma parada revisitada antes disso — é isto que descarta armadilha**; ordem de tabulação = ordem do DOM (SC 1.3.2/2.4.3) em cada par consecutivo | `A11Y-focus` |
 | Foco visível | `outline` de ≥2px em **todas** as paradas | `A11Y-focus` |
 | Foco não obscurecido (2.4.11) | Garantia estrutural, agora afirmada: **zero** elementos `sticky`/`fixed` fora o skip link | `A11Y-focus-not-obscured` |
 | Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado, em 3 superfícies | `A11Y-contrast` |
@@ -466,6 +466,11 @@ ser re-executada é uma alegação, não um gate.
 outro artefato) e o prompt é explícito: obrigatório apenas se já fizer parte do projeto. Foi
 mantido o que o repositório já usa e que é mais forte que axe nestes eixos: `eslint-plugin-jsx-a11y`
 no lint bloqueante, mais as verificações no navegador acima.
+
+**O que `A11Y-focus` NÃO prova:** que a ordem do DOM também *lê* bem na tela. Ordem visual é
+carregada pelas baselines visuais e pela inspeção manual (§39), não por esta asserção — a
+distinção foi um achado do Codex na Rodada F (F-02), onde a linha acima afirmava mais do que o
+teste então sustentava.
 
 **Nenhuma sessão com leitor de tela real foi executada.** NVDA/VoiceOver não estão disponíveis
 neste ambiente. Semântica foi verificada estruturalmente (roles, nomes acessíveis, ordem de
@@ -758,6 +763,41 @@ este repositório. A diferença entre "eu medi e deu certo" e "aqui está o test
 roda no CI" é a diferença entre um relato e um gate — e três dos achados reais deste milestone
 só apareceram porque a página foi medida, não lida.
 
+### Codex Round F — verificação final sobre o estado corrigido
+
+Terceira passagem adversarial independente (`codex exec --skip-git-repo-check`), sobre o estado
+pós-Rodada E, com a checklist de 50 itens, as checagens específicas da correção de rota, e uma
+instrução explícita: procurar defeitos **introduzidos pelas próprias correções**.
+
+**Nota Codex (Round F): 8,87/10.** Abaixo de 9,0 — reabriu de novo, pela terceira vez, em vez
+de arredondar. Veredito sobre a Rodada E: D-01 `FIXED`, D-02 `FIXED`, D-04 `FIXED`,
+**D-03 `PARTIALLY FIXED`**. `VL-G17`: `PASS`. Itens 1–19 e 21–50 da checklist verificados como
+não violados.
+
+| ID | Achado | Sev. |
+|---|---|---|
+| F-01 | **Regressão introduzida entre as rodadas.** Um commit de performance trocou as dependências de `useIsOverflowing` por uma string derivada da *forma* dos dados (nº de colunas, nº de linhas, contagem por grupo). Forma não é conteúdo: um refetch pode devolver a mesma quantidade de registros com um nome mais longo, mudando a largura renderizada sem mexer em nenhuma contagem. No caminho degradado (sem `ResizeObserver`) isso decide errado se o container ganha ou perde a parada de teclado — a operabilidade que o hook existe para garantir | **S2** |
+| F-02 | O teste de percurso de foco pressionava Tab um número fixo de vezes e afirmava propriedades de onde caísse. Uma armadilha ciclando entre três controles o satisfaria — e a §28 alegava "sem armadilha" e "ordem DOM = ordem visual" com base nele. Evidência estruturalmente incapaz de detectar o que era alegada como provada | S3 |
+
+O achado F-01 é meu, não do código herdado: a otimização era real (o observer era reconstruído
+a cada render), mas foi comprada com correção. O Codex apontou o call site concreto — a
+Collection reconstrói `entries` a cada refetch — em vez de tratar o caso como teórico, que é
+exatamente como eu o havia classificado na minha própria leitura.
+
+## 38c. Reconciliation (Round G)
+
+Nenhum dos dois achados foi rejeitado.
+
+| ID | Veredito | Correção | Evidência de regressão |
+|---|---|---|---|
+| F-01 | **Aceito** | O hook virou **dois** efeitos com responsabilidades separadas, o que resolve os dois lados em vez de trocar um pelo outro: (1) medição a cada render, sem array de dependências — o único gatilho correto, já que largura depende do conteúdo renderizado, não de contagens; (2) o `ResizeObserver`, que capta o que um render não capta (resize de viewport sem atualização React), montado **uma vez** com `[ref]`, que era o ganho legítimo que a otimização queria. O risco que o `exhaustive-deps` alega não existe aqui: `setOverflowing` desiste quando o booleano não muda | `A11Y-scroll-region` continua afirmando os três estados em larguras reais; suíte completa verde |
+| F-02 | **Aceito** | Cada parada é carimbada com seu índice, então uma **revisita** é detectável: o percurso agora precisa terminar (sair do documento ou voltar à primeira parada) e nenhuma parada pode repetir antes disso — é isso que descarta armadilha. Cada par consecutivo é comparado por `compareDocumentPosition`, provando ordem de tabulação = ordem do DOM, que é o requisito normativo real (SC 1.3.2/2.4.3). A alegação de *ordem visual* saiu da tabela e passou a ser atribuída a quem realmente a sustenta: baselines visuais e inspeção manual | `A11Y-focus` reescrito e verde; §28 corrigida junto, para o teste e o documento não voltarem a divergir |
+
+Observação honesta sobre esta rodada: as três reaberturas do Codex (8,63 · 8,54 · 8,87) não
+foram ruído de avaliador. Cada uma achou algo real, e duas delas acharam defeitos criados pela
+rodada de correção anterior — o modo de falha que o protocolo existe para pegar e que uma única
+passagem de revisão teria deixado passar.
+
 ## 39. Verification Evidence
 
 | Verificação | Comando | Resultado |
@@ -812,8 +852,10 @@ artificial).
 | C | Claude (reconciliação) | — | 5 aceitos, 0 rejeitados, 3 testes de regressão |
 | D | Codex (verificação fresca sobre o corrigido) | **8,54** | 4 achados, 2 S2, incluindo um defeito introduzido pela própria correção → reabre |
 | E | Claude (reconciliação) | — | 4 aceitos, 0 rejeitados; a suíte de acessibilidade executável nasce aqui |
-| F | Codex (verificação final) | `PENDING_ROUND_F` | `PENDING_ROUND_F_RESULT` |
-| F | Claude (autoavaliação final) | `PENDING_CLAUDE_F` | — |
+| F | Codex (verificação adversarial sobre o corrigido) | **8,87** | 2 achados, 1 S2 — uma regressão criada entre as rodadas → reabre |
+| G | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; o hook de overflow e o teste de foco reescritos |
+| H | Codex (verificação final) | `PENDING_ROUND_H` | `PENDING_ROUND_H_RESULT` |
+| H | Claude (autoavaliação final) | `PENDING_CLAUDE_H` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
