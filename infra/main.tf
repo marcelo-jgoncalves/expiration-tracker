@@ -1415,3 +1415,22 @@ module "import_observability" {
   alert_topic_arn             = module.alert_topic.topic_arn
   tags                        = { Project = local.project_name, Environment = var.environment }
 }
+
+# --- M7 (extração/OCR): feature-flags (D-035 §1.5/§1.6) ------------------------------------
+# AppConfig real para os kill switches AI_EXTRACTION/OCR/WHATSAPP - primeira peça de infra do
+# M7 (item 1 de NEXT_SESSION_PROMPT.md's "M7 - o que falta"), pré-requisito dos workers
+# futuros (TextractTaskHandler/BedrockExtractionTaskHandler consultam o kill switch antes de
+# qualquer chamada paga). var.extraction_pipeline_enabled é o gate Terraform separado do
+# pipeline inteiro (D-035 §1.6) - nenhum recurso do módulo abaixo depende dele porque o
+# módulo em si é só a entrega do AppConfig, não o pipeline de extração (ainda não
+# implementado); os workers futuros (itens 2+ de NEXT_SESSION_PROMPT.md) é que ficam
+# condicionados a esse gate.
+
+module "feature_flags" {
+  source = "./modules/feature-flags"
+
+  name_prefix    = local.name_prefix
+  aws_region     = var.aws_region
+  aws_account_id = var.aws_account_id
+  tags           = { Project = local.project_name, Environment = var.environment }
+}

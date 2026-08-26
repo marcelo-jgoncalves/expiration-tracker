@@ -133,6 +133,24 @@ variable "malware_protection_enabled" {
   default     = true
 }
 
+variable "extraction_pipeline_enabled" {
+  description = <<-EOT
+    Deploy/activation gate for the complete M7 extraction pipeline (D-035 §1.6). Default
+    false: feature nova com custo real por chamada (Textract/Bedrock), processamento de dado
+    pessoal, e pré-condições externas (RIPD, região/modelo Bedrock, inventário de
+    subprocessadores) ainda não fechadas. Distinto dos kill switches em runtime
+    (module.feature_flags's AI_EXTRACTION/OCR, AppConfig) - este é o gate Terraform que
+    controla se a infra do pipeline (Step Functions, Textract task handlers, bucket
+    EXTRACTION_TRANSIENT) chega a ser criada/mantida em um ambiente; os kill switches
+    controlam o comportamento em runtime depois que a infra já existe. Não referenciado por
+    nenhum recurso ainda (2026-08-25) - o módulo feature-flags é só a entrega do AppConfig; os
+    workers futuros do pipeline (NEXT_SESSION_PROMPT.md, itens 2+) é que ficam condicionados a
+    este gate quando forem implementados.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "cognito_callback_urls" {
   description = "OAuth authorization-code-grant callback URLs for the BFF web client. Placeholder default until a real frontend domain is decided, same posture as the cognito module. Overridden at the module.auth call site by local.bff_redirect_uri (derived from var.app_origin) so both stay consistent - this variable's own default is only ever hit if that override is removed."
   type        = list(string)
