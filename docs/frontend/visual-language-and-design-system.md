@@ -568,7 +568,7 @@ Nenhuma dessas asserções depende de rasterização. Feitas as duas ressalvas a
 vazia e o Create a 375px não têm equivalente funcional e ficam apenas com a baseline (Codex
 Rodada N, N-02) — o que se perde sem as baselines Linux é a detecção automatizada de **mudança
 visual não intencional** no CI. Para as outras oito superfícies a cobertura funcional é real e
-roda em todo PR; para essas duas, a rede é a inspeção manual registrada na §39.
+roda em todo PR; para essas duas, a rede é a inspeção manual — feita e registrada nominalmente na §39, não presumida.
 
 ## 32. Dependency Decisions
 
@@ -616,7 +616,7 @@ alterado (isso seria Type 1). Este addendum mapeia os critérios visuais aos 12 
 | **VL-G2** Contrast | **PASS** | `A11Y-contrast` em 3 superfícies, no CI: 0 falhas medindo cor computada de todo elemento renderizado; 1 achado real corrigido (4,48:1) |
 | **VL-G3** Color Independence | **PASS**, com o alcance de cada prova nomeado | **Asserido:** o badge — o carregador de status — mantém rótulo e borda sob forced-colors (`A11Y-forced-colors`) e traz marcador de forma com `aria-hidden` (`ui.test.tsx`); o campo inválido carrega mensagem textual associada por `aria-invalid`/`aria-describedby` (`A11Y-forms`). **Declarado em CSS e coberto por baseline visual, não por asserção:** a borda/régua do campo e o peso/barra da navegação atual (§28). Nenhum estado do sistema depende *só* de cor, e para o badge e o campo isso é executável |
 | **VL-G4** Focus | **PASS** | `A11Y-focus` (anel ≥2px em toda parada) + `A11Y-focus-not-obscured` (zero elementos sticky/fixed) + baseline visual dedicada |
-| **VL-G5** Core Task Hierarchy | **PASS** | Uma ação primária por superfície; identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
+| **VL-G5** Core Task Hierarchy | **PASS**, com uma observação | Uma ação primária por superfície — com uma exceção observada na inspeção da Rodada O: a Collection **vazia** mostra "Novo vencimento" duas vezes (no cabeçalho e no empty state). São a *mesma* ação, não duas ações concorrentes, e o empty state é onde a ação é a tarefa inteira; fica registrado como observação em vez de ser omitido, e a colocação de ações secundárias já está adiada em D-05. identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
 | **VL-G6** Density | **PASS** | 140 itens, nomes longos e quase-idênticos, 3 grupos; asserção automatizada + baseline visual |
 | **VL-G7** Responsive Integrity | **PASS** | Stacking mantém todos os campos; sem overflow a 375/640px; asserção automatizada |
 | **VL-G8** Token Consistency | **PASS** | Nenhum hex fora de `tokens.css`; nenhuma feature referencia primitivo |
@@ -880,7 +880,7 @@ controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nen
 atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
 estender o seletor junto.
 
-Observação honesta sobre esta rodada: as dez reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89 · 8,94 · 8,98) não
+Observação honesta sobre esta rodada: as onze reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89 · 8,94 · 8,98 · 8,99) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -897,7 +897,7 @@ passagem de revisão teria deixado passar por completo.
 | Regressão visual | `npm run test:visual` | **10 passed**, reproduzível em execução repetida |
 | Build de produção | `npm run build` | limpo; JS inalterado, CSS 22,7 kB (4,4 kB gzip) |
 | Acessibilidade executável | `npm run test:e2e` (`e2e/accessibility.spec.ts`) | **9 passed** — contraste, foco, target size, foco-não-obscurecido, reduced motion, forced colors, região de scroll condicional, forms |
-| Inspeção visual em navegador | manual | Overview, Collection densa (desktop + 375px), Detail (desktop + 375px), Create, Create com erros, Renew/OCC, estado de erro, foco |
+| Inspeção visual em navegador | manual | Overview, Collection densa (desktop + 375px), **Collection vazia (1440px)**, Detail (desktop + 375px), Create (1440px), **Create a 375px**, Create com erros, Renew/OCC, estado de erro, foco. As duas em negrito são as superfícies que a §31 identifica como cobertas **só** por baseline; foram inspecionadas explicitamente na Rodada O para que a afirmação da §31 fosse verdadeira em vez de conveniente (Codex, O-01) |
 | Drift de documentação | `npm run check-docs` (raiz) | limpo |
 
 **Não executado, e declarado como tal:** teste com leitor de tela real (NVDA/VoiceOver
@@ -972,8 +972,10 @@ pergunta está fechada, a metade perceptual está explicitamente em aberto.
 | N | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §31 passa a mapear cobertura funcional baseline a baseline |
 | N | Codex (verificação final) | **8,98** | 2 achados S2 (N-01/N-02) na própria tabela da Rodada N; resto do documento declarado limpo → reabre |
 | O | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; as duas superfícies sem equivalente funcional passam a ser nomeadas como tal |
-| O | Codex (verificação final) | `PENDING_ROUND_O` | `PENDING_ROUND_O_RESULT` |
-| O | Claude (autoavaliação final) | `PENDING_CLAUDE_O` | — |
+| O | Codex (verificação final) | **8,99** | N-01 `FIXED`; 1 achado S2 (O-01): a §31 dizia que a §39 registrava uma inspeção que a §39 não nomeava → reabre |
+| P | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; a inspeção faltante foi **executada**, não a alegação enfraquecida |
+| P | Codex (verificação final) | `PENDING_ROUND_P` | `PENDING_ROUND_P_RESULT` |
+| P | Claude (autoavaliação final) | `PENDING_CLAUDE_P` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
