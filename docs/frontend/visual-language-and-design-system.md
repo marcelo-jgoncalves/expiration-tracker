@@ -549,9 +549,23 @@ de `npm run test:e2e`: plugá-lo no job de CI hoje falharia por baseline ausente
 regressão real — um build vermelho que não ensina nada. Caminho de adoção, para quem retomar:
 (1) rodar `npx playwright test --project=visual --update-snapshots` num runner Linux; (2)
 commitar as baselines `-linux.png` resultantes; (3) adicionar `npm run test:visual` ao job
-`frontend` de `.github/workflows/ci.yml`. Até lá, o CI cobre as mesmas superfícies
-**funcionalmente** via `e2e/expiration-density.spec.ts`, que afirma as propriedades de
-scannability de forma independente de rasterização.
+`frontend` de `.github/workflows/ci.yml`. Até lá — e esta frase foi corrigida na Rodada M
+(Codex, M-01), porque a anterior atribuía as dez superfícies a uma única suíte — o que o CI
+cobre **funcionalmente**, superfície a superfície, é:
+
+| Baseline visual | Cobertura funcional equivalente no CI |
+|---|---|
+| `VR-02`/`VR-03` Collection densa (desktop e 375px) | `DENSITY-01/02/03` — tabela semântica agrupada, nada oculto ao empilhar, reflow a 200% sem scroll horizontal |
+| `VR-01` Overview | `smoke` — dashboard ordenado por vencimento ascendente |
+| `VR-04` Collection vazia | `smoke` — true-empty distinto de filtrado/indisponível |
+| `VR-05` Detail | `E2E-01` — coleção → detalhe |
+| `VR-06`/`VR-07` Create (estreito e com erros) | `E2E-02`/`E2E-03` — criação com sucesso, e erro de validação → correção → sucesso |
+| `VR-08` Renew/OCC | `E2E-04`/`E2E-05` — novo ciclo visível, e conflito OCC → recuperação |
+| `VR-09` estado de erro compartilhado | `smoke` — falha de backend com retry funcional |
+| `VR-10` anel de foco | `A11Y-focus` — anel ≥2px e alvo adequado em toda parada |
+
+Nenhuma dessas asserções depende de rasterização; o que se perde sem as baselines Linux é a
+detecção de **mudança visual não intencional**, não a cobertura funcional das superfícies.
 
 ## 32. Dependency Decisions
 
@@ -863,7 +877,7 @@ controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nen
 atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
 estender o seletor junto.
 
-Observação honesta sobre esta rodada: as oito reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89) não
+Observação honesta sobre esta rodada: as nove reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89 · 8,94) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -951,8 +965,10 @@ pergunta está fechada, a metade perceptual está explicitamente em aberto.
 | L | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §28 passa a nomear a prova real de cada linha |
 | L | Codex (verificação final) | **8,89** | K-01 `PARCIAL`; 3 achados S2 (L-01/02/03), inclusive uma superafirmação **minha em favor próprio** e uma **subafirmação** | 
 | M | Claude (reconciliação) | — | 3 aceitos, 0 rejeitados; §28, `VL-G3`, `VL-G16` e a resposta ao §181 reescritas |
-| M | Codex (verificação final) | `PENDING_ROUND_M` | `PENDING_ROUND_M_RESULT` |
-| M | Claude (autoavaliação final) | `PENDING_CLAUDE_M` | — |
+| M | Codex (verificação final) | **8,94** | L-01/02/03 todos `FIXED`; §181 julgado honesto como "sim, provisório"; 1 achado S2 restante (M-01) → reabre |
+| N | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §31 passa a mapear cobertura funcional baseline a baseline |
+| N | Codex (verificação final) | `PENDING_ROUND_N` | `PENDING_ROUND_N_RESULT` |
+| N | Claude (autoavaliação final) | `PENDING_CLAUDE_N` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
