@@ -112,7 +112,7 @@
   color: var(--color-text-primary);
 }
 
-.ui-filter__option[aria-current="page"] {
+.ui-filter__option[aria-pressed="true"] {
   background: var(--color-surface-default);
   border-color: var(--color-border-default);
   color: var(--color-text-primary);

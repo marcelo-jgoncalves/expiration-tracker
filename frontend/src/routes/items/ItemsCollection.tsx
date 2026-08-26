@@ -135,15 +135,14 @@ export function ItemsCollection() {
 
   const filters = (
     <Toolbar>
+      {/* `aria-pressed`, not `aria-current="page"` (Codex Round B, B-03): these are not pages.
+          They select which lifecycle-status subset of the SAME collection is shown, so
+          "current page" announces the wrong concept. Native <button>s in a labelled group -
+          deliberately not an ARIA tablist, which would promise a tabpanel and a keyboard
+          model that do not exist here. */}
       <div className="ui-filter" role="group" aria-label="Filtrar por status">
         {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            className="ui-filter__option"
-            aria-current={tab.value === status ? "page" : undefined}
-            onClick={() => selectStatus(tab.value)}
-          >
+          <button key={tab.value} type="button" className="ui-filter__option" aria-pressed={tab.value === status} onClick={() => selectStatus(tab.value)}>
             {tab.label}
           </button>
         ))}

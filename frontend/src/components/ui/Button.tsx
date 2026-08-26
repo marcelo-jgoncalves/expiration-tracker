@@ -33,7 +33,11 @@ export function Button({ variant = "secondary", size = "md", pending, disabled, 
       {...rest}
       type={type}
       className={classNames(variant, size)}
-      disabled={disabled ?? pending}
+      // `disabled || pending`, never `disabled ?? pending` (Codex Round B, B-01): RenewItem
+      // passes `disabled={conflict}`, which is `false` - not `undefined` - during a normal
+      // renewal, so `??` short-circuited on the explicit `false` and left an in-flight submit
+      // button live while it visibly read "Renovando…".
+      disabled={Boolean(disabled || pending)}
       data-pending={pending ? "true" : undefined}
       aria-busy={pending ? true : undefined}
     >

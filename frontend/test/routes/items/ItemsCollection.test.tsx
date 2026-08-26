@@ -42,14 +42,14 @@ describe("ItemsCollection", () => {
     renderAtRoute("/items", <ItemsCollection />, "/items");
 
     expect(screen.getByText("Carregando vencimentos…")).toBeInTheDocument();
-    // Groups are real table row groups now (a <th scope="colgroup"> heading each <tbody>),
+    // Groups are real table row groups now (a <th scope="rowgroup"> heading each <tbody>),
     // not <section>/<h2> around separate lists - see ItemsCollection.tsx's header comment.
-    await waitFor(() => expect(screen.getByRole("columnheader", { name: /Vencidos/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("rowheader", { name: /Vencidos/ })).toBeInTheDocument());
 
-    expect(screen.getByRole("columnheader", { name: /Vence em breve/ })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: /Demais ativos/ })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Vence em breve/ })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Demais ativos/ })).toBeInTheDocument();
 
-    const overdueGroup = screen.getByRole("columnheader", { name: /Vencidos/ }).closest("tbody") as HTMLElement;
+    const overdueGroup = screen.getByRole("rowheader", { name: /Vencidos/ }).closest("tbody") as HTMLElement;
     expect(within(overdueGroup).getByText("Overdue item")).toBeInTheDocument();
     expect(within(overdueGroup).queryByText("Later item")).not.toBeInTheDocument();
   });

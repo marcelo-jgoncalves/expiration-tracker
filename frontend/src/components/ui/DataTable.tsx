@@ -11,7 +11,7 @@
  * scrolling. None of those are needed by an approved journey today, and adding them would be
  * a UX change without evidence (mission §109/VL-G14).
  */
-import { type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import "./DataTable.css";
 
 export interface DataTableColumn<T> {
@@ -64,12 +64,47 @@ function Row<T>({ row, columns, rowKey }: { row: T; columns: DataTableColumn<T>[
   );
 }
 
+/**
+ * True while the element's content is wider than its box. Kept as a hook rather than a CSS
+ * media query because overflow depends on the CONTENT (a long licence name, a wide column
+ * set), not only on the viewport width.
+ *
+ * `ResizeObserver` is absent in jsdom, where the component tests run; there is no layout
+ * there to overflow either, so falling back to `false` is the honest answer rather than a
+ * polyfill that would fabricate measurements.
+ */
+function useIsOverflowing(ref: React.RefObject<HTMLElement>): boolean {
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+
+    const measure = () => setOverflowing(element.scrollWidth > element.clientWidth + 1);
+    measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    // The table itself, too: a column growing without the container changing size is exactly
+    // the case observing only the container would miss.
+    const table = element.firstElementChild;
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return overflowing;
+}
+
 export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTableProps<T>) {
   const body = groups
     ? groups.map((group) => (
         <tbody key={group.id}>
           <tr className="ui-table__group-header">
-            <th scope="colgroup" colSpan={columns.length}>
+            {/* `rowgroup`, not `colgroup` (Codex Round B, B-02): "Vencidos" heads the ROWS of
+                this <tbody>, not a set of columns. With scope="colgroup" assistive technology
+                associates the heading with the wrong table dimension, which is exactly the
+                navigation aid a 140-row table depends on. */}
+            <th scope="rowgroup" colSpan={columns.length}>
               {group.label}
               <span className="ui-table__group-count">{group.rows.length}</span>
             </th>
@@ -87,14 +122,24 @@ export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTab
         </tbody>,
       ];
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isScrollable = useIsOverflowing(scrollRef);
+
   return (
-    // tabIndex/role make the scroll container keyboard-operable when (and only when) it can
-    // actually scroll; without them a keyboard-only user cannot reach clipped columns.
-    // A scrollable region MUST be keyboard focusable to be operable (WCAG 2.1.1): Firefox
-    // and Safari give no other way to scroll it without a mouse. It is named and exposed as
-    // a `region` so the extra tab stop is announced meaningfully, not as a mystery focus.
+    // A scrollable region MUST be keyboard focusable to be operable (WCAG 2.1.1): Firefox and
+    // Safari give no other way to scroll it without a mouse. But ONLY while it can actually
+    // scroll - below 820px the layout stacks and nothing overflows, so an unconditional
+    // tabIndex would leave a keyboard user with an empty, meaningless tab stop on every
+    // collection (Codex Round B, B-04). Both the tab stop and the `region` name appear and
+    // disappear together, so a focusable element is never anonymous.
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-    <div className="ui-table-scroll" tabIndex={0} role="region" aria-label={caption}>
+    <div
+      ref={scrollRef}
+      className="ui-table-scroll"
+      tabIndex={isScrollable ? 0 : undefined}
+      role={isScrollable ? "region" : undefined}
+      aria-label={isScrollable ? caption : undefined}
+    >
       <table className="ui-table">
         <caption className="u-visually-hidden">{caption}</caption>
         <thead>

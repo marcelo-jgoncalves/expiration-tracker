@@ -127,7 +127,7 @@ test("VR-02: Collection - desktop, dense (140 items)", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockDashboard(page, stressItems(140));
   await page.goto("/items");
-  await expect(page.getByRole("columnheader", { name: /Vencidos/ })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: /Vencidos/ })).toBeVisible();
   // Every record keeps its identifier, its absolute date, its urgency and its status - the
   // stacked/desktop layouts differ visually but neither drops a column.
   await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(140);
@@ -138,7 +138,7 @@ test("VR-03: Collection - narrow, dense (stacked rows keep every field)", async 
   await page.setViewportSize({ width: 375, height: 800 });
   await mockDashboard(page, stressItems(12));
   await page.goto("/items");
-  await expect(page.getByRole("columnheader", { name: /Vencidos/ })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: /Vencidos/ })).toBeVisible();
   await expect(page).toHaveScreenshot("collection-narrow-dense.png", SNAPSHOT_OPTIONS);
 });
 

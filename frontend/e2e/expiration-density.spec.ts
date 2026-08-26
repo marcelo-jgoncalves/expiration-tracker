@@ -63,7 +63,7 @@ test("DENSITY-01: 140 items render as one semantic table, grouped by urgency, mo
 
   await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(140);
   // Group order is the operational priority order, not insertion order.
-  const groupHeaders = await page.getByRole("columnheader").allInnerTexts();
+  const groupHeaders = await page.getByRole("rowheader").allInnerTexts();
   const urgencyGroups = groupHeaders.filter((text) => /Vencidos|Vence em breve|Demais ativos/.test(text));
   expect(urgencyGroups.map((text) => text.replace(/\s*\d+\s*$/, "").trim())).toEqual(["Vencidos", "Vence em breve", "Demais ativos"]);
 
