@@ -102,7 +102,12 @@ export async function advanceAfterEvidence(
     // exists (uploadValid === true is required by decideNextAction), so `knownObject` here is
     // guaranteed to hold the real, observed object reference.
     const sourceObject = knownObject ?? doc.quarantineObject;
-    const cleanKey = `clean/${doc.tenantId}/${doc.documentId}`;
+    // M7 (ExtractionStarterWorker, D-035 §12.5): the clean-bucket S3 event that triggers
+    // extraction carries only bucket+key+versionId, never itemId - Document's PK requires
+    // itemId to look up. Extending the key to mirror the quarantine key's item-anchored shape
+    // (parseQuarantineKey's own pattern) closes that gap at the source instead of adding a
+    // GSI just to look up Document by documentId alone.
+    const cleanKey = `clean/${doc.tenantId}/${doc.itemId}/${doc.documentId}`;
     const cleanObject = await deps.objects.copyObject(sourceObject, deps.cleanBucket, cleanKey);
     const verify = await deps.objects.headObject(cleanObject);
     if (!verify || verify.contentLength !== doc.contentLength) {

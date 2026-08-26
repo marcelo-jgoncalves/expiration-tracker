@@ -1,0 +1,94 @@
+/**
+ * ExtractionStarterWorker's pure orchestration (`implementation-blueprint.md` §12.5,
+ * `claude-reconciliation-final-design.md` §1.1/§2 "LoadMetadata"). Triggered by the S3
+ * "Object Created" event on the clean bucket; creates the idempotent `ExtractionRun` and, only
+ * on the FIRST successful creation, starts the Step Functions Standard execution.
+ */
+import { documentKey, type Document } from "../../document/domain/document.js";
+import { extractionRunKey, deriveExtractionRunId, type ExtractionRun } from "../domain/extraction-run.js";
+import { PIPELINE_VERSION_V1 } from "../domain/field-schema.js";
+import type { DocumentReader } from "../ports/document-reader.js";
+import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
+import type { ExtractionExecutionStarter } from "../ports/extraction-execution-starter.js";
+
+export interface StartExtractionRunDeps {
+  documents: DocumentReader;
+  runs: ExtractionRunStore;
+  executions: ExtractionExecutionStarter;
+  now?: () => string;
+}
+
+export interface StartExtractionRunInput {
+  tenantId: string;
+  itemId: string;
+  documentId: string;
+  cleanObject: { bucket: string; key: string; versionId: string };
+}
+
+export type StartExtractionRunOutcome = "STARTED" | "ALREADY_RUNNING" | "DOCUMENT_NOT_FOUND";
+
+/** The clean-bucket promotion copy and the Document's own `status: "CLEAN"` transition are two
+ * separate writes (advanceAfterEvidence() copies the object BEFORE the transactional status
+ * update) - a real, expected race where the S3 event can arrive before the Document read below
+ * observes CLEAN yet. Distinct from DOCUMENT_NOT_FOUND (never retryable - the document genuinely
+ * doesn't exist), this IS retryable: thrown, not returned, so the runtime handler's normal SQS
+ * batch-item-failure path redelivers it instead of silently dropping a real, in-flight upload. */
+export class DocumentNotCleanYetError extends Error {
+  constructor(documentId: string, status: string) {
+    super(`Document ${documentId} is not CLEAN yet (status=${status}) - retrying.`);
+    this.name = "DocumentNotCleanYetError";
+  }
+}
+
+export async function startExtractionRun(deps: StartExtractionRunDeps, input: StartExtractionRunInput): Promise<StartExtractionRunOutcome> {
+  const doc = await deps.documents.get<Document>(documentKey(input.tenantId, input.itemId, input.documentId), true);
+  if (!doc) return "DOCUMENT_NOT_FOUND";
+  if (doc.status !== "CLEAN") throw new DocumentNotCleanYetError(input.documentId, doc.status);
+
+  const documentVersion = doc.version;
+  const pipelineVersion = PIPELINE_VERSION_V1;
+  const runId = deriveExtractionRunId(input.tenantId, input.documentId, documentVersion, pipelineVersion);
+  const now = deps.now?.() ?? new Date().toISOString();
+
+  const run: ExtractionRun = {
+    ...extractionRunKey(input.tenantId, input.documentId, runId),
+    entityType: "ExtractionRun",
+    tenantId: input.tenantId,
+    itemId: input.itemId,
+    documentId: input.documentId,
+    documentVersion,
+    runId,
+    pipelineVersion,
+    status: "RUNNING",
+    startedAt: now,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const created = await deps.runs.putIfAbsent(run);
+
+  // startExecution is called EVERY time, whether the DynamoDB record was just created or
+  // already existed - deliberately not gated on `created`. Gating it would orphan a run
+  // whenever putIfAbsent succeeds but the subsequent startExecution call fails transiently
+  // (network blip, throttling): the record would sit in RUNNING forever with no real Step
+  // Functions execution behind it, and a retry would find the record already there and skip
+  // starting one. Instead, the real dedup mechanism is Step Functions' own execution-name
+  // uniqueness (`runId` as `name`, see ExtractionExecutionStarter's doc comment) - calling
+  // StartExecution again with the same name and the same input is itself idempotent at the
+  // AWS API level, so this stays safe to call unconditionally on every retry.
+  await deps.executions.startExecution({
+    name: runId,
+    input: {
+      tenantId: input.tenantId,
+      itemId: input.itemId,
+      documentId: input.documentId,
+      documentVersion,
+      runId,
+      pipelineVersion,
+      cleanObject: input.cleanObject,
+    },
+  });
+
+  return created ? "STARTED" : "ALREADY_RUNNING";
+}

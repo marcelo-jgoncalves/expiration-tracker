@@ -46,6 +46,7 @@ output "lambda_function_names" {
     module.import_parse_handler.function_name,
     module.import_commit_handler.function_name,
     module.bff_handler.function_name,
+    module.extraction_starter_handler.function_name,
   ]
 }
 
@@ -80,6 +81,7 @@ output "lambda_published_versions" {
     (module.import_parse_handler.function_name)               = module.import_parse_handler.published_version
     (module.import_commit_handler.function_name)              = module.import_commit_handler.published_version
     (module.bff_handler.function_name)                        = module.bff_handler.published_version
+    (module.extraction_starter_handler.function_name)         = module.extraction_starter_handler.published_version
   }
 }
 
