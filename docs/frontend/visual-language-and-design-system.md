@@ -555,17 +555,20 @@ cobre **funcionalmente**, superfície a superfície, é:
 
 | Baseline visual | Cobertura funcional equivalente no CI |
 |---|---|
-| `VR-02`/`VR-03` Collection densa (desktop e 375px) | `DENSITY-01/02/03` — tabela semântica agrupada, nada oculto ao empilhar, reflow a 200% sem scroll horizontal |
-| `VR-01` Overview | `smoke` — dashboard ordenado por vencimento ascendente |
-| `VR-04` Collection vazia | `smoke` — true-empty distinto de filtrado/indisponível |
-| `VR-05` Detail | `E2E-01` — coleção → detalhe |
-| `VR-06`/`VR-07` Create (estreito e com erros) | `E2E-02`/`E2E-03` — criação com sucesso, e erro de validação → correção → sucesso |
-| `VR-08` Renew/OCC | `E2E-04`/`E2E-05` — novo ciclo visível, e conflito OCC → recuperação |
-| `VR-09` estado de erro compartilhado | `smoke` — falha de backend com retry funcional |
-| `VR-10` anel de foco | `A11Y-focus` — anel ≥2px e alvo adequado em toda parada |
+| `VR-02`/`VR-03` Collection densa (desktop e 375px) | `DENSITY-01/02/03` — tabela semântica agrupada, nada oculto ao empilhar, reflow a 200% sem scroll horizontal. Cobre **mais** larguras e contagens que as baselines |
+| `VR-01` Overview | `smoke` — dashboard ordenado por vencimento ascendente. Cobertura estreita: ordenação, não a superfície inteira |
+| `VR-04` Collection vazia | **Sem equivalente funcional.** O teste de true-empty do `smoke` exercita a **Overview** (`/overview`), não a Collection (`/items`) — copy compartilhada não é cobertura da superfície. Esta é a única linha da tabela cuja superfície fica **só** com a baseline (Codex Rodada N, N-01) |
+| `VR-05` Detail | `E2E-01` — coleção → detalhe, afirmando URL, heading, categoria **e** o foco na transição de rota |
+| `VR-06`/`VR-07` Create (estreito e com erros) | `E2E-03` cobre erro de validação → correção → sucesso, com valores preservados; `E2E-02` cobre a criação bem-sucedida. **Não cobrem a largura de 375px do `VR-06`** — o comportamento estreito do Create fica só com a baseline |
+| `VR-08` Renew/OCC | `E2E-04`/`E2E-05` — novo ciclo visível, e conflito OCC → submit bloqueado → recarga → recuperação |
+| `VR-09` estado de erro compartilhado | `smoke` — falha de backend, **e** o retry funcionando |
+| `VR-10` anel de foco | `A11Y-focus` — cobre muito mais que a baseline: anel ≥2px, alvo ≥24px, ordem do DOM, término e cobertura do percurso em **toda** parada, não só na ação primária |
 
-Nenhuma dessas asserções depende de rasterização; o que se perde sem as baselines Linux é a
-detecção de **mudança visual não intencional**, não a cobertura funcional das superfícies.
+Nenhuma dessas asserções depende de rasterização. Feitas as duas ressalvas acima — a Collection
+vazia e o Create a 375px não têm equivalente funcional e ficam apenas com a baseline (Codex
+Rodada N, N-02) — o que se perde sem as baselines Linux é a detecção automatizada de **mudança
+visual não intencional** no CI. Para as outras oito superfícies a cobertura funcional é real e
+roda em todo PR; para essas duas, a rede é a inspeção manual registrada na §39.
 
 ## 32. Dependency Decisions
 
@@ -877,7 +880,7 @@ controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nen
 atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
 estender o seletor junto.
 
-Observação honesta sobre esta rodada: as nove reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89 · 8,94) não
+Observação honesta sobre esta rodada: as dez reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89 · 8,94 · 8,98) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -967,8 +970,10 @@ pergunta está fechada, a metade perceptual está explicitamente em aberto.
 | M | Claude (reconciliação) | — | 3 aceitos, 0 rejeitados; §28, `VL-G3`, `VL-G16` e a resposta ao §181 reescritas |
 | M | Codex (verificação final) | **8,94** | L-01/02/03 todos `FIXED`; §181 julgado honesto como "sim, provisório"; 1 achado S2 restante (M-01) → reabre |
 | N | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §31 passa a mapear cobertura funcional baseline a baseline |
-| N | Codex (verificação final) | `PENDING_ROUND_N` | `PENDING_ROUND_N_RESULT` |
-| N | Claude (autoavaliação final) | `PENDING_CLAUDE_N` | — |
+| N | Codex (verificação final) | **8,98** | 2 achados S2 (N-01/N-02) na própria tabela da Rodada N; resto do documento declarado limpo → reabre |
+| O | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; as duas superfícies sem equivalente funcional passam a ser nomeadas como tal |
+| O | Codex (verificação final) | `PENDING_ROUND_O` | `PENDING_ROUND_O_RESULT` |
+| O | Claude (autoavaliação final) | `PENDING_CLAUDE_O` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
