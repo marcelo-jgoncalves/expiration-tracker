@@ -48,6 +48,7 @@ output "lambda_function_names" {
     module.bff_handler.function_name,
     module.extraction_starter_handler.function_name,
     module.textract_task_handler.function_name,
+    module.pdf_parser_task_handler.function_name,
   ]
 }
 
@@ -84,12 +85,18 @@ output "lambda_published_versions" {
     (module.bff_handler.function_name)                        = module.bff_handler.published_version
     (module.extraction_starter_handler.function_name)         = module.extraction_starter_handler.published_version
     (module.textract_task_handler.function_name)              = module.textract_task_handler.published_version
+    (module.pdf_parser_task_handler.function_name)            = module.pdf_parser_task_handler.published_version
   }
 }
 
 output "textract_task_handler_function_arn" {
   description = "Live-alias ARN of TextractTaskHandler - item 3's infra/modules/extraction-workflow module needs this once it's finally instantiated (currently still uninstantiated from infra/main.tf, see NEXT_SESSION_PROMPT.md)."
   value       = local.textract_task_handler_function_arn
+}
+
+output "pdf_parser_task_handler_function_arn" {
+  description = "Live-alias ARN of PdfParserTaskHandler (M7 item 5, D-035) - item 3's infra/modules/extraction-workflow module needs this once it's finally instantiated (currently still uninstantiated from infra/main.tf, see NEXT_SESSION_PROMPT.md)."
+  value       = local.pdf_parser_task_handler_function_arn
 }
 
 output "bff_api_endpoint" {

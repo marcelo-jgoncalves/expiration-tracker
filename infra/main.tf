@@ -1867,3 +1867,66 @@ locals {
   # (parameterized by Lambda ARN variables, still not instantiated from infra/main.tf).
   textract_task_handler_function_arn = module.textract_task_handler.live_alias_arn
 }
+
+# --- M7 (extração/OCR): PdfParserTaskHandler (item 5, D-035 §1.3) --------------------------
+# Real runtime for the ASL's `RunDeterministicParser` state - a MUCH narrower footprint than
+# TextractTaskHandler: no DynamoDB, no Textract, no KMS, no SNS/SQS, no Step Functions client
+# (the ASL state is a plain `arn:aws:states:::lambda:invoke`, not `waitForTaskToken` - there
+# is no task token anywhere in this handler). Only reads the `EXTRACTION_TRANSIENT` bucket and
+# the shared `feature-flags` AppConfig application. Same "deployable but inert until the state
+# machine exists" posture as items 2/4 above - not gated by `var.extraction_pipeline_enabled`.
+
+data "aws_iam_policy_document" "pdf_parser_task_s3" {
+  statement {
+    sid       = "ReadExtractionTransientBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+locals {
+  pdf_parser_task_handler_appconfig_ids = {
+    application_id           = module.feature_flags.application_id
+    environment_id           = module.feature_flags.environment_id
+    configuration_profile_id = module.feature_flags.configuration_profile_id
+  }
+}
+
+module "pdf_parser_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-pdf-parser-task-handler"
+  handler_name    = "pdf-parser-task-handler"
+  source_dir      = "${local.dist_dir}/pdf-parser-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME   = aws_s3_bucket.extraction_transient.bucket
+    APPCONFIG_APPLICATION_ID           = local.pdf_parser_task_handler_appconfig_ids.application_id
+    APPCONFIG_ENVIRONMENT_ID           = local.pdf_parser_task_handler_appconfig_ids.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = local.pdf_parser_task_handler_appconfig_ids.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.feature_flags.feature_flags_read_policy_json,
+    data.aws_iam_policy_document.pdf_parser_task_s3.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# `RunDeterministicParser` invocation permission for Step Functions - same "deployable, not
+# yet wired" posture as `aws_lambda_permission.textract_task_from_state_machine` above.
+resource "aws_lambda_permission" "pdf_parser_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.pdf_parser_task_handler.live_alias_arn
+  qualifier     = module.pdf_parser_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as
+  # local.textract_task_handler_function_arn above).
+  pdf_parser_task_handler_function_arn = module.pdf_parser_task_handler.live_alias_arn
+}
