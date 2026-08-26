@@ -441,10 +441,15 @@ Alvos verificados: 375px, 640px (≡ 200% de zoom), 720px, 820px (breakpoint de 
 
 Alvo: **WCAG 2.2 AA**. Verificado no navegador real, não só por leitura de código:
 
-**Toda linha desta tabela é uma asserção versionada e executável** em
-`frontend/e2e/accessibility.spec.ts`, que roda no projeto `chromium` — ou seja, no CI, em todo
-PR. Isso corrige um achado do Codex (D-03) e é a postura correta: um gate cuja prova não pode
-ser re-executada é uma alegação, não um gate.
+**A coluna "Onde re-executar" nomeia, para cada linha, o que a sustenta** — e a maioria são
+asserções versionadas e executáveis em `frontend/e2e/accessibility.spec.ts`, que roda no projeto
+`chromium`, ou seja no CI, em todo PR. Isso corrige um achado do Codex (D-03) e é a postura
+correta: um gate cuja prova não pode ser re-executada é uma alegação, não um gate.
+
+**Três linhas não são asseguradas por essa suíte, e a coluna diz qual é a prova de cada uma**
+(Codex Rodada K, K-01: a redação anterior dizia "toda linha desta tabela é uma asserção
+executável" em `accessibility.spec.ts`, o que era mais amplo que a verdade — exatamente a classe
+de superafirmação que este documento já corrigiu três vezes).
 
 | Verificação | Resultado | Onde re-executar |
 |---|---|---|
@@ -454,9 +459,9 @@ ser re-executada é uma alegação, não um gate.
 | Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado, em 3 superfícies | `A11Y-contrast` |
 | Target size (2.5.8) | Todos os controles ≥ 24px em ambas as dimensões | `A11Y-focus` |
 | Labels/erros de form | Zero controles sem `<label for>`; `aria-invalid` + `aria-describedby` apontando para a mensagem; link do summary com a MESMA string, apontando para o campo | `A11Y-forms` |
-| Headings/landmarks | `<nav aria-label>`, `<main id="surface-content" tabIndex={-1}>`, `<h1>` por página, `<section aria-labelledby>` |
-| Estado sem depender de cor (1.4.1) | Badge = rótulo + forma + cor; campo inválido = borda + régua + mensagem; nav atual = tinta + peso + barra |
-| Links vs botões | `Button` (`<button>`) para mutação, `ButtonLink` (`<Link>`) para navegação; nenhum `<div>` estilizado |
+| Headings/landmarks | `<nav aria-label>`, `<main id="surface-content" tabIndex={-1}>`, `<h1>` por página, `<section aria-labelledby>` | **Não asserido por `accessibility.spec.ts`.** Sustentado por `eslint-plugin-jsx-a11y` no lint bloqueante e pelas suítes de rota, que consultam por `role`/nome acessível — se um landmark ou heading sumir, elas quebram |
+| Estado sem depender de cor (1.4.1) | Badge = rótulo + forma + cor; campo inválido = borda + régua + mensagem; nav atual = tinta + peso + barra | `A11Y-forced-colors` (o rótulo sobrevive à substituição das cores) + `ui.test.tsx` (marcador presente e `aria-hidden`) — não uma linha da suíte de acessibilidade, duas provas em lugares diferentes |
+| Links vs botões | `Button` (`<button>`) para mutação, `ButtonLink` (`<Link>`) para navegação; nenhum `<div>` estilizado | **Não asserido em runtime.** Garantido pelo contrato dos primitives (são dois componentes distintos, não uma prop) e por `jsx-a11y/no-static-element-interactions` no lint |
 | Zoom 200% / reflow (1.4.10) | Sem scroll horizontal a 640px com 60 itens | `DENSITY-03` |
 | Reduced motion | Animação e transição caem a `0.001s` sob `prefers-reduced-motion` | `A11Y-reduced-motion` |
 | Forced colors | O rótulo do status sobrevive e a borda do badge é forçada a uma cor de sistema em vez de sumir | `A11Y-forced-colors` |
@@ -858,7 +863,7 @@ controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nen
 atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
 estender o seletor junto.
 
-Observação honesta sobre esta rodada: as seis reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96) não
+Observação honesta sobre esta rodada: as sete reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -926,8 +931,10 @@ artificial).
 | J | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; o teste de foco passa a afirmar cobertura |
 | J | Codex (verificação final) | **8,96** | I-01 `FIXED`; 1 achado S2 (J-01): uma superafirmação sobrevivente no narrativo → reabre |
 | K | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; frase da Rodada G marcada em linha, limite da heurística declarado |
-| K | Codex (verificação final) | `PENDING_ROUND_K` | `PENDING_ROUND_K_RESULT` |
-| K | Claude (autoavaliação final) | `PENDING_CLAUDE_K` | — |
+| K | Codex (verificação final) | **8,97** | J-01 `FIXED`; varredura no documento inteiro achou 1 superafirmação restante (K-01, S2) → reabre |
+| L | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §28 passa a nomear a prova real de cada linha |
+| L | Codex (verificação final) | `PENDING_ROUND_L` | `PENDING_ROUND_L_RESULT` |
+| L | Claude (autoavaliação final) | `PENDING_CLAUDE_L` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
