@@ -35,13 +35,27 @@ separadas — mesmos dados, ordenação, agrupamento, filtro e rotas. Densidade 
 nomes longos e quase-idênticos) verificada contra o código real do frontend pela primeira vez,
 com asserção automatizada em `frontend/e2e/expiration-density.spec.ts`; 10 baselines de
 regressão visual determinísticas em `frontend/e2e/visual-regression.spec.ts` (projeto Playwright
-`visual`, local — ver §31 do documento para a limitação de plataforma e o caminho de adoção em
-CI). Protocolo Claude↔Codex completo: a Rodada B adversarial achou 5 achados reais, 2 deles S2
-(um botão de mutação que continuava clicável durante o submit porque `disabled ?? pending`
-curto-circuitava num `false` explícito, e cabeçalhos de grupo de tabela com `scope="colgroup"`
-onde encabeçavam linhas) — todos corrigidos com teste de regressão e reverificados na Rodada D.
-Registro de decisões, contrastes medidos, resultados dos gates `VL-G1..VL-G17` e o registro de
-adiamentos para User Validation estão no próprio documento.
+`visual`, local — ver §31 do documento para a limitação de plataforma, o caminho de adoção em CI
+e o mapa baseline-a-baseline de qual teste funcional cobre cada superfície enquanto isso).
+Acessibilidade deixou de ser narrativa e virou `frontend/e2e/accessibility.spec.ts` — **9 testes
+no projeto `chromium`, portanto no CI em todo PR**: contraste computado, percurso de teclado com
+anel, alvo e **cobertura de todo focável** (é a cobertura, não o término, que descarta
+armadilha), ausência de sticky/fixed, reduced motion, forced colors, região de scroll condicional
+e associação label/erro nos forms. Duas falhas reais foram achadas por essas asserções e
+corrigidas (contraste 4,48:1 e alvo de 19px).
+
+Protocolo Claude↔Codex: **16 rodadas, 11 reaberturas**, convergindo em Codex **9,04** e Claude
+**9,2** (`AGENTS.md` §4, sem arredondamento) — o protocolo mais longo já executado neste
+repositório. A Rodada B achou 5 achados reais (2 S2: um botão de mutação clicável durante o
+submit porque `disabled ?? pending` curto-circuitava num `false` explícito, e cabeçalhos de grupo
+com `scope="colgroup"` onde encabeçavam linhas). Três rodadas posteriores acharam defeitos
+**criados pela rodada de correção anterior** (D-01, F-01, G-01) — o modo de falha que o protocolo
+existe para pegar. E a classe dominante de achado não foi código errado: foi **documentação
+afirmando prova mais ampla que a evidência nomeada**, que apareceu seis vezes e só foi eliminada
+na Rodada P. Vale como precedente de processo: a alegação "sem armadilha de teclado" passou dez
+rodadas sem prova real por trás dela. Registro de decisões, contrastes medidos, resultados dos
+gates `VL-G1..VL-G17`, as limitações declaradas e o registro de 15 adiamentos para User
+Validation estão no próprio documento.
 
 ## Índice por documento
 
