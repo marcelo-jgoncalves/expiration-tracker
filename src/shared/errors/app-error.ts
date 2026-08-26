@@ -17,7 +17,13 @@ export type ErrorCategory =
   | "CONFLICT"
   | "QUOTA_EXCEEDED"
   | "DEPENDENCY_UNAVAILABLE"
-  | "INTERNAL";
+  | "INTERNAL"
+  // M7 item 8 (`claude-reconciliation-final-design.md` §1.7): the first 422 in this codebase —
+  // a request that is well-formed and passes every OCC/idempotency/authorization check, but
+  // violates a business invariant the domain enforces (e.g. confirming an `ExtractedField` that
+  // isn't `PENDING_CONFIRMATION`, or a `confirmedValue` that fails its `valueType` validation).
+  // Deliberately distinct from VALIDATION (schema/shape) and CONFLICT (OCC/version/idempotency).
+  | "BUSINESS_RULE";
 
 export interface AppErrorOptions {
   code: string;
@@ -230,6 +236,16 @@ export class ExtractionCommitFailedError extends AppError {
   constructor(message = "Failed to commit extraction run outcome.", details?: Record<string, unknown>, cause?: unknown) {
     super({ code: "ExtractionCommitFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: true, details, cause });
     this.name = "ExtractionCommitFailedError";
+  }
+}
+
+/** M7 item 8 (§1.7): request is well-formed, authorized, and every OCC version matched, but
+ * the operation violates a business invariant — HTTP 422. `retryable: false` always: retrying
+ * the identical request without changing anything about the world will fail identically. */
+export class BusinessRuleError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super({ code: "BUSINESS_RULE_VIOLATION", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "BusinessRuleError";
   }
 }
 

@@ -5,12 +5,21 @@
  * `ConditionCheck` re-asserting the `Document` row is still at the version the caller read
  * moments earlier (`buildVersionConditionCheck`) — the TOCTOU close for the concurrent-discard
  * race (design §3). All three succeed or none do. */
-import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { buildVersionedCreate, buildVersionedUpdate, buildVersionConditionCheck, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
-import type { CommitRunOutcomeInput, CommitRunOutcomeResult, ExtractedFieldStore } from "../ports/extracted-field-store.js";
+import type {
+  CommitRunOutcomeInput,
+  CommitRunOutcomeResult,
+  ConfirmFieldInput,
+  ExtractedFieldStore,
+  FieldTransitionResult,
+  RejectFieldInput,
+} from "../ports/extracted-field-store.js";
+import type { ExtractedField } from "../domain/extracted-field.js";
 
 export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
   constructor(
@@ -55,6 +64,83 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
       // (extremely unlikely) case the true cause was one of the other two conditions.
       if (isTransactionCanceled(err)) return "DOCUMENT_DISCARDED";
       throw mapDynamoError(err, "ExtractedFieldStore.commitRunOutcome");
+    }
+  }
+
+  async get(key: EntityKey): Promise<ExtractedField | undefined> {
+    try {
+      const result = await this.client.send(new GetCommand({ TableName: this.tableName, Key: key }));
+      return result.Item as ExtractedField | undefined;
+    } catch (err) {
+      throw mapDynamoError(err, "ExtractedFieldStore.get");
+    }
+  }
+
+  async confirmField(input: ConfirmFieldInput): Promise<FieldTransitionResult> {
+    const fieldUpdate = {
+      Update: buildVersionedUpdate({
+        tableName: this.tableName,
+        key: input.fieldKey,
+        tenantId: input.fieldTenantId,
+        expectedVersion: input.fieldExpectedVersion,
+        set: { state: "CONFIRMED", confirmedValue: input.confirmedValue },
+        now: input.now,
+      }),
+    };
+
+    const runGuard = buildVersionConditionCheck({ tableName: this.tableName, key: input.runKey, expectedVersion: input.runExpectedVersion });
+    const documentGuard = buildVersionConditionCheck({ tableName: this.tableName, key: input.documentKey, expectedVersion: input.documentExpectedVersion });
+
+    const itemEntry = input.itemUpdate
+      ? {
+          Update: buildVersionedUpdate({
+            tableName: this.tableName,
+            key: input.itemKey,
+            tenantId: input.itemTenantId,
+            expectedVersion: input.itemExpectedVersion,
+            set: input.itemUpdate,
+            now: input.now,
+          }),
+        }
+      : buildVersionConditionCheck({ tableName: this.tableName, key: input.itemKey, expectedVersion: input.itemExpectedVersion });
+
+    const transactItems = [fieldUpdate, runGuard, documentGuard, itemEntry] as unknown as TransactWriteCommandInput["TransactItems"];
+
+    try {
+      await this.client.send(new TransactWriteCommand({ TransactItems: transactItems }));
+      return "COMMITTED";
+    } catch (err) {
+      if (isTransactionCanceled(err)) return "VERSION_CONFLICT";
+      throw mapDynamoError(err, "ExtractedFieldStore.confirmField");
+    }
+  }
+
+  async rejectField(input: RejectFieldInput): Promise<FieldTransitionResult> {
+    const set: Record<string, unknown> = { state: "REJECTED" };
+    if (input.correctionReason !== undefined) set["correctionReason"] = input.correctionReason;
+
+    const fieldUpdate = {
+      Update: buildVersionedUpdate({
+        tableName: this.tableName,
+        key: input.fieldKey,
+        tenantId: input.fieldTenantId,
+        expectedVersion: input.fieldExpectedVersion,
+        set,
+        now: input.now,
+      }),
+    };
+
+    const runGuard = buildVersionConditionCheck({ tableName: this.tableName, key: input.runKey, expectedVersion: input.runExpectedVersion });
+    const documentGuard = buildVersionConditionCheck({ tableName: this.tableName, key: input.documentKey, expectedVersion: input.documentExpectedVersion });
+
+    const transactItems = [fieldUpdate, runGuard, documentGuard] as unknown as TransactWriteCommandInput["TransactItems"];
+
+    try {
+      await this.client.send(new TransactWriteCommand({ TransactItems: transactItems }));
+      return "COMMITTED";
+    } catch (err) {
+      if (isTransactionCanceled(err)) return "VERSION_CONFLICT";
+      throw mapDynamoError(err, "ExtractedFieldStore.rejectField");
     }
   }
 }

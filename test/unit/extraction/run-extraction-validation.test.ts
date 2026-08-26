@@ -49,6 +49,9 @@ class FakeDocumentReader implements DocumentReader {
 
 class FakeExtractionRunStore implements ExtractionRunStore {
   public updateStatusCalls: unknown[] = [];
+  async get(): Promise<undefined> {
+    throw new Error("not used");
+  }
   async putIfAbsent(): Promise<boolean> {
     throw new Error("not used");
   }
@@ -65,6 +68,15 @@ class FakeExtractedFieldStore implements ExtractedFieldStore {
     this.commitCalls.push(input);
     if (this.result instanceof Error) throw this.result;
     return this.result;
+  }
+  async get(): Promise<undefined> {
+    throw new Error("not used");
+  }
+  async confirmField(): Promise<"COMMITTED" | "VERSION_CONFLICT"> {
+    throw new Error("not used");
+  }
+  async rejectField(): Promise<"COMMITTED" | "VERSION_CONFLICT"> {
+    throw new Error("not used");
   }
 }
 

@@ -4,6 +4,11 @@ export type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
 export interface ExtractionRunStore {
+  /** M7 item 8 (confirm/reject field routes, §1.7): a plain, eventually-consistent read of the
+   * `ExtractionRun` row — the OCC-guarded write paths above never needed this, but the HTTP
+   * routes need to read the run's current `version` before asserting `expectedRunVersion`. */
+  get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
+
   /** Idempotent create — the actual idempotency mechanism for the whole run
    * (deriveExtractionRunId() already makes the key deterministic; this is what turns a
    * duplicate S3 event / SQS redelivery into a no-op instead of a second run). */

@@ -32,6 +32,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}" },
   { method: "DELETE", pathTemplate: "/items/{itemId}/documents/{documentId}" },
+  { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" },
+  { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" },
   { method: "POST", pathTemplate: "/imports" },
   { method: "GET", pathTemplate: "/imports/{jobId}" },
   { method: "POST", pathTemplate: "/imports/{jobId}/commit" },
