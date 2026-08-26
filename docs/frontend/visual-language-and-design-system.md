@@ -145,7 +145,7 @@ para empatar com ela.
 | Densidade | Moderada — linha de duas linhas (identificador + metadado de apoio), respiro suficiente para parecer organizada |
 | Status | Pill com marcador de forma + rótulo em sentence case, tinta clara, borda de 1px |
 | Superfície | Nav lateral em superfície branca sobre página cinza-clara; coleção dentro de um painel único de raio 8px |
-| Forças | Legibilidade alta; ruído baixo; parece um SaaS profissional agradável de usar diariamente; sobrevive bem a nomes longos |
+| Forças | Legibilidade alta e ruído baixo (objetivo: sem zebra, sem caixa-alta, um único accent); sobrevive bem a nomes longos (verificado). **Hipótese não medida**: lê como um SaaS profissional confortável para uso diário |
 | Riscos | Linhas de duas linhas custam altura vertical num dataset grande; um accent forte demais dominaria |
 
 ### Direction B — Neutral Precision — challenger
@@ -157,7 +157,7 @@ para empatar com ela.
 | Tipografia | 13px de corpo, cabeçalhos de coluna em caixa-alta com tracking |
 | Densidade | Alta — uma linha por registro, metadado inline |
 | Forças | Cabe mais registros por tela; muito rápido de escanear numericamente |
-| Riscos | Lê como ferramenta técnica/industrial; caixa-alta contraria §18 e a evidência GOV.UK; abandona as qualidades que motivaram a escolha da referência |
+| Riscos | **Objetivo**: caixa-alta em status contraria §18 e a evidência GOV.UK de legibilidade. **Hipótese não medida**: lê como ferramenta técnica/industrial e cansa em uso prolongado — exatamente o tipo de afirmação que só User Validation confirma |
 
 Ambas foram implementadas como mockups estáticos comparáveis (mesmo shell, page header, linha
 de tabela, status, urgência, botão, campo, notice) e verificadas por contraste real antes de
@@ -178,7 +178,7 @@ referência.
 | Trust | ✔ | ~ | B lê como ferramenta interna, não como produto que se paga |
 | Contrast (real) | ✔ | ✔ | Ambas passam AA em todos os pares medidos |
 | Density | ~ | ✔ | **Única vantagem objetiva de B** |
-| Visual fatigue | ✔ | ~ | Zebra + caixa-alta cansam em uso diário |
+| Visual fatigue | ✔ | ~ | **Hipótese não validada** (D-15). O objetivo aqui é só a evidência GOV.UK contra caixa-alta |
 | Brand distinctiveness | ✔ | ~ | |
 | Implementation simplicity | ✔ | ✔ | Empate |
 | Responsiveness | ✔ | ~ | A já stackeia; B depende de scroll horizontal |
@@ -402,11 +402,17 @@ modelo de teclado de planilha aqui, só leitura, comparação e navegação por 
 
 - Primeira coluna = identificador humano do registro, mais larga, quebra em vez de truncar (um
   nome de licença truncado não identifica nada).
-- Grupos de urgência são `<tbody>` com `<th scope="colgroup">` — o agrupamento está na semântica
-  da tabela, não só nos pixels.
+- Grupos de urgência são `<tbody>` com `<th scope="rowgroup">` — o agrupamento está na semântica
+  da tabela, não só nos pixels. (`rowgroup`, não `colgroup`: "Vencidos" encabeça as **linhas**
+  daquele `<tbody>`; ver B-02 na §37.)
 - `<caption>` obrigatório (visualmente oculto) — a tabela precisa de nome programático.
-- Container de scroll horizontal explícito, focável e nomeado (`role="region"`), porque Firefox
-  e Safari não oferecem outra forma de rolá-lo sem mouse.
+- Container de scroll horizontal explícito. Ele recebe `tabIndex`/`role="region"`/`aria-label`
+  **apenas enquanto realmente transborda** — Firefox e Safari não oferecem outra forma de
+  rolá-lo sem mouse, mas abaixo de 820px o layout empilha e nada transborda, e uma parada de
+  teclado vazia em toda coleção seria uma promessa falsa. O overflow é medido no cliente
+  (`ResizeObserver`, com medição inicial incondicional para o caso de a API não existir), e o
+  elemento permanece exposto enquanto tiver o foco, para nunca perder papel e nome debaixo de
+  quem está nele. Verificado em três larguras por `e2e/accessibility.spec.ts`.
 - Abaixo de 820px cada registro vira um bloco chave/valor rotulado via `data-label`. **Nada é
   escondido**: nome, data absoluta, urgência, situação e ação primária continuam presentes.
 
@@ -435,20 +441,26 @@ Alvos verificados: 375px, 640px (≡ 200% de zoom), 720px, 820px (breakpoint de 
 
 Alvo: **WCAG 2.2 AA**. Verificado no navegador real, não só por leitura de código:
 
-| Verificação | Resultado |
-|---|---|
-| Navegação só por teclado | 22 paradas percorridas na Collection; ordem DOM = ordem visual; sem armadilha |
-| Foco visível | Anel de 2px `#2F4FD0` com offset em **todas** as 22 paradas |
-| Foco não obscurecido (2.4.11) | Garantia estrutural: nada é `sticky`/`fixed` neste sistema exceto o skip link |
-| Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado |
-| Target size (2.5.8) | Todos os controles ≥ 24px em ambas as dimensões após a correção do link identificador |
-| Labels/erros de form | Label visível + `htmlFor`, `aria-invalid`, `aria-describedby`, summary com links |
+**Toda linha desta tabela é uma asserção versionada e executável** em
+`frontend/e2e/accessibility.spec.ts`, que roda no projeto `chromium` — ou seja, no CI, em todo
+PR. Isso corrige um achado do Codex (D-03) e é a postura correta: um gate cuja prova não pode
+ser re-executada é uma alegação, não um gate.
+
+| Verificação | Resultado | Onde re-executar |
+|---|---|---|
+| Navegação só por teclado | Todas as paradas da Collection percorridas; ordem DOM = ordem visual; sem armadilha | `A11Y-focus` |
+| Foco visível | `outline` de ≥2px em **todas** as paradas | `A11Y-focus` |
+| Foco não obscurecido (2.4.11) | Garantia estrutural, agora afirmada: **zero** elementos `sticky`/`fixed` fora o skip link | `A11Y-focus-not-obscured` |
+| Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado, em 3 superfícies | `A11Y-contrast` |
+| Target size (2.5.8) | Todos os controles ≥ 24px em ambas as dimensões | `A11Y-focus` |
+| Labels/erros de form | Zero controles sem `<label for>`; `aria-invalid` + `aria-describedby` apontando para a mensagem; link do summary com a MESMA string, apontando para o campo | `A11Y-forms` |
 | Headings/landmarks | `<nav aria-label>`, `<main id="surface-content" tabIndex={-1}>`, `<h1>` por página, `<section aria-labelledby>` |
 | Estado sem depender de cor (1.4.1) | Badge = rótulo + forma + cor; campo inválido = borda + régua + mensagem; nav atual = tinta + peso + barra |
 | Links vs botões | `Button` (`<button>`) para mutação, `ButtonLink` (`<Link>`) para navegação; nenhum `<div>` estilizado |
-| Zoom 200% / reflow (1.4.10) | Sem scroll horizontal a 640px com 60 itens (asserção automatizada) |
-| Reduced motion | `1.4s`→`0.001s` e `0.12s`→`0.001s`, medido |
-| Forced colors | Bordas de badge viram `CanvasText`; anel de foco vira `Highlight`; rótulos sobrevivem |
+| Zoom 200% / reflow (1.4.10) | Sem scroll horizontal a 640px com 60 itens | `DENSITY-03` |
+| Reduced motion | Animação e transição caem a `0.001s` sob `prefers-reduced-motion` | `A11Y-reduced-motion` |
+| Forced colors | O rótulo do status sobrevive e a borda do badge é forçada a uma cor de sistema em vez de sumir | `A11Y-forced-colors` |
+| Região de scroll condicional | Focável e nomeada exatamente quando transborda (1440px não · 1000px sim · 375px não) | `A11Y-scroll-region` |
 
 **`axe` não foi adicionado.** O toolchain do `frontend/` não o tem (o `prototype/` tinha, mas é
 outro artefato) e o prompt é explícito: obrigatório apenas se já fizer parte do projeto. Foi
@@ -574,22 +586,22 @@ alterado (isso seria Type 1). Este addendum mapeia os critérios visuais aos 12 
 | Gate | Resultado | Evidência |
 |---|---|---|
 | **VL-G1** Epistemic Integrity | **PASS** | Tom vem do mapeamento de domínio, não do call site; `success` sem emissor; `UNKNOWN_OUTCOME` = warning; aviso de lembretes copiados é warning, não success |
-| **VL-G2** Contrast | **PASS** | 0 falhas medindo cor computada de todo elemento renderizado; 1 achado real corrigido (4,48:1) |
-| **VL-G3** Color Independence | **PASS** | Badge: rótulo + forma + cor; campo inválido: borda + régua + mensagem; nav atual: tinta + peso + barra; verificado sob `forced-colors` |
-| **VL-G4** Focus | **PASS** | Anel de 2px em 22/22 paradas; nada sticky, logo foco nunca obscurecido; baseline visual dedicada |
+| **VL-G2** Contrast | **PASS** | `A11Y-contrast` em 3 superfícies, no CI: 0 falhas medindo cor computada de todo elemento renderizado; 1 achado real corrigido (4,48:1) |
+| **VL-G3** Color Independence | **PASS** | Badge: rótulo + forma + cor; campo inválido: borda + régua + mensagem; nav atual: tinta + peso + barra. Afirmado por `A11Y-forced-colors` e por `ui.test.tsx` (marcador presente e `aria-hidden`) |
+| **VL-G4** Focus | **PASS** | `A11Y-focus` (anel ≥2px em toda parada) + `A11Y-focus-not-obscured` (zero elementos sticky/fixed) + baseline visual dedicada |
 | **VL-G5** Core Task Hierarchy | **PASS** | Uma ação primária por superfície; identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
 | **VL-G6** Density | **PASS** | 140 itens, nomes longos e quase-idênticos, 3 grupos; asserção automatizada + baseline visual |
 | **VL-G7** Responsive Integrity | **PASS** | Stacking mantém todos os campos; sem overflow a 375/640px; asserção automatizada |
 | **VL-G8** Token Consistency | **PASS** | Nenhum hex fora de `tokens.css`; nenhuma feature referencia primitivo |
-| **VL-G9** State Completeness | **PASS** | Button: default/hover/active/focus/disabled/pending. Field: default/hover/focus/invalid/disabled. Badge: não interativo (sem hover/focus, correto). Table row: default/hover |
+| **VL-G9** State Completeness | **PASS**, com o limite declarado | Button: default/hover/active/focus/disabled/pending — `pending`, `disabled` e o `type` default cobertos por teste; hover/active são regras CSS declaradas em `Button.css` e **não** afirmadas por teste. Field: default/hover/focus/invalid/disabled — `invalid` coberto por `A11Y-forms`. Badge: não interativo, sem hover/focus, correto. Table row: default/hover |
 | **VL-G10** Forms | **PASS** | Label visível, obrigatoriedade em palavras, erro em 3 pistas, foco, valores preservados (coberto por teste) |
 | **VL-G11** Feedback | **PASS** | success/erro/pending/unknown têm tratamentos distintos; UNKNOWN nunca comprimido em FAILED |
 | **VL-G12** Visual Regression | **PASS** | 10 baselines determinísticas reproduzíveis + governança e caminho de adoção em CI documentados (§31) |
 | **VL-G13** Dependency Proportionality | **PASS** | Zero dependências novas |
 | **VL-G14** Premature UX Redesign | **PASS** | Nenhuma journey/IA reaberta. As duas mudanças estruturais (§36) são correções de primitive e de rótulo ambíguo, ambas justificadas e registradas |
 | **VL-G15** Accessibility Semantics | **PASS** | Nenhum widget customizado; `<table>` real em vez de `<ul>`; nenhum ARIA onde o nativo bastava |
-| **VL-G16** Documentation Truth | **PASS** | Status provisório em todo lugar; ausência de teste com leitor de tela declarada; limitação de CI das baselines declarada |
-| **VL-G17** Reference Alignment | **PASS** | Clareza, leveza, aparência de SaaS profissional, hierarquia calma, densidade moderada e ruído baixo preservados — e verificados contra dataset grande, não só contra 5 registros bonitos. Nada copiado da referência |
+| **VL-G16** Documentation Truth | **PASS** | Status provisório em todo lugar; ausência de teste com leitor de tela declarada; limitação de CI das baselines declarada; as incoerências entre documento e código que o Codex achou na Rodada D (D-02) corrigidas |
+| **VL-G17** Reference Alignment | **PASS**, com a distinção entre objetivo e subjetivo que o Codex pediu | **Objetivo e verificado**: densidade moderada preservada sob 140 registros com nomes longos (`DENSITY-01`); ruído visual baixo (sem zebra, sem caixa-alta, 2 níveis de sombra dos quais 1 em uso, um único accent); hierarquia por superfície/borda/espaço; nada copiado da referência (paleta, logotipo, ícones, componentes e estrutura de tela são próprios). **Subjetivo e explicitamente não validado**: "clareza", "leveza" e "aparência de SaaS profissional" são julgamento especializado — registrados como D-14/D-15 |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
@@ -613,6 +625,8 @@ ocorreu; nada aqui deve ser lido como "usuários preferem/entendem/confiam".
 | D-11 | Detalhes visuais de confiança no guest flow | Fora do slice | — |
 | D-12 | Teste com leitor de tela real | Não executado (sem NVDA/VoiceOver no ambiente) | Executar antes de Pilot |
 | D-13 | Accent blue-indigo como identidade | Passa contraste, não conflita com status | Transmite a personalidade certa? |
+| D-14 | "Clareza / leveza / calma" da direção escolhida | Julgamento especializado, **não medido** — o que foi objetivamente verificado é densidade, ruído e contraste (§34, VL-G17) | A interface parece calma e leve para quem a usa o dia inteiro? |
+| D-15 | Fadiga visual comparada (Direction A vs. B) | Hipótese de que zebra + caixa-alta cansam mais em uso prolongado | Só uma sessão longitudinal responde |
 
 ## 36. Claude Review (Round A)
 
@@ -702,20 +716,59 @@ Observação honesta sobre B-05: o documento não existia porque a revisão foi 
 paralelo à sua redação. O achado é legítimo do ponto de vista do que estava na branch, e a
 correção é factual, não uma discordância.
 
+### Codex Round D — verificação fresca sobre o código corrigido
+
+Segunda passagem adversarial independente, sobre o estado **já corrigido**, com instrução
+explícita de procurar defeitos **introduzidos pelas próprias correções** — o modo de falha que
+este repositório já viu repetidamente em rodadas de reconciliação.
+
+**Nota Codex (Round D): 8,54/10.** Ainda abaixo de 9,0, o que reabriu de novo em vez de
+arredondar. Veredito sobre a Rodada C: B-01 `FIXED`, B-02 `FIXED` no código, B-03 `FIXED`,
+B-05 `FIXED`, **B-04 `PARTIALLY FIXED`**.
+
+| ID | Achado | Sev. |
+|---|---|---|
+| D-01 | O fallback do `ResizeObserver` **degradava exatamente a operabilidade que o hook existia para garantir**: sem a API, o efeito retornava antes até da medição inicial, então uma tabela genuinamente larga nunca receberia `tabIndex`/`role`/nome. Além disso, se o elemento deixasse de transbordar **enquanto estivesse focado**, o foco permanecia num `div` que acabara de perder papel e nome | S3 |
+| D-02 | O documento contradizia o HTML corrigido: §26 ainda dizia `scope="colgroup"`, e descrevia o container de scroll como "focável e nomeado" sem mencionar que virou condicional. Isso tornava o próprio `PASS` de `VL-G16 Documentation Truth` falso. Comentários obsoletos em `DataTable.css` e `Layout.css` também | **S2** |
+| D-03 | Parte relevante dos `PASS` da §34 não tinha evidência reproduzível **no repositório**: contraste "0 falhas", "22/22 paradas de foco", reduced motion, forced colors e target size existiam só como narrativa de "script próprio", sem script, relatório ou teste preservado | **S2** |
+| D-04 | Algumas hipóteses visuais estavam redigidas como conclusões ("parece um SaaS profissional agradável de usar diariamente", "zebra + caixa-alta cansam em uso diário") — pequena violação do padrão epistemológico que o próprio documento estabelece | S3 |
+
+O Codex também confirmou explicitamente que a aquisição/perda dinâmica de `tabIndex`/`role` é
+aceitável em si, que o observer é desconectado corretamente e continua válido quando `rows`,
+`groups` ou `columns` mudam, que `Boolean(disabled || pending)` não alterou nenhum
+comportamento além do bug, que a troca para `aria-pressed` não deixou nenhum seletor ou
+comportamento preso ao `aria-current` removido, e que a mudança para `rowgroup` não quebrou
+nenhuma consulta, seletor, teste ou CSS. Sobre a §31, o veredito foi que ela é **honesta**
+quanto à limitação de plataforma das baselines e dá um caminho concreto de adoção.
+
+## 38b. Reconciliation (Round E)
+
+Nenhum dos quatro achados foi rejeitado. D-03 é o mais importante dos quatro e foi o que mais
+mudou o entregável.
+
+| ID | Veredito | Correção | Evidência |
+|---|---|---|---|
+| D-01 | **Aceito** | A medição inicial passou a rodar **incondicionalmente**, antes de qualquer checagem de `ResizeObserver`; sem a API o valor apenas deixa de acompanhar redimensionamentos posteriores (degradado, não quebrado). O elemento permanece exposto enquanto tiver o foco (`isScrollable \|\| isFocused`), então a parada só desaparece no blur seguinte — nunca debaixo de quem está nela | `A11Y-scroll-region` afirma os três estados em larguras reais (1440px não · 1000px sim, com ~101px de overflow real · 375px não) |
+| D-02 | **Aceito** | §26 corrigida para `rowgroup`; a descrição do container de scroll reescrita para dizer que é condicional e por quê; comentários obsoletos em `DataTable.css` e `Layout.css` atualizados | Este documento |
+| D-03 | **Aceito — e é a correção mais substantiva desta rodada** | As medições deixaram de ser um script descartável fora do repositório e viraram `frontend/e2e/accessibility.spec.ts`: **9 testes no projeto `chromium`, portanto executados no CI em todo PR** — contraste computado em 3 superfícies, percurso de teclado com anel e target size, ausência de elementos sticky/fixed, reduced motion, forced colors, região de scroll condicional, e associação de label/erro nos forms. As §28/§34/§39 agora citam o teste que prova cada linha | `npm run test:e2e`: 24 passed (era 15) |
+| D-04 | **Aceito** | As afirmações subjetivas foram reescritas como hipóteses e separadas do que é objetivamente verificável, inclusive dentro do próprio `VL-G17`. Dois adiamentos novos registrados: D-14 (clareza/leveza/calma) e D-15 (fadiga visual comparada) | §10, §11, §34, §35 |
+
+Observação honesta sobre D-03: o achado estava certo e o padrão que ele impõe é o correto para
+este repositório. A diferença entre "eu medi e deu certo" e "aqui está o teste que mede, e ele
+roda no CI" é a diferença entre um relato e um gate — e três dos achados reais deste milestone
+só apareceram porque a página foi medida, não lida.
+
 ## 39. Verification Evidence
 
 | Verificação | Comando | Resultado |
 |---|---|---|
 | Typecheck | `npm run typecheck` (frontend) | limpo |
 | Lint (inclui `jsx-a11y`) | `npm run lint` | limpo, `--max-warnings=0` |
-| Unit/component | `npm test` | **112 passed** (era 110; +4 novos, −2 substituídos) |
-| E2E funcional | `npm run test:e2e` | **15 passed** (era 12; +3 de densidade) |
+| Unit/component | `npm test` | **124 passed** (era 110) |
+| E2E funcional | `npm run test:e2e` | **24 passed** (era 12; +3 de densidade, +9 de acessibilidade) |
 | Regressão visual | `npm run test:visual` | **10 passed**, reproduzível em execução repetida |
 | Build de produção | `npm run build` | limpo; JS inalterado, CSS 22,7 kB (4,4 kB gzip) |
-| Contraste computado | script próprio no navegador | **0 falhas** |
-| Percurso de teclado | script próprio no navegador | 22/22 paradas com anel visível, ordem correta |
-| Reduced motion | script próprio no navegador | `1.4s`→`0.001s`, `0.12s`→`0.001s` |
-| Forced colors | script próprio no navegador | bordas de badge → `CanvasText`, rótulos sobrevivem |
+| Acessibilidade executável | `npm run test:e2e` (`e2e/accessibility.spec.ts`) | **9 passed** — contraste, foco, target size, foco-não-obscurecido, reduced motion, forced colors, região de scroll condicional, forms |
 | Inspeção visual em navegador | manual | Overview, Collection densa (desktop + 375px), Detail (desktop + 375px), Create, Create com erros, Renew/OCC, estado de erro, foco |
 | Drift de documentação | `npm run check-docs` (raiz) | limpo |
 
@@ -726,4 +779,52 @@ artificial).
 
 ## 40. Final Status
 
-_A ser preenchido após a convergência Claude↔Codex._
+### Pergunta final obrigatória (§181 do prompt da missão)
+
+> *Este sistema visual torna o Core Expiration slice mais claro, profissional, acessível,
+> confiável e eficiente para trabalho operacional, usando componentes e tokens reutilizáveis,
+> sem cristalizar prematuramente hipóteses de UX que ainda precisam de User Validation?*
+
+**Sim**, e cada metade da pergunta tem lastro separado:
+
+- *Mais claro e eficiente*: a coleção deixou de ser uma lista não ordenada de registros
+  comparáveis e virou uma tabela semântica escaneável, com urgência e situação distinguidas em
+  vez de fundidas num único token entre colchetes; verificado sob 140 registros reais, não sob
+  cinco bonitos.
+- *Mais profissional*: uma direção visual escolhida por critérios explícitos e comparada contra
+  um challenger, não uma paleta arbitrária.
+- *Mais acessível*: contraste, foco, target size, reflow, reduced motion e forced colors agora
+  são **asserções que rodam no CI**, e duas falhas reais (contraste 4,48:1 e um alvo de 19px)
+  foram encontradas e corrigidas por elas.
+- *Mais confiável*: o tom de um status não pode ser escolhido pelo call site; nenhum mapeamento
+  de domínio emite `success`; `UNKNOWN_OUTCOME` nunca parece falha; o conflito OCC tem padrão e
+  recuperação próprios.
+- *Sem cristalizar hipóteses*: 15 adiamentos registrados como hipóteses, nenhum apresentado
+  como fato; a direção inteira vive na camada semântica de tokens, então mudar accent,
+  densidade de linha, raio ou rótulo é editar tokens/mapeamentos, não desmontar componentes.
+
+### Convergência Claude↔Codex
+
+| Rodada | Quem | Nota | Resultado |
+|---|---|---|---|
+| A | Claude (autoavaliação após rodar no navegador) | 9,1 | 7 achados próprios corrigidos |
+| B | Codex (adversarial independente, código real) | **8,63** | 5 achados reais, 2 S2 → reabre |
+| C | Claude (reconciliação) | — | 5 aceitos, 0 rejeitados, 3 testes de regressão |
+| D | Codex (verificação fresca sobre o corrigido) | **8,54** | 4 achados, 2 S2, incluindo um defeito introduzido pela própria correção → reabre |
+| E | Claude (reconciliação) | — | 4 aceitos, 0 rejeitados; a suíte de acessibilidade executável nasce aqui |
+| F | Codex (verificação final) | `PENDING_ROUND_F` | `PENDING_ROUND_F_RESULT` |
+| F | Claude (autoavaliação final) | `PENDING_CLAUDE_F` | — |
+
+Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
+
+### Status
+
+```text
+APPROVED AS VISUAL LANGUAGE + DESIGN SYSTEM FOUNDATION
+— PROVISIONAL PENDING USER VALIDATION
+```
+
+Este status **não** é, e não deve ser lido como: `FINAL DESIGN SYSTEM`, `USER-VALIDATED`,
+`FINAL HIGH-FIDELITY UI`, `VISUAL DESIGN COMPLETE` ou `FINAL INFORMATION HIERARCHY`. As 15
+decisões da §35 continuam abertas, e a etapa natural seguinte continua sendo **User
+Validation** — não a expansão de alta fidelidade para as outras 12 superfícies.

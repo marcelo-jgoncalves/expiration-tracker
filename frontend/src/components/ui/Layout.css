@@ -83,9 +83,10 @@
   padding: var(--space-5) var(--space-6);
 }
 
-/* Segmented filter control. Real <button>s, driven by aria-current — never a <div> role
-   soup, and never an ARIA tablist (these change a URL query param, they are not tabs
-   controlling adjacent tabpanels). */
+/* Segmented filter control. Real <button>s, driven by aria-pressed — never a <div> role soup,
+   never aria-current (these are not pages; they select which subset of the same collection is
+   shown), and never an ARIA tablist (which would promise a tabpanel and a keyboard model that
+   do not exist here). */
 .ui-filter {
   display: inline-flex;
   gap: var(--space-2);

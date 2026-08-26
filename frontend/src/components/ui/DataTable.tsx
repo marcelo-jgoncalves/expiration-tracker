@@ -69,19 +69,24 @@ function Row<T>({ row, columns, rowKey }: { row: T; columns: DataTableColumn<T>[
  * media query because overflow depends on the CONTENT (a long licence name, a wide column
  * set), not only on the viewport width.
  *
- * `ResizeObserver` is absent in jsdom, where the component tests run; there is no layout
- * there to overflow either, so falling back to `false` is the honest answer rather than a
- * polyfill that would fabricate measurements.
+ * The initial measurement runs unconditionally, BEFORE any `ResizeObserver` check (Codex
+ * Round D, D-01): bailing out early where the API is missing would leave a genuinely
+ * overflowing table permanently unreachable by keyboard, which is the exact failure the
+ * conditional focusability was introduced to avoid. Without `ResizeObserver` the value simply
+ * stops tracking later resizes - degraded, not broken. In jsdom there is no layout, so the
+ * measurement honestly reports `false` rather than fabricating one.
  */
-function useIsOverflowing(ref: React.RefObject<HTMLElement>): boolean {
+function useIsOverflowing(ref: React.RefObject<HTMLElement>, deps: unknown[]): boolean {
   const [overflowing, setOverflowing] = useState(false);
 
   useEffect(() => {
     const element = ref.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+    if (!element) return;
 
     const measure = () => setOverflowing(element.scrollWidth > element.clientWidth + 1);
     measure();
+
+    if (typeof ResizeObserver === "undefined") return;
 
     const observer = new ResizeObserver(measure);
     observer.observe(element);
@@ -90,7 +95,10 @@ function useIsOverflowing(ref: React.RefObject<HTMLElement>): boolean {
     const table = element.firstElementChild;
     if (table) observer.observe(table);
     return () => observer.disconnect();
-  }, [ref]);
+    // `deps` re-measures when the rendered content changes, which matters in the
+    // no-ResizeObserver path where nothing else would.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, ...deps]);
 
   return overflowing;
 }
@@ -123,7 +131,15 @@ export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTab
       ];
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isScrollable = useIsOverflowing(scrollRef);
+  const isScrollable = useIsOverflowing(scrollRef, [columns, rows, groups]);
+  /**
+   * Keeps the wrapper exposed while it actually holds focus (Codex Round D, D-01). Without
+   * this, a viewport change that removes the overflow would strip `role` and `aria-label`
+   * from the element the user is standing on, leaving focus on an anonymous div. The stop
+   * disappears on the next blur instead - never underneath the user.
+   */
+  const [isFocused, setIsFocused] = useState(false);
+  const isExposed = isScrollable || isFocused;
 
   return (
     // A scrollable region MUST be keyboard focusable to be operable (WCAG 2.1.1): Firefox and
@@ -136,9 +152,15 @@ export function DataTable<T>({ caption, columns, rows, groups, rowKey }: DataTab
     <div
       ref={scrollRef}
       className="ui-table-scroll"
-      tabIndex={isScrollable ? 0 : undefined}
-      role={isScrollable ? "region" : undefined}
-      aria-label={isScrollable ? caption : undefined}
+      tabIndex={isExposed ? 0 : undefined}
+      role={isExposed ? "region" : undefined}
+      aria-label={isExposed ? caption : undefined}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) setIsFocused(true);
+      }}
+      onBlur={(event) => {
+        if (event.target === event.currentTarget) setIsFocused(false);
+      }}
     >
       <table className="ui-table">
         <caption className="u-visually-hidden">{caption}</caption>

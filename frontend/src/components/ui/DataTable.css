@@ -7,7 +7,9 @@
 .ui-table-scroll {
   /* Explicit, controlled horizontal scroll (mission §84) rather than letting the browser
      decide by accident. Only reachable in the desktop layout; the narrow layout stacks
-     instead. `tabindex` is set by the component so a keyboard user can actually scroll it. */
+     instead. The component adds `tabindex`/`role`/`aria-label` only while the wrapper can
+     actually scroll (or while it holds focus), so a keyboard user can reach clipped columns
+     without collecting an empty tab stop everywhere else. */
   overflow-x: auto;
 }
 
@@ -52,7 +54,7 @@
   background: var(--color-surface-hover);
 }
 
-/* Group header row (Vencidos / Vence em breve / Demais ativos). A real <th scope="colgroup">
+/* Group header row (Vencidos / Vence em breve / Demais ativos). A real <th scope="rowgroup">
    inside its own <tbody>, so the grouping is in the table's semantics, not just its pixels. */
 .ui-table__group-header th {
   text-align: left;
