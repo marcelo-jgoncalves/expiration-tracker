@@ -11,7 +11,7 @@
  * never reached the backend or already succeeded.
  */
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useCreateItem } from "../../hooks/useCreateItem.js";
 import { useFormDraft } from "../../hooks/useFormDraft.js";
 import { ApiError, isUnknownOutcome } from "../../api/errors.js";
@@ -24,9 +24,38 @@ import {
   type CreateItemDraft,
 } from "../../api/validation.js";
 import { TextField } from "../../components/forms/TextField.js";
-import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
+import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
+import { PageHeader } from "../../components/ui/Layout.js";
+import { Button, ButtonLink } from "../../components/ui/Button.js";
 
 const DRAFT_STORAGE_KEY = "expiration-tracker:create-item:draft";
+
+/** Stable control ids so the ErrorSummary can link straight to the offending field
+ * (mission §40), plus the human label the summary quotes. Keyed by the same field name the
+ * validator reports, so a new validation error can never end up unlinkable by accident. */
+const FIELD_LABELS: Record<string, string> = {
+  name: "Nome",
+  category: "Categoria",
+  dueDate: "Data de vencimento",
+  description: "Descrição",
+  issuer: "Emissor",
+  number: "Número",
+  periodicity: "Periodicidade",
+  issueDate: "Data de emissão",
+  assigneeUserId: "Responsável",
+  priority: "Prioridade",
+  tags: "Tags",
+};
+
+function fieldId(field: string): string {
+  return `create-item-${field}`;
+}
+
+function toSummaryFieldErrors(fieldErrors: Record<string, string>): SummaryFieldError[] {
+  return Object.entries(fieldErrors)
+    .filter(([field]) => FIELD_LABELS[field] !== undefined)
+    .map(([field, message]) => ({ fieldId: fieldId(field), label: FIELD_LABELS[field] as string, message }));
+}
 
 export function CreateItem() {
   const navigate = useNavigate();
@@ -76,11 +105,16 @@ export function CreateItem() {
 
   return (
     <div>
-      <h1>Novo vencimento</h1>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <FormErrorSummary errors={generalErrors} />
-        <TextField label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
+      <PageHeader
+        above={<Link to="/items">← Voltar para Vencimentos</Link>}
+        title="Novo vencimento"
+        description="Só nome, categoria e data de vencimento são obrigatórios. O resto pode ser preenchido depois."
+      />
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <FormErrorSummary errors={generalErrors} fieldErrors={toSummaryFieldErrors(fieldErrors)} />
+        <TextField id={fieldId("name")} label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
         <TextField
+          id={fieldId("category")}
           label="Categoria"
           value={draft.category}
           onChange={(value) => setField("category", value)}
@@ -89,6 +123,7 @@ export function CreateItem() {
           maxLength={100}
         />
         <TextField
+          id={fieldId("dueDate")}
           label="Data de vencimento"
           type="date"
           value={draft.dueDate}
@@ -97,41 +132,50 @@ export function CreateItem() {
           required
         />
         <TextField
-          label="Descrição (opcional)"
+          id={fieldId("description")}
+          label="Descrição"
           value={draft.description}
           onChange={(value) => setField("description", value)}
           error={fieldErrors["description"]}
           maxLength={2000}
           multiline
         />
-        <TextField label="Emissor (opcional)" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
-        <TextField label="Número (opcional)" value={draft.number} onChange={(value) => setField("number", value)} error={fieldErrors["number"]} maxLength={100} />
+        <TextField id={fieldId("issuer")} label="Emissor" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
+        <TextField id={fieldId("number")} label="Número" value={draft.number} onChange={(value) => setField("number", value)} error={fieldErrors["number"]} maxLength={100} />
         <TextField
-          label="Periodicidade (opcional)"
+          id={fieldId("periodicity")}
+          label="Periodicidade"
           value={draft.periodicity}
           onChange={(value) => setField("periodicity", value)}
           error={fieldErrors["periodicity"]}
           maxLength={50}
         />
-        <TextField label="Data de emissão (opcional)" type="date" value={draft.issueDate} onChange={(value) => setField("issueDate", value)} error={fieldErrors["issueDate"]} />
+        <TextField id={fieldId("issueDate")} label="Data de emissão" type="date" value={draft.issueDate} onChange={(value) => setField("issueDate", value)} error={fieldErrors["issueDate"]} />
         <TextField
-          label="Responsável (opcional)"
+          id={fieldId("assigneeUserId")}
+          label="Responsável"
           value={draft.assigneeUserId}
           onChange={(value) => setField("assigneeUserId", value)}
           error={fieldErrors["assigneeUserId"]}
           maxLength={100}
         />
-        <TextField label="Prioridade (opcional)" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />
+        <TextField id={fieldId("priority")} label="Prioridade" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />
         <TextField
-          label="Tags (separadas por vírgula, opcional)"
+          id={fieldId("tags")}
+          label="Tags"
           value={draft.tags}
           onChange={(value) => setField("tags", value)}
           error={fieldErrors["tags"]}
-          hint="Ex.: financeiro, contrato"
+          hint="Separadas por vírgula. Ex.: financeiro, contrato"
         />
-        <button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? "Criando…" : "Criar vencimento"}
-        </button>
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Criando…" : "Criar vencimento"}
+          </Button>
+          <ButtonLink to="/items" variant="tertiary">
+            Cancelar
+          </ButtonLink>
+        </div>
       </form>
     </div>
   );

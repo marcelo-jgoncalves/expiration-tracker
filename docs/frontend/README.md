@@ -2,8 +2,8 @@
 
 ```text
 Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation → Validation Readiness + Product Focus Hardening → User Validation (próxima, não iniciada)
-Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; nenhuma identidade visual final ainda
-Last verified:   2026-08-24 (planejamento) / 2026-08-24 (Core Expiration Vertical Slice)
+Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; Visual Language + Design System Foundation implementado e APPROVED (PROVISIONAL, pendente User Validation) — o frontend já NÃO é mais grayscale/provisório, mas a identidade visual continua explicitamente reversível
+Last verified:   2026-08-24 (planejamento) / 2026-08-26 (Visual Language + Design System Foundation)
 ```
 
 Ver `docs/architecture/README.md` para o mapa de arquitetura de sistema (este índice cobre só o
@@ -18,6 +18,30 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 ## Core Expiration Vertical Slice (primeiro vertical slice real do anchor Vencimentos)
 
 `docs/frontend/core-expiration-vertical-slice.md` — primeiro fluxo real e completo de Vencimentos (Expiration Collection, Expiration Detail, Create Expiration, Renew Expiration) sobre a Frontend Production Foundation, sem expandir para Documents/Reminders/External Collection. `APPROVED AS CORE EXPIRATION PRODUCTION VERTICAL SLICE` via protocolo Claude↔Codex (Round B adversarial achou 4 bugs reais — 1 S1: corrida TOCTOU na reaquisição de um registro de idempotência `ABORTED`; 3 S2: `abort()` podendo disparar depois de um commit bem-sucedido, hash de renovação ambíguo quando `cycle` é enviado independente de `newDueDate`, e um bug de fuso horário na formatação de data da Overview — todos corrigidos na Rodada C e reverificados sem achados novos na Rodada D). Durante a implementação também corrigiu um bug real pré-existente de liveness de idempotência (lock nunca liberado em falha de `renewItem`/`createItem`). 96 testes unitário/componente de frontend + 12 E2E Playwright (era 42+6 na fundação), 621 testes de backend.
+
+## Visual Language + Design System Foundation (primeira linguagem visual real)
+
+`docs/frontend/visual-language-and-design-system.md` — substitui o `foundation.css`
+deliberadamente provisório (71 linhas, 4 tokens, escala de cinza) por uma arquitetura de tokens
+em duas camadas (primitivos → aliases semânticos), ~9 primitives acessíveis
+(`frontend/src/components/ui/`), e a aplicação da direção **Operational Calm** às cinco
+superfícies do Core Expiration slice. `APPROVED AS VISUAL LANGUAGE + DESIGN SYSTEM FOUNDATION
+— PROVISIONAL PENDING USER VALIDATION`.
+
+Nenhuma dependência nova (nenhum framework de UI, nenhum Storybook, nenhuma biblioteca de
+ícones); JS de bundle inalterado. A mudança estrutural única é a Expiration Collection ter
+deixado de ser `<ul>/<li>` e virado uma `<table>` semântica com urgência e situação em colunas
+separadas — mesmos dados, ordenação, agrupamento, filtro e rotas. Densidade real (140 itens,
+nomes longos e quase-idênticos) verificada contra o código real do frontend pela primeira vez,
+com asserção automatizada em `frontend/e2e/expiration-density.spec.ts`; 10 baselines de
+regressão visual determinísticas em `frontend/e2e/visual-regression.spec.ts` (projeto Playwright
+`visual`, local — ver §31 do documento para a limitação de plataforma e o caminho de adoção em
+CI). Protocolo Claude↔Codex completo: a Rodada B adversarial achou 5 achados reais, 2 deles S2
+(um botão de mutação que continuava clicável durante o submit porque `disabled ?? pending`
+curto-circuitava num `false` explícito, e cabeçalhos de grupo de tabela com `scope="colgroup"`
+onde encabeçavam linhas) — todos corrigidos com teste de regressão e reverificados na Rodada D.
+Registro de decisões, contrastes medidos, resultados dos gates `VL-G1..VL-G17` e o registro de
+adiamentos para User Validation estão no próprio documento.
 
 ## Índice por documento
 

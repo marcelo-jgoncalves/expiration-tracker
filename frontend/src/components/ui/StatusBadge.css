@@ -1,0 +1,89 @@
+/* StatusBadge — a compact, NON-interactive attribute (mission §31). It must never look like
+   a button: no hover, no pointer, no shadow, and a pill radius that reads as a label.
+   Every badge carries three cues — text label, a shape marker, and color — so removing color
+   entirely still leaves the status readable (mission §11/§98). */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: var(--border-width-thin) solid;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-default);
+  /* Sentence case (mission §18) — deliberately NOT text-transform: uppercase. */
+  text-transform: none;
+  white-space: nowrap;
+}
+
+/* Shape marker. Distinct per tone so the shape alone is discriminating, not merely present:
+   a filled dot is neutral/steady, a ring is informational, a triangle warns, a square-ish
+   block is critical. Decorative for AT (the text label already carries the meaning). */
+.ui-badge__marker {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.ui-badge--info .ui-badge__marker {
+  background: transparent;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.ui-badge--warning .ui-badge__marker {
+  width: 0;
+  height: 0;
+  background: transparent;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid currentColor;
+  border-radius: 0;
+}
+
+.ui-badge--critical .ui-badge__marker {
+  border-radius: 1px;
+}
+
+.ui-badge--neutral {
+  color: var(--color-status-neutral-fg);
+  background: var(--color-status-neutral-bg);
+  border-color: var(--color-status-neutral-border);
+}
+.ui-badge--info {
+  color: var(--color-status-info-fg);
+  background: var(--color-status-info-bg);
+  border-color: var(--color-status-info-border);
+}
+.ui-badge--success {
+  color: var(--color-status-success-fg);
+  background: var(--color-status-success-bg);
+  border-color: var(--color-status-success-border);
+}
+.ui-badge--warning {
+  color: var(--color-status-warning-fg);
+  background: var(--color-status-warning-bg);
+  border-color: var(--color-status-warning-border);
+}
+.ui-badge--critical {
+  color: var(--color-status-critical-fg);
+  background: var(--color-status-critical-bg);
+  border-color: var(--color-status-critical-border);
+}
+
+/* Long pt-BR status labels ("Verificado (segurança) — conteúdo não conferido") must wrap
+   rather than blow out a table column. */
+.ui-badge--wrap {
+  white-space: normal;
+}
+
+@media (forced-colors: active) {
+  .ui-badge {
+    border-color: CanvasText;
+  }
+}

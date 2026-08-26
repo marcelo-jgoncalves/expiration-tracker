@@ -1,0 +1,122 @@
+/* Forms (mission §38-§40). GOV.UK's operational-form discipline is the method: a visible
+   label above every control, an optional hint, an inline error that is impossible to miss,
+   and an error summary at the top of the form that links into the fields. */
+
+.ui-form {
+  max-width: var(--layout-reading-max);
+}
+
+.ui-field {
+  margin-bottom: var(--space-6);
+}
+
+.ui-field__label {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-300);
+  margin-bottom: var(--space-3);
+  color: var(--color-text-primary);
+}
+
+/* Required/optional is stated in words, not with a bare asterisk whose meaning has to be
+   learned from a legend somewhere else on the page (mission §38). */
+.ui-field__requirement {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-200);
+}
+
+.ui-field__hint {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+}
+
+.ui-field__control {
+  font: inherit;
+  font-size: var(--font-size-300);
+  width: 100%;
+  min-height: var(--control-height-lg);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-primary);
+  background: var(--color-surface-default);
+  border: var(--border-width-thin) solid var(--color-border-interactive);
+  border-radius: var(--radius-md);
+}
+
+textarea.ui-field__control {
+  min-height: 6rem;
+  resize: vertical;
+  line-height: var(--line-height-default);
+}
+
+.ui-field__control::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.ui-field__control:hover {
+  border-color: var(--color-border-strong);
+}
+
+.ui-field__control:disabled {
+  background: var(--color-surface-disabled);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Error is signalled three ways at once: a thicker red border, a red left rule on the whole
+   field, and the message itself — never colour alone (mission §11). */
+.ui-field--invalid {
+  border-left: 3px solid var(--color-border-danger);
+  padding-left: var(--space-4);
+}
+
+.ui-field--invalid .ui-field__control {
+  border-color: var(--color-border-danger);
+  border-width: var(--border-width-thick);
+}
+
+.ui-field__error {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-danger);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-300);
+}
+
+/* Error summary (mission §40). Links jump to the offending control; the summary's wording and
+   the field's own wording are the same string, so they can never drift apart. */
+.ui-error-summary {
+  border: var(--border-width-thick) solid var(--color-border-danger);
+  background: var(--color-status-critical-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.ui-error-summary__title {
+  margin: 0 0 var(--space-3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.ui-error-summary__list {
+  margin: 0;
+  padding-left: var(--space-6);
+}
+
+.ui-error-summary__list li + li {
+  margin-top: var(--space-2);
+}
+
+.ui-error-summary a {
+  color: var(--color-text-danger);
+  font-weight: var(--font-weight-medium);
+}
+
+.ui-form__actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--space-7);
+}

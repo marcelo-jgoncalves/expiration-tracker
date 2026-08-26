@@ -68,9 +68,9 @@ test("E2E-02: create expiration -> success -> item visible", async ({ page }) =>
   await page.route("**/bff/api/items/new-item", (route) => route.fulfill({ json: { item: activeItem({ itemId: "new-item", name: "Novo Alvará" }) } }));
 
   await page.goto("/items/new");
-  await page.getByLabel("Nome *").fill("Novo Alvará");
-  await page.getByLabel("Categoria *").fill("Licenças");
-  await page.getByLabel("Data de vencimento *").fill("2026-10-15");
+  await page.getByLabel(/^Nome/).fill("Novo Alvará");
+  await page.getByLabel(/^Categoria/).fill("Licenças");
+  await page.getByLabel(/^Data de vencimento/).fill("2026-10-15");
   await page.getByRole("button", { name: "Criar vencimento" }).click();
 
   await expect(page).toHaveURL(/\/items\/new-item$/);
@@ -95,20 +95,24 @@ test("E2E-03: create validation error -> correct -> success", async ({ page }) =
   await page.route("**/bff/api/items/new-item", (route) => route.fulfill({ json: { item: activeItem({ itemId: "new-item" }) } }));
 
   await page.goto("/items/new");
-  await page.getByLabel("Nome *").fill("Contrato");
-  await page.getByLabel("Data de vencimento *").fill("2026-10-15");
+  await page.getByLabel(/^Nome/).fill("Contrato");
+  await page.getByLabel(/^Data de vencimento/).fill("2026-10-15");
   // Categoria deliberately left blank to trigger client-side validation first...
   await page.getByRole("button", { name: "Criar vencimento" }).click();
-  await expect(page.getByText("Informe uma categoria.")).toBeVisible();
+  // The message now appears twice on purpose: once next to the field, once as a link in the
+  // ErrorSummary at the top of the form (mission §40). Both must be the SAME string, which is
+  // exactly what this pair of assertions pins down.
+  await expect(page.locator("p.ui-field__error", { hasText: "Informe uma categoria." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Categoria: Informe uma categoria." })).toHaveAttribute("href", "#create-item-category");
   expect(callCount).toBe(0); // client-side validation blocked the request entirely
 
   // ...then filled in, simulating a value the client accepts but the backend still rejects.
-  await page.getByLabel("Categoria *").fill("x");
+  await page.getByLabel(/^Categoria/).fill("x");
   await page.getByRole("button", { name: "Criar vencimento" }).click();
-  await expect(page.getByText("must NOT have fewer than 1 characters")).toBeVisible();
-  await expect(page.getByLabel("Nome *")).toHaveValue("Contrato"); // preserved across the error
+  await expect(page.locator("p.ui-field__error", { hasText: "must NOT have fewer than 1 characters" })).toBeVisible();
+  await expect(page.getByLabel(/^Nome/)).toHaveValue("Contrato"); // preserved across the error
 
-  await page.getByLabel("Categoria *").fill("Contratos");
+  await page.getByLabel(/^Categoria/).fill("Contratos");
   await page.getByRole("button", { name: "Criar vencimento" }).click();
   await expect(page).toHaveURL(/\/items\/new-item$/);
   expect(callCount).toBe(2);
@@ -121,7 +125,7 @@ test("E2E-04: renew -> new cycle visible", async ({ page }) => {
 
   await page.goto("/items/item-1/renew");
   await expect(page.getByText(/não é o mesmo que editar a data/)).toBeVisible();
-  await page.getByLabel("Nova data de vencimento *").fill("2027-09-01");
+  await page.getByLabel(/^Nova data de vencimento/).fill("2027-09-01");
   await page.getByRole("button", { name: "Confirmar renovação" }).click();
 
   await expect(page).toHaveURL(/\/items\/item-2$/);
@@ -145,10 +149,10 @@ test("E2E-05: OCC conflict -> recovery", async ({ page }) => {
   await page.route("**/bff/api/items/item-2", (route) => route.fulfill({ json: { item: activeItem({ itemId: "item-2" }) } }));
 
   await page.goto("/items/item-1/renew");
-  await page.getByLabel("Nova data de vencimento *").fill("2027-09-01");
+  await page.getByLabel(/^Nova data de vencimento/).fill("2027-09-01");
   await page.getByRole("button", { name: "Confirmar renovação" }).click();
 
-  await expect(page.getByText("Este vencimento mudou desde que você o abriu. Recarregue para ver o estado atual antes de renovar novamente.")).toBeVisible();
+  await expect(page.getByText("Este vencimento mudou desde que você o abriu")).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirmar renovação" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Recarregar" }).click();
@@ -176,9 +180,9 @@ test("E2E-06: session interruption during create -> reauthentication -> draft an
   await page.route("**/bff/api/items/new-item", (route) => route.fulfill({ json: { item: activeItem({ itemId: "new-item" }) } }));
 
   await page.goto("/items/new");
-  await page.getByLabel("Nome *").fill("Alvará resiliente");
-  await page.getByLabel("Categoria *").fill("Licenças");
-  await page.getByLabel("Data de vencimento *").fill("2026-11-01");
+  await page.getByLabel(/^Nome/).fill("Alvará resiliente");
+  await page.getByLabel(/^Categoria/).fill("Licenças");
+  await page.getByLabel(/^Data de vencimento/).fill("2026-11-01");
 
   const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
   await page.getByRole("button", { name: "Criar vencimento" }).click();
@@ -189,8 +193,8 @@ test("E2E-06: session interruption during create -> reauthentication -> draft an
   // (draft + idempotency key) survives this real in-page navigation, same tab, same origin.
   await page.goto("/items/new");
 
-  await expect(page.getByLabel("Nome *")).toHaveValue("Alvará resiliente");
-  await expect(page.getByLabel("Categoria *")).toHaveValue("Licenças");
+  await expect(page.getByLabel(/^Nome/)).toHaveValue("Alvará resiliente");
+  await expect(page.getByLabel(/^Categoria/)).toHaveValue("Licenças");
 
   await page.getByRole("button", { name: "Criar vencimento" }).click();
   await expect(page).toHaveURL(/\/items\/new-item$/);
