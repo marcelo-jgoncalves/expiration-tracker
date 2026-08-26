@@ -459,9 +459,9 @@ de superafirmação que este documento já corrigiu três vezes).
 | Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado, em 3 superfícies | `A11Y-contrast` |
 | Target size (2.5.8) | Todos os controles ≥ 24px em ambas as dimensões | `A11Y-focus` |
 | Labels/erros de form | Zero controles sem `<label for>`; `aria-invalid` + `aria-describedby` apontando para a mensagem; link do summary com a MESMA string, apontando para o campo | `A11Y-forms` |
-| Headings/landmarks | `<nav aria-label>`, `<main id="surface-content" tabIndex={-1}>`, `<h1>` por página, `<section aria-labelledby>` | **Não asserido por `accessibility.spec.ts`.** Sustentado por `eslint-plugin-jsx-a11y` no lint bloqueante e pelas suítes de rota, que consultam por `role`/nome acessível — se um landmark ou heading sumir, elas quebram |
-| Estado sem depender de cor (1.4.1) | Badge = rótulo + forma + cor; campo inválido = borda + régua + mensagem; nav atual = tinta + peso + barra | `A11Y-forced-colors` (o rótulo sobrevive à substituição das cores) + `ui.test.tsx` (marcador presente e `aria-hidden`) — não uma linha da suíte de acessibilidade, duas provas em lugares diferentes |
-| Links vs botões | `Button` (`<button>`) para mutação, `ButtonLink` (`<Link>`) para navegação; nenhum `<div>` estilizado | **Não asserido em runtime.** Garantido pelo contrato dos primitives (são dois componentes distintos, não uma prop) e por `jsx-a11y/no-static-element-interactions` no lint |
+| Headings/landmarks | `<nav aria-label>`, `<main id="surface-content" tabIndex={-1}>`, `<h1>` por página, `<section aria-labelledby>` | **Parcialmente asserido.** As suítes de rota consultam headings específicos por role e nome (ex.: `ItemDetail.test.tsx`) e quebram se aquele heading sumir. Os **landmarks** `<nav>`/`<main>` e a regra "um `<h1>` por página" **não têm asserção** — são estruturais, verificados por inspeção. `jsx-a11y` no lint bloqueante impede ARIA incorreta, mas não exige que os landmarks existam |
+| Estado sem depender de cor (1.4.1) | Badge = rótulo + forma + cor; campo inválido = mensagem + `aria-invalid`/`aria-describedby`, mais borda e régua; nav atual = tinta + peso + barra | **Badge:** `A11Y-forced-colors` (rótulo e borda sobrevivem à substituição das cores) + `ui.test.tsx` (marcador presente e `aria-hidden`). **Campo inválido:** a pista não cromática — a mensagem e sua associação — é afirmada por `A11Y-forms`; a borda e a régua são CSS declarado, cobertas pela baseline `VR-07`, não por asserção. **Nav atual:** `aria-current="page"` é o sinal autoritativo para AT; peso e barra são CSS declarado, cobertos pelas baselines, **não asseridos** |
+| Links vs botões | `Button` (`<button>`) para mutação, `ButtonLink` (`<Link>`) para navegação; nenhum `<div>` estilizado | `ui.test.tsx` afirma que `ButtonLink` produz um `link` e **nenhum** `button`. A ausência universal de `<div>` como controle não é asserível — é sustentada pelo contrato dos primitives (dois componentes, não uma prop) e pelo `jsx-a11y` |
 | Zoom 200% / reflow (1.4.10) | Sem scroll horizontal a 640px com 60 itens | `DENSITY-03` |
 | Reduced motion | Animação e transição caem a `0.001s` sob `prefers-reduced-motion` | `A11Y-reduced-motion` |
 | Forced colors | O rótulo do status sobrevive e a borda do badge é forçada a uma cor de sistema em vez de sumir | `A11Y-forced-colors` |
@@ -597,7 +597,7 @@ alterado (isso seria Type 1). Este addendum mapeia os critérios visuais aos 12 
 |---|---|---|
 | **VL-G1** Epistemic Integrity | **PASS** | Tom vem do mapeamento de domínio, não do call site; `success` sem emissor; `UNKNOWN_OUTCOME` = warning; aviso de lembretes copiados é warning, não success |
 | **VL-G2** Contrast | **PASS** | `A11Y-contrast` em 3 superfícies, no CI: 0 falhas medindo cor computada de todo elemento renderizado; 1 achado real corrigido (4,48:1) |
-| **VL-G3** Color Independence | **PASS** | Badge: rótulo + forma + cor; campo inválido: borda + régua + mensagem; nav atual: tinta + peso + barra. Afirmado por `A11Y-forced-colors` e por `ui.test.tsx` (marcador presente e `aria-hidden`) |
+| **VL-G3** Color Independence | **PASS**, com o alcance de cada prova nomeado | **Asserido:** o badge — o carregador de status — mantém rótulo e borda sob forced-colors (`A11Y-forced-colors`) e traz marcador de forma com `aria-hidden` (`ui.test.tsx`); o campo inválido carrega mensagem textual associada por `aria-invalid`/`aria-describedby` (`A11Y-forms`). **Declarado em CSS e coberto por baseline visual, não por asserção:** a borda/régua do campo e o peso/barra da navegação atual (§28). Nenhum estado do sistema depende *só* de cor, e para o badge e o campo isso é executável |
 | **VL-G4** Focus | **PASS** | `A11Y-focus` (anel ≥2px em toda parada) + `A11Y-focus-not-obscured` (zero elementos sticky/fixed) + baseline visual dedicada |
 | **VL-G5** Core Task Hierarchy | **PASS** | Uma ação primária por superfície; identificador é a coluna mais larga; urgência tem coluna própria; nenhuma decoração acima de informação crítica |
 | **VL-G6** Density | **PASS** | 140 itens, nomes longos e quase-idênticos, 3 grupos; asserção automatizada + baseline visual |
@@ -610,7 +610,7 @@ alterado (isso seria Type 1). Este addendum mapeia os critérios visuais aos 12 
 | **VL-G13** Dependency Proportionality | **PASS** | Zero dependências novas |
 | **VL-G14** Premature UX Redesign | **PASS** | Nenhuma journey/IA reaberta. As duas mudanças estruturais (§36) são correções de primitive e de rótulo ambíguo, ambas justificadas e registradas |
 | **VL-G15** Accessibility Semantics | **PASS** | Nenhum widget customizado; `<table>` real em vez de `<ul>`; nenhum ARIA onde o nativo bastava |
-| **VL-G16** Documentation Truth | **PASS** | Status provisório em todo lugar; ausência de teste com leitor de tela declarada; limitação de CI das baselines declarada; as incoerências entre documento e código que o Codex achou na Rodada D (D-02) corrigidas |
+| **VL-G16** Documentation Truth | **PASS**, depois de quatro correções sucessivas | Status provisório em todo lugar; ausência de teste com leitor de tela declarada; limitação de CI das baselines declarada; as incoerências entre documento e código que o Codex achou nas Rodadas D, J, K e L (D-02, J-01, K-01, L-01) corrigidas. Este gate foi o que mais reabriu rodadas, e é o motivo: a classe de defeito recorrente deste milestone não foi código errado, foi **documento afirmando prova mais ampla que a evidência nomeada** |
 | **VL-G17** Reference Alignment | **PASS**, com a distinção entre objetivo e subjetivo que o Codex pediu | **Objetivo e verificado**: densidade moderada preservada sob 140 registros com nomes longos (`DENSITY-01`); ruído visual baixo (sem zebra, sem caixa-alta, 2 níveis de sombra dos quais 1 em uso, um único accent); hierarquia por superfície/borda/espaço; nada copiado da referência (paleta, logotipo, ícones, componentes e estrutura de tela são próprios). **Subjetivo e explicitamente não validado**: "clareza", "leveza" e "aparência de SaaS profissional" são julgamento especializado — registrados como D-14/D-15 |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
@@ -863,7 +863,7 @@ controles de mídia, `summary`, `inert` nem `fieldset` desabilitado em lugar nen
 atuais de `aria-hidden` não contêm controles. Quem introduzir o primeiro deles precisa
 estender o seletor junto.
 
-Observação honesta sobre esta rodada: as sete reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97) não
+Observação honesta sobre esta rodada: as oito reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82 · 8,96 · 8,97 · 8,89) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -896,23 +896,39 @@ artificial).
 > confiável e eficiente para trabalho operacional, usando componentes e tokens reutilizáveis,
 > sem cristalizar prematuramente hipóteses de UX que ainda precisam de User Validation?*
 
-**Sim**, e cada metade da pergunta tem lastro separado:
+**Sim — e a palavra "sim" precisa da qualificação que o Codex exigiu na Rodada L (L-02),
+porque metade dos adjetivos da pergunta é estrutural e a outra metade é perceptual.**
 
-- *Mais claro e eficiente*: a coleção deixou de ser uma lista não ordenada de registros
-  comparáveis e virou uma tabela semântica escaneável, com urgência e situação distinguidas em
-  vez de fundidas num único token entre colchetes; verificado sob 140 registros reais, não sob
-  cinco bonitos.
-- *Mais profissional*: uma direção visual escolhida por critérios explícitos e comparada contra
-  um challenger, não uma paleta arbitrária.
-- *Mais acessível*: contraste, foco, target size, reflow, reduced motion e forced colors agora
-  são **asserções que rodam no CI**, e duas falhas reais (contraste 4,48:1 e um alvo de 19px)
-  foram encontradas e corrigidas por elas.
-- *Mais confiável*: o tom de um status não pode ser escolhido pelo call site; nenhum mapeamento
-  de domínio emite `success`; `UNKNOWN_OUTCOME` nunca parece falha; o conflito OCC tem padrão e
-  recuperação próprios.
+O que é **objetivamente verificado**, e portanto sustenta o "sim":
+
+- *Mais acessível*: contraste, foco, cobertura do percurso de teclado, target size, reflow,
+  reduced motion e forced colors são **asserções que rodam no CI**, e duas falhas reais
+  (contraste 4,48:1 e um alvo de 19px) foram encontradas e corrigidas por elas.
+- *Mais confiável, no sentido epistêmico*: o tom de um status não pode ser escolhido pelo call
+  site; nenhum mapeamento de domínio emite `success`; `UNKNOWN_OUTCOME` nunca parece falha; o
+  conflito OCC tem padrão e recuperação próprios. Isto é verificável no código, e é.
+- *Mais adequado ao trabalho operacional*: a coleção deixou de ser uma lista não ordenada de
+  registros comparáveis e virou uma tabela semântica, com urgência e situação distinguidas em
+  vez de fundidas num único token — sob 140 registros reais, não sob cinco bonitos.
+- *Reutilizável*: tokens semânticos em duas camadas, primitives tipados, zero hex fora de
+  `tokens.css`, zero dependência nova.
 - *Sem cristalizar hipóteses*: 15 adiamentos registrados como hipóteses, nenhum apresentado
-  como fato; a direção inteira vive na camada semântica de tokens, então mudar accent,
-  densidade de linha, raio ou rótulo é editar tokens/mapeamentos, não desmontar componentes.
+  como fato; a direção inteira vive na camada semântica, então mudar accent, densidade de
+  linha, raio ou rótulo é editar tokens/mapeamentos, não desmontar componentes.
+
+O que **não foi medido**, e onde "sim" é avaliação especializada e não evidência:
+
+- *Mais claro*, *mais profissional* e *mais eficiente* **como percebidos por quem opera o
+  produto**. Nenhuma sessão com usuário ocorreu. São exatamente as categorias que o §138 do
+  prompt proíbe afirmar como fato, e estão registradas como D-14/D-15 na §35. A resposta aqui é
+  do tipo que o próprio §138 autoriza — *design rationale* e *expert evaluation* — não
+  observação.
+- *Confiança do usuário*, distinta da integridade epistêmica do sistema. O sistema deixou de
+  poder afirmar mais do que sabe; se isso se converte em confiança de quem usa é uma pergunta
+  para o User Validation.
+
+É por isso que o status abaixo é **provisório**, e não uma formalidade: a metade estrutural da
+pergunta está fechada, a metade perceptual está explicitamente em aberto.
 
 ### Convergência Claude↔Codex
 
@@ -933,8 +949,10 @@ artificial).
 | K | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; frase da Rodada G marcada em linha, limite da heurística declarado |
 | K | Codex (verificação final) | **8,97** | J-01 `FIXED`; varredura no documento inteiro achou 1 superafirmação restante (K-01, S2) → reabre |
 | L | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; §28 passa a nomear a prova real de cada linha |
-| L | Codex (verificação final) | `PENDING_ROUND_L` | `PENDING_ROUND_L_RESULT` |
-| L | Claude (autoavaliação final) | `PENDING_CLAUDE_L` | — |
+| L | Codex (verificação final) | **8,89** | K-01 `PARCIAL`; 3 achados S2 (L-01/02/03), inclusive uma superafirmação **minha em favor próprio** e uma **subafirmação** | 
+| M | Claude (reconciliação) | — | 3 aceitos, 0 rejeitados; §28, `VL-G3`, `VL-G16` e a resposta ao §181 reescritas |
+| M | Codex (verificação final) | `PENDING_ROUND_M` | `PENDING_ROUND_M_RESULT` |
+| M | Claude (autoavaliação final) | `PENDING_CLAUDE_M` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
