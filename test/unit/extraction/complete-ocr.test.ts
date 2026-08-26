@@ -47,6 +47,9 @@ class FakeArtifactStore implements OcrArtifactStore {
     this.puts.push({ runId, blocksJson });
     return { bucket: "extraction-transient", key: `run/${runId}/textract.json` };
   }
+  async get(): Promise<string> {
+    throw new Error("not used by completeOcr");
+  }
 }
 
 class FakeEncryptor implements TaskTokenEncryptor {
@@ -85,6 +88,7 @@ function baseJob(overrides: Partial<TextractJob> = {}): TextractJob {
     documentId: "doc1",
     documentVersion: 3,
     runId: "run_x",
+    pipelineVersion: "2026-08-01",
     clientRequestToken: "abc",
     status: "STARTED",
     taskTokenCiphertext: "enc:token-abc",

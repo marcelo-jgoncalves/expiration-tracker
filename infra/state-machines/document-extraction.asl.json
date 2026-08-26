@@ -48,7 +48,7 @@
 
     "RunDeterministicParser": {
       "Type": "Task",
-      "Comment": "STUB - references PdfParserTaskHandler (item 5, not yet implemented). Runs a deterministic parser over the OCR artifact (when present) to produce candidate field values, per implementation-blueprint.md §12.5. A RunTextract failure above (ocrFailure present) still reaches this state and must run degraded (no OCR text, parser tries file-metadata-only heuristics or returns no candidates) - never skipped.",
+      "Comment": "PdfParserTaskHandler (item 5, D-035 SS1.3) - real Lambda now. Runs a deterministic parser over the OCR artifact (when present) to produce candidate field values, per implementation-blueprint.md SS12.5. A RunTextract failure above (ocrFailure present) still reaches this state and must run degraded (no OCR text, returns no candidates rather than a fabricated file-metadata heuristic - see NEXT_SESSION_PROMPT.md pending decision) - never skipped. No OutputPath/ResultSelector here (kept as the pre-existing stub had it) - the raw arn:aws:states:::lambda:invoke response wraps the handler's real return value under $.Payload, so NeedsBedrock/CheckAiKillSwitch below read $.Payload.needsBedrock/$.Payload.aiExtractionEnabled, not $.needsBedrock directly. Revisit with a proper ResultSelector once item 6/7's stub states are implemented for real and the whole downstream shape is redesigned together.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "pdf-parser-task:live",
@@ -70,7 +70,7 @@
       "Comment": "STUB - evaluates decide-bedrock.ts's needsBedrock() contract (design §1.10) over the deterministic candidates. Real condition to be wired once ExtractionValidationTaskHandler (item 7) produces the BedrockDecisionInput shape as Step Functions JSONPath.",
       "Choices": [
         {
-          "Variable": "$.needsBedrock",
+          "Variable": "$.Payload.needsBedrock",
           "BooleanEquals": true,
           "Next": "CheckAiKillSwitch"
         }
@@ -83,7 +83,7 @@
       "Comment": "STUB - AI_EXTRACTION kill switch gate before any paid Bedrock call, fail-closed per design §1.5.",
       "Choices": [
         {
-          "Variable": "$.aiExtractionEnabled",
+          "Variable": "$.Payload.aiExtractionEnabled",
           "BooleanEquals": true,
           "Next": "RunBedrock"
         }

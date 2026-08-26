@@ -20,6 +20,7 @@ import { SfnTaskTokenSender } from "../persistence/sfn-task-token-sender.js";
 import { AppConfigFeatureFlagsReader } from "../persistence/appconfig-feature-flags-reader.js";
 import type { StartOcrDeps } from "../application/start-ocr.js";
 import type { CompleteOcrDeps } from "../application/complete-ocr.js";
+import type { RunDeterministicParserDeps } from "../application/run-deterministic-parser.js";
 
 export interface TextractTaskWorkerConfig {
   tableName: string;
@@ -80,5 +81,37 @@ export function createRealTextractTaskWorkerClients() {
     kms: new KMSClient({}),
     appConfigData: new AppConfigDataClient({}),
     textract: new AwsTextractClient({}),
+  };
+}
+
+/** Composition root for `PdfParserTaskHandler` (M7 item 5, D-035 §1.3) - a much narrower
+ * dependency set than `TextractTaskHandler`'s: no DynamoDB, no Textract, no KMS, no Step
+ * Functions client (the ASL's `RunDeterministicParser` is a plain synchronous
+ * `lambda:invoke`, no task token at all). Only S3 (read the OCR artifact) and AppConfig (the
+ * `AI_EXTRACTION` kill switch). */
+export interface PdfParserTaskWorkerConfig {
+  extractionTransientBucket: string;
+  appConfig: { applicationId: string; environmentId: string; configurationProfileId: string };
+}
+
+export interface PdfParserTaskWorkerDeps {
+  runDeterministicParser: RunDeterministicParserDeps;
+}
+
+export function buildPdfParserTaskWorkerDeps(
+  clients: { s3: S3Client; appConfigData: AppConfigDataClient },
+  config: PdfParserTaskWorkerConfig,
+): PdfParserTaskWorkerDeps {
+  const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
+  const featureFlags = new AppConfigFeatureFlagsReader(clients.appConfigData, config.appConfig);
+
+  return {
+    runDeterministicParser: { artifacts, featureFlags },
+  };
+}
+
+export function createRealPdfParserTaskWorkerClients() {
+  return {
+    appConfigData: new AppConfigDataClient({}),
   };
 }

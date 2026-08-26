@@ -2,7 +2,7 @@
  * (`privacy-lgpd.md` §4). Deliberately has no delete method (matches the port) — the artifact is
  * only ever removed by `ExtractionValidationTaskHandler` (not yet implemented) or the bucket's
  * own 24h lifecycle safety net. */
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import type { OcrArtifactStore, ExtractionArtifactRef } from "../ports/ocr-artifact-store.js";
 
@@ -23,6 +23,14 @@ export class S3OcrArtifactStore implements OcrArtifactStore {
       }),
     );
     return { bucket: this.bucket, key };
+  }
+
+  async get(ref: ExtractionArtifactRef): Promise<string> {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: ref.bucket, Key: ref.key }));
+    if (!result.Body) {
+      throw new Error(`OCR artifact ${ref.bucket}/${ref.key} returned no body.`);
+    }
+    return result.Body.transformToString("utf-8");
   }
 }
 

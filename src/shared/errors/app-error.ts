@@ -182,6 +182,21 @@ export class TextractJobPersistenceFailedError extends AppError {
   }
 }
 
+/** `PdfParserTaskHandler`'s `RunDeterministicParser` state (M7 item 5, D-035 §1.3) failed to
+ * even attempt parsing (e.g. the OCR artifact was declared available but could not be read/
+ * parsed as valid Textract block JSON). This is the ONE failure the ASL routes straight to
+ * `MarkPendingConfirmation` without trying Bedrock (design §1.2) - the ASL's `Catch` for this
+ * state is the generic `States.ALL`, so this `code` does not need to match a specific
+ * `ErrorEquals` entry the way the Textract errors above do, but it still follows the same
+ * normalized-taxonomy discipline (never a bare `Error`/`throw`). Never thrown just because no
+ * candidate value was found - "no candidate" is a normal, successful parser outcome. */
+export class DeterministicParserFailedError extends AppError {
+  constructor(message = "Deterministic parser failed to process the OCR artifact.", details?: Record<string, unknown>) {
+    super({ code: "DeterministicParserFailed", category: "INTERNAL", message, retryable: false, details });
+    this.name = "DeterministicParserFailedError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {
