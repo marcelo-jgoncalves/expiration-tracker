@@ -125,6 +125,63 @@ export class InternalError extends AppError {
   }
 }
 
+/**
+ * M7 extraction/OCR taxonomy (`claude-reconciliation-final-design.md` §2 — the ASL's
+ * `RunTextract` Catch block). Each `code` string below is NOT decorative — it MUST literally
+ * match the corresponding `ErrorEquals` entry in `document-extraction.asl.json`, because
+ * `TextractTaskHandler` reports failures via `SendTaskFailure({ error: <code> })` and Step
+ * Functions matches Catch blocks on that exact string. Never rename one without the other.
+ */
+
+/** Heuristic classification (extension/magic-bytes/Document metadata) found no supported
+ * Textract input format. Never retryable — the same bytes will classify the same way again. */
+export class UnsupportedDocumentTypeError extends AppError {
+  constructor(message = "Document type is not supported by the extraction pipeline.", details?: Record<string, unknown>) {
+    super({ code: "UnsupportedDocumentType", category: "VALIDATION", message, retryable: false, details });
+    this.name = "UnsupportedDocumentTypeError";
+  }
+}
+
+/** The `OCR` AppConfig kill switch was off at the moment `RunTextract` executed. Per design
+ * §1.5.1 this is a definitive "no OCR evidence for this pass", never a suspend-and-resume. */
+export class OcrDisabledError extends AppError {
+  constructor(message = "OCR is disabled by the feature-flags kill switch.", details?: Record<string, unknown>) {
+    super({ code: "OcrDisabled", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
+    this.name = "OcrDisabledError";
+  }
+}
+
+/** Textract itself rejected the document as an unsupported format/corrupt file at
+ * `StartDocumentTextDetection` time (distinct from the pre-call heuristic classifier). */
+export class TextractUnsupportedDocumentError extends AppError {
+  constructor(message = "Textract rejected the document as unsupported.", details?: Record<string, unknown>) {
+    super({ code: "TextractUnsupportedDocument", category: "VALIDATION", message, retryable: false, details });
+    this.name = "TextractUnsupportedDocumentError";
+  }
+}
+
+/** Textract job ended (or was read back) in a degraded state the handler cannot use as a
+ * reliable OCR artifact — not `PARTIAL_SUCCESS` (which IS usable, per design §3), a harder
+ * failure than that (e.g. `FAILED` job status). */
+export class TextractPartialFailureError extends AppError {
+  constructor(message = "Textract job did not complete usably.", details?: Record<string, unknown>) {
+    super({ code: "TextractPartialFailure", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
+    this.name = "TextractPartialFailureError";
+  }
+}
+
+/** `StartDocumentTextDetection` succeeded but persisting the `TextractJob` correlation record
+ * failed even after the handler's own local retry (design §2, "Recuperação do intervalo") — the
+ * Textract job is now orphaned (no waiting callback can ever resolve it), but the run itself
+ * must not block on that: it falls through to the deterministic parser like any other
+ * `RunTextract` failure. */
+export class TextractJobPersistenceFailedError extends AppError {
+  constructor(message = "Failed to persist TextractJob correlation record after StartDocumentTextDetection succeeded.", details?: Record<string, unknown>) {
+    super({ code: "TextractJobPersistenceFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
+    this.name = "TextractJobPersistenceFailedError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

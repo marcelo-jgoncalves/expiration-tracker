@@ -1,0 +1,167 @@
+{
+  "Comment": "M7 extraction pipeline (D-035, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md, GATE 9.2/9.3). RunTextract is the ONLY real Task state implemented so far (item 4, TextractTaskHandler) - every other state below is a placeholder/stub referencing Lambdas from items 5-7 (PdfParserTaskHandler, BedrockExtractionTaskHandler, ExtractionValidationTaskHandler), which do not exist yet. This file documents the intended shape; it MUST NOT be applied via a real aws_sfn_state_machine resource until those Lambdas exist (a Task referencing a non-existent function ARN fails terraform apply, not just runtime) - see infra/modules/extraction-workflow/ (parameterized by Lambda ARN variables, deliberately not called from infra/main.tf yet) and NEXT_SESSION_PROMPT.md for wiring status.",
+  "StartAt": "RunTextract",
+  "States": {
+    "RunTextract": {
+      "Type": "Task",
+      "Comment": "The only real Task state for this phase (design §2, rodada 5 correction: no separate DetectDocumentType state - classification happens INSIDE this single TextractTaskHandler invocation, per §1.2). Sequence inside the handler: classify -> OCR kill switch -> reserve AI_CALL quota -> StartDocumentTextDetection -> persist TextractJob, then return (no SendTaskSuccess here - the execution stays parked on taskToken until a LATER, separate SQS-triggered COMPLETE_OCR invocation resolves it via SendTaskSuccess/Failure).",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "HeartbeatSeconds": 120,
+      "TimeoutSeconds": 600,
+      "Parameters": {
+        "FunctionName": "textract-task:live",
+        "Payload": {
+          "operation": "START_OCR",
+          "taskToken.$": "$$.Task.Token",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "Comment": "UnsupportedDocumentType (classifier), OcrDisabled (kill switch), TextractUnsupportedDocument/TextractPartialFailure/TextractJobPersistenceFailed (Textract-time failures), and any timeout/unclassified error - ALL fall through to the deterministic parser, never straight to MarkPendingConfirmation (design §1.2 rodada-3 correction).",
+          "ErrorEquals": [
+            "UnsupportedDocumentType",
+            "OcrDisabled",
+            "TextractUnsupportedDocument",
+            "TextractPartialFailure",
+            "TextractJobPersistenceFailed",
+            "States.Timeout",
+            "States.HeartbeatTimeout",
+            "States.ALL"
+          ],
+          "ResultPath": "$.ocrFailure",
+          "Next": "RunDeterministicParser"
+        }
+      ],
+      "Next": "RunDeterministicParser"
+    },
+
+    "RunDeterministicParser": {
+      "Type": "Task",
+      "Comment": "STUB - references PdfParserTaskHandler (item 5, not yet implemented). Runs a deterministic parser over the OCR artifact (when present) to produce candidate field values, per implementation-blueprint.md §12.5. A RunTextract failure above (ocrFailure present) still reaches this state and must run degraded (no OCR text, parser tries file-metadata-only heuristics or returns no candidates) - never skipped.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "pdf-parser-task:live",
+        "Payload.$": "$"
+      },
+      "Catch": [
+        {
+          "Comment": "The ONE failure that goes straight to MarkPendingConfirmation without trying Bedrock - a RunDeterministicParser failure itself, per design §1.2.",
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.parserFailure",
+          "Next": "MarkPendingConfirmation"
+        }
+      ],
+      "Next": "NeedsBedrock"
+    },
+
+    "NeedsBedrock": {
+      "Type": "Choice",
+      "Comment": "STUB - evaluates decide-bedrock.ts's needsBedrock() contract (design §1.10) over the deterministic candidates. Real condition to be wired once ExtractionValidationTaskHandler (item 7) produces the BedrockDecisionInput shape as Step Functions JSONPath.",
+      "Choices": [
+        {
+          "Variable": "$.needsBedrock",
+          "BooleanEquals": true,
+          "Next": "CheckAiKillSwitch"
+        }
+      ],
+      "Default": "ValidateSchema"
+    },
+
+    "CheckAiKillSwitch": {
+      "Type": "Choice",
+      "Comment": "STUB - AI_EXTRACTION kill switch gate before any paid Bedrock call, fail-closed per design §1.5.",
+      "Choices": [
+        {
+          "Variable": "$.aiExtractionEnabled",
+          "BooleanEquals": true,
+          "Next": "RunBedrock"
+        }
+      ],
+      "Default": "ValidateSchema"
+    },
+
+    "RunBedrock": {
+      "Type": "Task",
+      "Comment": "STUB - references BedrockExtractionTaskHandler (item 6, not yet implemented). Converse API, prompt isolation per design §1.11, BedrockExtractionRequest carries only textArtifact (never raw OCR text), AI_CALL quota reserved before the call.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "bedrock-extraction-task:live",
+        "Payload.$": "$"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.bedrockFailure",
+          "Next": "ValidateSchema"
+        }
+      ],
+      "Next": "ValidateSchema"
+    },
+
+    "ValidateSchema": {
+      "Type": "Task",
+      "Comment": "STUB - first of 4 distinct Task states from ExtractionValidationTaskHandler (item 7, not yet implemented), per design §2's closing paragraph (kept as separate states for per-stage audit/Catch, overhead is negligible next to Textract/Bedrock).",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "extraction-validation-task:live",
+        "Payload": { "operation": "VALIDATE_SCHEMA", "input.$": "$" }
+      },
+      "Next": "CompareExtractors"
+    },
+
+    "CompareExtractors": {
+      "Type": "Task",
+      "Comment": "STUB - compares deterministic vs. Bedrock candidates (when both ran), decides ExtractedFieldState (CONFIRMED/PENDING_CONFIRMATION/DISAGREEMENT) per data-model.md.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "extraction-validation-task:live",
+        "Payload": { "operation": "COMPARE_EXTRACTORS", "input.$": "$" }
+      },
+      "Next": "PersistExtractedFields"
+    },
+
+    "PersistExtractedFields": {
+      "Type": "Task",
+      "Comment": "STUB - writes ExtractedField rows transactionally.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "extraction-validation-task:live",
+        "Payload": { "operation": "PERSIST_EXTRACTED_FIELDS", "input.$": "$" }
+      },
+      "Next": "CompleteRun"
+    },
+
+    "MarkPendingConfirmation": {
+      "Type": "Task",
+      "Comment": "STUB - reached either from a RunDeterministicParser failure (no usable candidate at all) or from the normal path when a field needs human confirmation. Also the state responsible (per design §3) for deleting the transient OCR artifact when the run does NOT proceed to CompleteRun.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "extraction-validation-task:live",
+        "Payload": { "operation": "MARK_PENDING_CONFIRMATION", "input.$": "$" }
+      },
+      "End": true
+    },
+
+    "CompleteRun": {
+      "Type": "Task",
+      "Comment": "STUB - terminal success state. Deletes the transient OCR artifact (design §3: the only point in the system that knows for certain no later state will read it) and marks ExtractionRun COMPLETED.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "extraction-validation-task:live",
+        "Payload": { "operation": "COMPLETE_RUN", "input.$": "$" }
+      },
+      "End": true
+    }
+  }
+}

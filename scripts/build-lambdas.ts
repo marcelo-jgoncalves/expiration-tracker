@@ -58,6 +58,7 @@ const HANDLERS = [
   "import-commit-handler",
   "bff-handler",
   "extraction-starter-handler",
+  "textract-task-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

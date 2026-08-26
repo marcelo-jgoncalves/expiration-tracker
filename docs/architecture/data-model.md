@@ -116,5 +116,15 @@ O token bucket de quota por tenant em HTTP API (decisão já aprovada em `archit
 
 Decrementado via `ConditionExpression` no mesmo padrão do `UploadSlot` (atômico, sem race condition entre requisições concorrentes do mesmo tenant). `killSwitchOverride` permite que o middleware de quota consulte um único lugar tanto o limite normal quanto um bloqueio de emergência, sem duas chamadas separadas. Esta entidade fecha a lacuna de rastreabilidade entre a decisão arquitetural de G6 (existe o mecanismo) e o modelo de dados (como o mecanismo é persistido e consultado).
 
+## TextractJob — correlação transitória Textract assíncrono (M7 item 4, 2026-08-26)
+
+Entidade adicionada durante a implementação de `TextractTaskHandler` (não estava no design original em nível de tabela, só descrita em prosa em `claude-reconciliation-final-design.md` §1.2/§2/§3 como "correlação `TextractJob`"). Correlaciona a invocação `START_OCR` (que recebe um `taskToken` do Step Functions via `waitForTaskToken`) com a notificação de conclusão assíncrona do Textract (`COMPLETE_OCR`, disparada por SQS a partir do tópico SNS de conclusão de job).
+
+| Entidade adicionada | Atributos principais | PK / SK |
+|---|---|---|
+| TextractJob | jobId, tenantId, itemId, documentId, documentVersion, runId, clientRequestToken, status (STARTED/COMPLETED/FAILED), `taskTokenCiphertext?` (cifrado, presente só enquanto o callback pode ainda resolver a task — removido em qualquer desfecho terminal, design §3), ttl (curto, diagnóstico/reconciliação) | `TEXTRACTJOB#<jobId>` / `TEXTRACTJOB#<jobId>` |
+
+**Chave deliberadamente não tenant-scoped** (única exceção nesta tabela): `COMPLETE_OCR` só recebe `JobId`/`JobTag` da notificação SNS/SQS, sem contexto de tenant disponível antes de ler este registro — uma chave `TENANT#t#...` exigiria um GSI só para permitir "encontre o job com este jobId", para uma entidade cujo propósito inteiro É essa busca. Um item self-keyed evita o GSI. `ClientRequestToken` (determinístico, `sha256(tenantId|documentId|documentVersion|pipelineVersion|runId)`) é o mecanismo de reconciliação para o caso de job órfão (notificação sem `TextractJob` correspondente — design §2): confirma-se via uma chamada a `GetDocumentTextDetection`, descarta-se o resultado, nunca é tratado como erro.
+
 ## Pontos abertos remanescentes (não bloqueantes)
 Nenhum — os 3 pontos da Rodada 1 foram fechados nesta Rodada 2. Itens de implementação (não de design) permanecem para fases posteriores: critério quantitativo exato de ativação do shard de GSI1 (depende de dados reais de uso por tenant, não disponíveis antes de produção).

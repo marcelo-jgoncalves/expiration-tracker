@@ -1547,3 +1547,323 @@ resource "aws_sqs_queue_policy" "extraction_starter_queue" {
   queue_url = module.extraction_starter_queue.queue_url
   policy    = data.aws_iam_policy_document.eventbridge_to_extraction_starter_queue[0].json
 }
+
+# --- M7 (extração/OCR): TextractTaskHandler (items 3/4, D-035) -----------------------------
+# Real runtime for the ASL's only real Task state so far (`RunTextract`,
+# infra/state-machines/document-extraction.asl.json). Deliberately NOT gated by
+# `var.extraction_pipeline_enabled` for the same reason item 2's Lambda/queue/IAM aren't
+# gated either: the resources below are inert on their own. `START_OCR` can only ever run if
+# Step Functions invokes this function via `lambda:invoke.waitForTaskToken`, which requires
+# the `document_extraction` state machine to exist - it doesn't yet (`infra/modules/
+# extraction-workflow` is still deliberately uninstantiated, items 5-7's Lambdas don't exist).
+# Without that invocation, `startDocumentTextDetection` (the only paid call in this whole
+# handler) is never reached by any real event source, so leaving this infra always-on/
+# inspectable in `dev` carries the same "deployable but never triggered by real traffic" risk
+# profile item 2 already accepted for the identical reason.
+#
+# `module.textract_task_handler.live_alias_arn` is the ARN item 3's Terraform module
+# (extraction-workflow) needs once it's finally instantiated - exposed via
+# `local.textract_task_handler_function_arn` below so that wiring is a small diff, not a
+# redesign (same intent as `local.extraction_state_machine_arn` above).
+
+# Dedicated CMK for the Step Functions task-token ciphertext (`TextractJob.taskTokenCiphertext`)
+# - same D-054 disciplina as `infra/modules/bff-session-table`'s refresh-token CMK: a live
+# Step Functions callback credential is exactly the class of "live credential, not just
+# storage-at-rest" value that decision reserved a dedicated CMK for, distinct from the
+# AWS-managed key `document-buckets` uses for document blobs (a much less sensitive value).
+# Reusing an existing CMK was considered (see NEXT_SESSION_PROMPT.md) and rejected: sharing a
+# key across two independently-deployable modules (bff/extraction) would couple their key
+# policies/rotation and blur the "only this module's Lambda role may ever use this key"
+# invariant D-054 established.
+resource "aws_kms_key" "task_token" {
+  description             = "CMK for TextractTaskHandler's Step Functions task-token ciphertext at rest (D-035)"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+  tags                    = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_kms_alias" "task_token" {
+  name          = "alias/${local.name_prefix}-task-token"
+  target_key_id = aws_kms_key.task_token.key_id
+}
+
+# `EXTRACTION_TRANSIENT` S3 class (privacy-lgpd.md §4) - dedicated bucket, no versioning/
+# backup/replication (the artifact is disposable OCR text, never a document of record), 24h
+# lifecycle safety net matching `EXTRACTION_TRANSIENT_LIFECYCLE_HOURS` (retention.ts) exactly
+# (24h = 1 day, S3 lifecycle `expiration.days` has no hour granularity). Explicit deletion is
+# always `ExtractionValidationTaskHandler`'s job (item 7, not yet implemented) - this lifecycle
+# rule only catches a run that never reaches a terminal state.
+resource "aws_s3_bucket" "extraction_transient" {
+  bucket        = "${local.name_prefix}-extraction-transient"
+  force_destroy = false
+  tags          = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_s3_bucket_public_access_block" "extraction_transient" {
+  bucket                  = aws_s3_bucket.extraction_transient.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "extraction_transient" {
+  bucket = aws_s3_bucket.extraction_transient.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "extraction_transient" {
+  bucket = aws_s3_bucket.extraction_transient.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256" # same lesson as spa-hosting's SSE-KMS/OAC incident - no
+      # cross-service (Lambda-only) reader here needs KMS, plain SSE-S3 avoids that whole
+      # class of bug for a bucket nothing but this Lambda's own role ever touches.
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "extraction_transient" {
+  bucket = aws_s3_bucket.extraction_transient.id
+  rule {
+    id     = "expire-transient-ocr-artifacts"
+    status = "Enabled"
+    filter {} # the whole bucket is transient by design.
+    expiration {
+      days = 1 # EXTRACTION_TRANSIENT_LIFECYCLE_HOURS (retention.ts) = 24h = 1 day.
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "extraction_transient" {
+  bucket = aws_s3_bucket.extraction_transient.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.extraction_transient.arn, "${aws_s3_bucket.extraction_transient.arn}/*"]
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      }
+    ]
+  })
+}
+
+# SNS topic Textract publishes job-completion notifications to (StartDocumentTextDetection's
+# NotificationChannel). The role below is what Textract itself assumes to call sns:Publish -
+# distinct from this Lambda's own execution role.
+resource "aws_sns_topic" "textract_completion" {
+  name = "${local.name_prefix}-textract-completion"
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "textract_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["textract.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "textract_sns_publisher" {
+  name               = "${local.name_prefix}-textract-sns-publisher"
+  assume_role_policy = data.aws_iam_policy_document.textract_assume_role.json
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "textract_sns_publish" {
+  statement {
+    sid       = "TextractPublishCompletion"
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.textract_completion.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "textract_sns_publisher" {
+  name   = "publish"
+  role   = aws_iam_role.textract_sns_publisher.id
+  policy = data.aws_iam_policy_document.textract_sns_publish.json
+}
+
+# SQS queue + DLQ for COMPLETE_OCR, subscribed to the SNS topic above.
+module "textract_completion_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-textract-completion"
+  consumer_timeout_seconds = 30
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_sns_topic_subscription" "textract_completion_to_queue" {
+  topic_arn = aws_sns_topic.textract_completion.arn
+  protocol  = "sqs"
+  endpoint  = module.textract_completion_queue.queue_arn
+}
+
+data "aws_iam_policy_document" "sns_to_textract_completion_queue" {
+  statement {
+    sid       = "AllowSnsToSendMessage"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [module.textract_completion_queue.queue_arn]
+    principals {
+      type        = "Service"
+      identifiers = ["sns.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_sns_topic.textract_completion.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "textract_completion_queue" {
+  queue_url = module.textract_completion_queue.queue_url
+  policy    = data.aws_iam_policy_document.sns_to_textract_completion_queue.json
+}
+
+# --- IAM for TextractTaskHandler's own execution role --------------------------------------
+
+data "aws_iam_policy_document" "textract_task_textract_calls" {
+  statement {
+    sid       = "TextractStartAndGet"
+    effect    = "Allow"
+    actions   = ["textract:StartDocumentTextDetection", "textract:GetDocumentTextDetection"]
+    resources = ["*"] # Textract's async detection APIs are not resource-scopable (no ARN
+    # concept for a job before it exists) - same posture AWS's own example IAM policies for
+    # this API use.
+  }
+  statement {
+    sid       = "TextractPassSnsPublisherRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.textract_sns_publisher.arn]
+  }
+}
+
+data "aws_iam_policy_document" "textract_task_send_task_outcome" {
+  statement {
+    sid    = "SendTaskOutcome"
+    effect = "Allow"
+    actions = [
+      "states:SendTaskSuccess",
+      "states:SendTaskFailure",
+      "states:SendTaskHeartbeat",
+    ]
+    resources = ["*"] # SendTask* is authorized by possession of the task token itself, not by
+    # a resource ARN Step Functions can check ahead of time (AWS's own documented posture for
+    # this API family).
+  }
+}
+
+data "aws_iam_policy_document" "textract_task_kms" {
+  statement {
+    sid       = "TaskTokenCrypto"
+    effect    = "Allow"
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [aws_kms_key.task_token.arn]
+  }
+}
+
+data "aws_iam_policy_document" "textract_task_s3" {
+  statement {
+    sid       = "ReadCleanBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${module.document_buckets.clean_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptCleanBucketKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.document_buckets.clean_kms_key_arn]
+  }
+  statement {
+    sid       = "ReadWriteExtractionTransientBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+locals {
+  textract_task_handler_appconfig_ids = {
+    application_id           = module.feature_flags.application_id
+    environment_id           = module.feature_flags.environment_id
+    configuration_profile_id = module.feature_flags.configuration_profile_id
+  }
+}
+
+module "textract_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-textract-task-handler"
+  handler_name    = "textract-task-handler"
+  source_dir      = "${local.dist_dir}/textract-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME   = aws_s3_bucket.extraction_transient.bucket
+    TASK_TOKEN_KMS_KEY_ID              = aws_kms_key.task_token.key_id
+    TEXTRACT_SNS_TOPIC_ARN             = aws_sns_topic.textract_completion.arn
+    TEXTRACT_SNS_ROLE_ARN              = aws_iam_role.textract_sns_publisher.arn
+    APPCONFIG_APPLICATION_ID           = local.textract_task_handler_appconfig_ids.application_id
+    APPCONFIG_ENVIRONMENT_ID           = local.textract_task_handler_appconfig_ids.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = local.textract_task_handler_appconfig_ids.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
+    data.aws_iam_policy_document.textract_task_textract_calls.json,
+    data.aws_iam_policy_document.textract_task_send_task_outcome.json,
+    data.aws_iam_policy_document.textract_task_kms.json,
+    data.aws_iam_policy_document.textract_task_s3.json,
+    module.textract_completion_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "textract_task_from_completion_queue" {
+  event_source_arn        = module.textract_completion_queue.queue_arn
+  function_name           = module.textract_task_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# `START_OCR` invocation permission for Step Functions - deliberately granted here even
+# though no state machine exists yet (same "deployable, not yet wired" posture as the rest of
+# this section): item 3's extraction-workflow module needs this permission to already exist
+# when it's finally instantiated, and granting invoke to a specific state machine ARN (rather
+# than "*") is safe to create ahead of time (`local.extraction_state_machine_arn`, already
+# defined above, is deterministic even before that state machine is created).
+resource "aws_lambda_permission" "textract_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.textract_task_handler.live_alias_arn
+  qualifier     = module.textract_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point - see the module's own `variables.tf`
+  # (parameterized by Lambda ARN variables, still not instantiated from infra/main.tf).
+  textract_task_handler_function_arn = module.textract_task_handler.live_alias_arn
+}
