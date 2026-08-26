@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/textract-completion.v1.json",
+  "title": "textract.completion.v1",
+  "description": "SQS message consumed by TextractTaskHandler's COMPLETE_OCR operation (M7, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md §1.2/§2). Wraps the raw SNS notification Textract publishes to its job-completion topic when StartDocumentTextDetection's SNS/Role parameters were set. No OCR text/PII ever appears in this envelope - only job identifiers and status, matching design §1.9/§20.5 (OCR content never travels outside the EXTRACTION_TRANSIENT artifact store).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["Type", "MessageId", "TopicArn", "Message"],
+  "properties": {
+    "Type": { "const": "Notification" },
+    "MessageId": { "type": "string", "minLength": 1 },
+    "TopicArn": { "type": "string", "minLength": 1 },
+    "Timestamp": { "type": "string" },
+    "Message": {
+      "description": "JSON-encoded string per AWS SNS convention - Textract's own JobId/Status/JobTag payload, parsed by the handler (not re-validated as nested JSON Schema here, same convention as notification-ses-callback.v1.json's raw SES event body).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

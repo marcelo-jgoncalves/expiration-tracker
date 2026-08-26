@@ -746,4 +746,48 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {});
     expect(valid).toBe(false);
   });
+
+  // M7 (extração/OCR, D-035) - schema novo da fila de conclusão do Textract (COMPLETE_OCR).
+
+  it("accepts a valid textract.completion.v1 SNS-wrapped message", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/textract-completion.v1.json", {
+      Type: "Notification",
+      MessageId: "sns-msg-01",
+      TopicArn: "arn:aws:sns:sa-east-1:123456789012:textract-job-completion",
+      Timestamp: "2026-08-26T12:00:00.000Z",
+      Message: JSON.stringify({ JobId: "job_01", Status: "SUCCEEDED", API: "StartDocumentTextDetection", JobTag: "run_01" }),
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a textract.completion.v1 message with the wrong Type", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/textract-completion.v1.json", {
+      Type: "SubscriptionConfirmation",
+      MessageId: "sns-msg-01",
+      TopicArn: "arn:aws:sns:sa-east-1:123456789012:textract-job-completion",
+      Message: "{}",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a textract.completion.v1 message missing Message", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/textract-completion.v1.json", {
+      Type: "Notification",
+      MessageId: "sns-msg-01",
+      TopicArn: "arn:aws:sns:sa-east-1:123456789012:textract-job-completion",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a textract.completion.v1 message with an undeclared top-level property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/textract-completion.v1.json", {
+      Type: "Notification",
+      MessageId: "sns-msg-01",
+      TopicArn: "arn:aws:sns:sa-east-1:123456789012:textract-job-completion",
+      Message: "{}",
+      SignatureVersion: "1",
+    });
+    expect(valid).toBe(false);
+  });
 });
