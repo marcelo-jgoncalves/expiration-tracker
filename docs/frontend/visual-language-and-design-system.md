@@ -648,11 +648,59 @@ página renderizada, o que sugere que a revisão de código sozinha teria deixad
 
 ## 37. Codex Review (Round B)
 
-_A ser preenchido._
+Revisão adversarial **independente e real**, via `codex exec --skip-git-repo-check`
+(`AGENTS.md` §4), sobre o código real da branch — não sobre um relato textual. Codex recebeu a
+checklist de 50 itens, o contexto de escopo e de Epistemic Integrity, e os dois pontos que eu
+próprio marquei como discutíveis (a troca de `<ul>` por `<table>` e a mudança de rótulos de
+urgência).
 
-## 38. Reconciliation (Round C+)
+**Nota Codex (Round B): 8,63/10** — abaixo do threshold de 9,0, o que reabriu a rodada em vez
+de arredondar.
 
-_A ser preenchido._
+Cinco achados, todos reais e todos apontando para arquivo e linha:
+
+| ID | Achado | Sev. |
+|---|---|---|
+| B-01 | `Button` usava `disabled={disabled ?? pending}`. `RenewItem` passa `disabled={conflict}`, que numa renovação normal é `false` — **não** `undefined` — então o `??` curto-circuitava no `false` explícito e deixava o botão de submit ativo enquanto exibia "Renovando…". Regressão real de proteção de mutação | **S2** |
+| B-02 | Os cabeçalhos de grupo da tabela usavam `scope="colgroup"`, mas "Vencidos"/"Vence em breve"/"Demais ativos" encabeçam **linhas**, não colunas. Tecnologia assistiva associa o cabeçalho à dimensão errada — justamente o auxílio de navegação de que uma tabela de 140 linhas depende (checklist item 17) | **S2** |
+| B-03 | Os botões de filtro anunciavam `aria-current="page"`. Eles não representam páginas; selecionam qual subconjunto de ciclo de vida da **mesma** coleção é exibido | S3 |
+| B-04 | O container de scroll era um tab stop incondicional, embora o próprio comentário dissesse que só deveria ser focável quando pudesse rolar. Abaixo de 820px o layout empilha e nada transborda — sobrava uma parada de teclado vazia | S3 |
+| B-05 | `tokens.css` e `playwright.config.ts` citavam `docs/frontend/visual-language-and-design-system.md`, ausente da branch no momento da revisão | S3 |
+
+**Verificados como NÃO violados** pelo Codex: itens 1–16, 18–47 e 49–50 da checklist.
+Explicitamente: nenhum `CLEAN` como aprovação, nenhum `SATISFIED` como conformidade atual,
+nenhum `UNKNOWN_OUTCOME` como falha, nenhuma cópia de "agendado" como "entregue", nenhum status
+apenas por cor, nenhuma cor hard-coded vazando para feature, nenhum dado crítico escondido no
+mobile, nenhuma dependência de framework, **nenhuma cópia do Remindax**, nenhuma expansão de
+escopo, nenhuma alegação de validação com usuários ou de finalidade.
+
+Sobre as duas mudanças estruturais, o veredito independente foi que ambas são **justificadas**:
+a tabela porque os registros são comparáveis e o caso de estresse de 140 itens a exige, com
+filtro/ordenação/agrupamento/rotas/dados preservados; e os rótulos de urgência porque "Sem
+urgência" descreve corretamente um item ACTIVE além do limiar de 7 dias e "Não se aplica"
+impede que um estado de ciclo de vida encerrado seja repetido como urgência — nenhum dos dois
+altera estado de domínio, agrupamento ou limiar.
+
+Sobre a direção visual: *"apropriadamente contida — o snapshot denso permanece table-first e
+operacionalmente escaneável, com uso limitado de accent, sem explosão de cards, sem sombras
+dominantes, e uma identidade reconhecivelmente própria."*
+
+## 38. Reconciliation (Round C)
+
+Resposta achado a achado (formato §159). **Nenhum achado foi rejeitado** — os cinco eram
+reais.
+
+| ID | Veredito | Correção | Evidência de regressão |
+|---|---|---|---|
+| B-01 | **Aceito** | `disabled={Boolean(disabled \|\| pending)}` | Teste novo com exatamente a forma que `RenewItem` produz (`{ disabled: false, pending: true }`), afirmando `toBeDisabled()` e `aria-busy` |
+| B-02 | **Aceito** | `scope="rowgroup"` | Teste novo afirmando o atributo **e** que o cabeçalho encabeça as linhas certas; role muda de `columnheader` para `rowheader`, e as 3 suítes que consultavam por role foram atualizadas |
+| B-03 | **Aceito** | `aria-pressed={tab.value === status}`; o seletor CSS acompanhou (`[aria-pressed="true"]`) — trocar o atributo sem trocar o seletor teria deixado o estado selecionado invisível | E2E e testes de componente do filtro continuam verdes |
+| B-04 | **Aceito** | Hook `useIsOverflowing` com `ResizeObserver` observando container **e** tabela; `tabIndex` e `role`/`aria-label` aparecem e desaparecem juntos, para que um elemento focável nunca fique anônimo. Sem `ResizeObserver` (jsdom) o fallback é `false` — a resposta honesta, já que ali não há layout para transbordar | Verificado no navegador real em três larguras: 1440px → sem tab stop (overflow 0); **860px → `tabindex="0"` + `role="region"` (overflow real de 5px)**; 375px → sem tab stop (empilhado). Mais um teste de componente para o caso não-scrollável |
+| B-05 | **Aceito** | Este documento passou a integrar o change set | — |
+
+Observação honesta sobre B-05: o documento não existia porque a revisão foi disparada em
+paralelo à sua redação. O achado é legítimo do ponto de vista do que estava na branch, e a
+correção é factual, não uma discordância.
 
 ## 39. Verification Evidence
 
