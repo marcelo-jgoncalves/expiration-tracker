@@ -189,7 +189,15 @@ test("A11Y-focus: every keyboard stop on the Collection has a visible ring and a
   }
   expect(terminated, `the tab path neither wrapped nor left the document within ${MAX_TABS} presses - likely a trap`).toBe(true);
 
-  for (const stop of stops) {
+  /**
+   * The terminating wrap back to stop 0, if that is how the path ended, is NOT part of the
+   * forward path and must be excluded from the DOM-order assertion (Codex Round H, G-01):
+   * the first stop necessarily PRECEDES the last, so asserting it follows would spuriously
+   * fail a perfectly correct page whose focus wraps inside the document rather than leaving
+   * it. It is also a second visit to an element already asserted as stop 0, so excluding it
+   * loses no coverage.
+   */
+  for (const stop of stops.filter((candidate) => candidate.revisitOf === null)) {
     expect(stop.precededByPrevious, `tab order departs from DOM order at <${stop.tag}> "${stop.label}"`).toBe(true);
     expect(stop.outlineStyle, `no focus ring on <${stop.tag}> "${stop.label}"`).not.toBe("none");
     expect(stop.outlineWidth, `focus ring too thin on <${stop.tag}> "${stop.label}"`).toBeGreaterThanOrEqual(2);

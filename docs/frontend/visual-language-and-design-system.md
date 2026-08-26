@@ -793,10 +793,30 @@ Nenhum dos dois achados foi rejeitado.
 | F-01 | **Aceito** | O hook virou **dois** efeitos com responsabilidades separadas, o que resolve os dois lados em vez de trocar um pelo outro: (1) medição a cada render, sem array de dependências — o único gatilho correto, já que largura depende do conteúdo renderizado, não de contagens; (2) o `ResizeObserver`, que capta o que um render não capta (resize de viewport sem atualização React), montado **uma vez** com `[ref]`, que era o ganho legítimo que a otimização queria. O risco que o `exhaustive-deps` alega não existe aqui: `setOverflowing` desiste quando o booleano não muda | `A11Y-scroll-region` continua afirmando os três estados em larguras reais; suíte completa verde |
 | F-02 | **Aceito** | Cada parada é carimbada com seu índice, então uma **revisita** é detectável: o percurso agora precisa terminar (sair do documento ou voltar à primeira parada) e nenhuma parada pode repetir antes disso — é isso que descarta armadilha. Cada par consecutivo é comparado por `compareDocumentPosition`, provando ordem de tabulação = ordem do DOM, que é o requisito normativo real (SC 1.3.2/2.4.3). A alegação de *ordem visual* saiu da tabela e passou a ser atribuída a quem realmente a sustenta: baselines visuais e inspeção manual | `A11Y-focus` reescrito e verde; §28 corrigida junto, para o teste e o documento não voltarem a divergir |
 
-Observação honesta sobre esta rodada: as três reaberturas do Codex (8,63 · 8,54 · 8,87) não
-foram ruído de avaliador. Cada uma achou algo real, e duas delas acharam defeitos criados pela
-rodada de correção anterior — o modo de falha que o protocolo existe para pegar e que uma única
-passagem de revisão teria deixado passar.
+### Codex Round H — verificação final, e o achado G-01
+
+Quarta passagem independente, estreita e profunda, sobre as correções da Rodada G.
+
+**Nota Codex (Round H): 8,94/10** — ainda abaixo de 9,0. F-01 `FIXED` sem ressalvas (o Codex
+verificou explicitamente que não há churn do observer, nem captura de nó destacado, nem laço de
+render, nem regressão do estado de foco). Documentação: bate com o código e com a história real,
+inclusive quanto à regressão ter sido minha. **F-02 `PARTIALLY FIXED`**, por um defeito criado
+pela própria correção da Rodada G:
+
+| ID | Achado | Sev. |
+|---|---|---|
+| G-01 | O teste de foco aceitava explicitamente **dois** modos de término — sair do documento ou voltar à primeira parada — mas a asserção de ordem do DOM logo abaixo rejeitava o segundo: a primeira parada necessariamente *precede* a última, então exigir que ela a *siga* reprovaria uma página correta cujo foco volta ao início dentro do documento. O teste passava só pelo outro caminho. O documento também alegava os dois modos | S3 |
+
+**Reconciliação (aceito, não rejeitado):** a parada de wrap terminal saiu da asserção de ordem
+do DOM — ela não faz parte do percurso para frente, e é uma segunda visita a um elemento já
+afirmado como parada 0, então excluí-la não perde cobertura. Detecção de armadilha, término e
+ordem do DOM no percurso para frente continuam afirmados.
+
+Observação honesta sobre esta rodada: as quatro reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94) não
+foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
+pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
+pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
+passagem de revisão teria deixado passar por completo.
 
 ## 39. Verification Evidence
 
@@ -854,8 +874,10 @@ artificial).
 | E | Claude (reconciliação) | — | 4 aceitos, 0 rejeitados; a suíte de acessibilidade executável nasce aqui |
 | F | Codex (verificação adversarial sobre o corrigido) | **8,87** | 2 achados, 1 S2 — uma regressão criada entre as rodadas → reabre |
 | G | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; o hook de overflow e o teste de foco reescritos |
-| H | Codex (verificação final) | `PENDING_ROUND_H` | `PENDING_ROUND_H_RESULT` |
-| H | Claude (autoavaliação final) | `PENDING_CLAUDE_H` | — |
+| H | Codex (verificação final estreita) | **8,94** | F-01 `FIXED` sem ressalvas; 1 achado S3 (G-01), criado pela Rodada G → reabre |
+| I | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; parada de wrap terminal excluída da asserção de ordem |
+| I | Codex (verificação final) | `PENDING_ROUND_I` | `PENDING_ROUND_I_RESULT` |
+| I | Claude (autoavaliação final) | `PENDING_CLAUDE_I` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
