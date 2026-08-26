@@ -180,14 +180,39 @@ test("A11Y-focus: every keyboard stop on the Collection has a visible ring and a
 
   const revisit = stops.findIndex((stop) => stop.revisitOf !== null);
   if (revisit !== -1) {
-    // Returning to the FIRST stop after visiting everything is a normal wrap, not a trap.
     expect(
       stops[revisit]?.revisitOf,
-      `keyboard trap: stop ${revisit} ("${stops[revisit]?.label}") returned to stop ${stops[revisit]?.revisitOf} without covering the page`,
+      `keyboard trap: stop ${revisit} ("${stops[revisit]?.label}") returned to stop ${stops[revisit]?.revisitOf} rather than to the first stop`,
     ).toBe(0);
     terminated = true;
   }
   expect(terminated, `the tab path neither wrapped nor left the document within ${MAX_TABS} presses - likely a trap`).toBe(true);
+
+  /**
+   * COVERAGE - the assertion that actually earns the phrase "no keyboard trap" (Codex Round I,
+   * I-01). Terminating is not the same as terminating *after visiting everything*: a trap that
+   * cycles a dozen DOM-ordered controls back to the first one terminates, in order, with rings
+   * and adequate targets, leaving the rest of the page permanently unreachable - and every
+   * other assertion in this test would pass. So the visited set is compared against the set of
+   * elements that SHOULD be reachable, and anything focusable but never stamped is the trap's
+   * evidence.
+   */
+  const unreached = await page.evaluate(() => {
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex^="-"])',
+      ),
+    );
+    return candidates
+      .filter((element) => {
+        if (element.dataset.a11yVisit !== undefined) return false;
+        if (element.closest("[aria-hidden='true']") !== null) return false;
+        // Rendered but off-screen is still reachable (the skip link); display:none is not.
+        return element.getClientRects().length > 0 || getComputedStyle(element).position === "absolute";
+      })
+      .map((element) => `<${element.tagName.toLowerCase()}> "${(element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 48)}"`);
+  });
+  expect(unreached, `focusable elements the keyboard path never reached - a trap or a skipped region: ${JSON.stringify(unreached, null, 1)}`).toEqual([]);
 
   /**
    * The terminating wrap back to stop 0, if that is how the path ended, is NOT part of the

@@ -448,7 +448,7 @@ ser re-executada é uma alegação, não um gate.
 
 | Verificação | Resultado | Onde re-executar |
 |---|---|---|
-| Navegação só por teclado | Percurso completo da Collection até terminar (sai do documento ou volta à primeira parada); **nenhuma parada revisitada antes disso — é isto que descarta armadilha**; ordem de tabulação = ordem do DOM (SC 1.3.2/2.4.3) em cada par consecutivo | `A11Y-focus` |
+| Navegação só por teclado | O percurso termina (sai do documento ou volta à primeira parada) **e, ao terminar, todo elemento focável da página foi visitado** — é a cobertura, não o término, que descarta armadilha (SC 2.1.2); ordem de tabulação = ordem do DOM (SC 1.3.2/2.4.3) em cada par consecutivo | `A11Y-focus` |
 | Foco visível | `outline` de ≥2px em **todas** as paradas | `A11Y-focus` |
 | Foco não obscurecido (2.4.11) | Garantia estrutural, agora afirmada: **zero** elementos `sticky`/`fixed` fora o skip link | `A11Y-focus-not-obscured` |
 | Contraste (1.4.3) | 0 falhas medindo cor computada de todo elemento com texto renderizado, em 3 superfícies | `A11Y-contrast` |
@@ -809,10 +809,31 @@ pela própria correção da Rodada G:
 
 **Reconciliação (aceito, não rejeitado):** a parada de wrap terminal saiu da asserção de ordem
 do DOM — ela não faz parte do percurso para frente, e é uma segunda visita a um elemento já
-afirmado como parada 0, então excluí-la não perde cobertura. Detecção de armadilha, término e
-ordem do DOM no percurso para frente continuam afirmados.
+afirmado como parada 0, então excluí-la não perde cobertura.
 
-Observação honesta sobre esta rodada: as quatro reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94) não
+### Codex Round I — e o achado que fechou a alegação central
+
+Quinta passagem. G-01 `FIXED` sem ressalvas, e o Codex confirmou explicitamente que a exclusão
+não enfraquece nada, que `stops` não pode conter mais de uma revisita e que o laço filtrado não
+pode esvaziar. **Nota Codex (Round I): 8,82/10** — reaberta por um achado novo e mais profundo
+que todos os anteriores sobre este teste:
+
+| ID | Achado | Sev. |
+|---|---|---|
+| I-01 | Terminar não é o mesmo que terminar **depois de visitar tudo**. Uma armadilha real contendo mais de dez controles em ordem de DOM cicla de volta à primeira parada, com anel de foco e alvo adequado em cada uma, deixando o resto da página permanentemente inalcançável — e *todas* as asserções do teste passariam. A alegação central "sem armadilha" continuava, portanto, sem prova; o documento a repetia em três lugares | **S2** |
+
+**Reconciliação (aceito):** o teste passou a afirmar **cobertura**, que é o que de fato sustenta
+a frase. Ao terminar, o conjunto visitado é comparado com o conjunto de elementos que *deveriam*
+ser alcançáveis (focáveis, visíveis, não desabilitados, `tabindex` não negativo, fora de
+`aria-hidden`); qualquer focável nunca carimbado é a evidência da armadilha, e o teste falha
+nomeando-o. §28 reescrita para atribuir a exclusão de armadilha à cobertura, não ao término.
+
+Este é o melhor achado das cinco rodadas: os quatro anteriores encontraram defeitos: este
+encontrou uma **alegação sem lastro** — a diferença entre um teste que passa e um teste que
+prova, que é exatamente o padrão que a própria Rodada E (D-03) estabeleceu para este milestone e
+que eu não havia aplicado ao teste que escrevi para satisfazê-lo.
+
+Observação honesta sobre esta rodada: as cinco reaberturas do Codex (8,63 · 8,54 · 8,87 · 8,94 · 8,82) não
 foram ruído de avaliador. Cada uma achou algo real, e **três** delas acharam defeitos criados
 pela rodada de correção imediatamente anterior (D-01 pela Rodada C, F-01 pela Rodada E, G-01
 pela Rodada G) — exatamente o modo de falha que o protocolo existe para pegar, e que uma única
@@ -876,8 +897,10 @@ artificial).
 | G | Claude (reconciliação) | — | 2 aceitos, 0 rejeitados; o hook de overflow e o teste de foco reescritos |
 | H | Codex (verificação final estreita) | **8,94** | F-01 `FIXED` sem ressalvas; 1 achado S3 (G-01), criado pela Rodada G → reabre |
 | I | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; parada de wrap terminal excluída da asserção de ordem |
-| I | Codex (verificação final) | `PENDING_ROUND_I` | `PENDING_ROUND_I_RESULT` |
-| I | Claude (autoavaliação final) | `PENDING_CLAUDE_I` | — |
+| I | Codex (verificação final) | **8,82** | G-01 `FIXED`; 1 achado S2 (I-01): a alegação "sem armadilha" não tinha prova → reabre |
+| J | Claude (reconciliação) | — | 1 aceito, 0 rejeitados; o teste de foco passa a afirmar cobertura |
+| J | Codex (verificação final) | `PENDING_ROUND_J` | `PENDING_ROUND_J_RESULT` |
+| J | Claude (autoavaliação final) | `PENDING_CLAUDE_J` | — |
 
 Nenhum gate em FAIL. Nenhum S4. Nenhum S3 não resolvido em fluxo crítico.
 
