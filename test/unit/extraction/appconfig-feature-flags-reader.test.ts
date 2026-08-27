@@ -33,7 +33,7 @@ describe("AppConfigFeatureFlagsReader", () => {
   it("starts a session then returns the parsed flags on first poll", async () => {
     const client = makeClient({
       latest: () => ({
-        Configuration: Buffer.from(JSON.stringify({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false })),
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
         NextPollConfigurationToken: "next-1",
       }),
     });
@@ -45,7 +45,7 @@ describe("AppConfigFeatureFlagsReader", () => {
   it("reuses the cached session token across calls (no repeated StartConfigurationSession)", async () => {
     const client = makeClient({
       latest: () => ({
-        Configuration: Buffer.from(JSON.stringify({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false })),
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
         NextPollConfigurationToken: "next-1",
       }),
     });
@@ -61,7 +61,7 @@ describe("AppConfigFeatureFlagsReader", () => {
       latest: () => {
         if (first) {
           first = false;
-          return { Configuration: Buffer.from(JSON.stringify({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true })), NextPollConfigurationToken: "next-1" };
+          return { Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: true, OCR: true, WHATSAPP: true } })), NextPollConfigurationToken: "next-1" };
         }
         return { Configuration: Buffer.alloc(0), NextPollConfigurationToken: "next-2" };
       },
@@ -69,6 +69,23 @@ describe("AppConfigFeatureFlagsReader", () => {
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
     await reader.getFlags();
     await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true });
+  });
+
+  /** Regression for the 2026-08-27 M7 E2E verification finding: this adapter read the three
+   * booleans from the TOP level while `infra/modules/feature-flags` publishes them (and
+   * `implementation-blueprint.md` §17.3 specifies them) inside a `features` envelope — so
+   * every flag resolved to `false` no matter what was deployed, and the whole extraction
+   * pipeline was permanently fail-closed in `dev`. The old tests asserted the wrong shape,
+   * which is why the suite never caught it. */
+  it("reads the flags from the `features` envelope that AppConfig actually serves", async () => {
+    const client = makeClient({
+      latest: () => ({
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
+        NextPollConfigurationToken: "next-1",
+      }),
+    });
+    const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false });
   });
 
   it("throws (never resolves 'unknown, proceed') when the session cannot be started", async () => {

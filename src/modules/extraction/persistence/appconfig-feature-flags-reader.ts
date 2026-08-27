@@ -54,11 +54,19 @@ export class AppConfigFeatureFlagsReader implements FeatureFlagsReader {
 
     if (result.Configuration && result.Configuration.length > 0) {
       const text = Buffer.from(result.Configuration).toString("utf-8");
-      const parsed = JSON.parse(text) as Partial<FeatureFlags>;
+      // `implementation-blueprint.md` §17.3 (and `infra/modules/feature-flags/main.tf`, which
+      // publishes exactly that shape) wrap the three booleans in a `features` envelope. This
+      // adapter read them from the TOP level until 2026-08-27, so every flag resolved to
+      // `false` regardless of the deployed value and the whole M7 pipeline was permanently
+      // fail-closed in `dev` — proven end-to-end that day (see NEXT_SESSION_PROMPT.md's M7
+      // verification section). The top-level fallback is kept only as a tolerant second read,
+      // never as the canonical location.
+      const parsed = JSON.parse(text) as { features?: Partial<FeatureFlags> } & Partial<FeatureFlags>;
+      const features = parsed.features ?? parsed;
       this.cachedFlags = {
-        AI_EXTRACTION: parsed.AI_EXTRACTION === true,
-        OCR: parsed.OCR === true,
-        WHATSAPP: parsed.WHATSAPP === true,
+        AI_EXTRACTION: features.AI_EXTRACTION === true,
+        OCR: features.OCR === true,
+        WHATSAPP: features.WHATSAPP === true,
       };
     }
 
