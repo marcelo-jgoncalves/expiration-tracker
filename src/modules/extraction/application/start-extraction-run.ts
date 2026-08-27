@@ -87,6 +87,10 @@ export async function startExtractionRun(deps: StartExtractionRunDeps, input: St
       runId,
       pipelineVersion,
       cleanObject: input.cleanObject,
+      // RunTextract's classifier needs these (see ExtractionExecutionInput's doc comment) -
+      // `doc` was already fetched above, no extra read.
+      fileName: doc.fileName,
+      contentType: doc.mediaType,
     },
   });
 
