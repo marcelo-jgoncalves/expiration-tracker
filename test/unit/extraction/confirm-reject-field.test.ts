@@ -364,4 +364,15 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
       AuthorizationDeniedError,
     );
   });
+
+  it("cross-tenant: tenant B cannot confirm or reject tenant A's real extraction field, even knowing every real id", async () => {
+    const tenantB = ctx({ tenant: { tenantId: "t2", roles: ["OWNER"] } });
+    await expect(confirmField(deps, tenantB, { ...CONFIRM_PARAMS, idempotencyKey: "k-cross-1" })).rejects.toThrow(NotFoundError);
+    await expect(rejectField(deps, tenantB, { ...REJECT_PARAMS, idempotencyKey: "k-cross-2" })).rejects.toThrow(NotFoundError);
+
+    const field = table.read<ExtractedField>(extractedFieldKey("t1", "doc1", "expirationDate", "run1"));
+    expect(field?.state).toBe("PENDING_CONFIRMATION");
+    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    expect(item?.version).toBe(5); // unchanged
+  });
 });

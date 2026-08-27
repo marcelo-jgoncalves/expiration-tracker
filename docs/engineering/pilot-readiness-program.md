@@ -127,13 +127,43 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 3 — Privacy + LGPD + Tenant Isolation Readiness
 
-**Status geral: `NOT STARTED`.** Nenhum item desta wave foi auditado nesta sessão. Itens de maior prioridade a registrar para a próxima sessão (não implementados, só identificados a partir do prompt mestre):
+**Status geral: `PARTIAL` (W3-01 iniciado nesta sessão, resto `NOT STARTED`).**
+
+### W3-01 — Threat model executável de tenant isolation
+
+- **Problem**: nenhum inventário existia de quais módulos já tinham teste negativo cross-tenant (dois tenantIds reais, um tentando acessar o outro) vs. quais só herdavam isolamento "por construção" (chave sempre prefixada por tenant) sem prova executável disso.
+- **Evidence**: pesquisa dedicada (agente read-only) sobre `test/unit/**`/`test/integration/**` cobrindo 9 áreas: ExpirationItem, Document, Subject/RequirementAssignment/DocumentSubmission, Reminder/ReminderPolicy, Import, Extraction, resolver de identidade/autorização, idempotency store, e os key-builders do DynamoDB.
+- **Current state**: achado confirmado — `ExpirationItem` (via `test/integration/expiration-lifecycle.test.ts`) e o choke point de identidade (`test/integration/cross-tenant.test.ts`, `test/unit/identity/authorization.test.ts`) já tinham cobertura forte; `Document`, `Subject`/`RequirementAssignment`/`DocumentSubmission`, `Import`, `Extraction` (rotas confirm/reject) e o CRUD de `ReminderPolicy` **não tinham nenhum teste cross-tenant real** (só isolamento item-vs-item dentro do MESMO tenant, ou negação por falta de membership — não por tenant errado). Todos os 5 gaps concretos foram fechados nesta sessão: 13 testes novos (`getSubject`/`updateSubject`/`archiveSubject`/`deleteSubject`/`listSubjects`, `assignRequirement`/`getRequirementAssignment`/`updateRequirementAssignment`/`linkExpirationItem`/`deleteRequirementAssignment`/`getDocumentSubmission`/`listDocumentSubmissions`, `getDocument`/`listDocuments`/`reserveUpload`, `getImportJob`/`requestCommit`, `confirmField`/`rejectField`, `getPolicy`/`updatePolicy`/`disablePolicy` — todos provando 404, nunca um 403 vazado, quando tenant B usa um id real de tenant A). Nenhum bug real de isolamento foi encontrado — todo teste passou na primeira tentativa, confirmando que o padrão arquitetural (chave sempre `TENANT#<id>#...`, leitura sempre escopada por `ctx.tenant.tenantId` antes de `authorize()`) já era sólido; o valor do trabalho foi transformar uma garantia estrutural implícita numa prova executável e regressível.
+- **Smell registrado, não corrigido** (severidade baixa): `textractJobKey(jobId)` (`src/modules/extraction/domain/textract-job.ts`) é a única chave do sistema sem prefixo `TENANT#` — deliberado (o callback SNS do Textract só carrega `jobId`), já documentado e testado como tal (`test/unit/extraction/textract-job.test.ts`), mas nenhuma rota HTTP hoje aceita um `jobId` vindo do cliente para essa store — não corrigido porque não há vetor de ataque real hoje, só registrado como algo a vigiar se isso mudar.
+- **Desired state**: alcançado para os 5 gaps identificados. Fora do escopo desta rodada (não pesquisado): presigned URL de download real (o gerador de URL em si não é tenant-aware, a garantia vem inteiramente de quem chama `documentKey` antes — comportamento já coberto indiretamente pelos testes de `getDocument`/`reserveUpload` novos, mas nenhum teste chama o `UploadUrlSigner` real com um path cross-tenant deliberadamente).
+- **Dependencies**: nenhuma.
+- **Risk**: baixo — só testes novos, nenhuma mudança de comportamento.
+- **Priority**: P1.
+- **User/Pilot impact**: nenhuma regressão comportamental; reduz risco de uma refatoração futura introduzir silenciosamente um vazamento cross-tenant nessas 5 áreas sem que a suíte pegue.
+- **Implementation status**: `DONE` para os 5 gaps identificados (`Document`, `Subject`/`RequirementAssignment`/`DocumentSubmission`, `Import`, `Extraction confirm/reject`, `ReminderPolicy CRUD`).
+- **Verification**: 905/905 testes de backend passando (era 892 no início da sessão), `typecheck`/`lint`/`check-boundaries`/`check-docs` limpos.
+- **PR**: pendente de abrir (próximo passo desta sessão).
+- **Final status**: `DONE` (os 5 gaps concretos), `NOT STARTED` (presigned URL de download real, e as áreas W3-02 em diante abaixo).
+
+### W3-02 — Auditoria de proveniência de `tenantId`
+
+- **Current state**: **`PARTIAL`, evidência forte já coletada** (subproduto da pesquisa de W3-01, não uma auditoria dedicada). Confirmado por grep exaustivo dos 22 call sites de `authorize()` em `src/modules/*/application/*.ts`: todos passam `resource.tenantId` a partir de um valor já lido do banco numa query escopada por `ctx.tenant.tenantId` — nunca de um DTO/payload de cliente. `RequestContextResolver.resolve()` (`src/modules/identity/application/resolve-request-context.ts`) é o único lugar que deriva `tenantId` de um principal autenticado (cognitoSub → IdentityMapping). Nenhum type de persistência/autorização no repositório tem `tenantId` como parâmetro opcional (grep por `tenantId?:` só achou 3 ocorrências, todas em contexto de observabilidade/logging ou parsing de tag SES não-confiável, nenhuma em caminho de autorização). **Não verificado ainda**: propagação de `tenantId` em eventos/filas (EventBridge/SQS payloads) — os workers confiam no `tenantId` do corpo da mensagem sem revalidação contra outra fonte? Isso fica como o remanescente real deste item.
+- **Evidence**: relatório da pesquisa W3-01 (seções 7 e 9).
+- **Priority**: P1.
+- **Implementation status**: `PARTIAL`.
+- **Final status**: `PARTIAL` — persistence/idempotency confirmados; events/queues (mensagens SQS/EventBridge confiando cegamente em `tenantId` do payload) ainda não auditado.
+
+### W3-03 — Auditoria DynamoDB (PK/SK/GSIs/batch/conditional writes)
+
+- **Current state**: **`PARTIAL`**. A parte de key-builders (PK/SK sempre exigindo `tenantId` como parâmetro obrigatório, nenhuma variante insegura) foi confirmada pela pesquisa W3-01 (seção 9) para todo módulo de negócio. **Não verificado ainda**: se alguma query por GSI constrói o `GSIxPK` a partir de um valor não confiavelmente escopado, e se algum `BatchGetItem`/`BatchWriteItem` itera sobre uma lista de chaves sem revalidar o `tenantId` de cada uma individualmente antes de agir.
+- **Priority**: P1.
+- **Implementation status**: `PARTIAL`.
+- **Final status**: `PARTIAL` — key-builders confirmados seguros; GSI query construction e batch operations ainda não auditados especificamente.
+
+Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-01 | Threat model executável de tenant isolation — testes negativos cross-tenant (item/document/submission/presigned URL/requirement/reminder/import-export/extraction result) | §7.1 | P1 |
-| W3-02 | Auditoria de `tenantId` — nunca confiado do browser, propagado a persistence/events/queues/idempotency | §7.2/§7.5 | P1 |
-| W3-03 | Auditoria DynamoDB (PK/SK/GSIs/batch/conditional writes) contra cross-tenant exposure | §7.3 | P1 |
 | W3-04 | Auditoria S3 (object key/presigned URL/KMS/quarentena/clean/extraction transient) contra cross-tenant | §7.4 | P1 |
 | W3-05 | Redaction real em logs (CPF/email/document ids/tokens/guest secrets/OCR text) — `EXTRACTION_TRANSIENT` nunca em log/trace/DLQ | §7.6 | P1 |
 | W3-06 | Verificação de implementação real das classes de retenção (`retentionClass`/`purgeAfter`/`legalHold`/purge worker) | §7.7 | P2 |

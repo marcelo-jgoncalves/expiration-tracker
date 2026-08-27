@@ -15,11 +15,15 @@ const VALID_SHA256 = "a".repeat(64);
 const NOW = "2026-08-23T12:00:00.000Z";
 
 function ctx(): RequestContext {
+  return ctxFor(TENANT);
+}
+
+function ctxFor(tenantId: string): RequestContext {
   return {
     requestId: "r1",
     correlationId: "c1",
     principal: { userId: "user-1", cognitoSubject: "sub-1", sessionId: "session-1" },
-    tenant: { tenantId: TENANT, roles: ["OWNER"] },
+    tenant: { tenantId, roles: ["OWNER"] },
     auth: { issuedAt: NOW, expiresAt: "2026-08-23T13:00:00.000Z", tokenId: "jti-1" },
   };
 }
@@ -63,6 +67,16 @@ describe("ImportService (M11, D-042)", () => {
 
   it("getImportJob throws NotFoundError for an unknown jobId", async () => {
     await expect(service.getImportJob(ctx(), "does-not-exist")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("cross-tenant: tenant B cannot read or commit tenant A's real import job", async () => {
+    const { jobId } = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-cross-1");
+
+    await expect(service.getImportJob(ctxFor("tenant-2"), jobId)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.requestCommit(ctxFor("tenant-2"), jobId, 1)).rejects.toBeInstanceOf(NotFoundError);
+
+    const stillThere = await service.getImportJob(ctx(), jobId);
+    expect(stillThere.status).toBe("UPLOADED");
   });
 
   it("requestCommit throws ConflictError when the job is not PREVIEW_READY", async () => {
