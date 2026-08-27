@@ -177,11 +177,26 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **PR**: junto com os outros achados desta sessão.
 - **Final status**: `DONE` (auditoria) — os 3 achados ficam registrados como conhecimento, não como pendência bloqueante.
 
+### W3-05 — Redaction real em logs/trace/DLQ
+
+- **Current state**: **`DONE` (auditoria)**. Pesquisa dedicada confirmou que `SecureLogger` (`src/shared/observability/logger.ts`) roda TODA linha de log através de `Redactor.redact()` (`src/shared/observability/redactor.ts`) — não é disciplina de quem chama, é automático e central. Dois mecanismos independentes: denylist de nome de campo (36 entradas, `schemas/sensitive-fields.json`, casamento exato case-insensitive, recursivo até profundidade 6) e regex de padrão de valor (email/bearer-token/key-value) aplicado a QUALQUER string, independente do nome do campo. `Error` é tratado à parte (`redactError`): só `name`/message redigida/primeira linha do stack, nunca o stack completo. Auditados os 63 call sites de `logger.*` do repositório inteiro (todos em `src/runtime/aws/handlers/**` + `security-audit.ts`; **zero** em `src/modules/**`/`src/workers/**`) — nenhum loga corpo bruto de evento, item DynamoDB completo, JWT/cookie, texto OCR ou campo CPF/email diretamente; `AppError.details`/`.cause` nunca são logados por inteiro, só `.message`/`.code`. `EXTRACTION_TRANSIENT` confirmado nunca alcançar log/trace/DLQ: nenhum `logger.*` perto de `ocrText`/prompt/resposta do Bedrock em nenhum handler de extração, e `infra/modules/extraction-workflow/main.tf:30-37` tem `include_execution_data = false`/`level = "ERROR"` **verificado literalmente no Terraform real**, batendo exatamente com a alegação já feita em `NEXT_SESSION_PROMPT.md`/comentários do código. `src/modules/bff/**` e `src/modules/subject/**` (tokens de sessão/guest) não têm NENHUM `logger.*` — nada para vazar por logging hoje.
+- **Achados reais registrados, nenhum corrigido (nenhum é vazamento ativo hoje)**:
+  1. **`schemas/queues/notification-ses-callback.v1.json` permite `additionalProperties: true` e embrulha o evento SES bruto** — por design documentado no próprio schema, já que o corpo real de bounce/complaint da SES inclui endereços de e-mail do destinatário (`mail.destination`, `bounce.bouncedRecipients[].emailAddress`). Uma mensagem "veneno" que cai na DLQ dessa fila carrega e-mail real de destinatário por até 14 dias (retenção padrão do módulo `sqs-worker-queue`). O código consumidor (`ses-callback-handler.ts`) só lê `messageId`/`timestamp`/`tags`, nunca loga o corpo inteiro — então não é vazamento de LOG, é PII em repouso na própria DLQ, um tradeoff já assumido no schema, nunca testado.
+  2. ~~**A denylist de nome de campo do redactor é por casamento EXATO, não fuzzy**~~ — **CORRIGIDO nesta sessão**: tinha `"token"` mas não `"guestToken"` (nome de campo real em `src/modules/subject/**`), tinha `"cognitoSubject"` mas o campo real do código é `"cognitoSub"` (`src/modules/identity/**`). Nenhum dos dois era logado em lugar nenhum (zero vazamento ativo) — mas o risco era real e latente. Corrigido adicionando `"cognitoSub"`/`"guestToken"` a `schemas/sensitive-fields.json`'s `redactedFieldNames` (mudança de config, nível 1-2 da escala de risco, não precisou do protocolo `AGENTS.md` §4) + 1 teste de regressão novo em `test/unit/redactor.test.ts`.
+- **Desired state**: achado 1 é aceitável como está (tradeoff documentado, sem alternativa óbvia sem perder o corpo de diagnóstico do bounce/complaint real) — candidato a um teste futuro simulando uma mensagem SES venenosa na DLQ, não urgente. Achado 2 fechado.
+- **Dependencies**: nenhuma.
+- **Risk**: nenhum vazamento ativo — achado 2 era hardening preventivo, já fechado.
+- **Priority**: P3 (achado 1, tradeoff já aceito, não bloqueante).
+- **User/Pilot impact**: nenhum hoje.
+- **Implementation status**: `DONE` (auditoria + achado 2 corrigido); achado 1 registrado, não corrigido (tradeoff aceito).
+- **Verification**: relatório do agente, citações de arquivo/linha para as 6 perguntas de investigação, incluindo verificação literal do `logging_configuration` real no Terraform. 906/906 testes de backend (era 905), `typecheck`/`lint`/`check-boundaries`/`check-docs` limpos.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE`.
+
 Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-05 | Redaction real em logs (CPF/email/document ids/tokens/guest secrets/OCR text) — `EXTRACTION_TRANSIENT` nunca em log/trace/DLQ | §7.6 | P1 |
 | W3-06 | Verificação de implementação real das classes de retenção (`retentionClass`/`purgeAfter`/`legalHold`/purge worker) | §7.7 | P2 |
 | W3-07 | DSR (access/export/deletion) — real ou design-only? | §7.8/§7.9 | P2 |
 | W3-08 | Inventário de região AWS/subprocessadores + tabela de subprocessor register | §7.11-7.13 | P2 |
