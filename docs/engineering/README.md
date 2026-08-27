@@ -46,6 +46,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `02-engineering-fitness-functions.md` | normativo atual | Verificações executáveis derivadas da rubrica CONGELADA |
 | `00-research-bibliography.md` | histórico/fundamentação | Fontes de pesquisa que embasam a rubrica original |
 | `03-repository-baseline.md` | histórico | Estado do repositório no início da Engineering Maturity Review — nunca estado atual |
+| `pilot-readiness-program.md` | registro vivo de backlog (não normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`expiration-tracker-next-days-master-plan-and-ai-prompt.md`, raiz) — DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
 | `reviews/` | histórico/evidência de rodada | Artefatos de toda rodada Claude↔Codex de processo/qualidade — ver seção própria abaixo |
 
 ## `reviews/` — convenção de nomenclatura e classificação
