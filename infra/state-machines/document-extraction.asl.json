@@ -28,13 +28,13 @@
       ],
       "Catch": [
         {
-          "Comment": "UnsupportedDocumentType (classifier), OcrDisabled (kill switch), TextractUnsupportedDocument/TextractPartialFailure/TextractJobPersistenceFailed (Textract-time failures), and any timeout - ALL fall through to the deterministic parser, never straight to MarkPendingConfirmation (design §1.2 rodada-3 correction).",
+          "Comment": "UnsupportedDocumentTypeError/OcrDisabledError/TextractUnsupportedDocumentError/TextractJobPersistenceFailedError are unhandled exceptions thrown synchronously inside startOcr() (START_OCR invocation) - Step Functions surfaces these as the Lambda's errorType, i.e. the JS Error class name, never AppError.code (found in the 2026-08-27 real E2E run, NEXT_SESSION_PROMPT.md - the previous version of this Catch used the .code values and never matched). TextractPartialFailure is different: completeOcr() (the later, SQS-triggered COMPLETE_OCR invocation) never throws it - it constructs a TextractPartialFailureError purely to read its .code and passes that string verbatim as the `error` argument of an explicit SendTaskFailure call (sfn-task-token-sender.ts), so Step Functions sees the literal code string here, not the class name - keep this one as-is if the sender contract doesn't change.",
           "ErrorEquals": [
-            "UnsupportedDocumentType",
-            "OcrDisabled",
-            "TextractUnsupportedDocument",
+            "UnsupportedDocumentTypeError",
+            "OcrDisabledError",
+            "TextractUnsupportedDocumentError",
             "TextractPartialFailure",
-            "TextractJobPersistenceFailed",
+            "TextractJobPersistenceFailedError",
             "States.Timeout",
             "States.HeartbeatTimeout"
           ],
@@ -179,7 +179,7 @@
       "OutputPath": "$.Payload",
       "Retry": [
         {
-          "ErrorEquals": ["ExtractionCommitFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "ErrorEquals": ["ExtractionCommitFailedError", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
           "IntervalSeconds": 2,
           "BackoffRate": 2,
           "MaxAttempts": 3,
@@ -202,7 +202,7 @@
       "OutputPath": "$.Payload",
       "Retry": [
         {
-          "ErrorEquals": ["ExtractionCommitFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "ErrorEquals": ["ExtractionCommitFailedError", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
           "IntervalSeconds": 2,
           "BackoffRate": 2,
           "MaxAttempts": 3,
