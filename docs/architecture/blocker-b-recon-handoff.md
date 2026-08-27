@@ -1,6 +1,6 @@
 # BLOCKER-B — Recon Handoff
 
-> **Status: RECON QUASE COMPLETO — nenhum código alterado ainda.** Notification/delivery (M4) e infra Terraform confirmados no código; arquitetura/decisions-log/ADRs mapeados. Falta só a confirmação de código do materializer/trigger de materialização (fork em andamento — ver §4/§6). Este documento existe para que qualquer sessão retomando o trabalho não repita o reconhecimento já feito. Não é o deliverable final (`docs/architecture/reminder-delivery-pipeline.md`, ainda não criado) nem uma decisão de arquitetura.
+> **Status: RECON COMPLETO — causa raiz confirmada no código. Nenhum código alterado ainda.** Notification/delivery (M4), infra Terraform, e agora o materializer/trigger de materialização — todos confirmados no código (ver §3.4). Próximo passo é decisão de arquitetura (ainda em aberto) seguida de implementação. Texto integral do prompt de missão original (~138 seções): `docs/architecture/blocker-b-mission-brief.md` (persistido verbatim nesta sessão — antes só existia no histórico de conversa, não sobreviveria a uma troca de máquina/sessão). Este documento existe para que qualquer sessão retomando o trabalho não repita o reconhecimento já feito. Não é o deliverable final (`docs/architecture/reminder-delivery-pipeline.md`, ainda não criado) nem uma decisão de arquitetura.
 
 ## 1. Missão (condensada)
 
