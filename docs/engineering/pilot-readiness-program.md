@@ -160,11 +160,27 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **Implementation status**: `PARTIAL`.
 - **Final status**: `PARTIAL` — key-builders confirmados seguros; GSI query construction e batch operations ainda não auditados especificamente.
 
+### W3-04 — Auditoria S3 (object key/presigned URL/KMS/quarentena/clean/extraction transient)
+
+- **Current state**: **`DONE` (auditoria), `PARTIAL` (remediação)**. Pesquisa dedicada (agente read-only) cobrindo os 4 buckets do sistema (quarentena, clean/pós-scan, import raw, extraction transient). **Conclusão geral: isolamento é 100% de disciplina de aplicação (chave sempre construída server-side a partir de `ctx.tenant.tenantId`/token de guest resolvido/linha já lida do DynamoDB, nunca de key/path vindo do cliente), nunca ListObjects de prefixo largo, e a promoção quarentena→clean rederiva a chave a partir da própria linha `Document` em vez de confiar no evento S3 recebido.** Nenhuma vulnerabilidade cross-tenant explorável foi encontrada.
+- **Achados reais registrados, nenhum corrigido (nenhum é explorável hoje)**:
+  1. A chave do artefato OCR transitório (`ocr/<runId>/<uuid>.json`, `S3OcrArtifactStore`) **não** carrega `tenantId` — isolamento depende inteiramente de `runId` ser um UUID opaco gerado no servidor, nunca exposto a nenhuma rota HTTP. Mesma classe de achado que `textractJobKey` (DynamoDB, já registrado no W3-01), agora confirmado do lado S3 também. Sem vetor de ataque real hoje; vira risco só se uma ferramenta futura (debug/admin/DLQ-replay) algum dia aceitar um `ExtractionArtifactRef` vindo do cliente.
+  2. Nenhum teste unitário exercita os adapters S3 reais (`S3UploadUrlSigner`/`S3DocumentObjectStore`/`S3ImportObjectStore`/`S3OcrArtifactStore`) com uma chave deliberadamente cross-tenant — toda prova cross-tenant hoje vive na camada de autorização DynamoDB (404 na leitura), nunca no próprio signer/adapter S3. `S3UploadUrlSigner` em si confia cegamente na chave que recebe (correto architeturalmente, já que quem constrói a chave é sempre o caller confiável) mas não há teste pinning esse contrato.
+  3. Nenhuma política de bucket/KMS restringe acesso por prefixo de tenant — todo IAM role tem `Get/Put/Delete` no bucket inteiro, sem `Condition` de `s3:prefix`. Isolamento é inteiramente de camada de aplicação, sem defesa em profundidade nativa da AWS. **Decisão de custo já documentada** (`infra/modules/document-buckets/main.tf`, CMK gerenciada `alias/aws/s3` compartilhada) — não é um achado novo de arquitetura, só a confirmação de que essa mesma decisão também significa zero prefixo-por-tenant no IAM.
+- **Desired state**: achados 1 e 3 são aceitáveis como estão (custo/complexidade vs. risco real, sem vetor de ataque hoje) — não viram tarefa de correção a menos que um uso futuro mude o cálculo. Achado 2 é candidato barato a um teste futuro, mas baixo valor (o adapter é um passthrough trivial; o contrato que importa já está coberto indiretamente pelos testes de `reserveUpload`/`getDocument` cross-tenant do W3-01).
+- **Dependencies**: nenhuma.
+- **Risk**: nenhum novo risco introduzido; achados são observações, não vulnerabilidades.
+- **Priority**: P2 para os 3 achados (nenhum bloqueia Pilot).
+- **User/Pilot impact**: nenhum — confirma que a superfície de maior sensibilidade (documentos de usuário reais) já está segura por construção.
+- **Implementation status**: `DONE` (auditoria).
+- **Verification**: relatório do agente, citações de arquivo/linha para as 6 perguntas de investigação.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE` (auditoria) — os 3 achados ficam registrados como conhecimento, não como pendência bloqueante.
+
 Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-04 | Auditoria S3 (object key/presigned URL/KMS/quarentena/clean/extraction transient) contra cross-tenant | §7.4 | P1 |
 | W3-05 | Redaction real em logs (CPF/email/document ids/tokens/guest secrets/OCR text) — `EXTRACTION_TRANSIENT` nunca em log/trace/DLQ | §7.6 | P1 |
 | W3-06 | Verificação de implementação real das classes de retenção (`retentionClass`/`purgeAfter`/`legalHold`/purge worker) | §7.7 | P2 |
 | W3-07 | DSR (access/export/deletion) — real ou design-only? | §7.8/§7.9 | P2 |
