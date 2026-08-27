@@ -107,10 +107,25 @@ describe("startExtractionRun", () => {
       runId: expectedRunId,
       pipelineVersion: PIPELINE_VERSION_V1,
       cleanObject: CLEAN_OBJECT,
+      fileName: "cert.pdf",
+      contentType: "application/pdf",
     });
 
     const stored = runs.items.get(`TENANT#t1#DOC#doc1#RUN#${expectedRunId}`) as { status: string } | undefined;
     expect(stored?.status).toBe("RUNNING");
+  });
+
+  it("passes the Document's real fileName/mediaType through to the execution input - RunTextract's classifier (start-ocr.ts) requires fileName and throws without it (real bug found 2026-08-27 verifying against dev)", async () => {
+    const runs = new FakeExtractionRunStore();
+    const executions = new FakeExecutionStarter();
+    const doc = cleanDocument({ fileName: "invoice-2026.PNG", mediaType: "image/png" });
+    await startExtractionRun(
+      { documents: new FakeDocumentReader(doc), runs, executions },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT },
+    );
+
+    expect(executions.calls[0]?.input.fileName).toBe("invoice-2026.PNG");
+    expect(executions.calls[0]?.input.contentType).toBe("image/png");
   });
 
   it("is idempotent: a second invocation for the same document/version finds the run already there but still calls startExecution (AWS-side idempotency is the real dedup, see the port's doc comment)", async () => {

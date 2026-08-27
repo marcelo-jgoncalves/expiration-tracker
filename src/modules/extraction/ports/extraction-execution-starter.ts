@@ -12,6 +12,14 @@ export interface ExtractionExecutionInput {
   runId: string;
   pipelineVersion: string;
   cleanObject: { bucket: string; key: string; versionId: string };
+  /** RunTextract's START_OCR operation (`start-ocr.ts`) requires these to classify the document
+   * type before calling Textract - real bug found 2026-08-27 verifying the pipeline end-to-end
+   * against `dev`: without them, `classifyDocumentType` throws on every real invocation
+   * (`fileName` is not optional there), which `toAppError` turns into a generic `InternalError`
+   * that the ASL's `States.ALL` Catch silently routes to the degraded (no-OCR) path - meaning
+   * OCR never actually ran on any real document despite the pipeline being "code-complete". */
+  fileName: string;
+  contentType?: string;
 }
 
 export interface ExtractionExecutionStarter {
