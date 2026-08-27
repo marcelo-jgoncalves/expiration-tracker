@@ -145,12 +145,25 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **PR**: pendente de abrir (próximo passo desta sessão).
 - **Final status**: `DONE` (os 5 gaps concretos), `NOT STARTED` (presigned URL de download real, e as áreas W3-02 em diante abaixo).
 
+### W3-02 — Auditoria de proveniência de `tenantId`
+
+- **Current state**: **`PARTIAL`, evidência forte já coletada** (subproduto da pesquisa de W3-01, não uma auditoria dedicada). Confirmado por grep exaustivo dos 22 call sites de `authorize()` em `src/modules/*/application/*.ts`: todos passam `resource.tenantId` a partir de um valor já lido do banco numa query escopada por `ctx.tenant.tenantId` — nunca de um DTO/payload de cliente. `RequestContextResolver.resolve()` (`src/modules/identity/application/resolve-request-context.ts`) é o único lugar que deriva `tenantId` de um principal autenticado (cognitoSub → IdentityMapping). Nenhum type de persistência/autorização no repositório tem `tenantId` como parâmetro opcional (grep por `tenantId?:` só achou 3 ocorrências, todas em contexto de observabilidade/logging ou parsing de tag SES não-confiável, nenhuma em caminho de autorização). **Não verificado ainda**: propagação de `tenantId` em eventos/filas (EventBridge/SQS payloads) — os workers confiam no `tenantId` do corpo da mensagem sem revalidação contra outra fonte? Isso fica como o remanescente real deste item.
+- **Evidence**: relatório da pesquisa W3-01 (seções 7 e 9).
+- **Priority**: P1.
+- **Implementation status**: `PARTIAL`.
+- **Final status**: `PARTIAL` — persistence/idempotency confirmados; events/queues (mensagens SQS/EventBridge confiando cegamente em `tenantId` do payload) ainda não auditado.
+
+### W3-03 — Auditoria DynamoDB (PK/SK/GSIs/batch/conditional writes)
+
+- **Current state**: **`PARTIAL`**. A parte de key-builders (PK/SK sempre exigindo `tenantId` como parâmetro obrigatório, nenhuma variante insegura) foi confirmada pela pesquisa W3-01 (seção 9) para todo módulo de negócio. **Não verificado ainda**: se alguma query por GSI constrói o `GSIxPK` a partir de um valor não confiavelmente escopado, e se algum `BatchGetItem`/`BatchWriteItem` itera sobre uma lista de chaves sem revalidar o `tenantId` de cada uma individualmente antes de agir.
+- **Priority**: P1.
+- **Implementation status**: `PARTIAL`.
+- **Final status**: `PARTIAL` — key-builders confirmados seguros; GSI query construction e batch operations ainda não auditados especificamente.
+
 Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-02 | Auditoria de `tenantId` — nunca confiado do browser, propagado a persistence/events/queues/idempotency | §7.2/§7.5 | P1 |
-| W3-03 | Auditoria DynamoDB (PK/SK/GSIs/batch/conditional writes) contra cross-tenant exposure | §7.3 | P1 |
 | W3-04 | Auditoria S3 (object key/presigned URL/KMS/quarentena/clean/extraction transient) contra cross-tenant | §7.4 | P1 |
 | W3-05 | Redaction real em logs (CPF/email/document ids/tokens/guest secrets/OCR text) — `EXTRACTION_TRANSIENT` nunca em log/trace/DLQ | §7.6 | P1 |
 | W3-06 | Verificação de implementação real das classes de retenção (`retentionClass`/`purgeAfter`/`legalHold`/purge worker) | §7.7 | P2 |
