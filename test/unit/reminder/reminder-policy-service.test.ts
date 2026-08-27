@@ -9,7 +9,7 @@ import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-stor
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
 import { policyRefKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
-import { ConflictError, ValidationError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
 const TENANT = "t1";
@@ -254,5 +254,34 @@ describe("ReminderPolicyService - disablePolicy", () => {
     const disableEvent = events[1]!;
     expect((disableEvent["payload"] as { itemId?: string }).itemId).toBe("item1");
     expect((disableEvent["payload"] as { previousItemId?: string }).previousItemId).toBeNull();
+  });
+});
+
+describe("ReminderPolicyService - cross-tenant isolation", () => {
+  it("tenant B cannot read, update or disable tenant A's real policy, even knowing its policyId", async () => {
+    const store = new InMemoryReminderStore();
+    const service = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => NOW });
+    const tenantA = contextFor(TENANT);
+    const tenantB = contextFor("t2");
+
+    const policy = await service.createPolicy(tenantA, {
+      scope: "TEMPLATE",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+
+    await expect(service.getPolicy(tenantB, policy.policyId)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      service.updatePolicy(
+        tenantB,
+        policy.policyId,
+        { scope: "TEMPLATE", rule: { name: "hijacked", triggers: policy.triggers, timeZone: policy.timeZone, channels: policy.channels } },
+        policy.version,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.disablePolicy(tenantB, policy.policyId, policy.version)).rejects.toBeInstanceOf(NotFoundError);
+
+    const stillThere = await service.getPolicy(tenantA, policy.policyId);
+    expect(stillThere.name).not.toBe("hijacked");
+    expect(stillThere.enabled).toBe(true);
   });
 });

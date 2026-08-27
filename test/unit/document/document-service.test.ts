@@ -10,11 +10,15 @@ const BUCKET = "quarantine-bucket";
 const VALID_SHA256 = "a".repeat(64);
 
 function ctx(): RequestContext {
+  return ctxFor("t1");
+}
+
+function ctxFor(tenantId: string): RequestContext {
   return {
     requestId: "r1",
     correlationId: "c1",
     principal: { userId: "user-1", cognitoSubject: "sub-1", sessionId: "session-1" },
-    tenant: { tenantId: "t1", roles: ["OWNER"] },
+    tenant: { tenantId, roles: ["OWNER"] },
     auth: { issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), tokenId: "jti-1" },
   };
 }
@@ -157,5 +161,33 @@ describe("DocumentService.getDocument/listDocuments (BLOCKER-A)", () => {
     await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-list-3");
     const documents = await service.listDocuments(ctx(), "item2");
     expect(documents).toEqual([]);
+  });
+
+  it("cross-tenant: tenant B cannot read tenant A's document, even knowing the real itemId/documentId", async () => {
+    const { service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-cross-1");
+
+    await expect(service.getDocument(ctxFor("t2"), "item1", reserved.documentId)).rejects.toThrow(/not found/i);
+  });
+
+  it("cross-tenant: listDocuments for tenant B never returns tenant A's documents under the same itemId string", async () => {
+    const { service } = buildService();
+    await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-cross-2");
+
+    const documents = await service.listDocuments(ctxFor("t2"), "item1");
+    expect(documents).toEqual([]);
+  });
+
+  it("cross-tenant: reserveUpload always writes the new Document/UploadSlot under the caller's own tenant partition, never the itemId's original tenant", async () => {
+    const { store, service } = buildService();
+    const tenantADoc = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-cross-3");
+    const tenantBDoc = await service.reserveUpload(ctxFor("t2"), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-cross-4");
+
+    expect(tenantADoc.documentId).not.toBe(tenantBDoc.documentId);
+    const rows = store.allItems().filter((i) => i["entityType"] === "Document") as Array<Record<string, unknown>>;
+    expect(rows.find((r) => r["documentId"] === tenantADoc.documentId)?.["tenantId"]).toBe("t1");
+    expect(rows.find((r) => r["documentId"] === tenantBDoc.documentId)?.["tenantId"]).toBe("t2");
+    await expect(service.getDocument(ctxFor("t2"), "item1", tenantADoc.documentId)).rejects.toThrow(/not found/i);
+    await expect(service.getDocument(ctx(), "item1", tenantBDoc.documentId)).rejects.toThrow(/not found/i);
   });
 });

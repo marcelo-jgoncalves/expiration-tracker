@@ -164,4 +164,39 @@ describe("RequirementService", () => {
       ).rejects.toBeInstanceOf(AuthorizationDeniedError);
     });
   });
+
+  const tenantB = () => ctx({ tenant: { tenantId: "tenant-2", roles: ["OWNER"] } });
+
+  it("cross-tenant: tenant B cannot assign a requirement against tenant A's real subjectId (404, not a leaked 403)", async () => {
+    await expect(requirements.assignRequirement(tenantB(), subject.subjectId, { requirementName: "hijacked" })).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("cross-tenant: tenant B cannot read, update, link or delete tenant A's real requirement assignment", async () => {
+    const assignment = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "Seguro RC" });
+
+    await expect(requirements.getRequirementAssignment(tenantB(), subject.subjectId, assignment.assignmentId)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      requirements.updateRequirementAssignment(tenantB(), subject.subjectId, assignment.assignmentId, { notes: "hijacked" }, assignment.version),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      requirements.linkExpirationItem(tenantB(), subject.subjectId, assignment.assignmentId, "item-1", assignment.version),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      requirements.deleteRequirementAssignment(tenantB(), subject.subjectId, assignment.assignmentId, assignment.version),
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    const stillThere = await requirements.getRequirementAssignment(ctx(), subject.subjectId, assignment.assignmentId);
+    expect(stillThere.notes).not.toBe("hijacked");
+    expect(stillThere.status).toBe("MISSING");
+  });
+
+  it("cross-tenant: tenant B cannot read tenant A's document submission, even knowing the real ids", async () => {
+    const assignment = await requirements.assignRequirement(ctx(), subject.subjectId, { requirementName: "a" });
+    await store.putIfAbsent(makeSubmission({ subjectId: subject.subjectId, assignmentId: assignment.assignmentId, submissionId: "sub-1" }));
+
+    await expect(
+      requirements.getDocumentSubmission(tenantB(), subject.subjectId, assignment.assignmentId, "sub-1"),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(requirements.listDocumentSubmissions(tenantB(), subject.subjectId, assignment.assignmentId)).rejects.toBeInstanceOf(NotFoundError);
+  });
 });

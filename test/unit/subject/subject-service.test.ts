@@ -112,4 +112,32 @@ describe("SubjectService", () => {
     expect(archived).toHaveLength(1);
     expect(archived[0]?.subjectId).toBe(a.subjectId);
   });
+
+  const tenantB = () => ctx({ tenant: { tenantId: "tenant-2", roles: ["OWNER"] } });
+
+  it("cross-tenant: tenant B cannot read, update, archive or delete tenant A's subject, even by guessing its subjectId", async () => {
+    const subject = await service.createSubject(ctx(), { type: "VENDOR", displayName: "ACME Seguros" });
+
+    await expect(service.getSubject(tenantB(), subject.subjectId)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.updateSubject(tenantB(), subject.subjectId, { notes: "hijacked" }, subject.version)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.archiveSubject(tenantB(), subject.subjectId, subject.version)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.deleteSubject(tenantB(), subject.subjectId, subject.version)).rejects.toBeInstanceOf(NotFoundError);
+
+    const stillThere = await service.getSubject(ctx(), subject.subjectId);
+    expect(stillThere.notes).not.toBe("hijacked");
+    expect(stillThere.status).toBe("ACTIVE");
+  });
+
+  it("listSubjects for one tenant never returns another tenant's subjects", async () => {
+    await service.createSubject(ctx(), { type: "VENDOR", displayName: "tenant-1 subject" });
+    await service.createSubject(tenantB(), { type: "VENDOR", displayName: "tenant-2 subject" });
+
+    const tenant1Active = await service.listSubjects(ctx(), { status: "ACTIVE" });
+    const tenant2Active = await service.listSubjects(tenantB(), { status: "ACTIVE" });
+
+    expect(tenant1Active).toHaveLength(1);
+    expect(tenant1Active[0]?.displayName).toBe("tenant-1 subject");
+    expect(tenant2Active).toHaveLength(1);
+    expect(tenant2Active[0]?.displayName).toBe("tenant-2 subject");
+  });
 });
