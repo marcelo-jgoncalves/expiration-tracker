@@ -20,6 +20,9 @@ import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { ApiError, isConflict, isUnknownOutcome } from "../../api/errors.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
+import { PageHeader } from "../../components/ui/Layout.js";
+import { Button, ButtonLink } from "../../components/ui/Button.js";
+import { InlineNotice } from "../../components/ui/InlineNotice.js";
 
 export function RenewItem() {
   const { itemId } = useParams<{ itemId: string }>();
@@ -66,37 +69,58 @@ export function RenewItem() {
 
   return (
     <div>
-      <p>
-        <Link to={`/items/${item.itemId}`}>← Voltar para o vencimento</Link>
-      </p>
-      <h1>Renovar vencimento</h1>
-      <p>
-        <strong>{item.name}</strong> - ciclo atual: {formatRelativeDueDate(item.dueDate, new Date())}
-      </p>
-      <p>
-        Renovar cria um novo ciclo de vencimento: o ciclo atual (vencimento em {formatAbsoluteDate(item.dueDate)}) será marcado como <strong>renovado</strong> e
-        um novo vencimento ativo será criado com a nova data. Isso não é o mesmo que editar a data deste vencimento.
-      </p>
+      <PageHeader
+        above={<Link to={`/items/${item.itemId}`}>← Voltar para o vencimento</Link>}
+        title="Renovar vencimento"
+        description={
+          <>
+            <strong>{item.name}</strong> - ciclo atual: {formatRelativeDueDate(item.dueDate, new Date())}
+          </>
+        }
+      />
+      {/* The consequence of the action, stated before submission (Core Expiration slice §37).
+          `info`, not `warning`: renewing is a normal, expected operation - toning it as a
+          hazard would be crying wolf. */}
+      <InlineNotice tone="info">
+        <p>
+          Renovar cria um novo ciclo de vencimento: o ciclo atual (vencimento em {formatAbsoluteDate(item.dueDate)}) será marcado como <strong>renovado</strong> e
+          um novo vencimento ativo será criado com a nova data. Isso não é o mesmo que editar a data deste vencimento.
+        </p>
+      </InlineNotice>
       {conflict ? (
-        <div role="alert">
-          <p>Este vencimento mudou desde que você o abriu. Recarregue para ver o estado atual antes de renovar novamente.</p>
-          <button
-            type="button"
-            onClick={() => {
-              mutation.reset();
-              void itemQuery.refetch();
-            }}
-          >
-            Recarregar
-          </button>
-        </div>
+        // OCC conflict (mission §48): the record changed, the system did not break. Its own
+        // visual pattern with its own recovery action - never the generic error treatment,
+        // and never the critical tone, which would read as "something went wrong".
+        <InlineNotice
+          tone="warning"
+          announce="alert"
+          title="Este vencimento mudou desde que você o abriu"
+          actions={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                mutation.reset();
+                void itemQuery.refetch();
+              }}
+            >
+              Recarregar
+            </Button>
+          }
+        >
+          <p>Recarregue para ver o estado atual antes de renovar novamente.</p>
+        </InlineNotice>
       ) : null}
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={generalErrors} />
-        <TextField label="Nova data de vencimento" type="date" value={newDueDate} onChange={setNewDueDate} required />
-        <button type="submit" disabled={mutation.isPending || conflict}>
-          {mutation.isPending ? "Renovando…" : "Confirmar renovação"}
-        </button>
+        <TextField id="renew-due-date" label="Nova data de vencimento" type="date" value={newDueDate} onChange={setNewDueDate} required />
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending} disabled={conflict}>
+            {mutation.isPending ? "Renovando…" : "Confirmar renovação"}
+          </Button>
+          <ButtonLink to={`/items/${item.itemId}`} variant="tertiary">
+            Cancelar
+          </ButtonLink>
+        </div>
       </form>
     </div>
   );

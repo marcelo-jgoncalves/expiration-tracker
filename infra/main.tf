@@ -1867,3 +1867,320 @@ locals {
   # (parameterized by Lambda ARN variables, still not instantiated from infra/main.tf).
   textract_task_handler_function_arn = module.textract_task_handler.live_alias_arn
 }
+
+# --- M7 (extração/OCR): PdfParserTaskHandler (item 5, D-035 §1.3) --------------------------
+# Real runtime for the ASL's `RunDeterministicParser` state - a MUCH narrower footprint than
+# TextractTaskHandler: no DynamoDB, no Textract, no KMS, no SNS/SQS, no Step Functions client
+# (the ASL state is a plain `arn:aws:states:::lambda:invoke`, not `waitForTaskToken` - there
+# is no task token anywhere in this handler). Only reads the `EXTRACTION_TRANSIENT` bucket and
+# the shared `feature-flags` AppConfig application. Same "deployable but inert until the state
+# machine exists" posture as items 2/4 above - not gated by `var.extraction_pipeline_enabled`.
+
+data "aws_iam_policy_document" "pdf_parser_task_s3" {
+  statement {
+    sid       = "ReadExtractionTransientBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+locals {
+  pdf_parser_task_handler_appconfig_ids = {
+    application_id           = module.feature_flags.application_id
+    environment_id           = module.feature_flags.environment_id
+    configuration_profile_id = module.feature_flags.configuration_profile_id
+  }
+}
+
+module "pdf_parser_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-pdf-parser-task-handler"
+  handler_name    = "pdf-parser-task-handler"
+  source_dir      = "${local.dist_dir}/pdf-parser-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME   = aws_s3_bucket.extraction_transient.bucket
+    APPCONFIG_APPLICATION_ID           = local.pdf_parser_task_handler_appconfig_ids.application_id
+    APPCONFIG_ENVIRONMENT_ID           = local.pdf_parser_task_handler_appconfig_ids.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = local.pdf_parser_task_handler_appconfig_ids.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.feature_flags.feature_flags_read_policy_json,
+    data.aws_iam_policy_document.pdf_parser_task_s3.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# `RunDeterministicParser` invocation permission for Step Functions - same "deployable, not
+# yet wired" posture as `aws_lambda_permission.textract_task_from_state_machine` above.
+resource "aws_lambda_permission" "pdf_parser_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.pdf_parser_task_handler.live_alias_arn
+  qualifier     = module.pdf_parser_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as
+  # local.textract_task_handler_function_arn above).
+  pdf_parser_task_handler_function_arn = module.pdf_parser_task_handler.live_alias_arn
+}
+
+# --- M7 (extração/OCR): BedrockExtractionTaskHandler (item 6, D-035 §1.9/§1.11) ------------
+# Real runtime for the ASL's `RunBedrock` state - same "plain synchronous lambda:invoke, no
+# task token" shape as PdfParserTaskHandler above, but needs DynamoDB (TenantQuotaService's
+# AI_CALL reservation, same table/pattern as TextractTaskHandler), S3 read-only on the
+# EXTRACTION_TRANSIENT bucket (never write - this handler never produces a new OCR artifact,
+# only reads the one PdfParserTaskHandler already read), the shared feature-flags AppConfig
+# application, and `bedrock:InvokeModel`/`bedrock:Converse` scoped to the placeholder model ARN
+# pattern (var.bedrock_model_id/var.bedrock_region - design §4, model/region selection
+# deliberately out of scope for this session). No VPC, no Textract/other-service access - same
+# blast-radius isolation discipline as item 5. Same "deployable but inert until the state
+# machine exists" posture as items 2/4/5 - not gated by var.extraction_pipeline_enabled.
+
+data "aws_iam_policy_document" "bedrock_extraction_task_s3" {
+  statement {
+    sid       = "ReadExtractionTransientBucket"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+data "aws_iam_policy_document" "bedrock_extraction_task_bedrock_calls" {
+  statement {
+    sid     = "BedrockConverse"
+    effect  = "Allow"
+    actions = ["bedrock:InvokeModel", "bedrock:Converse"]
+    # Scoped to the placeholder model ID's ARN pattern in the configured region/account, not
+    # "*" - narrowly scoped even though the model ID itself is a placeholder (design §4: the
+    # PERMISSION shape is not blocked on the model decision, only the model choice is).
+    resources = [
+      "arn:aws:bedrock:${var.bedrock_region}::foundation-model/${var.bedrock_model_id}",
+    ]
+  }
+}
+
+locals {
+  bedrock_extraction_task_handler_appconfig_ids = {
+    application_id           = module.feature_flags.application_id
+    environment_id           = module.feature_flags.environment_id
+    configuration_profile_id = module.feature_flags.configuration_profile_id
+  }
+}
+
+module "bedrock_extraction_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-bedrock-extraction-task-handler"
+  handler_name    = "bedrock-extraction-task-handler"
+  source_dir      = "${local.dist_dir}/bedrock-extraction-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60 # a Converse call is slower than the deterministic parser's plain S3 read
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME   = aws_s3_bucket.extraction_transient.bucket
+    BEDROCK_MODEL_ID                   = var.bedrock_model_id
+    BEDROCK_REGION                     = var.bedrock_region
+    APPCONFIG_APPLICATION_ID           = local.bedrock_extraction_task_handler_appconfig_ids.application_id
+    APPCONFIG_ENVIRONMENT_ID           = local.bedrock_extraction_task_handler_appconfig_ids.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = local.bedrock_extraction_task_handler_appconfig_ids.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json, # TenantQuotaService's AI_CALL reservation
+    module.feature_flags.feature_flags_read_policy_json,
+    data.aws_iam_policy_document.bedrock_extraction_task_s3.json,
+    data.aws_iam_policy_document.bedrock_extraction_task_bedrock_calls.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# `RunBedrock` invocation permission for Step Functions - same "deployable, not yet wired"
+# posture as the other task-handler permissions above.
+resource "aws_lambda_permission" "bedrock_extraction_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.bedrock_extraction_task_handler.live_alias_arn
+  qualifier     = module.bedrock_extraction_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as
+  # local.textract_task_handler_function_arn/local.pdf_parser_task_handler_function_arn above).
+  bedrock_extraction_task_handler_function_arn = module.bedrock_extraction_task_handler.live_alias_arn
+}
+
+# --- M7 (extração/OCR): ExtractionValidationTaskHandler (item 7, D-035 §2/§3) --------------
+# Real runtime for the ASL's `ValidateSchema`/`CompareExtractors`/`PersistExtractedFields`/
+# `MarkPendingConfirmation`/`CompleteRun` states - all five invoke this SAME Lambda with a
+# distinct `operation` payload field (kept as separate Task states in the ASL for per-stage
+# audit/Catch, never collapsed - design §2's closing paragraph). Narrowest footprint of the
+# four extraction Lambdas: only DynamoDB (read the `Document` discard-guard, write
+# `ExtractedField`/update `ExtractionRun`) and S3 delete on the `EXTRACTION_TRANSIENT` bucket
+# (the ONE Lambda in the whole pipeline allowed to delete there, per design §3 - deliberately
+# scoped to `s3:DeleteObject` only, no `s3:GetObject`/`PutObject`, this handler never reads or
+# writes the artifact's contents itself). No Textract/Bedrock/VPC/KMS/SNS/SQS/Step Functions
+# client, no AppConfig (the kill switches were already read/enforced by items 4/5/6 upstream).
+# Same "deployable but inert until the state machine exists" posture as items 2/4/5/6 - not
+# gated by var.extraction_pipeline_enabled.
+
+data "aws_iam_policy_document" "extraction_validation_task_s3_delete" {
+  statement {
+    sid       = "DeleteExtractionTransientArtifact"
+    effect    = "Allow"
+    actions   = ["s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.extraction_transient.arn}/*"]
+  }
+}
+
+module "extraction_validation_task_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-extraction-validation-task-handler"
+  handler_name    = "extraction-validation-task-handler"
+  source_dir      = "${local.dist_dir}/extraction-validation-task-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 30
+  environment_variables = merge(local.common_env, {
+    EXTRACTION_TRANSIENT_BUCKET_NAME = aws_s3_bucket.extraction_transient.bucket
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json, # Document read, ExtractedField/ExtractionRun writes
+    data.aws_iam_policy_document.extraction_validation_task_s3_delete.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# Step Functions invokes this Lambda for FIVE distinct states (ValidateSchema/CompareExtractors/
+# PersistExtractedFields/MarkPendingConfirmation/CompleteRun) - one permission covers all of
+# them, since `lambda:InvokeFunction` isn't per-state.
+resource "aws_lambda_permission" "extraction_validation_task_from_state_machine" {
+  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
+  action        = "lambda:InvokeFunction"
+  function_name = module.extraction_validation_task_handler.live_alias_arn
+  qualifier     = module.extraction_validation_task_handler.live_alias_name
+  principal     = "states.amazonaws.com"
+  source_arn    = local.extraction_state_machine_arn
+}
+
+locals {
+  # Item 3's extraction-workflow module wiring point (same intent as the other three ARNs
+  # above) - with this, ALL FOUR Lambdas the ASL references now exist for real, so item 3
+  # (instantiating the actual aws_sfn_state_machine resource) is unblocked. See
+  # NEXT_SESSION_PROMPT.md.
+  extraction_validation_task_handler_function_arn = module.extraction_validation_task_handler.live_alias_arn
+}
+
+# --- M7 item 3: the real document-extraction Step Functions Standard state machine ---------
+# All four Lambdas the ASL references (items 4-7) now exist for real above - this instantiates
+# infra/modules/extraction-workflow/, which was deliberately left uncalled until now (an
+# aws_sfn_state_machine whose `definition` embeds a Lambda ARN fails terraform apply itself,
+# not just runtime, if any of those four functions doesn't exist yet).
+#
+# Gate discipline (same posture as items 2/4/5/6/7 above, D-035 §1.6): this resource, its
+# execution IAM role, and the four states.amazonaws.com invoke permissions (already granted on
+# each handler's own role, items 4-7) always exist - inspectable/deployable regardless of
+# var.extraction_pipeline_enabled. Nothing here is gated, because gating it would be
+# redundant: item 2 already gates the ONLY live entry point that can ever call
+# aws_sfn_state_machine:StartExecution on this state machine (the EventBridge rule connecting
+# the M6 clean-bucket event to ExtractionStarterWorker) - with that gate at `false` (default),
+# this state machine can exist, be inspected, and even be started manually for a scratch/test
+# execution, but never receives real traffic. A second gate at this layer would just duplicate
+# item 2's without adding any real protection.
+data "aws_iam_policy_document" "extraction_workflow_assume_role" {
+  statement {
+    sid     = "StatesAssumeRole"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["states.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "extraction_workflow_state_machine" {
+  name               = "${local.name_prefix}-extraction-workflow-role"
+  assume_role_policy = data.aws_iam_policy_document.extraction_workflow_assume_role.json
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+
+# lambda:InvokeFunction on the exact four live-alias ARNs the ASL's Task states target -
+# never a wildcard. Each handler's own execution role already grants states.amazonaws.com
+# permission to invoke IT (aws_lambda_permission.*_from_state_machine, items 4-7 above,
+# scoped to this same state machine's deterministic ARN) - this is the other half of that
+# trust relationship, the state machine's own permission to call out to them.
+data "aws_iam_policy_document" "extraction_workflow_invoke_lambdas" {
+  statement {
+    sid    = "InvokeExtractionPipelineLambdas"
+    effect = "Allow"
+    actions = [
+      "lambda:InvokeFunction",
+    ]
+    resources = [
+      local.textract_task_handler_function_arn,
+      local.pdf_parser_task_handler_function_arn,
+      local.bedrock_extraction_task_handler_function_arn,
+      local.extraction_validation_task_handler_function_arn,
+    ]
+  }
+
+  # CloudWatch Logs delivery for aws_sfn_state_machine's logging_configuration - AWS requires
+  # these exact actions on "*" (they operate on the account-level log delivery subsystem, not
+  # a specific log group ARN); documented by AWS as the minimum IAM for state machine logging.
+  statement {
+    sid    = "StateMachineLogDelivery"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
+      "logs:PutResourcePolicy",
+      "logs:DescribeResourcePolicies",
+      "logs:DescribeLogGroups",
+    ]
+    resources = ["*"]
+  }
+
+  # X-Ray - same AWSXRayDaemonWriteAccess-equivalent actions the lambda-function module
+  # attaches to every Lambda when tracing_active is true (main.tf's adot_layer_arn wiring),
+  # replicated here for the state machine's own X-Ray participation (tracing_configuration
+  # above). AWS's own X-Ray managed policy for Step Functions uses this same "*" resource.
+  statement {
+    sid    = "StateMachineXRayWrite"
+    effect = "Allow"
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+      "xray:GetSamplingRules",
+      "xray:GetSamplingTargets",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "extraction_workflow_state_machine" {
+  name   = "${local.name_prefix}-extraction-workflow-policy"
+  role   = aws_iam_role.extraction_workflow_state_machine.id
+  policy = data.aws_iam_policy_document.extraction_workflow_invoke_lambdas.json
+}
+
+module "extraction_workflow" {
+  source = "./modules/extraction-workflow"
+
+  name_prefix                             = local.name_prefix
+  textract_task_function_arn              = local.textract_task_handler_function_arn
+  pdf_parser_task_function_arn            = local.pdf_parser_task_handler_function_arn
+  bedrock_extraction_task_function_arn    = local.bedrock_extraction_task_handler_function_arn
+  extraction_validation_task_function_arn = local.extraction_validation_task_handler_function_arn
+  state_machine_role_arn                  = aws_iam_role.extraction_workflow_state_machine.arn
+  tags                                    = { Project = local.project_name, Environment = var.environment }
+}

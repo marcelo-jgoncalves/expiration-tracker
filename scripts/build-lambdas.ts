@@ -59,6 +59,9 @@ const HANDLERS = [
   "bff-handler",
   "extraction-starter-handler",
   "textract-task-handler",
+  "pdf-parser-task-handler",
+  "bedrock-extraction-task-handler",
+  "extraction-validation-task-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

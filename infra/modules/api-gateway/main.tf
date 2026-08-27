@@ -177,6 +177,11 @@ locals {
     list           = { method = "GET", path = "/items/{itemId}/documents" }
     get            = { method = "GET", path = "/items/{itemId}/documents/{documentId}" }
     delete         = { method = "DELETE", path = "/items/{itemId}/documents/{documentId}" }
+    # M7 item 8 (§1.7): confirm/reject routes for a PENDING_CONFIRMATION ExtractedField - same
+    # Lambda/integration as every other /items/{itemId}/documents* route above (documents_handler
+    # already has full read/write table access), no new Lambda/infra needed.
+    confirm_field = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" }
+    reject_field  = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" }
   }
 }
 

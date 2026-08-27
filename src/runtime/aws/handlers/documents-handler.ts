@@ -3,7 +3,9 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildDocumentHttpDeps } from "../composition/document.js";
+import { buildFieldConfirmationDeps } from "../composition/extraction.js";
 import { handleReserveUpload, handleDeleteDocument, handleGetDocument, handleListDocuments, type DocumentHttpDeps } from "../../../modules/document/http/document-handlers.js";
+import { handleConfirmField, handleRejectField, type ExtractionHttpDeps } from "../../../modules/extraction/http/extraction-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -16,6 +18,11 @@ if (!quarantineBucket) throw new Error("QUARANTINE_BUCKET_NAME env var is requir
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { documents, deletion } = buildDocumentHttpDeps(client, tableName, quarantineBucket);
 const deps: DocumentHttpDeps = { resolver, documents, deletion, quota };
+// M7 item 8 (§1.7): the two confirm/reject field routes live under the same /items/{itemId}/
+// documents* API Gateway route group and Lambda (documents_handler already has full
+// tenant_facing_read_write_policy_json on the table - no new IAM needed) - never a separate
+// Lambda for two routes this narrow.
+const extractionDeps: ExtractionHttpDeps = { resolver, quota, fields: buildFieldConfirmationDeps(client, tableName) };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentsRoute(event));
@@ -37,6 +44,10 @@ async function handleDocumentsRoute(event: APIGatewayProxyEventV2WithJWTAuthoriz
           return await handleGetDocument(deps, base);
         case "DELETE /items/{itemId}/documents/{documentId}":
           return await handleDeleteDocument(deps, base);
+        case "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm":
+          return await handleConfirmField(extractionDeps, { ...base, body: parseBody(event) });
+        case "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject":
+          return await handleRejectField(extractionDeps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

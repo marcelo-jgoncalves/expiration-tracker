@@ -84,7 +84,22 @@ export async function completeOcr(deps: CompleteOcrDeps, input: CompleteOcrInput
     artifact = await deps.artifacts.put(job.runId, JSON.stringify(blocks));
     const effectiveWarnings = status === "PARTIAL_SUCCESS" ? [...new Set([...warnings, "PARTIAL_OCR"])] : warnings;
     sendSuccess = true;
-    sendPayload = { ocrAvailable: true, artifact, warnings: effectiveWarnings };
+    // Re-attaches the original execution context (item 5, D-057 pending decision) - this
+    // SendTaskSuccess payload becomes the ENTIRE Step Functions `$` for every state after
+    // `RunTextract` on the happy path (no ResultPath on that Task's success transition), so
+    // without these fields RunDeterministicParser would have no tenantId/documentId/runId/
+    // pipelineVersion to work with.
+    sendPayload = {
+      ocrAvailable: true,
+      artifact,
+      warnings: effectiveWarnings,
+      tenantId: job.tenantId,
+      itemId: job.itemId,
+      documentId: job.documentId,
+      documentVersion: job.documentVersion,
+      runId: job.runId,
+      pipelineVersion: job.pipelineVersion,
+    };
     outcome = status === "PARTIAL_SUCCESS" ? "PARTIAL_SUCCEEDED" : "SUCCEEDED";
   } else {
     // FAILED (or an unexpected IN_PROGRESS on a completion notification, treated the same way -

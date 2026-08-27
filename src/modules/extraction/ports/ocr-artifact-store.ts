@@ -11,4 +11,20 @@ export interface OcrArtifactStore {
   /** `blocksJson` is the serialized Textract block array — never logged, never placed on an
    * event/DLQ payload (design §1.9/§20.5: OCR text never leaves this store as a value). */
   put(runId: string, blocksJson: string): Promise<ExtractionArtifactRef>;
+
+  /** Reads back the serialized Textract block array written by `put()` — the two real
+   * consumers are `PdfParserTaskHandler` (item 5) and `BedrockExtractionTaskHandler` (item 6),
+   * per design §1.2 ("os estados seguintes do ASL... ainda precisam ler o artefato"). */
+  get(ref: ExtractionArtifactRef): Promise<string>;
+
+  /** Deletes the artifact — added in M7 item 7 (`ExtractionValidationTaskHandler`), the ONE
+   * caller this port's contract was always reserved for (item 4's `S3OcrArtifactStore`
+   * deliberately shipped without this method so accidental deletion from the wrong caller was
+   * structurally impossible; item 7 is precisely the right caller, per design §3: "o único
+   * ponto do sistema que sabe com certeza que nenhum estado subsequente vai mais ler o
+   * artefato"). MUST be called only from `CompleteRun` / `MarkPendingConfirmation`'s FAILED
+   * path / the concurrent-discard path — never from `TextractTaskHandler`'s `COMPLETE_OCR`
+   * (design §3, rodada 6/7: that handler never deletes, in any outcome). Idempotent — deleting
+   * an already-absent key (double invocation, retry) must not throw. */
+  delete(ref: ExtractionArtifactRef): Promise<void>;
 }

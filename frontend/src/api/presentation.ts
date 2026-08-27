@@ -80,9 +80,19 @@ export function daysUntilDueDate(dueDate: string, now: Date): number {
 
 const SOON_THRESHOLD_DAYS = 7;
 
+/**
+ * Visual Language milestone refinement (mission §32/§87, meaning unchanged, clarity improved):
+ * urgency and lifecycle status are now rendered as two adjacent columns/badges, which exposed
+ * a real ambiguity in the previous labels - an ACTIVE item more than 7 days out was labelled
+ * "Ativo" as its URGENCY, and a non-ACTIVE item repeated its own lifecycle label there. Side
+ * by side that read as "Urgência: Ativo · Situação: Ativo", which says nothing and blurs
+ * exactly the distinction mission §32 requires the system to keep. Both now say what they
+ * actually mean: there is no urgency, or urgency does not apply to a closed cycle. No
+ * threshold, grouping, ordering or tone changed - only the two labels.
+ */
 export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDate">, now: Date): UrgencyPresentation {
   if (item.status !== "ACTIVE") {
-    return { ...presentItemStatus(item.status), daysUntil: daysUntilDueDate(item.dueDate, now), group: "later" };
+    return { label: "Não se aplica", tone: "neutral", daysUntil: daysUntilDueDate(item.dueDate, now), group: "later" };
   }
   const daysUntil = daysUntilDueDate(item.dueDate, now);
   if (daysUntil < 0) {
@@ -94,7 +104,7 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   if (daysUntil <= SOON_THRESHOLD_DAYS) {
     return { label: daysUntil === 1 ? "Vence em 1 dia" : `Vence em ${daysUntil} dias`, tone: "warning", daysUntil, group: "soon" };
   }
-  return { label: "Ativo", tone: "neutral", daysUntil, group: "later" };
+  return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
 }
 
 /** DD/MM/YYYY - matches mission §20's example format exactly. Formats the date portion only
@@ -104,19 +114,29 @@ export function formatAbsoluteDate(iso: string): string {
   return `${day}/${month}/${year}`;
 }
 
+/** Just the relative half - "Vence em 6 dias", "Venceu há 1 dia", "Vence hoje".
+ *
+ * Extracted (Visual Language milestone) because a table shows the absolute date and its
+ * relative context in two separate lines of the same cell, and reconstructing that by
+ * string-splitting `formatRelativeDueDate`'s " · " separator would make a display detail
+ * load-bearing. The absolute date is never replaced by this value - both are always shown
+ * together (mission §19). */
+export function formatRelativeDueContext(dueDate: string, now: Date): string {
+  const daysUntil = daysUntilDueDate(dueDate, now);
+  if (daysUntil < 0) {
+    const overdueDays = Math.abs(daysUntil);
+    return `Venceu ${overdueDays === 1 ? "há 1 dia" : `há ${overdueDays} dias`}`;
+  }
+  if (daysUntil === 0) {
+    return "Vence hoje";
+  }
+  return `Vence em ${daysUntil === 1 ? "1 dia" : `${daysUntil} dias`}`;
+}
+
 /** "30/08/2026 · Vence em 6 dias" - absolute date always paired with relative temporal context
  * (mission §20: never rely on "Em breve" alone). */
 export function formatRelativeDueDate(dueDate: string, now: Date): string {
-  const daysUntil = daysUntilDueDate(dueDate, now);
-  const absolute = formatAbsoluteDate(dueDate);
-  if (daysUntil < 0) {
-    const overdueDays = Math.abs(daysUntil);
-    return `${absolute} · Venceu ${overdueDays === 1 ? "há 1 dia" : `há ${overdueDays} dias`}`;
-  }
-  if (daysUntil === 0) {
-    return `${absolute} · Vence hoje`;
-  }
-  return `${absolute} · Vence em ${daysUntil === 1 ? "1 dia" : `${daysUntil} dias`}`;
+  return `${formatAbsoluteDate(dueDate)} · ${formatRelativeDueContext(dueDate, now)}`;
 }
 
 /** Most-urgent-first (mission §19/§72): plain ascending due-date sort already produces this -

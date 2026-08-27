@@ -1,8 +1,7 @@
 /** Real S3 adapter for `OcrArtifactStore`, writing to the `EXTRACTION_TRANSIENT` bucket
- * (`privacy-lgpd.md` §4). Deliberately has no delete method (matches the port) — the artifact is
- * only ever removed by `ExtractionValidationTaskHandler` (not yet implemented) or the bucket's
- * own 24h lifecycle safety net. */
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+ * (`privacy-lgpd.md` §4). `delete()` is used ONLY by `ExtractionValidationTaskHandler` (M7 item
+ * 7) — see the port's doc comment for why this method exists at all. */
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import type { OcrArtifactStore, ExtractionArtifactRef } from "../ports/ocr-artifact-store.js";
 
@@ -23,6 +22,20 @@ export class S3OcrArtifactStore implements OcrArtifactStore {
       }),
     );
     return { bucket: this.bucket, key };
+  }
+
+  async get(ref: ExtractionArtifactRef): Promise<string> {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: ref.bucket, Key: ref.key }));
+    if (!result.Body) {
+      throw new Error(`OCR artifact ${ref.bucket}/${ref.key} returned no body.`);
+    }
+    return result.Body.transformToString("utf-8");
+  }
+
+  async delete(ref: ExtractionArtifactRef): Promise<void> {
+    // DeleteObjectCommand is already idempotent at the S3 API level (deleting a missing key
+    // returns success, never a 404) - no extra existence check needed here.
+    await this.client.send(new DeleteObjectCommand({ Bucket: ref.bucket, Key: ref.key }));
   }
 }
 

@@ -42,13 +42,33 @@ describe("ItemsCollection", () => {
     renderAtRoute("/items", <ItemsCollection />, "/items");
 
     expect(screen.getByText("Carregando vencimentos…")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("heading", { name: /Vencidos/ })).toBeInTheDocument());
+    // Groups are real table row groups now (a <th scope="rowgroup"> heading each <tbody>),
+    // not <section>/<h2> around separate lists - see ItemsCollection.tsx's header comment.
+    await waitFor(() => expect(screen.getByRole("rowheader", { name: /Vencidos/ })).toBeInTheDocument());
 
-    expect(screen.getByRole("heading", { name: /Vence em breve/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Demais ativos/ })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Vence em breve/ })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Demais ativos/ })).toBeInTheDocument();
 
-    const overdueSection = screen.getByRole("heading", { name: /Vencidos/ }).closest("section") as HTMLElement;
-    expect(within(overdueSection).getByText("Overdue item")).toBeInTheDocument();
+    const overdueGroup = screen.getByRole("rowheader", { name: /Vencidos/ }).closest("tbody") as HTMLElement;
+    expect(within(overdueGroup).getByText("Overdue item")).toBeInTheDocument();
+    expect(within(overdueGroup).queryByText("Later item")).not.toBeInTheDocument();
+  });
+
+  it("shows urgency and lifecycle status as separate columns - never merged into one token (mission §32)", async () => {
+    getMock.mockResolvedValue({ items: [item({ itemId: "overdue", name: "Overdue item", dueDate: "2020-01-01T00:00:00.000Z" })] });
+    renderAtRoute("/items", <ItemsCollection />, "/items");
+
+    const row = await waitFor(() => screen.getByText("Overdue item").closest("tr") as HTMLElement);
+    expect(within(row).getByText("Vencido")).toBeInTheDocument();
+    expect(within(row).getByText("Ativo")).toBeInTheDocument();
+  });
+
+  it("always shows the absolute due date, never only a relative phrase (mission §19)", async () => {
+    getMock.mockResolvedValue({ items: [item({ itemId: "x", name: "Dated item", dueDate: "2026-09-01T00:00:00.000Z" })] });
+    renderAtRoute("/items", <ItemsCollection />, "/items");
+
+    const row = await waitFor(() => screen.getByText("Dated item").closest("tr") as HTMLElement);
+    expect(within(row).getByText("01/09/2026")).toBeInTheDocument();
   });
 
   it("shows the true-empty state for a genuinely empty ACTIVE list, distinct from a filtered-empty other tab", async () => {
@@ -100,6 +120,8 @@ describe("ItemsCollection", () => {
     getMock.mockResolvedValue({ items });
     renderAtRoute("/items", <ItemsCollection />, "/items");
 
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(150));
+    // 150 data rows + 1 column-header row + 1 group-header row per non-empty urgency group.
+    await waitFor(() => expect(screen.getAllByRole("row").length).toBeGreaterThanOrEqual(151));
+    expect(screen.getAllByRole("row").filter((row) => row.querySelector("td.ui-table__cell--primary") !== null)).toHaveLength(150);
   });
 });

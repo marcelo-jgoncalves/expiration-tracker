@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json",
+  "title": "RejectExtractedFieldRequest v1",
+  "description": "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject request body (m7-extraction-design/claude-reconciliation-final-design.md §1.7) — never accepts item attributes, only touches ExtractedField.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedDocumentVersion", "expectedRunVersion", "expectedFieldVersion"],
+  "properties": {
+    "expectedDocumentVersion": { "type": "integer", "minimum": 1 },
+    "expectedRunVersion": { "type": "integer", "minimum": 1 },
+    "expectedFieldVersion": { "type": "integer", "minimum": 1 },
+    "correctionReason": { "type": "string", "maxLength": 1000 }
+  }
+}

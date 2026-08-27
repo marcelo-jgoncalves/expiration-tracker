@@ -34,13 +34,13 @@ run "twentyseven_lambda_functions_exist_no_placeholder" {
   # directory via data.archive_file - but we still assert the expected count and distinct
   # names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 28
-    error_message = "Expected exactly 28 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035)"
+    condition     = length(output.lambda_function_names) == 31
+    error_message = "Expected exactly 30 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035), PdfParserTaskHandler (M7 item 5, D-035), BedrockExtractionTaskHandler (M7 item 6, D-035)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 28
-    error_message = "All 28 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 31
+    error_message = "All 30 Lambda function names must be distinct"
   }
 }
 
@@ -537,8 +537,8 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 28
-    error_message = "Deploy manifest map must cover exactly the 28 real Lambda functions"
+    condition     = length(output.lambda_published_versions) == 31
+    error_message = "Deploy manifest map must cover exactly the 30 real Lambda functions"
   }
 
   assert {
@@ -586,5 +586,37 @@ run "security_audit_trail_alarms_exist_and_are_wired_to_the_real_alert_topic" {
   assert {
     condition     = module.security_audit_observability.global_index_access_denied_alarm_name != ""
     error_message = "SecurityGlobalIndexAccessDenied alarm must exist"
+  }
+}
+
+run "extraction_workflow_state_machine_is_real_and_matches_starter_worker_target" {
+  command = plan
+
+  # M7 item 3 (D-035): the real aws_sfn_state_machine must resolve to EXACTLY the name
+  # ExtractionStarterWorker (item 2, already live in dev) has been calling StartExecution
+  # against since before this state machine existed for real - local.extraction_state_machine_arn.
+  # Asserted on the plan-time-known `name` (a config argument), not the ARN (a computed
+  # attribute unknown until apply) - this suite runs `plan` only against the real provider,
+  # never `apply` (see the file header).
+  assert {
+    condition     = output.extraction_state_machine_name == "exptrk-dev-document-extraction"
+    error_message = "The real state machine name must equal local.extraction_state_machine_arn's expected name segment - a mismatch means ExtractionStarterWorker's existing StartExecution calls would target a non-existent state machine"
+  }
+
+  assert {
+    condition     = strcontains(local.extraction_state_machine_arn, output.extraction_state_machine_name)
+    error_message = "local.extraction_state_machine_arn (already referenced by ExtractionStarterWorker since item 2) must embed this exact state machine name"
+  }
+}
+
+run "extraction_workflow_execution_role_is_scoped_not_wildcard" {
+  command = plan
+
+  # The state machine's own execution role must grant lambda:InvokeFunction on exactly the
+  # four handler ARNs it needs to call, never a wildcard resource - least privilege, same
+  # discipline as every other IAM policy document in this stack (AGENTS.md §7).
+  assert {
+    condition     = length(data.aws_iam_policy_document.extraction_workflow_invoke_lambdas.statement) == 3
+    error_message = "Expected exactly 3 statements: lambda:InvokeFunction (scoped to the 4 handler ARNs), CloudWatch Logs delivery, and X-Ray write"
   }
 }

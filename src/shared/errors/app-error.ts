@@ -17,7 +17,13 @@ export type ErrorCategory =
   | "CONFLICT"
   | "QUOTA_EXCEEDED"
   | "DEPENDENCY_UNAVAILABLE"
-  | "INTERNAL";
+  | "INTERNAL"
+  // M7 item 8 (`claude-reconciliation-final-design.md` §1.7): the first 422 in this codebase —
+  // a request that is well-formed and passes every OCC/idempotency/authorization check, but
+  // violates a business invariant the domain enforces (e.g. confirming an `ExtractedField` that
+  // isn't `PENDING_CONFIRMATION`, or a `confirmedValue` that fails its `valueType` validation).
+  // Deliberately distinct from VALIDATION (schema/shape) and CONFLICT (OCC/version/idempotency).
+  | "BUSINESS_RULE";
 
 export interface AppErrorOptions {
   code: string;
@@ -179,6 +185,67 @@ export class TextractJobPersistenceFailedError extends AppError {
   constructor(message = "Failed to persist TextractJob correlation record after StartDocumentTextDetection succeeded.", details?: Record<string, unknown>) {
     super({ code: "TextractJobPersistenceFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
     this.name = "TextractJobPersistenceFailedError";
+  }
+}
+
+/** `PdfParserTaskHandler`'s `RunDeterministicParser` state (M7 item 5, D-035 §1.3) failed to
+ * even attempt parsing (e.g. the OCR artifact was declared available but could not be read/
+ * parsed as valid Textract block JSON). This is the ONE failure the ASL routes straight to
+ * `MarkPendingConfirmation` without trying Bedrock (design §1.2) - the ASL's `Catch` for this
+ * state is the generic `States.ALL`, so this `code` does not need to match a specific
+ * `ErrorEquals` entry the way the Textract errors above do, but it still follows the same
+ * normalized-taxonomy discipline (never a bare `Error`/`throw`). Never thrown just because no
+ * candidate value was found - "no candidate" is a normal, successful parser outcome. */
+export class DeterministicParserFailedError extends AppError {
+  constructor(message = "Deterministic parser failed to process the OCR artifact.", details?: Record<string, unknown>) {
+    super({ code: "DeterministicParserFailed", category: "INTERNAL", message, retryable: false, details });
+    this.name = "DeterministicParserFailedError";
+  }
+}
+
+/** `BedrockExtractionTaskHandler`'s `RunBedrock` state (M7 item 6, D-035 §1.9/§1.11) - the
+ * `AI_EXTRACTION` kill switch was off (or unreadable, fail-closed) when the handler itself
+ * checked it, even though the ASL's `CheckAiKillSwitch` Choice state already gates this path -
+ * this is a defense-in-depth re-check, never the only gate. The ASL's `Catch` for `RunBedrock`
+ * is the generic `States.ALL`, so this `code` does not need to match a specific `ErrorEquals`. */
+export class AiExtractionDisabledError extends AppError {
+  constructor(message = "AI_EXTRACTION kill switch is off; failing closed.", details?: Record<string, unknown>) {
+    super({ code: "AiExtractionDisabled", category: "VALIDATION", message, retryable: false, details });
+    this.name = "AiExtractionDisabledError";
+  }
+}
+
+/** Bedrock Converse call failed, or the model's tool-call response could not be parsed/
+ * validated against the closed `submit_extraction` schema (malformed/missing tool call, wrong
+ * tool name, extra fields, token-limit truncation, etc. - design §1.11's adversarial corpus).
+ * Never thrown just because the model reported low/no confidence for a field - that is a
+ * normal, successful outcome (an empty or low-confidence candidate), not an error. */
+export class BedrockExtractionFailedError extends AppError {
+  constructor(message = "Bedrock extraction call failed or returned an unusable response.", details?: Record<string, unknown>) {
+    super({ code: "BedrockExtractionFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: false, details });
+    this.name = "BedrockExtractionFailedError";
+  }
+}
+
+/** `ExtractionValidationTaskHandler`'s `PERSIST_EXTRACTED_FIELDS`/`MARK_PENDING_CONFIRMATION`
+ * operations (M7 item 7, D-035 §2/§3) failed to commit — a genuine DynamoDB error, not the
+ * expected `DOCUMENT_DISCARDED` outcome (which is not an error at all, see
+ * `run-extraction-validation.ts`). The ASL's `Catch` for these states is the generic
+ * `States.ALL`, so this `code` does not need to match a specific `ErrorEquals` entry. */
+export class ExtractionCommitFailedError extends AppError {
+  constructor(message = "Failed to commit extraction run outcome.", details?: Record<string, unknown>, cause?: unknown) {
+    super({ code: "ExtractionCommitFailed", category: "DEPENDENCY_UNAVAILABLE", message, retryable: true, details, cause });
+    this.name = "ExtractionCommitFailedError";
+  }
+}
+
+/** M7 item 8 (§1.7): request is well-formed, authorized, and every OCC version matched, but
+ * the operation violates a business invariant — HTTP 422. `retryable: false` always: retrying
+ * the identical request without changing anything about the world will fail identically. */
+export class BusinessRuleError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super({ code: "BUSINESS_RULE_VIOLATION", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "BusinessRuleError";
   }
 }
 

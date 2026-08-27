@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daysUntilDueDate, formatAbsoluteDate, formatRelativeDueDate, presentItemUrgency, sortByDueDateAscending } from "../../src/api/presentation.js";
+import { daysUntilDueDate, formatAbsoluteDate, formatRelativeDueDate, presentItemStatus, presentItemUrgency, sortByDueDateAscending } from "../../src/api/presentation.js";
 
 const NOW = new Date("2026-08-24T15:00:00.000Z");
 
@@ -40,16 +40,21 @@ describe("presentItemUrgency", () => {
 
     const day8 = presentItemUrgency(active("2026-09-01T00:00:00.000Z"), NOW);
     expect(day8.group).toBe("later");
-    expect(day8.label).toBe("Ativo");
+    expect(day8.label).toBe("Sem urgência");
     expect(day8.tone).toBe("neutral");
   });
 
-  it("a non-ACTIVE item never gets urgency semantics - it keeps its lifecycle label and lands in group later", () => {
+  it("a non-ACTIVE item never gets urgency semantics - urgency does not apply to a closed cycle, and it lands in group later", () => {
+    // It deliberately no longer echoes the lifecycle label here: urgency and status are now
+    // shown side by side, and "Urgência: Arquivado · Situação: Arquivado" would blur exactly
+    // the distinction the two columns exist to keep (see presentItemUrgency's comment).
     const archived = presentItemUrgency({ status: "ARCHIVED", dueDate: "2026-08-20T00:00:00.000Z" }, NOW);
-    expect(archived).toMatchObject({ label: "Arquivado", tone: "neutral", group: "later" });
+    expect(archived).toMatchObject({ label: "Não se aplica", tone: "neutral", group: "later" });
 
     const renewed = presentItemUrgency({ status: "RENEWED", dueDate: "2026-08-20T00:00:00.000Z" }, NOW);
-    expect(renewed.label).toBe("Renovado");
+    expect(renewed.label).toBe("Não se aplica");
+    // The lifecycle label itself is unchanged and still available from presentItemStatus.
+    expect(presentItemStatus("RENEWED").label).toBe("Renovado");
   });
 });
 

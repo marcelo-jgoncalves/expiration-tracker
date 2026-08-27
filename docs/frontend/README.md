@@ -2,8 +2,8 @@
 
 ```text
 Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation → Validation Readiness + Product Focus Hardening → User Validation (próxima, não iniciada)
-Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; nenhuma identidade visual final ainda
-Last verified:   2026-08-24 (planejamento) / 2026-08-24 (Core Expiration Vertical Slice)
+Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; Visual Language + Design System Foundation implementado e APPROVED (PROVISIONAL, pendente User Validation) — o frontend já NÃO é mais grayscale/provisório, mas a identidade visual continua explicitamente reversível
+Last verified:   2026-08-24 (planejamento) / 2026-08-26 (Visual Language + Design System Foundation)
 ```
 
 Ver `docs/architecture/README.md` para o mapa de arquitetura de sistema (este índice cobre só o
@@ -18,6 +18,44 @@ planejamento de interface). Precedência de fontes idêntica à de `docs/archite
 ## Core Expiration Vertical Slice (primeiro vertical slice real do anchor Vencimentos)
 
 `docs/frontend/core-expiration-vertical-slice.md` — primeiro fluxo real e completo de Vencimentos (Expiration Collection, Expiration Detail, Create Expiration, Renew Expiration) sobre a Frontend Production Foundation, sem expandir para Documents/Reminders/External Collection. `APPROVED AS CORE EXPIRATION PRODUCTION VERTICAL SLICE` via protocolo Claude↔Codex (Round B adversarial achou 4 bugs reais — 1 S1: corrida TOCTOU na reaquisição de um registro de idempotência `ABORTED`; 3 S2: `abort()` podendo disparar depois de um commit bem-sucedido, hash de renovação ambíguo quando `cycle` é enviado independente de `newDueDate`, e um bug de fuso horário na formatação de data da Overview — todos corrigidos na Rodada C e reverificados sem achados novos na Rodada D). Durante a implementação também corrigiu um bug real pré-existente de liveness de idempotência (lock nunca liberado em falha de `renewItem`/`createItem`). 96 testes unitário/componente de frontend + 12 E2E Playwright (era 42+6 na fundação), 621 testes de backend.
+
+## Visual Language + Design System Foundation (primeira linguagem visual real)
+
+`docs/frontend/visual-language-and-design-system.md` — substitui o `foundation.css`
+deliberadamente provisório (71 linhas, 4 tokens, escala de cinza) por uma arquitetura de tokens
+em duas camadas (primitivos → aliases semânticos), ~9 primitives acessíveis
+(`frontend/src/components/ui/`), e a aplicação da direção **Operational Calm** às cinco
+superfícies do Core Expiration slice. `APPROVED AS VISUAL LANGUAGE + DESIGN SYSTEM FOUNDATION
+— PROVISIONAL PENDING USER VALIDATION`.
+
+Nenhuma dependência nova (nenhum framework de UI, nenhum Storybook, nenhuma biblioteca de
+ícones); JS de bundle inalterado. A mudança estrutural única é a Expiration Collection ter
+deixado de ser `<ul>/<li>` e virado uma `<table>` semântica com urgência e situação em colunas
+separadas — mesmos dados, ordenação, agrupamento, filtro e rotas. Densidade real (140 itens,
+nomes longos e quase-idênticos) verificada contra o código real do frontend pela primeira vez,
+com asserção automatizada em `frontend/e2e/expiration-density.spec.ts`; 10 baselines de
+regressão visual determinísticas em `frontend/e2e/visual-regression.spec.ts` (projeto Playwright
+`visual`, local — ver §31 do documento para a limitação de plataforma, o caminho de adoção em CI
+e o mapa baseline-a-baseline de qual teste funcional cobre cada superfície enquanto isso).
+Acessibilidade deixou de ser narrativa e virou `frontend/e2e/accessibility.spec.ts` — **9 testes
+no projeto `chromium`, portanto no CI em todo PR**: contraste computado, percurso de teclado com
+anel, alvo e **cobertura de todo focável** (é a cobertura, não o término, que descarta
+armadilha), ausência de sticky/fixed, reduced motion, forced colors, região de scroll condicional
+e associação label/erro nos forms. Duas falhas reais foram achadas por essas asserções e
+corrigidas (contraste 4,48:1 e alvo de 19px).
+
+Protocolo Claude↔Codex: **16 rodadas, 11 reaberturas**, convergindo em Codex **9,04** e Claude
+**9,2** (`AGENTS.md` §4, sem arredondamento) — o protocolo mais longo já executado neste
+repositório. A Rodada B achou 5 achados reais (2 S2: um botão de mutação clicável durante o
+submit porque `disabled ?? pending` curto-circuitava num `false` explícito, e cabeçalhos de grupo
+com `scope="colgroup"` onde encabeçavam linhas). Três rodadas posteriores acharam defeitos
+**criados pela rodada de correção anterior** (D-01, F-01, G-01) — o modo de falha que o protocolo
+existe para pegar. E a classe dominante de achado não foi código errado: foi **documentação
+afirmando prova mais ampla que a evidência nomeada**, que apareceu seis vezes e só foi eliminada
+na Rodada P. Vale como precedente de processo: a alegação "sem armadilha de teclado" passou dez
+rodadas sem prova real por trás dela. Registro de decisões, contrastes medidos, resultados dos
+gates `VL-G1..VL-G17`, as limitações declaradas e o registro de 15 adiamentos para User
+Validation estão no próprio documento.
 
 ## Índice por documento
 

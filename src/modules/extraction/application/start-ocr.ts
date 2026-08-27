@@ -120,6 +120,7 @@ export async function startOcr(deps: StartOcrDeps, input: StartOcrInput): Promis
     documentId: input.documentId,
     documentVersion: input.documentVersion,
     runId: input.runId,
+    pipelineVersion: input.pipelineVersion,
     clientRequestToken,
     status: "STARTED",
     taskTokenCiphertext,

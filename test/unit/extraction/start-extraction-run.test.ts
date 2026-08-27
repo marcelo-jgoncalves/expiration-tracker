@@ -39,11 +39,17 @@ class FakeDocumentReader implements DocumentReader {
 
 class FakeExtractionRunStore implements ExtractionRunStore {
   public readonly items = new Map<string, unknown>();
+  async get(): Promise<undefined> {
+    throw new Error("not used by startExtractionRun");
+  }
   async putIfAbsent<T extends { PK: string; SK: string }>(item: T): Promise<boolean> {
     const key = `${item.PK}#${item.SK}`;
     if (this.items.has(key)) return false;
     this.items.set(key, item);
     return true;
+  }
+  async updateStatus(): Promise<boolean> {
+    throw new Error("not used by startExtractionRun");
   }
 }
 

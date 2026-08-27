@@ -30,6 +30,15 @@ export interface TextractJob extends EntityKey {
   documentId: string;
   documentVersion: number;
   runId: string;
+  /** Added for item 5 (`PdfParserTaskHandler`): `completeOcr`'s `SendTaskSuccess` payload
+   * REPLACES the whole Step Functions `$` (no `ResultPath`, per the ASL's `RunTextract`
+   * success transition), so the original execution input (tenantId/itemId/documentId/
+   * pipelineVersion/...) would otherwise be lost to every state after `RunTextract` on the
+   * happy path. Carrying it here lets `completeOcr` re-attach that context to its own
+   * payload. Not present in the design doc explicitly — recorded as a pending decision in
+   * NEXT_SESSION_PROMPT.md (conservative, additive, no persisted-data migration concern:
+   * this record's max lifetime is the 24h TTL, never real historical data yet). */
+  pipelineVersion: string;
   clientRequestToken: string;
   status: TextractJobStatus;
   /** Present only while a callback might still need to resolve the Step Functions task.

@@ -14,9 +14,10 @@ import { useEffect, useRef, type RefObject } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
+import { Button } from "../components/ui/Button.js";
 
-function navLinkClassName({ isActive }: { isActive: boolean }): string {
-  return isActive ? "nav-current" : "";
+function navLinkClassName(): string {
+  return "app-shell__link";
 }
 
 /**
@@ -46,28 +47,34 @@ export function AppShell() {
   useFocusMainOnRouteChange(mainRef);
 
   return (
-    <div>
+    <div className="app-shell">
       <a href="#surface-content" className="skip-link">
         Pular para o conteúdo
       </a>
-      <nav aria-label="Navegação principal">
+      {/* A plain vertical list of links on desktop, a wrapping row when narrow (CSS only) -
+          visually simple, stable and predictable, so it orients without competing with the
+          operational content. `NavLink` supplies aria-current="page" itself; the visual
+          current-page treatment is tint + weight + an inset bar, never colour alone. */}
+      <nav className="app-shell__nav" aria-label="Navegação principal">
+        <span className="app-shell__wordmark">Expiration Tracker</span>
         <NavLink to="/overview" className={navLinkClassName}>
-          Overview
-        </NavLink>{" "}
+          Visão geral
+        </NavLink>
         <NavLink to="/items" className={navLinkClassName}>
           Vencimentos
-        </NavLink>{" "}
+        </NavLink>
         <NavLink to="/subjects" className={navLinkClassName}>
           Fornecedores
-        </NavLink>{" "}
+        </NavLink>
         <NavLink to="/settings" className={navLinkClassName}>
           Configurações
-        </NavLink>{" "}
-        <button type="button" onClick={() => void logout()}>
+        </NavLink>
+        <span className="app-shell__nav-spacer" />
+        <Button variant="tertiary" size="sm" onClick={() => void logout()}>
           Sair
-        </button>
+        </Button>
       </nav>
-      <main id="surface-content" tabIndex={-1} ref={mainRef}>
+      <main className="app-shell__main" id="surface-content" tabIndex={-1} ref={mainRef}>
         <ErrorBoundary>
           <Outlet />
         </ErrorBoundary>

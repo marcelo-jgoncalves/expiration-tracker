@@ -790,4 +790,70 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // M7 item 8 (§1.7) - confirm/reject ExtractedField HTTP routes.
+
+  it("accepts a valid confirm-extracted-field-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/confirm-extracted-field-request.v1.json", {
+      expectedItemVersion: 12,
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+      confirmedValue: "2027-03-31",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a confirm-extracted-field-request.v1 missing expectedItemVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/confirm-extracted-field-request.v1.json", {
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+      confirmedValue: "2027-03-31",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a confirm-extracted-field-request.v1 with an undeclared property (never arbitrary item attributes)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/confirm-extracted-field-request.v1.json", {
+      expectedItemVersion: 12,
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+      confirmedValue: "2027-03-31",
+      name: "Sneaky item rename",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid reject-extracted-field-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json", {
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+      correctionReason: "Wrong date read from the OCR text.",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a reject-extracted-field-request.v1 without an optional correctionReason", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json", {
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reject-extracted-field-request.v1 carrying expectedItemVersion (reject never touches ExpirationItem)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json", {
+      expectedItemVersion: 12,
+      expectedDocumentVersion: 3,
+      expectedRunVersion: 2,
+      expectedFieldVersion: 1,
+    });
+    expect(valid).toBe(false);
+  });
 });
