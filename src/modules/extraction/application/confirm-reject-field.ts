@@ -172,7 +172,13 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
         : undefined;
 
   const outcome = await deps.fields.confirmField({
-    fieldKey: field,
+    // MUST be the bare {PK,SK} key, never the whole `field` entity: `buildVersionedUpdate`
+    // passes this straight through as the DynamoDB `Key`, and any extra attribute makes the
+    // real service reject the transact item with "The provided key element does not match the
+    // schema" — surfaced as a TransactionCanceledException and mis-mapped to a permanent HTTP
+    // 409. Both routes were 100% broken against a real table until 2026-08-27; the in-memory
+    // fakes in the unit tests ignore extra key attributes, which is why they never caught it.
+    fieldKey: extractedFieldKey(tenantId, params.documentId, params.fieldName, params.runId),
     fieldTenantId: tenantId,
     fieldExpectedVersion: params.expectedFieldVersion,
     confirmedValue: params.confirmedValue,
@@ -251,7 +257,8 @@ async function doRejectField(deps: ConfirmRejectFieldDeps, tenantId: string, par
 
   const now = deps.now();
   const outcome = await deps.fields.rejectField({
-    fieldKey: field,
+    // Bare {PK,SK} only — see the identical note in doConfirmField above.
+    fieldKey: extractedFieldKey(tenantId, params.documentId, params.fieldName, params.runId),
     fieldTenantId: tenantId,
     fieldExpectedVersion: params.expectedFieldVersion,
     correctionReason: params.correctionReason,
