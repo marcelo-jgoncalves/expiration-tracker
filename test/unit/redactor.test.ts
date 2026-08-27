@@ -84,4 +84,10 @@ describe("Redactor", () => {
     expect(redactor.redact(null)).toBeNull();
     expect(redactor.redact(undefined)).toBeUndefined();
   });
+
+  it("redacts guestToken and cognitoSub - the codebase's real field names for those values, distinct from the generic 'token'/'cognitoSubject' entries (W3-05 finding)", () => {
+    const result = redactor.redact({ guestToken: CANARY_SECRET, cognitoSub: "sub-12345" }) as Record<string, unknown>;
+    expect(result.guestToken).toBe("[REDACTED]");
+    expect(result.cognitoSub).toBe("[REDACTED]");
+  });
 });
