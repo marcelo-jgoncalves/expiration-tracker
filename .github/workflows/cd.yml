@@ -97,6 +97,23 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Belt-and-suspenders with ci.yml's identical step - branch protection should already
+      # guarantee this passed on the PR, but never apply on a build that would have failed it.
+      - name: Validate Step Functions ASL definitions
+        run: |
+          set -euo pipefail
+          for f in state-machines/*.asl.json; do
+            echo "Validating $f"
+            output=$(aws stepfunctions validate-state-machine-definition --definition "file://$f" --region "${{ env.AWS_REGION }}")
+            result=$(echo "$output" | jq -r '.result')
+            if [ "$result" != "OK" ]; then
+              echo "::error file=infra/$f::ASL validation failed"
+              echo "$output" | jq .
+              exit 1
+            fi
+            echo "OK: $f"
+          done
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:

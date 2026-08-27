@@ -230,6 +230,26 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
           aws-region: us-east-1
 
+      # Real incident (2026-08-27, NEXT_SESSION_PROMPT.md): `terraform plan` does NOT catch
+      # Step Functions ASL schema violations (e.g. States.ALL combined with named error
+      # strings in one ErrorEquals) - only a real create/update call does, which is why
+      # `terraform apply` broke in cd.yml once already. This calls the same validation API
+      # Step Functions itself uses at apply time, before Terraform ever touches the resource.
+      - name: Validate Step Functions ASL definitions
+        run: |
+          set -euo pipefail
+          for f in state-machines/*.asl.json; do
+            echo "Validating $f"
+            output=$(aws stepfunctions validate-state-machine-definition --definition "file://$f" --region us-east-1)
+            result=$(echo "$output" | jq -r '.result')
+            if [ "$result" != "OK" ]; then
+              echo "::error file=infra/$f::ASL validation failed"
+              echo "$output" | jq .
+              exit 1
+            fi
+            echo "OK: $f"
+          done
+
       # aws_account_id is only used to build deterministic ARNs (dynamo-table/reminder-queue
       # modules) so IAM policy documents are plan-time-known - derived here, never hardcoded,
       # so this workflow works unmodified if the target account ever changes.
