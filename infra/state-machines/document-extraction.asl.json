@@ -1,5 +1,5 @@
 {
-  "Comment": "M7 extraction pipeline (D-035, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md, GATE 9.2/9.3). RunTextract/RunDeterministicParser/RunBedrock are real Task states now (items 4/5/6). ValidateSchema/CompareExtractors/PersistExtractedFields/MarkPendingConfirmation/CompleteRun (item 7, ExtractionValidationTaskHandler) are still placeholders/stubs. This file documents the intended shape; it MUST NOT be applied via a real aws_sfn_state_machine resource until item 7's Lambda exists (a Task referencing a non-existent function ARN fails terraform apply, not just runtime) - see infra/modules/extraction-workflow/ (parameterized by Lambda ARN variables, deliberately not called from infra/main.tf yet) and NEXT_SESSION_PROMPT.md for wiring status.",
+  "Comment": "M7 extraction pipeline (D-035, docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md, GATE 9.2/9.3). RunTextract/RunDeterministicParser/RunBedrock/ValidateSchema/CompareExtractors/PersistExtractedFields/MarkPendingConfirmation/CompleteRun are all real Task states (items 4-7, ExtractionValidationTaskHandler included). infra/modules/extraction-workflow/ (parameterized by Lambda ARN variables) is wired into the module.extraction_workflow resource in infra/main.tf - see NEXT_SESSION_PROMPT.md for current wiring/deploy status.",
   "StartAt": "RunTextract",
   "States": {
     "RunTextract": {
@@ -28,7 +28,7 @@
       ],
       "Catch": [
         {
-          "Comment": "UnsupportedDocumentType (classifier), OcrDisabled (kill switch), TextractUnsupportedDocument/TextractPartialFailure/TextractJobPersistenceFailed (Textract-time failures), and any timeout/unclassified error - ALL fall through to the deterministic parser, never straight to MarkPendingConfirmation (design §1.2 rodada-3 correction).",
+          "Comment": "UnsupportedDocumentType (classifier), OcrDisabled (kill switch), TextractUnsupportedDocument/TextractPartialFailure/TextractJobPersistenceFailed (Textract-time failures), and any timeout - ALL fall through to the deterministic parser, never straight to MarkPendingConfirmation (design §1.2 rodada-3 correction).",
           "ErrorEquals": [
             "UnsupportedDocumentType",
             "OcrDisabled",
@@ -36,9 +36,14 @@
             "TextractPartialFailure",
             "TextractJobPersistenceFailed",
             "States.Timeout",
-            "States.HeartbeatTimeout",
-            "States.ALL"
+            "States.HeartbeatTimeout"
           ],
+          "ResultPath": "$.ocrFailure",
+          "Next": "RunDeterministicParser"
+        },
+        {
+          "Comment": "Catch-all for any other/unclassified error (ASL requires States.ALL alone in its own ErrorEquals, separate from the named errors above) - same fallback to the deterministic parser.",
+          "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.ocrFailure",
           "Next": "RunDeterministicParser"
         }
