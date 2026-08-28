@@ -213,11 +213,29 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **PR**: junto com os outros achados desta sessão (só a documentação do achado, nenhum código de purga implementado ainda).
 - **Final status**: `BLOCKED` — achado real e severo, aguardando decisão do Marcelo sobre escopo/prioridade antes de qualquer implementação.
 
+### W3-07 — DSR (Data Subject Requests: acesso/exportação/exclusão) — real ou design-only?
+
+- **Current state**: **`DONE` (auditoria) — confirma o autorrelato já existente em `privacy-lgpd.md` §7, sem surpresa nova de severidade tipo W3-06.** `privacy-lgpd.md` §3 desenha em detalhe um mecanismo único (`DataSubjectRequest`, máquina de estados `RECEIVED → VERIFIED → DISCOVERED → HELD/PURGING → COMPLETED`) cobrindo confirmação (≤15 dias), exportação (≤30 dias, JSON/CSV + documentos originais + manifest/checksums) e exclusão (inventário tenant-wide, bloqueio imediato, tombstone transacional, purga idempotente via GSI6, revogação de canal/link). **Nada disso existe em código** — zero rota HTTP, zero tipo/entidade `DataSubjectRequest`, zero script de export, confirmado por grep exaustivo em todo `src/modules/*/http/*.ts` e `scripts/`.
+- **Distinção real por direito** (a auditoria foi além do autorrelato para separar o que já é resolvido por CRUD comum do que realmente falta):
+  - **Acesso/confirmação/exportação**: 100% design-only, nenhuma rota expõe nem `AuditEvent` a um solicitante.
+  - **Correção**: **na prática já resolvida** pelos métodos CRUD comuns já existentes (`updateItem`/`updateSubject`/`updateRequirementAssignment`/`updatePolicy`/preferências de notificação), todos com rota HTTP e teste — não precisa de mecanismo DSR dedicado para isso, só falta uma via de correção para campos de identidade do `User` (nome/e-mail) e metadados de `Document`, que hoje não têm `update`.
+  - **Exclusão**: só existe flip de status independente por entidade (`deleteSubject`/`deleteItem`/`deleteDocument`/`deleteRequirementAssignment`) — **nenhum deles encadeia para as entidades relacionadas** (deletar um `TrackedSubject` não toca seus `RequirementAssignment`/`DocumentSubmission`/itens vinculados; deletar um `ExpirationItem` não toca seus documentos/lembretes/notificações). Confirma e amplia o achado de W3-06 (a purga física do `Document` nunca dispara de qualquer forma).
+  - **Encerramento de conta/tenant**: conceito não existe em lugar nenhum do código (`grep` por `closeAccount`/`deleteAccount`/`offboardTenant` = zero).
+- **Evidence**: relatório de pesquisa dedicado, tabela DESIGNED/IMPLEMENTED/TESTED por direito, citações arquivo:linha.
+- **Desired state**: nenhuma ação imediata — este achado já era conhecido e auto-reportado (`privacy-lgpd.md` §7 já dizia "não implementado"), a auditoria só tornou precisa a extensão exata do gap (o que já é resolvido via CRUD vs. o que realmente falta). Implementação de um DSR real fica como escopo de produto maior, natural candidato a agrupar com a decisão de `W3-06-DECISION` já que ambos dependem do mesmo mecanismo de cascata de exclusão que hoje não existe.
+- **Dependencies**: nenhuma para a auditoria; implementação real depende da mesma decisão de escopo de `W3-06-DECISION` (o mecanismo de purga/cascata é compartilhado).
+- **Risk**: já era conhecido — sem mudança de risco desta auditoria, só precisão maior sobre a extensão.
+- **Priority**: P2 (mantido do prompt mestre — não é achado novo de severidade alta, é confirmação/precisão de um gap já conhecido).
+- **User/Pilot impact**: gate de LGPD readiness para qualquer piloto que precise responder a uma solicitação real de titular — não bloqueia um piloto controlado sem essa exigência ativa.
+- **Implementation status**: `DONE` (auditoria); implementação `NOT STARTED` (nenhuma decisão pendente nova — já coberta pelo mesmo `W3-06-DECISION`).
+- **Verification**: relatório do agente, tabela DESIGNED/IMPLEMENTED/TESTED.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE` (auditoria).
+
 Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-07 | DSR (access/export/deletion) — real ou design-only? | §7.8/§7.9 | P2 |
 | W3-08 | Inventário de região AWS/subprocessadores + tabela de subprocessor register | §7.11-7.13 | P2 |
 | W3-09 | RIPD readiness (inventário técnico, nunca aprovação jurídica) | §7.14 | P3 |
 
@@ -256,4 +274,4 @@ Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 1. **W2-01-DECISION** — campo auto-`CONFIRMED` do M7 não propaga `dueDate`: escolher entre auto-escrever o item ou nunca auto-confirmar.
 2. **W0-03** — quando o Design System formal for atualizado a partir do novo protótipo standalone, sinalizar para a Wave 1 rodar.
 3. **User Validation** — continua em suspenso por pedido explícito do Marcelo (`NEXT_SESSION_PROMPT.md`); nenhuma ação deste programa deve reabri-la sem sinal dele.
-4. **W3-06-DECISION** — 8 das 9 classes de retenção de `privacy-lgpd.md` §4 não têm purga real implementada, incluindo `USER_DOCUMENT` (documentos reais de terceiros nunca são fisicamente apagados após exclusão lógica, apesar de existir um campo `purgeAfter` que parece implementar isso mas não aciona nada). Decisão necessária: prioridade/escopo — implementar `USER_DOCUMENT` primeiro (maior risco real) seguindo o padrão já provado em `EXTRACTION_TRANSIENT` (worker explícito + lifecycle S3 como rede de segurança), ou aceitar o gap conscientemente para um piloto sem dados pessoais reais de terceiros. Ver seção W3-06 acima para a tabela completa.
+4. **W3-06-DECISION** — 8 das 9 classes de retenção de `privacy-lgpd.md` §4 não têm purga real implementada, incluindo `USER_DOCUMENT` (documentos reais de terceiros nunca são fisicamente apagados após exclusão lógica, apesar de existir um campo `purgeAfter` que parece implementar isso mas não aciona nada). Decisão necessária: prioridade/escopo — implementar `USER_DOCUMENT` primeiro (maior risco real) seguindo o padrão já provado em `EXTRACTION_TRANSIENT` (worker explícito + lifecycle S3 como rede de segurança), ou aceitar o gap conscientemente para um piloto sem dados pessoais reais de terceiros. Ver seção W3-06 acima para a tabela completa. **W3-07 confirmou que o mesmo mecanismo de cascata/purga também é o que falta para DSR de exclusão real** — as duas decisões podem ser resolvidas juntas (um mecanismo de exclusão em cascata + purga física serviria às duas).
