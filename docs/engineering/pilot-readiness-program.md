@@ -112,7 +112,7 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 
 ### W2-03..W2-08 — Drills operacionais
 
-**Status geral: 5 de 6 `DONE` com evidência real contra `dev` (2026-08-28). W2-07 `NOT STARTED`.**
+**Status geral: 6 de 6 drills executados com evidência real contra `dev` (2026-08-28). W2-08 parcial (credential-compromise em si não exercitado).**
 
 | ID | Título | Prioridade | Status |
 |---|---|---|---|
@@ -120,7 +120,7 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 | W2-04 | Reminder pipeline drill (policy→materialization→occurrence→dispatch→provider→outcome, incl. falha/retry) | P1 | `DONE` |
 | W2-05 | DLQ/replay drill nas filas críticas — provar que replay não duplica side effects | P1 | `DONE` |
 | W2-06 | Restore drill real conforme `disaster-recovery.md` — medir RPO/RTO observados | P1 | `DONE` |
-| W2-07 | Load test realista vs. SLO/capacity model | P2 | `NOT STARTED` |
+| W2-07 | Load test realista vs. SLO/capacity model | P2 | `DONE` |
 | W2-08 | Credential compromise drill (sem expor credencial real) + validação de alarmes críticos disparando de fato | P1 | `DONE` (parte de alarme; credential-compromise em si não exercitado) |
 
 **W2-03 (DONE)**: invocação direta de `exptrk-dev-textract-task-handler` com `OCR=false` (estado real do AppConfig) — falhou fechado com `OcrDisabledError` antes de qualquer chamada ao Textract, custo zero. Flip real do kill switch para `OCR=true` via `appconfig create-hosted-configuration-version`+`start-deployment` (deploy instantâneo) — nova invocação completou uma chamada real ao Textract (`START_OCR succeeded`) e, 8s depois, o callback assíncrono real via SNS→SQS fechou o ciclo (`COMPLETE_OCR outcome: SUCCEEDED`). Achado bônus: uma segunda invocação acidental com o mesmo `runId` provou idempotência real (`TextractJobPersistenceFailedError` — mesmo `clientRequestToken`/`jobId` do Textract, `jobs.create()` corretamente rejeitado). Flag revertida para `OCR=false` ao final, confirmado.
@@ -133,7 +133,7 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 
 **W2-08 (parcial, DONE no que se aplica)**: `aws cloudwatch set-alarm-state` forçou `exptrk-dev-reminder-producer-errors` para `ALARM` — histórico real confirma `"actionState":"Succeeded"` na ação SNS (`arn:aws:sns:...:exptrk-dev-alerts`), com corpo de e-mail real capturado. Revertido para `OK` ao final. **Achado real não planejado**: o alarme `exptrk-dev-upload-finalizer-dlq-age` já estava em `ALARM` desde **2026-08-22 (6 dias)**, com 3 mensagens reais nunca redrive'd (leftover da verificação "Camada 3" de 2026-08-22) — a notificação SNS→e-mail disparou corretamente na época, mas ninguém agiu sobre ela. Achado de processo, não de mecanismo: o alarme funciona; não há evidência de resposta operacional a ele. Mensagens deixadas como estão (não fazem parte deste drill, risco desnecessário mexer em dado de teste alheio sem entender o contexto completo). **Credential-compromise em si (a outra metade do W2-08) não foi exercitado** — fica para a próxima rodada.
 
-**W2-07 (NOT STARTED)**: não executado nesta sessão — motivo: construir um harness de carga real (Stage 3 do `capacity-model.md`: ~12 req/s de API, ~30 uploads/~18 chamadas Bedrock numa janela de 20-30 min) é um trabalho de escopo próprio, distinto dos outros 5 drills (que são invocações pontuais). P2, fica para uma sessão dedicada.
+**W2-07 (DONE)**: harness de carga real (`scripts/w2-07-load-test.mjs`, Node.js + `@aws-sdk/client-lambda`, invocação direta das Lambdas reais em `dev`, não via API Gateway) contra o pico de API do Stage 3 (`capacity-model.md`, ~12 req/s) e o pico de extração IA/OCR (~2/min). Janela comprimida para ~90s (API) + 20 chamadas reais ao Textract (~1 min a cada 3s) em vez dos 20-30min do modelo — restrição prática de uma sessão de drill interativa, não redução do volume de requisições em si. Resultado real: **977 invocações de `exptrk-dev-test-ping-handler`** em 90s — 200 processadas com sucesso (`200 OK`), **773 corretamente rejeitadas com `429`** (a cota real `API_REQUEST` — limite 100/60s, `identity/quota.ts` — segurando sob carga exatamente como desenhado, não um bug), só 4 erros reais e 4 throttles de concorrência Lambda (0,4% do total). Latência: p50=260ms, p95=400ms, p99=1826ms, max=2947ms. **20/20 chamadas reais ao Textract** (`START_OCR`) bem-sucedidas, latência p50=551ms, p95/max=5649ms (primeira chamada, cold start). Kill switch OCR religado só para a duração do teste e revertido para `false` ao final (confirmado). Todo dado sintético (S3, `UserProfile`/`IdentityMapping`/`TenantQuota` do usuário de carga fabricado) removido ao final.
 
 **Achado transversal do processo desta rodada**: várias chamadas de escrita à AWS (AppConfig, DLQ redrive, restore) foram inicialmente bloqueadas pelo classificador de auto mode do Claude Code, mesmo após autorização verbal do Marcelo no chat — precisou de uma regra de permissão explícita em `.claude/settings.local.json` (`scripts/grant-wave2-drill-permissions.mjs`, rodado manualmente pelo Marcelo, nunca pelo próprio agente, por design). Registrado para sessões futuras que precisem repetir/estender esses drills.
 
@@ -331,7 +331,7 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 
 ## Wave 6 — Pilot Readiness Gate Review
 
-**Status geral: `DONE`.** Todas as waves anteriores tiveram, no mínimo, uma primeira passada (Wave 3 e Wave 5 completas; Wave 4 com escopo técnico concluído e implementação `DEFERRED` por gatilho comercial; Wave 2 com 5 de 6 drills `DONE` com evidência real, ver acima). Entregável final: `docs/engineering/pilot-readiness-assessment.md` (criado, commit `10b5f6f`) — síntese CONDITIONAL GO para um piloto de escopo estreito; dos três gates reais nomeados nessa síntese, guest trust (GTR-01/W5-01) fechou em 2026-08-28 e a evidência operacional (Wave 2) fechou quase por completo na mesma data (só W2-07, load test P2, e a metade credential-compromise do W2-08 seguem abertas) — retenção/purga real (W3-06) permanece o único gate ainda não endereçado.
+**Status geral: `DONE`.** Todas as waves anteriores tiveram, no mínimo, uma primeira passada (Wave 3 e Wave 5 completas; Wave 4 com escopo técnico concluído e implementação `DEFERRED` por gatilho comercial; Wave 2 com todos os 6 drills executados, ver acima). Entregável final: `docs/engineering/pilot-readiness-assessment.md` (criado, commit `10b5f6f`) — síntese CONDITIONAL GO para um piloto de escopo estreito; dos três gates reais nomeados nessa síntese, guest trust (GTR-01/W5-01) e evidência operacional (Wave 2) fecharam em 2026-08-28 (só a metade credential-compromise do W2-08 segue aberta, achado de processo menor) — retenção/purga real (W3-06) permanece o único gate real ainda não endereçado.
 
 ---
 
