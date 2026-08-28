@@ -297,11 +297,25 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 5 — GTR-01 + Guest Trust Readiness
 
-**Status geral: `NOT STARTED`.** `GTR-01` já é um blocker nomeado desde o planejamento de interface (`docs/frontend/README.md`) — simulado no protótipo, nunca resolvido no backend real.
+**Status geral: `PARTIAL` (escopo técnico concluído; implementação `BLOCKED` por decisão de produto).** `GTR-01` já é um blocker nomeado desde o planejamento de interface (`docs/frontend/README.md`) — simulado no protótipo, nunca resolvido no backend real.
 
-| ID | Título | Wave §ref | Prioridade |
-|---|---|---|---|
-| W5-01 | Backend real de identidade do solicitante (organização) exposta ao guest, substituindo a string fixa do protótipo | §9.1 | P1 se guest flow entrar no primeiro Pilot; senão DEFER |
+### W5-01 — Backend real de identidade do solicitante exposta ao guest
+
+- **Current state**: **escopo técnico `DONE`, implementação `BLOCKED`**. Pesquisa dedicada confirmou a extensão exata do gap: `GET /guest/document-requests/{token}` (`GuestSubmissionService.getRequestInfo()`) retorna hoje só `{requirementName, deadline, allowedMediaTypes, maxUploadBytes}` — nenhum campo de tenant/organização/solicitante em lugar nenhum, nem na rota HTTP nem no e-mail de convite/cobrança enviado ao guest (`email-templates.ts`). "Empresa Alfa Ltda." (a string do protótipo) **não existe em nenhuma tabela do backend real** — é 100% UI.
+- **Achado real, não presumido**: **não existe HOJE nenhum campo de nome legível para um tenant em lugar nenhum do sistema.** `UserProfile` (o registro mais próximo de um "tenant", já que `tenantId=userId` per W4-01) só tem `emailNormalized` — nenhum `displayName`/`companyName`. Cognito também não tem atributo customizado de nome de empresa no cadastro. `TrackedSubject.displayName` e `DocumentRequest.recipientDisplayName` existem mas são sobre entidades DIFERENTES (o fornecedor sendo rastreado, e o nome que o tenant digita sobre o próprio guest) — nenhum dos dois serve para "quem está pedindo".
+- **Boa notícia confirmada**: **fechar isso NÃO depende de Organization/Membership (`W4-02`) existir primeiro** — como `tenantId=userId` hoje, um campo novo em `UserProfile` já resolveria tecnicamente (com uma migração futura para `Organization` quando/se `W4-02` existir, mesma disciplina de outros compromissos "modelado contra tenant hoje, migra depois" já registrados nesta auditoria).
+- **Por que não é uma correção mecânica**: o campo simplesmente não existe em lugar nenhum para "encanar" — precisa de uma superfície nova de captura (cadastro/perfil), decisão de produto sobre o quê capturar (nome de empresa vs. nome de pessoa), se é obrigatório no cadastro ou preenchível depois, e um fallback definido para tenants já existentes sem o campo (mostrar domínio do e-mail? "Solicitante não identificado"? bloquear o guest flow até o tenant preencher?).
+- **Achado adjacente, já resolvido, sem gap**: a defesa anti-enumeração do GTR-01 (não distinguir token errado/expirado/revogado/de outro tenant) **já está implementada e testada** — `GuestTokenInvalidError` uniforme para todos os casos, rate-limit consumido antes do lookup do ponteiro (evita oráculo de 429 vs. 401), comparação `timingSafeEqual` mesmo quando o ponteiro não existe (evita side-channel de tempo). Nenhuma ação necessária aqui.
+- **Evidence**: relatório de pesquisa dedicado, citações arquivo:linha para as 5 perguntas de escopo.
+- **Desired state**: decisão do Marcelo sobre o que capturar/quando/fallback antes de implementar — depois disso, a implementação em si é pequena-a-média (um campo novo + um lookup novo + um campo novo na resposta HTTP + atualização de template de e-mail).
+- **Dependencies**: decisão de produto do Marcelo (não é decisão de arquitetura pesada, nível 3-4 da escala de risco — não precisa do protocolo `AGENTS.md` §4 completo, mas precisa de uma escolha de produto que só ele pode fazer).
+- **Risk**: baixo tecnicamente; o risco real é de produto (guest trust/phishing) enquanto o gap não for fechado, já conhecido e nomeado desde o planejamento de interface.
+- **Priority**: P1 se o guest flow entrar no primeiro Pilot (mantido do prompt mestre); DEFER caso contrário.
+- **User/Pilot impact**: bloqueia qualquer piloto que inclua fornecedores externos reais recebendo link de guest upload.
+- **Implementation status**: escopo `DONE`; implementação `BLOCKED` (decisão de produto do Marcelo).
+- **Verification**: relatório do agente.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `BLOCKED` — aguardando decisão do Marcelo sobre captura de dado (`W5-01-DECISION`).
 
 ---
 
@@ -317,3 +331,4 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 2. **W0-03** — quando o Design System formal for atualizado a partir do novo protótipo standalone, sinalizar para a Wave 1 rodar.
 3. **User Validation** — continua em suspenso por pedido explícito do Marcelo (`NEXT_SESSION_PROMPT.md`); nenhuma ação deste programa deve reabri-la sem sinal dele.
 4. **W3-06-DECISION** — 8 das 9 classes de retenção de `privacy-lgpd.md` §4 não têm purga real implementada, incluindo `USER_DOCUMENT` (documentos reais de terceiros nunca são fisicamente apagados após exclusão lógica, apesar de existir um campo `purgeAfter` que parece implementar isso mas não aciona nada). Decisão necessária: prioridade/escopo — implementar `USER_DOCUMENT` primeiro (maior risco real) seguindo o padrão já provado em `EXTRACTION_TRANSIENT` (worker explícito + lifecycle S3 como rede de segurança), ou aceitar o gap conscientemente para um piloto sem dados pessoais reais de terceiros. Ver seção W3-06 acima para a tabela completa. **W3-07 confirmou que o mesmo mecanismo de cascata/purga também é o que falta para DSR de exclusão real** — as duas decisões podem ser resolvidas juntas (um mecanismo de exclusão em cascata + purga física serviria às duas).
+5. **W5-01-DECISION** — para fechar `GTR-01` (guest vê "solicitado por: [ninguém]" hoje), precisa de um campo novo de nome de tenant/empresa que não existe em lugar nenhum do sistema. Decisão necessária: o quê capturar (nome de empresa vs. nome de pessoa), se é obrigatório no cadastro ou preenchível depois, e qual fallback usar para tenants já existentes sem o campo preenchido. Tecnicamente independente de `W4-02` (Organization) — pode ser implementado direto em `UserProfile` hoje, com migração futura se/quando Organization existir. Ver seção W5-01 acima.
