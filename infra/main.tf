@@ -1591,8 +1591,9 @@ resource "aws_kms_alias" "task_token" {
 # backup/replication (the artifact is disposable OCR text, never a document of record), 24h
 # lifecycle safety net matching `EXTRACTION_TRANSIENT_LIFECYCLE_HOURS` (retention.ts) exactly
 # (24h = 1 day, S3 lifecycle `expiration.days` has no hour granularity). Explicit deletion is
-# always `ExtractionValidationTaskHandler`'s job (item 7, not yet implemented) - this lifecycle
-# rule only catches a run that never reaches a terminal state.
+# always `ExtractionValidationTaskHandler`'s job (item 7, implemented - run-extraction-validation.ts
+# calls artifacts.delete() at both terminal states) - this lifecycle rule only catches a run
+# that never reaches a terminal state.
 resource "aws_s3_bucket" "extraction_transient" {
   bucket        = "${local.name_prefix}-extraction-transient"
   force_destroy = false
