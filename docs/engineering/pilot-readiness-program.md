@@ -107,8 +107,8 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 - **User/Pilot impact**: uma falha transitória de `TransactWriteItems` em `PersistExtractedFields`/`MarkPendingConfirmation` agora é retentada como desenhado, em vez de cair direto no comportamento de erro genérico.
 - **Implementation status**: `DONE`.
 - **Verification**: `npx asl-validator`, `aws stepfunctions validate-state-machine-definition` (real, contra `dev`), `terraform test` (15/15 stack + 5/5 módulo `extraction-workflow`), `terraform plan` real contra `dev` mostrando exatamente o diff de `ErrorEquals`/comentário e nenhuma mudança de topologia.
-- **PR**: #68 (commit `4ab1aa6`, aguardando CI no momento em que esta entrada foi escrita).
-- **Final status**: `DONE` (pendente confirmação final de CI/merge — atualizar após).
+- **PR**: #68 (commit `4ab1aa6`) — mergeado, CI verde, confirmado em `main`.
+- **Final status**: `DONE`.
 
 ### W2-03..W2-08 — Drills operacionais ainda não executados
 
@@ -142,7 +142,7 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **User/Pilot impact**: nenhuma regressão comportamental; reduz risco de uma refatoração futura introduzir silenciosamente um vazamento cross-tenant nessas 5 áreas sem que a suíte pegue.
 - **Implementation status**: `DONE` para os 5 gaps identificados (`Document`, `Subject`/`RequirementAssignment`/`DocumentSubmission`, `Import`, `Extraction confirm/reject`, `ReminderPolicy CRUD`).
 - **Verification**: 905/905 testes de backend passando (era 892 no início da sessão), `typecheck`/`lint`/`check-boundaries`/`check-docs` limpos.
-- **PR**: pendente de abrir (próximo passo desta sessão).
+- **PR**: #68 (commit `ea33954`) — mergeado, CI verde, confirmado em `main`.
 - **Final status**: `DONE` (os 5 gaps concretos), `NOT STARTED` (presigned URL de download real, e as áreas W3-02 em diante abaixo).
 
 ### W3-02 — Auditoria de proveniência de `tenantId`
@@ -259,7 +259,7 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
   4. **Uso de IA/OCR (Bedrock/Textract) sobre documento de titular antes desse fluxo ir a produção — o mais próximo de disparar, merece atenção explícita.** M7 está code-complete e com uma verificação E2E real já executada contra `dev`, mas usando um documento sintético fabricado para o teste, nunca um documento real de um titular real — o gate `extraction_pipeline_enabled` permanece `false` por padrão, então nenhum documento real de cliente passa pelo pipeline de IA hoje. Este gatilho disparará no momento em que esse gate for ligado para um cliente real, não antes — vale reavaliar explicitamente nesse momento, não presumir que "já é código de produção" equivale a "já processou dado real de titular".
   5. Incidente de segurança/privacidade que exponha dado pessoal real — **não disparado**.
   6. Mudança relevante na matriz de retenção que amplie prazo ou remova hold — **não disparado**: W3-06 achou GAPS de enforcement (a matriz não está sendo cumprida), não uma mudança na matriz em si; não é o mesmo gatilho.
-- **Desired state/decisão**: o próprio `privacy-lgpd.md` §6 exige que a decisão de "não requer RIPD nesta versão" seja **registrada pelo Marcelo em `decisions-log.md` a cada verificação**, mesmo quando a conclusão é negativa — isso não foi feito por esta sessão porque é explicitamente uma decisão humana, não uma correção mecânica (a IA "pode preparar inventário, mapear riscos... mas não pode fingir aprovação", conforme o prompt mestre §14). Esta seção serve de insumo pronto para essa entrada, caso o Marcelo queira registrá-la.
+- **Desired state/decisão**: o próprio `privacy-lgpd.md` §6 exige que a decisão de "não requer RIPD nesta versão" seja **registrada pelo Marcelo em `decisions-log.md` a cada verificação**, mesmo quando a conclusão é negativa — isso não foi feito por esta sessão porque é explicitamente uma decisão humana, não uma correção mecânica (a IA "pode preparar inventário, mapear riscos... mas não pode fingir aprovação", conforme o prompt mestre §14). Esta seção serve de insumo pronto para essa entrada, caso o Marcelo queira registrá-la. **PENDING — needs Marcelo's formal sign-off**: `docs/architecture/decisions-log.md` não tem, até o momento, nenhuma entrada registrando essa determinação (última entrada é D-057, 2026-08-25, sobre outro assunto); nenhuma IA deve fabricar essa entrada em nome dele.
 - **Dependencies**: decisão do Marcelo sobre se/quando registrar formalmente em `decisions-log.md`.
 - **Risk**: nenhum novo — checagem confirma que nenhum gatilho disparou, com um ponto de atenção real (item 4) para quando M7 for habilitado com cliente real.
 - **Priority**: P3 (mantido do prompt mestre).
@@ -321,7 +321,7 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 6 — Pilot Readiness Gate Review
 
-**Status geral: `NOT STARTED`** — depende de todas as waves anteriores terem, no mínimo, uma primeira passada. Entregável final: `docs/engineering/pilot-readiness-assessment.md` (ainda não criado).
+**Status geral: `DONE`.** Todas as waves anteriores tiveram, no mínimo, uma primeira passada (Wave 3 completa, Wave 2/4/5 com escopo técnico concluído e implementação `BLOCKED`/`DEFERRED` por decisão pendente do Marcelo, conforme registrado em cada wave acima). Entregável final: `docs/engineering/pilot-readiness-assessment.md` (criado, commit `10b5f6f`) — síntese CONDITIONAL GO para um piloto de escopo estreito, três gates reais nomeados (retenção/purga W3-06, guest trust GTR-01/W5-01, drills operacionais Wave 2).
 
 ---
 
