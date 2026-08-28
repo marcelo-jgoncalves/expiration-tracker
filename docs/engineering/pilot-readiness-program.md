@@ -273,13 +273,25 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 4 — Identity / Organization / Admin / RBAC Readiness
 
-**Status geral: `NOT STARTED`.** Design de Organization/Membership/RBAC existe em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2) mas **não implementado** (M13 gated por gatilho comercial real que não disparou, `AGENTS.md` §1). Itens a registrar:
+**Status geral: `PARTIAL` (W4-01 concluído; W4-02/W4-03 permanecem gated por decisão de negócio, não por falta de auditoria).** Design de Organization/Membership/RBAC existe em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2) mas **não implementado** (M13 gated por gatilho comercial real que não disparou, `AGENTS.md` §1).
+
+### W4-01 — Confirmar `tenantId=userId` contra o código real
+
+- **Current state**: **`DONE`**. Confirmado com precisão: `RequestContextResolver.resolve()` (`src/modules/identity/application/resolve-request-context.ts:44-53`) gera **um único ULID** e passa o mesmo valor literal como `userId` E `tenantId` para `IdentityMapping.findOrCreate()` — não é convenção, é o mesmo valor. `IdentityMapping` mapeia `cognitoSub → {userId, tenantId}`, sem tabela/entidade separada de Organization/Membership. Grep em todo `src/**` por `Organization`/`Membership`/`organizationId`: **zero implementação real**, só 5 comentários referenciando o design futuro (FUT-001) — nenhum type/interface/valor em runtime.
+- **`tenantId` é opaco em quase todo lugar**, com uma exceção real registrada: `src/modules/notification/ports/recipient-resolver.ts:26-32` (`resolveCandidateUserId()`) usa o fallback `candidateUserId = item.assigneeUserId ?? tenantId` quando não há assignee explícito — o próprio docstring já admite "válido só enquanto o produto for single-user-per-tenant". Esse é o único ponto real que quebraria silenciosamente (deixaria de rotear notificação, não corromperia dado) se `tenantId` deixasse de ser 1:1 com um `userId` de verdade.
+- **Migração de dado**: para tenants NOVOS, popular `tenantId` com um `organizationId` gerado é trivial (nenhuma chave física muda de forma). Para tenants JÁ EXISTENTES que precisassem virar multi-usuário, é uma migração real — reescrever PK/SK/GSI/idempotency/outbox/S3 daquele tenant especificamente (o próprio `05-domain-model-organization-billing.md` já registra isso, não é achado novo). **A parte tecnicamente mais arriscada não é modelar Organization/Membership (módulo novo, direto) — é o cutover ao vivo de um tenant com tráfego em andamento** (mensagens SQS já enfileiradas carregando o `tenantId` antigo no corpo, per achado do W3-02) sem duplicar side effect nem downtime.
+- **Evidence**: relatório de pesquisa dedicado, citações arquivo:linha para cada uma das 5 perguntas de escopo.
+- **Desired state**: alcançado — nenhuma decisão nova necessária, o achado confirma exatamente o que `AGENTS.md` §1 e o design doc já presumiam. Não é gatilho para começar a implementação (`M13` segue gated por gatilho comercial real, `AGENTS.md` §1) — este item é só a confirmação técnica que §8.8 do prompt mestre pediu antes de qualquer avanço.
+- **Dependencies**: nenhuma para a auditoria; a implementação real (W4-02) depende do gatilho comercial já definido em `AGENTS.md` §1, não desta sessão.
+- **Risk**: nenhum — auditoria confirmatória, zero código alterado.
+- **Priority**: P1 (auditoria) — concluída.
+- **Implementation status**: `DONE`.
+- **Final status**: `DONE`.
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W4-01 | Confirmar contra o código real: `tenantId` ainda é `userId` hoje? Migração para `organizationId` é Type 1 se B2B exigir | §8.8 | P1 (bloqueia qualquer avanço de RBAC) |
-| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | P2 |
-| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | P3 (deferred se não necessário para Pilot) |
+| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | **`BLOCKED`/deferred por design** — `AGENTS.md` §1 já determina que M13 só começa com gatilho comercial real (primeira venda B2B), que não disparou. Não é auditoria pendente, é escopo de implementação genuína gated por decisão de negócio já registrada — não uma tarefa deste programa até o gatilho disparar. |
+| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | **`DEFERRED`** — mesma razão de W4-02, sem justificativa de necessidade real hoje. |
 
 ---
 
