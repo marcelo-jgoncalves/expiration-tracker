@@ -232,11 +232,28 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **PR**: junto com os outros achados desta sessão.
 - **Final status**: `DONE` (auditoria).
 
+### W3-08 — Inventário de região AWS/subprocessadores
+
+- **Current state**: **`DONE`**. Pesquisa dedicada construiu o inventário técnico completo a partir do Terraform real (34 tipos de recurso `aws_*`, todos os serviços AWS efetivamente usados) e de `package.json`/`frontend/package.json` (zero SDK de fornecedor não-AWS — nenhum SendGrid/Twilio/WhatsApp/Telegram/Resend em nenhuma dependência real). Confirma que os dois documentos normativos já existentes (`privacy-lgpd.md` §5, `docs/engineering/third-party-inventory.md`) estavam **factualmente corretos na essência**, mas com duas imprecisões reais e uma linha desatualizada, todas corrigidas nesta sessão:
+  1. **Região**: os dois docs diziam só "não decidida" sem distinguir que o único ambiente que existe hoje (`dev`) já deploya para `us-east-1` de verdade — uma exceção explicitamente não-vinculante no próprio Terraform (`infra/variables.tf`), nunca a decisão de produção (que segue genuinamente aberta). Adicionada a distinção nos dois docs.
+  2. **`bedrock_region` é uma variável Terraform separada**, independentemente configurável da região do resto do stack (`infra/variables.tf:169-179`) — uma segunda decisão de residência de dados que nenhum dos dois docs deixava explícita. Adicionado.
+  3. **Achado real de doc drift, não só imprecisão**: `third-party-inventory.md` tinha a linha "Provedor de e-mail (não escolhido)" — mas AWS SES v2 é o canal de e-mail real e implementado desde M4 (`src/modules/notification/providers/ses-email-adapter.ts`, `infra/modules/ses-notifications/main.tf`), rodando em produção. **Corrigido** — linha atualizada para `AWS SES v2`, mesma disciplina das outras linhas AWS.
+  4. **Precisão menor**: WhatsApp tem um kill switch já provisionado em AppConfig (flag `WHATSAPP`, default `false`) mesmo sem o canal existir — anotado para não confundir "flag existe" com "mudança de configuração ligaria o canal" (falta todo o adapter/BSP).
+- **Evidence**: relatório de pesquisa dedicado — tabela de inventário região/serviço, tabela de registro de subprocessadores (técnico, DPA explicitamente marcado "não verificado legalmente"), citações arquivo:linha para cada afirmação de infra.
+- **Desired state**: alcançado — os docs normativos agora refletem o estado técnico real com precisão. Nenhuma decisão de região foi tomada (permanece aberta, como já era).
+- **Dependencies**: nenhuma.
+- **Risk**: nenhum — só precisão de documentação, nenhuma mudança de comportamento/infra.
+- **Priority**: P2 (mantido do prompt mestre).
+- **User/Pilot impact**: nenhum direto — reduz risco de uma decisão jurídica futura ser tomada a partir de um inventário desatualizado (a linha de e-mail "não escolhido" era o tipo exato de erro que este programa existe para achar).
+- **Implementation status**: `DONE`.
+- **Verification**: relatório do agente + `npm run check-docs` limpo após as edições em `privacy-lgpd.md`/`third-party-inventory.md`.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE`.
+
 Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W3-08 | Inventário de região AWS/subprocessadores + tabela de subprocessor register | §7.11-7.13 | P2 |
 | W3-09 | RIPD readiness (inventário técnico, nunca aprovação jurídica) | §7.14 | P3 |
 
 ---
