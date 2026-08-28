@@ -273,23 +273,49 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 4 — Identity / Organization / Admin / RBAC Readiness
 
-**Status geral: `NOT STARTED`.** Design de Organization/Membership/RBAC existe em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2) mas **não implementado** (M13 gated por gatilho comercial real que não disparou, `AGENTS.md` §1). Itens a registrar:
+**Status geral: `PARTIAL` (W4-01 concluído; W4-02/W4-03 permanecem gated por decisão de negócio, não por falta de auditoria).** Design de Organization/Membership/RBAC existe em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2) mas **não implementado** (M13 gated por gatilho comercial real que não disparou, `AGENTS.md` §1).
+
+### W4-01 — Confirmar `tenantId=userId` contra o código real
+
+- **Current state**: **`DONE`**. Confirmado com precisão: `RequestContextResolver.resolve()` (`src/modules/identity/application/resolve-request-context.ts:44-53`) gera **um único ULID** e passa o mesmo valor literal como `userId` E `tenantId` para `IdentityMapping.findOrCreate()` — não é convenção, é o mesmo valor. `IdentityMapping` mapeia `cognitoSub → {userId, tenantId}`, sem tabela/entidade separada de Organization/Membership. Grep em todo `src/**` por `Organization`/`Membership`/`organizationId`: **zero implementação real**, só 5 comentários referenciando o design futuro (FUT-001) — nenhum type/interface/valor em runtime.
+- **`tenantId` é opaco em quase todo lugar**, com uma exceção real registrada: `src/modules/notification/ports/recipient-resolver.ts:26-32` (`resolveCandidateUserId()`) usa o fallback `candidateUserId = item.assigneeUserId ?? tenantId` quando não há assignee explícito — o próprio docstring já admite "válido só enquanto o produto for single-user-per-tenant". Esse é o único ponto real que quebraria silenciosamente (deixaria de rotear notificação, não corromperia dado) se `tenantId` deixasse de ser 1:1 com um `userId` de verdade.
+- **Migração de dado**: para tenants NOVOS, popular `tenantId` com um `organizationId` gerado é trivial (nenhuma chave física muda de forma). Para tenants JÁ EXISTENTES que precisassem virar multi-usuário, é uma migração real — reescrever PK/SK/GSI/idempotency/outbox/S3 daquele tenant especificamente (o próprio `05-domain-model-organization-billing.md` já registra isso, não é achado novo). **A parte tecnicamente mais arriscada não é modelar Organization/Membership (módulo novo, direto) — é o cutover ao vivo de um tenant com tráfego em andamento** (mensagens SQS já enfileiradas carregando o `tenantId` antigo no corpo, per achado do W3-02) sem duplicar side effect nem downtime.
+- **Evidence**: relatório de pesquisa dedicado, citações arquivo:linha para cada uma das 5 perguntas de escopo.
+- **Desired state**: alcançado — nenhuma decisão nova necessária, o achado confirma exatamente o que `AGENTS.md` §1 e o design doc já presumiam. Não é gatilho para começar a implementação (`M13` segue gated por gatilho comercial real, `AGENTS.md` §1) — este item é só a confirmação técnica que §8.8 do prompt mestre pediu antes de qualquer avanço.
+- **Dependencies**: nenhuma para a auditoria; a implementação real (W4-02) depende do gatilho comercial já definido em `AGENTS.md` §1, não desta sessão.
+- **Risk**: nenhum — auditoria confirmatória, zero código alterado.
+- **Priority**: P1 (auditoria) — concluída.
+- **Implementation status**: `DONE`.
+- **Final status**: `DONE`.
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W4-01 | Confirmar contra o código real: `tenantId` ainda é `userId` hoje? Migração para `organizationId` é Type 1 se B2B exigir | §8.8 | P1 (bloqueia qualquer avanço de RBAC) |
-| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | P2 |
-| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | P3 (deferred se não necessário para Pilot) |
+| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | **`BLOCKED`/deferred por design** — `AGENTS.md` §1 já determina que M13 só começa com gatilho comercial real (primeira venda B2B), que não disparou. Não é auditoria pendente, é escopo de implementação genuína gated por decisão de negócio já registrada — não uma tarefa deste programa até o gatilho disparar. |
+| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | **`DEFERRED`** — mesma razão de W4-02, sem justificativa de necessidade real hoje. |
 
 ---
 
 ## Wave 5 — GTR-01 + Guest Trust Readiness
 
-**Status geral: `NOT STARTED`.** `GTR-01` já é um blocker nomeado desde o planejamento de interface (`docs/frontend/README.md`) — simulado no protótipo, nunca resolvido no backend real.
+**Status geral: `PARTIAL` (escopo técnico concluído; implementação `BLOCKED` por decisão de produto).** `GTR-01` já é um blocker nomeado desde o planejamento de interface (`docs/frontend/README.md`) — simulado no protótipo, nunca resolvido no backend real.
 
-| ID | Título | Wave §ref | Prioridade |
-|---|---|---|---|
-| W5-01 | Backend real de identidade do solicitante (organização) exposta ao guest, substituindo a string fixa do protótipo | §9.1 | P1 se guest flow entrar no primeiro Pilot; senão DEFER |
+### W5-01 — Backend real de identidade do solicitante exposta ao guest
+
+- **Current state**: **escopo técnico `DONE`, implementação `BLOCKED`**. Pesquisa dedicada confirmou a extensão exata do gap: `GET /guest/document-requests/{token}` (`GuestSubmissionService.getRequestInfo()`) retorna hoje só `{requirementName, deadline, allowedMediaTypes, maxUploadBytes}` — nenhum campo de tenant/organização/solicitante em lugar nenhum, nem na rota HTTP nem no e-mail de convite/cobrança enviado ao guest (`email-templates.ts`). "Empresa Alfa Ltda." (a string do protótipo) **não existe em nenhuma tabela do backend real** — é 100% UI.
+- **Achado real, não presumido**: **não existe HOJE nenhum campo de nome legível para um tenant em lugar nenhum do sistema.** `UserProfile` (o registro mais próximo de um "tenant", já que `tenantId=userId` per W4-01) só tem `emailNormalized` — nenhum `displayName`/`companyName`. Cognito também não tem atributo customizado de nome de empresa no cadastro. `TrackedSubject.displayName` e `DocumentRequest.recipientDisplayName` existem mas são sobre entidades DIFERENTES (o fornecedor sendo rastreado, e o nome que o tenant digita sobre o próprio guest) — nenhum dos dois serve para "quem está pedindo".
+- **Boa notícia confirmada**: **fechar isso NÃO depende de Organization/Membership (`W4-02`) existir primeiro** — como `tenantId=userId` hoje, um campo novo em `UserProfile` já resolveria tecnicamente (com uma migração futura para `Organization` quando/se `W4-02` existir, mesma disciplina de outros compromissos "modelado contra tenant hoje, migra depois" já registrados nesta auditoria).
+- **Por que não é uma correção mecânica**: o campo simplesmente não existe em lugar nenhum para "encanar" — precisa de uma superfície nova de captura (cadastro/perfil), decisão de produto sobre o quê capturar (nome de empresa vs. nome de pessoa), se é obrigatório no cadastro ou preenchível depois, e um fallback definido para tenants já existentes sem o campo (mostrar domínio do e-mail? "Solicitante não identificado"? bloquear o guest flow até o tenant preencher?).
+- **Achado adjacente, já resolvido, sem gap**: a defesa anti-enumeração do GTR-01 (não distinguir token errado/expirado/revogado/de outro tenant) **já está implementada e testada** — `GuestTokenInvalidError` uniforme para todos os casos, rate-limit consumido antes do lookup do ponteiro (evita oráculo de 429 vs. 401), comparação `timingSafeEqual` mesmo quando o ponteiro não existe (evita side-channel de tempo). Nenhuma ação necessária aqui.
+- **Evidence**: relatório de pesquisa dedicado, citações arquivo:linha para as 5 perguntas de escopo.
+- **Desired state**: decisão do Marcelo sobre o que capturar/quando/fallback antes de implementar — depois disso, a implementação em si é pequena-a-média (um campo novo + um lookup novo + um campo novo na resposta HTTP + atualização de template de e-mail).
+- **Dependencies**: decisão de produto do Marcelo (não é decisão de arquitetura pesada, nível 3-4 da escala de risco — não precisa do protocolo `AGENTS.md` §4 completo, mas precisa de uma escolha de produto que só ele pode fazer).
+- **Risk**: baixo tecnicamente; o risco real é de produto (guest trust/phishing) enquanto o gap não for fechado, já conhecido e nomeado desde o planejamento de interface.
+- **Priority**: P1 se o guest flow entrar no primeiro Pilot (mantido do prompt mestre); DEFER caso contrário.
+- **User/Pilot impact**: bloqueia qualquer piloto que inclua fornecedores externos reais recebendo link de guest upload.
+- **Implementation status**: escopo `DONE`; implementação `BLOCKED` (decisão de produto do Marcelo).
+- **Verification**: relatório do agente.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `BLOCKED` — aguardando decisão do Marcelo sobre captura de dado (`W5-01-DECISION`).
 
 ---
 
@@ -305,3 +331,4 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 2. **W0-03** — quando o Design System formal for atualizado a partir do novo protótipo standalone, sinalizar para a Wave 1 rodar.
 3. **User Validation** — continua em suspenso por pedido explícito do Marcelo (`NEXT_SESSION_PROMPT.md`); nenhuma ação deste programa deve reabri-la sem sinal dele.
 4. **W3-06-DECISION** — 8 das 9 classes de retenção de `privacy-lgpd.md` §4 não têm purga real implementada, incluindo `USER_DOCUMENT` (documentos reais de terceiros nunca são fisicamente apagados após exclusão lógica, apesar de existir um campo `purgeAfter` que parece implementar isso mas não aciona nada). Decisão necessária: prioridade/escopo — implementar `USER_DOCUMENT` primeiro (maior risco real) seguindo o padrão já provado em `EXTRACTION_TRANSIENT` (worker explícito + lifecycle S3 como rede de segurança), ou aceitar o gap conscientemente para um piloto sem dados pessoais reais de terceiros. Ver seção W3-06 acima para a tabela completa. **W3-07 confirmou que o mesmo mecanismo de cascata/purga também é o que falta para DSR de exclusão real** — as duas decisões podem ser resolvidas juntas (um mecanismo de exclusão em cascata + purga física serviria às duas).
+5. **W5-01-DECISION** — para fechar `GTR-01` (guest vê "solicitado por: [ninguém]" hoje), precisa de um campo novo de nome de tenant/empresa que não existe em lugar nenhum do sistema. Decisão necessária: o quê capturar (nome de empresa vs. nome de pessoa), se é obrigatório no cadastro ou preenchível depois, e qual fallback usar para tenants já existentes sem o campo preenchido. Tecnicamente independente de `W4-02` (Organization) — pode ser implementado direto em `UserProfile` hoje, com migração futura se/quando Organization existir. Ver seção W5-01 acima.
