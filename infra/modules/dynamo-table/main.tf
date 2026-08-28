@@ -9,7 +9,9 @@
 # (ReminderProducer for GSI3; ReminderReconciliation and OutboxSweeperReminderDispatch for
 # GSI6). This mirrors the CDK construct's `grantGsi3ReadTo`/`grantGsi6ReadTo` methods and
 # is the single most important invariant in this migration — do not add GSI3/GSI6 to the
-# general policy document.
+# general policy document. GSI6 gained a FOURTH consumer in W3-06/D-061: DocumentPurgeWorker
+# (alongside ReminderReconciliation/OutboxSweeperReminderDispatch/
+# UploadSlotReconciliationWorker) - acknowledged explicitly, not silently expanded.
 
 resource "aws_dynamodb_table" "this" {
   name         = var.table_name
@@ -221,8 +223,9 @@ data "aws_iam_policy_document" "gsi3_read" {
 }
 
 # The ONLY sanctioned way to read GSI6 - resource is the GSI6 index ARN exclusively.
-# Exactly two callers are permitted to attach this: ReminderReconciliation and
-# OutboxSweeperReminderDispatch (m3.5-runtime-design.md).
+# Exactly four callers are permitted to attach this: ReminderReconciliation,
+# OutboxSweeperReminderDispatch (m3.5-runtime-design.md), UploadSlotReconciliationWorker
+# (M6 design), and DocumentPurgeWorker (W3-06/D-061).
 data "aws_iam_policy_document" "gsi6_read" {
   statement {
     sid       = "Gsi6ReadOnly"

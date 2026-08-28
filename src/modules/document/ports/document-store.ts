@@ -38,6 +38,27 @@ export function buildUploadSlotGsi6Sk(expiresAt: string, tenantId: string, uploa
   return `${expiresAt}#TENANT#${tenantId}#SLOT#${uploadSlotId}`;
 }
 
+/** W3-06 (D-061): purge worklist pointers, same global WORKSTATE convention. `PENDING` is the
+ * candidate queue (written by `DocumentDeletionService` in the same transaction as the
+ * soft-delete); `CLAIMED` is the lease state `DocumentPurgeWorker` moves a `Document` into while
+ * it performs the (non-transactional) S3 deletion. `DocumentPurgeReceipt` never needs `CLAIMED`
+ * - it has no external side effect to protect with a lease, so it is deleted directly from
+ * `PENDING` in one conditioned transaction. */
+export const GSI6PK_PURGE_PENDING = "WORKSTATE#PURGE_PENDING";
+export const GSI6PK_PURGE_CLAIMED = "WORKSTATE#PURGE_CLAIMED";
+
+export function buildDocumentPurgeGsi6Sk(purgeAfter: string, tenantId: string, documentId: string): string {
+  return `${purgeAfter}#TENANT#${tenantId}#DOCUMENT#${documentId}`;
+}
+
+export function buildDocumentPurgeClaimGsi6Sk(claimExpiresAt: string, tenantId: string, documentId: string): string {
+  return `${claimExpiresAt}#TENANT#${tenantId}#DOCUMENT#${documentId}`;
+}
+
+export function buildPurgeReceiptGsi6Sk(purgeAfter: string, tenantId: string, documentId: string): string {
+  return `${purgeAfter}#TENANT#${tenantId}#PURGERECEIPT#${documentId}`;
+}
+
 export interface Gsi6QueryInput {
   gsi6pk: string;
   before: string;

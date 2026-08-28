@@ -26,6 +26,16 @@ export interface VersionedUpdateInput {
    * actively queried by reconciliation. */
   remove?: string[];
   now?: string;
+  /** Extra ConditionExpression clauses ANDed to the base condition, each with its own
+   * caller-supplied names/values (W3-06 purge worker's claim/fence conditions - e.g. checking
+   * `legalHold`/`GSI6PK`/`purgeAfter` atomically alongside the version check). Each entry's
+   * `expression` is wrapped in its own parentheses before being ANDed in, so callers never need
+   * to hand-balance parens against the base condition. Placeholder names/values MUST NOT collide
+   * with the base condition's (#version/#tenantId/#updatedAt/:expectedVersion/:tenantId/:one/:now)
+   * or with any `set`/`remove` generated key (#set<i>/:set<i>/#rem<j>) - buildVersionedUpdate
+   * throws before building an invalid ConditionExpression rather than silently overwriting one
+   * caller's placeholder with another's. */
+  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
 }
 
 export interface DynamoUpdateCommandInput {
@@ -82,12 +92,24 @@ export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateC
       ? `SET ${setClauses.join(", ")} REMOVE ${removeClauses.join(", ")}`
       : `SET ${setClauses.join(", ")}`;
 
+  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", "#tenantId = :tenantId"];
+  for (const extra of input.extraConditions ?? []) {
+    for (const [nameKey, name] of Object.entries(extra.names ?? {})) {
+      if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved/generated key: ${nameKey}`);
+      names[nameKey] = name;
+    }
+    for (const [valueKey, value] of Object.entries(extra.values ?? {})) {
+      if (valueKey in values) throw new Error(`extraConditions value placeholder collides with a reserved/generated key: ${valueKey}`);
+      values[valueKey] = value;
+    }
+    baseConditionParts.push(`(${extra.expression})`);
+  }
+
   return {
     TableName: input.tableName,
     Key: input.key,
     UpdateExpression: expression,
-    ConditionExpression:
-      "attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion AND #tenantId = :tenantId",
+    ConditionExpression: baseConditionParts.join(" AND "),
     ExpressionAttributeNames: names,
     ExpressionAttributeValues: values,
   };
@@ -146,10 +168,51 @@ export interface DynamoDeleteCommandInput {
   TableName: string;
   Key: EntityKey;
   ConditionExpression?: string;
+  ExpressionAttributeNames?: Record<string, string>;
+  ExpressionAttributeValues?: Record<string, unknown>;
 }
 
 export interface TransactDeleteEntry {
   Delete: DynamoDeleteCommandInput;
+}
+
+/**
+ * Builds a version-conditioned Delete input (W3-06 purge worker's terminal step - a Document
+ * row can only be physically removed if it is still at the exact version/state the claim
+ * observed, same OCC discipline as `buildVersionedUpdate`, just for `DeleteItem` instead of
+ * `UpdateItem`). `extraConditions` uses the same collision-checked merge as
+ * `buildVersionedUpdate` - see that function's docs.
+ */
+export function buildVersionedDelete(input: {
+  tableName: string;
+  key: EntityKey;
+  tenantId: string;
+  expectedVersion: number;
+  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+}): DynamoDeleteCommandInput {
+  const names: Record<string, string> = { "#version": "version", "#tenantId": "tenantId" };
+  const values: Record<string, unknown> = { ":expectedVersion": input.expectedVersion, ":tenantId": input.tenantId };
+  const conditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", "#tenantId = :tenantId"];
+
+  for (const extra of input.extraConditions ?? []) {
+    for (const [nameKey, name] of Object.entries(extra.names ?? {})) {
+      if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved key: ${nameKey}`);
+      names[nameKey] = name;
+    }
+    for (const [valueKey, value] of Object.entries(extra.values ?? {})) {
+      if (valueKey in values) throw new Error(`extraConditions value placeholder collides with a reserved key: ${valueKey}`);
+      values[valueKey] = value;
+    }
+    conditionParts.push(`(${extra.expression})`);
+  }
+
+  return {
+    TableName: input.tableName,
+    Key: input.key,
+    ConditionExpression: conditionParts.join(" AND "),
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  };
 }
 
 export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry | TransactConditionCheckEntry | TransactDeleteEntry;

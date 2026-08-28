@@ -18,6 +18,14 @@ export function computeUserDocumentPurgeAfter(deletionOrClosureIso: string): str
   return new Date(Date.parse(deletionOrClosureIso) + 30 * MS_PER_DAY).toISOString();
 }
 
+/** `privacy-lgpd.md` §4: DELIVERY_RECORD = "criação + 180 dias". Used here for
+ * `DocumentPurgeReceipt` (W3-06) - a non-sensitive proof-of-purge record, same retention
+ * rationale as intents/attempts (process evidence, not third-party data), reusing the existing
+ * class instead of inventing a new one for a single new entity. */
+export function computeDeliveryRecordPurgeAfter(createdAtIso: string): string {
+  return new Date(Date.parse(createdAtIso) + 180 * MS_PER_DAY).toISOString();
+}
+
 /** `privacy-lgpd.md` §4: TRANSIENT (UploadSlot) = "7 dias; slot incompleto: 24h". A slot that
  * never got confirmed by the upload finalizer uses the shorter 24h window; a slot that WAS
  * confirmed (and its Document is now progressing through SCANNING/CLEAN/REJECTED) falls back

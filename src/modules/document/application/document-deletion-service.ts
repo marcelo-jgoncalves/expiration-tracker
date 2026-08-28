@@ -10,7 +10,7 @@ import { NotFoundError, ConflictError } from "../../../shared/errors/app-error.j
 import { buildVersionedUpdate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { computeUserDocumentPurgeAfter } from "../domain/retention.js";
-import type { DocumentStore } from "../ports/document-store.js";
+import { GSI6PK_PURGE_PENDING, buildDocumentPurgeGsi6Sk, type DocumentStore } from "../ports/document-store.js";
 
 export interface DocumentDeletionServiceDeps {
   store: DocumentStore;
@@ -40,6 +40,7 @@ export class DocumentDeletionService {
     if (TERMINAL_ALREADY.has(doc.status)) return; // idempotent: already deleted.
 
     const now = this.now();
+    const purgeAfter = computeUserDocumentPurgeAfter(now);
     try {
       await this.store.transactWrite([
         {
@@ -48,7 +49,17 @@ export class DocumentDeletionService {
             key,
             tenantId: ctx.tenant.tenantId,
             expectedVersion: doc.version,
-            set: { status: "DELETED", deletedAt: now, purgeAfter: computeUserDocumentPurgeAfter(now) },
+            // W3-06 (D-061): the GSI6 purge-pending pointer is written in the SAME transaction
+            // as the soft-delete - never a second write - so the physical purge worker can
+            // never miss a deleted Document the way reserveUpload once missed writing its own
+            // GSI6 pointer (see document-store.ts's GSI6PK_RECON_UPLOAD_PENDING comment).
+            set: {
+              status: "DELETED",
+              deletedAt: now,
+              purgeAfter,
+              GSI6PK: GSI6PK_PURGE_PENDING,
+              GSI6SK: buildDocumentPurgeGsi6Sk(purgeAfter, ctx.tenant.tenantId, documentId),
+            },
           }),
         },
       ]);

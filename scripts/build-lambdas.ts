@@ -63,6 +63,7 @@ const HANDLERS = [
   "pdf-parser-task-handler",
   "bedrock-extraction-task-handler",
   "extraction-validation-task-handler",
+  "document-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

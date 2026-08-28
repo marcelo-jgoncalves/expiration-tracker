@@ -47,6 +47,23 @@ export interface Document extends EntityKey {
   extractionRunId?: string; // M7, unused by M6, kept for schema forward-compatibility only.
   retentionClass: Extract<DocumentRetentionClass, "USER_DOCUMENT">;
   purgeAfter?: string; // set only once a terminal/deletion event establishes the clock.
+  /** W3-06: global (non-tenant-prefixed) GSI6 pointer for the purge worker - same convention as
+   * `GSI6PK_RECON_UPLOAD_PENDING`. Present only while a purge candidate is pending/claimed;
+   * removed by the same transaction that physically deletes the row. */
+  GSI6PK?: string;
+  GSI6SK?: string;
+  /** W3-06: minimal hold flag - `docs/architecture/privacy-lgpd.md` §3/§4's `legalHold`, scoped
+   * here to just the boolean the purge claim checks. No setter exists yet anywhere in this
+   * codebase; any future one MUST write it via an OCC-conditioned update including
+   * `attribute_not_exists(GSI6PK) OR GSI6PK <> :purgeClaimed` (D-061) - that condition, not this
+   * field alone, is what makes hold and purge mutually exclusive by construction. */
+  legalHold?: boolean;
+  /** W3-06: incremented on every purge claim; reconciliation moves a candidate past 5 failed
+   * attempts to `purgeStatus: "STUCK"` instead of reclaiming it forever. */
+  purgeAttempts?: number;
+  /** W3-06: terminal marker for a purge candidate that failed repeatedly - removed from both
+   * GSI6 purge worklists, requires manual intervention to re-enqueue. */
+  purgeStatus?: "STUCK";
   version: number;
   createdAt: string;
   updatedAt: string;

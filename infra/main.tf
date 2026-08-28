@@ -32,9 +32,11 @@ module "auth" {
 
 # --- Lambda functions --------------------------------------------------------------------
 # Each function gets EXACTLY the IAM capabilities expiration-tracker-stack.ts grants it.
-# ReminderProducer is the ONLY function granted gsi3_read; ReminderReconciliation and
-# OutboxSweeperReminderDispatch are the ONLY two granted gsi6_read (AGENTS.md §7's GSI
-# isolation rule — the property this whole migration exists to preserve).
+# ReminderProducer is the ONLY function granted gsi3_read; ReminderReconciliation,
+# OutboxSweeperReminderDispatch, UploadSlotReconciliationWorker, and DocumentPurgeWorker are
+# the ONLY four granted gsi6_read (AGENTS.md §7's GSI isolation rule — the property this whole
+# migration exists to preserve; the fourth role is W3-06/D-061, acknowledged explicitly, not
+# silently expanded).
 
 locals {
   common_env = { TABLE_NAME = module.table.table_name }
@@ -1205,6 +1207,101 @@ resource "aws_scheduler_schedule" "upload_slot_reconciliation" {
   target {
     arn      = module.upload_slot_reconciliation_handler.live_alias_arn
     role_arn = aws_iam_role.upload_slot_reconciliation_schedule.arn
+    input    = "{}"
+  }
+}
+
+# --- DocumentPurgeWorker: EventBridge Scheduler, every 6 hours (W3-06/D-061) ----------------
+# Fourth (of exactly four) role ever granted gsi6_read - see security-audit.ts's
+# GlobalIndexComponent "document-purge" and stack.tftest.hcl's updated GSI6 isolation
+# assertions. Minimal, purpose-scoped S3 permission: `s3:DeleteObjectVersion` only (never
+# `GetObject`/`DeleteObject`) on both document buckets - the worker only ever deletes a
+# specific, already-known object version (`cleanObject` or upload/malware evidence, never
+# `quarantineObject` - see `purge.ts`'s module doc), it never reads content.
+data "aws_iam_policy_document" "document_purge_object_access" {
+  statement {
+    sid       = "DeleteCleanObjectVersion"
+    effect    = "Allow"
+    actions   = ["s3:DeleteObjectVersion"]
+    resources = ["${module.document_buckets.clean_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DeleteQuarantineObjectVersion"
+    effect    = "Allow"
+    actions   = ["s3:DeleteObjectVersion"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+}
+
+module "document_purge_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-document-purge-handler"
+  handler_name   = "document-purge-handler"
+  source_dir     = "${local.dist_dir}/document-purge-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # CDK-parity default (10s) is too short for up to 25 candidates x (claim + S3 delete +
+  # finalize transaction) round trips per invocation - 60s leaves the 15min purge lease
+  # (PURGE_LEASE_MS, purge.ts) at a 15x margin over the worst-case invocation duration.
+  timeout_seconds       = 60
+  environment_variables = local.common_env
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi6_read_policy_json,
+    data.aws_iam_policy_document.document_purge_object_access.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "document_purge_schedule" {
+  name = "${module.document_purge_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "document_purge_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.document_purge_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeDocumentPurge"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.document_purge_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+# 6h cadence (D-061 §3): the business deadline is 30 days, so this leaves ~120x margin even
+# with the 25-candidate-per-invocation cap and no cross-invocation cursor (D-061 §"resolução
+# achado 4"). jsonencode() HTML-escapes "<"/">" - literal HCL string for the same reason as
+# upload_slot_reconciliation's schedule input, even though this one has no scheduler context
+# attribute either.
+resource "aws_scheduler_schedule" "document_purge" {
+  name                = "document-purge"
+  schedule_expression = "rate(6 hours)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = module.document_purge_handler.live_alias_arn
+    role_arn = aws_iam_role.document_purge_schedule.arn
     input    = "{}"
   }
 }

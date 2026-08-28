@@ -4,6 +4,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { DynamoDbDocumentStore } from "../../../modules/document/persistence/dynamodb-document-store.js";
 import { DynamoDbDocumentCandidateSource } from "../../../modules/document/persistence/dynamodb-document-candidate-source.js";
+import { DynamoDbDocumentPurgeCandidateSource } from "../../../workers/document-purge/dynamodb-document-purge-candidate-source.js";
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { LambdaPdfParser } from "../../../modules/document/persistence/lambda-pdf-parser.js";
@@ -30,4 +31,11 @@ export function buildDocumentWorkerDeps(client: DynamoDBDocumentClient, tableNam
 
 export function buildDocumentCandidateSource(client: DynamoDBDocumentClient, tableName: string) {
   return new DynamoDbDocumentCandidateSource(client, tableName);
+}
+
+export function buildDocumentPurgeWorkerDeps(client: DynamoDBDocumentClient, tableName: string) {
+  const store = new DynamoDbDocumentStore(client, tableName);
+  const objects = new S3DocumentObjectStore(new S3Client({}));
+  const candidates = new DynamoDbDocumentPurgeCandidateSource(client, tableName);
+  return { store, objects, candidates, tableName };
 }
