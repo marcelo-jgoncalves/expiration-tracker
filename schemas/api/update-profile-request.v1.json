@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/update-profile-request.v1.json",
+  "title": "UpdateProfileRequest v1",
+  "description": "PUT /profile request body (src/modules/identity/persistence/user-repository.ts UserProfile.requesterDisplayName, W5-01/GTR-01 D-060). null clears the field back to unset.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requesterDisplayName"],
+  "properties": {
+    "requesterDisplayName": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 }
+  }
+}

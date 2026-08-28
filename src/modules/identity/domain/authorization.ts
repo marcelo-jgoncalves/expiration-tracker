@@ -45,7 +45,13 @@ export type Action =
   // processamento em massa - mesma granularidade de document:reserve-upload/document:read.
   | "import:create"
   | "import:read"
-  | "import:commit";
+  | "import:commit"
+  // W5-01/GTR-01 (D-060): a user editing their own UserProfile.requesterDisplayName, the name
+  // shown to a guest as "who is requesting this document" - tenant-scoped WRITE like every
+  // other self-service setting (notification:configure), not ADMIN, since any member can be
+  // the one creating a RequirementAssignment/DocumentRequest and should be able to set it.
+  | "profile:read"
+  | "profile:update";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -99,6 +105,8 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "import:create": WRITE_ROLES,
   "import:read": READ_ONLY_ROLES,
   "import:commit": WRITE_ROLES,
+  "profile:read": READ_ONLY_ROLES,
+  "profile:update": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

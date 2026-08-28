@@ -81,6 +81,29 @@ describe("Guest upload flow (DocumentRequest -> GuestSubmissionService)", () => 
     expect(Object.keys(info)).not.toContain("subjectId");
   });
 
+  it("W5-01/GTR-01: getRequestInfo falls back to a generic requester name when no resolver is wired (no UserProfile.requesterDisplayName ever captured)", async () => {
+    const created = await documentRequests.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "fornecedor@example.com" });
+    const info = await guestSubmissions.getRequestInfo(created.guestToken);
+    expect(info.requesterDisplayName).toBe("Solicitante não identificado");
+  });
+
+  it("W5-01/GTR-01: getRequestInfo surfaces the resolved UserProfile.requesterDisplayName of the request's creator", async () => {
+    const resolvingGuestSubmissions = new GuestSubmissionService({
+      store,
+      tableName: "MainTable",
+      quarantineBucket: QUARANTINE_BUCKET,
+      ids: makeSubjectIdGenerator(),
+      signer: fakeSigner(),
+      rateLimiter: new GuestRateLimiter(store, () => "2026-08-23T12:00:00.000Z"),
+      guestTokenPepper: PEPPER,
+      now: () => "2026-08-23T12:00:00.000Z",
+      resolveRequesterDisplayName: async (input) => (input.userId === "user-1" ? "Empresa Alfa Ltda." : undefined),
+    });
+    const created = await documentRequests.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "fornecedor@example.com" });
+    const info = await resolvingGuestSubmissions.getRequestInfo(created.guestToken);
+    expect(info.requesterDisplayName).toBe("Empresa Alfa Ltda.");
+  });
+
   it("getRequestInfo marks the request OPENED on first read", async () => {
     const created = await documentRequests.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "fornecedor@example.com" });
     await guestSubmissions.getRequestInfo(created.guestToken);

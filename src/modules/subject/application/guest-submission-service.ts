@@ -17,6 +17,7 @@ import type { SubjectIdGenerator } from "./id-generator.js";
 import type { GuestRateLimiter } from "./guest-rate-limiter.js";
 import { MAX_UPLOAD_BYTES } from "../../document/application/upload-validation.js";
 import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
+import { sanitizeTenantText } from "../../notification/providers/email-templates.js";
 
 const ALLOWED_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const PRESIGN_TTL_SECONDS = 600;
@@ -36,7 +37,15 @@ export interface GuestRequestInfo {
   deadline?: string;
   allowedMediaTypes: string[];
   maxUploadBytes: number;
+  /** W5-01/GTR-01 (`decisions-log.md` D-060): identity of whoever created the request, shown
+   * to the guest so an unauthenticated document upload no longer arrives from an anonymous
+   * source. Always present (never `undefined`) - falls back to a generic, honest placeholder
+   * when the tenant never captured `UserProfile.requesterDisplayName` (never inferred, e.g.
+   * from an e-mail domain). */
+  requesterDisplayName: string;
 }
+
+const REQUESTER_NAME_FALLBACK = "Solicitante não identificado";
 
 export interface StartGuestSubmissionInput {
   fileName: string;
@@ -60,6 +69,11 @@ export interface GuestSubmissionServiceDeps {
   signer: UploadUrlSigner;
   rateLimiter: GuestRateLimiter;
   guestTokenPepper: string;
+  /** W5-01/GTR-01 (D-060): resolves `UserProfile.requesterDisplayName` for the request's
+   * creator (`DocumentRequest.requestedByUserId`) - same injected-resolver pattern as
+   * `resolveInternalUserEmail` in `document-chasing-dispatch`'s dispatch.ts, deliberately NOT a
+   * direct identity-module import (composition-root wiring, not a cross-module dependency). */
+  resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
   now?: () => string;
 }
 
@@ -76,6 +90,7 @@ export class GuestSubmissionService {
   private readonly signer: UploadUrlSigner;
   private readonly rateLimiter: GuestRateLimiter;
   private readonly pepper: string;
+  private readonly resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
   private readonly now: () => string;
 
   constructor(deps: GuestSubmissionServiceDeps) {
@@ -86,6 +101,7 @@ export class GuestSubmissionService {
     this.signer = deps.signer;
     this.rateLimiter = deps.rateLimiter;
     this.pepper = deps.guestTokenPepper;
+    this.resolveRequesterDisplayName = deps.resolveRequesterDisplayName;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -100,11 +116,17 @@ export class GuestSubmissionService {
       await this.markOpened(resolved.request);
     }
 
+    const resolvedRequesterName = await this.resolveRequesterDisplayName?.({
+      tenantId: resolved.request.tenantId,
+      userId: resolved.request.requestedByUserId,
+    });
+
     return {
       requirementName: assignment.requirementName,
       deadline: resolved.request.deadline,
       allowedMediaTypes: [...ALLOWED_MEDIA_TYPES],
       maxUploadBytes: MAX_UPLOAD_BYTES,
+      requesterDisplayName: sanitizeTenantText(resolvedRequesterName, REQUESTER_NAME_FALLBACK),
     };
   }
 

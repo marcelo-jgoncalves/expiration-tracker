@@ -130,6 +130,18 @@ module "notifications_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+module "profile_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-profile-handler"
+  handler_name          = "profile-handler"
+  source_dir            = "${local.dist_dir}/profile-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 module "reminder_producer" {
   source = "./modules/lambda-function"
 
@@ -285,6 +297,8 @@ module "api" {
   reminders_function_name       = module.reminders_handler.function_name
   notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
   notifications_function_name   = module.notifications_handler.function_name
+  profile_invoke_arn            = module.profile_handler.live_alias_invoke_arn
+  profile_function_name         = module.profile_handler.function_name
   documents_invoke_arn          = module.documents_handler.live_alias_invoke_arn
   documents_function_name       = module.documents_handler.function_name
   subjects_invoke_arn           = module.subjects_handler.live_alias_invoke_arn
@@ -733,6 +747,7 @@ module "security_audit_observability" {
     module.items_handler.function_name,
     module.reminders_handler.function_name,
     module.notifications_handler.function_name,
+    module.profile_handler.function_name,
     module.test_ping_handler.function_name,
   ]
   global_index_function_names = [
