@@ -201,6 +201,44 @@ M9-M11 + M7 estiverem implementados juntos.
 | BPMN/workflow builder para chasing | **Rejeitado explicitamente** | Política declarativa limitada (offsets/audiences/canais) é suficiente; fronteira anti-BPMN mantida em todos os clusters relevantes |
 | `MANAGER`/`EXPLICIT_USER` como audience | **Adiado até Organization real** | Pressupõem hierarquia organizacional que não existe (mesmo princípio "evidência antes de mecanismo" aplicado 2x nesta Fase 2b) |
 | Billing por assento como métrica primária | **Rejeitado** | Nenhum concorrente pesquisado cobra assim; `TrackedSubject` é o padrão de mercado validado |
+| **Premium Multi-Channel Notifications** (WhatsApp, responsáveis com telefone, escalation) | **Registrado como capacidade futura pós-piloto — não priorizado nesta Fase 3, ver subseção Q.1** | Zero evidência de demanda de cliente real ainda (mesmo critério já aplicado a Digest/XLSX acima); depende de billing real (M12, hoje bloqueado por D-052) para ter sentido comercial como tier pago |
+
+### Q.1 — Premium Multi-Channel Notifications (registrado em 2026-08-28, não priorizado)
+
+Capacidade futura registrada a pedido do Marcelo (sessão de 2026-08-28) — **não é decisão de implementação, não é ADR, não altera as Waves 0-6 do `pilot-readiness-program.md` nem antecipa M12 (billing)**. Fica aqui pelo mesmo motivo que as outras linhas da tabela Q: é o registro de "capacidade avaliada e conscientemente adiada", não uma lacuna esquecida.
+
+**O que é**: hoje `ExpirationItem`/`RequirementAssignment` não têm nenhum conceito de "responsável com telefone" — o mais próximo é `ItemWatch` (`07-domain-model-escalation-watchers-digest.md`, usuário interno do tenant, sem telefone) e `EXTERNAL_CONTACT` (só via `DocumentChasingIntent`, snapshot de e-mail, sem telefone, escopado à cobrança de documento, não a lembrete de vencimento) — nenhum dos dois serve para "associar um responsável com telefone a um vencimento/documento/requisito para notificação adicional". A capacidade futura é: modelar esse responsável de forma neutra a canal (nome + telefone, sem assumir que "número de WhatsApp" é uma entidade diferente de "celular" — canal e capacidade de entrega ficam em conceitos separados do dado do responsável), com preferência de canal e consentimento, e oferecer notificação adicional por canal premium quando o vencimento se aproxima.
+
+**Por que isso NÃO é greenfield arquitetural** — já existe base real, não é preciso inventar do zero:
+- `NotificationChannelKind` (`src/modules/reminder/domain/reminder-policy.ts`) já é `"EMAIL" | "WHATSAPP"` — o valor `WHATSAPP` existe no type system desde M4, nunca roteado (`SUPPORTED_CHANNELS = ["EMAIL"]` em `src/modules/notification/application/notification-router.ts`, comentário no próprio código: `// WhatsApp is a later submilestone (kill switch AppConfig WHATSAPP)`).
+- O kill switch `WHATSAPP` já existe em `infra/modules/feature-flags` (AppConfig `kill-switches`, mesmo mecanismo real usado pelos flags `OCR`/`AI_EXTRACTION` — ver Wave 2/W2-03 desta sessão para evidência real desse mecanismo em produção).
+- `ADR-0008-notification-engine-adapters.md` já decidiu o padrão de abstração de provider (fila SQS dedicada por canal + contrato de adapter comum + contract tests) explicitamente para "e-mail, Telegram e WhatsApp" — a "provider abstraction para evitar acoplamento excessivo" que esta capacidade precisaria **já está arquiteturalmente decidida**, só não implementada além de e-mail.
+- `capacity-model.md` já modela fan-out de notificação e adoção hipotética por canal incluindo WhatsApp (e Telegram, que não fazia parte do pedido desta sessão mas já está no mesmo lugar do código/docs) desde a Fase 1 — `UNK-CAP-003` já registra que "adoção real de WhatsApp/Telegram por fração de usuários é hipótese de produto, não medição" e que a política de fan-out (todo canal configurado recebe vs. fallback sequencial) não está decidida.
+
+**SMS explicitamente fora de escopo** (decisão do Marcelo nesta mesma sessão, revertendo a formulação inicial do pedido) — a capacidade cobre e-mail (default, já implementado) e WhatsApp (premium, futuro); SMS não entra no roadmap.
+
+**Considerações que a futura implementação precisará endereçar** (registradas agora para não serem esquecidas depois, não desenhadas em detalhe — isso é trabalho de um cluster de domínio completo via protocolo `AGENTS.md` §4 quando o gatilho comercial disparar):
+- Modelagem do responsável e do telefone — provavelmente um agregado novo (não reaproveitar `ItemWatch`, que é usuário interno do tenant, nem `EXTERNAL_CONTACT`, que é snapshot de e-mail escopado à cobrança) associável a item/documento/requisito; telefone como dado neutro a canal, preferência de canal como atributo separado.
+- Opt-in/consentimento explícito e opt-out — LGPD, base legal distinta de e-mail transacional (mensageria teria custo real por unidade e maior intrusão).
+- Minimização de dado (LGPD) — telefone é dado pessoal, mesma disciplina de classificação/retenção já aplicada a e-mail (`privacy-lgpd.md`).
+- Validação/normalização de número de telefone (formato internacional, país).
+- Isolamento de tenant no novo agregado (mesmo padrão já auditado na Wave 3 desta sessão para os agregados existentes).
+- Proteção contra abuso/spam do canal de mensageria (mesma disciplina de rate-limit/quota já aplicada a e-mail/API).
+- Custo real por mensagem (WhatsApp Business Platform cobra por conversa/mensagem) — candidato natural a `cost-model.md`/`FinOps` (eixo ainda não formalizado em `joint-review-criteria.md`) quando avaliado de verdade.
+- Quotas/limites por plano — só faz sentido quando M12 (billing) sair do bloqueio atual (D-052).
+- Retry e status de entrega — **distinção epistêmica obrigatória, nunca colapsada**: `sent`/aceito pelo provider ≠ `delivered` ≠ `read`. Mesma disciplina de Epistemic Integrity já aplicada no planejamento de interface (`docs/frontend/interface-screen-and-state-inventory.md`'s Epistemic Integrity Matrix, `CLEAN`="Verificado (segurança) — conteúdo não conferido" nunca "Aprovado") — se implementado, o rótulo exibido ao usuário nunca pode afirmar "lido" quando o provider só confirmou "aceito"/"entregue".
+- Idempotência — mesmo padrão já usado por `NotificationIntent`/`IdempotencyStore` (1 intent por destinatário por canal, nunca `recipientIds[]`, princípio já fixado no cluster 5).
+- Observabilidade — mesma disciplina `SecureLogger`/correlation context já aplicada aos canais existentes.
+- Integração com o Reminder Pipeline existente (`reminder-delivery-pipeline.md`) — provavelmente mais um `NotificationIntent`/canal, não um pipeline paralelo.
+- Provider abstraction — já decidida em ADR-0008, reaproveitar, não redesenhar.
+- Fallback entre canais — política não decidida (mesmo `UNK-CAP-003` acima).
+- Janela de envio/horário — `quiet hours` já existe para e-mail (`ReminderRule.quietHours`), mensageria provavelmente herda o mesmo mecanismo.
+- Timezone — já modelado por `ReminderPolicy.timeZone`, reaproveitar.
+- Escalation para outro responsável — mesmo espaço de decisão já registrado como aberto para `MANAGER`/`EXPLICIT_USER` (cluster 5, depende de Organization/RBAC real).
+
+**Hipótese comercial registrada, não decidida**: e-mail como canal básico/default, WhatsApp como diferenciador de plano premium (custo operacional por mensagem, maior percepção de urgência, diferenciação comercial) — nomenclatura de planos ("Basic"/"Premium") é hipótese de produto, não estrutura de billing definida (M12 continua bloqueado por D-052, fornecedor de pagamento).
+
+**Gatilho de reavaliação**: mesmo padrão de `evolution.md` — não é data no calendário, é evidência real (validação inicial do produto + primeiros clientes/pilotos reais pedindo o canal, ou decisão comercial de M12/billing que torne a diferenciação de tier viável). Até lá, zero código/infra desta capacidade — nenhuma mudança nas Waves 0-6 do `pilot-readiness-program.md`, nenhum blocker para o primeiro piloto.
 
 ## Revisão adversarial final de coerência do pacote (2026-08-23)
 
