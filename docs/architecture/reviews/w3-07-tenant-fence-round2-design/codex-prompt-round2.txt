@@ -1,0 +1,45 @@
+Voce e o revisor adversarial independente (protocolo Claude-Codex de AGENTS.md secao 4) do repositorio
+expiration-tracker (c:/Users/Usuario/Desktop/projects/expiration-tracker). Continuacao da Rodada 1 do W3-07
+(fence de exclusao de tenant), que voce mesmo reprovou com nota 2,8/10 em
+docs/architecture/reviews/w3-07-tenant-fence-round2-design/codex-round1-critique-full.txt.
+
+Leia, na integra, antes de avaliar:
+1. docs/architecture/reviews/w3-07-tenant-fence-round2-design/codex-round1-critique-full.txt (sua propria
+   critica da Rodada 1 - os 8 achados bloqueantes que a proposta nova abaixo alega corrigir)
+2. docs/architecture/reviews/w3-07-tenant-fence-round2-design/claude-proposal-round1.md (proposta original)
+3. docs/architecture/reviews/w3-07-tenant-fence-round2-design/claude-proposal-round2.md (proposta corrigida -
+   a avaliar agora)
+4. src/modules/identity/application/resolve-request-context.ts e
+   src/modules/identity/persistence/identity-mapping-repository.ts (codigo real do resolver/mapping)
+5. src/shared/dynamodb/occ.ts (primitivos reais ja existentes que a proposta reusa)
+6. src/modules/extraction/application/run-bedrock-extraction.ts e
+   src/modules/extraction/application/start-ocr.ts (achados #5/#6 da Rodada 1 - confirme se a correcao
+   proposta e coerente com o codigo real)
+7. package.json / eslint.config.js reais deste repo (confirme se a sintaxe de regra ESLint proposta na
+   secao 3 do Round 2 e sintaticamente valida para a versao instalada, nao apenas plausivel)
+
+Nao aceite nenhuma alegacao da Rodada 2 de que um achado da Rodada 1 foi corrigido sem verificar contra o
+codigo real. Trate cada um dos 8 achados da sua propria critica anterior como um item de checklist: para
+cada um, confirme explicitamente se a correcao proposta (a) resolve o achado de fato, (b) e implementavel
+como descrita, (c) nao introduz um achado novo. Preste atencao especial a:
+- O bootstrap atomico de 3 Puts (IdentityMapping+TenantLifecycleRecord+User) na mesma TransactWriteItems -
+  isso e realmente implementavel com os tipos existentes, ou ha algum problema de chave/particao/limite?
+- O ConditionCheck injetado como "primeiro item" de fencedTransactWrite - existe algum caso real onde isso
+  quebra uma transacao existente (ex.: limite de itens, chave duplicada, ordem que importa para outro
+  motivo)?
+- A secao 6 (residual de URL presignada) argumenta que a garantia de nao-ressurreicao de DADO continua de
+  pe mesmo com a janela de emissao de capability. Essa distincao e valida tecnicamente, ou e uma forma de
+  reclassificar um achado real como "fora de escopo"?
+- DRAIN_WINDOW_SECONDS=900 - o numero e justificado pelos leases/TTLs reais do sistema (grep os TTLs reais
+  usados, nao confie no numero da proposta), ou e arbitrario?
+- Existe algum caminho de escrita de dado de tenant que nem apos a Rodada 2 passaria por
+  fencedTransactWrite (procure de novo, exaustivamente, nao confie na tabela da secao 4)?
+
+Responda com:
+1. Nota de 0 a 10 (protocolo de nota cega desta rodada).
+2. Para cada um dos 8 achados da Rodada 1: RESOLVIDO / PARCIALMENTE RESOLVIDO / NAO RESOLVIDO, com evidencia.
+3. Achados NOVOS introduzidos pela Rodada 2 (se houver), confirmados contra codigo real.
+4. Recomendacao: aprovar (>=9.0), pedir revisao, ou reprovar.
+
+Seja tao rigoroso quanto na Rodada 1 - nao suavize por ja ter havido uma correcao. O historico deste
+repositorio mostra que aceitar "parece corrigido" sem reverificar levou a reprovacoes tardias.

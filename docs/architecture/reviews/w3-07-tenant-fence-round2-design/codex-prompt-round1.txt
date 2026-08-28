@@ -1,0 +1,45 @@
+Você é o revisor adversarial independente (protocolo Claude-Codex de AGENTS.md secao 4) do repositorio
+expiration-tracker (c:/Users/Usuario/Desktop/projects/expiration-tracker). Tarefa: W3-07, fence de exclusao
+fisica de tenant (DSR), retomada apos duas tentativas reprovadas (D-062: 3,4-5,1-4,7/10; D-063 Rodada 1:
+3,2/10 - pior que a anterior).
+
+Leia primeiro, na integra, ANTES de avaliar a proposta nova:
+1. docs/architecture/reviews/w3-07-tenant-cascade-deletion-design/claude-final-status-not-approved.md (D-062)
+2. docs/architecture/reviews/w3-07-tenant-deletion-with-fence-design/claude-status-paused-for-next-session.md (D-063)
+3. docs/architecture/reviews/w3-07-tenant-fence-round2-design/claude-proposal-round1.md (a proposta nova a avaliar)
+4. src/modules/identity/application/resolve-request-context.ts (resolver real)
+5. src/shared/dynamodb/occ.ts (builders/primitivos reais ja existentes que a proposta reusa)
+6. src/modules/subject/application/guest-submission-service.ts (superficie guest, se existir - confirme o caminho real)
+
+Contexto necessario: a proposta nova muda a estrategia dos dois desenhos reprovados. Em vez de enumerar e
+corrigir cada um dos 36 handlers de src/runtime/aws/handlers/ individualmente (a causa raiz do fracasso das
+duas tentativas anteriores foi auditoria incompleta por essa via), ela propoe interceptar o fence na camada
+de escrita compartilhada: um tombstone TenantLifecycleRecord fora do universo apagavel pela cascata, mais
+dois wrappers novos (fencedTransactWrite/fencedSingleWrite) que toda escrita DynamoDB de dado de tenant
+passaria a usar, reforcados por uma regra de dependency-cruiser que proibe construir TransactWriteCommand/
+UpdateCommand/PutCommand/DeleteCommand fora desses wrappers. Efeitos externos irreversiveis (SES, Bedrock,
+Textract) usam um protocolo de "decisao nasce de escrita fenced antes do efeito", nao uma checagem simples.
+URLs S3 presignadas ja emitidas sao fechadas no ponto de finalizacao (persistencia), nao na emissao.
+
+Sua tarefa: critique adversarialmente, do zero, sem aceitar nenhuma alegacao da proposta sem verificar contra
+o codigo real do repositorio (grep, leitura de arquivo). Responda com:
+1. Nota de 0 a 10 (protocolo de nota cega - nao existe nota anterior a comparar, esta e a primeira desta
+   rodada).
+2. Achados REAIS, cada um confirmado contra codigo/arquitetura real (nome de arquivo/linha quando aplicavel),
+   nao hipoteticos. De atencao especial a: (a) os 19 arquivos de persistencia realmente cobrem TODA escrita
+   de dado de tenant, ou existe algum call site fora desses 19 (grep exaustivo, nao confie na lista da
+   proposta); (b) a regra de dependency-cruiser proposta e tecnicamente viavel para banir construcao direta
+   desses comandos AWS SDK sem falsos positivos (ex.: os proprios wrappers fencedTransactWrite/
+   fencedSingleWrite PRECISAM construir esses comandos - a regra precisa ter excecao correta); (c) o
+   ConditionCheck contra TenantLifecycleRecord adicionado como PRIMEIRO item de um TransactWriteItems ja
+   proximo do limite de 100 itens quebra algum caso real hoje; (d) a materializacao do RequestContextResolver
+   (createProfileIfAbsent) realmente passa pelo wrapper fenced way descrito, ou tem um caminho proprio que
+   escaparia; (e) o achado mais grave de D-063 (fence apagavel pela propria cascata) esta genuinamente
+   resolvido, nao so deslocado; (f) o protocolo de "decisao nasce de escrita fenced" para SES/Bedrock tem
+   alguma janela de corrida nao reconhecida pela propria proposta; (g) qualquer worker/handler que escreva
+   dado de tenant SEM passar por nenhum dos 19 arquivos de persistencia listados (o achado exaustivo anterior
+   levantou 36 handlers - confirme se algum deles bypassa os stores).
+3. Recomendacao: aprovar (>=9.0), pedir revisao (com o que precisa mudar), ou reprovar.
+
+Nao segure achados por educacao - o historico deste repositorio mostra que apontar "parece bom" sem verificar
+levou a duas reprovacoes tardias e caras. Seja tao rigoroso quanto (ou mais que) as rodadas anteriores.
