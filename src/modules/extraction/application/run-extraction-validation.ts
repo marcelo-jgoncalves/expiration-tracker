@@ -25,7 +25,11 @@ import { decideFieldOutcome } from "../domain/decide-field-outcome.js";
 import { extractionRunKey } from "../domain/extraction-run.js";
 import { extractedFieldKey, type ExtractedField, type ExtractedFieldValueType, type ExtractionSource } from "../domain/extracted-field.js";
 import { documentKey, type Document } from "../../document/domain/document.js";
+import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
+import { buildItemAttributeUpdate, ITEM_ATTRIBUTE_BY_FIELD_NAME } from "./item-field-mapping.js";
 import type { DocumentReader } from "../ports/document-reader.js";
+import type { EntityReader } from "../ports/entity-reader.js";
+import type { CommitItemUpdate } from "../ports/extracted-field-store.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
 import type { ExtractedFieldStore } from "../ports/extracted-field-store.js";
 import type { ExtractionArtifactRef, OcrArtifactStore } from "../ports/ocr-artifact-store.js";
@@ -33,6 +37,11 @@ import { ExtractionCommitFailedError } from "../../../shared/errors/app-error.js
 
 export interface RunExtractionValidationDeps {
   documents: DocumentReader;
+  /** Read-only access to the `ExpirationItem` — needed ONLY by `PERSIST_EXTRACTED_FIELDS`, to
+   * read the version/status the auto-confirm `dueDate` update must be OCC-guarded against
+   * (W2-01-DECISION). No write capability: the write itself goes through
+   * `ExtractedFieldStore.commitRunOutcome`'s single transaction. */
+  items: EntityReader;
   runs: ExtractionRunStore;
   fields: ExtractedFieldStore;
   artifacts: OcrArtifactStore;
@@ -139,6 +148,7 @@ async function commitOrDiscard(
   ctx: ValidationContext,
   fields: ExtractedField[],
   runStatus: "COMPLETED" | "FAILED",
+  itemUpdate?: CommitItemUpdate,
 ): Promise<"COMPLETED" | "FAILED" | "DISCARDED"> {
   const now = deps.now?.() ?? new Date().toISOString();
   const docKey = documentKey(ctx.tenantId, ctx.itemId, ctx.documentId);
@@ -165,6 +175,7 @@ async function commitOrDiscard(
       completedAt: now,
       documentKey: docKey,
       documentExpectedVersion: doc.version,
+      ...(itemUpdate ? { itemUpdate } : {}),
     });
   } catch (err) {
     throw new ExtractionCommitFailedError(`Failed to commit outcome for run ${ctx.runId}.`, { runId: ctx.runId, documentId: ctx.documentId }, err);
@@ -180,6 +191,59 @@ async function commitOrDiscard(
 // ---------------------------------------------------------------------------------------------
 // PERSIST_EXTRACTED_FIELDS
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * W2-01-DECISION (Marcelo, product owner): when the pipeline auto-confirms a field — high
+ * confidence, no source disagreement, no human review needed — it must reach the SAME outcome
+ * as a human clicking confirm, which includes writing `ExpirationItem.dueDate`. Before this,
+ * the pipeline's most successful path persisted an `ExtractedField` in `CONFIRMED` state that
+ * no route could ever apply to the item (the HTTP confirm route requires
+ * `PENDING_CONFIRMATION` and answers 422 for an already-`CONFIRMED` field).
+ *
+ * Returns the `ExpirationItem` leg for `commitRunOutcome`'s transaction, or `undefined` when
+ * there is nothing to write. Deliberate non-goals:
+ *  - only auto-`CONFIRMED` fields count; `PENDING_CONFIRMATION` still waits for a human;
+ *  - only fields the schema actually maps to an item attribute (`expirationDate` -> `dueDate`)
+ *    — no invented handling for hypothetical future fields;
+ *  - a missing or `DELETED` item is NOT an error here: the run still commits its fields (same
+ *    tolerance the `Document` guard already has), it simply writes no item attribute.
+ *
+ * Idempotency/retry: this adds no new retry surface. The item `Update` rides inside the same
+ * all-or-nothing `TransactWriteItems` as the field rows, whose per-row `attribute_not_exists`
+ * guard already makes a re-run of an ALREADY-committed `PERSIST_EXTRACTED_FIELDS` cancel the
+ * whole transaction (reported as `DOCUMENT_DISCARDED`). So a Lambda retry/redrive can never
+ * apply the `dueDate` write twice, and a retry of a transaction that genuinely never committed
+ * re-reads the item's current version here before trying again.
+ */
+async function buildAutoConfirmItemUpdate(
+  deps: RunExtractionValidationDeps,
+  ctx: ValidationContext,
+  fields: readonly ExtractedField[],
+): Promise<CommitItemUpdate | undefined> {
+  const autoConfirmed = fields.filter((f) => f.state === "CONFIRMED" && f.confirmedValue !== undefined && ITEM_ATTRIBUTE_BY_FIELD_NAME[f.fieldName] !== undefined);
+  if (autoConfirmed.length === 0) return undefined;
+
+  const key = itemKey(ctx.tenantId, ctx.itemId);
+  const item = await deps.items.get<ExpirationItem>(key, true);
+  if (!item || item.tenantId !== ctx.tenantId || item.status === "DELETED") return undefined;
+
+  const set: Record<string, unknown> = {};
+  for (const field of autoConfirmed) {
+    const attributeUpdate = buildItemAttributeUpdate({
+      tenantId: ctx.tenantId,
+      itemId: ctx.itemId,
+      itemStatus: item.status,
+      fieldName: field.fieldName,
+      // Narrowed by the `filter` above; `noUncheckedIndexedAccess`-safe fallback for the
+      // type-level `string | undefined` that the filter can't express.
+      confirmedValue: field.confirmedValue ?? "",
+    });
+    Object.assign(set, attributeUpdate);
+  }
+
+  if (Object.keys(set).length === 0) return undefined;
+  return { key, tenantId: ctx.tenantId, expectedVersion: item.version, set };
+}
 
 export async function persistExtractedFieldsStage(deps: RunExtractionValidationDeps, input: ValidationContext): Promise<ValidationContext> {
   const now = deps.now?.() ?? new Date().toISOString();
@@ -209,11 +273,13 @@ export async function persistExtractedFieldsStage(deps: RunExtractionValidationD
     };
   });
 
+  const itemUpdate = await buildAutoConfirmItemUpdate(deps, input, fields);
+
   // NEVER deletes the artifact here - PersistExtractedFields runs before the run has reached a
   // terminal state (CompleteRun is the very next state); a retry of this state must still be
   // able to observe the same Document row it read a moment ago, and CompleteRun still needs
   // `input.artifact` intact to know what to delete (design §3).
-  const outcome = await commitOrDiscard(deps, input, fields, "COMPLETED");
+  const outcome = await commitOrDiscard(deps, input, fields, "COMPLETED", itemUpdate);
   const requiresReview = outcome === "COMPLETED" && fields.some((f) => f.state === "PENDING_CONFIRMATION");
 
   return { ...input, runOutcome: outcome, requiresReview };

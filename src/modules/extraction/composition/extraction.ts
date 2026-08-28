@@ -25,6 +25,7 @@ import type { RunDeterministicParserDeps } from "../application/run-deterministi
 import type { RunBedrockExtractionDeps } from "../application/run-bedrock-extraction.js";
 import { BedrockRuntimeConverseClient } from "../persistence/bedrock-runtime-client.js";
 import { DynamoDbDocumentStore } from "../../document/persistence/dynamodb-document-store.js";
+import { DynamoDbExpirationStore } from "../../expiration/persistence/dynamodb-expiration-store.js";
 import { DynamoDbExtractionRunStore } from "../persistence/dynamodb-extraction-run-store.js";
 import { DynamoDbExtractedFieldStore } from "../persistence/dynamodb-extracted-field-store.js";
 import type { RunExtractionValidationDeps } from "../application/run-extraction-validation.js";
@@ -177,9 +178,13 @@ export function buildExtractionValidationTaskWorkerDeps(
   const runs = new DynamoDbExtractionRunStore(clients.dynamo, config.tableName);
   const fields = new DynamoDbExtractedFieldStore(clients.dynamo, config.tableName);
   const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
+  // `DynamoDbExpirationStore` already satisfies `EntityReader`'s narrow `get()` surface
+  // (structural typing, same reuse pattern as `DocumentReader` above) — used read-only here to
+  // OCC-guard the auto-confirm `dueDate` write (W2-01-DECISION).
+  const items = new DynamoDbExpirationStore(clients.dynamo, config.tableName);
 
   return {
-    runExtractionValidation: { documents, runs, fields, artifacts },
+    runExtractionValidation: { documents, items, runs, fields, artifacts },
   };
 }
 

@@ -14,7 +14,9 @@ import type { ExtractionRunStore } from "../../../src/modules/extraction/ports/e
 import type { CommitRunOutcomeInput, CommitRunOutcomeResult, ExtractedFieldStore } from "../../../src/modules/extraction/ports/extracted-field-store.js";
 import type { ExtractionArtifactRef, OcrArtifactStore } from "../../../src/modules/extraction/ports/ocr-artifact-store.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
+import type { EntityReader } from "../../../src/modules/extraction/ports/entity-reader.js";
 import { documentKey, type Document } from "../../../src/modules/document/domain/document.js";
+import { gsi1Keys, itemKey, type ExpirationItem } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { PIPELINE_VERSION_V1 } from "../../../src/modules/extraction/domain/field-schema.js";
 import { ExtractionCommitFailedError } from "../../../src/shared/errors/app-error.js";
 
@@ -44,6 +46,36 @@ class FakeDocumentReader implements DocumentReader {
   constructor(private readonly doc: Document | undefined) {}
   async get<T extends EntityKey>(): Promise<T | undefined> {
     return this.doc as unknown as T | undefined;
+  }
+}
+
+function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
+  return {
+    ...itemKey("t1", "item1"),
+    SK: "META",
+    entityType: "ExpirationItem",
+    itemId: "item1",
+    tenantId: "t1",
+    name: "Alvará",
+    category: "licenca",
+    categoryNormalized: "licenca",
+    dueDate: "2030-01-01",
+    tags: [],
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 7,
+    ...gsi1Keys("t1", "ACTIVE", "2030-01-01", "item1"),
+    ...overrides,
+  };
+}
+
+class FakeItemReader implements EntityReader {
+  public getCalls: Array<{ key: EntityKey; consistentRead?: boolean }> = [];
+  constructor(private readonly item: ExpirationItem | undefined) {}
+  async get<T extends EntityKey>(key: EntityKey, consistentRead?: boolean): Promise<T | undefined> {
+    this.getCalls.push({ key, consistentRead });
+    return this.item as unknown as T | undefined;
   }
 }
 
@@ -107,13 +139,14 @@ function baseContext(overrides: Partial<ValidationContext> = {}): ValidationCont
   };
 }
 
-function makeDeps(overrides: Partial<{ doc: Document | undefined; commitResult: CommitRunOutcomeResult | Error }> = {}) {
+function makeDeps(overrides: Partial<{ doc: Document | undefined; item: ExpirationItem | undefined; commitResult: CommitRunOutcomeResult | Error }> = {}) {
   const documents = new FakeDocumentReader(overrides.doc ?? makeDocument());
+  const items = new FakeItemReader("item" in overrides ? overrides.item : makeItem());
   const runs = new FakeExtractionRunStore();
   const fields = new FakeExtractedFieldStore(overrides.commitResult ?? "COMMITTED");
   const artifacts = new FakeOcrArtifactStore();
-  const deps: RunExtractionValidationDeps = { documents, runs, fields, artifacts, now: () => "2026-08-26T00:00:00.000Z" };
-  return { deps, documents, runs, fields, artifacts };
+  const deps: RunExtractionValidationDeps = { documents, items, runs, fields, artifacts, now: () => "2026-08-26T00:00:00.000Z" };
+  return { deps, documents, items, runs, fields, artifacts };
 }
 
 describe("validateSchema (VALIDATE_SCHEMA)", () => {
@@ -202,6 +235,63 @@ describe("persistExtractedFieldsStage (PERSIST_EXTRACTED_FIELDS)", () => {
   it("wraps a genuine commit failure in ExtractionCommitFailedError, never swallowing it as a discard", async () => {
     const { deps } = makeDeps({ commitResult: new Error("DynamoDB is down") });
     await expect(persistExtractedFieldsStage(deps, compared)).rejects.toBeInstanceOf(ExtractionCommitFailedError);
+  });
+
+  // W2-01-DECISION: an auto-CONFIRMED field must reach the same outcome as a human confirm.
+  describe("auto-confirm writes ExpirationItem.dueDate (W2-01-DECISION)", () => {
+    it("includes an OCC-guarded ExpirationItem update, with GSI1 re-keyed, in the SAME commit transaction", async () => {
+      const { deps, fields, items } = makeDeps();
+      const out = await persistExtractedFieldsStage(deps, compared);
+
+      expect(out.runOutcome).toBe("COMPLETED");
+      expect(items.getCalls).toEqual([{ key: itemKey("t1", "item1"), consistentRead: true }]);
+      expect(fields.commitCalls).toHaveLength(1); // one transaction, not a follow-up write
+      expect(fields.commitCalls[0]?.itemUpdate).toEqual({
+        key: itemKey("t1", "item1"),
+        tenantId: "t1",
+        expectedVersion: 7, // the version just read - OCC guard, same as the manual confirm path
+        set: {
+          dueDate: "2027-03-31",
+          ...gsi1Keys("t1", "ACTIVE", "2027-03-31", "item1"),
+        },
+      });
+    });
+
+    it("never touches the item when the field stayed PENDING_CONFIRMATION (a human still decides)", async () => {
+      const { deps, fields, items } = makeDeps();
+      const mismatched = baseContext({
+        comparedFields: [{ fieldName: "expirationDate", valueType: "DATE", agreement: "MISMATCH", sources: ["DETERMINISTIC_PARSER", "BEDROCK"], candidateValue: "2027-03-31", confidence: 0.9 }],
+      });
+      await persistExtractedFieldsStage(deps, mismatched);
+      expect(items.getCalls).toHaveLength(0);
+      expect(fields.commitCalls[0]?.itemUpdate).toBeUndefined();
+    });
+
+    it("still commits the fields, with no item update, when the ExpirationItem is gone or DELETED", async () => {
+      for (const item of [undefined, makeItem({ status: "DELETED" })]) {
+        const { deps, fields } = makeDeps({ item });
+        const out = await persistExtractedFieldsStage(deps, compared);
+        expect(out.runOutcome).toBe("COMPLETED");
+        expect(fields.commitCalls[0]?.itemUpdate).toBeUndefined();
+      }
+    });
+
+    it("is retry-safe: a re-run of an already-committed stage cancels the whole transaction (item write included) and discards", async () => {
+      // The real adapter reports an already-existing ExtractedField row (attribute_not_exists
+      // Put) as DOCUMENT_DISCARDED - the item Update rides in the same all-or-nothing
+      // TransactWriteItems, so the dueDate write can never be applied a second time.
+      const { deps, runs } = makeDeps({ commitResult: "DOCUMENT_DISCARDED" });
+      const out = await persistExtractedFieldsStage(deps, compared);
+      expect(out.runOutcome).toBe("DISCARDED");
+      expect(runs.updateStatusCalls).toHaveLength(1);
+    });
+
+    it("markPendingConfirmationStage never builds an item update (no field is ever auto-confirmed there)", async () => {
+      const { deps, fields, items } = makeDeps();
+      await markPendingConfirmationStage(deps, baseContext());
+      expect(items.getCalls).toHaveLength(0);
+      expect(fields.commitCalls[0]?.itemUpdate).toBeUndefined();
+    });
   });
 });
 

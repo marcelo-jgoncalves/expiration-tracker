@@ -28,6 +28,22 @@ export interface CommitRunOutcomeInput {
    * at its observed version inside the same transaction (design §3's TOCTOU close). */
   documentKey: EntityKey;
   documentExpectedVersion: number;
+  /** Present only when the run auto-confirmed a field that maps to a known `ExpirationItem`
+   * attribute (W2-01-DECISION — schema v1: `expirationDate` -> `dueDate`). When present, the
+   * item is updated with OCC in the SAME `TransactWriteItems` as the field rows and the run
+   * transition: the auto-confirm outcome either lands whole or not at all, exactly like the
+   * manual `confirmField` path. Absent means the transaction never touches the item at all
+   * (nothing to assert — unlike `confirmField`, this operation has no design requirement to
+   * pin the item's version when it has no item-side effect). */
+  itemUpdate?: CommitItemUpdate;
+}
+
+/** The `ExpirationItem` leg of a `commitRunOutcome` transaction. */
+export interface CommitItemUpdate {
+  key: EntityKey;
+  tenantId: string;
+  expectedVersion: number;
+  set: Record<string, unknown>;
 }
 
 export interface ExtractedFieldStore {
@@ -36,7 +52,13 @@ export interface ExtractedFieldStore {
    * `TransactWriteItems` is all-or-nothing), transitions the run to a terminal status, and
    * guards against a concurrent `Document` change. Returns `DOCUMENT_DISCARDED` (nothing
    * persisted) when the guard fails — the caller then calls
-   * `ExtractionRunStore.updateStatus(..., "DISCARDED", ...)` instead, with zero fields. */
+   * `ExtractionRunStore.updateStatus(..., "DISCARDED", ...)` instead, with zero fields.
+   *
+   * When `input.itemUpdate` is present, a versioned `Update` of the `ExpirationItem` joins the
+   * same transaction — the pipeline's auto-confirm write of `dueDate`. A stale item version is
+   * therefore reported through the same `DOCUMENT_DISCARDED` channel as the other guards (the
+   * adapter deliberately does not parse per-entry cancellation reasons), and the caller's
+   * fallback — mark the run `DISCARDED`, persist nothing — stays safe. */
   commitRunOutcome(input: CommitRunOutcomeInput): Promise<CommitRunOutcomeResult>;
 
   /** M7 item 8 (§1.7): plain, eventually-consistent read of one `ExtractedField` row — the

@@ -14,7 +14,7 @@ import { authorize } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { IdempotencyStore } from "../../../shared/idempotency/idempotency.js";
 import { documentKey, type Document } from "../../document/domain/document.js";
-import { itemKey, gsi1Keys, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
+import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { extractionRunKey, type ExtractionRun } from "../domain/extraction-run.js";
 import { extractedFieldKey, type ExtractedField } from "../domain/extracted-field.js";
 import { getFieldSchema } from "../domain/field-schema.js";
@@ -22,14 +22,7 @@ import { isValidFieldValue } from "../domain/validate-field-value.js";
 import type { EntityReader } from "../ports/entity-reader.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
 import type { ExtractedFieldStore } from "../ports/extracted-field-store.js";
-
-/** Schema v1 only names `expirationDate` concretely (field-schema.ts) — the only field this
- * map needs today. A future field added to the pipeline schema that has no corresponding
- * `ExpirationItem` attribute yet simply isn't in this map, and `confirmField` below falls back
- * to a version-only `ConditionCheck` on the item rather than inventing a mapping. */
-const ITEM_ATTRIBUTE_BY_FIELD_NAME: Record<string, string> = {
-  expirationDate: "dueDate",
-};
+import { buildItemAttributeUpdate } from "./item-field-mapping.js";
 
 export interface ConfirmRejectFieldDeps {
   documents: EntityReader;
@@ -163,13 +156,15 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
   }
 
   const now = deps.now();
-  const itemAttribute = ITEM_ATTRIBUTE_BY_FIELD_NAME[field.fieldName];
-  const itemUpdate =
-    itemAttribute === "dueDate"
-      ? { dueDate: params.confirmedValue, ...gsi1Keys(tenantId, item.status, params.confirmedValue, params.itemId) }
-      : itemAttribute
-        ? { [itemAttribute]: params.confirmedValue }
-        : undefined;
+  // Same helper the pipeline's auto-confirm path uses (item-field-mapping.ts) — the two paths
+  // must produce an identical item-side effect (W2-01-DECISION).
+  const itemUpdate = buildItemAttributeUpdate({
+    tenantId,
+    itemId: params.itemId,
+    itemStatus: item.status,
+    fieldName: field.fieldName,
+    confirmedValue: params.confirmedValue,
+  });
 
   const outcome = await deps.fields.confirmField({
     // MUST be the bare {PK,SK} key, never the whole `field` entity: `buildVersionedUpdate`
