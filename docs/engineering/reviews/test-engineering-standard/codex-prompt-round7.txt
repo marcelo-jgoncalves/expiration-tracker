@@ -1,0 +1,21 @@
+This is round 7 (likely final) of the Claude<->Codex review protocol for docs/engineering/test-engineering-standard.md. Your round-6 score was 9.46/10 - the closest yet to the elevated 9.5/10 bar. You said: "Fix the individual-claim formula and G-V5/G-V7 reference, and update the stale 'Rodada 3' marker. With those changes, I would expect the document to clear 9.5; remaining stylistic imperfections would not justify withholding approval." Trajectory: 6.35 -> 7.85 -> 8.70 -> 9.18 -> 9.34 -> 9.46.
+
+Your exact round-6 findings:
+1. The drill score-10 paragraph in section 4.2 said applying a real mutation would invoke "G-V5/G-V7" - G-V7 does not exist (it should be G-V5/G-V6, blast radius and reversal).
+2. The document's opening block still said "Rodada 3" despite the footer recording evolution through round 6 - stale metadata.
+3. Section 4.1's closed participation table had columns for individual test / suite-component / report, but section 4.2 (since round 5) referenced "nota de 1 claim individual" (individual claim score) as a formal scoring scope without that column existing in section 4.1's table - leaving unresolved how a multi-claim report's constituent claims are each scored.
+
+Round 7 claims to fix all three:
+- The orphaned "G-V7" reference in section 4.2 is now "G-V5 blast radius, G-V6 reversão."
+- The opening block now says "Rodada 6" and cites the full score trajectory.
+- Section 4.1's table gained an explicit 4th column, "Nota de 1 claim individual," with all 7 criteria filled in (criteria 4 and 7 get a direct value scoped to that specific claim; the other 5 are N/A since a pure drill claim has no corresponding automated test or suite).
+
+Your task:
+1. Re-read docs/engineering/test-engineering-standard.md in full, fresh.
+2. Verify all three fixes against the literal current text.
+3. Specifically re-run your own suggested repair from round 6 mentally: with the new "individual claim" column now in section 4.1, walk through the multi-claim aggregate score-10 scenario you used to stress-test the rules in round 6, and confirm it's now fully executable without any undefined scoring scope.
+4. Do a final, full fresh-eyes pass over the ENTIRE document (not just the 3 fixes) - by now 6 rounds of your own review have been folded in; check there is no remaining internal inconsistency, no orphaned reference (grep-style check for "G-V7", "G-V8", stale round markers, mismatched weights, etc.), and that the document is coherent end to end as something you would be comfortable citing as this repository's normative test-engineering standard.
+5. This is round 7 against the elevated 9.5/10 bar explicitly requested by the project owner (above this repo's normal 9.0/10 gate for this kind of decision). Score independently and honestly. Per your own round-6 statement, if these 3 fixes are correctly applied and you find nothing else structurally or factually wrong, you should score at or above 9.5 and say so explicitly - do not invent new stylistic nitpicks to keep withholding approval past the point of diminishing returns; equally, do not soften a genuine remaining defect just because this is a late round. If you do find something concrete, name it precisely.
+6. Give your own independent score out of 10, not rounded, with justification. Do not defer to or assume Claude's own score - score fresh.
+
+Write your full findings and score directly in your response.

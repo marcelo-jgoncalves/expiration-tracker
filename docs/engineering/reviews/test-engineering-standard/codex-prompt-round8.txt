@@ -1,0 +1,19 @@
+This is round 8 (likely final) of the Claude<->Codex review protocol for docs/engineering/test-engineering-standard.md. Your round-7 score was 9.48/10 - you said explicitly: "Com a inclusão de C4 agregado na condição de nota 10 e a atualização literal da trajetória da abertura para incluir 9.46/Rodada 7, eu esperaria aprovação acima de 9,5 sem necessidade de outra reabertura estilística." Trajectory: 6.35 -> 7.85 -> 8.70 -> 9.18 -> 9.34 -> 9.46 -> 9.48.
+
+Your exact round-7 findings:
+1. The opening block's trajectory citation was incomplete - it was missing the 9.46 score from round 6 itself, and had ambiguous "em avaliação nesta rodada" phrasing right after "Rodada 6."
+2. Section 4.2's aggregate score-10 rule, condition (ii), named only criteria 2 and 6 as "measured directly at the aggregate level" - but criterion 4 is ALSO measured directly at the aggregate (the "avaliação do relatório como um todo" half, per section 4.1's table) - so a report could in theory read as qualifying for a 10 even with that report-level criterion-4 half below 10.
+
+Round 8 claims to fix both:
+- The opening block now cites the full trajectory (6.35, 7.85, 8.70, 9.18, 9.34, 9.46, 9.48) and is labeled "Rodada 8."
+- Condition (ii) was rewritten to be a GENERAL rule rather than a closed named list: "every criterion that section 4.1's table evaluates directly at the aggregate level" - which automatically includes criterion 4's report-level half without needing to name it explicitly, and stays correct even if section 4.1's table changes in the future (avoiding the exact failure mode that produced this finding in the first place - a closed list that got out of date).
+
+Your task:
+1. Re-read docs/engineering/test-engineering-standard.md in full, fresh.
+2. Verify both fixes against the literal current text.
+3. Re-run the exact multi-claim aggregate stress-test scenario you used in round 7 (two claims scoring 10 each, but the report-level criterion-4 assessment at 9) against the new general condition (ii) wording - confirm it now correctly excludes that report from a 10.
+4. Do one final full fresh-eyes pass over the entire document, exactly as you did in round 6 and round 7 - grep-style check for any orphaned gate reference (G-V7, G-V8), stale round/trajectory markers, weight-sum errors, or any other internal inconsistency across all 8 rounds of accumulated edits.
+5. This is round 8 against the elevated 9.5/10 bar. You stated in round 7 that these exact two fixes should be sufficient for approval. If, on fresh reading, you confirm both are correctly and completely fixed and find nothing else concrete, score at or above 9.5 and say so explicitly - this repository's process (AGENTS.md section 4) treats a genuine, honest convergence as the goal, not indefinite re-litigation. If you find something new or find either fix incomplete, say so precisely with the same rigor as every prior round - do not soften standards just because this is a late round, but also do not manufacture a new finding to avoid approving a document that has genuinely converged.
+6. Give your own independent score out of 10, not rounded, with justification. Do not defer to or assume Claude's own score - score fresh.
+
+Write your full findings and score directly in your response.
