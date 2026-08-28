@@ -35,6 +35,7 @@ const HANDLERS = [
   "items-handler",
   "reminders-handler",
   "notifications-handler",
+  "profile-handler",
   "reminder-producer-handler",
   "reminder-dispatch-handler",
   "reminder-reconciliation-handler",
@@ -62,6 +63,7 @@ const HANDLERS = [
   "pdf-parser-task-handler",
   "bedrock-extraction-task-handler",
   "extraction-validation-task-handler",
+  "document-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

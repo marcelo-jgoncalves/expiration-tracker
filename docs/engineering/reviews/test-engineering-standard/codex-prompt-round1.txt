@@ -1,0 +1,17 @@
+You are acting as an independent, adversarial reviewer for this repository (Expiration Tracker, a serverless AWS SaaS). Claude (the other AI collaborator on this project) has drafted a new normative standard document at:
+
+docs/engineering/test-engineering-standard.md
+
+This document proposes a "Test Engineering Standard" defining (a) binary validity gates that any test or operational drill must satisfy to count as evidence at all, and (b) weighted quality criteria (0-10 scale) scoring how good a test/drill is once it clears the validity gates. It also retroactively audits the 6 real operational drills executed against the `dev` AWS account earlier today (2026-08-28, see docs/engineering/pilot-readiness-program.md's Wave 2 section for the underlying evidence) against the new gates.
+
+This repository follows a formal Claude<->Codex review protocol (see AGENTS.md section 4): independent proposals, blind scoring (you must NOT see Claude's own score before producing yours - none is provided to you here, score independently), minimum 3 rounds, and a document is only accepted once BOTH sides score it >=9.5/10 (an elevated bar for this document specifically, requested explicitly by the project owner - the project's normal bar for this kind of decision is 9.0/10, so 9.5 is deliberately higher).
+
+Your task:
+1. Read docs/engineering/test-engineering-standard.md in full.
+2. Also skim docs/engineering/joint-review-criteria.md (for the existing pattern this new document is meant to be consistent with - same weighted-criteria-table style, same "adapted from industry standards + calibrated for this repo" discipline) and docs/engineering/change-risk-scale.md (for the existing tone/format of this repo's process documents).
+3. Also skim docs/engineering/pilot-readiness-program.md's Wave 2 section (search for "W2-03" through "W2-08") to verify the retroactive audit claims in section 5 of the new document are actually accurate against the real evidence recorded there - do not take the audit's self-assessment at face value, check it.
+4. Critically evaluate the new document as a real reviewer would: is the taxonomy in section 2 complete and correctly scoped for this repo? Are the 7 binary validity gates (G-V1 through G-V7) actually binary (unambiguous pass/fail) or do some smuggle in a judgment call that should instead be a weighted criterion? Are the 8 weighted quality criteria in section 4 well-defined, non-overlapping, and correctly weighted? Is the retroactive audit in section 5 honest (does it admit real gaps) or does it oversell coverage? Is the non-scope decision in section 6 (no automated mutation testing) well-justified or is it dodging real rigor? Are the sources in section 7 real, correctly cited, and actually relevant (not decorative)?
+5. Identify concrete, specific findings - each finding must cite the exact section/gate/criterion it applies to, not a vague generality. Distinguish real defects (something that would make the standard produce a wrong verdict, or that contradicts stated facts in this repo) from stylistic preferences.
+6. Give your own independent score out of 10, not rounded, with a one-paragraph justification. Do not defer to or guess Claude's score.
+
+Write your full findings and score directly in your response.

@@ -21,6 +21,12 @@ export interface UserProfile {
   roles: string[];
   status: "ACTIVE" | "SUSPENDED";
   globalLogoutAfter?: string;
+  /** W5-01/GTR-01 (`decisions-log.md` D-060): name shown to a guest as "who is requesting this
+   * document" (`GuestRequestInfo.requesterDisplayName`) and interpolated into the guest-facing
+   * email templates. Optional and user-editable (`PUT /profile`) — never inferred from the
+   * user's e-mail domain (this codebase's epistemic-integrity discipline: never guess data that
+   * was never actually captured). Absent until the user sets it once. */
+  requesterDisplayName?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -100,5 +106,17 @@ export class UserRepository {
     const session = await this.getDeviceSession(tenantId, userId, deviceId);
     if (!session) return;
     await this.store.update({ ...session, status: "REVOKED", deviceLogoutAfter: this.now() });
+  }
+
+  /** W5-01/GTR-01: sets or clears (`undefined`) the name shown to guests as the requester's
+   * identity. Same unconditional-overwrite pattern as `logoutAll`/`logoutDevice` above — this
+   * port has no per-item OCC beyond `updateConditional`'s counter-only use (quota.ts), and a
+   * lost update on this single self-editable text field carries the same negligible,
+   * already-accepted risk as those two fields. Caller (`ProfileService`) is responsible for
+   * confirming the profile exists first. */
+  async setRequesterDisplayName(profile: UserProfile, requesterDisplayName: string | undefined): Promise<UserProfile> {
+    const updated: UserProfile = { ...profile, requesterDisplayName, updatedAt: this.now() };
+    await this.store.update(updated);
+    return updated;
   }
 }

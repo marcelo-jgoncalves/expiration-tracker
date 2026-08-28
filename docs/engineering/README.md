@@ -19,6 +19,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 |---|---|
 | Rodar o protocolo Claude↔Codex num eixo específico (`AGENTS.md` §4) | `joint-review-criteria.md` (seção do eixo) + o `full-audit-round1-<eixo>-summary.md` mais recente em `reviews/`, se existir (retomar em vez de reabrir do zero) |
 | Entender que nota um achado específico do código tira / que critério ele afeta | `joint-review-criteria.md` (não precisa da rubrica congelada nem do bibliography) |
+| Julgar se um teste automatizado ou drill operacional é válido/de qualidade suficiente (gate binário, critério ponderado, nota mínima) | `test-engineering-standard.md` — régua concreta que `joint-review-criteria.md`'s critério "Test Effectiveness & Coverage Discipline" passa a referenciar |
 | Decidir se uma mudança precisa de ADR/protocolo formal ou é correção mecânica | `change-risk-scale.md` (a régua concreta) — `AGENTS.md` §4 só distingue os dois extremos de forma binária |
 | Saber que comando roda em qual gate (PR vs. deploy) | `quality-gate-tiers.md` — mapeia Tier A/B/C (CI `guardrails`, `dynamodb-integration`, Camada 3 ainda pendente) aos comandos reais de `package.json` |
 | Entender uma exceção/vulnerabilidade aceita (ex. EX-001) e seu prazo de revisão | `exceptions.md` |
@@ -38,6 +39,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `change-risk-scale.md` | normativo atual | Escala de risco de mudança Nível 1-6, régua concreta para "isso precisa de protocolo formal?" |
 | `quality-gate-tiers.md` | normativo atual | Tiers de gate (PR vs. deploy), mapeados aos comandos reais |
 | `joint-review-criteria.md` | normativo atual | Critérios/pesos por eixo das revisões conjuntas Claude↔Codex (9 eixos formalizados + FinOps pendente) |
+| `test-engineering-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 8 rodadas, gate elevado 9,5/10) | Padrão de validade/qualidade para teste automatizado e drill operacional (chaos/DiRT) — gates binários (G-V1..G-V6, G-C1), critérios ponderados, fórmula de agregação, auditoria retroativa da Wave 2 (2026-08-28) |
 | `exceptions.md` | normativo atual (registro vivo) | Exceções/vulnerabilidades aceitas com owner e prazo |
 | `decisions-log.md` | decisão (log vivo) | Decisões de engenharia/processo, E-000 em diante |
 | `disagreement-log.md` | histórico/registro vivo | Divergências materiais Claude↔Codex e como foram resolvidas |

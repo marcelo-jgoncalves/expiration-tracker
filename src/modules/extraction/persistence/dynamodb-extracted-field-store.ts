@@ -46,7 +46,25 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
       expectedVersion: input.documentExpectedVersion,
     });
 
-    const transactItems = [...fieldPuts, runUpdate, documentGuard] as unknown as TransactWriteCommandInput["TransactItems"];
+    // W2-01-DECISION: when the run auto-confirmed a field that maps to an `ExpirationItem`
+    // attribute, that item write joins THIS transaction — never a follow-up write — so the
+    // auto-confirm outcome is as atomic as the manual `confirmField` one.
+    const itemUpdate = input.itemUpdate
+      ? [
+          {
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key: input.itemUpdate.key,
+              tenantId: input.itemUpdate.tenantId,
+              expectedVersion: input.itemUpdate.expectedVersion,
+              set: input.itemUpdate.set,
+              now: input.completedAt,
+            }),
+          },
+        ]
+      : [];
+
+    const transactItems = [...fieldPuts, runUpdate, documentGuard, ...itemUpdate] as unknown as TransactWriteCommandInput["TransactItems"];
 
     try {
       await this.client.send(new TransactWriteCommand({ TransactItems: transactItems }));
@@ -56,7 +74,8 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
       // never happen - runId makes each field's SK unique per run, so this would indicate a
       // genuine retry-after-partial-commit bug, not a real race), the run's own version having
       // moved (nothing else in the system updates ExtractionRun.status before this handler
-      // runs), or the Document guard (the actual race this method exists to detect). Rather
+      // runs), the Document guard (the actual race this method exists to detect), or the
+      // optional `ExpirationItem` update's own version having moved. Rather
       // than parsing per-item cancellation reasons (fragile across SDK versions), any
       // cancellation here is treated uniformly as DOCUMENT_DISCARDED - the safe, conservative
       // reading is "something about the world this commit assumed is no longer true", and the

@@ -3,7 +3,7 @@
 ```text
 Sequência:       Context/Task Model → Conceptual Model + IA → Critical User Journeys → Screen + State Inventory → Low-Fidelity Wireframes → Interaction Prototype → Heuristic + Accessibility Evaluation → Validation Readiness + Product Focus Hardening → User Validation (próxima, não iniciada)
 Status vigente:  8 de 9 etapas de planejamento APPROVED; Full BFF + Frontend Production Foundation implementados; Core Expiration Vertical Slice (Collection/Detail/Create/Renew) implementado e APPROVED; Visual Language + Design System Foundation implementado e APPROVED (PROVISIONAL, pendente User Validation) — o frontend já NÃO é mais grayscale/provisório, mas a identidade visual continua explicitamente reversível
-Last verified:   2026-08-24 (planejamento) / 2026-08-26 (Visual Language + Design System Foundation)
+Last verified:   2026-08-24 (planejamento) / 2026-08-26 (Visual Language + Design System Foundation) / 2026-08-28 (reconciliado com o Pilot Readiness Program — GTR-01/W5-01, `docs/engineering/pilot-readiness-program.md`; protótipo standalone de 2026-08-27 ainda NÃO reconciliado com o Design System vigente, ver W0-03 nesse documento)
 ```
 
 Ver `docs/architecture/README.md` para o mapa de arquitetura de sistema (este índice cobre só o

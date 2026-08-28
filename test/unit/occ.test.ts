@@ -47,6 +47,51 @@ describe("buildVersionedUpdate", () => {
     expect(cmd.ExpressionAttributeValues[":set0"]).toBe("CANCELLED");
     expect(cmd.ExpressionAttributeNames["#set1"]).toBe("note");
   });
+
+  it("ANDs extraConditions into the ConditionExpression, each wrapped in its own parens", () => {
+    const cmd = buildVersionedUpdate({
+      tableName: "MainTable",
+      key: { PK: "PK1", SK: "SK1" },
+      tenantId: "t_01",
+      expectedVersion: 1,
+      set: { status: "CLAIMED" },
+      extraConditions: [
+        { expression: "attribute_not_exists(#legalHold) OR #legalHold = :false", names: { "#legalHold": "legalHold" }, values: { ":false": false } },
+        { expression: "purgeAfter <= :purgeCutoff", values: { ":purgeCutoff": "2026-08-28T00:00:00.000Z" } },
+      ],
+    });
+    expect(cmd.ConditionExpression).toBe(
+      "attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion AND #tenantId = :tenantId" +
+        " AND (attribute_not_exists(#legalHold) OR #legalHold = :false) AND (purgeAfter <= :purgeCutoff)",
+    );
+    expect(cmd.ExpressionAttributeNames["#legalHold"]).toBe("legalHold");
+    expect(cmd.ExpressionAttributeValues[":false"]).toBe(false);
+    expect(cmd.ExpressionAttributeValues[":purgeCutoff"]).toBe("2026-08-28T00:00:00.000Z");
+  });
+
+  it("throws if an extraConditions placeholder collides with a reserved or generated key", () => {
+    expect(() =>
+      buildVersionedUpdate({
+        tableName: "MainTable",
+        key: { PK: "PK1", SK: "SK1" },
+        tenantId: "t_01",
+        expectedVersion: 1,
+        set: {},
+        extraConditions: [{ expression: "purgeAfter <= :now", values: { ":now": "2026-08-28T00:00:00.000Z" } }],
+      }),
+    ).toThrow(/collides/);
+
+    expect(() =>
+      buildVersionedUpdate({
+        tableName: "MainTable",
+        key: { PK: "PK1", SK: "SK1" },
+        tenantId: "t_01",
+        expectedVersion: 1,
+        set: { status: "X" },
+        extraConditions: [{ expression: "#set0 = :other", names: { "#set0": "status" }, values: { ":other": "Y" } }],
+      }),
+    ).toThrow(/collides/);
+  });
 });
 
 describe("buildVersionedCreate", () => {

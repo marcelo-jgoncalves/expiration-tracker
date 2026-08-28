@@ -51,6 +51,7 @@ output "lambda_function_names" {
     module.pdf_parser_task_handler.function_name,
     module.bedrock_extraction_task_handler.function_name,
     module.extraction_validation_task_handler.function_name,
+    module.document_purge_handler.function_name,
   ]
 }
 

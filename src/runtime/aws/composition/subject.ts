@@ -75,6 +75,7 @@ export function buildDocumentRequestDeps(
     initialInviteEmailEnabled,
     emailProvider,
     guestUploadBaseUrl,
+    resolveRequesterDisplayName: (input) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
   });
   return { store, requests };
 }
@@ -87,7 +88,16 @@ export function buildGuestSubmissionDeps(client: DynamoDBDocumentClient, tableNa
   const s3Client = new S3Client({});
   const signer = new S3UploadUrlSigner(s3Client);
   const rateLimiter = new GuestRateLimiter(store);
-  const guestSubmissions = new GuestSubmissionService({ store, tableName, quarantineBucket, ids, signer, rateLimiter, guestTokenPepper });
+  const guestSubmissions = new GuestSubmissionService({
+    store,
+    tableName,
+    quarantineBucket,
+    ids,
+    signer,
+    rateLimiter,
+    guestTokenPepper,
+    resolveRequesterDisplayName: (input) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
+  });
   return { store, guestSubmissions };
 }
 
@@ -113,6 +123,17 @@ async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableNam
   return profile?.emailNormalized;
 }
 
+/** W5-01/GTR-01 (D-060): mesma consulta pontual de `User`/`PROFILE` de `resolveInternalUserEmail`
+ * acima, lendo `requesterDisplayName` em vez de `emailNormalized` - mesma duplicação deliberada
+ * (wiring de composition root, não lógica de negócio a compartilhar entre módulos). */
+async function resolveRequesterDisplayName(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
+  const result = await client.send(
+    new GetCommand({ TableName: tableName, Key: { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "PROFILE" }, ConsistentRead: true }),
+  );
+  const profile = result.Item as { requesterDisplayName?: string } | undefined;
+  return profile?.requesterDisplayName;
+}
+
 /** M10 cluster 4 (D-039/D-046/D-048): worker de dispatch+delivery fundido -
  * `guestUploadBaseUrl` é um placeholder documentado (mesma postura já aceita para
  * `cors_allow_origins`, `implementation-blueprint.md` §4.2) até existir domínio real de
@@ -136,6 +157,7 @@ export function buildDocumentChasingDispatchDeps(
     guestTokenPepper,
     emailProvider,
     resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => resolveInternalUserEmail(client, tableName, input.tenantId, input.userId),
+    resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
     guestUploadBaseUrl,
   };
 }

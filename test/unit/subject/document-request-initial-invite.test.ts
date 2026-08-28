@@ -45,7 +45,7 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
   let subjectId: string;
   let assignmentId: string;
 
-  async function makeService(overrides: Partial<{ initialInviteEmailEnabled: boolean }> = {}): Promise<DocumentRequestService> {
+  async function makeService(overrides: Partial<{ initialInviteEmailEnabled: boolean; resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => Promise<string | undefined> }> = {}): Promise<DocumentRequestService> {
     return new DocumentRequestService({
       store,
       tableName: "MainTable",
@@ -55,6 +55,7 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
       initialInviteEmailEnabled: overrides.initialInviteEmailEnabled ?? true,
       emailProvider,
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+      resolveRequesterDisplayName: overrides.resolveRequesterDisplayName,
       now: () => NOW,
     });
   }
@@ -87,6 +88,12 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
     expect(emailProvider.sent[0]?.templateId).toBe("document-request-initial-invite");
     const link = (emailProvider.sent[0]?.renderContext["guestLink"] as string) ?? "";
     expect(link).toContain(result.guestToken);
+  });
+
+  it("W5-01/GTR-01: resolves the caller's own UserProfile.requesterDisplayName into the initial-invite email context", async () => {
+    const service = await makeService({ resolveRequesterDisplayName: async (input) => (input.userId === "user-1" ? "Empresa Alfa Ltda." : undefined) });
+    await service.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "vendor@example.com", initialInviteDelivery: "EMAIL" });
+    expect(emailProvider.sent[0]?.renderContext["requesterName"]).toBe("Empresa Alfa Ltda.");
   });
 
   it("tenant preference EMAIL sends automatically without needing a per-call override", async () => {

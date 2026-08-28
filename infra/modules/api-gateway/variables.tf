@@ -63,6 +63,16 @@ variable "notifications_function_name" {
   type        = string
 }
 
+variable "profile_invoke_arn" {
+  description = "Invoke ARN of the ProfileHandler Lambda (W5-01/GTR-01, D-060) — backs GET/PUT /profile."
+  type        = string
+}
+
+variable "profile_function_name" {
+  description = "Function name of the ProfileHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "documents_invoke_arn" {
   description = "Invoke ARN of the DocumentsHandler Lambda (M6) — backs POST /items/{itemId}/documents and DELETE /items/{itemId}/documents/{documentId}."
   type        = string

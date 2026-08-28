@@ -1,0 +1,21 @@
+This is round 3 of the Claude<->Codex review protocol for docs/engineering/test-engineering-standard.md. You have reviewed this document twice already (round 1: 6.35/10, 15 findings; round 2: 7.85/10, confirmed 11 of 15 fully fixed, found 4 findings only partially fixed and 4 new issues introduced by the round-2 restructuring). Claude has now revised the document again (round 3) specifically targeting those 8 outstanding points. See docs/engineering/reviews/test-engineering-standard/ for the full history (your own round-1 and round-2 outputs are in codex-output-round1.txt and codex-output-round2.txt).
+
+Your 8 outstanding points from round 2, for reference:
+1. (residual) G-V1's non-tolerance case said "runs once and reproduces the same pass/fail on rerun" - internally contradictory (a single run doesn't demonstrate reproducibility), and lacked a minimum repetition count / environmental equivalence requirement.
+2. (residual) G-V3 still smuggled a judgment call ("plausible mutation") under a claimed-binary gate - naming a mutation in writing doesn't make its plausibility binary.
+3. (residual) Section 5's narrowed claims for W2-05/W2-06/W2-07 were technically honest, but the canonical backlog (docs/engineering/pilot-readiness-program.md) still described them more broadly (overselling), creating drift between the new standard and the canonical program doc.
+4. (residual) Section 7's sources lacked page/edition-level traceability mapping each source to the specific gate/weight it justifies.
+5. (new, from round-2's own restructuring) An orphaned reference to "G-V7" remained in G-V2's definition after the gate renumbering.
+6. (new) Section 5's retroactive audit granted G-V4/G-V5 (prospective, written-before-execution gates) as "OK" for the 6 Wave 2 drills, even though no separate pre-registration artifact existed (only the post-hoc consolidated write-up) - contradicting the gates' own requirement.
+7. (new) Section 4 declared three different units of evaluation (individual test / suite / claim) but gave no algorithm for how to compose them into a single score, nor a rule for handling N/A criteria without opportunistic redistribution.
+8. (new) The score-10 anchor was defined as "revealed a previously unknown real defect," which makes the top score dependent on historical luck - an excellent preventive test written before any bug existed could never reach a 10 by that definition.
+
+Your task now:
+1. Re-read docs/engineering/test-engineering-standard.md in full, fresh (it has changed again - do not rely on memory from round 1 or round 2).
+2. Go through each of the 8 points above and verify specifically whether round 3 actually fixes it (look at the literal wording, not just whether the topic is addressed in prose). Pay particular attention to internal consistency this time - round 2 introduced new defects while fixing round-1 findings (the orphaned G-V7 reference), so specifically hunt for the same failure mode in round 3: does fixing these 8 points introduce any NEW internal inconsistency, orphaned reference, or renumbering error?
+3. Also verify docs/engineering/pilot-readiness-program.md's Wave 2 section (search "W2-05" and "W2-06") to confirm the drift-correction claimed in section 5 of the standard document was actually applied there, not just claimed.
+4. Verify the new section 4.1 (aggregation algorithm + N/A rule) and section 4.2 (revised anchors, redefined score of 10) are internally coherent and actually resolve what you flagged, or whether they're still underspecified.
+5. This is the third round against an elevated acceptance bar of 9.5/10 (higher than this repo's normal 9.0/10 gate) explicitly requested by the project owner. Score independently and honestly - if it still falls short, say so plainly and be specific about what's missing; do not soften the bar because this is round 3. If you believe it now clears 9.5/10, say so explicitly and explain why the remaining imperfections (if any) don't rise to a blocking level for a document of this kind (a calibratable internal standard, not a finished academic paper).
+6. Give your own independent score out of 10, not rounded, with justification. Do not defer to or assume Claude's own score.
+
+Write your full findings and score directly in your response.

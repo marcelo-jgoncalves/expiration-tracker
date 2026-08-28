@@ -29,6 +29,8 @@ run "jwt_authorizer_attached_to_every_route" {
     reminders_function_name       = "reminders"
     notifications_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
     notifications_function_name   = "notifications"
+    profile_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:profile/invocations"
+    profile_function_name         = "profile"
     documents_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
     documents_function_name       = "documents"
     subjects_invoke_arn           = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
@@ -132,6 +134,32 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "PUT /notifications/preferences route must exist"
   }
 
+  # Every /profile route exists and is JWT-authorized (W5-01/GTR-01, D-060).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.profile : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /profile route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.profile) == 2
+    error_message = "Expected exactly 2 /profile routes (get, update)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.profile : r.route_key],
+      "PUT /profile",
+    )
+    error_message = "PUT /profile route must exist"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.profile.qualifier == "live"
+    error_message = "ProfileHandler invoke permission must be scoped to the 'live' alias"
+  }
+
   # Rollback design entrega 1: every invoke permission must be scoped to the `live` alias,
   # never the unqualified function ($LATEST) - required for an emergency alias repoint to
   # actually change what a real API Gateway request invokes.
@@ -174,8 +202,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.documents) == 4
-    error_message = "Expected exactly 4 /items/{itemId}/documents* routes (reserve upload, list, get, delete)"
+    condition     = length(aws_apigatewayv2_route.documents) == 6
+    error_message = "Expected exactly 6 /items/{itemId}/documents* routes (reserve upload, list, get, delete, M7 confirm/reject)"
   }
 
   assert {

@@ -1,0 +1,28 @@
+This is round 2 of the Claude<->Codex review protocol for docs/engineering/test-engineering-standard.md (see AGENTS.md section 4 for the protocol, and docs/engineering/reviews/test-engineering-standard/ for the full round-1 history: your own round-1 review is in codex-output-round1.txt, you gave it 6.35/10 with 15 concrete findings).
+
+Claude has revised the document in response to all 15 of your round-1 findings. Your task now:
+
+1. Re-read docs/engineering/test-engineering-standard.md in full (it has changed materially - do not rely on your round-1 memory of its content, re-read it fresh).
+2. Go through each of your 15 round-1 findings (listed below for convenience) and verify, specifically, whether the revised document actually fixes each one - not whether it merely acknowledges the finding in prose. Look for cases where a finding was declared "corrected" but the underlying defect is still present, or where fixing one thing introduced a new defect (this repo's own history, e.g. `docs/frontend/visual-language-and-design-system.md`, has real precedent for review rounds introducing new defects while fixing prior ones - check specifically for that pattern here too).
+3. Verify the claim-level corrections in section 5 (the retroactive Wave 2 audit) against docs/engineering/pilot-readiness-program.md's real Wave 2 evidence again - are the narrowed claims for W2-05/W2-06/W2-07 now accurate, or still overselling?
+4. Look for any NEW issues introduced by the restructuring (e.g. the gate renumbering from G-V1..G-V7 to G-V1..G-V4 + G-C1 + G-V5..G-V6 - check this is internally consistent throughout the document, no leftover references to the old numbering).
+5. Score independently out of 10, not rounded, with justification. Do not defer to or assume Claude's own round-2 self-score - score fresh.
+
+Your 15 round-1 findings, for reference:
+1. G-V1 "determinism" gate was incompatible with load/chaos tests (contradicted the cited Fowler source).
+2. Four of seven gates (G-V3, G-V4, G-V5, G-V7) were not actually binary - smuggled in judgment calls.
+3. G-V5 conflated intrinsic test validity with sufficiency of a broader claim's evidence.
+4. Section 2's taxonomy mixed level/environment/technique into one axis, and contained a factual error ("929 files" when it's 929 test cases across 112 files - note: verify the corrected file count yourself too, don't just trust the new number).
+5. Section 5's blanket claim "G-V1 to G-V4 satisfied in all 6 drills" was not supported - several drills touched shared config (OCR flag, alarm state), contradicting the isolation claim as literally written.
+6. Section 5's G-V6 audit was internally incoherent (referenced a non-existent "G-V8", unclear what "5/6" meant).
+7. W2-05's claim was broader than what was actually proven (only proved an occurrence-never-existed case, not general replay-safety).
+8. W2-06 measured RTO but not RPO.
+9. W2-07 bypassed API Gateway/BFF, so it doesn't validate the full API surface's sustained capacity.
+10. Section 4 criteria 1 and 7 overlapped and had inconsistent unit of evaluation (individual test vs. component).
+11. Section 4 criteria 2, 6, and 8 double/triple-counted documentation-related aspects (35% combined weight) with no separate criterion for oracle strength.
+12. Section 4's 0-10 scale had no scoring anchors.
+13. G-V6 required successful reversion for a drill to count as valid evidence, which would perversely invalidate the most valuable finding (a broken rollback mechanism).
+14. Section 7 misattributed DiRT to "Google SRE Book chapter 20" (which is actually "Load Balancing in the Datacenter"; DiRT is discussed in "Lessons Learned from Other Industries").
+15. Section 7's sources were real and relevant but had insufficient traceability (no page/edition numbers, no explicit mapping from source to specific gate/weight).
+
+Write your full findings and score directly in your response.

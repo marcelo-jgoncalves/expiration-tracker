@@ -38,11 +38,17 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
     1: {
       "pt-BR": (context) => {
         const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
+        // W5-01/GTR-01 (D-060): identidade de quem solicitou, exibida ao convidado - nunca
+        // inferida (ex. do domínio do e-mail), só o que o tenant capturou explicitamente em
+        // `UserProfile.requesterDisplayName` (fallback genérico quando ausente, ver
+        // resolveRequesterDisplayName em composition/identity.ts).
+        const requesterName = sanitizeTenantText(context["requesterName"] as string | undefined, "Solicitante não identificado");
         const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
         const guestLink = String(context["guestLink"] ?? "");
         const subject = `Lembrete: envio de ${requirementName} pendente`;
         const text = [
           `Ainda estamos aguardando o envio de "${requirementName}".`,
+          `Solicitado por: ${requesterName}.`,
           deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
           `Envie pelo link: ${guestLink}`,
           "Não encaminhe este link - ele é pessoal e expira automaticamente.",
@@ -51,6 +57,7 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
           .join("\n");
         const html = [
           `<p>Ainda estamos aguardando o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
+          `<p>Solicitado por: ${escapeHtml(requesterName)}.</p>`,
           deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
           `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
           `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
@@ -81,11 +88,14 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
     1: {
       "pt-BR": (context) => {
         const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "um documento");
+        // W5-01/GTR-01 (D-060), mesma disciplina do template "document-request-chasing" acima.
+        const requesterName = sanitizeTenantText(context["requesterName"] as string | undefined, "Solicitante não identificado");
         const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
         const guestLink = String(context["guestLink"] ?? "");
         const subject = `Solicitação de envio: ${requirementName}`;
         const text = [
           `Foi solicitado o envio de "${requirementName}".`,
+          `Solicitado por: ${requesterName}.`,
           deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
           `Envie pelo link: ${guestLink}`,
           "Não encaminhe este link - ele é pessoal e expira automaticamente.",
@@ -94,6 +104,7 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
           .join("\n");
         const html = [
           `<p>Foi solicitado o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
+          `<p>Solicitado por: ${escapeHtml(requesterName)}.</p>`,
           deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
           `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
           `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,

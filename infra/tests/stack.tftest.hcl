@@ -34,13 +34,13 @@ run "twentyseven_lambda_functions_exist_no_placeholder" {
   # directory via data.archive_file - but we still assert the expected count and distinct
   # names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 31
-    error_message = "Expected exactly 30 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035), PdfParserTaskHandler (M7 item 5, D-035), BedrockExtractionTaskHandler (M7 item 6, D-035)"
+    condition     = length(output.lambda_function_names) == 32
+    error_message = "Expected exactly 32 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035), PdfParserTaskHandler (M7 item 5, D-035), BedrockExtractionTaskHandler (M7 item 6, D-035), ExtractionValidationTaskHandler (M7 item 7-8, D-035), DocumentPurgeWorker (W3-06, D-061)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 31
-    error_message = "All 30 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 32
+    error_message = "All 32 Lambda function names must be distinct"
   }
 }
 
@@ -138,9 +138,9 @@ run "gsi3_access_granted_only_to_reminder_producer" {
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   command = plan
 
-  # M3.5 isolation, extended by M6: GSI6 access is granted to EXACTLY ReminderReconciliation,
-  # OutboxSweeperReminderDispatch, and (since M6) UploadSlotReconciliationWorker - no other
-  # function's IAM policy references GSI6.
+  # M3.5 isolation, extended by M6 and W3-06/D-061: GSI6 access is granted to EXACTLY
+  # ReminderReconciliation, OutboxSweeperReminderDispatch, UploadSlotReconciliationWorker, and
+  # (since W3-06) DocumentPurgeWorker - no other function's IAM policy references GSI6.
   assert {
     condition     = anytrue([for p in module.reminder_reconciliation.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "ReminderReconciliation must have a policy referencing GSI6"
@@ -152,6 +152,10 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   assert {
     condition     = anytrue([for p in module.upload_slot_reconciliation_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "UploadSlotReconciliationWorker must have a policy referencing GSI6 (M6)"
+  }
+  assert {
+    condition     = anytrue([for p in module.document_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "DocumentPurgeWorker must have a policy referencing GSI6 (W3-06/D-061)"
   }
 
   assert {
