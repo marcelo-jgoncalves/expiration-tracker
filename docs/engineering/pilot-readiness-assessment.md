@@ -1,6 +1,8 @@
 # Pilot Readiness Assessment — Expiration Tracker
 
 > Entregável final do "Consolidation + Pilot Readiness Program" (`expiration-tracker-next-days-master-plan-and-ai-prompt.md`, raiz, §42). Síntese do estado real verificado — não reintroduz achado nenhum, só aponta para `docs/engineering/pilot-readiness-program.md` (o backlog item-a-item que é a fonte de evidência) e para os documentos normativos citados. Data desta síntese: 2026-08-28. **Não é aprovação final** — é o material para o Marcelo decidir GO/CONDITIONAL GO/NO-GO com informação completa, honesta sobre o que foi PROVADO vs. só DESENHADO/TESTADO EM UNIDADE (disciplina do prompt mestre §34/§43).
+>
+> **Addendum (2026-08-28, sessão posterior à síntese original)**: o gate #2 abaixo (`GTR-01`/`W5-01`, guest trust/identidade do solicitante) **fechou** — ver `pilot-readiness-program.md`'s seção W5-01 e `decisions-log.md` D-060. O texto abaixo não foi reescrito (registro histórico do estado no momento da síntese) — só os gates #1 (`W3-06`) e #3 (Wave 2) continuam reais e abertos.
 
 ## 1. Executive Summary
 
