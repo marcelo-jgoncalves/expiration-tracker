@@ -232,12 +232,42 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 - **PR**: junto com os outros achados desta sessão.
 - **Final status**: `DONE` (auditoria).
 
-Itens ainda `NOT STARTED`, identificados a partir do prompt mestre:
+### W3-08 — Inventário de região AWS/subprocessadores
 
-| ID | Título | Wave §ref | Prioridade |
-|---|---|---|---|
-| W3-08 | Inventário de região AWS/subprocessadores + tabela de subprocessor register | §7.11-7.13 | P2 |
-| W3-09 | RIPD readiness (inventário técnico, nunca aprovação jurídica) | §7.14 | P3 |
+- **Current state**: **`DONE`**. Pesquisa dedicada construiu o inventário técnico completo a partir do Terraform real (34 tipos de recurso `aws_*`, todos os serviços AWS efetivamente usados) e de `package.json`/`frontend/package.json` (zero SDK de fornecedor não-AWS — nenhum SendGrid/Twilio/WhatsApp/Telegram/Resend em nenhuma dependência real). Confirma que os dois documentos normativos já existentes (`privacy-lgpd.md` §5, `docs/engineering/third-party-inventory.md`) estavam **factualmente corretos na essência**, mas com duas imprecisões reais e uma linha desatualizada, todas corrigidas nesta sessão:
+  1. **Região**: os dois docs diziam só "não decidida" sem distinguir que o único ambiente que existe hoje (`dev`) já deploya para `us-east-1` de verdade — uma exceção explicitamente não-vinculante no próprio Terraform (`infra/variables.tf`), nunca a decisão de produção (que segue genuinamente aberta). Adicionada a distinção nos dois docs.
+  2. **`bedrock_region` é uma variável Terraform separada**, independentemente configurável da região do resto do stack (`infra/variables.tf:169-179`) — uma segunda decisão de residência de dados que nenhum dos dois docs deixava explícita. Adicionado.
+  3. **Achado real de doc drift, não só imprecisão**: `third-party-inventory.md` tinha a linha "Provedor de e-mail (não escolhido)" — mas AWS SES v2 é o canal de e-mail real e implementado desde M4 (`src/modules/notification/providers/ses-email-adapter.ts`, `infra/modules/ses-notifications/main.tf`), rodando em produção. **Corrigido** — linha atualizada para `AWS SES v2`, mesma disciplina das outras linhas AWS.
+  4. **Precisão menor**: WhatsApp tem um kill switch já provisionado em AppConfig (flag `WHATSAPP`, default `false`) mesmo sem o canal existir — anotado para não confundir "flag existe" com "mudança de configuração ligaria o canal" (falta todo o adapter/BSP).
+- **Evidence**: relatório de pesquisa dedicado — tabela de inventário região/serviço, tabela de registro de subprocessadores (técnico, DPA explicitamente marcado "não verificado legalmente"), citações arquivo:linha para cada afirmação de infra.
+- **Desired state**: alcançado — os docs normativos agora refletem o estado técnico real com precisão. Nenhuma decisão de região foi tomada (permanece aberta, como já era).
+- **Dependencies**: nenhuma.
+- **Risk**: nenhum — só precisão de documentação, nenhuma mudança de comportamento/infra.
+- **Priority**: P2 (mantido do prompt mestre).
+- **User/Pilot impact**: nenhum direto — reduz risco de uma decisão jurídica futura ser tomada a partir de um inventário desatualizado (a linha de e-mail "não escolhido" era o tipo exato de erro que este programa existe para achar).
+- **Implementation status**: `DONE`.
+- **Verification**: relatório do agente + `npm run check-docs` limpo após as edições em `privacy-lgpd.md`/`third-party-inventory.md`.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE`.
+
+### W3-09 — RIPD readiness (checagem de gatilho, não elaboração de RIPD)
+
+- **Current state**: **`DONE` (checagem)**. `privacy-lgpd.md` §6 já define 6 gatilhos objetivos e explícitos para quando um RIPD é obrigatório (não discricionário), e o próprio texto já registra que a ausência de RIPD hoje é proporcional enquanto nenhum gatilho tiver disparado — não uma lacuna silenciosa. Esta sessão reavaliou os 6 gatilhos contra o estado real do sistema (síntese dos achados de W3-06/W3-07/W3-08, não uma pesquisa nova):
+  1. Primeiro tenant de produção com dados reais de titulares — **não disparado**: sistema segue pré-produção, sem tenant real; os dados usados na verificação E2E do M7 foram sintéticos e removidos ao final da sessão que os criou.
+  2. Nova finalidade de tratamento de dado sensível/criança/terceiro além das já mapeadas — **não disparado** nesta sessão.
+  3. Novo subprocessador ou região fora da allowlist vigente — **não disparado**: W3-08 confirmou zero subprocessador novo (só AWS), e a região segue "não decidida" (não há ainda uma allowlist vigente para estar "fora dela").
+  4. **Uso de IA/OCR (Bedrock/Textract) sobre documento de titular antes desse fluxo ir a produção — o mais próximo de disparar, merece atenção explícita.** M7 está code-complete e com uma verificação E2E real já executada contra `dev`, mas usando um documento sintético fabricado para o teste, nunca um documento real de um titular real — o gate `extraction_pipeline_enabled` permanece `false` por padrão, então nenhum documento real de cliente passa pelo pipeline de IA hoje. Este gatilho disparará no momento em que esse gate for ligado para um cliente real, não antes — vale reavaliar explicitamente nesse momento, não presumir que "já é código de produção" equivale a "já processou dado real de titular".
+  5. Incidente de segurança/privacidade que exponha dado pessoal real — **não disparado**.
+  6. Mudança relevante na matriz de retenção que amplie prazo ou remova hold — **não disparado**: W3-06 achou GAPS de enforcement (a matriz não está sendo cumprida), não uma mudança na matriz em si; não é o mesmo gatilho.
+- **Desired state/decisão**: o próprio `privacy-lgpd.md` §6 exige que a decisão de "não requer RIPD nesta versão" seja **registrada pelo Marcelo em `decisions-log.md` a cada verificação**, mesmo quando a conclusão é negativa — isso não foi feito por esta sessão porque é explicitamente uma decisão humana, não uma correção mecânica (a IA "pode preparar inventário, mapear riscos... mas não pode fingir aprovação", conforme o prompt mestre §14). Esta seção serve de insumo pronto para essa entrada, caso o Marcelo queira registrá-la.
+- **Dependencies**: decisão do Marcelo sobre se/quando registrar formalmente em `decisions-log.md`.
+- **Risk**: nenhum novo — checagem confirma que nenhum gatilho disparou, com um ponto de atenção real (item 4) para quando M7 for habilitado com cliente real.
+- **Priority**: P3 (mantido do prompt mestre).
+- **User/Pilot impact**: nenhum imediato; vira bloqueante real no momento em que o gatilho 4 disparar (M7 com cliente real).
+- **Implementation status**: `DONE` (checagem); registro formal em `decisions-log.md` fica com o Marcelo.
+- **Verification**: síntese direta dos achados já verificados de W3-06/W3-07/W3-08 desta mesma sessão.
+- **PR**: junto com os outros achados desta sessão.
+- **Final status**: `DONE`. **Wave 3 (Privacy + LGPD + Tenant Isolation Readiness) está completa** — W3-01 a W3-09 todos `DONE`, exceto a implementação real de `W3-06-DECISION` (bloqueada por decisão de escopo do Marcelo).
 
 ---
 

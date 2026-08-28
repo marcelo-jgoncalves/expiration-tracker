@@ -53,6 +53,8 @@ Inventário versionado: fornecedor, serviço, finalidade, dados, papel, região/
 
 **Região AWS é decisão bloqueante ainda não tomada** (lacuna herdada da Fase 3 — item aberto #7 do `architecture-fase3-consolidada.md`, escolha de modelo Bedrock). Bedrock/Textract podem processar fora do Brasil dependendo da região. Antes da produção: escolher regiões; bloquear chamadas fora da allowlist via IaC/SCP (Service Control Policy); confirmar residência e retenção de cada serviço/modelo; impedir uso de dados para treinamento de modelo pelo provedor; documentar países e mecanismo contratual de transferência; atualizar aviso de privacidade.
 
+**Precisão sobre o estado atual (auditoria W3-08, `docs/engineering/pilot-readiness-program.md`), não uma decisão nova**: o único ambiente que existe hoje (`dev`) já deploya para uma região concreta e nomeada, `us-east-1` (`infra/variables.tf`/`infra/env/dev.tfvars`), explicitamente marcada no próprio Terraform como exceção não-vinculante de ambiente de validação — não deve ser lida como a decisão de produção, que segue genuinamente aberta. `bedrock_region` (`infra/variables.tf`) é uma variável Terraform **separada e independentemente configurável** da região do resto do stack — uma segunda decisão de residência de dados distinta da escolha de região geral, hoje também um placeholder (`us-east-1` default).
+
 **Parecer jurídico obrigatório antes do lançamento comercial** sobre transferência internacional, garantias contratuais, subprocessadores, transparência, encarregado (DPO) e necessidade de RIPD (Relatório de Impacto à Proteção de Dados).
 
 ## 6. Critério objetivo de RIPD (PRIV-008, adicionado full-audit round1/eixo Privacidade, 2026-08-20)
