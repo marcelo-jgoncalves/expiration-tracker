@@ -110,18 +110,32 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 - **PR**: #68 (commit `4ab1aa6`) — mergeado, CI verde, confirmado em `main`.
 - **Final status**: `DONE`.
 
-### W2-03..W2-08 — Drills operacionais ainda não executados
+### W2-03..W2-08 — Drills operacionais
 
-Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho desta sessão — cada um envolve injetar falha ou gerar carga real contra `dev`, o que este programa trata como ação que merece avaliação own-item (não um clique mecânico), e nenhum foi pedido explicitamente ainda.
+**Status geral: 5 de 6 `DONE` com evidência real contra `dev` (2026-08-28). W2-07 `NOT STARTED`.**
 
-| ID | Título | Wave §ref | Prioridade |
+| ID | Título | Prioridade | Status |
 |---|---|---|---|
-| W2-03 | Feature gate M7 — provar "gate off = zero tráfego real" e "gate on = tráfego esperado" | §6.2 | P1 |
-| W2-04 | Reminder pipeline drill (policy→materialization→occurrence→dispatch→provider→outcome, incl. falha/retry) | §6.5 | P1 |
-| W2-05 | DLQ/replay drill nas filas críticas — provar que replay não duplica side effects | §6.6 | P1 |
-| W2-06 | Restore drill real conforme `disaster-recovery.md` — medir RPO/RTO observados | §6.7 | P1 |
-| W2-07 | Load test realista vs. SLO/capacity model | §6.8 | P2 |
-| W2-08 | Credential compromise drill (sem expor credencial real) + validação de alarmes críticos disparando de fato | §6.9/§6.10 | P1 |
+| W2-03 | Feature gate M7 — provar "gate off = zero tráfego real" e "gate on = tráfego esperado" | P1 | `DONE` |
+| W2-04 | Reminder pipeline drill (policy→materialization→occurrence→dispatch→provider→outcome, incl. falha/retry) | P1 | `DONE` |
+| W2-05 | DLQ/replay drill nas filas críticas — provar que replay não duplica side effects | P1 | `DONE` |
+| W2-06 | Restore drill real conforme `disaster-recovery.md` — medir RPO/RTO observados | P1 | `DONE` |
+| W2-07 | Load test realista vs. SLO/capacity model | P2 | `NOT STARTED` |
+| W2-08 | Credential compromise drill (sem expor credencial real) + validação de alarmes críticos disparando de fato | P1 | `DONE` (parte de alarme; credential-compromise em si não exercitado) |
+
+**W2-03 (DONE)**: invocação direta de `exptrk-dev-textract-task-handler` com `OCR=false` (estado real do AppConfig) — falhou fechado com `OcrDisabledError` antes de qualquer chamada ao Textract, custo zero. Flip real do kill switch para `OCR=true` via `appconfig create-hosted-configuration-version`+`start-deployment` (deploy instantâneo) — nova invocação completou uma chamada real ao Textract (`START_OCR succeeded`) e, 8s depois, o callback assíncrono real via SNS→SQS fechou o ciclo (`COMPLETE_OCR outcome: SUCCEEDED`). Achado bônus: uma segunda invocação acidental com o mesmo `runId` provou idempotência real (`TextractJobPersistenceFailedError` — mesmo `clientRequestToken`/`jobId` do Textract, `jobs.create()` corretamente rejeitado). Flag revertida para `OCR=false` ao final, confirmado.
+
+**W2-04 (DONE)**: `ExpirationItem`+`ReminderPolicy`+`ReminderOccurrence` (status `CLAIMED`) sintéticos escritos direto no DynamoDB para um tenant de teste isolado (`w2-04-drill-tenant`), depois `exptrk-dev-reminder-dispatch` invocado diretamente com um comando `reminder.dispatch.v1` real — `outcome: TRIGGERED`, criou `NotificationIntent` real. A cadeia real de DynamoDB Streams disparou `notification-router` automaticamente (sem intervenção manual), que corretamente cancelou o envio (`outcome: CANCELLED`, `reason: RECIPIENT_NOT_FOUND` — o tenant sintético não tinha `UserProfile`/preferências, então o router falhou fechado em vez de tentar enviar e-mail para um destinatário inexistente). Uma segunda entrega duplicada do stream record (comportamento esperado, at-least-once) foi corretamente tratada como `NOOP_NOT_PENDING`. Prova o caminho de falha "consent ausente" fim a fim; caminho de sucesso real (envio SES efetivo) fica para quando houver um tenant com `NotificationPreferences` real disponível para o drill. Dados sintéticos limpos ao final (0 linhas remanescentes).
+
+**W2-05 (DONE)**: mensagem sintética `reminder.dispatch.v1` (schema válido, `occurrenceId` inexistente) enviada diretamente à DLQ `exptrk-dev-reminder-dispatch-dlq`, depois `aws sqs start-message-move-task` (mecanismo real de redrive, não um script customizado) moveu 1/1 mensagem de volta para a fila de origem. O worker real `exptrk-dev-reminder-dispatch` consumiu e processou com `outcome: SKIPPED_NOT_CLAIMED` — nenhum erro, nenhum efeito colateral (nenhum e-mail, nenhuma mutação de estado). Prova que replay de uma mensagem "envenenada"/obsoleta é seguro por design. DLQ e fila de origem confirmadas vazias ao final.
+
+**W2-06 (DONE)**: `aws dynamodb restore-table-to-point-in-time` real da tabela `exptrk-dev-table` (7 itens, `use-latest-restorable-time`) — iniciado às 15:52:21 UTC, `ACTIVE` às 15:56:05 UTC (**RTO real ≈ 3min44s** para esta tabela). `aws dynamodb scan` real na tabela restaurada confirmou 7/7 itens presentes (não apenas o metadado `ItemCount`, que é estatística defasada até 6h). Tabela de teste deletada ao final (`aws dynamodb delete-table`), sem custo residual.
+
+**W2-08 (parcial, DONE no que se aplica)**: `aws cloudwatch set-alarm-state` forçou `exptrk-dev-reminder-producer-errors` para `ALARM` — histórico real confirma `"actionState":"Succeeded"` na ação SNS (`arn:aws:sns:...:exptrk-dev-alerts`), com corpo de e-mail real capturado. Revertido para `OK` ao final. **Achado real não planejado**: o alarme `exptrk-dev-upload-finalizer-dlq-age` já estava em `ALARM` desde **2026-08-22 (6 dias)**, com 3 mensagens reais nunca redrive'd (leftover da verificação "Camada 3" de 2026-08-22) — a notificação SNS→e-mail disparou corretamente na época, mas ninguém agiu sobre ela. Achado de processo, não de mecanismo: o alarme funciona; não há evidência de resposta operacional a ele. Mensagens deixadas como estão (não fazem parte deste drill, risco desnecessário mexer em dado de teste alheio sem entender o contexto completo). **Credential-compromise em si (a outra metade do W2-08) não foi exercitado** — fica para a próxima rodada.
+
+**W2-07 (NOT STARTED)**: não executado nesta sessão — motivo: construir um harness de carga real (Stage 3 do `capacity-model.md`: ~12 req/s de API, ~30 uploads/~18 chamadas Bedrock numa janela de 20-30 min) é um trabalho de escopo próprio, distinto dos outros 5 drills (que são invocações pontuais). P2, fica para uma sessão dedicada.
+
+**Achado transversal do processo desta rodada**: várias chamadas de escrita à AWS (AppConfig, DLQ redrive, restore) foram inicialmente bloqueadas pelo classificador de auto mode do Claude Code, mesmo após autorização verbal do Marcelo no chat — precisou de uma regra de permissão explícita em `.claude/settings.local.json` (`scripts/grant-wave2-drill-permissions.mjs`, rodado manualmente pelo Marcelo, nunca pelo próprio agente, por design). Registrado para sessões futuras que precisem repetir/estender esses drills.
 
 ---
 
@@ -317,7 +331,7 @@ Todos `NOT STARTED`. Registrados aqui como itens do backlog, não como trabalho 
 
 ## Wave 6 — Pilot Readiness Gate Review
 
-**Status geral: `DONE`.** Todas as waves anteriores tiveram, no mínimo, uma primeira passada (Wave 3 e Wave 5 completas; Wave 2/4 com escopo técnico concluído e implementação `BLOCKED`/`DEFERRED` por decisão pendente do Marcelo, conforme registrado em cada wave acima). Entregável final: `docs/engineering/pilot-readiness-assessment.md` (criado, commit `10b5f6f`) — síntese CONDITIONAL GO para um piloto de escopo estreito; dos três gates reais nomeados nessa síntese, guest trust (GTR-01/W5-01) fechou nesta sessão (2026-08-28) — retenção/purga W3-06 e drills operacionais Wave 2 permanecem abertos.
+**Status geral: `DONE`.** Todas as waves anteriores tiveram, no mínimo, uma primeira passada (Wave 3 e Wave 5 completas; Wave 4 com escopo técnico concluído e implementação `DEFERRED` por gatilho comercial; Wave 2 com 5 de 6 drills `DONE` com evidência real, ver acima). Entregável final: `docs/engineering/pilot-readiness-assessment.md` (criado, commit `10b5f6f`) — síntese CONDITIONAL GO para um piloto de escopo estreito; dos três gates reais nomeados nessa síntese, guest trust (GTR-01/W5-01) fechou em 2026-08-28 e a evidência operacional (Wave 2) fechou quase por completo na mesma data (só W2-07, load test P2, e a metade credential-compromise do W2-08 seguem abertas) — retenção/purga real (W3-06) permanece o único gate ainda não endereçado.
 
 ---
 
