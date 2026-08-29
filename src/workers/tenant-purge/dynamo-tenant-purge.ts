@@ -30,10 +30,34 @@
  */
 import type { SystemMutationStore } from "../../shared/tenant-lifecycle/system-mutation.js";
 import { purgeTenantItem, SystemMutationConflictError } from "../../shared/tenant-lifecycle/system-mutation.js";
+import { tenantLifecycleKey } from "../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 /** The two entity types that must NEVER be deleted by this pipeline, no matter what a scan
- * returns. See file header. */
+ * returns. See file header. Kept as a fast caller-side skip (avoids a wasted PURGE_DELETE
+ * round-trip in the common case where `entityType` IS present), but this attribute is NOT the
+ * safety mechanism — see `isNeverPurgeCanonicalKey` below and `system-mutation.ts`'s `PURGE_DELETE`
+ * guard for the actual, metadata-independent one. */
 const NEVER_PURGE_ENTITY_TYPES = new Set(["TenantLifecycleRecord", "IdentityMapping"]);
+
+/**
+ * W3-07 self-review finding (this session, post-B1-B6, before the second Codex round): the
+ * original B2 fix (`verifyTenantDynamoPurgeEmpty`) excluded `TenantLifecycleRecord`/
+ * `IdentityMapping` from its "remaining items" count using ONLY the caller-supplied `entityType`
+ * attribute on the scanned item — the exact same weak signal B3 identified as insufficient for
+ * the DELETE path (a legacy/malformed row missing `entityType` would not be recognized). On the
+ * verify path this weakness is not a purge-safety hole (nothing gets deleted here), but it IS a
+ * false-PARTIAL/non-convergence hole: a `TenantLifecycleRecord` or `IdentityMapping` missing (or
+ * with an unexpected) `entityType` would count as a "remaining item" forever, even though
+ * `PURGE_DELETE` correctly and permanently refuses to delete it by canonical physical key — the
+ * verification would never agree with reality. Mirrors `system-mutation.ts`'s `PURGE_DELETE`
+ * guard exactly (same two canonical-key checks) so both sides of the pipeline agree on what
+ * "excluded, by design, forever" means, independent of any mutable/optional metadata.
+ */
+function isNeverPurgeCanonicalKey(tenantId: string, item: TenantScanItem): boolean {
+  if (item.SK === "LIFECYCLE" && item.PK === tenantLifecycleKey(tenantId).PK) return true;
+  if (item.PK.startsWith("IDENTITY#")) return true;
+  return false;
+}
 
 export interface TenantScanItem {
   PK: string;
@@ -105,6 +129,7 @@ export async function verifyTenantDynamoPurgeEmpty(
     const page = await deps.candidates.scanTenantItems(tenantId, exclusiveStartKey);
     for (const item of page.items) {
       if (item.entityType && NEVER_PURGE_ENTITY_TYPES.has(item.entityType)) continue;
+      if (isNeverPurgeCanonicalKey(tenantId, item)) continue;
       remainingItems += 1;
     }
     exclusiveStartKey = page.lastEvaluatedKey;
@@ -128,7 +153,10 @@ export async function purgeTenantDynamoItems(
     const page = await deps.candidates.scanTenantItems(input.tenantId, exclusiveStartKey);
 
     for (const item of page.items) {
-      if (item.entityType && NEVER_PURGE_ENTITY_TYPES.has(item.entityType)) {
+      if (
+        (item.entityType && NEVER_PURGE_ENTITY_TYPES.has(item.entityType)) ||
+        isNeverPurgeCanonicalKey(input.tenantId, item)
+      ) {
         itemsExcluded += 1;
         continue;
       }

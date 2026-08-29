@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { purgeTenantDynamoItems, type TenantPurgeCandidateSource, type TenantScanItem } from "../../../../src/workers/tenant-purge/dynamo-tenant-purge.js";
+import { purgeTenantDynamoItems, verifyTenantDynamoPurgeEmpty, type TenantPurgeCandidateSource, type TenantScanItem } from "../../../../src/workers/tenant-purge/dynamo-tenant-purge.js";
 import { InMemoryIdentityStore } from "../../identity/in-memory-store.js";
 
 /** Fake candidate source: a flat in-memory list of tenant items, paginated by a fixed page size,
@@ -99,6 +99,39 @@ describe("purgeTenantDynamoItems", () => {
     expect(second.itemsPurged).toBe(0);
     expect(second.itemsExcluded).toBe(0);
     expect(second.itemsRejectedBySafetyCondition).toBe(0);
+  });
+
+  it("self-review finding (post-B1-B6): excludes TenantLifecycleRecord/IdentityMapping by CANONICAL PHYSICAL KEY even when the scanned row is missing the entityType attribute entirely — mirrors PURGE_DELETE's own guard, not just the caller-side entityType check", async () => {
+    const store = new InMemoryIdentityStore();
+    // Deliberately NO entityType field — a legacy/malformed row, the exact scenario B3's
+    // system-mutation.ts guard was hardened against on the delete side; this proves the
+    // exclusion-counting side (itemsExcluded, not just the delete itself) agrees.
+    const lifecycleNoEntityType: TenantScanItem = { PK: "TENANT#t1#LIFECYCLE", SK: "LIFECYCLE", tenantId: "t1", status: "PURGING", version: 3 };
+    const mappingNoEntityType: TenantScanItem = { PK: "IDENTITY#cognitoSub#abc123", SK: "MAP", tenantId: "t1", version: 1 };
+    const survivor = item("t1", "survivor", "ExpirationItem");
+    store.seedRaw(lifecycleNoEntityType);
+    store.seedRaw(mappingNoEntityType);
+    store.seedRaw(survivor);
+
+    const source = new FakeTenantScanSource(new Map([["t1", [lifecycleNoEntityType, survivor]]]), 10);
+    const result = await purgeTenantDynamoItems({ store, candidates: source, tableName: "MainTable" }, { tenantId: "t1" });
+
+    // Only the lifecycle record was returned by the fake tenant-prefix scan (IDENTITY# rows are
+    // out of the TENANT# prefix, same as production's real scan filter) — it must be excluded,
+    // not attempted for delete and rejected as a safety-condition failure.
+    expect(result.itemsPurged).toBe(1);
+    expect(result.itemsExcluded).toBe(1);
+    expect(result.itemsRejectedBySafetyCondition).toBe(0);
+    expect(store.hasRaw({ PK: lifecycleNoEntityType.PK, SK: lifecycleNoEntityType.SK })).toBe(true);
+  });
+
+  it("self-review finding: verifyTenantDynamoPurgeEmpty does not count a TenantLifecycleRecord/IdentityMapping missing entityType as a 'remaining item' (would otherwise force permanent false PARTIAL)", async () => {
+    const lifecycleNoEntityType: TenantScanItem = { PK: "TENANT#t1#LIFECYCLE", SK: "LIFECYCLE", tenantId: "t1", status: "PURGING", version: 3 };
+    const source = new FakeTenantScanSource(new Map([["t1", [lifecycleNoEntityType]]]), 10);
+
+    const { remainingItems } = await verifyTenantDynamoPurgeEmpty({ candidates: source }, "t1");
+
+    expect(remainingItems).toBe(0);
   });
 
   it("reports checkpoint progress via onCheckpoint after every page, ending with undefined once fully done", async () => {
