@@ -66,6 +66,16 @@ import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-rec
  *    call site routes one of these through `TenantBusinessMutation` (verified by the same review),
  *    so a `PK` that does not match `TENANT#<id>#...` at all is intentionally left unchecked here
  *    rather than rejected, to avoid this lane guessing at a convention it does not own.
+ *    Re-verified this session (grep of every real `IdentityMapping`/`GuestTokenPointer`/
+ *    `Session`/`TextractJob`/`LoginAttempt` domain type): four of the five (`IdentityMapping`,
+ *    `GuestTokenPointer`, `Session`, `TextractJob`) DO declare a `tenantId` field, so check 1
+ *    above already catches a forged mismatch on them if one were ever routed through this lane
+ *    (see the adversarial GUESTTOKEN# test in `test/unit/tenant-lifecycle.test.ts`). Only
+ *    `LoginAttempt` has neither a `TENANT#` PK nor a `tenantId` field, by design — it is minted
+ *    before authentication, when no tenant is known yet — and it is the one real shape this lane
+ *    genuinely cannot cross-check on either signal. It is also never routed through this lane
+ *    today (verified by the same grep), so this remains a documented, narrower residual (only
+ *    `LoginAttempt`-shaped entries, not every non-`TENANT#` entity), not a regression.
  *
  * `ConditionCheck` entries participate in the `PK`-based check (their `Key.PK` is inspected same
  * as Update/Delete) but not the declared-`tenantId` check — `buildExistenceConditionCheck`/

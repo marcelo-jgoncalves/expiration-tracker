@@ -202,15 +202,42 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     expect(untouched?.version).toBe(1);
   });
 
-  it("KNOWN GAP, not a hardening target this session (D-072 follow-up review, Codex-confirmed): an entry with neither a declared tenantId NOR a TENANT#-prefixed PK passes through unchecked - closing this fully needs mandatory tenant metadata enforced by the builders themselves or a branded entry type, see decisions-log.md. This is NOT the same as the D-075 PK-encoding gap below, which IS now closed", async () => {
+  it("KNOWN GAP, not a hardening target this session (D-072/D-079 follow-up review, Codex-confirmed): an entry with a non-TENANT#-prefixed PK AND no declared tenantId field at all passes through unchecked - closing this fully needs mandatory tenant metadata enforced by the builders themselves or a branded entry type, see decisions-log.md. This is a genuinely hypothetical shape today: every REAL non-TENANT#-prefixed entity in this codebase (GuestTokenPointer, Session, TextractJob, IdentityMapping) DOES declare a tenantId field and so IS already caught by check 1 below if forged - see the next test. The only real entity with neither (LoginAttempt, pre-authentication by design) is never routed through this lane. This is NOT the same as the D-075 PK-encoding gap above, which IS now closed", async () => {
     const store = new InMemoryIdentityStore();
     await seedLifecycle(store, "tenant-1", "ACTIVE");
 
-    // A hypothetical global/system entity, e.g. GUESTTOKEN#-style key: no TENANT# prefix, no
-    // declared tenantId - neither check can catch a mismatch on a shape like this. Documented
-    // residual gap, not exercised by any real call site today (verified by the same review).
-    const entries: TransactWriteEntry[] = [{ Put: buildVersionedCreate(TABLE, { PK: "GUESTTOKEN#abc123", SK: "POINTER", version: 1 }) }];
+    // A hypothetical entity shaped like LOGINATTEMPT# (no TENANT# prefix, no tenantId field at
+    // all, by design - minted before authentication) - neither check can catch a mismatch on a
+    // shape like this. Documented residual gap, not exercised by any real call site today
+    // (verified by grep of every executeTenantBusinessMutation/tryTenantBusinessMutation call site).
+    const entries: TransactWriteEntry[] = [{ Put: buildVersionedCreate(TABLE, { PK: "LOGINATTEMPT#abc123", SK: "POINTER", version: 1 }) }];
     await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
+  });
+
+  it("adversarial (this session): a forged tenantId field alongside a real non-TENANT#-prefixed PK convention (GUESTTOKEN#, matching GuestTokenPointer's actual key shape from src/modules/subject/domain/guest-token.ts) encoding a different tenant is rejected before any write - proves check 1 (declared tenantId) already covers every REAL non-TENANT#-prefixed entity in this codebase, since all of them declare tenantId, even though check 2 (PK-prefix) intentionally skips this PK shape", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+
+    // GuestTokenPointer.tenantId is forged to match the fence, but the pointer genuinely belongs
+    // to tenant-B (selectorHash is a lookup key, not a tenant-encoding one - the PK itself never
+    // encodes a tenant, by design, since guest-token lookup happens before tenantId is known).
+    const entries: TransactWriteEntry[] = [
+      {
+        Put: buildVersionedCreate(TABLE, {
+          PK: "GUESTTOKEN#selector-hash-xyz",
+          SK: "POINTER",
+          tenantId: "tenant-A",
+          subjectId: "subject-1",
+          version: 1,
+        }),
+      },
+    ];
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-B", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+    expect(await store.get({ PK: "GUESTTOKEN#selector-hash-xyz", SK: "POINTER" })).toBeUndefined();
   });
 
   it("D-075 CLOSED: rejects a Put entry whose declared Item.tenantId matches the fenced tenantId but whose physical PK actually encodes a different tenant - the residual bypass Codex's round-2 review flagged as the most serious remaining gap", async () => {
