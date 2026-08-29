@@ -35,22 +35,36 @@ import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-rec
  * `TenantBusinessMutation` previously trusted `input.tenantId` blindly, so a caller bug passing
  * `tenantId: A` with entries actually built for tenant B would silently commit under A's fence).
  *
- * This does NOT parse the DynamoDB key structure (PK/SK) — the `occ.ts` builders this codebase's
- * `AGENTS.md` §7 mandates ("toda escrita mutável usa os builders de occ.ts, nunca UpdateItem/
- * PutItem cru") already stamp a `tenantId` onto every entry they build, in a fixed place:
- * `buildVersionedCreate`/`buildConditionalPut` put it in `Item.tenantId`; `buildVersionedUpdate`/
- * `buildVersionedDelete` put it in `ExpressionAttributeValues[":tenantId"]` (always paired with
- * `ExpressionAttributeNames["#tenantId"] = "tenantId"` in their base condition). Reading it back
- * from those exact conventions is more robust than re-deriving it from a key string, and does not
- * require every port to expose the physical key schema to this lane.
+ * This does NOT parse the DynamoDB key structure (PK/SK), and it does NOT prove the entry's item
+ * belongs to the fenced tenant — it only cross-checks a `tenantId` value the CALLER already put
+ * into the entry, at a fixed convention `occ.ts`'s builders read/write from: `buildVersionedCreate`/
+ * `buildConditionalPut` read it from `Item.tenantId` (correction, W3-07 D-072 follow-up review —
+ * these builders do NOT themselves add/require a `tenantId`, they pass through whatever `item` the
+ * caller supplies verbatim; the convention exists only because every real call site in this
+ * codebase happens to already populate it, not because the builder enforces it);
+ * `buildVersionedUpdate`/`buildVersionedDelete` read it from `ExpressionAttributeValues[":tenantId"]`
+ * (these DO always populate it themselves, from `input.tenantId`, since it is baked into their own
+ * base condition — a real, structural guarantee for Update/Delete that Put/Create does not share).
+ * Reading it back from these conventions is more robust than re-deriving it from a key string, and
+ * does not require every port to expose the physical key schema to this lane — but it is bypassable
+ * by construction, not just residually incomplete: a caller could build a `Put` whose `Item.tenantId`
+ * matches the fenced tenant while `Item.PK`/`Item.SK` actually target a different tenant's key space
+ * (this validator has no way to catch that — it never inspects PK/SK), or omit `Item.tenantId`
+ * entirely and pass through unchecked (see the dedicated test proving that path resolves, not
+ * rejects — a known, accepted gap, not an oversight).
  *
  * `ConditionCheck` entries (e.g. the lifecycle fence this lane itself appends, or a caller's own
  * freshness check) are intentionally NOT required to declare a tenantId — `buildExistenceCondition
  * Check`/`buildVersionConditionCheck` have no such convention, and forcing one would be a false
- * requirement, not a real safety property. An entry that declares no tenantId at all (e.g. a
- * caller-supplied `ConditionCheck`) is skipped, not rejected — this validator can only catch a
- * DECLARED mismatch, not prove every entry carries the right tenant; that residual gap is real and
- * is why this is documented as "best-effort", not a full structural proof.
+ * requirement, not a real safety property.
+ *
+ * Net: this is a cheap tripwire that catches an honest caller bug (copy-paste of the wrong
+ * tenantId into an otherwise-correct entry) before it commits, not a structural proof that every
+ * entry belongs to the fenced tenant. Closing that fully would need one of: mandatory tenant
+ * metadata enforced BY the builders (reject construction if absent, not just read-if-present by
+ * this lane), validation against the physical PK/SK plus `TableName`, or a branded tenant-scoped
+ * entry type ordinary `TransactWriteEntry` values cannot satisfy — all larger, Type 1 changes,
+ * deferred exactly as documented in `decisions-log.md`.
  */
 function findTenantMismatch(entries: TransactWriteEntry[], tenantId: string): string | undefined {
   for (const entry of entries) {
@@ -135,18 +149,23 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
       // note as deferred (W3-07 writer-migration chunk, quota.consume() being the writer that
       // actually needed the distinction).
       //
-      // W3-07 D-072 item 4 hardening (2026-08-29): `Array.isArray` guards against an adapter
-      // that populates `CancellationReasons` with something other than an array (real AWS
-      // DynamoDB never does this, confirmed against the SDK docs during the original design
-      // review - this only matters for a hypothetical broken/stripped adapter). Without the
-      // guard, a non-array truthy value would reach `reasons[fenceIndex]?.Code`, which could
-      // read `undefined` in an unexpected way rather than falling back to the same conservative
-      // "treat as fence failed" classification an absent `CancellationReasons` already gets.
-      // Absent OR malformed both fall back to the same safe-by-default outcome, never a crash.
+      // W3-07 D-072 item 4 hardening (2026-08-29, extended after a follow-up Codex review found
+      // the first pass only guarded non-array shapes, not a malformed element WITHIN an array):
+      // absent, non-array, too-short, or malformed-element `CancellationReasons` all fall back to
+      // the SAME conservative "treat as fence failed" classification - never a crash, and never
+      // silently treated as "the fence definitely did not fail" just because the shape at the
+      // fence's own index doesn't look like what real DynamoDB sends. Real AWS DynamoDB always
+      // sends a full array (one entry per TransactItem, `{ Code: "None" }` for non-causing
+      // entries) with a string `Code` on every element - this only matters for a hypothetical
+      // broken/stripped adapter, confirmed against the SDK docs during the original design review.
       const rawReasons = (err as { CancellationReasons?: unknown }).CancellationReasons;
-      const reasons = Array.isArray(rawReasons) ? (rawReasons as Array<{ Code?: string }>) : undefined;
       const fenceIndex = input.entries.length;
-      const fenceFailed = !reasons || reasons[fenceIndex]?.Code === "ConditionalCheckFailed";
+      const fenceReason = Array.isArray(rawReasons) ? (rawReasons as unknown[])[fenceIndex] : undefined;
+      const fenceReasonCode =
+        typeof fenceReason === "object" && fenceReason !== null && typeof (fenceReason as { Code?: unknown }).Code === "string"
+          ? (fenceReason as { Code: string }).Code
+          : undefined;
+      const fenceFailed = !Array.isArray(rawReasons) || fenceReasonCode === undefined || fenceReasonCode === "ConditionalCheckFailed";
       if (fenceFailed) {
         throw new TenantNotActiveError("Tenant is not ACTIVE; mutation rejected.", { tenantId: input.tenantId });
       }

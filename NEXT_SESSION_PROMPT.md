@@ -36,16 +36,36 @@ Registro completo em `decisions-log.md` D-073 (item 1) e D-074 (itens 2/3/4).
   `CancellationReasons` com um valor não-array agora cai no mesmo fallback seguro
   "trata como fence falhou" que a ausência completa já tinha, em vez de um acesso mal-comportado.
   **IMPLEMENTED + UNIT TESTED** (1 teste adversarial simulando o adapter quebrado).
-- **Segunda rodada de revisão Codex sobre os fixes de D-072/D-073/D-074 NÃO executada** nesta
-  sessão — orçamento esgotado após os 4 itens.
-- 1020 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
+- **Segunda rodada de revisão Codex executada** sobre o diff D-073/D-074 (D-075) — **nota 6,0/10**
+  especificamente sobre o fechamento dos itens 1 e 4 (não uma reavaliação da nota 5,0/10 original
+  de D-072 sobre a implementação inteira). Achados reais fechados na mesma sessão: comentário que
+  alegava que `buildVersionedCreate`/`buildConditionalPut` "stampam" `tenantId` estava errado
+  (esses builders só repassam o item do chamador, não adicionam/exigem `tenantId`) — corrigido;
+  teste do "sem tenantId declarado passa" reescrito para nomear explicitamente que é um GAP
+  RESIDUAL confirmado, não um default aceitável; cobertura estendida com caso `Delete`; hardening
+  do item 4 estendido para validar a FORMA do elemento no índice da fence (não só que
+  `CancellationReasons` seja um array) — um array presente mas com elemento malformado no índice
+  da fence antes ainda podia relançar o erro original em vez do fallback seguro documentado,
+  fechado com 2 testes novos.
+- **Achados do Codex conscientemente NÃO corrigidos, documentados como pendência real**: item 1
+  continua "bypassável by construction" para um `Put` cujo `Item.tenantId` bate mas cujo `PK`/`SK`
+  físico aponta para outro tenant, ou que declara outro `TableName` — limitação estrutural real do
+  design "best-effort", não uma regressão; fechar precisaria de metadados obrigatórios impostos
+  PELOS PRÓPRIOS builders, validação contra PK/SK+TableName, ou um tipo de entrada tenant-branded
+  (Type 1, maior que uma sessão). Sugestão do Codex de um architecture-test allowlist-based para o
+  item 2 (mais barato que a redesign completa) avaliada como viável mas não implementada — candidato
+  concreto para a próxima sessão dedicada ao item 2. Passos de mitigação de menor esforço sugeridos
+  pelo Codex para o item 3 (ordenar idempotency antes da quota, abortar idempotency em falha de
+  quota, chaves de reserva únicas por request) registrados mas não implementados — pendência real.
+- 1023 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
   zero regressão.
 
-**Próxima ação real**: segunda rodada de revisão Codex cobrindo o diff acumulado desde `641a47e`
-(itens 1-4 de D-072 fechados/reavaliados); se/quando o produto decidir sobre o trade-off do item 3
-(latência vs. atomicidade em `import-service.ts`), implementar; item 2's fechamento estrutural
-real fica para uma sessão dedicada de design curto (porta mais estreita ou lista de exceção
-mantida para um architecture-test), não uma correção mecânica.
+**Próxima ação real**: (a) item 2's fechamento estrutural — avaliar o architecture-test
+allowlist-based sugerido pelo Codex em D-075 como próximo passo concreto (mais barato que a
+redesign completa de porta); (b) item 3 — decisão do produto sobre o trade-off latência vs.
+atomicidade em `import-service.ts`, com os passos de mitigação de menor esforço do Codex (D-075)
+como ponto de partida; (c) item 1's limitação estrutural residual (PK/SK+TableName não validados)
+fica para uma sessão dedicada de design, não uma correção mecânica.
 
 ## W3-07 — primeira revisão adversarial Codex + correções (2026-08-29), D-072
 

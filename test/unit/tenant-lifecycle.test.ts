@@ -7,7 +7,7 @@ import {
   type TenantLifecycleStatus,
 } from "../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { executeTenantBusinessMutation } from "../../src/shared/tenant-lifecycle/tenant-business-mutation.js";
-import { buildVersionedCreate, buildVersionedUpdate, type TransactWriteEntry } from "../../src/shared/dynamodb/occ.js";
+import { buildVersionedCreate, buildVersionedUpdate, buildVersionedDelete, type TransactWriteEntry } from "../../src/shared/dynamodb/occ.js";
 import { InternalError, TenantNotActiveError } from "../../src/shared/errors/app-error.js";
 import { InMemoryIdentityStore } from "./identity/in-memory-store.js";
 
@@ -202,7 +202,7 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     expect(untouched?.version).toBe(1);
   });
 
-  it("does not reject entries that declare no tenantId at all (e.g. bare ConditionCheck-style Put with no tenantId field) - only a DECLARED mismatch is caught", async () => {
+  it("KNOWN GAP, not a hardening target this session (D-072 follow-up review, Codex-confirmed): an entry that declares NO tenantId at all passes through unchecked - this validator only catches a DECLARED mismatch, it does not prove every entry carries the right tenant. buildVersionedCreate/buildConditionalPut do not themselves require Item.tenantId (they pass the caller's item through verbatim), so this is a real residual bypass, not just a defensive default; closing it needs mandatory tenant metadata enforced by the builders themselves, or PK/SK-based validation - both larger, deferred changes, see decisions-log.md", async () => {
     const store = new InMemoryIdentityStore();
     await seedLifecycle(store, "tenant-1", "ACTIVE");
 
@@ -210,6 +210,31 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
       { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-2", SK: "META", version: 1 }) },
     ];
     await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
+  });
+
+  it("adversarial (D-072 follow-up review): rejects a Delete entry whose declared tenantId does not match the fenced tenantId", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+    await store.putIfAbsent({ PK: "TENANT#tenant-B#ITEM#item-4", SK: "META", tenantId: "tenant-B", version: 1 });
+
+    const entries: TransactWriteEntry[] = [
+      {
+        Delete: buildVersionedDelete({
+          tableName: TABLE,
+          key: { PK: "TENANT#tenant-B#ITEM#item-4", SK: "META" },
+          tenantId: "tenant-B",
+          expectedVersion: 1,
+        }),
+      },
+    ];
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-A", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+
+    // Not deleted - rejected before the transaction was even attempted.
+    expect(await store.get({ PK: "TENANT#tenant-B#ITEM#item-4", SK: "META" })).toBeDefined();
   });
 
   it("adversarial (D-072 item 4 hardening): a broken adapter that populates CancellationReasons with a non-array shape does not crash - falls back to TenantNotActiveError, the same safe-by-default outcome as CancellationReasons being absent entirely", async () => {
@@ -232,5 +257,54 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     await expect(
       executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
     ).rejects.toBeInstanceOf(TenantNotActiveError);
+  });
+
+  it("adversarial (D-072 item 4 hardening, extended after follow-up review): a CancellationReasons array present but with a malformed element at the fence's own index (missing/non-string Code) also falls back to TenantNotActiveError, not a silent pass-through of the caller's own conflict", async () => {
+    // Distinguishes the array-present-but-element-malformed case from the array-absent case
+    // this file's other broken-adapter test already covers - closes the specific gap a
+    // follow-up Codex review found: Array.isArray() alone does not validate the SHAPE of the
+    // element at the fence's own index.
+    const brokenStore = {
+      transactWrite: async (): Promise<void> => {
+        const err = new Error("TransactionCanceledException");
+        err.name = "TransactionCanceledException";
+        // One entry (the caller's Put) plus the fence - fence index is 1, but the array only
+        // has 1 element, so reasons[1] is undefined (a malformed/too-short array).
+        (err as unknown as { CancellationReasons: unknown }).CancellationReasons = [{ Code: "None" }];
+        throw err;
+      },
+    };
+
+    const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-5", SK: "META", version: 1 }) },
+    ];
+
+    await expect(
+      executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
+    ).rejects.toBeInstanceOf(TenantNotActiveError);
+  });
+
+  it("control (D-072 item 4): a well-formed CancellationReasons array where the fence's own index is Code 'None' still surfaces the caller's own conflict, not misclassified as TenantNotActiveError - proves the hardening did not regress the original CancellationReasons-aware distinction", async () => {
+    const brokenStore = {
+      transactWrite: async (): Promise<void> => {
+        const err = new Error("TransactionCanceledException");
+        err.name = "TransactionCanceledException";
+        // 1 caller entry (index 0, the actual cause) + the fence (index 1, "None" - fence did
+        // NOT fail).
+        (err as unknown as { CancellationReasons: unknown }).CancellationReasons = [
+          { Code: "ConditionalCheckFailed" },
+          { Code: "None" },
+        ];
+        throw err;
+      },
+    };
+
+    const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-6", SK: "META", version: 1 }) },
+    ];
+
+    await expect(
+      executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
+    ).rejects.not.toBeInstanceOf(TenantNotActiveError);
   });
 });
