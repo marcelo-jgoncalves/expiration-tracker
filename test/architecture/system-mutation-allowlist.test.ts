@@ -26,6 +26,31 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { SystemMutationOperation } from "../../src/shared/tenant-lifecycle/system-mutation.js";
+
+/**
+ * Codex round 3 (D-076 re-review) BLOCKING finding: the fixture-based bypass tests below only
+ * prove that ONE hard-coded sentinel kind ("DELETE_EVERYTHING_FOR_THIS_TENANT") is currently
+ * absent from the union - they do not prove the union is closed against a future contributor
+ * adding a genuinely new, unpredicted kind. This independently-maintained allowlist plus the
+ * bidirectional `extends` check below closes that gap for real: `ApprovedSystemMutationKind` is
+ * declared HERE, outside `system-mutation.ts`, deliberately NOT derived from
+ * `SystemMutationOperation` itself - so it cannot silently track a future addition/removal to
+ * that union. If a future contributor adds a new `kind` member to `SystemMutationOperation`
+ * without updating this list (or vice versa), one of the two assertions below fails to compile,
+ * turning `npm run typecheck` red - the same enforcement mechanism CI already runs on every PR.
+ */
+type ApprovedSystemMutationKind = "LIFECYCLE_TRANSITION" | "PURGE_DELETE" | "OUTBOX_BOOKKEEPING";
+type AssertUnionIsSubsetOfApproved = SystemMutationOperation["kind"] extends ApprovedSystemMutationKind
+  ? true
+  : ["FAIL: SystemMutationOperation has a kind NOT in the independently-maintained ApprovedSystemMutationKind allowlist - update system-mutation-allowlist.test.ts"];
+type AssertApprovedIsSubsetOfUnion = ApprovedSystemMutationKind extends SystemMutationOperation["kind"]
+  ? true
+  : ["FAIL: ApprovedSystemMutationKind lists a kind SystemMutationOperation no longer has - the allowlist has drifted stale"];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- compile-time-only proof, never read at runtime.
+const _assertUnionClosed: AssertUnionIsSubsetOfApproved = true;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- compile-time-only proof, never read at runtime.
+const _assertAllowlistCurrent: AssertApprovedIsSubsetOfUnion = true;
 
 const REPO_ROOT = join(__dirname, "..", "..");
 // Fixtures live under test/, not src/ - dependency-cruiser's check-boundaries only scans `src`
@@ -65,6 +90,10 @@ function runTypecheck(): { failed: boolean; output: string } {
 }
 
 describe("architecture: SystemMutationOperation allowlist is closed at compile time", () => {
+  it("Codex round 3 fix: the bidirectional type assertions above (AssertUnionIsSubsetOfApproved / AssertApprovedIsSubsetOfUnion) compiled successfully, proving SystemMutationOperation's kind union is EXACTLY {LIFECYCLE_TRANSITION, PURGE_DELETE, OUTBOX_BOOKKEEPING} - neither more nor fewer - against an allowlist maintained independently of the implementation module. This test file existing and passing typecheck IS the proof; this assertion is a documentation anchor, not additional verification", () => {
+    expect(true).toBe(true);
+  });
+
   beforeAll(() => {
     cleanFixtures(); // safety net in case a prior interrupted run left a fixture behind
   });
@@ -105,7 +134,7 @@ describe("architecture: SystemMutationOperation allowlist is closed at compile t
   );
 
   it(
-    "BYPASS ATTEMPT 2: a fixture file constructing a well-typed LIFECYCLE_TRANSITION operation but also smuggling an extra business-shaped field (e.g. its own entries[]) fails to compile - the union's members are exact object shapes, not open interfaces a caller can extend",
+    "BYPASS ATTEMPT 2: a fixture file constructing a well-typed LIFECYCLE_TRANSITION operation but also smuggling an extra business-shaped field (e.g. its own entries[]) as a FRESH object literal fails to compile via TypeScript's excess-property check. NOTE (Codex round 3 correction): this is weaker than \"exact object shapes\" - the excess-property check only fires on a fresh literal; assigning the SAME payload through an intermediate `const` variable is NOT rejected by the type system. This does not currently matter for safety because buildEntries() ignores any extra property and always constructs its own entries array from the operation's own named fields - but the test description must not overclaim what TypeScript itself proves here",
     () => {
       writeFixture(
         "bypass-extra-field.ts",

@@ -47,8 +47,43 @@ produto. Ver `decisions-log.md` D-076 para o registro completo do item 1.
   literais, não a convenção `#setN`) — `abort()` "funcionava" sem erro mas não mudava nada,
   mascarando a mitigação nos testes. Generalizado para um parser genérico de condição/update.
   1034 testes de backend passando (era 1032), typecheck/lint/check-boundaries/check-docs limpos.
-- Terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é atualizada
-  incrementalmente conforme os itens avançam — conferir `git log` para o estado real).
+- **Terceira rodada Codex executada (D-079) — nota 6,0/10, ainda abaixo do gate de 9,0**.
+  2 achados BLOQUEANTES reais confirmados: (1) a compensação de `import-service.ts` só cobria a
+  criação do job, não os dois `quota.consume()` — replay cobrava quota de novo, e um chamador
+  concorrente perdedor vazava quota antes de perder a corrida em `begin()`; (2) o
+  architecture-test do allowlist só provava a ausência de UM `kind` sentinela específico, não que
+  a união está fechada contra um `kind` genuinamente novo. **Ambos corrigidos na mesma sessão**:
+  `reserveImport()` reordenado (`idempotency.begin()` antes de `quota.consume()`, compensação
+  agora cobre ambas as reservas de quota com rastreamento por-chamada de qual foi realmente
+  consumida); asserções de tipo bidirecionais (`AssertUnionIsSubsetOfApproved`/
+  `AssertApprovedIsSubsetOfUnion`) adicionadas contra um allowlist mantido independentemente do
+  módulo de implementação, sanity-checadas manualmente (allowlist quebrado de propósito, `tsc`
+  falhou como esperado, revertido). Achados NÃO-BLOQUEANTES: 1 overclaim de comentário corrigido
+  ("exact object shapes"); TableName confirmado sólido sem bypass; o gap residual de PK não-
+  `TENANT#`-prefixed (ex. `GUESTTOKEN#`/`IDENTITY#` com `tenantId` forjado) confirmado como
+  limitação real já documentada, não uma regressão — nenhum call site real produz isso hoje.
+  1037 testes de backend passando (era 1034), typecheck/lint/check-boundaries/check-docs limpos.
+  **UMA QUARTA RODADA CODEX RE-CHECANDO ESTES 2 FIXES NÃO FOI EXECUTADA** — orçamento esgotado
+  nesta sessão. A nota 6,0/10 registrada é sobre o estado ANTES destes 2 fixes.
+
+## Estado honesto geral do W3-07 ao final desta sessão (2026-08-29)
+
+Três rodadas Codex completas (D-072: 5,0/10: D-075: 6,0/10; D-079: 6,0/10, mas sobre um diff que
+já foi parcialmente re-corrigido na mesma sessão sem nova rodada confirmando). Nenhuma rodada
+atingiu o gate de 9,0 do `AGENTS.md` §4 até agora. Padrão observado nas três rodadas: cada
+fechamento resolve os achados apontados mas expõe (ou o Codex encontra) uma camada residual mais
+sutil — do "tenantId declarado" para "PK físico" para "compensação parcial"/"prova de tipo
+insuficiente". Isso sugere que este fence provavelmente precisa de pelo menos **mais 1-2 rodadas
+Codex reais** (não só fixes sem reconfirmação) antes de plausivelmente atingir 9,0 — os achados
+BLOQUEANTES até agora sempre foram concretos e corrigíveis em menos de uma sessão cada, não
+sintomas de um problema estrutural maior, mas o processo de "corrigir sem reconfirmar" (como esta
+sessão terminou, por orçamento) é exatamente o padrão que já produziu uma rodada extra cada vez.
+**Próxima ação real, em ordem**: (a) rodar uma QUARTA rodada Codex confirmando especificamente os
+2 fixes desta sessão (reordenação import-service.ts, asserção de tipo do allowlist) antes de
+declarar D-072/D-075/D-079 fechados; (b) se aprovar, considerar se o gap residual de PK não-
+`TENANT#`-prefixed (item 1's limitação estrutural remanescente) precisa de uma sessão de design
+dedicada antes do próximo marco tocar esse código, ou se pode continuar como pendência documentada
+indefinidamente dado que nenhum call site real o exercita hoje.
 
 
 

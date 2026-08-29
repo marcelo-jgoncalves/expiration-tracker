@@ -80,6 +80,31 @@ describe("ImportService (M11, D-042)", () => {
     expect(jobs).toHaveLength(1);
   });
 
+  it("D-076/Codex-round-3 fix: a replayed reserveImport with the SAME Idempotency-Key does NOT consume quota a second time (idempotency.begin() now runs BEFORE quota.consume(), short-circuiting the replay before quota is ever touched)", async () => {
+    await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-replay");
+    await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-replay");
+    await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-replay");
+
+    const countQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_COUNT", "current"));
+    const bytesQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_BYTES", "current"));
+    expect(countQuota?.count).toBe(1);
+    expect(bytesQuota?.count).toBe(1);
+  });
+
+  it("D-076/Codex-round-3 fix: a second concurrent caller reusing the SAME Idempotency-Key with a DIFFERENT request (genuine key-reuse conflict) never touches quota at all - it loses the race at idempotency.begin(), before quota.consume() is reached", async () => {
+    await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-conflict");
+
+    await expect(service.reserveImport(ctx(), { contentLength: 2048, checksumSha256: VALID_SHA256 }, "idem-conflict")).rejects.toThrow(
+      /already in progress/i,
+    );
+
+    // Only the FIRST (winning) call's reservation is present - the losing caller leaked nothing.
+    const countQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_COUNT", "current"));
+    const bytesQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_BYTES", "current"));
+    expect(countQuota?.count).toBe(1);
+    expect(bytesQuota?.count).toBe(1);
+  });
+
   it("getImportJob throws NotFoundError for an unknown jobId", async () => {
     await expect(service.getImportJob(ctx(), "does-not-exist")).rejects.toBeInstanceOf(NotFoundError);
   });
