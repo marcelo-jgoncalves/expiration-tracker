@@ -12,6 +12,7 @@ import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { itemKey } from "../domain/expiration-item.js";
 import { itemWatchKey, ITEM_WATCH_SK_PREFIX, type ItemWatch } from "../domain/item-watch.js";
 import { isTransactionCanceled, type ExpirationStore, type TransactWriteEntry } from "../ports/expiration-store.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface ItemWatchServiceDeps {
   store: ExpirationStore;
@@ -73,6 +74,14 @@ export class ItemWatchService {
     throw new ConflictError("Could not reactivate watcher under contention.", { itemId, userId });
   }
 
+  /**
+   * W3-07 (D-067) proof-of-concept call site: the first real writer migrated onto the
+   * `TenantBusinessMutation` lane (`shared/tenant-lifecycle/tenant-business-mutation.ts`) -
+   * chosen because it is a small, self-contained mutation with its own transactWrite() call
+   * (not shared with any other method the way ExpirationService.commit() is), so fencing it
+   * has no blast radius on other writers. `addWatcher`/`reactivate` above are NOT migrated
+   * yet (pending: next chunk's writer migration pass, see NEXT_SESSION_PROMPT.md).
+   */
   async removeWatcher(ctx: RequestContext, itemId: string, userId: string): Promise<void> {
     await this.requireActiveItem(ctx.tenant.tenantId, itemId);
     authorize({ context: ctx, action: "item:watch", resource: { tenantId: ctx.tenant.tenantId } });
@@ -85,8 +94,9 @@ export class ItemWatchService {
       { Update: buildVersionedUpdate({ tableName: this.tableName, key, tenantId: ctx.tenant.tenantId, expectedVersion: existing.version, set: { status: "REMOVED" } }) },
     ];
     try {
-      await this.store.transactWrite(entries);
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId: ctx.tenant.tenantId, entries });
     } catch (err) {
+      if (err instanceof Error && err.name === "TenantNotActiveError") throw err;
       if (isTransactionCanceled(err)) {
         throw new ConflictError("VERSION_CONFLICT", { cause: "transaction condition failed" });
       }

@@ -1,0 +1,306 @@
+
+2. Every intermediate evidence mutation fenced: **CLOSED**
+
+Treating each `uploadEvidence`, `malwareEvidence`, and `SCANNING` mutation as its own `TenantBusinessMutation` is the correct rule.
+
+This closes the loophole where intermediate evidence could be attached after deletion even though the final `CLEAN` transition was fenced.
+
+The implementation must preserve this granularity rather than combining the rule only at workflow endpoints.
+
+3. Clean-copy compensation: **PARTIALLY CLOSED**
+
+The DynamoDB discrimination mechanism is real.
+
+`TransactWriteItems` returns cancellation reasons in request-item order.
+
+The lifecycle entry can therefore be identified by a stable index, and its reason can be tested for `ConditionalCheckFailed`.
+
+The installed JavaScript SDK v3 also exposes `TransactionCanceledException.CancellationReasons`.
+
+This is supported by the [DynamoDB API reference](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) and the [JavaScript v3 cancellation-reason type](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-dynamodb/Interface/CancellationReason).
+
+So the caller can distinguish:
+
+- lifecycle `ConditionalCheckFailed`;
+- aggregate OCC `ConditionalCheckFailed`;
+- transaction conflict;
+- capacity failure;
+- validation failure.
+
+The implementation must inspect the exact lifecycle entry, not merely call the existing broad `isTransactionCanceled()` helper.
+
+It must also preserve `CancellationReasons` through any DynamoDB error mapper.
+
+The compensation pattern itself is valid and the existing idempotent `DeleteObject` behavior makes retries safe.
+
+But its claimed fallback is incomplete for the same late-write race as item 1.
+
+If the object appears after the final purge scan and compensation fails, it is not necessarily “already covered by the purge scan”; that scan may have finished.
+
+Close both items together by preventing finalization while such writers remain possible, or by retaining an authoritative post-finalization cleanup mechanism.
+
+Also specify compensation for both `Document` and `DocumentSubmission`; their current clean-key shapes differ, but both can create this residue.
+
+4. ExtractionRun marker migration: **PARTIALLY CLOSED**
+
+The greenfield argument is valid semantically.
+
+Before tenant lifecycle exists, every legitimate existing `ExtractionRun` was created in the implicitly-ACTIVE regime.
+
+Marking those existing runs `admittedWhileActive: true` is therefore truthful, not a fabricated historical inference.
+
+The marker is a sound runtime discriminator.
+
+The proposed one-shot migration ordering nevertheless has a deployment race:
+
+1. Backfill scan reads the current rows.
+2. Old application code creates another `ExtractionRun`.
+3. Backfill completes and its row-count assertion passes against its scanned population.
+4. New retry code deploys.
+5. The newly created row lacks the marker and is refused.
+
+A normal DynamoDB scan also does not provide a snapshot across pages.
+
+A raw pre/post row count cannot prove that every qualifying row received the marker under concurrent creation.
+
+Use a phased cutover:
+
+- Phase A deploys code that writes `admittedWhileActive: true` on every newly created run, without yet requiring it on retries.
+- Backfill all older qualifying runs idempotently.
+- Repeat a strongly consistent verification scan until zero eligible markerless rows are found.
+- Phase B activates the lifecycle fence and marker-required retry behavior.
+- Retain the markerless reconciliation/alert path as defense in depth.
+
+Alternatively, pause run creation during the backfill and verification window.
+
+With either ordering, the legacy issue is fully closed.
+
+5. SES gate: **CLOSED AS AN ARCHITECTURAL CONDITION**
+
+The revised wording is honest and enforceable.
+
+It identifies Option 1 as an engineering recommendation, not an implicit decision.
+
+It blocks the send-path implementation until Marcelo/legal records the choice, unless implementation proceeds behind a flag whose unanswered default is the safer Option 2 behavior.
+
+That is a genuine implementation gate rather than deferred ambiguity.
+
+No additional architectural policy is needed from this review.
+
+### New gaps introduced
+
+Three implementation obligations should be recorded explicitly:
+
+- The transaction builder must guarantee the lifecycle entry’s stable identity/index; callers must not infer it from a mutable array assembled elsewhere.
+- Error translation must retain typed `CancellationReasons`; collapsing every cancellation into generic OCC contention would break compensation.
+- The backfill verifier must assert zero eligible markerless rows, not merely equal aggregate row counts.
+
+The principal unresolved architectural invariant is:
+
+> `VERIFYING → DELETED` may occur only when no admitted external writer or outstanding upload capability can create new tenant residue afterward, unless a durable post-deletion cleanup mechanism remains authoritative.
+
+This is not a resurrection problem.
+
+It is a purge-completion and truthful-state problem.
+
+**CODEX SCORE: 8.8/10**
+
+**Status: NOT YET APPROVED at the ≥9.0 architecture gate.**
+
+The overall direction remains viable and close.
+
+What remains is precisely:
+
+- define the external-writer/capability extinction condition for `VERIFYING → DELETED`;
+- make failed late compensation discoverable after the final scan;
+- adopt the two-phase `ExtractionRun` marker rollout.
+
+All three are closable through further design work in this session.
+
+No live AWS account is required.
+
+After those close, **APPROVED WITH CONDITIONS**, with the sole named condition being the SES human decision, would be warranted for the architecture direction—not for the still-unimplemented system.
+tokens used
+54.126
+VERDICT: the architecture direction is sound, but Round G does not yet close the ≥9.0 gate.
+
+Items 2 and 5 are closed.
+
+Items 1, 3, and 4 are only partially closed.
+
+The remaining defects are design-level and closable without a live AWS account or a new human decision.
+
+The SES policy remains the sole genuine human decision.
+
+### Closure status
+
+1. Quiescence → purge start-time heuristic: **PARTIALLY CLOSED**
+
+The reframing correctly closes the DynamoDB non-resurrection objection.
+
+If every `TenantBusinessMutation` contains an atomic `ACTIVE` condition, no delayed SQS delivery, DLQ replay, scheduler invocation, or reconciliation pass can recreate tenant business state after `DELETING`.
+
+That property is indefinite and requires no temporal bound.
+
+Calling the delay a “purge start-time heuristic” is therefore substantially more accurate.
+
+However, the statement that an early purge can cost only an extra pass is not universally true.
+
+There is still this execution:
+
+1. An operation is admitted while `ACTIVE`.
+2. It pauses before an external S3 write or copy.
+3. Deletion enters `DELETING`.
+4. Purge scans the relevant S3 prefix and finds it empty.
+5. `VERIFYING` performs its final empty rescan.
+6. The admitted operation resumes and creates an S3 object.
+7. Its fenced DynamoDB commit fails.
+8. Compensation also fails or the process dies before compensation.
+9. The purge has already declared convergence.
+
+The fence prevents resurrection of DynamoDB business state.
+
+It does not itself prevent a late external object from appearing after the authoritative final scan.
+
+Thus “re-scan until empty” proves only:
+
+> Nothing discoverable existed during that scan.
+
+It does not prove:
+
+> No still-admitted writer or outstanding capability can create something afterward.
+
+Starting the initial purge early is harmless.
+
+Allowing `VERIFYING → DELETED` before external writers/capabilities are extinguished is not.
+
+Close this by adding one of:
+
+- a durable admission/drain counter or lease checked by `VERIFYING`;
+- an external-writer cutoff/barrier coordinated with deletion;
+- a conservative bound used only for finalization, covering all admitted external effects and bearer capabilities;
+- or a permanent post-deletion residue sweeper with lifecycle deletion and an explicitly weaker completion claim.
+
+Therefore the time bound is correctly removed from DynamoDB safety, but some writer-extinction rule remains load-bearing for purge completion.
+
+2. Every intermediate evidence mutation fenced: **CLOSED**
+
+Treating each `uploadEvidence`, `malwareEvidence`, and `SCANNING` mutation as its own `TenantBusinessMutation` is the correct rule.
+
+This closes the loophole where intermediate evidence could be attached after deletion even though the final `CLEAN` transition was fenced.
+
+The implementation must preserve this granularity rather than combining the rule only at workflow endpoints.
+
+3. Clean-copy compensation: **PARTIALLY CLOSED**
+
+The DynamoDB discrimination mechanism is real.
+
+`TransactWriteItems` returns cancellation reasons in request-item order.
+
+The lifecycle entry can therefore be identified by a stable index, and its reason can be tested for `ConditionalCheckFailed`.
+
+The installed JavaScript SDK v3 also exposes `TransactionCanceledException.CancellationReasons`.
+
+This is supported by the [DynamoDB API reference](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) and the [JavaScript v3 cancellation-reason type](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-dynamodb/Interface/CancellationReason).
+
+So the caller can distinguish:
+
+- lifecycle `ConditionalCheckFailed`;
+- aggregate OCC `ConditionalCheckFailed`;
+- transaction conflict;
+- capacity failure;
+- validation failure.
+
+The implementation must inspect the exact lifecycle entry, not merely call the existing broad `isTransactionCanceled()` helper.
+
+It must also preserve `CancellationReasons` through any DynamoDB error mapper.
+
+The compensation pattern itself is valid and the existing idempotent `DeleteObject` behavior makes retries safe.
+
+But its claimed fallback is incomplete for the same late-write race as item 1.
+
+If the object appears after the final purge scan and compensation fails, it is not necessarily “already covered by the purge scan”; that scan may have finished.
+
+Close both items together by preventing finalization while such writers remain possible, or by retaining an authoritative post-finalization cleanup mechanism.
+
+Also specify compensation for both `Document` and `DocumentSubmission`; their current clean-key shapes differ, but both can create this residue.
+
+4. ExtractionRun marker migration: **PARTIALLY CLOSED**
+
+The greenfield argument is valid semantically.
+
+Before tenant lifecycle exists, every legitimate existing `ExtractionRun` was created in the implicitly-ACTIVE regime.
+
+Marking those existing runs `admittedWhileActive: true` is therefore truthful, not a fabricated historical inference.
+
+The marker is a sound runtime discriminator.
+
+The proposed one-shot migration ordering nevertheless has a deployment race:
+
+1. Backfill scan reads the current rows.
+2. Old application code creates another `ExtractionRun`.
+3. Backfill completes and its row-count assertion passes against its scanned population.
+4. New retry code deploys.
+5. The newly created row lacks the marker and is refused.
+
+A normal DynamoDB scan also does not provide a snapshot across pages.
+
+A raw pre/post row count cannot prove that every qualifying row received the marker under concurrent creation.
+
+Use a phased cutover:
+
+- Phase A deploys code that writes `admittedWhileActive: true` on every newly created run, without yet requiring it on retries.
+- Backfill all older qualifying runs idempotently.
+- Repeat a strongly consistent verification scan until zero eligible markerless rows are found.
+- Phase B activates the lifecycle fence and marker-required retry behavior.
+- Retain the markerless reconciliation/alert path as defense in depth.
+
+Alternatively, pause run creation during the backfill and verification window.
+
+With either ordering, the legacy issue is fully closed.
+
+5. SES gate: **CLOSED AS AN ARCHITECTURAL CONDITION**
+
+The revised wording is honest and enforceable.
+
+It identifies Option 1 as an engineering recommendation, not an implicit decision.
+
+It blocks the send-path implementation until Marcelo/legal records the choice, unless implementation proceeds behind a flag whose unanswered default is the safer Option 2 behavior.
+
+That is a genuine implementation gate rather than deferred ambiguity.
+
+No additional architectural policy is needed from this review.
+
+### New gaps introduced
+
+Three implementation obligations should be recorded explicitly:
+
+- The transaction builder must guarantee the lifecycle entry’s stable identity/index; callers must not infer it from a mutable array assembled elsewhere.
+- Error translation must retain typed `CancellationReasons`; collapsing every cancellation into generic OCC contention would break compensation.
+- The backfill verifier must assert zero eligible markerless rows, not merely equal aggregate row counts.
+
+The principal unresolved architectural invariant is:
+
+> `VERIFYING → DELETED` may occur only when no admitted external writer or outstanding upload capability can create new tenant residue afterward, unless a durable post-deletion cleanup mechanism remains authoritative.
+
+This is not a resurrection problem.
+
+It is a purge-completion and truthful-state problem.
+
+**CODEX SCORE: 8.8/10**
+
+**Status: NOT YET APPROVED at the ≥9.0 architecture gate.**
+
+The overall direction remains viable and close.
+
+What remains is precisely:
+
+- define the external-writer/capability extinction condition for `VERIFYING → DELETED`;
+- make failed late compensation discoverable after the final scan;
+- adopt the two-phase `ExtractionRun` marker rollout.
+
+All three are closable through further design work in this session.
+
+No live AWS account is required.
+
+After those close, **APPROVED WITH CONDITIONS**, with the sole named condition being the SES human decision, would be warranted for the architecture direction—not for the still-unimplemented system.

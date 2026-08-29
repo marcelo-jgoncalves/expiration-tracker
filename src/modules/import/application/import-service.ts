@@ -9,8 +9,9 @@
 import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
-import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { ConflictError, NotFoundError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
+import { buildVersionedUpdate, buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
@@ -97,17 +98,23 @@ export class ImportService {
       throw new ValidationError("checksumSha256 must be a 64-character hex SHA-256 digest.");
     }
 
-    // Novos tipos de quota (design): IMPORT_COUNT (jobs por janela) e IMPORT_BYTES (soma de
-    // bytes reservados por janela) - separados de UPLOAD_* (M6), mesmo mecanismo
-    // TenantQuotaService já testado. IMPORT_ROWS é verificado no parse worker (só ali o
-    // total real de linhas é conhecido).
-    await this.quota.consume({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_COUNT", window: "current", limit: 10, windowSeconds: 60 * 60 });
-    await this.quota.consume({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_BYTES", window: "current", limit: 50 * MAX_IMPORT_FILE_BYTES, windowSeconds: 60 * 60 });
-
     const requestHash = `${input.contentLength}|${input.checksumSha256}`;
     const now = this.now();
     const expiresAt = new Date(Date.parse(now) + PRESIGN_TTL_SECONDS * 1000).toISOString();
 
+    // W3-07 D-072/D-075/D-076 item 3, re-reviewed (Codex round 3, still BLOCKING at 6.0/10):
+    // idempotency.begin() now runs FIRST, before either quota.consume() call - the ordering
+    // Codex's own lower-effort mitigation suggested and this session's first attempt did NOT
+    // implement (it left both quota.consume() calls ahead of begin(), which meant: a plain retry
+    // charged quota again on every call even when begin() would return COMPLETED_SAME_REQUEST; a
+    // concurrent second caller with the SAME idempotency key still consumed quota before losing
+    // the race at begin(), leaking it forever; and a failure on the SECOND quota.consume() (after
+    // the first already succeeded) had no compensation at all, since the try/catch only wrapped
+    // job creation). Reordering closes all three: a replay short-circuits before quota is ever
+    // touched; a losing concurrent caller's begin() throws ConcurrentOperationError before quota
+    // is touched; and both quota.consume() calls now live inside the same try/catch as job
+    // creation, with per-call success tracked so compensation only releases what was actually
+    // consumed on THIS attempt.
     const begin = await this.idempotency.begin({ tenantId: ctx.tenant.tenantId, operation: OPERATION, key: idempotencyKey, requestHash, expiresAt });
 
     let jobId: string;
@@ -117,24 +124,86 @@ export class ImportService {
       if (!existingJobId) throw new ConflictError("reserveImport idempotency record missing responseRef.");
       jobId = existingJobId;
     } else {
-      jobId = this.ids.newImportJobId();
-      const jobExpiresAt = new Date(Date.parse(now) + IMPORT_JOB_TTL_SECONDS * 1000).toISOString();
-      const job: ImportJob = {
-        ...importJobKey(ctx.tenant.tenantId, jobId),
-        entityType: "ImportJob",
-        jobId,
-        tenantId: ctx.tenant.tenantId,
-        targetEntityType: "TrackedSubject",
-        status: "UPLOADED",
-        createdByUserId: ctx.principal.userId,
-        checksumSha256: input.checksumSha256,
-        mappingVersion: 1,
-        expiresAt: jobExpiresAt,
-        createdAt: now,
-        updatedAt: now,
-        version: 1,
-      };
-      await this.store.putIfAbsent(job);
+      // Codex round 4 (D-080) non-blocking finding: jobId/jobExpiresAt/job construction used to
+      // sit BETWEEN idempotency.begin() (ACQUIRED) and the try/catch below that owns compensation
+      // - if the injected ID generator (this.ids.newImportJobId()) or the Date/object
+      // construction ever threw, the idempotency record would be stuck IN_PROGRESS with no
+      // compensation reachable (quota was never touched at that point, so no quota leak, but the
+      // idempotency key would still wedge). Moved inside the try so idempotency.abort() below
+      // covers this window too, not just the quota/job-creation window it already covered.
+      let countConsumed = false;
+      let bytesConsumed = false;
+      let jobIdForResponse!: string;
+      try {
+        jobIdForResponse = this.ids.newImportJobId();
+        const jobExpiresAt = new Date(Date.parse(now) + IMPORT_JOB_TTL_SECONDS * 1000).toISOString();
+        const job: ImportJob = {
+          ...importJobKey(ctx.tenant.tenantId, jobIdForResponse),
+          entityType: "ImportJob",
+          jobId: jobIdForResponse,
+          tenantId: ctx.tenant.tenantId,
+          targetEntityType: "TrackedSubject",
+          status: "UPLOADED",
+          createdByUserId: ctx.principal.userId,
+          checksumSha256: input.checksumSha256,
+          mappingVersion: 1,
+          expiresAt: jobExpiresAt,
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+        };
+        // Novos tipos de quota (design): IMPORT_COUNT (jobs por janela) e IMPORT_BYTES (soma de
+        // bytes reservados por janela) - separados de UPLOAD_* (M6), mesmo mecanismo
+        // TenantQuotaService já testado. IMPORT_ROWS é verificado no parse worker (só ali o
+        // total real de linhas é conhecido). Only reached on ACQUIRED - a replay or a losing
+        // concurrent caller never touches quota at all (see comment above).
+        await this.quota.consume({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_COUNT", window: "current", limit: 10, windowSeconds: 60 * 60 });
+        countConsumed = true;
+        await this.quota.consume({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_BYTES", window: "current", limit: 50 * MAX_IMPORT_FILE_BYTES, windowSeconds: 60 * 60 });
+        bytesConsumed = true;
+
+        // W3-07 (D-070 chunk 8/N): ImportJob creation was a bare `putIfAbsent` (single item, no
+        // transaction) - converted to a 1-entry TransactWriteItems through
+        // executeTenantBusinessMutation so the real admission point that gates a NEW presigned
+        // URL issuance is fenced, same pattern as document-service.ts's reserveUpload. This is
+        // additive on top of the already-transitive protection from quota.consume() above
+        // (IMPORT_COUNT/IMPORT_BYTES) - that fence protects the quota row, this one protects the
+        // job row itself against the gap between the quota check and this write.
+        await executeTenantBusinessMutation({
+          store: this.store,
+          tableName: this.tableName,
+          tenantId: ctx.tenant.tenantId,
+          entries: [{ Put: buildVersionedCreate(this.tableName, job as unknown as Record<string, unknown> & { PK: string; SK: string }) }],
+        });
+      } catch (err) {
+        // W3-07 D-072/D-075/D-076 item 3 review: a failure anywhere in this block (either quota
+        // reservation, or the fenced job creation) previously left whatever HAD succeeded so far
+        // permanently leaked - the idempotency key stuck IN_PROGRESS forever (same "idempotency
+        // liveness residual" class of bug abort() exists to close elsewhere, e.g. renewItem's
+        // OCC-conflict path) and any already-consumed quota recoverable only by window expiry.
+        // This does NOT unify the sequence into one larger transaction (that trade-off - latency
+        // vs. atomicity - remains the deferred product decision, D-074/D-075) - it is a cheap,
+        // fail-closed compensating mitigation for the failure window that exists either way:
+        // best-effort release only what THIS attempt actually reserved before rethrowing, so a
+        // failed reservation attempt does not also poison the tenant's quota or idempotency key
+        // for a request that never actually got admitted. Every compensation is best-effort and
+        // swallowed (never lets a compensation failure hide the real error, or block the caller
+        // from seeing/retrying it) - same discipline as the evidence-mutation workers' orphan-
+        // object compensation (D-072 finding 3).
+        const compensations: Promise<unknown>[] = [
+          this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation: OPERATION, key: idempotencyKey }),
+        ];
+        if (countConsumed) {
+          compensations.push(this.quota.release({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_COUNT", window: "current", windowSeconds: 60 * 60 }));
+        }
+        if (bytesConsumed) {
+          compensations.push(this.quota.release({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_BYTES", window: "current", windowSeconds: 60 * 60 }));
+        }
+        await Promise.allSettled(compensations);
+        if (err instanceof TenantNotActiveError) throw err;
+        throw new ConflictError("Failed to reserve import job.", { cause: err instanceof Error ? err.message : String(err) });
+      }
+      jobId = jobIdForResponse;
       await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation: OPERATION, key: idempotencyKey, responseRef: jobId });
     }
 

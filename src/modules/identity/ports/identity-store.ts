@@ -5,10 +5,17 @@
  * infra layer (infra/lib) provisions the real table; src/modules/identity/persistence
  * wires a DocumentClient-backed adapter to this same port for production use.
  */
+import type { TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+
 export interface EntityKey {
   PK: string;
   SK: string;
 }
+
+// Re-exported for callers that build transactions against IdentityStore (W3-07 atomic
+// bootstrap, decisions-log.md D-067) - canonical definitions live in shared/dynamodb/occ.ts,
+// same convention already established by expiration/ports/expiration-store.ts.
+export type { TransactWriteEntry };
 
 export interface IdentityStore {
   /** PutItem with ConditionExpression attribute_not_exists(PK) - true if this call created the item. */
@@ -24,4 +31,13 @@ export interface IdentityStore {
    * caller can re-read and retry instead of silently overwriting a concurrent writer's count.
    */
   updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean>;
+  /**
+   * Commits every entry atomically - added for W3-07 (D-067) atomic bootstrap
+   * (`IdentityMapping` + `TenantLifecycleRecord(ACTIVE)` + `User` in a single
+   * TransactWriteItems) and for `TenantBusinessMutation` callers built against this store.
+   * Same contract as ExpirationStore.transactWrite (expiration/ports/expiration-store.ts,
+   * M2): throws an error recognized by occ.ts's isTransactionCanceled() if ANY entry's
+   * ConditionExpression fails - callers must not assume partial application.
+   */
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }

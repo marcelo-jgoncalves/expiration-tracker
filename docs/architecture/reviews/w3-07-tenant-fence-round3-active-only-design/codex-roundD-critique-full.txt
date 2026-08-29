@@ -1,0 +1,434 @@
+
+infra\main.tf:880:data "aws_iam_policy_document" "documents_presign_quarantine_put" {
+infra\main.tf:882:    sid       = "PresignQuarantinePut"
+infra\main.tf:907:    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+infra\main.tf:914:# capability de presign de documents_handler (mesmo bucket de quarentena), nunca uma nova.
+infra\main.tf:929:    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+infra\main.tf:1490:data "aws_iam_policy_document" "imports_presign_raw_put" {
+infra\main.tf:1492:    sid       = "PresignImportRawPut"
+infra\main.tf:1517:    data.aws_iam_policy_document.imports_presign_raw_put.json,
+infra\state-machines\document-extraction.asl.json:9:      "HeartbeatSeconds": 120,
+infra\state-machines\document-extraction.asl.json:10:      "TimeoutSeconds": 600,
+infra\modules\sqs-worker-queue\tests\sqs_worker_queue.tftest.hcl:44:  # Default consumer_timeout_seconds = 10 -> visibility timeout = 60 (6x rule).
+infra\modules\sqs-worker-queue\main.tf:6:# (maxReceiveCount=5, visibility timeout = 6x consumer timeout, long polling, DLQ age alarm
+infra\modules\document-buckets\main.tf:16:# Real invokers: DocumentService signs a presigned PutObject scoped to a fresh key here;
+src\modules\import\persistence\s3-import-object-store.ts:3:import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
+src\modules\import\persistence\s3-import-object-store.ts:23:    await this.client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }));
+infra\modules\lambda-function\tests\lambda_function.tftest.hcl:79:    condition     = aws_lambda_function.this.timeout == 10
+src\modules\subject\application\guest-submission-service.ts:199:    const presigned = await this.signer.presignUpload({
+src\modules\subject\application\guest-submission-service.ts:206:      expiresInSeconds: PRESIGN_TTL_SECONDS,
+src\modules\subject\application\guest-submission-service.ts:209:    return { submissionId, uploadUrl: presigned.uploadUrl, requiredHeaders: presigned.requiredHeaders, expiresAt };
+src\modules\import\domain\import-job.ts:22:  | "UPLOADED" // presigned PUT concluído (assumido, S3 não confirma para o backend síncronamente) - aguardando ObjectCreated
+src\modules\bff\ports\cognito-oidc-client.ts:12:  expiresInSeconds: number;
+src\modules\bff\persistence\fetch-cognito-oidc-client.ts:37:    return { accessToken: json.access_token, idToken: json.id_token, refreshToken: json.refresh_token, expiresInSeconds: json.expires_in };
+src\modules\bff\persistence\fetch-cognito-oidc-client.ts:87:        expiresInSeconds: json.expires_in,
+src\modules\document\ports\upload-url-signer.ts:1:/** Presigned-URL generation port — M6 design §3.1. Real adapter uses
+src\modules\document\ports\upload-url-signer.ts:2: * @aws-sdk/s3-request-presigner; kept behind a port so DocumentService stays testable without
+src\modules\document\ports\upload-url-signer.ts:4:export interface PresignUploadInput {
+src\modules\document\ports\upload-url-signer.ts:11:  expiresInSeconds: number;
+src\modules\document\ports\upload-url-signer.ts:14:export interface PresignUploadResult {
+src\modules\document\ports\upload-url-signer.ts:20:  presignUpload(input: PresignUploadInput): Promise<PresignUploadResult>;
+src\modules\import\application\import-service.ts:2: * ImportService — lado HTTP de M11 (D-042): reservar upload (presigned PUT, mesmo padrão de
+src\modules\import\application\import-service.ts:142:    const { uploadUrl, requiredHeaders } = await this.signer.presignUpload({
+src\modules\import\application\import-service.ts:149:      expiresInSeconds: PRESIGN_TTL_SECONDS,
+src\modules\document\persistence\s3-upload-url-signer.ts:1:/** Real presigned-URL adapter for UploadUrlSigner (M6 design §3.1). Presigns a PutObject
+src\modules\document\persistence\s3-upload-url-signer.ts:3: * broader operation, never grants read. `If-None-Match: *` (not a standard presignable header
+src\modules\document\persistence\s3-upload-url-signer.ts:7:import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+src\modules\document\persistence\s3-upload-url-signer.ts:8:import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+src\modules\document\persistence\s3-upload-url-signer.ts:9:import type { PresignUploadInput, PresignUploadResult, UploadUrlSigner } from "../ports/upload-url-signer.js";
+src\modules\document\persistence\s3-upload-url-signer.ts:14:  async presignUpload(input: PresignUploadInput): Promise<PresignUploadResult> {
+src\modules\document\persistence\s3-upload-url-signer.ts:15:    const command = new PutObjectCommand({
+src\modules\document\persistence\s3-upload-url-signer.ts:24:    const uploadUrl = await getSignedUrl(this.client, command, { expiresIn: input.expiresInSeconds });
+src\modules\document\application\document-service.ts:191:    const presigned = await this.signer.presignUpload({
+src\modules\document\application\document-service.ts:198:      expiresInSeconds: PRESIGN_TTL_SECONDS,
+src\modules\document\application\document-service.ts:208:      uploadUrl: presigned.uploadUrl,
+src\modules\document\application\document-service.ts:209:      requiredHeaders: presigned.requiredHeaders,
+src\modules\bff\application\bff-auth-service.ts:210:      accessTokenExpiresAt: new Date(Date.parse(now) + tokens.expiresInSeconds * 1000).toISOString(),
+src\modules\bff\application\bff-auth-service.ts:393:        accessTokenExpiresAt: new Date(Date.parse(refreshedAt) + response.expiresInSeconds * 1000).toISOString(),
+src\modules\extraction\persistence\s3-ocr-artifact-store.ts:4:import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+src\modules\extraction\persistence\s3-ocr-artifact-store.ts:17:      new PutObjectCommand({
+
+2026-08-29T00:46:20.085898Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_parallel_tool_calls` at line 97 column 5
+codex
+## Round D — parecer independente
+
+A direção continua correta: `ACTIVE-only fence + quiescence bounded + purge verificável` é mais adequada que `claim+outcome` universal. Porém, a reconciliação ainda mistura três propriedades diferentes:
+
+- autorização de uma escrita;
+- autorização de iniciar um efeito externo;
+- persistência posterior do resultado desse efeito.
+
+Um fence apenas na persistência não satisfaz “bloqueio imediato de uso/processamento” nem impede uma chamada a provider após `DELETING`.
+
+### Veredito por gap
+
+1. **Propriedade formal — PARTIALLY CLOSED**
+
+A delimitação dos storages e resíduos permitidos melhorou substancialmente.
+
+O problema restante é a definição de admissão: “momento em que a transação é submetida” só autoriza um efeito posterior se essa transação criar uma capability durável, específica e consumível para aquele efeito. Uma leitura de `ACTIVE`, ou mesmo uma operação de quota anterior, seguida de pausa e chamada a Bedrock/Textract/SES depois de `DELETING`, continua sendo TOCTOU.
+
+Além disso, “provider call tardia é segura desde que a persistência seja fenced” protege non-resurrection, mas não o requisito de bloqueio imediato de processamento/uso em `privacy-lgpd.md`.
+
+Também há contradição interna: a propriedade diz que toda mutation de estado tenant-owned precisa do fence, mas depois permite que o relay altere o `OutboxRecord` sem ele.
+
+2. **Inventário de writers/storage — PARTIALLY CLOSED**
+
+Os achados sobre `GuestSubmissionService`, outbox e BFF são reais e importantes.
+
+Ainda faltam:
+
+- inventário individual de todos os presigners — o próprio texto admite que ImportService não foi verificado;
+- multipart uploads;
+- todos os `PutCommand`/`UpdateCommand` tenant-scoped encontrados em adapters, incluindo extraction/Textract/BFF;
+- classificação completa dos diversos consumidores de outbox, não apenas reminder dispatch;
+- estratégia para objetos OCR legados aleatórios que já não tenham `ExtractionRun` recuperável;
+- prova de que todos os writers assíncronos da lista reaproveitada continuam completos após mudanças recentes.
+
+“Reutilizado da Round A” não substitui um inventário versionado de call sites para uma propriedade universal.
+
+3. **Enforcement estrutural — PARTIALLY CLOSED**
+
+Um wrapper obrigatório é uma boa direção, mas ainda é apenas intenção. A proposta não define:
+
+- sua API e quais lanes tipadas existem;
+- como adapters deixam de expor `putIfAbsent`, `updateConditional` e `transactWrite` sem fence;
+- como o teste arquitetural provará arrays construídos dinamicamente;
+- como mutations multi-table serão representadas;
+- como exceções privilegiadas serão enumeradas e impedidas de crescer silenciosamente.
+
+Um teste que procura texto como “inclui fence” não prova que o `ConditionCheck` é o último item, usa o mesmo `tenantId` ou está na mesma transação efetivamente enviada.
+
+4. **Bypass privilegiado — PARTIALLY CLOSED**
+
+IAM separado e tenant binding estão bem encaminhados.
+
+Permanecem sem definição:
+
+- tipos/ports separados para business mutation versus purge mutation;
+- CSRF na superfície BFF;
+- idempotency key da iniciação DSR;
+- separation of duties para legal hold e desbloqueio manual;
+- política de interrupção entre `DELETING` e `PURGING`;
+- prova de que mensagens internas forjadas não escolhem arbitrariamente `tenantId`;
+- minimização e imutabilidade concreta do audit event — `SecureLogger` não é, por si, immutable audit storage.
+
+“Step-up pelo fluxo existente” precisa ser ligado a uma transição e validade temporal específicas, não apenas citado.
+
+5. **Protocolo por efeito — PARTIALLY CLOSED**
+
+Step Functions está próximo do desenho correto: criação fenced de `ExtractionRun` pode funcionar como capability para `StartExecution`.
+
+Textract e Bedrock ainda apresentam ambiguidade. “Gate antes de `quota.consume`” não basta se for uma leitura separada. É necessário decidir se:
+
+- `quota.consume` inclui o `ConditionCheck ACTIVE` e gera uma admissão durável para aquela invocation; ou
+- a chamada ao provider precisa de nova validação/capability imediatamente antes da chamada.
+
+SES não recebeu uma política explícita nesta reconciliação.
+
+Em `completeOcr`, “verificar lifecycle e depois fazer `PutObject`” também é TOCTOU porque S3 não participa da transação. A solução segura é não iniciar a escrita após uma leitura negativa, aceitar que uma escrita iniciada enquanto ACTIVE pode completar depois, aguardar o bound e purgar/reverificar. Não se pode afirmar atomicidade entre a leitura DynamoDB e o `PutObject`.
+
+6. **Quiescence bounded — NOT CLOSED**
+
+A definição conceitual está correta, mas o deadline ainda não existe. O próprio texto adia:
+
+- inventário real de timeouts Lambda;
+- timeout global da state machine;
+- todos os TTLs de presign;
+- comportamento de executions já iniciadas;
+- safety margin e justificativa;
+- regra para deployment parcial com writer antigo sem fence.
+
+Isso pode ser um deliverable de detalhamento, mas enquanto o bound é parte da prova de segurança e do início da purge, não é apenas detalhe de implementação.
+
+7. **Purge S3 — PARTIALLY CLOSED**
+
+Paginação de versões, delete markers, batches, `Errors[]` e confirmação vazia estão corretamente reconhecidos.
+
+Ainda faltam três elementos bloqueantes da crítica original:
+
+- multipart uploads incompletos;
+- tratamento/migração das keys OCR legadas aleatórias;
+- re-scan convergente suficiente. A crítica pediu duas confirmações vazias; a proposta contém apenas uma.
+
+O bucket OCR unversioned também precisa de paginação de `ListObjectsV2`, retries de erros parciais e confirmação vazia depois do bound — não apenas “uma passagem por key”.
+
+8. **Anti-stuck state machine — PARTIALLY CLOSED**
+
+Os estados `BLOCKED/HELD`, alarme e proibição de concluir por timeout são bons.
+
+Ainda não foram especificados:
+
+- checkpoints duráveis;
+- reentrada idempotente por fase/página/batch;
+- recuperação de checkpoint corrompido;
+- retries limitados por tentativa, mas retomáveis operacionalmente;
+- transição segura quando legal hold aparece depois de objetos já terem sido apagados;
+- autorização e procedimento de saída de `BLOCKED/HELD`.
+
+Legal hold “mid-purge” não pode restaurar dados já removidos. O desenho precisa declarar a semântica exata: impedir novos deletes e registrar purge parcial, não sugerir rollback.
+
+9. **Autorização forte — PARTIALLY CLOSED**
+
+OWNER-only, verified DSR, tenant binding, rate limit e step-up melhoram muito o desenho.
+
+Continuam ausentes CSRF, idempotência da solicitação/transição, validade/escopo da confirmação e controle administrativo de hold/unblock. O fluxo também precisa impedir duas DSR concorrentes produzindo workflows de purge distintos.
+
+10. **Bootstrap atômico — PARTIALLY CLOSED**
+
+O bug foi corretamente localizado, e a transação única é a solução certa.
+
+Mas “create-if-absent ACTIVE ou assert ACTIVE se existente” não cabe como uma única operação indiferenciada no mesmo item DynamoDB. A implementação precisa fazer leitura consistente e escolher:
+
+- lifecycle ausente: `Put` com `attribute_not_exists`;
+- lifecycle existente: `ConditionCheck status=ACTIVE`.
+
+A concorrência continua segura pelas conditions, mas esse branch deve ser explícito. Também é necessário definir o comportamento para mapping existente/profile ausente e assegurar conditions de identidade que impeçam associação do mesmo `cognitoSub` a outro tenant.
+
+### Gaps originais não reconciliados
+
+A crítica Round A registrada no arquivo contém **12**, não 10, gaps bloqueantes. Os itens 11 e 12 não desapareceram:
+
+- **Resíduos permitidos — PARTIALLY CLOSED:** o escopo foi listado, mas faltam minimização, prazo/authority por classe, post-restore purge e tratamento do tombstone como identificador pseudonimizado ou não pessoal.
+- **Testes de semântica/concorrência — NOT CLOSED:** não há plano concreto para mutation-vs-transition, presigned PUT tardio, callback Textract tardio, SQS redelivery, Step Functions race, erro parcial/versionamento S3 e restore pós-deletion.
+
+## OCR deterministic key
+
+`ocr/<tenantId>/<runId>.json` é correto para o pipeline atual.
+
+`deriveExtractionRunId()` deriva o ID de:
+
+`tenantId | documentId | documentVersion | pipelineVersion`
+
+Portanto, uma reentrega legítima da mesma execução deve representar o mesmo run. Novo documento, nova versão ou nova versão do pipeline produz outro `runId`; não há caso atual em que o mesmo `runId` deva preservar dois artefatos distintos.
+
+O overwrite em bucket unversioned elimina a multiplicação de objetos físicos causada por:
+
+1. `PutObject` bem-sucedido;
+2. falha/timeout no `SendTaskSuccess`;
+3. redelivery;
+4. nova UUID e segundo objeto.
+
+Há duas ressalvas:
+
+- Ele elimina a duplicação órfã, não todo resíduo temporário: se o callback nunca terminar, ainda poderá existir um único objeto, agora enumerável e purgável.
+- Entregas concorrentes podem sobrescrever a mesma key. Hoje ambas consultam o mesmo Textract job, portanto deveriam produzir conteúdo semanticamente equivalente. Ainda convém testar essa corrida e, opcionalmente, persistir checksum/ETag para detectar respostas divergentes.
+
+A mudança de interface para incluir `tenantId` é necessária e correta.
+
+## Novos gaps/contradições
+
+- O carve-out do outbox contradiz a propriedade universal. Deve ser uma lane formalmente tipada e estreita, não uma exceção textual.
+- Publicar primeiro e confiar apenas no consumer exige que **todo** consumidor seja lifecycle-aware. Um consumidor novo sem gate reabre a vulnerabilidade.
+- O `ConditionCheck` “sempre como último item” é uma convenção testável, mas não tem significado especial para DynamoDB; todas as entries são atômicas. Não deve ser confundido com ordenação de execução.
+- Multi-table BFF é tecnicamente viável, mas exige substituir as mutations atuais baseadas em `PutCommand` e preservar suas condições de refresh, revocation, login-attempt e secret validation. Não é uma alteração mecânica.
+- Uma leitura de lifecycle imediatamente antes de S3/provider não é fence atômico. O desenho deve falar em capability admitida ou em efeito potencialmente in-flight coberto pelo bound e purge.
+- Objetos OCR legados com UUID não são resolvidos apenas pela nova key; é necessária varredura/migração ou uma regra explícita de descoberta global.
+
+## Nota independente
+
+A direção é sólida, e a reconciliação resolveu várias incertezas arquiteturais importantes. Ainda assim, os pontos restantes atingem a própria prova de linearização, quiescence e purge, não apenas detalhes de código.
+
+**CODEX SCORE: 8.4/10**
+
+### Bloqueadores prioritários para 9.0
+
+1. Formalizar admission/capability por efeito, eliminando o TOCTOU de “check ACTIVE, pause, call provider”, incluindo SES, Textract, Bedrock, Step Functions e S3.
+2. Produzir o inventário executável completo de writers, presigners, timeouts e storages; dele derivar numericamente o bound de quiescence.
+3. Fechar purge S3 com multipart, keys legadas, paginação/retries também no bucket unversioned e re-scan convergente.
+4. Especificar boundary estrutural e bypass privilegiado como APIs/tipos/IAM verificáveis, incluindo a lane outbox e as mutations BFF multi-table.
+5. Fechar state-machine recovery e o plano mínimo de testes concorrentes/provider semantics.
+
+Runbook, cost guardrails, dashboards finais e detalhes operacionais de mensagens de erro podem ficar para a sessão de implementação. Os cinco pontos acima ainda são lacunas de design.
+tokens used
+59.748
+## Round D — parecer independente
+
+A direção continua correta: `ACTIVE-only fence + quiescence bounded + purge verificável` é mais adequada que `claim+outcome` universal. Porém, a reconciliação ainda mistura três propriedades diferentes:
+
+- autorização de uma escrita;
+- autorização de iniciar um efeito externo;
+- persistência posterior do resultado desse efeito.
+
+Um fence apenas na persistência não satisfaz “bloqueio imediato de uso/processamento” nem impede uma chamada a provider após `DELETING`.
+
+### Veredito por gap
+
+1. **Propriedade formal — PARTIALLY CLOSED**
+
+A delimitação dos storages e resíduos permitidos melhorou substancialmente.
+
+O problema restante é a definição de admissão: “momento em que a transação é submetida” só autoriza um efeito posterior se essa transação criar uma capability durável, específica e consumível para aquele efeito. Uma leitura de `ACTIVE`, ou mesmo uma operação de quota anterior, seguida de pausa e chamada a Bedrock/Textract/SES depois de `DELETING`, continua sendo TOCTOU.
+
+Além disso, “provider call tardia é segura desde que a persistência seja fenced” protege non-resurrection, mas não o requisito de bloqueio imediato de processamento/uso em `privacy-lgpd.md`.
+
+Também há contradição interna: a propriedade diz que toda mutation de estado tenant-owned precisa do fence, mas depois permite que o relay altere o `OutboxRecord` sem ele.
+
+2. **Inventário de writers/storage — PARTIALLY CLOSED**
+
+Os achados sobre `GuestSubmissionService`, outbox e BFF são reais e importantes.
+
+Ainda faltam:
+
+- inventário individual de todos os presigners — o próprio texto admite que ImportService não foi verificado;
+- multipart uploads;
+- todos os `PutCommand`/`UpdateCommand` tenant-scoped encontrados em adapters, incluindo extraction/Textract/BFF;
+- classificação completa dos diversos consumidores de outbox, não apenas reminder dispatch;
+- estratégia para objetos OCR legados aleatórios que já não tenham `ExtractionRun` recuperável;
+- prova de que todos os writers assíncronos da lista reaproveitada continuam completos após mudanças recentes.
+
+“Reutilizado da Round A” não substitui um inventário versionado de call sites para uma propriedade universal.
+
+3. **Enforcement estrutural — PARTIALLY CLOSED**
+
+Um wrapper obrigatório é uma boa direção, mas ainda é apenas intenção. A proposta não define:
+
+- sua API e quais lanes tipadas existem;
+- como adapters deixam de expor `putIfAbsent`, `updateConditional` e `transactWrite` sem fence;
+- como o teste arquitetural provará arrays construídos dinamicamente;
+- como mutations multi-table serão representadas;
+- como exceções privilegiadas serão enumeradas e impedidas de crescer silenciosamente.
+
+Um teste que procura texto como “inclui fence” não prova que o `ConditionCheck` é o último item, usa o mesmo `tenantId` ou está na mesma transação efetivamente enviada.
+
+4. **Bypass privilegiado — PARTIALLY CLOSED**
+
+IAM separado e tenant binding estão bem encaminhados.
+
+Permanecem sem definição:
+
+- tipos/ports separados para business mutation versus purge mutation;
+- CSRF na superfície BFF;
+- idempotency key da iniciação DSR;
+- separation of duties para legal hold e desbloqueio manual;
+- política de interrupção entre `DELETING` e `PURGING`;
+- prova de que mensagens internas forjadas não escolhem arbitrariamente `tenantId`;
+- minimização e imutabilidade concreta do audit event — `SecureLogger` não é, por si, immutable audit storage.
+
+“Step-up pelo fluxo existente” precisa ser ligado a uma transição e validade temporal específicas, não apenas citado.
+
+5. **Protocolo por efeito — PARTIALLY CLOSED**
+
+Step Functions está próximo do desenho correto: criação fenced de `ExtractionRun` pode funcionar como capability para `StartExecution`.
+
+Textract e Bedrock ainda apresentam ambiguidade. “Gate antes de `quota.consume`” não basta se for uma leitura separada. É necessário decidir se:
+
+- `quota.consume` inclui o `ConditionCheck ACTIVE` e gera uma admissão durável para aquela invocation; ou
+- a chamada ao provider precisa de nova validação/capability imediatamente antes da chamada.
+
+SES não recebeu uma política explícita nesta reconciliação.
+
+Em `completeOcr`, “verificar lifecycle e depois fazer `PutObject`” também é TOCTOU porque S3 não participa da transação. A solução segura é não iniciar a escrita após uma leitura negativa, aceitar que uma escrita iniciada enquanto ACTIVE pode completar depois, aguardar o bound e purgar/reverificar. Não se pode afirmar atomicidade entre a leitura DynamoDB e o `PutObject`.
+
+6. **Quiescence bounded — NOT CLOSED**
+
+A definição conceitual está correta, mas o deadline ainda não existe. O próprio texto adia:
+
+- inventário real de timeouts Lambda;
+- timeout global da state machine;
+- todos os TTLs de presign;
+- comportamento de executions já iniciadas;
+- safety margin e justificativa;
+- regra para deployment parcial com writer antigo sem fence.
+
+Isso pode ser um deliverable de detalhamento, mas enquanto o bound é parte da prova de segurança e do início da purge, não é apenas detalhe de implementação.
+
+7. **Purge S3 — PARTIALLY CLOSED**
+
+Paginação de versões, delete markers, batches, `Errors[]` e confirmação vazia estão corretamente reconhecidos.
+
+Ainda faltam três elementos bloqueantes da crítica original:
+
+- multipart uploads incompletos;
+- tratamento/migração das keys OCR legadas aleatórias;
+- re-scan convergente suficiente. A crítica pediu duas confirmações vazias; a proposta contém apenas uma.
+
+O bucket OCR unversioned também precisa de paginação de `ListObjectsV2`, retries de erros parciais e confirmação vazia depois do bound — não apenas “uma passagem por key”.
+
+8. **Anti-stuck state machine — PARTIALLY CLOSED**
+
+Os estados `BLOCKED/HELD`, alarme e proibição de concluir por timeout são bons.
+
+Ainda não foram especificados:
+
+- checkpoints duráveis;
+- reentrada idempotente por fase/página/batch;
+- recuperação de checkpoint corrompido;
+- retries limitados por tentativa, mas retomáveis operacionalmente;
+- transição segura quando legal hold aparece depois de objetos já terem sido apagados;
+- autorização e procedimento de saída de `BLOCKED/HELD`.
+
+Legal hold “mid-purge” não pode restaurar dados já removidos. O desenho precisa declarar a semântica exata: impedir novos deletes e registrar purge parcial, não sugerir rollback.
+
+9. **Autorização forte — PARTIALLY CLOSED**
+
+OWNER-only, verified DSR, tenant binding, rate limit e step-up melhoram muito o desenho.
+
+Continuam ausentes CSRF, idempotência da solicitação/transição, validade/escopo da confirmação e controle administrativo de hold/unblock. O fluxo também precisa impedir duas DSR concorrentes produzindo workflows de purge distintos.
+
+10. **Bootstrap atômico — PARTIALLY CLOSED**
+
+O bug foi corretamente localizado, e a transação única é a solução certa.
+
+Mas “create-if-absent ACTIVE ou assert ACTIVE se existente” não cabe como uma única operação indiferenciada no mesmo item DynamoDB. A implementação precisa fazer leitura consistente e escolher:
+
+- lifecycle ausente: `Put` com `attribute_not_exists`;
+- lifecycle existente: `ConditionCheck status=ACTIVE`.
+
+A concorrência continua segura pelas conditions, mas esse branch deve ser explícito. Também é necessário definir o comportamento para mapping existente/profile ausente e assegurar conditions de identidade que impeçam associação do mesmo `cognitoSub` a outro tenant.
+
+### Gaps originais não reconciliados
+
+A crítica Round A registrada no arquivo contém **12**, não 10, gaps bloqueantes. Os itens 11 e 12 não desapareceram:
+
+- **Resíduos permitidos — PARTIALLY CLOSED:** o escopo foi listado, mas faltam minimização, prazo/authority por classe, post-restore purge e tratamento do tombstone como identificador pseudonimizado ou não pessoal.
+- **Testes de semântica/concorrência — NOT CLOSED:** não há plano concreto para mutation-vs-transition, presigned PUT tardio, callback Textract tardio, SQS redelivery, Step Functions race, erro parcial/versionamento S3 e restore pós-deletion.
+
+## OCR deterministic key
+
+`ocr/<tenantId>/<runId>.json` é correto para o pipeline atual.
+
+`deriveExtractionRunId()` deriva o ID de:
+
+`tenantId | documentId | documentVersion | pipelineVersion`
+
+Portanto, uma reentrega legítima da mesma execução deve representar o mesmo run. Novo documento, nova versão ou nova versão do pipeline produz outro `runId`; não há caso atual em que o mesmo `runId` deva preservar dois artefatos distintos.
+
+O overwrite em bucket unversioned elimina a multiplicação de objetos físicos causada por:
+
+1. `PutObject` bem-sucedido;
+2. falha/timeout no `SendTaskSuccess`;
+3. redelivery;
+4. nova UUID e segundo objeto.
+
+Há duas ressalvas:
+
+- Ele elimina a duplicação órfã, não todo resíduo temporário: se o callback nunca terminar, ainda poderá existir um único objeto, agora enumerável e purgável.
+- Entregas concorrentes podem sobrescrever a mesma key. Hoje ambas consultam o mesmo Textract job, portanto deveriam produzir conteúdo semanticamente equivalente. Ainda convém testar essa corrida e, opcionalmente, persistir checksum/ETag para detectar respostas divergentes.
+
+A mudança de interface para incluir `tenantId` é necessária e correta.
+
+## Novos gaps/contradições
+
+- O carve-out do outbox contradiz a propriedade universal. Deve ser uma lane formalmente tipada e estreita, não uma exceção textual.
+- Publicar primeiro e confiar apenas no consumer exige que **todo** consumidor seja lifecycle-aware. Um consumidor novo sem gate reabre a vulnerabilidade.
+- O `ConditionCheck` “sempre como último item” é uma convenção testável, mas não tem significado especial para DynamoDB; todas as entries são atômicas. Não deve ser confundido com ordenação de execução.
+- Multi-table BFF é tecnicamente viável, mas exige substituir as mutations atuais baseadas em `PutCommand` e preservar suas condições de refresh, revocation, login-attempt e secret validation. Não é uma alteração mecânica.
+- Uma leitura de lifecycle imediatamente antes de S3/provider não é fence atômico. O desenho deve falar em capability admitida ou em efeito potencialmente in-flight coberto pelo bound e purge.
+- Objetos OCR legados com UUID não são resolvidos apenas pela nova key; é necessária varredura/migração ou uma regra explícita de descoberta global.
+
+## Nota independente
+
+A direção é sólida, e a reconciliação resolveu várias incertezas arquiteturais importantes. Ainda assim, os pontos restantes atingem a própria prova de linearização, quiescence e purge, não apenas detalhes de código.
+
+**CODEX SCORE: 8.4/10**
+
+### Bloqueadores prioritários para 9.0
+
+1. Formalizar admission/capability por efeito, eliminando o TOCTOU de “check ACTIVE, pause, call provider”, incluindo SES, Textract, Bedrock, Step Functions e S3.
+2. Produzir o inventário executável completo de writers, presigners, timeouts e storages; dele derivar numericamente o bound de quiescence.
+3. Fechar purge S3 com multipart, keys legadas, paginação/retries também no bucket unversioned e re-scan convergente.
+4. Especificar boundary estrutural e bypass privilegiado como APIs/tipos/IAM verificáveis, incluindo a lane outbox e as mutations BFF multi-table.
+5. Fechar state-machine recovery e o plano mínimo de testes concorrentes/provider semantics.
+
+Runbook, cost guardrails, dashboards finais e detalhes operacionais de mensagens de erro podem ficar para a sessão de implementação. Os cinco pontos acima ainda são lacunas de design.

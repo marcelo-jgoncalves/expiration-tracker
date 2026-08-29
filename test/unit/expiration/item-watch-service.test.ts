@@ -2,9 +2,27 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryExpirationStore, makeExpirationIdGenerator } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
 import { ItemWatchService } from "../../../src/modules/expiration/application/item-watch-service.js";
-import { NotFoundError } from "../../../src/shared/errors/app-error.js";
+import { NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { tenantLifecycleKey, type TenantLifecycleRecord, type TenantLifecycleStatus } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** W3-07 (D-067): removeWatcher() is fenced by TenantBusinessMutation, which requires a
+ * TenantLifecycleRecord to exist and be ACTIVE - seed one directly (bypassing the identity
+ * module's bootstrap, which this test suite doesn't otherwise exercise). */
+async function seedLifecycle(store: InMemoryExpirationStore, tenantId: string, status: TenantLifecycleStatus = "ACTIVE"): Promise<void> {
+  const record: TenantLifecycleRecord = {
+    ...tenantLifecycleKey(tenantId),
+    SK: "LIFECYCLE",
+    entityType: "TenantLifecycleRecord",
+    tenantId,
+    status,
+    createdAt: "2026-08-23T12:00:00.000Z",
+    updatedAt: "2026-08-23T12:00:00.000Z",
+    version: 1,
+  };
+  await store.putIfAbsent(record);
+}
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -22,10 +40,11 @@ describe("ItemWatchService", () => {
   let expiration: ExpirationService;
   let watches: ItemWatchService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     store = new InMemoryExpirationStore();
     expiration = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), now: () => "2026-08-23T12:00:00.000Z" });
     watches = new ItemWatchService({ store, tableName: "MainTable", now: () => "2026-08-23T12:00:00.000Z" });
+    await seedLifecycle(store, "tenant-1");
   });
 
   it("addWatcher creates an ItemWatch under the same partition as ExpirationItem, without changing the item's own version", async () => {
@@ -76,6 +95,32 @@ describe("ItemWatchService", () => {
   it("removeWatcher on a never-watched user is a no-op, not an error", async () => {
     const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
     await expect(watches.removeWatcher(ctx(), item.itemId, "never-watched")).resolves.toBeUndefined();
+  });
+
+  it("W3-07 fence: removeWatcher is rejected once the tenant's TenantLifecycleRecord moves to DELETING, even for an otherwise-valid watch", async () => {
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    await watches.addWatcher(ctx(), item.itemId, "watcher-user");
+
+    // Flip the tenant to DELETING directly on the store (no lifecycle-transition worker
+    // exists yet - out of scope for this chunk, see NEXT_SESSION_PROMPT.md) and confirm the
+    // ConditionCheck in the SAME TransactWriteItems as the mutation rejects it.
+    const record = await store.get<TenantLifecycleRecord>(tenantLifecycleKey("tenant-1"));
+    await store.update({ ...record!, status: "DELETING" });
+
+    await expect(watches.removeWatcher(ctx(), item.itemId, "watcher-user")).rejects.toBeInstanceOf(TenantNotActiveError);
+
+    // And the watch itself was never mutated - the transaction rejected atomically, no
+    // partial application.
+    const list = await watches.listWatchers(ctx(), item.itemId);
+    expect(list).toHaveLength(1);
+  });
+
+  it("W3-07 fence: removeWatcher succeeds normally while the tenant lifecycle is ACTIVE (control case for the adversarial test above)", async () => {
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    await watches.addWatcher(ctx(), item.itemId, "watcher-user");
+
+    await expect(watches.removeWatcher(ctx(), item.itemId, "watcher-user")).resolves.toBeUndefined();
+    expect(await watches.listWatchers(ctx(), item.itemId)).toHaveLength(0);
   });
 
   it("listWatchers returns multiple watchers for the same item", async () => {

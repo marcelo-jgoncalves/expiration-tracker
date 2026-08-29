@@ -1,0 +1,758 @@
+
+codex
+## Parecer executivo
+
+A direção `ACTIVE-only fence + quiescence + purge verificável` é arquiteturalmente superior ao protocolo universal `claim + outcome` para o W3-07. Ela formula corretamente a propriedade principal: após o ponto `ACTIVE → DELETING`, trabalho de negócio perde liveness e o sistema passa a priorizar não ressurreição e convergência para apagamento.
+
+Mas a proposta ainda não está aprovável. O maior problema é que “quiescence” e “zero physical residue” permanecem subespecificados e, em alguns pontos, mais fortes do que o sistema consegue provar. DynamoDB e S3 podem receber uma garantia forte; todos os resíduos físicos do tenant — filas, DLQs, histórico de Step Functions, logs, backups e dados temporários nos providers — não podem ser tratados como se estivessem automaticamente cobertos.
+
+**CODEX SCORE: 7.8/10**
+
+Recomendação: prosseguir com esta direção e abandonar o protocolo universal `claim + outcome`, mas exigir nova proposta detalhada antes de aprovação.
+
+## 1. Refutação das 12 proposições
+
+### P1 — `ACTIVE → DELETING` como único ponto de linearização
+
+**Veredito: verdadeiro somente sob condições.**
+
+Pode ser o único ponto lógico de linearização, desde que “admitido antes do fence” seja definido pela transação que verificou `ACTIVE`, não pelo instante da chamada ao provider.
+
+Contraexemplos/gaps:
+
+- Uma Lambda pode fazer uma leitura `ACTIVE`, sofrer pausa, o lifecycle virar `DELETING`, e só então chamar SES, Bedrock, Textract ou `StartExecution`. Uma leitura anterior não constitui fence.
+- Uma URL S3 presignada emitida enquanto `ACTIVE` pode ser usada depois de `DELETING`; o PUT não passa por DynamoDB.
+- A tabela BFF é separada, mas isso não impede atomicidade: `TransactWriteItems` pode abranger múltiplas tabelas na mesma conta/região. Portanto, sessão BFF deve incluir `ConditionCheck` na tabela principal e mutation na tabela BFF dentro da mesma transação.
+- Quota, outbox, preferences, reminder materialization e callbacks precisam entrar na mesma disciplina estrutural.
+- Um efeito externo inevitavelmente pode ocorrer depois do wall-clock do transition se sua admissão transacional ocorreu antes. A propriedade deve dizer “nenhum efeito admitido depois do fence”, não “nenhuma API chamada depois do fence”.
+
+O lifecycle transition pode ser o único linearization point, mas apenas se todo trabalho posterior exigir uma capability/admission já linearizada antes dele ou for negado.
+
+### P2 — Abandonar liveness pós-`DELETING` não viola invariantes atuais
+
+**Veredito: verdadeiro somente sob condições.**
+
+Não encontrei requisito geral impondo conclusão de trabalho de negócio durante exclusão. Contudo, não se pode transformar toda falha pós-fence em sucesso/no-op indistinguível.
+
+Condições:
+
+- OCC continua preservado: rejeição pelo lifecycle deve ser classificada separadamente de conflito concorrente comum.
+- SQS precisa considerar o descarte pós-fence uma conclusão terminal, evitando redelivery infinito/DLQ.
+- Outbox precisa permitir supressão terminal sem enviar o efeito, com razão auditável.
+- Step Functions callbacks precisam receber uma resposta compatível com o estado real da execução; simplesmente omitir `SendTaskSuccess/Failure` deixa a task esperando até timeout.
+- `UNKNOWN_OUTCOME` continua verdadeiro para efeitos executados antes do fence. O lifecycle não converte epistemicamente um resultado ambíguo em “não aconteceu”.
+- Idempotência continua obrigatória enquanto `ACTIVE`; a exclusão não justifica regressão nesse comportamento.
+
+Logo, liveness de negócio pode ser abandonada, mas os workflows precisam de uma semântica terminal explícita como `ABORTED_TENANT_DELETING` ou equivalente.
+
+### P3 — Descartar callbacks tardios é seguro
+
+**Veredito: parcialmente falso.**
+
+É seguro para a propriedade de não ressurreição, mas não necessariamente para lifecycle/custo operacional.
+
+Cenários concretos:
+
+- Uma task `waitForTaskToken` ignorada fica esperando até seu timeout. A ASL atual estabelece `HeartbeatSeconds: 120` e `TimeoutSeconds: 600`, portanto não é infinita, mas abandonar o callback aumenta duração e gera falha/ruído operacional.
+- Uma execução Standard de Step Functions não é normalmente cobrada “por minuto aguardado” como Express, mas permanece recurso operacional ativo e pode avançar para estados seguintes se o callback for enviado sem semântica de abort.
+- Textract não requer “acknowledgement” do resultado pelo consumidor. Ignorá-lo não deixa o job preso, mas o job e sua retenção no provider continuam fora da prova de zero S3/DynamoDB.
+- Bedrock síncrono pode já ter processado/cobrado; descartar a resposta impede persistência, mas não desfaz custo ou processamento.
+- Uma URL presignada ainda válida pode criar um objeto depois de uma passagem de purge.
+- SES pode enviar uma mensagem admitida antes do fence, inclusive depois da transição. Isso precisa ser risco residual documentado, especialmente porque a especificação LGPD exige bloqueio imediato de notificações/uso.
+
+“Descartar” deve significar: não persistir estado de negócio, executar cleanup/cancelamento tecnicamente necessário e produzir um terminal outcome operacional mínimo e não sensível.
+
+### P4 — Check transacional universal é suficiente contra ressurreição
+
+**Veredito: verdadeiro para DynamoDB; falso como garantia universal do sistema.**
+
+Se literalmente toda escrita tenant-owned em DynamoDB contiver um `ConditionCheck ACTIVE` na mesma transação, nenhuma mutation concorrente pode commitar depois do transition.
+
+Porém:
+
+- `BatchWriteCommand` não suporta conditions e deve ser proibido para tenant-owned state.
+- Escritas diretas `PutCommand`/`UpdateCommand` precisam ser convertidas em transações.
+- O outbox relay atualmente usa `UpdateCommand` em [dynamodb-outbox-relay-store.ts](C:/Users/Usuario/Desktop/projects/expiration-tracker/src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts:21).
+- Identity, BFF, extraction runs e Textract jobs possuem writes isolados.
+- S3, SES, SQS, Bedrock, Textract e Step Functions não são fenced por uma transação DynamoDB.
+- Regras de dependency-cruiser controlam imports/dependências; não são, por si, um analisador confiável de construção de comandos. É necessária uma fitness function AST/import-based ou restrição de import de comandos mutáveis.
+- O caminho privilegiado de purge precisa ser inacessível ao código normal. Uma função pública `systemMutation()` com `tenantId` derivado de payload seria um bypass universal.
+
+P4 só é aceitável se limitada a “non-resurrection de estado DynamoDB” e complementada por controles específicos de storage/efeitos.
+
+### P5 — S3 pode ser coberto sem claim/outcome por objeto
+
+**Veredito: verdadeiro somente sob condições.**
+
+Não é necessário um journal por objeto se existirem:
+
+- keys determinísticas e tenant-scoped;
+- bloqueio de emissão de novas URLs presignadas;
+- espera até expirar toda URL já emitida;
+- bloqueio/cancelamento dos writers internos;
+- purge de todas as versões e delete markers;
+- paginação durável;
+- inspeção de `DeleteObjects.Errors[]`;
+- repetição até duas verificações vazias após a última deleção;
+- regra proibindo keys tenant-owned fora do prefixo inventariado;
+- handling de multipart uploads incompletos;
+- lifecycle como safety net, não como prova primária.
+
+O counterexample atual é real: [s3-ocr-artifact-store.ts](C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/extraction/persistence/s3-ocr-artifact-store.ts:17) usa UUID aleatório. Além disso, keys determinísticas em bucket versionado ainda criam múltiplas versões físicas; sobrescrever a mesma key não equivale a manter um único objeto físico.
+
+Portanto, deterministic key resolve idempotência lógica e enumeração, mas a purga ainda precisa apagar todas as versões.
+
+### P6 — Step Functions/Textract in-flight não comprometem não ressurreição
+
+**Veredito: verdadeiro.**
+
+Desde que:
+
+- todo estado final DynamoDB seja fenced;
+- todo Put/Copy S3 posterior seja proibido ou tenant-scoped e alcançado pela purga;
+- callbacks pós-fence não reabram workflow;
+- a execução seja parada ou termine por timeout;
+- a verificação final ocorra após a janela máxima de writers externos como URLs presignadas;
+- nenhuma fila futura consiga alcançar um bypass privilegiado.
+
+Esses jobs podem continuar existindo externamente por algum tempo sem quebrar a propriedade estrita de não ressurreição no sistema.
+
+Isso não prova, isoladamente, atendimento completo da obrigação de inventariar providers prevista em [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:28).
+
+### P7 — Bedrock não precisa de claim/outcome universal
+
+**Veredito: sustenta-se.**
+
+W3-07 não precisa corrigir a ausência de idempotência do Bedrock enquanto:
+
+- nenhuma nova chamada é admitida depois do fence;
+- respostas tardias não são persistidas;
+- a política vigente para ambiguous failure enquanto `ACTIVE` não é piorada;
+- métricas/auditoria não afirmam exatamente-once;
+- uma invocation admitida antes do fence pode terminar depois dele e ser cobrada.
+
+Um claim DynamoDB não poderia tornar `Converse` exatamente-once. Ele apenas registraria intenção/outcome local. Logo, obrigar o W3-07 a inventar idempotência inexistente no provider seria overengineering.
+
+A ausência de uma política formal de `UNKNOWN_OUTCOME` do Bedrock continua sendo dívida separada, mas não bloqueia esta direção.
+
+### P8 — Quiescence verificável a partir dos produtores reais
+
+**Veredito: verdadeiro somente com definição mais modesta.**
+
+Inventário real observado:
+
+- HTTP autenticado e guest;
+- uploads por URLs presignadas;
+- eventos S3/EventBridge de quarantine/import;
+- GuardDuty malware result;
+- SQS de reminder dispatch/materialization;
+- DynamoDB Streams para outbox relay e notification router;
+- SQS de email delivery e callback SES;
+- document chasing;
+- upload finalizer e reconciliation;
+- import parse/commit;
+- extraction starter;
+- Step Functions `document-extraction`;
+- Textract completion via SNS/SQS;
+- scheduler de reminder producer;
+- reminder claim/DST reconciliation;
+- outbox sweeper;
+- document purge scheduler;
+- upload-slot reconciliation;
+- Lambdas já em execução;
+- SQS/DLQ redelivery e replay operacional.
+
+Uma prova bounded não pode exigir que todas as filas e mensagens tenant-specific desapareçam: SQS/DLQ não oferecem enumeração/remoção seletiva confiável por tenant, e mensagens podem ficar retidas por dias.
+
+A prova viável é de **incapacidade de escrita**, não ausência física de trabalho pendente:
+
+1. Código implantado garante que todo business writer consulta `ACTIVE` atomicamente.
+2. URLs presignadas não podem sobreviver além de um deadline conhecido.
+3. Lambdas têm timeout máximo conhecido.
+4. Step Functions são paradas ou têm timeout global/por estado conhecido.
+5. Nenhum callback/outbox consumer possui bypass.
+6. Após esse deadline, S3/DynamoDB são purgados e verificados.
+
+Sem timeout global conhecido da state machine e sem deadline formal para todos os capabilities externos, “bounded quiescence” ainda não está provada.
+
+### P9 — Purge pode provar zero resíduo físico
+
+**Veredito: falso na formulação ampla; condicionado para DynamoDB + S3.**
+
+Gaps:
+
+- SQS/DLQ pode conter payload tenant-owned.
+- Histórico/logs de Step Functions pode conter identifiers/input.
+- CloudWatch Logs e traces podem conter `tenantId`.
+- DynamoDB PITR mantém versões históricas até 35 dias.
+- Textract/Bedrock/SES têm processamento/metadados do provider sujeitos aos respectivos contratos de retenção.
+- O próprio `TenantLifecycleRecord` preserva `tenantId`; precisa ser classificado como tombstone não pessoal ou minimizado/pseudonimizado.
+- Multipart uploads incompletos não aparecem em `ListObjectVersions`.
+- Buckets e convenções de prefixo precisam ser inventariados, incluindo import, quarantine, clean/document e OCR.
+- Uma única varredura DynamoDB/S3 vazia não prova convergência sob concorrência.
+- S3 versionado exige versões, delete markers e erros parciais.
+- Backups/restores precisam consultar a denylist/tombstone e executar purge pós-restore, conforme [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:30).
+
+A alegação aprovável seria: “zero estado tenant-owned acessível na tabela principal, tabela BFF e buckets inventariados, exceto tombstone/audit/backup/provider retention explicitamente classificados”.
+
+### P10 — Nenhuma nova via privilegiada/abusável
+
+**Veredito: não demonstrado.**
+
+O design ainda precisa especificar:
+
+- quem pode iniciar deletion;
+- reautenticação/MFA ou confirmação administrativa;
+- proteção CSRF se a operação for exposta pelo BFF;
+- idempotency key da DSR;
+- separation of duties para bypass de purge/legal hold;
+- audit event imutável e redigido;
+- rate limiting;
+- impossibilidade de tenant A iniciar deletion de tenant B;
+- impossibilidade de payload SQS forjado selecionar arbitrariamente um tenant;
+- IAM separado para lifecycle transition, purge e business writers;
+- como uma deletion acidental é interrompida antes da destruição irreversível.
+
+Forçar `DELETING` é uma operação de denial-of-service e, depois da purga, destruição irreversível. Deve ser tratada como operação privilegiada Type 1, não como mutation HTTP normal.
+
+### P11 — Ausência de deadlock/stuck `DELETING`
+
+**Veredito: falso sem mecanismos adicionais.**
+
+Cenários de stuck:
+
+- uma key S3 não enumerável por tenant;
+- `DeleteObjects.Errors[]` permanente por IAM/KMS/Object Lock;
+- legal hold sem transição formal para estado separado;
+- state machine execution sem timeout global;
+- poison object/version que sempre falha;
+- checkpoint corrompido;
+- quota/limite da própria purge;
+- deployment parcial em que um writer antigo continua sem fence;
+- espera por “fila vazia do tenant”, algo que não pode ser observado seletivamente;
+- indisponibilidade prolongada do provider;
+- deletion workflow removendo seu próprio checkpoint.
+
+São necessários deadline, retries limitados por tentativa mas ilimitados por retomada, estados `BLOCKED`/`HELD`, alarme, intervenção operacional segura e reentrada idempotente. Não se deve marcar `DELETED` por timeout.
+
+### P12 — Proporcionalidade
+
+**Veredito: direção proporcional; escopo de “zero físico universal” seria desproporcional e inexequível.**
+
+Para o estágio pré-GA:
+
+- lifecycle tombstone;
+- fence estrutural;
+- bootstrap atômico;
+- deterministic tenant-scoped S3 keys;
+- purge Step Functions checkpointed;
+- prova DynamoDB/S3;
+- cancelamento best-effort;
+
+são proporcionais ao risco real de DSR.
+
+Seria overengineering:
+
+- universalizar claim/outcome para todos os providers;
+- criar exactly-once artificial;
+- tentar apagar seletivamente mensagens SQS;
+- construir inventário distribuído de cada chamada externa sem requisito jurídico correspondente.
+
+Seria underengineering:
+
+- ignorar bff-session-table;
+- ignorar S3 versions/multipart/presigned URLs;
+- confiar em lint;
+- declarar zero físico ignorando backups/logs/provider retention;
+- não proteger a entrada em `DELETING`;
+- não prever stuck/held/manual remediation.
+
+## 2. Requisito realmente bloqueante
+
+Não encontrei requisito documentado exigindo que trabalho admitido antes da exclusão continue e conclua depois de o tenant entrar em `DELETING`.
+
+O requisito normativo encontrado aponta na direção oposta: [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:28) exige “bloqueio imediato de notificações/uso”, tombstone transacional, purge idempotente, revogação de canais e links.
+
+O documento também define atendimento e retenção:
+
+- DSR com state machine auditável;
+- prorrogação de 30 dias justificada;
+- backups expirando e purge pós-restore;
+- teto de 90 dias;
+- validação jurídica ainda pendente.
+
+Não há promessa real de business-work liveness durante deletion. A exigência de preservá-la nas rodadas anteriores foi uma suposição de revisão, não requisito de produto/legal encontrado.
+
+Assim, o blocking requirement question deve ser encerrado explicitamente como:
+
+> Após `ACTIVE → DELETING`, liveness de trabalho de negócio não é requisito; deletion liveness, non-resurrection, auditabilidade e retenção legal são requisitos.
+
+## 3. Comparação com `claim + outcome`
+
+| Critério | ACTIVE-only fence | Claim + outcome |
+|---|---|---|
+| Segurança | Mais simples de provar, desde que o bypass privilegiado seja fechado | Mais estados/capabilities ampliam superfície |
+| Liveness de negócio | Intencionalmente abandonada após deletion | Preserva continuation pré-admitida |
+| Não ressurreição | Forte com check transacional universal | Forte, mas depende da correção de claims por efeito |
+| Complexidade | Moderada | Muito alta e transversal |
+| AWS semantics | Alinha-se a timeouts, cancellation e idempotência nativa disponível | Tenta uniformizar APIs incompatíveis; Bedrock continua sem exactly-once |
+| Testabilidade | Propriedades negativas e purge são testáveis | Muitas state machines e failure windows combinatórias |
+| Operabilidade | Um lifecycle + workflow de purge | Journals/reconcilers por provider |
+| LGPD/DSR | Melhor alinhamento: bloquear uso e convergir ao apagamento | Preserva processamento que já deixou de gerar valor |
+| Blast radius | Grande, mas concentrado na mutation/storage boundary | Muito grande: todos os efeitos externos |
+| Manutenção futura | Writer novo deve usar boundary e classificação de storage | Cada provider novo exige protocolo/recovery próprio |
+| Overengineering | Risco moderado | Risco alto, já materializado na nota 4.8 |
+| Principal fraqueza | Prova de quiescence/resíduo e privileged deletion | Complexidade e falsa expectativa de semântica universal |
+
+A direção nova domina a anterior para o requisito documentado. `Claim + outcome` só voltaria a ser justificável se o produto exigisse explicitamente a conclusão de trabalho pré-admitido após deletion.
+
+## 4. Nota
+
+Aplicando peso elevado a Reliability & Fault Recovery, Event & Integration Correctness, Data Model & Consistency e Security & Privacy:
+
+- Domain fit/simplicity: forte;
+- non-resurrection DynamoDB: conceitualmente forte;
+- provider semantics: melhor que a proposta anterior;
+- S3 purge: direção correta, detalhes incompletos;
+- quiescence: ainda sem definição verificável suficiente;
+- zero residue: claim excessiva;
+- operabilidade/stuck handling: incompleto;
+- privileged deletion: incompleto;
+- testability: promissora, ainda sem acceptance properties fechadas;
+- legal defensibility: boa direção, mas exige escopo honesto e validação jurídica.
+
+**CODEX SCORE: 7.8/10**
+
+Não atinge o gate 9.0. É uma direção recomendada, não um design aprovado.
+
+## 5. Gaps antes de aprovação
+
+### Bloqueantes
+
+1. **Definir formalmente a propriedade garantida.**  
+   Distinguir admission time de provider-call time e limitar “zero físico” ao inventário verificável, com exceções classificadas.
+
+2. **Inventário completo de writers e storage.**  
+   Tabela principal, BFF, todos os buckets/prefixos, versões, multipart uploads, presigned URLs, logs, filas/DLQs, Step Functions history, backups e providers.
+
+3. **Boundary estrutural demonstrável.**  
+   Proibir mutating AWS commands fora dos adapters autorizados, incluindo `BatchWriteCommand`; não depender apenas de dependency-cruiser/ESLint.
+
+4. **Modelo do bypass privilegiado.**  
+   Tipos separados, IAM separado, entrypoints fechados e prova de que input tenant-controlled não seleciona o caminho system/purge.
+
+5. **Protocolo de efeitos externos.**  
+   Definir admission fenced para SES/Textract/Bedrock/Step Functions e terminal behavior pós-fence. Não é necessário outcome universal, mas cada efeito precisa de política explícita.
+
+6. **Quiescence bounded formal.**  
+   Deadline derivado de Lambda timeout, presigned URL TTL, Step Functions timeout/cancellation e absence-of-unfenced-writers. Não usar “fila vazia” como condição.
+
+7. **S3 purge completo.**  
+   Todas as versões, markers, paginação, erros parciais, multipart uploads, re-scan convergente, deterministic prefixes e migration/handling das keys antigas aleatórias.
+
+8. **State machine contra stuck deletion.**  
+   Checkpoints, `HELD`/`BLOCKED`, alarms, manual recovery, reentry idempotente e impossibilidade de marcar `DELETED` por timeout.
+
+9. **Autorização da deletion.**  
+   Strong auth, tenant binding, audit, idempotência, CSRF/rate limiting e proteção contra deleção acidental/maliciosa.
+
+10. **Bootstrap atômico real.**  
+    `IdentityMapping + Lifecycle(ACTIVE) + User` em uma transação, com condição que impeça reprovisionamento de `DELETING/DELETED`.
+
+11. **Definir resíduos permitidos.**  
+    Tombstone, security audit, legal hold, PITR, logs e provider retention precisam de classificação, minimização e prazo; não podem ser escondidos sob “zero residue”.
+
+12. **Testes de provider semantics e concorrência.**  
+    Pelo menos: mutation vs transition race, presigned PUT tardio, SQS redelivery, callback Textract tardio, Step Functions stop race, S3 version/delete error e restore pós-deletion.
+
+### Não bloqueantes para a direção, mas obrigatórios antes de implementação/GA
+
+- Corrigir a key aleatória de OCR como bug independente.
+- Formalizar `UNKNOWN_OUTCOME` do Bedrock enquanto `ACTIVE`.
+- Métricas de tenants stuck em cada estado.
+- Runbook de purge e intervenção manual.
+- Cost guardrails do workflow de purge.
+- Parecer jurídico sobre prazos, subprocessadores, região e retenção, já exigido pelo documento normativo.
+- Estratégia de migração para objetos legados sem prefixo tenant-scoped.
+- Definir se cancellation produz audit record não sensível ou apenas métrica operacional.
+
+Conclusão: a hipótese central sobreviveu à tentativa de refutação. O W3-07 não precisa de um protocolo universal `claim + outcome`. Precisa de um fence ACTIVE transacional realmente universal, políticas effect-specific mínimas, quiescence definida como incapacidade de escrever, e uma prova de purga cujo escopo seja tecnicamente honesto.
+tokens used
+66.944
+## Parecer executivo
+
+A direção `ACTIVE-only fence + quiescence + purge verificável` é arquiteturalmente superior ao protocolo universal `claim + outcome` para o W3-07. Ela formula corretamente a propriedade principal: após o ponto `ACTIVE → DELETING`, trabalho de negócio perde liveness e o sistema passa a priorizar não ressurreição e convergência para apagamento.
+
+Mas a proposta ainda não está aprovável. O maior problema é que “quiescence” e “zero physical residue” permanecem subespecificados e, em alguns pontos, mais fortes do que o sistema consegue provar. DynamoDB e S3 podem receber uma garantia forte; todos os resíduos físicos do tenant — filas, DLQs, histórico de Step Functions, logs, backups e dados temporários nos providers — não podem ser tratados como se estivessem automaticamente cobertos.
+
+**CODEX SCORE: 7.8/10**
+
+Recomendação: prosseguir com esta direção e abandonar o protocolo universal `claim + outcome`, mas exigir nova proposta detalhada antes de aprovação.
+
+## 1. Refutação das 12 proposições
+
+### P1 — `ACTIVE → DELETING` como único ponto de linearização
+
+**Veredito: verdadeiro somente sob condições.**
+
+Pode ser o único ponto lógico de linearização, desde que “admitido antes do fence” seja definido pela transação que verificou `ACTIVE`, não pelo instante da chamada ao provider.
+
+Contraexemplos/gaps:
+
+- Uma Lambda pode fazer uma leitura `ACTIVE`, sofrer pausa, o lifecycle virar `DELETING`, e só então chamar SES, Bedrock, Textract ou `StartExecution`. Uma leitura anterior não constitui fence.
+- Uma URL S3 presignada emitida enquanto `ACTIVE` pode ser usada depois de `DELETING`; o PUT não passa por DynamoDB.
+- A tabela BFF é separada, mas isso não impede atomicidade: `TransactWriteItems` pode abranger múltiplas tabelas na mesma conta/região. Portanto, sessão BFF deve incluir `ConditionCheck` na tabela principal e mutation na tabela BFF dentro da mesma transação.
+- Quota, outbox, preferences, reminder materialization e callbacks precisam entrar na mesma disciplina estrutural.
+- Um efeito externo inevitavelmente pode ocorrer depois do wall-clock do transition se sua admissão transacional ocorreu antes. A propriedade deve dizer “nenhum efeito admitido depois do fence”, não “nenhuma API chamada depois do fence”.
+
+O lifecycle transition pode ser o único linearization point, mas apenas se todo trabalho posterior exigir uma capability/admission já linearizada antes dele ou for negado.
+
+### P2 — Abandonar liveness pós-`DELETING` não viola invariantes atuais
+
+**Veredito: verdadeiro somente sob condições.**
+
+Não encontrei requisito geral impondo conclusão de trabalho de negócio durante exclusão. Contudo, não se pode transformar toda falha pós-fence em sucesso/no-op indistinguível.
+
+Condições:
+
+- OCC continua preservado: rejeição pelo lifecycle deve ser classificada separadamente de conflito concorrente comum.
+- SQS precisa considerar o descarte pós-fence uma conclusão terminal, evitando redelivery infinito/DLQ.
+- Outbox precisa permitir supressão terminal sem enviar o efeito, com razão auditável.
+- Step Functions callbacks precisam receber uma resposta compatível com o estado real da execução; simplesmente omitir `SendTaskSuccess/Failure` deixa a task esperando até timeout.
+- `UNKNOWN_OUTCOME` continua verdadeiro para efeitos executados antes do fence. O lifecycle não converte epistemicamente um resultado ambíguo em “não aconteceu”.
+- Idempotência continua obrigatória enquanto `ACTIVE`; a exclusão não justifica regressão nesse comportamento.
+
+Logo, liveness de negócio pode ser abandonada, mas os workflows precisam de uma semântica terminal explícita como `ABORTED_TENANT_DELETING` ou equivalente.
+
+### P3 — Descartar callbacks tardios é seguro
+
+**Veredito: parcialmente falso.**
+
+É seguro para a propriedade de não ressurreição, mas não necessariamente para lifecycle/custo operacional.
+
+Cenários concretos:
+
+- Uma task `waitForTaskToken` ignorada fica esperando até seu timeout. A ASL atual estabelece `HeartbeatSeconds: 120` e `TimeoutSeconds: 600`, portanto não é infinita, mas abandonar o callback aumenta duração e gera falha/ruído operacional.
+- Uma execução Standard de Step Functions não é normalmente cobrada “por minuto aguardado” como Express, mas permanece recurso operacional ativo e pode avançar para estados seguintes se o callback for enviado sem semântica de abort.
+- Textract não requer “acknowledgement” do resultado pelo consumidor. Ignorá-lo não deixa o job preso, mas o job e sua retenção no provider continuam fora da prova de zero S3/DynamoDB.
+- Bedrock síncrono pode já ter processado/cobrado; descartar a resposta impede persistência, mas não desfaz custo ou processamento.
+- Uma URL presignada ainda válida pode criar um objeto depois de uma passagem de purge.
+- SES pode enviar uma mensagem admitida antes do fence, inclusive depois da transição. Isso precisa ser risco residual documentado, especialmente porque a especificação LGPD exige bloqueio imediato de notificações/uso.
+
+“Descartar” deve significar: não persistir estado de negócio, executar cleanup/cancelamento tecnicamente necessário e produzir um terminal outcome operacional mínimo e não sensível.
+
+### P4 — Check transacional universal é suficiente contra ressurreição
+
+**Veredito: verdadeiro para DynamoDB; falso como garantia universal do sistema.**
+
+Se literalmente toda escrita tenant-owned em DynamoDB contiver um `ConditionCheck ACTIVE` na mesma transação, nenhuma mutation concorrente pode commitar depois do transition.
+
+Porém:
+
+- `BatchWriteCommand` não suporta conditions e deve ser proibido para tenant-owned state.
+- Escritas diretas `PutCommand`/`UpdateCommand` precisam ser convertidas em transações.
+- O outbox relay atualmente usa `UpdateCommand` em [dynamodb-outbox-relay-store.ts](C:/Users/Usuario/Desktop/projects/expiration-tracker/src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts:21).
+- Identity, BFF, extraction runs e Textract jobs possuem writes isolados.
+- S3, SES, SQS, Bedrock, Textract e Step Functions não são fenced por uma transação DynamoDB.
+- Regras de dependency-cruiser controlam imports/dependências; não são, por si, um analisador confiável de construção de comandos. É necessária uma fitness function AST/import-based ou restrição de import de comandos mutáveis.
+- O caminho privilegiado de purge precisa ser inacessível ao código normal. Uma função pública `systemMutation()` com `tenantId` derivado de payload seria um bypass universal.
+
+P4 só é aceitável se limitada a “non-resurrection de estado DynamoDB” e complementada por controles específicos de storage/efeitos.
+
+### P5 — S3 pode ser coberto sem claim/outcome por objeto
+
+**Veredito: verdadeiro somente sob condições.**
+
+Não é necessário um journal por objeto se existirem:
+
+- keys determinísticas e tenant-scoped;
+- bloqueio de emissão de novas URLs presignadas;
+- espera até expirar toda URL já emitida;
+- bloqueio/cancelamento dos writers internos;
+- purge de todas as versões e delete markers;
+- paginação durável;
+- inspeção de `DeleteObjects.Errors[]`;
+- repetição até duas verificações vazias após a última deleção;
+- regra proibindo keys tenant-owned fora do prefixo inventariado;
+- handling de multipart uploads incompletos;
+- lifecycle como safety net, não como prova primária.
+
+O counterexample atual é real: [s3-ocr-artifact-store.ts](C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/extraction/persistence/s3-ocr-artifact-store.ts:17) usa UUID aleatório. Além disso, keys determinísticas em bucket versionado ainda criam múltiplas versões físicas; sobrescrever a mesma key não equivale a manter um único objeto físico.
+
+Portanto, deterministic key resolve idempotência lógica e enumeração, mas a purga ainda precisa apagar todas as versões.
+
+### P6 — Step Functions/Textract in-flight não comprometem não ressurreição
+
+**Veredito: verdadeiro.**
+
+Desde que:
+
+- todo estado final DynamoDB seja fenced;
+- todo Put/Copy S3 posterior seja proibido ou tenant-scoped e alcançado pela purga;
+- callbacks pós-fence não reabram workflow;
+- a execução seja parada ou termine por timeout;
+- a verificação final ocorra após a janela máxima de writers externos como URLs presignadas;
+- nenhuma fila futura consiga alcançar um bypass privilegiado.
+
+Esses jobs podem continuar existindo externamente por algum tempo sem quebrar a propriedade estrita de não ressurreição no sistema.
+
+Isso não prova, isoladamente, atendimento completo da obrigação de inventariar providers prevista em [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:28).
+
+### P7 — Bedrock não precisa de claim/outcome universal
+
+**Veredito: sustenta-se.**
+
+W3-07 não precisa corrigir a ausência de idempotência do Bedrock enquanto:
+
+- nenhuma nova chamada é admitida depois do fence;
+- respostas tardias não são persistidas;
+- a política vigente para ambiguous failure enquanto `ACTIVE` não é piorada;
+- métricas/auditoria não afirmam exatamente-once;
+- uma invocation admitida antes do fence pode terminar depois dele e ser cobrada.
+
+Um claim DynamoDB não poderia tornar `Converse` exatamente-once. Ele apenas registraria intenção/outcome local. Logo, obrigar o W3-07 a inventar idempotência inexistente no provider seria overengineering.
+
+A ausência de uma política formal de `UNKNOWN_OUTCOME` do Bedrock continua sendo dívida separada, mas não bloqueia esta direção.
+
+### P8 — Quiescence verificável a partir dos produtores reais
+
+**Veredito: verdadeiro somente com definição mais modesta.**
+
+Inventário real observado:
+
+- HTTP autenticado e guest;
+- uploads por URLs presignadas;
+- eventos S3/EventBridge de quarantine/import;
+- GuardDuty malware result;
+- SQS de reminder dispatch/materialization;
+- DynamoDB Streams para outbox relay e notification router;
+- SQS de email delivery e callback SES;
+- document chasing;
+- upload finalizer e reconciliation;
+- import parse/commit;
+- extraction starter;
+- Step Functions `document-extraction`;
+- Textract completion via SNS/SQS;
+- scheduler de reminder producer;
+- reminder claim/DST reconciliation;
+- outbox sweeper;
+- document purge scheduler;
+- upload-slot reconciliation;
+- Lambdas já em execução;
+- SQS/DLQ redelivery e replay operacional.
+
+Uma prova bounded não pode exigir que todas as filas e mensagens tenant-specific desapareçam: SQS/DLQ não oferecem enumeração/remoção seletiva confiável por tenant, e mensagens podem ficar retidas por dias.
+
+A prova viável é de **incapacidade de escrita**, não ausência física de trabalho pendente:
+
+1. Código implantado garante que todo business writer consulta `ACTIVE` atomicamente.
+2. URLs presignadas não podem sobreviver além de um deadline conhecido.
+3. Lambdas têm timeout máximo conhecido.
+4. Step Functions são paradas ou têm timeout global/por estado conhecido.
+5. Nenhum callback/outbox consumer possui bypass.
+6. Após esse deadline, S3/DynamoDB são purgados e verificados.
+
+Sem timeout global conhecido da state machine e sem deadline formal para todos os capabilities externos, “bounded quiescence” ainda não está provada.
+
+### P9 — Purge pode provar zero resíduo físico
+
+**Veredito: falso na formulação ampla; condicionado para DynamoDB + S3.**
+
+Gaps:
+
+- SQS/DLQ pode conter payload tenant-owned.
+- Histórico/logs de Step Functions pode conter identifiers/input.
+- CloudWatch Logs e traces podem conter `tenantId`.
+- DynamoDB PITR mantém versões históricas até 35 dias.
+- Textract/Bedrock/SES têm processamento/metadados do provider sujeitos aos respectivos contratos de retenção.
+- O próprio `TenantLifecycleRecord` preserva `tenantId`; precisa ser classificado como tombstone não pessoal ou minimizado/pseudonimizado.
+- Multipart uploads incompletos não aparecem em `ListObjectVersions`.
+- Buckets e convenções de prefixo precisam ser inventariados, incluindo import, quarantine, clean/document e OCR.
+- Uma única varredura DynamoDB/S3 vazia não prova convergência sob concorrência.
+- S3 versionado exige versões, delete markers e erros parciais.
+- Backups/restores precisam consultar a denylist/tombstone e executar purge pós-restore, conforme [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:30).
+
+A alegação aprovável seria: “zero estado tenant-owned acessível na tabela principal, tabela BFF e buckets inventariados, exceto tombstone/audit/backup/provider retention explicitamente classificados”.
+
+### P10 — Nenhuma nova via privilegiada/abusável
+
+**Veredito: não demonstrado.**
+
+O design ainda precisa especificar:
+
+- quem pode iniciar deletion;
+- reautenticação/MFA ou confirmação administrativa;
+- proteção CSRF se a operação for exposta pelo BFF;
+- idempotency key da DSR;
+- separation of duties para bypass de purge/legal hold;
+- audit event imutável e redigido;
+- rate limiting;
+- impossibilidade de tenant A iniciar deletion de tenant B;
+- impossibilidade de payload SQS forjado selecionar arbitrariamente um tenant;
+- IAM separado para lifecycle transition, purge e business writers;
+- como uma deletion acidental é interrompida antes da destruição irreversível.
+
+Forçar `DELETING` é uma operação de denial-of-service e, depois da purga, destruição irreversível. Deve ser tratada como operação privilegiada Type 1, não como mutation HTTP normal.
+
+### P11 — Ausência de deadlock/stuck `DELETING`
+
+**Veredito: falso sem mecanismos adicionais.**
+
+Cenários de stuck:
+
+- uma key S3 não enumerável por tenant;
+- `DeleteObjects.Errors[]` permanente por IAM/KMS/Object Lock;
+- legal hold sem transição formal para estado separado;
+- state machine execution sem timeout global;
+- poison object/version que sempre falha;
+- checkpoint corrompido;
+- quota/limite da própria purge;
+- deployment parcial em que um writer antigo continua sem fence;
+- espera por “fila vazia do tenant”, algo que não pode ser observado seletivamente;
+- indisponibilidade prolongada do provider;
+- deletion workflow removendo seu próprio checkpoint.
+
+São necessários deadline, retries limitados por tentativa mas ilimitados por retomada, estados `BLOCKED`/`HELD`, alarme, intervenção operacional segura e reentrada idempotente. Não se deve marcar `DELETED` por timeout.
+
+### P12 — Proporcionalidade
+
+**Veredito: direção proporcional; escopo de “zero físico universal” seria desproporcional e inexequível.**
+
+Para o estágio pré-GA:
+
+- lifecycle tombstone;
+- fence estrutural;
+- bootstrap atômico;
+- deterministic tenant-scoped S3 keys;
+- purge Step Functions checkpointed;
+- prova DynamoDB/S3;
+- cancelamento best-effort;
+
+são proporcionais ao risco real de DSR.
+
+Seria overengineering:
+
+- universalizar claim/outcome para todos os providers;
+- criar exactly-once artificial;
+- tentar apagar seletivamente mensagens SQS;
+- construir inventário distribuído de cada chamada externa sem requisito jurídico correspondente.
+
+Seria underengineering:
+
+- ignorar bff-session-table;
+- ignorar S3 versions/multipart/presigned URLs;
+- confiar em lint;
+- declarar zero físico ignorando backups/logs/provider retention;
+- não proteger a entrada em `DELETING`;
+- não prever stuck/held/manual remediation.
+
+## 2. Requisito realmente bloqueante
+
+Não encontrei requisito documentado exigindo que trabalho admitido antes da exclusão continue e conclua depois de o tenant entrar em `DELETING`.
+
+O requisito normativo encontrado aponta na direção oposta: [privacy-lgpd.md](C:/Users/Usuario/Desktop/projects/expiration-tracker/docs/architecture/privacy-lgpd.md:28) exige “bloqueio imediato de notificações/uso”, tombstone transacional, purge idempotente, revogação de canais e links.
+
+O documento também define atendimento e retenção:
+
+- DSR com state machine auditável;
+- prorrogação de 30 dias justificada;
+- backups expirando e purge pós-restore;
+- teto de 90 dias;
+- validação jurídica ainda pendente.
+
+Não há promessa real de business-work liveness durante deletion. A exigência de preservá-la nas rodadas anteriores foi uma suposição de revisão, não requisito de produto/legal encontrado.
+
+Assim, o blocking requirement question deve ser encerrado explicitamente como:
+
+> Após `ACTIVE → DELETING`, liveness de trabalho de negócio não é requisito; deletion liveness, non-resurrection, auditabilidade e retenção legal são requisitos.
+
+## 3. Comparação com `claim + outcome`
+
+| Critério | ACTIVE-only fence | Claim + outcome |
+|---|---|---|
+| Segurança | Mais simples de provar, desde que o bypass privilegiado seja fechado | Mais estados/capabilities ampliam superfície |
+| Liveness de negócio | Intencionalmente abandonada após deletion | Preserva continuation pré-admitida |
+| Não ressurreição | Forte com check transacional universal | Forte, mas depende da correção de claims por efeito |
+| Complexidade | Moderada | Muito alta e transversal |
+| AWS semantics | Alinha-se a timeouts, cancellation e idempotência nativa disponível | Tenta uniformizar APIs incompatíveis; Bedrock continua sem exactly-once |
+| Testabilidade | Propriedades negativas e purge são testáveis | Muitas state machines e failure windows combinatórias |
+| Operabilidade | Um lifecycle + workflow de purge | Journals/reconcilers por provider |
+| LGPD/DSR | Melhor alinhamento: bloquear uso e convergir ao apagamento | Preserva processamento que já deixou de gerar valor |
+| Blast radius | Grande, mas concentrado na mutation/storage boundary | Muito grande: todos os efeitos externos |
+| Manutenção futura | Writer novo deve usar boundary e classificação de storage | Cada provider novo exige protocolo/recovery próprio |
+| Overengineering | Risco moderado | Risco alto, já materializado na nota 4.8 |
+| Principal fraqueza | Prova de quiescence/resíduo e privileged deletion | Complexidade e falsa expectativa de semântica universal |
+
+A direção nova domina a anterior para o requisito documentado. `Claim + outcome` só voltaria a ser justificável se o produto exigisse explicitamente a conclusão de trabalho pré-admitido após deletion.
+
+## 4. Nota
+
+Aplicando peso elevado a Reliability & Fault Recovery, Event & Integration Correctness, Data Model & Consistency e Security & Privacy:
+
+- Domain fit/simplicity: forte;
+- non-resurrection DynamoDB: conceitualmente forte;
+- provider semantics: melhor que a proposta anterior;
+- S3 purge: direção correta, detalhes incompletos;
+- quiescence: ainda sem definição verificável suficiente;
+- zero residue: claim excessiva;
+- operabilidade/stuck handling: incompleto;
+- privileged deletion: incompleto;
+- testability: promissora, ainda sem acceptance properties fechadas;
+- legal defensibility: boa direção, mas exige escopo honesto e validação jurídica.
+
+**CODEX SCORE: 7.8/10**
+
+Não atinge o gate 9.0. É uma direção recomendada, não um design aprovado.
+
+## 5. Gaps antes de aprovação
+
+### Bloqueantes
+
+1. **Definir formalmente a propriedade garantida.**  
+   Distinguir admission time de provider-call time e limitar “zero físico” ao inventário verificável, com exceções classificadas.
+
+2. **Inventário completo de writers e storage.**  
+   Tabela principal, BFF, todos os buckets/prefixos, versões, multipart uploads, presigned URLs, logs, filas/DLQs, Step Functions history, backups e providers.
+
+3. **Boundary estrutural demonstrável.**  
+   Proibir mutating AWS commands fora dos adapters autorizados, incluindo `BatchWriteCommand`; não depender apenas de dependency-cruiser/ESLint.
+
+4. **Modelo do bypass privilegiado.**  
+   Tipos separados, IAM separado, entrypoints fechados e prova de que input tenant-controlled não seleciona o caminho system/purge.
+
+5. **Protocolo de efeitos externos.**  
+   Definir admission fenced para SES/Textract/Bedrock/Step Functions e terminal behavior pós-fence. Não é necessário outcome universal, mas cada efeito precisa de política explícita.
+
+6. **Quiescence bounded formal.**  
+   Deadline derivado de Lambda timeout, presigned URL TTL, Step Functions timeout/cancellation e absence-of-unfenced-writers. Não usar “fila vazia” como condição.
+
+7. **S3 purge completo.**  
+   Todas as versões, markers, paginação, erros parciais, multipart uploads, re-scan convergente, deterministic prefixes e migration/handling das keys antigas aleatórias.
+
+8. **State machine contra stuck deletion.**  
+   Checkpoints, `HELD`/`BLOCKED`, alarms, manual recovery, reentry idempotente e impossibilidade de marcar `DELETED` por timeout.
+
+9. **Autorização da deletion.**  
+   Strong auth, tenant binding, audit, idempotência, CSRF/rate limiting e proteção contra deleção acidental/maliciosa.
+
+10. **Bootstrap atômico real.**  
+    `IdentityMapping + Lifecycle(ACTIVE) + User` em uma transação, com condição que impeça reprovisionamento de `DELETING/DELETED`.
+
+11. **Definir resíduos permitidos.**  
+    Tombstone, security audit, legal hold, PITR, logs e provider retention precisam de classificação, minimização e prazo; não podem ser escondidos sob “zero residue”.
+
+12. **Testes de provider semantics e concorrência.**  
+    Pelo menos: mutation vs transition race, presigned PUT tardio, SQS redelivery, callback Textract tardio, Step Functions stop race, S3 version/delete error e restore pós-deletion.
+
+### Não bloqueantes para a direção, mas obrigatórios antes de implementação/GA
+
+- Corrigir a key aleatória de OCR como bug independente.
+- Formalizar `UNKNOWN_OUTCOME` do Bedrock enquanto `ACTIVE`.
+- Métricas de tenants stuck em cada estado.
+- Runbook de purge e intervenção manual.
+- Cost guardrails do workflow de purge.
+- Parecer jurídico sobre prazos, subprocessadores, região e retenção, já exigido pelo documento normativo.
+- Estratégia de migração para objetos legados sem prefixo tenant-scoped.
+- Definir se cancellation produz audit record não sensível ou apenas métrica operacional.
+
+Conclusão: a hipótese central sobreviveu à tentativa de refutação. O W3-07 não precisa de um protocolo universal `claim + outcome`. Precisa de um fence ACTIVE transacional realmente universal, políticas effect-specific mínimas, quiescence definida como incapacidade de escrever, e uma prova de purga cujo escopo seja tecnicamente honesto.

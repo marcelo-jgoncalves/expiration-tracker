@@ -37,6 +37,8 @@ import {
 import type { ExpirationIdGenerator } from "./id-generator.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { createHash } from "node:crypto";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { TenantNotActiveError } from "../../../shared/errors/app-error.js";
 
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
 /** BLOCKER-B (reminder-delivery-pipeline.md §4): fired for every terminal item transition
@@ -204,7 +206,7 @@ export class ExpirationService {
     });
 
     try {
-      await this.commit(entries);
+      await this.commit(entries, ctx.tenant.tenantId);
     } catch (err) {
       // Idempotency liveness (docs/frontend/core-expiration-vertical-slice.md - discovered
       // via renewItem's identical failure shape, applied here defensively too): the write
@@ -319,7 +321,7 @@ export class ExpirationService {
       changes: { before, after },
     });
 
-    await this.commit(entries);
+    await this.commit(entries, item.tenantId);
 
     return { ...item, ...(set as Partial<ExpirationItem>), version: newVersion, updatedAt: this.now() };
   }
@@ -568,7 +570,7 @@ export class ExpirationService {
       copiedReminderPolicyIds.push(newPolicyId);
     }
 
-    await this.commit(entries);
+    await this.commit(entries, source.tenantId);
 
     return { item: newItem, copiedReminderPolicyIds };
   }
@@ -623,7 +625,7 @@ export class ExpirationService {
       newVersion: expectedVersion + 1,
       changes: { before: { status: item.status }, after: { status } },
     });
-    await this.commit(entries);
+    await this.commit(entries, item.tenantId);
   }
 
   /** BLOCKER-B: appends `expiration.item-deactivated.v1` to `entries` - `tenantId` defaults to `ctx.tenant.tenantId` (every caller except completeRenewal, which already has `source.tenantId` on hand and can skip the extra property access). */
@@ -682,10 +684,31 @@ export class ExpirationService {
     return item;
   }
 
-  private async commit(entries: TransactWriteEntry[]): Promise<void> {
+  /**
+   * W3-07 (D-070 continuation, largest deferred writer per `w3-07-writer-inventory.md`):
+   * every mutation in this service (`createItem`/`updateItem`/`archiveItem`/`deleteItem`/
+   * `renewItem`) funnels through this single choke point, so fencing it here fences all of
+   * them at once via `executeTenantBusinessMutation` - same lane `TenantQuotaService.consume()`
+   * and `ItemWatchService.removeWatcher` already use, appending a
+   * `TenantLifecycleRecord.status = ACTIVE` `ConditionCheck` to the SAME `TransactWriteItems`
+   * call. `tenantId` is now required so the fence has a partition to check against.
+   *
+   * Error mapping preserves existing OCC/idempotency behavior exactly: `TenantNotActiveError`
+   * (the fence itself rejected the mutation - tenant is DELETING) is rethrown unchanged, never
+   * folded into `ConflictError("VERSION_CONFLICT")`, so callers (and their idempotency
+   * abort-on-catch blocks) can distinguish "the tenant is being deleted" from an ordinary
+   * version conflict on the aggregate itself. Any other `TransactionCanceledException` (the
+   * caller's own entries lost a real OCC race - `executeTenantBusinessMutation` already
+   * distinguishes this via `CancellationReasons`, see that file's header) is wrapped into
+   * `ConflictError("VERSION_CONFLICT")` exactly as before this migration.
+   */
+  private async commit(entries: TransactWriteEntry[], tenantId: string): Promise<void> {
     try {
-      await this.store.transactWrite(entries);
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
+      if (err instanceof TenantNotActiveError) {
+        throw err;
+      }
       if (isTransactionCanceled(err)) {
         throw new ConflictError("VERSION_CONFLICT", { cause: "transaction condition failed" });
       }

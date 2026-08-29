@@ -119,6 +119,8 @@ export interface DynamoPutCommandInput {
   TableName: string;
   Item: Record<string, unknown>;
   ConditionExpression: string;
+  ExpressionAttributeNames?: Record<string, string>;
+  ExpressionAttributeValues?: Record<string, unknown>;
 }
 
 /**
@@ -131,6 +133,34 @@ export function buildVersionedCreate(tableName: string, item: Record<string, unk
     TableName: tableName,
     Item: item,
     ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+  };
+}
+
+/**
+ * Builds a PutItem input that overwrites an existing item gated on a caller-supplied
+ * equality condition over specific fields (not a `version` counter) - the pattern
+ * `TenantQuotaService`'s `updateConditional`/`putIfAbsent` already use standalone
+ * (`identity-store.ts`'s `updateConditional`: full-item PutCommand conditioned on
+ * `count`/`resetAt` still matching what was read, not an UpdateItem). Exists so quota's
+ * transaction-boundary migration (W3-07 writer inventory) can build the same conditional
+ * Put as a `TransactWriteItems` entry via `occ.ts` instead of a hand-written
+ * ConditionExpression, per this module's own "never hand-written ConditionExpression"
+ * discipline. `names`/`values` follow the same collision-checked merge as
+ * `buildVersionedUpdate`'s `extraConditions`.
+ */
+export function buildConditionalPut(input: {
+  tableName: string;
+  item: Record<string, unknown> & EntityKey;
+  conditionExpression: string;
+  names?: Record<string, string>;
+  values?: Record<string, unknown>;
+}): DynamoPutCommandInput {
+  return {
+    TableName: input.tableName,
+    Item: input.item,
+    ConditionExpression: input.conditionExpression,
+    ExpressionAttributeNames: input.names,
+    ExpressionAttributeValues: input.values,
   };
 }
 

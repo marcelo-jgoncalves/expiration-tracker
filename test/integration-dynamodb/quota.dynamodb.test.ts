@@ -18,6 +18,7 @@ import { startDynamoDbLocal, TABLE_NAME } from "./setup.js";
 import { DynamoDbIdentityStore } from "../../src/modules/identity/persistence/dynamodb-identity-store.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
 import { QuotaExceededError } from "../../src/shared/errors/app-error.js";
+import { tenantLifecycleKey } from "../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
   let ctx: Awaited<ReturnType<typeof startDynamoDbLocal>>;
@@ -33,8 +34,18 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
   });
 
   it("a second consume() call within the same window hits updateConditional against real DynamoDB without a reserved-word ValidationException", async () => {
-    const quota = new TenantQuotaService(store);
+    const quota = new TenantQuotaService(store, TABLE_NAME);
     const input = { tenantId: "t-dynamo-quota", quotaType: "API_REQUEST" as const, window: "w1", limit: 5, windowSeconds: 60 };
+    // W3-07 fence (D-068/D-069 follow-up): consume() now requires a TenantLifecycleRecord.
+    await store.putIfAbsent({
+      ...tenantLifecycleKey(input.tenantId),
+      entityType: "TenantLifecycleRecord",
+      tenantId: input.tenantId,
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
 
     // First call: putIfAbsent path (never exercised the bug).
     await quota.consume(input);
@@ -50,8 +61,17 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
   });
 
   it("still enforces the limit correctly once exhausted (proves updateConditional's real writes actually land)", async () => {
-    const quota = new TenantQuotaService(store);
+    const quota = new TenantQuotaService(store, TABLE_NAME);
     const input = { tenantId: "t-dynamo-quota-2", quotaType: "API_REQUEST" as const, window: "w1", limit: 2, windowSeconds: 60 };
+    await store.putIfAbsent({
+      ...tenantLifecycleKey(input.tenantId),
+      entityType: "TenantLifecycleRecord",
+      tenantId: input.tenantId,
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
 
     await quota.consume(input);
     await quota.consume(input);

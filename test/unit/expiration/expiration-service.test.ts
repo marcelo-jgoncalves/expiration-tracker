@@ -1,10 +1,11 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { InMemoryExpirationStore, makeExpirationIdGenerator } from "./in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
-import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
 import { ConcurrentOperationError } from "../../../src/shared/idempotency/idempotency.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -22,7 +23,11 @@ describe("ExpirationService", () => {
   let service: ExpirationService;
 
   beforeEach(() => {
-    store = new InMemoryExpirationStore();
+    // W3-07 (D-070, chunk 9/N): ExpirationService.commit() now fences every mutation through
+    // TenantBusinessMutation, which requires a TenantLifecycleRecord to exist and be ACTIVE.
+    // This suite exercises both "tenant-1" and "tenant-2" (cross-tenant idempotency test), so
+    // both need seeding.
+    store = new InMemoryExpirationStore([activeLifecycleRecord("tenant-1"), activeLifecycleRecord("tenant-2")]);
     service = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), now: () => "2026-08-19T12:00:00.000Z" });
   });
 
@@ -354,5 +359,70 @@ describe("ExpirationService", () => {
     const items = await service.listDashboard(ctx({ tenant: { tenantId: "tenant-1", roles: ["OWNER"] } }), { status: "ACTIVE" });
     expect(items).toHaveLength(1);
     expect(items[0]?.name).toBe("tenant-1-item");
+  });
+
+  describe("W3-07 tenant lifecycle fence (D-070, chunk 9/N: ExpirationService.commit())", () => {
+    async function setDeleting(tenantId: string): Promise<void> {
+      const record = await store.get<TenantLifecycleRecord>(tenantLifecycleKey(tenantId));
+      await store.update({ ...record!, status: "DELETING" });
+    }
+
+    it("createItem succeeds normally while the tenant lifecycle is ACTIVE (control case)", async () => {
+      const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+      expect(item.status).toBe("ACTIVE");
+    });
+
+    it("createItem is rejected atomically via the fence once the tenant moves to DELETING, no partial write left behind", async () => {
+      await setDeleting("tenant-1");
+      await expect(service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" })).rejects.toBeInstanceOf(
+        TenantNotActiveError,
+      );
+      // No item was left behind - the whole transaction (item + outbox + audit) was rejected.
+      expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(0);
+    });
+
+    it("updateItem/archiveItem/deleteItem/renewItem are all rejected once the tenant is DELETING, each atomically with no partial write", async () => {
+      const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      await setDeleting("tenant-1");
+
+      await expect(service.updateItem(ctx(), item.itemId, { name: "b" }, 1)).rejects.toBeInstanceOf(TenantNotActiveError);
+      await expect(service.archiveItem(ctx(), item.itemId, 1)).rejects.toBeInstanceOf(TenantNotActiveError);
+      await expect(service.deleteItem(ctx(), item.itemId, 1)).rejects.toBeInstanceOf(TenantNotActiveError);
+      await expect(
+        service.renewItem(ctx(), item.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, 1),
+      ).rejects.toBeInstanceOf(TenantNotActiveError);
+
+      // The item is exactly as it was after creation - version still 1, still ACTIVE - none of
+      // the rejected mutations left a partial trace.
+      const after = await store.get<{ PK: string; SK: string; version: number; status: string }>({ PK: `TENANT#tenant-1#ITEM#${item.itemId}`, SK: "META" });
+      expect(after?.version).toBe(1);
+      expect(after?.status).toBe("ACTIVE");
+    });
+
+    it("an ordinary OCC version conflict on updateItem is still reported as ConflictError, not misclassified as TenantNotActiveError, while the tenant remains ACTIVE", async () => {
+      const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+      // expectedVersion 99 is stale/wrong - an ordinary OCC conflict on the item's own entry,
+      // unrelated to the (still ACTIVE) lifecycle fence.
+      await expect(service.updateItem(ctx(), item.itemId, { name: "b" }, 99)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("a retried commit for a mutation admitted while ACTIVE is unaffected by a DELETING transition that happens after admission (idempotency of a retried commit-while-ACTIVE is preserved)", async () => {
+      // createItem's own idempotency replay path never re-runs commit() at all (it returns the
+      // cached result via getItem()) - the adversarial case worth proving here is that a
+      // mutation which already committed while ACTIVE is not retroactively undone or blocked
+      // by a later DELETING transition: the item, once created, remains readable and its state
+      // is exactly what the successful commit produced, matching the approved design's
+      // concurrency contract ("operations already admitted atomically before the transition
+      // may finish").
+      const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" }, "idem-key-1");
+      await setDeleting("tenant-1");
+
+      // Retrying the SAME idempotency key after the tenant moved to DELETING must still return
+      // the already-committed result (COMPLETED_SAME_REQUEST replay), never re-run commit() nor
+      // be rejected by the fence - the mutation was already admitted before DELETING.
+      const replay = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" }, "idem-key-1");
+      expect(replay.itemId).toBe(item.itemId);
+    });
   });
 });

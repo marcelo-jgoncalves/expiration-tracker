@@ -2,7 +2,6 @@
  * (`privacy-lgpd.md` §4). `delete()` is used ONLY by `ExtractionValidationTaskHandler` (M7 item
  * 7) — see the port's doc comment for why this method exists at all. */
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { randomUUID } from "node:crypto";
 import type { OcrArtifactStore, ExtractionArtifactRef } from "../ports/ocr-artifact-store.js";
 
 export class S3OcrArtifactStore implements OcrArtifactStore {
@@ -11,8 +10,16 @@ export class S3OcrArtifactStore implements OcrArtifactStore {
     private readonly bucket: string,
   ) {}
 
-  async put(runId: string, blocksJson: string): Promise<ExtractionArtifactRef> {
-    const key = `ocr/${runId}/${randomUUID()}.json`;
+  /** W3-07 (D-070 chunk 6/N): deterministic key `ocr/<tenantId>/<runId>.json` - previously a
+   * fresh `randomUUID()` suffix on every call, so a redelivered COMPLETE_OCR notification for
+   * the same run (SendTaskSuccess failed after this PutObject succeeded, SQS redelivers) wrote a
+   * second, orphaned object with no way to ever be found by `runId` again. `runId` alone is not
+   * used as the sole key component even though it is already globally unique in this codebase
+   * (SFN execution names are unique per state machine, not just per tenant) - namespacing under
+   * tenantId keeps the S3 layout consistent with every other tenant-scoped prefix in this bucket
+   * family (quarantine/clean) and matches the approved design's explicit key convention. */
+  async put(tenantId: string, runId: string, blocksJson: string): Promise<ExtractionArtifactRef> {
+    const key = `ocr/${tenantId}/${runId}.json`;
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,

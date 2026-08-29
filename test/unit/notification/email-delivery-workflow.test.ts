@@ -6,6 +6,7 @@ import type { NotificationIntent } from "../../../src/modules/reminder/domain/no
 import { notificationAttemptKey, buildNotificationAttemptLookup, type NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
 import type { EmailProviderAdapter } from "../../../src/modules/notification/ports/email-provider.js";
 import { EmailSendError } from "../../../src/modules/notification/ports/email-provider.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TENANT = "t1";
 const ITEM_ID = "item1";
@@ -125,7 +126,17 @@ describe("processEmailDelivery", () => {
     };
   });
 
-  async function seed(input: { item?: ExpirationItem; intent?: NotificationIntent; attempt?: NotificationAttempt }) {
+  /** W3-07 (D-067): the SUBMITTING claim now fences through TenantBusinessMutation, which
+   * requires a TenantLifecycleRecord to exist for the tenant - same convention
+   * quota.test.ts/item-watch-service.test.ts already established. Defaults every existing test
+   * below to ACTIVE so pre-existing send-path behavior is unchanged; `seed({ lifecycleStatus })`
+   * lets the new adversarial tests seed DELETING instead. */
+  async function seed(input: {
+    item?: ExpirationItem;
+    intent?: NotificationIntent;
+    attempt?: NotificationAttempt;
+    lifecycleStatus?: "ACTIVE" | "DELETING";
+  }) {
     const item = input.item ?? makeItem();
     const intent = input.intent ?? makeIntent();
     const attempt = input.attempt ?? makeAttempt();
@@ -133,6 +144,15 @@ describe("processEmailDelivery", () => {
     await store.putIfAbsent(intent);
     await store.putIfAbsent(attempt);
     await store.putIfAbsent(buildNotificationAttemptLookup(attempt));
+    await store.putIfAbsent({
+      ...tenantLifecycleKey(TENANT),
+      entityType: "TenantLifecycleRecord",
+      tenantId: TENANT,
+      status: input.lifecycleStatus ?? "ACTIVE",
+      createdAt: NOW,
+      updatedAt: NOW,
+      version: 1,
+    });
   }
 
   it("happy path: sends the e-mail, attempt ends ACCEPTED with providerMessageId", async () => {
@@ -226,5 +246,59 @@ describe("processEmailDelivery", () => {
     const outcome = await processEmailDelivery(deps, makeCommand());
     expect(outcome).toEqual({ kind: "SEND_FAILED", nextStatus: "FAILED_TERMINAL" });
     expect(sendCalls).toHaveLength(0);
+  });
+
+  describe("W3-07 tenant deletion fence (D-067) - SUBMITTING claim admission", () => {
+    it("ACTIVE control case: SUBMITTING claim is admitted and the (mocked) SES send completes normally", async () => {
+      await seed({ lifecycleStatus: "ACTIVE" });
+      const outcome = await processEmailDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SENT", providerMessageId: "ses-msg-1" });
+      expect(sendCalls).toHaveLength(1);
+      const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+      expect(attempt?.status).toBe("ACCEPTED");
+    });
+
+    it("DELETING: SUBMITTING claim is rejected atomically before any SES send is attempted", async () => {
+      await seed({ lifecycleStatus: "DELETING" });
+      const outcome = await processEmailDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SKIPPED_TENANT_NOT_ACTIVE" });
+      expect(sendCalls).toHaveLength(0);
+
+      // No partial write - the attempt is untouched (still PREPARED at its original version),
+      // proving the fence rejected the whole TransactWriteItems atomically, not just skipped
+      // the send after a successful claim.
+      const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+      expect(attempt?.status).toBe("PREPARED");
+      expect(attempt?.version).toBe(1);
+    });
+
+    it("admission while ACTIVE lets the send complete even though the tenant is DELETING by the time SES is called", async () => {
+      // Simulates D-067's "already-admitted sends may complete" contract: the claim's own
+      // TransactWriteItems observes ACTIVE and commits, but the tenant transitions to DELETING
+      // in the (mocked) gap between the claim committing and the SES call actually firing -
+      // the send must still be attempted and allowed to resolve normally, no retroactive cancel.
+      await seed({ lifecycleStatus: "ACTIVE" });
+      const lifecycle = await store.get<{ PK: string; SK: string; version: number }>(tenantLifecycleKey(TENANT));
+      sendImpl = async (input) => {
+        // Flip the tenant to DELETING right before the "external" SES call resolves - this must
+        // NOT retroactively block or unwind the already-claimed SUBMITTING admission.
+        await store.update({
+          ...tenantLifecycleKey(TENANT),
+          entityType: "TenantLifecycleRecord",
+          tenantId: TENANT,
+          status: "DELETING",
+          createdAt: NOW,
+          updatedAt: NOW,
+          version: (lifecycle?.version ?? 1) + 1,
+        });
+        sendCalls.push(input);
+        return { providerMessageId: "ses-msg-1" };
+      };
+      const outcome = await processEmailDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SENT", providerMessageId: "ses-msg-1" });
+      expect(sendCalls).toHaveLength(1);
+      const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+      expect(attempt?.status).toBe("ACCEPTED");
+    });
   });
 });

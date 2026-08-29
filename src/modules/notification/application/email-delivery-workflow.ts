@@ -23,6 +23,7 @@ import type { EmailProviderAdapter, EmailSendResult } from "../ports/email-provi
 import { EmailSendError } from "../ports/email-provider.js";
 import { decideSendAction, nextStatusAfterSendAttempt } from "./email-delivery.js";
 import { applyStaleDeliveryDecision } from "./notification-router-workflow.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface EmailDeliverCommandData {
   tenantId: string;
@@ -55,6 +56,7 @@ export type EmailDeliveryOutcome =
   | { kind: "SKIPPED_RESOLVED" }
   | { kind: "RECONCILED_UNKNOWN" }
   | { kind: "SKIPPED_LOST_LEASE_RACE" } // another invocation already claimed this SUBMITTING transition
+  | { kind: "SKIPPED_TENANT_NOT_ACTIVE" } // W3-07 (D-067): tenant is DELETING/deleted - no new SUBMITTING admission
   | { kind: "NOT_SENT_STALE"; correctiveKind: "REPLACEMENT" | "CORRECTIVE" }
   | { kind: "SENT"; providerMessageId: string }
   | { kind: "SEND_FAILED"; nextStatus: string };
@@ -109,9 +111,18 @@ export async function processEmailDelivery(deps: EmailDeliveryWorkflowDeps, comm
     return { kind: "NOT_SENT_STALE", correctiveKind };
   }
 
+  // W3-07 (D-067, SES post-DELETING policy, Option 1): the SUBMITTING claim is the actual
+  // admission point for a paid/external SES send - it MUST go through the TenantBusinessMutation
+  // fence so no NEW admission is possible once the tenant is DELETING. Once this claim commits
+  // (tenant was ACTIVE at that atomic instant), the send below is allowed to proceed and resolve
+  // normally even if ACTIVE->DELETING happens moments later - no cancel, no lease/drain. Every
+  // OTHER transactWrite in this file (RECONCILE_UNKNOWN, NOT_SENT_STALE, forceUpdateAttemptStatus)
+  // is a status resolution of an already-admitted attempt, not a new admission, so those stay
+  // unfenced per the same "already-admitted operations may finish" contract quota.consume() uses.
   const leaseExpiresAt = new Date(Date.parse(now) + leaseDurationMs).toISOString();
-  const claimedSubmitting = await tryConditionalUpdate(deps, attempt, { status: "SUBMITTING", leaseExpiresAt, submitStartedAt: now }, now);
-  if (!claimedSubmitting) return { kind: "SKIPPED_LOST_LEASE_RACE" };
+  const claim = await tryFencedSubmittingClaim(deps, attempt, { status: "SUBMITTING", leaseExpiresAt, submitStartedAt: now }, now);
+  if (claim === "LOST_RACE") return { kind: "SKIPPED_LOST_LEASE_RACE" };
+  if (claim === "TENANT_NOT_ACTIVE") return { kind: "SKIPPED_TENANT_NOT_ACTIVE" };
 
   const recipientUserId = intent?.recipientUserId;
   const to = recipientUserId ? await deps.resolveRecipientEmail({ tenantId: command.tenantId, userId: recipientUserId }) : undefined;
@@ -170,6 +181,47 @@ async function tryConditionalUpdate(
     return true;
   } catch (err) {
     if (isTransactionCanceled(err) || isConditionalCheckFailed(err)) return false;
+    throw err;
+  }
+}
+
+/** Fenced variant of `tryConditionalUpdate`, used ONLY for the SUBMITTING claim (W3-07/D-067) -
+ * the one transition in this file that represents a NEW admission of an external SES send, as
+ * opposed to resolving the status of a send already admitted. Routes through
+ * `executeTenantBusinessMutation` so the same TransactWriteItems that claims SUBMITTING also
+ * asserts `TenantLifecycleRecord.status = ACTIVE`, atomically - a tenant that has moved to
+ * DELETING can never claim a new SUBMITTING lease, even under concurrent retries. Returns
+ * "LOST_RACE" for an ordinary lease-race loss (unchanged behavior) and "TENANT_NOT_ACTIVE" when
+ * the lifecycle fence specifically is what rejected the claim, so the caller can report that
+ * distinctly instead of collapsing it into the harmless recoverable lease race. */
+async function tryFencedSubmittingClaim(
+  deps: EmailDeliveryWorkflowDeps,
+  attempt: NotificationAttempt,
+  set: Record<string, unknown>,
+  now: string,
+): Promise<"CLAIMED" | "LOST_RACE" | "TENANT_NOT_ACTIVE"> {
+  try {
+    await executeTenantBusinessMutation({
+      store: deps.store,
+      tableName: deps.tableName,
+      tenantId: attempt.tenantId,
+      entries: [
+        {
+          Update: buildVersionedUpdate({
+            tableName: deps.tableName,
+            key: { PK: attempt.PK, SK: attempt.SK },
+            tenantId: attempt.tenantId,
+            expectedVersion: attempt.version,
+            now,
+            set,
+          }),
+        },
+      ],
+    });
+    return "CLAIMED";
+  } catch (err) {
+    if (err instanceof Error && err.name === "TenantNotActiveError") return "TENANT_NOT_ACTIVE";
+    if (isTransactionCanceled(err) || isConditionalCheckFailed(err)) return "LOST_RACE";
     throw err;
   }
 }

@@ -35,8 +35,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
     store = new InMemoryIdentityStore();
     const mappings = new IdentityMappingRepository(store);
     users = new UserRepository(store);
-    resolver = new RequestContextResolver(mappings, users, makeIdGenerator());
-    quota = new TenantQuotaService(store);
+    resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), store, "MainTable");
+    quota = new TenantQuotaService(store, "MainTable");
   });
 
   it("two distinct Cognito subs resolve to two distinct, non-overlapping tenants", async () => {

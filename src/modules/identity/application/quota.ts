@@ -5,7 +5,9 @@
  * UploadSlot). Enforced at the API/Lambda boundary per M1 deliverable list.
  */
 import { QuotaExceededError } from "../../../shared/errors/app-error.js";
-import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
+import type { EntityKey, IdentityStore, TransactWriteEntry } from "../ports/identity-store.js";
+import { buildConditionalPut, buildVersionedCreate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export type QuotaType =
   | "API_REQUEST"
@@ -53,8 +55,22 @@ export interface QuotaCheckInput {
  * emergency block, per data-model.md).
  */
 export class TenantQuotaService {
+  /**
+   * W3-07 writer inventory (D-068/D-069 follow-up): `consume()` is the classic TOCTOU-prone
+   * single-item conditional write named as the top migration priority in
+   * `NEXT_SESSION_PROMPT.md` and Round E of the approved design (`claude-analysis-active-only-
+   * fence.md` §O-3) — the real admission point before every paid Textract/Bedrock call.
+   * `release()` is NOT migrated (deliberately out of scope, see its own docstring below) — it
+   * compensates a reservation already admitted earlier, it is not itself a new admission.
+   * `tableName` is now required because both the create path (`putIfAbsent`) and the update
+   * path (`updateConditional`) of `consume()` are rebuilt as a single `TransactWriteItems` call
+   * through `executeTenantBusinessMutation`, which needs the table name to build the lifecycle
+   * `ConditionCheck` (`shared/tenant-lifecycle/tenant-business-mutation.ts`) — same pattern
+   * `ItemWatchService.removeWatcher` already established.
+   */
   constructor(
     private readonly store: IdentityStore,
+    private readonly tableName: string,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -78,16 +94,21 @@ export class TenantQuotaService {
 
       const existing = await this.store.get<TenantQuotaRecord>(key);
       if (!existing) {
-        const created = await this.store.putIfAbsent({
-          ...key,
-          entityType: "TenantQuota",
-          tenantId: input.tenantId,
-          quotaType: input.quotaType,
-          limit: input.limit,
-          windowSeconds: input.windowSeconds,
-          count: 1,
-          resetAt,
-        });
+        const entries: TransactWriteEntry[] = [
+          {
+            Put: buildVersionedCreate(this.tableName, {
+              ...key,
+              entityType: "TenantQuota",
+              tenantId: input.tenantId,
+              quotaType: input.quotaType,
+              limit: input.limit,
+              windowSeconds: input.windowSeconds,
+              count: 1,
+              resetAt,
+            }),
+          },
+        ];
+        const created = await this.tryFencedWrite(input.tenantId, entries);
         if (created) return;
         // Lost the create race; loop to re-read the record another caller just created.
         continue;
@@ -109,10 +130,18 @@ export class TenantQuotaService {
       }
 
       const nextResetAt = windowExpired ? resetAt : existing.resetAt;
-      const wrote = await this.store.updateConditional(
-        { ...existing, count: effectiveCount + 1, resetAt: nextResetAt },
-        { count: existing.count, resetAt: existing.resetAt },
-      );
+      const entries: TransactWriteEntry[] = [
+        {
+          Put: buildConditionalPut({
+            tableName: this.tableName,
+            item: { ...existing, count: effectiveCount + 1, resetAt: nextResetAt },
+            conditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
+            names: { "#count": "count" },
+            values: { ":expectedCount": existing.count, ":expectedResetAt": existing.resetAt },
+          }),
+        },
+      ];
+      const wrote = await this.tryFencedWrite(input.tenantId, entries);
       if (wrote) return;
       // Another concurrent consume() won the write race; re-read and retry against fresh state.
     }
@@ -124,11 +153,33 @@ export class TenantQuotaService {
   }
 
   /**
+   * Commits `entries` through the `TenantBusinessMutation` lane (W3-07 fence). Returns `false`
+   * on an ordinary OCC/create-race conflict on the caller's own entry (so the read-check-write
+   * loop above retries exactly as it did before this migration) and re-throws
+   * `TenantNotActiveError` unchanged when the lifecycle fence itself is what rejected the
+   * mutation (never retried - the tenant is being deleted, retrying cannot help).
+   */
+  private async tryFencedWrite(tenantId: string, entries: TransactWriteEntry[]): Promise<boolean> {
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+      return true;
+    } catch (err) {
+      if (err instanceof Error && err.name === "TenantNotActiveError") throw err;
+      if (isTransactionCanceled(err)) return false;
+      throw err;
+    }
+  }
+
+  /**
    * Releases 1 previously-consumed unit — M6 design §3.5 (UploadSlotReconciliationWorker
    * "libera quota idempotentemente" for a slot that expired unconfirmed). Idempotent: never
    * decrements below 0, and calling this twice for the same already-released slot floors at 0
    * rather than double-crediting. A window that has already reset naturally (count implicitly
    * 0) is a no-op, not an error - the quota already recovered on its own.
+   *
+   * NOT fenced through `TenantBusinessMutation` (W3-07 writer inventory, deliberate): this is
+   * compensation for a unit `consume()` already admitted while ACTIVE, not a new admission -
+   * blocking it during `DELETING` would leak a reservation forever with no way to free it.
    */
   async release(input: Omit<QuotaCheckInput, "limit"> & { limit?: number }): Promise<void> {
     for (let attempt = 0; attempt < TenantQuotaService.MAX_CONTENTION_RETRIES; attempt++) {

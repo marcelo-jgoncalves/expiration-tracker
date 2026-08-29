@@ -9,8 +9,9 @@
 import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ValidationError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ValidationError, ConflictError, NotFoundError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import { MAX_UPLOAD_BYTES } from "./upload-validation.js";
@@ -182,8 +183,16 @@ export class DocumentService {
         { Put: buildVersionedCreate(this.tableName, slot as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       ];
       try {
-        await this.store.transactWrite(entries);
+        // W3-07 (D-070 chunk 8/N): the Document+UploadSlot Put is the real DynamoDB admission
+        // point that gates a NEW presigned URL issuance - fencing it here (instead of a
+        // separate unfenced read-then-check right before presignUpload) closes the actual gap
+        // and blocks new reservations atomically once the tenant is DELETING. A retry of an
+        // already-admitted reservation (COMPLETED_SAME_REQUEST branch above) never reaches this
+        // block, so it is free to re-presign per the established "admitted while ACTIVE may
+        // finish" contract.
+        await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId: ctx.tenant.tenantId, entries });
       } catch (err) {
+        if (err instanceof TenantNotActiveError) throw err;
         throw new ConflictError("Failed to reserve upload slot.", { itemId, cause: err instanceof Error ? err.message : String(err) });
       }
     }

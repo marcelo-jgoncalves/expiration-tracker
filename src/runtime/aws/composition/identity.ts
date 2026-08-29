@@ -13,8 +13,8 @@ export function buildIdentityDeps(client: DynamoDBDocumentClient, tableName: str
   const ids = new UlidIdGenerator();
   const identityMappings = new IdentityMappingRepository(store);
   const users = new UserRepository(store);
-  const resolver = new RequestContextResolver(identityMappings, users, ids);
-  const quota = new TenantQuotaService(store);
+  const resolver = new RequestContextResolver(identityMappings, users, ids, store, tableName);
+  const quota = new TenantQuotaService(store, tableName);
   return { store, resolver, quota };
 }
 

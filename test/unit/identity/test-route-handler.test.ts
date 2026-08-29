@@ -13,8 +13,10 @@ function makeDeps() {
     new IdentityMappingRepository(store),
     new UserRepository(store),
     makeIdGenerator(),
+    store,
+    "MainTable",
   );
-  const quota = new TenantQuotaService(store);
+  const quota = new TenantQuotaService(store, "MainTable");
   return { resolver, quota };
 }
 
@@ -45,8 +47,8 @@ describe("handleTestRoute", () => {
   it("returns 401 for a token issued before global logout", async () => {
     const store = new InMemoryIdentityStore();
     const users = new UserRepository(store);
-    const resolver = new RequestContextResolver(new IdentityMappingRepository(store), users, makeIdGenerator());
-    const quota = new TenantQuotaService(store);
+    const resolver = new RequestContextResolver(new IdentityMappingRepository(store), users, makeIdGenerator(), store, "MainTable");
+    const quota = new TenantQuotaService(store, "MainTable");
     const claims = {
       sub: "sub-3",
       tokenId: "t1",

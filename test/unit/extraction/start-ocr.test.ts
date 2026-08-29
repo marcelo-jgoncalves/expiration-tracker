@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { startOcr, type StartOcrInput } from "../../../src/modules/extraction/application/start-ocr.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import {
   OcrDisabledError,
   TextractJobPersistenceFailedError,
@@ -19,6 +20,23 @@ import type { TextractJobStore } from "../../../src/modules/extraction/ports/tex
 import type { TextractJob } from "../../../src/modules/extraction/domain/textract-job.js";
 import type { TaskTokenEncryptor } from "../../../src/modules/extraction/ports/task-token-encryptor.js";
 import { textractJobKey } from "../../../src/modules/extraction/domain/textract-job.js";
+
+/** W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a TenantLifecycleRecord
+ * to exist for the tenant ("t1" throughout this file). Synchronous helper (the fake's
+ * putIfAbsent resolves synchronously) so it can be used inline. */
+function seededIdentityStore(): InMemoryIdentityStore {
+  const store = new InMemoryIdentityStore();
+  void store.putIfAbsent({
+    ...tenantLifecycleKey("t1"),
+    entityType: "TenantLifecycleRecord",
+    tenantId: "t1",
+    status: "ACTIVE",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:00.000Z",
+    version: 1,
+  });
+  return store;
+}
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {
   constructor(
@@ -98,7 +116,7 @@ describe("startOcr", () => {
   it("classifies, checks the kill switch, reserves quota, starts Textract, and persists the TextractJob without calling SendTaskSuccess", async () => {
     const jobs = new FakeTextractJobStore();
     const textract = new FakeTextractClient({ jobId: "job_1" });
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await startOcr(
       {
         featureFlags: new FakeFeatureFlagsReader(),
@@ -123,7 +141,7 @@ describe("startOcr", () => {
   it("throws UnsupportedDocumentTypeError before touching flags/quota/Textract for an unclassifiable file", async () => {
     const jobs = new FakeTextractJobStore();
     const textract = new FakeTextractClient();
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await expect(
       startOcr(
         { featureFlags: new FakeFeatureFlagsReader(), quota, textract, jobs, tokenEncryptor: new FakeTaskTokenEncryptor(), snsTopicArn: "a", snsRoleArn: "r" },
@@ -137,7 +155,7 @@ describe("startOcr", () => {
   it("throws OcrDisabledError when the OCR kill switch is off", async () => {
     const jobs = new FakeTextractJobStore();
     const textract = new FakeTextractClient();
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await expect(
       startOcr(
         {
@@ -158,7 +176,7 @@ describe("startOcr", () => {
   it("fails closed (OcrDisabledError) when the feature-flags read itself throws", async () => {
     const jobs = new FakeTextractJobStore();
     const textract = new FakeTextractClient();
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await expect(
       startOcr(
         { featureFlags: new FakeFeatureFlagsReader(undefined, true), quota, textract, jobs, tokenEncryptor: new FakeTaskTokenEncryptor(), snsTopicArn: "a", snsRoleArn: "r" },
@@ -170,8 +188,8 @@ describe("startOcr", () => {
   it("compensates the AI_CALL quota reservation and throws TextractUnsupportedDocumentError when StartDocumentTextDetection itself fails", async () => {
     const jobs = new FakeTextractJobStore();
     const textract = new FakeTextractClient(new Error("Textract rejected the file"));
-    const store = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(store);
+    const store = seededIdentityStore();
+    const quota = new TenantQuotaService(store, "MainTable");
     await expect(
       startOcr(
         { featureFlags: new FakeFeatureFlagsReader(), quota, textract, jobs, tokenEncryptor: new FakeTaskTokenEncryptor(), snsTopicArn: "a", snsRoleArn: "r" },
@@ -187,8 +205,8 @@ describe("startOcr", () => {
   });
 
   it("treats a retried START_OCR for the same run as already-reserved instead of QuotaExceededError", async () => {
-    const store = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(store);
+    const store = seededIdentityStore();
+    const quota = new TenantQuotaService(store, "MainTable");
     const jobs1 = new FakeTextractJobStore();
     const textract1 = new FakeTextractClient({ jobId: "job_1" });
     await startOcr(
@@ -211,7 +229,7 @@ describe("startOcr", () => {
   it("retries persisting the TextractJob locally, then throws TextractJobPersistenceFailedError once retries are exhausted", async () => {
     const jobs = new FakeTextractJobStore(5); // always fails
     const textract = new FakeTextractClient({ jobId: "job_1" });
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await expect(
       startOcr(
         { featureFlags: new FakeFeatureFlagsReader(), quota, textract, jobs, tokenEncryptor: new FakeTaskTokenEncryptor(), snsTopicArn: "a", snsRoleArn: "r", jobPersistAttempts: 2 },
@@ -224,7 +242,7 @@ describe("startOcr", () => {
   it("succeeds after one transient persistence failure within the retry budget", async () => {
     const jobs = new FakeTextractJobStore(1); // fails once, then succeeds
     const textract = new FakeTextractClient({ jobId: "job_1" });
-    const quota = new TenantQuotaService(new InMemoryIdentityStore());
+    const quota = new TenantQuotaService(seededIdentityStore(), "MainTable");
     await startOcr(
       { featureFlags: new FakeFeatureFlagsReader(), quota, textract, jobs, tokenEncryptor: new FakeTaskTokenEncryptor(), snsTopicArn: "a", snsRoleArn: "r", jobPersistAttempts: 2 },
       baseInput(),

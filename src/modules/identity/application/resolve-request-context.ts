@@ -12,6 +12,8 @@
 import { AuthenticationError } from "../../../shared/errors/app-error.js";
 import { IdentityMappingRepository } from "../persistence/identity-mapping-repository.js";
 import { UserRepository } from "../persistence/user-repository.js";
+import { TenantBootstrapService } from "./bootstrap-identity.js";
+import type { IdentityStore } from "../ports/identity-store.js";
 import type { RequestContext } from "../domain/request-context.js";
 
 /** Claims already validated (signature + expiry) by the API Gateway JWT authorizer. */
@@ -35,33 +37,35 @@ export interface IdGenerator {
 }
 
 export class RequestContextResolver {
+  private readonly bootstrap: TenantBootstrapService;
+
   constructor(
     private readonly identityMappings: IdentityMappingRepository,
     private readonly users: UserRepository,
     private readonly ids: IdGenerator,
-  ) {}
+    store: IdentityStore,
+    tableName: string,
+  ) {
+    this.bootstrap = new TenantBootstrapService(store, tableName);
+  }
 
   async resolve(input: ResolveRequestContextInput): Promise<RequestContext> {
     const { claims } = input;
 
-    // Step 2: cognitoSub -> userId/tenantId. MVP tenantId=userId (data-model.md §7.3),
-    // decided here and nowhere else so a future Organization model changes one call site.
+    // Steps 2-4 (W3-07/D-067): IdentityMapping + TenantLifecycleRecord(ACTIVE) + User are
+    // bootstrapped atomically on first login (bootstrap-identity.ts) - replaces the previous
+    // sequential findOrCreate()-then-createProfileIfAbsent() (D-063's confirmed bug: a
+    // resolver that silently reprovisions a fresh ACTIVE User for a tenant the deletion
+    // cascade already removed). MVP tenantId=userId (data-model.md §7.3), decided inside
+    // TenantBootstrapService and nowhere else so a future Organization model changes one
+    // call site.
     const newUserId = this.ids.newUserId();
-    const mapping = await this.identityMappings.findOrCreate(claims.sub, newUserId, newUserId);
+    const { mapping, profile } = await this.bootstrap.bootstrap(claims.sub, newUserId);
 
-    // Step 3/4: profile + membership. First-login also provisions the User profile
-    // (OWNER role, MVP single-tenant-per-user) so resolveContext never returns a
-    // context for a mapping with no backing profile.
-    let profile = await this.users.getProfile(mapping.tenantId, mapping.userId);
     if (!profile) {
-      profile = await this.users.createProfileIfAbsent({
-        userId: mapping.userId,
-        tenantId: mapping.tenantId,
-        identitySubject: claims.sub,
-        emailNormalized: "",
-        roles: ["OWNER"],
-        status: "ACTIVE",
-      });
+      // Lifecycle is not ACTIVE (DELETING/QUIESCING/PURGING/VERIFIED/DELETED/BLOCKED/HELD) -
+      // never resurrect the tenant just because its owner authenticated again.
+      throw new AuthenticationError("Tenant is not active.", { tenantId: mapping.tenantId });
     }
 
     if (profile.status !== "ACTIVE") {

@@ -10,7 +10,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-store.js";
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
-import { InMemoryExpirationStore, makeExpirationIdGenerator } from "../expiration/in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "../expiration/in-memory-store.js";
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import { handleTriggerEvent, type TriggerDeps } from "../../../src/workers/reminder-materialization-trigger/trigger.js";
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
@@ -88,9 +88,21 @@ describe("reminder-materialization-trigger", () => {
   let deps: TriggerDeps;
   let ctx: RequestContext;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     store = new InMemoryReminderStore();
     expirationStore = new MirroredExpirationStore(store);
+    // W3-07 (D-070, chunk 9/N): ExpirationService.commit() now fences every mutation through
+    // TenantBusinessMutation, whose ConditionCheck is appended to the SAME entries array
+    // ExpirationService.commit() passes to `this.store.transactWrite()` - i.e.
+    // MirroredExpirationStore.transactWrite(), which validates against BOTH `mirror` (via
+    // mirror.transactWrite) AND its own inherited InMemoryExpirationStore internal map (via
+    // super.transactWrite) - two separate Maps that must each see the record. Seeding through
+    // expirationStore.putIfAbsent() (its override writes to both) covers both; store.putIfAbsent()
+    // alone would leave the own-map copy missing and the fence would still reject with
+    // TenantNotActiveError. Seed both tenants this suite exercises (TENANT="t1", and "t2" for
+    // the cross-tenant isolation test).
+    await expirationStore.putIfAbsent(activeLifecycleRecord(TENANT));
+    await expirationStore.putIfAbsent(activeLifecycleRecord("t2"));
     // A monotonically-advancing clock (not a fixed NOW) shared by both services: with a
     // fixed clock, ExpirationService's and ReminderPolicyService's independent id-generator
     // counters (test/unit/expiration/in-memory-store.ts and ./in-memory-store.ts each keep

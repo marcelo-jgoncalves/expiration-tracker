@@ -2,6 +2,729 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — segunda rodada Codex + fechamento de B6 (2026-08-29, sessão em outra máquina), D-083, nota 9,1/10 — purge pipeline pronto para decidir orquestrador
+
+Sessão que retomou o trabalho via `git pull` (a sessão anterior, mesma máquina de D-082, foi
+interrompida no meio — commit `8b6033c "trabalho interrompido"` — depois de um self-review que
+achou e corrigiu um sétimo achado, B7, sem rodar a segunda rodada Codex nem atualizar este
+arquivo). Registro completo em `decisions-log.md` D-083.
+
+Rodou a segunda rodada Codex pedida pela "próxima ação" de D-082, via MCP `codex/codex` (disponível
+diretamente nesta sessão — mesmo protocolo de conteúdo do `AGENTS.md` §4, mecanismo de invocação
+diferente da CLI). Confirmou B1-B5/B7 corrigidos, mas achou **B6 (vínculo S3↔tenant) não fechado de
+verdade** — a asserção de D-082 só comparava dois rótulos fornecidos pelo chamador
+(`target.tenantId` vs `input.tenantId`), nunca o `target.prefix` real. Levou **4 rodadas de
+correção-e-reconfirmação sucessivas sobre o MESMO achado**, cada uma expondo uma variante mais
+profunda que a anterior (nota 7,4 → 8,0 → 8,2 → **9,1/10, zero achados bloqueantes**), até fechar
+com uma checagem ANCORADA no início do prefixo contra uma lista fechada de raízes reais
+(`TENANT_PREFIX_ROOTS = ["clean/", "tenant/", "ocr/"]`, verificada por leitura direta de cada key
+builder tenant-owned do codebase) — mesma filosofia de allowlist fechado que
+`system-mutation.ts`'s `SystemMutationOperation`. Parecer final do Codex: "o B6 está genuinamente
+fechado agora... pronto para avançar à próxima etapa". Zero regressão em toda a sequência
+(1076→1084 testes de backend), typecheck/lint/check-docs limpos em cada rodada.
+
+**2 achados NÃO-BLOQUEANTES aceitos, não corrigidos** (documentados no código, não escondidos): (a)
+a validação de prefixo ainda não acopla cada raiz a um bucket específico — não reabre purga
+cross-tenant, só fica marcado para o futuro composition root construir cada target de uma tabela
+fechada bucket→raiz; (b) adaptadores reais (`tenant-purge-scan.ts`/`tenant-purge-s3-adapter.ts`)
+continuam sem teste de integração contra AWS real — gap conhecido desde D-081, inalterado.
+
+**Próxima ação real, em ordem de valor esperado**: (a) decidir e implementar o orquestrador/trigger
+real (Step Functions vs. Lambda simples via EventBridge Scheduler — decisão de produto/arquitetura,
+Type 1, `AGENTS.md` §4, ainda não decidida — Marcelo deve decidir ou delegar via protocolo
+Claude↔Codex); (b) Terraform para a IAM role do futuro handler de purge; (c) teste de integração
+real dos adaptadores AWS contra DynamoDB/S3 reais (achado não-bloqueante (b) acima); (d) se
+desejado, fechar o achado não-bloqueante (a) acima (acoplar raiz↔bucket) quando o composition root
+real for construído.
+
+## W3-07 — primeira rodada Codex do purge pipeline (2026-08-29), D-082, nota 4,5/10 — 6 bloqueadores corrigidos, sem reconfirmação
+
+Sessão de continuação direta de D-081 (o purge pipeline tinha sido implementado sem NENHUMA
+revisão adversarial). Rodou a primeira rodada Codex real sobre esse código, seguindo o mesmo
+padrão de arquivo-prompt/primeiro-plano do fence de admissão (`AGENTS.md` §4). Registro completo
+em `decisions-log.md` D-082.
+
+- **Nota do Codex: 4,5/10** — abaixo do gate de 9,0, mas no mesmo padrão de "primeira rodada real
+  acha bloqueadores estruturais" que D-072 (5,0/10) já mostrou no lado do fence de admissão.
+- **6 achados BLOQUEANTES, todos confirmados reais e corrigidos NESTA MESMA sessão** (sem uma
+  segunda rodada Codex confirmando os fixes — orçamento):
+  1. **B1 — completude do Scan**: `GuestTokenPointer`/`TextractJob` (tenant-owned, `tenantId`
+     declarado, mas PK fora do prefixo `TENANT#`) nunca eram alcançados pelo Scan. Corrigido
+     ampliando o `FilterExpression`/`ConditionExpression` para aceitar `tenantId = :tenantId` como
+     alternativa ao prefixo `TENANT#`.
+  2. **B2 — convergência não provada em retomada**: um checkpoint com `versionsDone`/`dynamoDone`/
+     `sessionTableDone` fazia uma retomada pular a re-varredura inteiramente, violando o requisito
+     do design aprovado de "re-scan vazio, não uma única varredura". Corrigido com 3 funções de
+     verificação incondicional (`verifyTenantDynamoPurgeEmpty`/`verifyTenantSessionsEmpty`/
+     `verifyS3TenantPrefixEmpty`), sempre chamadas antes de `SUCCESS`.
+  3. **B3 — exclusão do tombstone dependia de metadado mutável**: `TenantLifecycleRecord` só era
+     protegido pelo atributo opcional `entityType` no item escaneado. Corrigido com guarda por
+     CHAVE FÍSICA CANÔNICA dentro da própria lane privilegiada (`PURGE_DELETE`). Guarda equivalente
+     adicionada para `IdentityMapping` (achado próprio desta sessão: o fix de B1 teria reaberto a
+     proteção dela especificamente).
+  4. **B4 — rejeições de segurança ignoradas no result reporting**: `itemsRejectedBySafetyCondition`
+     já existia mas `purge-tenant.ts` nunca o lia — corrigido, agora força `PARTIAL`.
+  5. **B5 — TOCTOU na session table**: `deleteSession()` era incondicional após um check só do lado
+     do chamador. Corrigido com `ConditionExpression` server-side no adaptador real.
+  6. **B6 — S3 targets sem vínculo ao tenant**: `purgeTenant()` aceitava qualquer `{bucket,prefix}`
+     sem checar contra o `tenantId` sendo purgado. Corrigido exigindo `tenantId` no
+     `TenantS3Target` + asserção síncrona (`TenantPurgeTargetMismatchError`) antes de qualquer
+     purga rodar.
+- **2 achados NÃO-BLOQUEANTES avaliados, sem mudança de código**: `LoginAttempt` sem `tenantId`
+  (aceitável como está, já documentado); bucket OCR não-versionado (Codex marcou "bloqueante em
+  combinação com B2", mas com B2 corrigido o mecanismo já funciona corretamente sobre ele — a
+  questão real remanescente é operacional/timing de quando a verificação roda, não um bug de
+  código).
+- 1082 testes de backend passando (era 1066, +16 novos), typecheck/lint/check-boundaries/
+  check-docs limpos, zero regressão.
+
+**Próxima ação real, em ordem de valor esperado**: (a) uma SEGUNDA rodada Codex confirmando
+especificamente os 6 fixes B1-B6 antes de considerar D-082 fechado — mesmo padrão que o fence de
+admissão precisou (D-072→D-075→D-079→D-080) para convergir; (b) decidir e implementar o
+orquestrador/trigger real (Step Functions vs. Lambda simples via EventBridge Scheduler — decisão
+de produto/arquitetura, Type 1, ainda não decidida); (c) Terraform para a IAM role do futuro
+handler de purge; (d) teste de integração real dos adaptadores AWS (`tenant-purge-scan.ts`,
+`tenant-purge-s3-adapter.ts`) contra AWS real — ainda só compilação/lint, nunca exercitados contra
+DynamoDB/S3 reais.
+
+## W3-07 — pipeline de purga durável (2026-08-29), D-081, ainda sem rodada Codex
+
+Sessão dedicada ao purge/sweeper pós-`DELETED` (Codex, em D-080, recomendou explicitamente
+redirecionar esforço para cá em vez de continuar espremendo o fence de admissão em 8,8/10).
+Registro completo em `decisions-log.md` D-081.
+
+**O que foi construído** (todos os 4 itens do escopo, IMPLEMENTED + UNIT TESTED):
+1. `src/shared/tenant-lifecycle/system-mutation.ts`'s `PURGE_DELETE` — implementado de verdade
+   (era `SystemMutationNotImplementedError`). `Delete` idempotente
+   (`attribute_not_exists(PK) OR begins_with(PK, "TENANT#<id>#")`), sem condição de versão.
+2. `src/workers/tenant-purge/dynamo-tenant-purge.ts` — Scan tenant-scoped da tabela principal +
+   purge via `PURGE_DELETE`, excluindo `TenantLifecycleRecord`/`IdentityMapping` na camada de
+   lógica pura.
+3. `src/workers/tenant-purge/session-table-tenant-purge.ts` — purge do `bff-session-table`
+   (linhas `Session` apenas — `LoginAttempt` não tem `tenantId`, gap real documentado).
+4. `src/workers/tenant-purge/s3-tenant-purge.ts` — `ListObjectVersions` paginado, versões +
+   delete markers, `DeleteObjects.Errors[]` com retry, `ListMultipartUploads` + abort,
+   checkpoint/resume.
+5. `src/workers/tenant-purge/purge-tenant.ts` — ponto de entrada composable único
+   (`SUCCESS`/`PARTIAL`/`FAILED`, nunca reporta sucesso com erro S3 não resolvido).
+6. Adaptadores reais AWS: `src/shared/dynamodb/tenant-purge-scan.ts` (Scan real, tabela
+   principal + bff-session-table), `src/shared/s3/tenant-purge-s3-adapter.ts` (S3 real).
+
+1066 testes de backend passando (era 1038, +28 novos), typecheck/lint/check-boundaries/
+check-docs limpos, zero regressão. Commits: `4eaf593` (pipeline core + testes) e o commit desta
+mensagem (adaptadores reais + docs).
+
+**Infra real verificada, não assumida**:
+- `quarantine`/`clean` (`infra/modules/document-buckets/main.tf`) e `import`
+  (`infra/modules/import-bucket/main.tf`): **versionamento confirmado habilitado**
+  (`aws_s3_bucket_versioning` com `status = "Enabled"`), como o design aprovado assume.
+- `extraction_transient` (bucket OCR, `infra/main.tf` linha ~1702): **deliberadamente SEM
+  versionamento** — comentário do próprio Terraform diz "no versioning/lifecycle safety net",
+  TTL de 24h (`EXTRACTION_TRANSIENT_LIFECYCLE_HOURS`). Isto NÃO é um gap de implementação desta
+  sessão — é uma decisão de design pré-existente (retenção transitória curta substitui
+  versionamento). O mecanismo de purga desta sessão funciona corretamente sobre um bucket não
+  versionado também (cada objeto aparece como uma "versão" `null` em `ListObjectVersions`,
+  purgada do mesmo jeito) — só o argumento "versionamento cobre objeto tardio" do design
+  aprovado não se aplica a este bucket especificamente; o TTL de 24h é o que efetivamente limita
+  a janela de exposição ali.
+- `bff-session-table` (`infra/modules/bff-session-table/main.tf`): confirmado sem GSI — a
+  enumeração tenant-scoped é necessariamente um Scan, não um Query (documentado no próprio
+  módulo).
+- Nenhuma GSI keyed só por `tenantId` existe na tabela principal (GSI1-GSI7, cada uma serve um
+  padrão de acesso por tipo de entidade específico) — confirmado por leitura de
+  `infra/modules/dynamo-table/main.tf` e grep exaustivo de `GSI1PK` em `src/modules/**/domain`.
+  O purge da tabela principal é portanto um Scan com `FilterExpression: begins_with(PK, ...)`,
+  não um Query — aceitável porque deleção de tenant é rara/assíncrona, não um hot path.
+
+**O que NÃO foi construído nesta sessão (explicitamente fora de escopo, ver prompt original)**:
+- Orquestrador/Step Functions ou qualquer wiring real de trigger `QUIESCING`→`PURGING`→
+  `VERIFIED` — `purgeTenant()` é uma primitiva real e chamável, não um Lambda handler ainda; não
+  existe `src/runtime/aws/handlers/tenant-purge-handler.ts` nem composição em
+  `src/runtime/aws/composition/`.
+- Nenhuma mudança em Terraform (`infra/`) — nenhuma IAM role nova para um futuro handler de
+  purge, nenhum EventBridge Scheduler/state machine.
+- Adaptadores reais (`tenant-purge-scan.ts`, `tenant-purge-s3-adapter.ts`) NÃO foram testados
+  contra AWS real nesta sessão (sem ambiente de integração disponível) — só typecheck/lint/
+  compilação limpos. A lógica pura que eles envolvem tem 24 testes unitários com fakes
+  in-memory/S3, mas o adaptador real em si (marshalling de `ScanCommand`/`ListObjectVersionsCommand`/
+  `DeleteObjectsCommand` reais) não tem teste de integração.
+- **Nenhuma rodada Codex executada sobre este código ainda** — ao contrário do fence de admissão
+  (4 rodadas, 8,8/10), o purge pipeline desta sessão não teve nenhuma revisão adversarial. Maior
+  valor esperado da próxima sessão: uma rodada Codex dedicada especificamente a
+  partial-failure handling, checkpoint/resume correctness, isolamento de tenant, e completude do
+  bucket versionado (ver `AGENTS.md` §4 para invocação).
+- O gap `LoginAttempt`/`GuestRateLimitRecord` do `bff-session-table` (sem `tenantId`) permanece
+  documentado, não fechado — mesma classe de pendência já registrada em D-080 para o fence de
+  admissão.
+
+**Próxima ação real, em ordem de valor esperado**: (a) rodada Codex adversarial dedicada ao
+purge pipeline (maior valor, zero rodadas até agora); (b) decidir e implementar o
+orquestrador/trigger real (Step Functions vs. Lambda simples invocado por EventBridge Scheduler
+— decisão de produto/arquitetura, Type 1, não decidida nesta sessão); (c) Terraform para a IAM
+role do futuro handler de purge (least-privilege: Scan na tabela principal + `bff-session-table`,
+`ListObjectVersions`/`DeleteObjects`/`ListMultipartUploads`/`AbortMultipartUpload` nos 4 buckets).
+
+## W3-07 — quarta rodada Codex (2026-08-29), D-080, nota 8,8/10 — melhor rodada até agora
+
+Sessão de continuação, prompt de retomada priorizando: (1) fechar o gap residual não-`TENANT#`-
+prefixed do `findTenantMismatch` na medida do possível; (2) verificar os 2 fixes BLOQUEANTES de
+D-079 (reordenação import-service.ts, asserção de tipo do allowlist) por leitura própria antes de
+gastar uma rodada Codex neles; (3) rodar a quarta rodada Codex que a sessão anterior não
+conseguiu (orçamento esgotado). Registro completo em `decisions-log.md` D-080.
+
+- **Item 1 (gap residual)**: re-lidos todos os tipos de domínio reais usando chaves não-`TENANT#`
+  (`IdentityMapping`, `GuestTokenPointer`, `Session`, `TextractJob`, `LoginAttempt`,
+  `GuestRateLimitRecord`) — 4 de 6 DECLARAM `tenantId` no item, então já são cobertos pelo check 1
+  existente (`declared tenantId`) se um dia forem roteados por esta lane com um valor forjado.
+  Teste adversarial novo prova isso com a FORMA REAL de `GuestTokenPointer` (`GUESTTOKEN#` +
+  `tenantId` forjado, rejeitado antes de qualquer write). Só `LoginAttempt` e
+  `GuestRateLimitRecord` não têm nenhum dos dois sinais — nenhum dos dois é roteado por
+  `executeTenantBusinessMutation`/`tryTenantBusinessMutation` hoje (confirmado por grep, depois
+  re-confirmado independentemente pelo Codex na rodada 4). Comentário/teste corrigidos para listar
+  as DUAS exceções reais, não só `LoginAttempt` (o Codex pegou essa lacuna de precisão — ver
+  abaixo).
+- **Item 2 (verificação própria dos fixes D-079)**: lidos com cuidado antes de gastar orçamento
+  Codex — `import-service.ts`'s reordenação `begin()`-antes-de-`quota.consume()` com rastreamento
+  por-chamada, e `system-mutation-allowlist.test.ts`'s asserções bidirecionais — ambos pareceram
+  corretos na leitura própria, sem achado a corrigir antes de invocar o Codex.
+- **Item 3 — QUARTA rodada Codex executada com sucesso** (`codex exec --skip-git-repo-check`,
+  primeiro plano, prompt em arquivo, sem crases inline) sobre o diff acumulado desde `c496b91`
+  (os 2 fixes de D-079) mais o diff desta sessão (o narrowing do item 1). **Nota do Codex:
+  8,8/10** — primeira rodada a superar 8,0, ainda abaixo do gate de 9,0 mas por margem pequena.
+  **Ambos os fixes de D-079 CONFIRMADOS CORRETOS, sem achado bloqueante remanescente** —
+  Codex verificou que `idempotency.begin()` não tem modo de falha que toque quota e que a
+  reordenação fecha os 3 vazamentos originais; confirmou que o allowlist bidirecional prova
+  fechamento real contra um `kind` novo, não só o sentinela hard-coded anterior.
+  **1 achado NÃO-BLOQUEANTE real encontrado**: o narrowing do item 1 desta sessão (antes de rodar
+  o Codex) estava incompleto — só listava `LoginAttempt`, mas `GuestRateLimitRecord` (PK
+  `GUESTTOKEN#<selectorHash>#RATE`, sem `tenantId`, por design — rate-limit acontece antes do
+  token de convidado resolver um tenant) também não tem nenhum dos dois sinais. Codex confirmou
+  por grep próprio que nenhum dos dois é roteado por esta lane hoje, então o gap continua não-
+  explorável, mas a alegação "a única exceção real" era imprecisa. **Corrigido na mesma sessão**
+  (cabeçalho de `tenant-business-mutation.ts` + teste `KNOWN GAP` em `tenant-lifecycle.test.ts`
+  agora listam as duas). **1 achado NÃO-BLOQUEANTE adicional, corrigido preventivamente**: uma
+  pequena janela de liveness em `reserveImport()` entre `idempotency.begin()` (ACQUIRED) e o
+  bloco `try` que já cobria compensação — `newImportJobId()`/cálculo de `jobExpiresAt`/construção
+  do objeto `job` ficavam FORA do try; movido para dentro para que `idempotency.abort()` cubra
+  essa janela também (nenhuma quota tocada nesse ponto, então não era um dos 3 vazamentos
+  originais, mas ainda um wedge real de idempotency key). 1038 testes de backend passando (era
+  1037), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+
+**Avaliação geral do Codex (rodada 4)**: os 8 mecanismos do fence acumulados até agora (cross-
+validation tenant/entries, verificação de PK físico, fechamento do allowlist SystemMutation,
+ordenação de compensação import-service, hardening de CancellationReasons, fix TOCTOU do
+bootstrap, fix de resume BLOCKED/HELD, compensação de objeto órfão S3) formam "uma defesa
+coerente e substancialmente testada"; nenhum achado bloqueante novo de production-readiness.
+Recomendação explícita do Codex: uma rodada curta de correção-e-reconfirmação bastaria (as 2
+correções que já foram feitas nesta mesma sessão) — **não pediu uma rodada ampla nova**. Notou
+que rodadas adicionais sobre este gate específico têm retorno decrescente a partir daqui, a menos
+que o time decida substituir o gap residual documentado (2 entidades reais, `LoginAttempt`/
+`GuestRateLimitRecord`, sem `tenantId` nem `TENANT#` PK, nunca roteadas por esta lane) por um
+redesign estrutural maior (metadados obrigatórios pelos builders, tipo de entrada tenant-branded).
+
+**Estado honesto ao final desta sessão**: quatro rodadas Codex completas (D-072: 5,0; D-075: 6,0;
+D-079: 6,0; D-080: 8,8). Os 2 achados não-bloqueantes desta rodada JÁ foram corrigidos (sem nova
+rodada Codex confirmando especificamente ESTES 2 fixes — mudança mecânica/documental de baixo
+risco, sem nova superfície de comportamento observável, coberta pela suíte existente que passou
+sem alteração). Uma quinta rodada Codex especificamente re-checando estes 2 últimos fixes NÃO foi
+executada (nem foi pedida pelo Codex — ele endereçou explicitamente que rodadas amplas adicionais
+têm retorno decrescente aqui). **Próxima ação real, em ordem de valor esperado**: (a) se o time
+quiser tentar cruzar 9,0 formalmente, uma quinta rodada curta confirmando só os 2 fixes desta
+sessão é o caminho mais barato, mas o próprio Codex já sinalizou baixo valor incremental; (b) mais
+proveitoso agora, por avaliação honesta desta sessão: virar a atenção para outra dimensão do W3-07
+— completude dos writers ainda NOT FENCED (ver `w3-07-writer-inventory.md`) ou o sweeper
+permanente pós-`DELETED` (ainda não construído) — ao invés de continuar espremendo margem na
+mesma gate PK/quota/allowlist que já está em 8,8/10 com achados cada vez mais estreitos e
+teóricos; (c) o gap residual de `LoginAttempt`/`GuestRateLimitRecord` fica, como sempre, como
+pendência documentada — nenhum call site real o exercita, e fechar de verdade é Type 1/redesign,
+não uma sessão de correção mecânica.
+
+## W3-07 — fechamento do achado mais sério de D-075 (2026-08-29), D-076, em andamento
+
+Sessão de continuação, prompt de retomada explícito priorizando 3 itens em ordem: (1) fechar o
+gap PK/SK/TableName do `findTenantMismatch` — o achado mais sério do Codex round-2 (D-075,
+6.0/10); (2) architecture test provando o allowlist `SystemMutation` fechado; (3) mitigação
+barata para admissão parcial em `import-service.ts` se existir uma sem exigir a decisão de
+produto. Ver `decisions-log.md` D-076 para o registro completo do item 1.
+
+- **Item 1 FECHADO de verdade (não documentado como pendência)**: `findTenantMismatch` estendido
+  com checagem de `TableName` (toda entrada deve bater com `input.tableName`) e checagem de `PK`
+  físico contra o padrão universal `TENANT#<tenantId>#...` do modelo de dados — confirmado por
+  grep exaustivo que essa convenção é universal para toda entidade tenant-scoped roteada por esta
+  lane hoje (as exceções reais — `IDENTITY#cognitoSub#`, `GUESTTOKEN#`, `SESSION#`,
+  `LOGINATTEMPT#`, `TEXTRACTJOB#` — nunca são passadas por `executeTenantBusinessMutation`/
+  `tryTenantBusinessMutation`, verificado por grep de todos os call sites reais). Fecha
+  especificamente o cenário do Codex: `Item.tenantId` forjado batendo com a fence enquanto o `PK`
+  real aponta para outro tenant agora é rejeitado antes de qualquer `transactWrite`. **IMPLEMENTED
+  + UNIT TESTED** (4 testes novos em `test/unit/tenant-lifecycle.test.ts`). 1026 testes de backend
+  passando (era 1023), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+- Gap residual honesto (documentado no código, não mascarado): uma entrada sem `PK` no padrão
+  `TENANT#` E sem `tenantId` declarado ainda passa sem verificação — nenhum call site real produz
+  isso hoje, mas a lane não impede estruturalmente que um futuro escritor o faça.
+- **Item 2 FECHADO**: `test/architecture/system-mutation-allowlist.test.ts` novo — prova por
+  compilação real (`tsc -p tsconfig.json --noEmit`, mesmo comando de `npm run typecheck`) que o
+  allowlist `SystemMutationOperation` está fechado: fixture com `kind` fora da união falha a
+  compilação; fixture com campo `entries[]` contrabandeado numa operação por outro lado válida
+  falha a compilação; controle com as 3 kinds reais compila limpo. Complementa os testes já
+  existentes em `test/unit/system-mutation.test.ts` (agora com um segundo `@ts-expect-error`
+  específico para `kind` fora da união, e um teste-documentação grep-ável confirmando que nenhum
+  orquestrador externo real constrói uma operação hoje). **Achado real corrigido**: dois arquivos
+  de teste de arquitetura rodando em paralelo (padrão do vitest) e plantando/removendo fixtures
+  reais sob `src/` concorrentemente causavam uma corrida real (`TS6053: File ... not found`
+  intermitente) — corrigido com `fileParallelism: false` em `vitest.config.ts`. 1032 testes de
+  backend passando (era 1026), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+- **Item 3 FECHADO (mitigação, não a decisão de produto em si)**: `reserveImport()`'s catch block
+  agora libera best-effort a quota (`IMPORT_COUNT`/`IMPORT_BYTES`) e aborta o idempotency record
+  quando a criação fenceada do `ImportJob` falha — antes, uma rejeição (fence ou OCC comum) deixava
+  a idempotency key presa em `IN_PROGRESS` para sempre e a quota vazada até expirar a janela. A
+  admissão parcial em si (quota/idempotency fora da transação fenceada) continua fora da transação
+  — isso é a decisão de produto real (trade-off latência-vs-atomicidade) que permanece pendente,
+  não forçada. **Achado real corrigido**: `InMemoryImportStore`'s fake de `transactWrite` nunca
+  avaliava a condição `#status = :expected` de `idempotency.abort()` nem aplicava seu SET (nomes
+  literais, não a convenção `#setN`) — `abort()` "funcionava" sem erro mas não mudava nada,
+  mascarando a mitigação nos testes. Generalizado para um parser genérico de condição/update.
+  1034 testes de backend passando (era 1032), typecheck/lint/check-boundaries/check-docs limpos.
+- **Terceira rodada Codex executada (D-079) — nota 6,0/10, ainda abaixo do gate de 9,0**.
+  2 achados BLOQUEANTES reais confirmados: (1) a compensação de `import-service.ts` só cobria a
+  criação do job, não os dois `quota.consume()` — replay cobrava quota de novo, e um chamador
+  concorrente perdedor vazava quota antes de perder a corrida em `begin()`; (2) o
+  architecture-test do allowlist só provava a ausência de UM `kind` sentinela específico, não que
+  a união está fechada contra um `kind` genuinamente novo. **Ambos corrigidos na mesma sessão**:
+  `reserveImport()` reordenado (`idempotency.begin()` antes de `quota.consume()`, compensação
+  agora cobre ambas as reservas de quota com rastreamento por-chamada de qual foi realmente
+  consumida); asserções de tipo bidirecionais (`AssertUnionIsSubsetOfApproved`/
+  `AssertApprovedIsSubsetOfUnion`) adicionadas contra um allowlist mantido independentemente do
+  módulo de implementação, sanity-checadas manualmente (allowlist quebrado de propósito, `tsc`
+  falhou como esperado, revertido). Achados NÃO-BLOQUEANTES: 1 overclaim de comentário corrigido
+  ("exact object shapes"); TableName confirmado sólido sem bypass; o gap residual de PK não-
+  `TENANT#`-prefixed (ex. `GUESTTOKEN#`/`IDENTITY#` com `tenantId` forjado) confirmado como
+  limitação real já documentada, não uma regressão — nenhum call site real produz isso hoje.
+  1037 testes de backend passando (era 1034), typecheck/lint/check-boundaries/check-docs limpos.
+  **UMA QUARTA RODADA CODEX RE-CHECANDO ESTES 2 FIXES NÃO FOI EXECUTADA** — orçamento esgotado
+  nesta sessão. A nota 6,0/10 registrada é sobre o estado ANTES destes 2 fixes.
+
+## Estado honesto geral do W3-07 ao final desta sessão (2026-08-29)
+
+Três rodadas Codex completas (D-072: 5,0/10: D-075: 6,0/10; D-079: 6,0/10, mas sobre um diff que
+já foi parcialmente re-corrigido na mesma sessão sem nova rodada confirmando). Nenhuma rodada
+atingiu o gate de 9,0 do `AGENTS.md` §4 até agora. Padrão observado nas três rodadas: cada
+fechamento resolve os achados apontados mas expõe (ou o Codex encontra) uma camada residual mais
+sutil — do "tenantId declarado" para "PK físico" para "compensação parcial"/"prova de tipo
+insuficiente". Isso sugere que este fence provavelmente precisa de pelo menos **mais 1-2 rodadas
+Codex reais** (não só fixes sem reconfirmação) antes de plausivelmente atingir 9,0 — os achados
+BLOQUEANTES até agora sempre foram concretos e corrigíveis em menos de uma sessão cada, não
+sintomas de um problema estrutural maior, mas o processo de "corrigir sem reconfirmar" (como esta
+sessão terminou, por orçamento) é exatamente o padrão que já produziu uma rodada extra cada vez.
+**Próxima ação real, em ordem**: (a) rodar uma QUARTA rodada Codex confirmando especificamente os
+2 fixes desta sessão (reordenação import-service.ts, asserção de tipo do allowlist) antes de
+declarar D-072/D-075/D-079 fechados; (b) se aprovar, considerar se o gap residual de PK não-
+`TENANT#`-prefixed (item 1's limitação estrutural remanescente) precisa de uma sessão de design
+dedicada antes do próximo marco tocar esse código, ou se pode continuar como pendência documentada
+indefinidamente dado que nenhum call site real o exercita hoje.
+
+
+
+Sessão de continuação retomada após interrupção por rate limit. Escopo: fechar os achados
+deferidos por D-072 (revisão Codex round-1), na ordem de prioridade do prompt de retomada.
+Registro completo em `decisions-log.md` D-073 (item 1) e D-074 (itens 2/3/4).
+
+- **Item 1 FECHADO — cross-validation tenant/entries em `TenantBusinessMutation`**:
+  `executeTenantBusinessMutation` agora chama `findTenantMismatch(entries, tenantId)` antes de
+  qualquer `transactWrite`, lendo o `tenantId` já estampado pelos builders de `occ.ts`
+  (`Item.tenantId` em `Put`, `ExpressionAttributeValues[":tenantId"]` em `Update`/`Delete`) e
+  rejeitando com `InternalError` se algum valor declarado divergir do `tenantId` fenceado.
+  `ConditionCheck` entries (sem convenção de tenantId) são puladas — best-effort, documentado no
+  próprio código como não sendo uma prova estrutural completa (só pega mismatch DECLARADO).
+  Nenhum call site real precisou de mudança (todos já passavam entries corretamente escopadas).
+  **IMPLEMENTED + UNIT TESTED** (3 testes adversariais novos em `test/unit/tenant-lifecycle.test.ts`).
+- **Item 2 (overclaim estrutural do boundary) — verificado JÁ CORRIGIDO** na sessão anterior de
+  D-072 (commit `94d27e7`, antes desta sessão): `system-mutation.ts`'s cabeçalho já tem uma seção
+  "KNOWN LIMIT" precisa. O fechamento estrutural real (porta mais estreita ou architecture-test
+  bloqueando `.transactWrite(` fora das lanes) foi reavaliado nesta sessão e confirmado
+  desproporcional: `grep` encontra 24 arquivos chamando `.transactWrite(` fora das duas lanes, a
+  maioria writers system-triggered legitimamente fora de escopo (purge, reminder workers,
+  idempotency) — um architecture-test ingênuo produziria dezenas de falsos positivos. Permanece
+  pendência real documentada, não forçado nesta sessão.
+- **Item 3 (risco de admissão parcial em `import-service.ts`) — revisado, confirmado NÃO ser bug
+  mecânico**: `idempotency.begin()` + 2 reservas de quota seguem fora da transação fenceada que
+  cria o `ImportJob`, mesma classe de risco já aceita por design para
+  `TenantQuotaService.release()`. Decisão Type 1 sobre unificar numa transação maior fica para o
+  dono do produto. Permanece pendência real documentada.
+- **Item 4 (hardening de `CancellationReasons` ausente/malformado) FECHADO**:
+  `Array.isArray(rawReasons)` adicionado antes de indexar `reasons[fenceIndex]` em
+  `executeTenantBusinessMutation` — um adapter hipotético quebrado que populasse
+  `CancellationReasons` com um valor não-array agora cai no mesmo fallback seguro
+  "trata como fence falhou" que a ausência completa já tinha, em vez de um acesso mal-comportado.
+  **IMPLEMENTED + UNIT TESTED** (1 teste adversarial simulando o adapter quebrado).
+- **Segunda rodada de revisão Codex executada** sobre o diff D-073/D-074 (D-075) — **nota 6,0/10**
+  especificamente sobre o fechamento dos itens 1 e 4 (não uma reavaliação da nota 5,0/10 original
+  de D-072 sobre a implementação inteira). Achados reais fechados na mesma sessão: comentário que
+  alegava que `buildVersionedCreate`/`buildConditionalPut` "stampam" `tenantId` estava errado
+  (esses builders só repassam o item do chamador, não adicionam/exigem `tenantId`) — corrigido;
+  teste do "sem tenantId declarado passa" reescrito para nomear explicitamente que é um GAP
+  RESIDUAL confirmado, não um default aceitável; cobertura estendida com caso `Delete`; hardening
+  do item 4 estendido para validar a FORMA do elemento no índice da fence (não só que
+  `CancellationReasons` seja um array) — um array presente mas com elemento malformado no índice
+  da fence antes ainda podia relançar o erro original em vez do fallback seguro documentado,
+  fechado com 2 testes novos.
+- **Achados do Codex conscientemente NÃO corrigidos, documentados como pendência real**: item 1
+  continua "bypassável by construction" para um `Put` cujo `Item.tenantId` bate mas cujo `PK`/`SK`
+  físico aponta para outro tenant, ou que declara outro `TableName` — limitação estrutural real do
+  design "best-effort", não uma regressão; fechar precisaria de metadados obrigatórios impostos
+  PELOS PRÓPRIOS builders, validação contra PK/SK+TableName, ou um tipo de entrada tenant-branded
+  (Type 1, maior que uma sessão). Sugestão do Codex de um architecture-test allowlist-based para o
+  item 2 (mais barato que a redesign completa) avaliada como viável mas não implementada — candidato
+  concreto para a próxima sessão dedicada ao item 2. Passos de mitigação de menor esforço sugeridos
+  pelo Codex para o item 3 (ordenar idempotency antes da quota, abortar idempotency em falha de
+  quota, chaves de reserva únicas por request) registrados mas não implementados — pendência real.
+- 1023 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão.
+
+**Próxima ação real**: (a) item 2's fechamento estrutural — avaliar o architecture-test
+allowlist-based sugerido pelo Codex em D-075 como próximo passo concreto (mais barato que a
+redesign completa de porta); (b) item 3 — decisão do produto sobre o trade-off latência vs.
+atomicidade em `import-service.ts`, com os passos de mitigação de menor esforço do Codex (D-075)
+como ponto de partida; (c) item 1's limitação estrutural residual (PK/SK+TableName não validados)
+fica para uma sessão dedicada de design, não uma correção mecânica.
+
+## W3-07 — primeira revisão adversarial Codex + correções (2026-08-29), D-072
+
+Sessão dedicada a review-and-fix, não a novo chunk de migração: rodou a primeira revisão Codex
+sobre TODA a implementação acumulada de W3-07 (chunks 2/N-9/N), que nunca tinha sido revisada
+apesar de ser Type 1/segurança per `AGENTS.md` §4. Registro completo em `decisions-log.md` D-072;
+matriz atualizada + seção de review em `docs/architecture/w3-07-writer-inventory.md`.
+
+- **Nota do Codex: 5,0/10** sobre o código real (o design em si continua aprovado 9,2/9,1 via
+  D-066 — esta nota é sobre a fidelidade da implementação ao design, não uma reabertura do design).
+- **3 achados bloqueantes reais corrigidos, com teste de regressão cada um**: (1) TOCTOU de
+  ressurreição no bootstrap (`bootstrap-identity.ts`'s `ensureProfile()` agora fenced via
+  `executeTenantBusinessMutation`, não mais um `putIfAbsent` solto após uma leitura de lifecycle já
+  potencialmente obsoleta); (2) resume de `BLOCKED`/`HELD` podia pular estágios do cascade
+  confiando no `blockedFrom` alegado pelo CHAMADOR em vez do valor realmente armazenado
+  (`system-mutation.ts` agora exige, via `extraCondition` na mesma transação, que o `blockedFrom`
+  armazenado bata com o alvo do resume); (3) os workers de evidência só compensavam o objeto `clean`
+  órfão na rejeição do fence, nunca numa perda de corrida OCC comum nem numa falha de verificação de
+  cópia — confirmado que o bucket `clean` É versionado (`infra/modules/document-buckets/main.tf`),
+  então isso deixava versões órfãs reais mesmo em caminhos de sucesso eventual; corrigido para
+  compensar em todo resultado não commitado, nos dois arquivos (`advance-after-evidence.ts` e
+  `advance-after-submission-evidence.ts`).
+- **Achado de doc-drift real corrigido**: `w3-07-writer-inventory.md` tinha 3 linhas desatualizadas
+  (SES/evidence-workers/import-reservation ainda diziam NOT FENCED apesar de já migradas em sessões
+  anteriores) — corrigido, com o histórico da deriva registrado na própria tabela.
+- **Achados reais NÃO corrigidos, documentados como pendência** (ver a seção "Codex round-1
+  adversarial review" no final de `w3-07-writer-inventory.md` para o texto completo por item, e
+  D-072 para a versão com o framing de severidade do Codex preservado): vários writers já
+  documentados como NOT FENCED antes desta revisão (não descobertas novas); a regra
+  `no-raw-dynamodb-writes-outside-lanes` + o comentário de `system-mutation.ts` superestimavam o que
+  provam (bloqueiam import direto do SDK, não provam que `store.transactWrite(entries)` genérico é
+  inalcançável de código de aplicação) — comentário corrigido para não overclaim, fechamento
+  estrutural real adiado; `TenantBusinessMutation` não valida que `entries[]` pertence de fato ao
+  `tenantId` passado (todos os call sites reais conferem hoje, API não impede um mismatch futuro);
+  `import-service.ts`'s reservas de quota/idempotência fora da transação fenced principal
+  (admissão parcial possível numa falha no meio, mesma classe de risco já aceita para
+  `TenantQuotaService.release()`); `tenant-business-mutation.ts`'s tratamento de `CancellationReasons`
+  ausente como fence-failed é conservador mas não hardened contra um adapter hipotético quebrado
+  (DynamoDB real sempre populates, risco real baixo).
+- 1016 testes de backend passando (era 1011), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. Nota do Codex NÃO foi re-solicitada após os fixes (fora do orçamento desta
+  sessão) — recomendado como próximo passo antes de retomar novos chunks de migração.
+
+**Próxima ação real**: (a) opcionalmente, uma segunda rodada Codex sobre só o que mudou nesta
+sessão, para confirmar os 3 fixes e não introduziram nada novo; (b) continuar o roteiro de writers
+ainda NOT FENCED (`ItemWatchService.addWatcher`/`reactivate`, `document-request-service.ts`,
+`subject-service.ts`, `run-extraction-validation.ts`'s `commitOrDiscard`, import parse/commit); (c)
+o fechamento estrutural real do boundary (porta mais estreita para os stores, ou um architecture
+test que bloqueie `store.transactWrite` fora das duas lanes) — Type 1, provavelmente merece seu
+próprio design curto antes de implementar; (d) sweeper permanente pós-`DELETED`; (e) email delivery
+já fenced, mas SES em si (envio real via provider) segue fora do escopo de W3-07 por definição do
+design.
+
+## W3-07 — chunk 9/N implementado nesta sessão (2026-08-29), D-070/D-071 continuação
+
+Alvo único desta sessão (o maior de blast-radius pendente no roteiro): **`ExpirationService.commit()`**.
+
+- **`ExpirationService.commit()` fenced via `TenantBusinessMutation`** — `commit()` é o único
+  método privado por onde as 5 mutações públicas (`createItem`/`updateItem`/`archiveItem`/
+  `deleteItem`/`renewItem`) já passavam antes desta sessão; ganhou um parâmetro `tenantId` e
+  roteia sua `TransactWriteItems` via `executeTenantBusinessMutation`, mesmo padrão de
+  `TenantQuotaService.consume()`/`ItemWatchService.removeWatcher`. `TenantNotActiveError` é
+  relançado sem alteração (nunca dobrado em `ConflictError("VERSION_CONFLICT")`), preservando a
+  lógica de abort de idempotência já existente em `createItem`/`renewItem`. **IMPLEMENTED + UNIT
+  TESTED** (5 testes adversariais novos em `test/unit/expiration/expiration-service.test.ts`:
+  ACTIVE control case; DELETING rejeita `createItem` sem linha deixada para trás; DELETING rejeita
+  `updateItem`/`archiveItem`/`deleteItem`/`renewItem` atomicamente com o estado pré-DELETING do
+  item inalterado; um conflito OCC comum em `updateItem` continua `ConflictError`, não confundido
+  com a fence — prova o fix de `CancellationReasons` abaixo; um retry de idempotência de
+  `createItem` após DELETING ainda retorna o resultado cacheado em vez de ser bloqueado).
+- **Blast radius real medido, muito menor que o temido (~600 testes)**: apenas 3 arquivos de teste
+  precisaram de seed de `TenantLifecycleRecord` — `expiration-service.test.ts`,
+  `reminder-materialization-trigger.test.ts` (seu fixture `MirroredExpirationStore` exigiu seed
+  via `expirationStore.putIfAbsent()`, não `store.putIfAbsent()` diretamente, por ter um mapa
+  interno próprio herdado além do mirror), e `expiration-lifecycle.test.ts` (mesmo padrão de
+  pré-resolver usuários reais via o resolver de bootstrap, já usado no chunk 8/N para
+  document/import-handlers). Helper reusável `activeLifecycleRecord(tenantId)` + seed opcional no
+  construtor adicionados a `test/unit/expiration/in-memory-store.ts`, mesmo padrão já estabelecido
+  em `document/in-memory-store.ts` — evita duplicar um `seedLifecycle()` async por arquivo.
+- **Achado real corrigido nesta sessão**: o fake `transactWrite` de
+  `test/unit/expiration/in-memory-store.ts` lançava fail-fast sem popular `CancellationReasons`
+  (gap já fechado em D-070 para o fake de identity, não replicado aqui) — uma vez a fence ligada,
+  isso teria classificado erroneamente QUALQUER conflito OCC comum do chamador (ex.:
+  `expectedVersion` obsoleto de `updateItem`) como `TenantNotActiveError` em vez de `ConflictError`;
+  corrigido populando `CancellationReasons` por entrada, mesma convenção dos outros fakes,
+  provado por teste adversarial dedicado.
+- 1011 testes de backend passando (era 1006), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. `docs/architecture/w3-07-writer-inventory.md` atualizado (linha de
+  `ExpirationService.commit()` + nova seção "chunk 9/N").
+- Revisão adversarial Codex desta sessão — não executada, sem orçamento restante (recomendado
+  antes do próximo chunk, dado ser a maior migração de blast radius do W3-07 até agora).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, retomando a
+lista já registrada pelo chunk 7/8/N, menos o item agora fechado): sweeper permanente
+pós-`DELETED` para o resíduo S3 tardio do Round G; migração de `ExtractionRunStore.putIfAbsent()`
+(gap de design genuíno, não reaberto); outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora
+do alcance estrutural da fence atual); email delivery `SUBMITTING` claim (SES — D-067's política já
+decidida, fence de código ainda não implementado); os 4 evidence-mutation workers + ordering fix do
+objeto `clean` órfão.
+
+**Próxima ação real**: revisão adversarial Codex sobre a migração de `ExpirationService.commit()`
+(maior blast radius do W3-07 até agora); depois continuar o roteiro — email delivery `SUBMITTING`
+claim (SES, D-067's política já decidida, menor esforço) ou os 4 evidence-mutation workers, ou o
+sweeper permanente pós-`DELETED`.
+
+## W3-07 — chunks 7/N e 8/N implementados nesta sessão (2026-08-29), D-070 continuação
+
+Continuação direta do chunk 6/N (abaixo). Escopo: `GuestSubmissionService` fencing (chunk 7/N) e
+presigned URL issuance fencing (chunk 8/N) — os dois itens nomeados no prompt desta sessão.
+Commits `693b393` (chunk 7/N) e o commit deste chunk 8/N (ver `git log`), ambos pushed para
+`develop`.
+
+- **`GuestSubmissionService.startSubmission()` fenced** (chunk 7/N) — routes its own
+  `transactWrite` (Put DocumentSubmission + Update DocumentRequest) through
+  `executeTenantBusinessMutation`. Guest-token validation logic untouched. `TenantNotActiveError`
+  is folded into the existing generic `GuestTokenInvalidError` (anti-enumeration — this is a
+  public unauthenticated surface, a DELETING tenant must not be a distinguishable oracle from an
+  invalid/expired token). **IMPLEMENTED + UNIT TESTED** (2 new adversarial tests in
+  `test/unit/subject/guest-upload-flow.test.ts`: ACTIVE control case, DELETING with a
+  still-VALID/non-expired guest token proving the fence — not token expiry — is what blocks the
+  write, with no partial write left behind).
+- **Presigned URL issuance fenced for `document-service.ts`/`import-service.ts`** (chunk 8/N) —
+  **deviates from this session's literal instruction** ("read-then-check before presign, not a
+  transaction") after real code inspection found both call sites already have (or were trivially
+  convertible to) their own tenant-scoped DynamoDB write immediately before the presign call:
+  `DocumentService.reserveUpload`'s existing Document+UploadSlot `transactWrite`, and
+  `ImportService.reserveImport`'s previously-unfenced bare `putIfAbsent` ImportJob creation
+  (converted to a 1-entry `TransactWriteItems` via `buildVersionedCreate`). Fencing THOSE writes
+  via `executeTenantBusinessMutation` (the established pattern) is strictly more correct than a
+  separate unfenced read-check bolted on right before `presignUpload()` — no separate TOCTOU
+  window, and it closes a real writer-inventory gap the design doc's own row had missed (these
+  writes were never fenced, only the presign-issuance QUESTION had been analyzed). Idempotent
+  retries (`COMPLETED_SAME_REQUEST`, no new write) are correctly NOT re-fenced, consistent with
+  the "admitted while ACTIVE may finish" contract already established for other writers. The
+  residual TTL-window risk (an already-issued URL usable until its TTL after DELETING starts)
+  remains accepted and UNCHANGED — this session does not attempt to revoke already-issued
+  presigned URLs, per the approved design's explicit position. `GuestSubmissionService`'s presign
+  is covered transitively by chunk 7/N's fence on the same transaction. **IMPLEMENTED + UNIT
+  TESTED** (ACTIVE control case + DELETING adversarial test per call site, in
+  `test/unit/document/document-service.test.ts` and `test/unit/import/import-service.test.ts`).
+- **Real gap found in `test/unit/import/in-memory-store.ts`**: its `transactWrite` fake never
+  evaluated `ConditionCheck` entries at all (only `"Put"`/`"Update"` branches existed) — a
+  lifecycle fence routed through this fake would have been silently accepted unconditionally,
+  meaning the new fence would have shipped with zero real test coverage. Extended to evaluate
+  `ConditionCheck` with the same `CancellationReasons`-aware convention as every other module's
+  fake (`subject`/`document`/`notification`).
+- **Test-harness gap found and fixed**: `document-handlers.test.ts`/`import-handlers.test.ts`
+  exercise the REAL `RequestContextResolver` bootstrap flow (dynamic tenantId, not hardcoded), but
+  their `DocumentStore`/`ImportStore` in-memory fakes are SEPARATE Maps from the `IdentityStore`
+  fake that receives the bootstrap's `TenantLifecycleRecord` write — in production these share one
+  physical table, in these tests they don't. Fixed by pre-resolving the default `claims()` identity
+  once in `buildDeps()` to learn the bootstrapped `tenantId`, then mirroring an ACTIVE lifecycle
+  record into the module-specific store fake too.
+- 1006 backend tests passing (era 1002), typecheck/lint/check-boundaries/check-docs limpos, zero
+  regressão. `docs/architecture/w3-07-writer-inventory.md` atualizado (GuestSubmissionService row
+  + presigned upload issuance row).
+- Revisão adversarial Codex desta sessão — não executada, sem orçamento restante (recomendado
+  antes do próximo chunk, especialmente sobre a fence de presign issuance dado o desvio da
+  instrução literal desta sessão, e sobre `GuestSubmissionService`, o item de maior risco por ser
+  superfície pública).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, retomando a
+lista já registrada pelo chunk 6/N, menos os 2 itens fechados agora): sweeper permanente
+pós-`DELETED` para o resíduo S3 tardio do Round G; migração de `ExtractionRunStore.putIfAbsent()`
+(gap de design genuíno, não reaberto); `ExpirationService.commit()` (maior blast radius pendente);
+outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora do alcance estrutural da fence atual).
+`ImportService.requestCommit()`'s own `transactWrite` (status `PREVIEW_READY`→`COMMITTING`) was
+inventoried but NOT fenced this session — it resolves an already-admitted job, not a new
+admission, same reasoning as `TenantQuotaService.release()`.
+
+**Próxima ação real**: revisão adversarial Codex sobre a fence de presign issuance (chunk 8/N,
+maior risco desta sessão por desviar da instrução literal) e/ou sobre `GuestSubmissionService`
+(chunk 7/N, superfície pública); depois continuar o roteiro — `ExpirationService.commit()` com um
+helper de seed compartilhado para as ~600 chamadas de teste existentes, ou o sweeper permanente
+pós-`DELETED`.
+
+## W3-07 — chunks 5/N e 6/N implementados nesta sessão (2026-08-29)
+
+Continuação direta do chunk 4/N (abaixo). Escopo desta sessão: os 3 itens do roteiro
+"Recommended next chunk" do writer inventory, na ordem recomendada — commits separados,
+`develop` pushed após cada um (`f60f2f5`, `d35c4fe`, `0f14fac`).
+
+- **SES `SUBMITTING` claim fenced** (`email-delivery-workflow.ts`, D-067's já decidida política
+  Opção 1) — `tryFencedSubmittingClaim` roteia a claim SUBMITTING via `executeTenantBusinessMutation`;
+  toda outra transição no arquivo (RECONCILE_UNKNOWN/NOT_SENT_STALE/status final pós-SEND) resolve
+  uma admissão já feita, não fica fenced (mesmo contrato de `quota.consume()`). Novo outcome
+  `SKIPPED_TENANT_NOT_ACTIVE`. `InMemoryNotificationStore` ganhou avaliação de `ConditionCheck` +
+  `CancellationReasons`. **IMPLEMENTED + UNIT TESTED** (3 testes adversariais: ACTIVE control case,
+  DELETING rejeitado atomicamente sem escrita parcial, admissão-enquanto-ACTIVE permitindo o send
+  completar mesmo com DELETING chegando antes da chamada real ao SES).
+- **4 evidence-mutation workers fenced** (`upload-finalizer`, `submission-finalizer`,
+  `malware-result`, `submission-malware-result`) + `advance-after-evidence.ts`/
+  `advance-after-submission-evidence.ts` (Round F: uploadEvidence/malwareEvidence/REJECT/PROMOTE
+  são todos `TenantBusinessMutation`, não só o `CLEAN` final). Novo helper compartilhado
+  `tryTenantBusinessMutation` (`tenant-business-mutation.ts`) — resultado discriminado
+  ok/OCC_CONFLICT/TENANT_NOT_ACTIVE para chamadores com retry loop próprio. **Ordering bug do
+  Round F/G fechado via compensação imediata**: a cópia S3 para `clean` acontece antes do commit
+  fenced — numa rejeição `TENANT_NOT_ACTIVE` especificamente, o objeto `clean` recém-copiado é
+  deletado (best-effort) em vez de ficar órfão. Isso NÃO fecha a corrida residual do Round G (uma
+  operação admitida antes de DELETING que só cria seu objeto S3 depois da varredura final da
+  purga) — esse resíduo continua exigindo o sweeper permanente pós-`DELETED` (design §O-6 item 1c,
+  reusar padrão `DocumentPurgeWorker`/D-061), **não tentado nesta sessão, ainda pendente**.
+  `InMemoryDocumentStore`/`InMemorySubjectStore` (fakes) ganharam a mesma avaliação de
+  `ConditionCheck`+`CancellationReasons` — sem isso, uma corrida OCC comum entre dois workers de
+  evidência era classificada erroneamente como rejeição de fence, quebrando os testes de
+  regressão de corrida pré-existentes assim que o fence foi ligado. **IMPLEMENTED + UNIT TESTED**
+  (13 testes adversariais novos: ACTIVE/DELETING por ponto de admissão + 2 testes explícitos de
+  compensação de órfão, variante Document e DocumentSubmission).
+- **Bug de determinismo da key S3 do OCR corrigido** (`s3-ocr-artifact-store.ts`) —
+  `ocr/<runId>/<randomUUID()>.json` (sufixo aleatório a cada chamada, cada redelivery de
+  `COMPLETE_OCR` criava um objeto órfão novo) virou `ocr/<tenantId>/<runId>.json` (determinístico,
+  redelivery do mesmo run sempre sobrescreve o mesmo objeto). `OcrArtifactStore.put()` ganhou
+  parâmetro `tenantId`; único call site real (`complete-ocr.ts`) atualizado. **IMPLEMENTED + UNIT
+  TESTED** (`test/unit/extraction/s3-ocr-artifact-store.test.ts`, novo: determinismo, regressão de
+  redelivery pós-falha-no-SendTaskSuccess landing na mesma key, não-colisão entre tenants
+  diferentes com o mesmo runId).
+- 1000 testes de backend passando (era 981), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. Revisão adversarial Codex desta sessão — não executada, sem orçamento restante
+  (recomendado antes do próximo chunk, especialmente sobre a fence do SES e a compensação de
+  órfão do S3, os dois itens de maior risco desta sessão).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk): sweeper
+permanente pós-`DELETED` para o resíduo S3 tardio do Round G (mencionado acima); migração de
+`ExtractionRunStore.putIfAbsent()` (gap de design genuíno já registrado no chunk 4/N, não
+reaberto); `ExpirationService.commit()` (maior blast radius pendente); `GuestSubmissionService`;
+outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora do alcance estrutural da fence atual).
+
+**Próxima ação real**: revisão adversarial Codex sobre SES fencing + compensação de órfão S3
+(maior risco desta sessão); depois continuar o roteiro — `ExtractionRun` retry-vs-fresh-admission
+como nota de design curta, ou `ExpirationService.commit()` com um helper de seed compartilhado
+para as ~600 chamadas de teste existentes.
+
+## W3-07 — chunk 4/N implementado nesta sessão (2026-08-29), D-070
+
+Continuação direta do chunk 3/N (D-069, abaixo). Escopo desta sessão: Parte 1 (inventário real de
+writers) e Parte 2 (migração dos admission points de maior valor).
+
+- **Inventário real**: `docs/architecture/w3-07-writer-inventory.md` — matriz writer/admission
+  point/transaction boundary/fence status/late-result behavior/test coverage, construída de grep
+  real contra `src/**` mais o inventário já levantado nas Rodadas F/G do design aprovado. Cobre
+  expiration, documents, document submissions, guest submissions, requirements, extraction/OCR/
+  Bedrock, imports, upload promotion workers, SES, quota, outbox, reminders, BFF session table.
+- **`TenantQuotaService.consume()` migrado para `TenantBusinessMutation`** — maior valor de
+  segurança nomeado pelo roteiro (admissão real antes de todo Textract/Bedrock pago) e achado novo
+  desta sessão: também é a admissão `API_REQUEST` genérica na frente de `authorize()` na maioria
+  dos handlers HTTP, tornando o blast radius real desta migração o maior já visto no W3-07 (8
+  arquivos de teste precisaram de seed de `TenantLifecycleRecord`, vs. 1 em D-068). Create path
+  (`putIfAbsent`) e update path (`updateConditional`) viraram uma `TransactWriteItems` de 1 entrada
+  via `executeTenantBusinessMutation`, usando um builder novo (`buildConditionalPut` em `occ.ts`)
+  em vez de `ConditionExpression` manual — preserva exatamente a lógica de negócio/janela/reset
+  existente, só muda a fronteira transacional. `release()` permanece deliberadamente NÃO fenced
+  (compensa uma reserva já admitida, não é uma admissão nova — fenced ela travaria a reserva para
+  sempre num tenant DELETING). **IMPLEMENTED + UNIT TESTED** (3 testes adversariais novos:
+  create-path DELETING rejeitado sem linha deixada para trás, update-path DELETING rejeitado com
+  `count` inalterado, ACTIVE control case).
+- **Achado real corrigido nesta sessão (não pedido explicitamente, descoberto testando a
+  migração)**: `executeTenantBusinessMutation` não distinguia "fence de lifecycle falhou" de "a
+  própria entrada do chamador perdeu uma corrida OCC comum" — gap documentado desde D-068 no
+  cabeçalho do próprio arquivo (`CancellationReasons` não lido), sem efeito observável em
+  `ItemWatchService.removeWatcher` (escrita de tentativa única, sem loop de retry do chamador), mas
+  quebrava silenciosamente o loop de 20 tentativas de `consume()` sob contenção real — o teste de
+  concorrência pré-existente (`does not lose updates under concurrent consume()`) pegou isso na
+  hora: 25 chamadas concorrentes passavam todas em vez de exatamente `limit`, porque toda corrida
+  OCC virava `TenantNotActiveError` (nunca retentada) em vez de retry. Corrigido lendo
+  `TransactWriteItems.CancellationReasons` real da AWS — a fence é sempre a última entrada
+  (`input.entries.length`), só um `ConditionalCheckFailed` nesse índice específico vira
+  `TenantNotActiveError`, qualquer outra falha relança o erro original para o chamador tratar. O
+  fake `InMemoryIdentityStore` (`test/unit/identity/in-memory-store.ts`) foi estendido para popular
+  `CancellationReasons` do mesmo jeito que a AWS real, então esse caminho é exercitado por teste,
+  não só raciocinado — real risco de regressão silenciosa se algum writer futuro reusar a lane sem
+  esse fix.
+- 981 testes de backend passando (era 978), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão.
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk):
+- SES (claim `SUBMITTING` em `email-delivery-workflow.ts`) — política já decidida (D-067, Opção
+  1), só falta o código. Inventariado, não migrado — próximo passo de menor esforço (mesmo padrão
+  de conversão de escrita condicional de item único → transação de 1 entrada que `quota.consume()`
+  acabou de estabelecer).
+- `ExtractionRunStore.putIfAbsent()` — tentativa real de análise nesta sessão encontrou um gap de
+  design genuíno, não um gap de implementação apressada: retry de um run já admitido precisa
+  continuar chamando `StartExecution` sem exigir nova admissão ACTIVE (comportamento correto hoje,
+  via idempotência do nome de execução), e distinguir "isto é retry" de "isto é admissão nova"
+  dentro da mesma transação fenced reintroduziria o TOCTOU que a fence existe para fechar.
+  Registrado como pendência de design real, ver `docs/architecture/w3-07-writer-inventory.md`
+  seção "Why ExtractionRun admission was not migrated this session".
+- As 4 evidence-mutation workers (`upload-finalizer`, `submission-finalizer`, `malware-result`,
+  `submission-malware-result`) + o ordering bug real da Rodada F (cópia S3 para `clean` acontece
+  ANTES do commit DynamoDB fenced) — inventariados, não corrigidos.
+- `ExpirationService.commit()` continua o maior blast-radius pendente (~600 testes existentes
+  precisariam de seed de lifecycle) — não tentado nesta sessão.
+- `GuestSubmissionService`, outbox relay (`SystemMutation` `OUTBOX_BOOKKEEPING`), BFF session
+  table (estruturalmente fora do alcance da fence atual — tabela física separada) — sem progresso.
+- Revisão adversarial Codex desta sessão — sem orçamento restante.
+
+**Próxima ação real**: migrar SES (menor esforço, política já decidida) e/ou as 4 evidence-mutation
+workers (achado real de Rodada F com correção já desenhada via `CancellationReasons`). Ver
+`docs/architecture/w3-07-writer-inventory.md` seção "Recommended next chunk" para a ordem completa.
+
+## W3-07 — chunk 3/N implementado nesta sessão (2026-08-29), D-069
+
+Continuação direta do chunk 2/N (D-068, abaixo). Escopo desta sessão: roteiro `Q` item 2 (conclusão — lane `SystemMutation`) e item 3 (boundary estrutural completo).
+
+- **Lane `SystemMutation`** — `src/shared/tenant-lifecycle/system-mutation.ts`: allowlist fechada por união discriminada (`LIFECYCLE_TRANSITION`/`PURGE_DELETE`/`OUTBOX_BOOKKEEPING`). `executeSystemMutation` NUNCA aceita um `TransactWriteEntry[]` do chamador — só a operação tipada; a função constrói o array internamente via `occ.ts`. `transitionTenantLifecycle` é o primitivo real e testado que um futuro orquestrador (Step Functions/Lambda, não construído nesta sessão) vai chamar para mover `TenantLifecycleRecord.status` (ex.: `ACTIVE→DELETING`) — OCC-fenced na versão do registro, valida via `assertValidTransition` antes de tocar o store, e ainda reafirma o status atual via `ConditionCheck` extra. `PURGE_DELETE`/`OUTBOX_BOOKKEEPING` são membros reservados do allowlist (tipados, mas lançam `SystemMutationNotImplementedError` — nenhum call site real ainda precisa deles). **IMPLEMENTED + UNIT TESTED** (8 testes em `test/unit/system-mutation.test.ts`, incluindo transição ilegal recusada em processo antes de tocar o store, conflito OCC de versão stale, BLOCKED/HELD com resume, isolamento cross-tenant, e um `@ts-expect-error` provando a contenção também em nível de tipo).
+- **Boundary estrutural (roteiro `Q` item 3, pendência explícita deixada por D-068)** — regra nova `no-raw-dynamodb-writes-outside-lanes` em `.dependency-cruiser.cjs`: confina import de `PutCommand`/`UpdateCommand`/`DeleteCommand`/`TransactWriteCommand`/`BatchWriteCommand` (`@aws-sdk/lib-dynamodb`) a `src/modules/*/persistence/`, `src/modules/*/composition/` (só um arquivo real hoje, `extraction/composition/extraction.ts`, import tipo-only do `DynamoDBDocumentClient` para wiring — inventariado, não um write real), `src/shared/dynamodb/`, `src/shared/outbox/persistence/`. Qualquer outro arquivo em `src/modules/**`/`src/shared/**` que importe esse pacote falha `npm run check-boundaries` (já gatilhado no CI). **Prova real, não só declarada**: `test/architecture/tenant-fence-boundary.test.ts` (categoria nova `test/architecture/`, adicionada a `vitest.config.ts`) planta 3 fixtures reais em `src/` — `PutCommand` direto num item tenant-scoped, `TransactWriteCommand` sem `ConditionCheck` de lifecycle, `BatchWriteCommand` em `src/shared/` fora de `dynamodb/`/`outbox/persistence/` — roda o `depcruise` real (mesmo binário/config do `check-boundaries`) contra `src`, confirma a violação nomeada + caminho do arquivo no output, e remove os fixtures em `finally`/`afterEach` (mais `beforeAll` de segurança contra uma sessão anterior interrompida). ESLint não foi estendido — não há um padrão `no-restricted-imports` equivalente que acrescentasse poder de detecção aqui (dependency-cruiser já é a "AUTHORITATIVE boundary check" segundo o comentário existente em `.eslintrc.cjs`); a defesa em profundidade já citada no `AGENTS.md`/`.eslintrc.cjs` continua a mesma dupla (dependency-cruiser autoritativo + ESLint só feedback de editor para os 3 boundaries já cobertos), sem um quarto boundary duplicado ali.
+- 978 testes de backend passando (111 arquivos, era 965), typecheck/lint/check-boundaries/check-docs limpos, nenhuma regressão.
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, nenhuma mascarada):
+- Migração dos demais writers tenant-scoped já listados em D-068 (`ExpirationService.commit()` e tudo que passa por ele, `GuestSubmissionService`, `TenantQuotaService.consume()`, `ExtractionRunStore.putIfAbsent()`, claim `SUBMITTING` de `email-delivery-workflow.ts`) — continua pendente, sem progresso nesta sessão.
+- Nenhum orquestrador real chama `transitionTenantLifecycle` — o primitivo existe e está testado isoladamente, mas não há endpoint/worker/state machine que o invoque contra um tenant real (mesma pendência que D-068 já registrava para "transição de lifecycle real").
+- `PURGE_DELETE`/`OUTBOX_BOOKKEEPING` do `SystemMutation` continuam sem implementação real — reservados no allowlist, sem call site.
+- Sweeper permanente pós-`DELETED` (roteiro `Q` item 5, reusa padrão `DocumentPurgeWorker`/D-061) — não iniciado.
+- Cutover em duas fases do marcador `admittedWhileActive` em `ExtractionRun` (roteiro `Q` item 4) — não iniciado.
+- Inventário empírico de `ListObjectVersions`/`ListMultipartUploads` contra buckets reais, ensaio de migração em `dev` (roteiro `Q` item 6) — não iniciado.
+- Revisão adversarial Codex desta sessão — sem orçamento restante; recomendado antes de dar a `SystemMutation` novos call sites reais (`PURGE_DELETE`/`OUTBOX_BOOKKEEPING` são as operações de maior privilégio do sistema, maior valor de escrutínio antes de crescerem).
+
+**Próxima ação real**: continuar o roteiro `Q` — item 4 (cutover em duas fases do marcador `ExtractionRun`) ou retomar a migração de writers de D-068 (`ExpirationService.commit()`, maior blast radius). Considerar rodar Codex adversarial sobre `SystemMutation` antes de implementar `PURGE_DELETE`/`OUTBOX_BOOKKEEPING` de verdade.
+
+## W3-07 — chunk 2/N implementado nesta sessão (2026-08-29), D-068
+
+Continuação da sessão de implementação anunciada no fim da seção W3-07 abaixo (roteiro de 6 itens em `claude-analysis-active-only-fence.md` §Q). Este chunk cobriu os itens **A/B/C** do roteiro combinado nesta sessão — ver D-068 em `docs/architecture/decisions-log.md` para o registro completo:
+
+- **A. `TenantLifecycleRecord` real em código** — `src/shared/tenant-lifecycle/tenant-lifecycle-record.ts`: máquina de estados forward-only (`ACTIVE→DELETING→QUIESCING→PURGING→VERIFIED→DELETED`, mais `BLOCKED`/`HELD`), `canTransition`/`assertValidTransition`, nunca reverte a `ACTIVE`, nunca sai de `DELETED`. **IMPLEMENTED + UNIT TESTED** (14 testes, `test/unit/tenant-lifecycle.test.ts`).
+- **B. Bootstrap atômico** — `src/modules/identity/application/bootstrap-identity.ts`'s `TenantBootstrapService`: `IdentityMapping`+`TenantLifecycleRecord(ACTIVE)`+`User` numa única `TransactWriteItems`. Substitui o `findOrCreate`+`createProfileIfAbsent` sequencial de `RequestContextResolver` (o bug central confirmado em D-063 — resolver resuscitando tenant sozinho). Nunca reprovisiona `User` se o lifecycle for DELETING/DELETED (resolver agora lança `AuthenticationError`). Corrida de dois primeiros logins concorrentes, retry após perder a corrida, idempotência de login repetido, e backfill best-effort de tenants pré-migração (mapping sem lifecycle) como ACTIVE — todos cobertos. **IMPLEMENTED + UNIT TESTED** (13 testes novos em `test/unit/identity/resolver.test.ts`, mais os 5 testes pré-existentes do resolver continuam verdes).
+- **C. Lane `TenantBusinessMutation`** — `src/shared/tenant-lifecycle/tenant-business-mutation.ts`'s `executeTenantBusinessMutation`: acrescenta um `ConditionCheck` (via `buildExistenceConditionCheck` de `occ.ts` — nunca `ConditionExpression` manual) contra `TenantLifecycleRecord.status = ACTIVE` na MESMA `TransactWriteItems` do chamador. Lança `TenantNotActiveError` quando a transação cancela. **Um writer real migrado como prova de ponta a ponta**: `ItemWatchService.removeWatcher` (`src/modules/expiration/application/item-watch-service.ts`) — escolhido por ter seu próprio `transactWrite` isolado, sem tocar `ExpirationService.commit()` (usado por `createItem`/`updateItem`/`renewItem`/etc., que teria quebrado ~600 testes existentes sem seed de lifecycle em cada um). Teste adversarial explícito: mutação aceita com lifecycle ACTIVE, **rejeitada atomicamente** (nenhuma escrita parcial) com lifecycle DELETING. **IMPLEMENTED + UNIT TESTED** (9 testes em `test/unit/expiration/item-watch-service.test.ts`, incluindo o par ACTIVE/DELETING; mais 6 testes gerais da lane em `test/unit/tenant-lifecycle.test.ts`, incluindo isolamento cross-tenant e rejeição de chamada com zero entries).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, nenhuma mascarada):
+- Migração dos demais writers tenant-scoped: `ExpirationService.commit()` (usado por praticamente todo writer do módulo expiration — `createItem`, `updateItem`, `archiveItem`, `renewItem`), `ItemWatchService.addWatcher`/`reactivate`, `GuestSubmissionService`, `TenantQuotaService.consume()` (`updateConditional` de item único → `TransactWriteItems` de 2 itens, conforme D-066 Rodada E), `ExtractionRunStore.putIfAbsent()`/`StartExecution`, a claim `SUBMITTING` de `email-delivery-workflow.ts` (envio SES, política já decidida em D-067/Opção 1 — falta implementar).
+- Boundary estrutural (arquitetura test/ESLint) que impeça bypass da lane chamando `store.transactWrite([...])` direto — roteiro `Q` item 3, hoje a lane é convenção, não é estruturalmente inforjável.
+- Worker real de transição de lifecycle (`ACTIVE→DELETING` disparado por uma solicitação DSR real) — hoje só é possível mudar o status manualmente/via teste, não há endpoint/worker.
+- Sweeper permanente pós-`DELETED` (reusar padrão `DocumentPurgeWorker`/D-061).
+- Cutover em duas fases do marcador `admittedWhileActive` em `ExtractionRun`.
+- Inventário empírico de `ListObjectVersions`/`ListMultipartUploads` contra buckets reais, ensaio de migração em `dev`.
+- Revisão adversarial Codex desta sessão — sem orçamento restante após A/B/C+testes; recomendado como próximo passo de qualidade antes de migrar mais writers, especialmente para escrutinar a lane `TenantBusinessMutation` quanto a bypass (conforme sugerido no prompt original desta sessão).
+
+Commits desta sessão em `develop`, `npm run typecheck`/`lint`/`check-boundaries`/`check-docs` limpos, 965 testes de backend passando (109 arquivos), zero regressão.
+
+**Próxima ação real**: continuar o roteiro `Q` migrando `ExpirationService.commit()` (o writer de maior blast radius, portanto o de maior valor de segurança) para a lane, com o mesmo cuidado de seed de `TenantLifecycleRecord` nos testes existentes já demonstrado aqui; depois `TenantQuotaService.consume()` (admissão real antes de Textract/Bedrock, D-066 Rodada E); depois o boundary estrutural (item 3). Considerar rodar Codex adversarial sobre a lane antes de expandir sua superfície de uso.
+
 ## Estado atual
 
 **Consolidation + Pilot Readiness Program — Waves 0/2/3/5 concluídas, Wave 4 parcial (gated), Wave 1 não iniciada (2026-08-28)**: Marcelo trouxe `expiration-tracker-next-days-master-plan-and-ai-prompt.md` (raiz, commit `4b547ab`) como handoff para um programa multi-sessão de consolidação/pilot-readiness. **Backlog canônico item-a-item: `docs/engineering/pilot-readiness-program.md`. Síntese final/recomendação GO-CONDITIONAL-NOGO: `docs/engineering/pilot-readiness-assessment.md`** (entregável do prompt mestre §42, com addendum de 2026-08-28 refletindo o fechamento da Wave 2/5) — não duplicar detalhe aqui, só apontar para os dois.
@@ -12,7 +735,13 @@ Resumo ultra-compacto (ver os dois documentos acima para tudo): Wave 0 (reconcil
 
 **Recomendação da síntese final** (addendum 3/2026-08-28 em `pilot-readiness-assessment.md`): os três gates reais nomeados na síntese original — guest trust (`GTR-01`/`W5-01`), evidência operacional (Wave 2), e retenção/purga real (`W3-06`) — **fecharam todos nesta sessão**, e todos os itens secundários de Wave 2 (RPO, dedupe pós-commit, pipeline de alarme de credential-compromise) também fecharam na mesma sessão. Único item não-bloqueante restante: DSR completo (W3-07, pode reusar o mesmo mecanismo GSI6 claim/lease do W3-06).
 
-954 testes de backend (era 928, +12 do worker de purga +14 de `occ.ts`/deleção), `typecheck`/`lint`/`check-boundaries`/`check-docs`/`validate-schemas` limpos, `terraform test` real (15/15) e `terraform plan` real contra `dev` verdes, incluindo o módulo `document_purge_handler` novo. **`W3-06` fechado** (desenho + implementação real, D-061), **todos os drills remanescentes da Wave 2 fechados na mesma sessão** (W2-06 RPO, W2-05 dedupe pós-commit, W2-08 pipeline de alarme). **W3-07 (cascata DSR) tentado duas vezes nesta sessão, nenhuma aprovada**: (1) D-062, 4 rodadas Claude↔Codex, notas 3,4→5,1→4,7/10 — achado central: garantir "não ressurreição" exige um fence de `TenantStatus` em todo write path (HTTP+guest+workers assíncronos); Claude e Codex recomendaram convergentemente não implementar sem esse fence, e a sessão parou por decisão do Marcelo. (2) O Marcelo então decidiu NÃO esperar gatilho comercial ("se precisamos, temos que desenvolver") e pediu para retomar com o fence dentro do escopo desde o início — D-063, Rodada 1: nota 3,2/10, **pior** que a tentativa anterior. Achado mais grave desta rodada: o fence proposto (reusar `User.status`, já existente e já checado em `resolveRequestContext`) seria apagado pela própria cascata, e o resolver re-provisiona automaticamente um `User ACTIVE` no próximo login — o mecanismo de autenticação ressuscitaria o tenant sozinho. **Pausado por pedido explícito do Marcelo para planejamento minucioso numa sessão dedicada** (não abandonado). **Próxima ação real desta feature**: ler `docs/architecture/reviews/w3-07-tenant-deletion-with-fence-design/claude-status-paused-for-next-session.md` (roteiro completo de retomada, inclui a lição de levantar superfícies de escrita por ponto de entrada de runtime — API Gateway/SQS/Streams/S3/EventBridge/Scheduler/SNS/SES/Step Functions — nunca por pasta de código, que já falhou duas vezes) antes de propor qualquer desenho novo. Nenhum gate de pilot readiness depende disso — os 3 gates reais (W3-06/Wave 2/GTR-01) já fecharam.
+954 testes de backend (era 928, +12 do worker de purga +14 de `occ.ts`/deleção), `typecheck`/`lint`/`check-boundaries`/`check-docs`/`validate-schemas` limpos, `terraform test` real (15/15) e `terraform plan` real contra `dev` verdes, incluindo o módulo `document_purge_handler` novo. **`W3-06` fechado** (desenho + implementação real, D-061), **todos os drills remanescentes da Wave 2 fechados na mesma sessão** (W2-06 RPO, W2-05 dedupe pós-commit, W2-08 pipeline de alarme). **W3-07 (cascata DSR) tentado duas vezes nesta sessão, nenhuma aprovada**: (1) D-062, 4 rodadas Claude↔Codex, notas 3,4→5,1→4,7/10 — achado central: garantir "não ressurreição" exige um fence de `TenantStatus` em todo write path (HTTP+guest+workers assíncronos); Claude e Codex recomendaram convergentemente não implementar sem esse fence, e a sessão parou por decisão do Marcelo. (2) O Marcelo então decidiu NÃO esperar gatilho comercial ("se precisamos, temos que desenvolver") e pediu para retomar com o fence dentro do escopo desde o início — D-063, Rodada 1: nota 3,2/10, **pior** que a tentativa anterior. Achado mais grave desta rodada: o fence proposto (reusar `User.status`, já existente e já checado em `resolveRequestContext`) seria apagado pela própria cascata, e o resolver re-provisiona automaticamente um `User ACTIVE` no próximo login — o mecanismo de autenticação ressuscitaria o tenant sozinho. **Pausado por pedido explícito do Marcelo para planejamento minucioso numa sessão dedicada** (não abandonado). **W3-07 update (2026-08-28, sessão de análise/arquitetura, D-066, GATE DE 9,0 ATINGIDO em 6 rodadas)**: uma análise externa propôs abandonar o protocolo "claim+outcome" universal de D-065 (nunca convergiu, travou em 4,8/10) por um fence `ACTIVE`-only. Sessão rodou 6 rodadas reais de crítica adversarial do Codex com reconciliação de Claude entre elas, a pedido explícito do Marcelo de continuar até o gate ou até ficar demonstrável que é inatingível: **7,8 → 8,4 → 8,8 → 8,9 → 8,8 → 9,2/10** (progresso não-monótono e honesto — uma queda real na penúltima rodada quando escrutínio mais rigoroso achou 2 furos novos, nunca maquiado). **Nota final: Codex 9,2/10, Claude 9,1/10 — gate atingido sem arredondamento. Decisão: `APPROVED WITH CONDITIONS`.**
+
+Direção arquitetural completa aprovada (substitui definitivamente "claim+outcome universal" de D-065): tombstone `TenantLifecycleRecord` fora da cascata; admissão transacional por efeito externo (Textract/Bedrock/Step Functions/S3-promoção/SES via conversão de escritas condicionais de item único para `TransactWriteItems` de 2 itens com `ConditionCheck ACTIVE`, sob o contrato "`ACTIVE→DELETING` bloqueia novas admissões, operações já admitidas podem terminar"); lanes tipadas `TenantBusinessMutation`/`SystemMutation` para o boundary estrutural; key S3 do OCR determinística `ocr/<tenantId>/<runId>.json`; fencing de toda evidence mutation intermediária no fluxo de upload; compensação de objeto S3 `clean` órfão via `TransactWriteItems.CancellationReasons`; `VERIFYING→DELETED` com 3 propriedades separadas (prevenção indefinida via fence, extinção de capabilities via cutoff conservador de 1800s, sweeper permanente pós-`DELETED` com elegibilidade de 90 dias per `privacy-lgpd.md` e alarme em todo achado — conclusão declarada honestamente como ponto-no-tempo, não prova permanente); cutover em duas fases do marcador `admittedWhileActive` em `ExtractionRun`.
+
+**Condição única da aprovação**: decisão humana de produto/jurídica sobre a política de SES pós-`DELETING` — Opção 1 (recomendação de engenharia: bloqueio no ponto de admissão, envios já admitidos podem se resolver) vs. Opção 2 (lease/drain coordenado, mais forte, não recomendada por padrão). **Não implementar o caminho de envio SES do W3-07 sem essa decisão registrada em `decisions-log.md`**, ou atrás de uma flag cujo default não-respondido seja a Opção 2 (mais segura).
+
+**Próxima ação real**: sessão de IMPLEMENTAÇÃO, não mais de debate arquitetural (Codex declarou textualmente "the five-round review-only track has reached what it can close"). Ler `docs/architecture/reviews/w3-07-tenant-fence-round3-active-only-design/claude-analysis-active-only-fence.md` §Q inteira para o roteiro de 6 itens de implementação (executor fenced único, boundary estrutural, cutover em 2 fases do marcador, sweeper permanente reusando o padrão do `DocumentPurgeWorker`/D-061, inventário empírico de `ListObjectVersions`/multipart contra buckets reais, ensaio de migração em `dev`). Registrar a decisão de SES antes ou em paralelo. Nenhum gate de pilot readiness depende disso — os 3 gates reais (W3-06/Wave 2/GTR-01) já fecharam.
 
 **Visual Language + Design System Foundation** (2026-08-26, PR #61, merge `1a0d5f1` em `develop`, branch já deletada): o frontend deixou de ser propositalmente grayscale/provisório e passou a ter a primeira linguagem visual real do produto — arquitetura de tokens em duas camadas (`frontend/src/styles/tokens.css` + `base.css`, substituindo as 71 linhas de `foundation.css`), ~9 primitives acessíveis em `frontend/src/components/ui/` (Button/ButtonLink, StatusBadge, UrgencyIndicator, DataTable, InlineNotice, PageHeader/Section/Toolbar/Panel), e a direção **Operational Calm** aplicada às 5 superfícies do Core Expiration slice (Overview, Collection, Detail, Create, Renew). `APPROVED AS VISUAL LANGUAGE + DESIGN SYSTEM FOUNDATION — PROVISIONAL PENDING USER VALIDATION` — a palavra PROVISIONAL é literal: nenhuma sessão com usuário aconteceu, e as **15** hipóteses de design (hierarquia de navegação, densidade final, rótulos, colocação de ações secundárias, accent, e as duas afirmações subjetivas sobre a própria direção) estão registradas como adiamentos explícitos no §35 do documento, não como fatos. **Zero dependências novas** (nenhum framework de UI, nenhum Storybook, nenhuma biblioteca de ícones); JS de bundle inalterado, CSS 23,04 kB (4,46 kB gzip). Mudança estrutural única: a Expiration Collection deixou de ser `<ul>/<li>` e virou `<table>` semântica com urgência e situação em colunas separadas — mesmos dados/ordenação/agrupamento/filtro/rotas. A densidade real (140 itens, nomes longos e quase-idênticos, 3 grupos de urgência) foi verificada contra o código real do frontend **pela primeira vez** (antes só contra o protótipo), com asserção automatizada. Protocolo Claude↔Codex completo: Rodada B adversarial achou 5 achados reais, 2 S2 — `Button` usava `disabled ?? pending` e `RenewItem` passa `disabled={conflict}`=`false` numa renovação normal, então o botão de submit continuava clicável durante a mutação exibindo "Renovando…"; e os cabeçalhos de grupo da tabela usavam `scope="colgroup"` onde encabeçam linhas — ambos corrigidos com teste de regressão. O protocolo **não** parou na Rodada D: foram **16 rodadas e 11 reaberturas** até convergir em Codex **9,04** e Claude **9,2** (sem arredondamento, `AGENTS.md` §4) — o protocolo mais longo já executado neste repositório. Três rodadas acharam defeitos **criados pela rodada de correção anterior** (D-01, F-01, G-01), e a classe dominante de achado não foi código errado e sim **documentação afirmando prova mais ampla que a evidência nomeada**, que apareceu seis vezes: a alegação "sem armadilha de teclado" sobreviveu dez rodadas antes de ganhar uma asserção de cobertura que realmente a prova. Vale como precedente de processo para revisões futuras deste repositório. Acessibilidade virou executável em `frontend/e2e/accessibility.spec.ts` (**9 testes no projeto `chromium`, logo no CI em todo PR**), e duas falhas reais foram achadas por essas asserções e corrigidas (contraste 4,48:1 e alvo de 19px). Detalhe completo, contrastes medidos, gates `VL-G1..VL-G17`, limitações declaradas e registro de decisões: `docs/frontend/visual-language-and-design-system.md`. 124 testes unitário/componente + 24 E2E funcionais (9 deles de acessibilidade) + 10 baselines de regressão visual (era 110 + 12 + 0). CI do PR #61: 4/4 verde.
 

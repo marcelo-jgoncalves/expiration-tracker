@@ -5,9 +5,9 @@
  * executes the commands those builders produce (for `update`) and issues plain
  * Get/Put for the rest.
  */
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
+import type { EntityKey, IdentityStore, TransactWriteEntry } from "../ports/identity-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 export class DynamoDbIdentityStore implements IdentityStore {
@@ -83,5 +83,16 @@ export class DynamoDbIdentityStore implements IdentityStore {
       if (isConditionalCheckFailed(err)) return false;
       throw mapDynamoError(err, "IdentityStore.updateConditional");
     }
+  }
+
+  // TransactionCanceledException must reach the caller as-is (isTransactionCanceled() is how
+  // callers distinguish OCC/lifecycle-fence conflicts from other failures) - never wrapped by
+  // mapDynamoError, same discipline as DynamoDbExpirationStore.transactWrite.
+  async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
+    await this.client.send(
+      new TransactWriteCommand({
+        TransactItems: entries as unknown as ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"],
+      }),
+    );
   }
 }

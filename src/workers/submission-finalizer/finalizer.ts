@@ -2,13 +2,14 @@
  * src/workers/upload-finalizer/finalizer.ts, operando sobre `DocumentSubmission` (M10 guest
  * upload). Mesma lógica de validação/fail-closed, reaproveitando `validateObservedUpload`
  * (genérica, sem acoplamento a `Document`). */
-import { buildVersionedUpdate, isTransactionCanceled } from "../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { validateObservedUpload } from "../../modules/document/application/upload-validation.js";
 import { advanceAfterSubmissionEvidence } from "../../modules/subject/application/advance-after-submission-evidence.js";
 import { documentSubmissionKey, type DocumentSubmission } from "../../modules/subject/domain/document-submission.js";
 import type { SubjectStore } from "../../modules/subject/ports/subject-store.js";
 import type { DocumentObjectStore } from "../../modules/document/ports/document-object-store.js";
 import type { PdfParser } from "../../modules/document/ports/pdf-parser.js";
+import { tryTenantBusinessMutation } from "../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface FinalizeSubmissionInput {
   tenantId: string;
@@ -27,7 +28,7 @@ export interface FinalizeSubmissionDeps {
   now?: () => string;
 }
 
-export type FinalizeSubmissionOutcome = "CONFIRMED" | "REJECTED_INVALID" | "IGNORED_UNKNOWN_SLOT" | "IGNORED_STALE";
+export type FinalizeSubmissionOutcome = "CONFIRMED" | "REJECTED_INVALID" | "IGNORED_UNKNOWN_SLOT" | "IGNORED_STALE" | "IGNORED_TENANT_NOT_ACTIVE";
 
 const MAX_OCC_RETRIES = 10;
 
@@ -61,20 +62,24 @@ export async function finalizeSubmissionUpload(deps: FinalizeSubmissionDeps, inp
       observedAt: now(),
     };
 
-    try {
-      await deps.store.transactWrite([
-        { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: submission.version, set: { status: "SCANNING", uploadEvidence } }) },
-      ]);
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue;
-      throw err;
+    const evidenceResult = await tryTenantBusinessMutation({
+      store: deps.store,
+      tableName: deps.tableName,
+      tenantId: input.tenantId,
+      entries: [{ Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: submission.version, set: { status: "SCANNING", uploadEvidence } }) }],
+    });
+    if (!evidenceResult.ok) {
+      if (evidenceResult.reason === "OCC_CONFLICT") continue;
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
 
     const outcome = await advanceAfterSubmissionEvidence(
       { store: deps.store, objects: deps.objects, tableName: deps.tableName, cleanBucket: deps.cleanBucket },
       { tenantId: input.tenantId, subjectId: input.subjectId, assignmentId: input.assignmentId, submissionId: input.submissionId, expectedObject: input.object },
     );
-    return outcome === "REJECTED" ? "REJECTED_INVALID" : "CONFIRMED";
+    if (outcome === "REJECTED") return "REJECTED_INVALID";
+    if (outcome === "IGNORED_TENANT_NOT_ACTIVE") return "IGNORED_TENANT_NOT_ACTIVE";
+    return "CONFIRMED";
   }
 
   throw new Error(`finalizeSubmissionUpload exhausted retries for submission ${input.submissionId} under contention.`);

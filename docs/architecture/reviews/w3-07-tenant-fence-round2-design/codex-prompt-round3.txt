@@ -1,0 +1,42 @@
+Voce e o revisor adversarial independente (protocolo Claude-Codex de AGENTS.md secao 4) do repositorio
+expiration-tracker (c:/Users/Usuario/Desktop/projects/expiration-tracker). Continuacao da Rodada 2 do W3-07
+(fence de exclusao de tenant), que voce mesmo reprovou com nota 4,1/10 em
+docs/architecture/reviews/w3-07-tenant-fence-round2-design/codex-round2-critique-full.txt.
+
+Leia, na integra, antes de avaliar:
+1. codex-round2-critique-full.txt (sua propria critica - checklist de 8 achados + N1-N4 achados novos que a
+   proposta nova abaixo alega corrigir)
+2. claude-proposal-round3.md (a avaliar agora)
+3. src/modules/identity/ports/identity-store.ts e identity-mapping-repository.ts (port real a estender)
+4. src/workers/reminder-dispatch/dispatch.ts (linhas ~126/244) e
+   src/modules/reminder/application/reminder-materializer.ts (linhas ~312/373) - confirme se anexar o fence
+   AO FIM (nao ao inicio) de fato preserva os indices que esse codigo assume, ou se ha alguma suposicao de
+   "ultimo indice" que o append quebraria
+5. src/modules/extraction/application/start-extraction-run.ts, complete-ocr.ts, start-ocr.ts,
+   run-bedrock-extraction.ts (confirme as correcoes propostas contra o codigo real)
+6. .eslintrc.cjs real deste repo (confirme se a sintaxe overrides/no-restricted-imports/no-restricted-syntax
+   proposta e valida para a versao instalada e se realmente fecha os dois bypasses que voce demonstrou na
+   Rodada 2)
+7. Grep as keys S3 reais usadas por Document/artefato OCR (s3-document-object-store.ts,
+   s3-ocr-artifact-store.ts) para confirmar ou refutar a alegacao da proposta de que ja seguem (ou nao)
+   convencao tenant/<tenantId>/... - e se os buckets relevantes tem versionamento habilitado (grep
+   infra/modules/document-buckets, infra/modules/import-bucket por versioning)
+
+Trate cada um dos 8 achados da Rodada 1 + N1-N4 da Rodada 2 como item de checklist, confirmando RESOLVIDO /
+PARCIAL / NAO RESOLVIDO contra codigo real, nao contra a alegacao da proposta. Preste atencao especial a:
+- Se a varredura S3 por prefixo ate convergencia (secao 7/8) e de fato implementavel e fecha a garantia, ou
+  introduz problemas novos (ex.: objetos em buckets sem essa convencao de key, custo/tempo de ListObjectsV2
+  recursivo, DeleteObjects em lote com falhas parciais).
+- Se o novo contrato de TenantQuotaService.consume() retornando "RESERVED"|"ALREADY_RESERVED" e coerente com
+  os demais call sites reais (grep todos os usos de consume()), sem quebrar nenhum.
+- Se a mudanca de IdentityStore para incluir transactWrite segue o mesmo padrao real que outros stores
+  (dynamodb-document-store.ts etc.) usam, ou se ha uma diferenca estrutural que a proposta nao reconheceu.
+
+Responda com:
+1. Nota de 0 a 10 (protocolo de nota cega desta rodada).
+2. Checklist explicito de cada achado (8 da Rodada 1 + N1-N4 da Rodada 2): RESOLVIDO / PARCIAL / NAO
+   RESOLVIDO, com evidencia contra codigo real.
+3. Achados NOVOS desta rodada, se houver.
+4. Recomendacao: aprovar (>=9.0), pedir revisao, ou reprovar.
+
+Continue rigoroso - nao suavize por ja terem sido duas rodadas de correcao.

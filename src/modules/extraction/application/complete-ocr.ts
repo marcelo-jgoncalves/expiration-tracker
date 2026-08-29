@@ -81,7 +81,7 @@ export async function completeOcr(deps: CompleteOcrDeps, input: CompleteOcrInput
   let sendErrorCode: string | undefined;
 
   if (status === "SUCCEEDED" || status === "PARTIAL_SUCCESS") {
-    artifact = await deps.artifacts.put(job.runId, JSON.stringify(blocks));
+    artifact = await deps.artifacts.put(job.tenantId, job.runId, JSON.stringify(blocks));
     const effectiveWarnings = status === "PARTIAL_SUCCESS" ? [...new Set([...warnings, "PARTIAL_OCR"])] : warnings;
     sendSuccess = true;
     // Re-attaches the original execution context (item 5, D-057 pending decision) - this

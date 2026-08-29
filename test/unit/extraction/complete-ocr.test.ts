@@ -42,10 +42,10 @@ class FakeTextractJobStore implements TextractJobStore {
 }
 
 class FakeArtifactStore implements OcrArtifactStore {
-  public puts: { runId: string; blocksJson: string }[] = [];
-  async put(runId: string, blocksJson: string): Promise<ExtractionArtifactRef> {
-    this.puts.push({ runId, blocksJson });
-    return { bucket: "extraction-transient", key: `run/${runId}/textract.json` };
+  public puts: { tenantId: string; runId: string; blocksJson: string }[] = [];
+  async put(tenantId: string, runId: string, blocksJson: string): Promise<ExtractionArtifactRef> {
+    this.puts.push({ tenantId, runId, blocksJson });
+    return { bucket: "extraction-transient", key: `ocr/${tenantId}/${runId}.json` };
   }
   async get(): Promise<string> {
     throw new Error("not used by completeOcr");

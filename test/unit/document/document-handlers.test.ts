@@ -1,9 +1,9 @@
-/** Exercises the REAL defaultSchemaRegistry every Lambda imports (same regression pattern as
+﻿/** Exercises the REAL defaultSchemaRegistry every Lambda imports (same regression pattern as
  * notification/preferences-handlers.test.ts, which caught a real production bug: a schema
  * added to disk but never registered in the static import list). */
 import { describe, expect, it, vi } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator } from "../identity/in-memory-store.js";
-import { InMemoryDocumentStore } from "./in-memory-store.js";
+import { InMemoryDocumentStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
@@ -12,16 +12,24 @@ import { DocumentService } from "../../../src/modules/document/application/docum
 import { DocumentDeletionService } from "../../../src/modules/document/application/document-deletion-service.js";
 import { handleDeleteDocument, handleGetDocument, handleListDocuments, handleReserveUpload, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
 const BUCKET = "quarantine-bucket";
 const VALID_SHA256 = "a".repeat(64);
 
-function buildDeps(): DocumentHttpDeps {
+// W3-07 (D-070 chunk 8/N): DocumentService.reserveUpload now fences its own transactWrite via
+// TenantBusinessMutation, which reads TenantLifecycleRecord from documentStore's OWN map - a
+// real DynamoDB table shares the record with identityStore's bootstrap write, but these two
+// in-memory fakes are separate Maps. Pre-resolving the default `claims()` identity once (same
+// idempotent login every test already relies on) lets us learn the bootstrapped tenantId and
+// mirror the ACTIVE lifecycle record into documentStore too.
+async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemoryIdentityStore }> {
   const identityStore = new InMemoryIdentityStore();
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator());
-  const quota = new TenantQuotaService(identityStore);
-  const documentStore = new InMemoryDocumentStore();
+  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
+  const quota = new TenantQuotaService(identityStore, TABLE);
+  const bootstrapped = await resolver.resolve({ claims: claims(), requestId: "bootstrap", correlationId: "bootstrap" });
+  const documentStore = new InMemoryDocumentStore([activeLifecycleRecord(bootstrapped.tenant.tenantId)]);
   const documents = new DocumentService({
     store: documentStore,
     tableName: TABLE,
@@ -30,7 +38,7 @@ function buildDeps(): DocumentHttpDeps {
     signer: { presignUpload: async (input) => ({ uploadUrl: `https://s3.example/${input.key}`, requiredHeaders: {} }) },
   });
   const deletion = new DocumentDeletionService({ store: documentStore, tableName: TABLE });
-  return { resolver, documents, deletion, quota };
+  return { resolver, documents, deletion, quota, identityStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -39,7 +47,7 @@ function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
 
 describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("handleReserveUpload accepts a valid body through the REAL schema registry every Lambda imports", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleReserveUpload(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -54,7 +62,7 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleReserveUpload rejects a body that fails schema validation (extra unknown field)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleReserveUpload(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -67,7 +75,7 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleReserveUpload requires an Idempotency-Key header", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleReserveUpload(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -79,14 +87,26 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleDeleteDocument returns 404 for a document that doesn't exist", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleDeleteDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId: "missing" } });
     expect(response.statusCode).toBe(404);
   });
 
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
-    const deps = buildDeps();
+    const deps = await buildDeps();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() (API_REQUEST, ahead of authorize())
+    // now requires a TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the
+    // real bootstrap flow that would normally create one, so seed it directly.
+    await deps.identityStore.putIfAbsent({
+      ...tenantLifecycleKey("tenant-x"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-x",
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
     const noRoleResolver = {
       resolve: async () => ({ tenant: { tenantId: "tenant-x", roles: [] }, principal: { userId: "user-x" }, requestId: "r1" }),
     } as unknown as DocumentHttpDeps["resolver"];
@@ -103,7 +123,7 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleGetDocument returns the reserved document (BLOCKER-A)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const reserved = await handleReserveUpload(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -118,13 +138,13 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleGetDocument returns 404 for a document that doesn't exist (BLOCKER-A)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleGetDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId: "missing" } });
     expect(response.statusCode).toBe(404);
   });
 
   it("handleListDocuments returns every document reserved under the item (BLOCKER-A)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     await handleReserveUpload(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -139,7 +159,7 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleListDocuments returns an empty list for an item with no documents (BLOCKER-A)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleListDocuments(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item-empty" } });
     expect(response.statusCode).toBe(200);
     expect(response.body["documents"]).toEqual([]);

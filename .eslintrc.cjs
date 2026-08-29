@@ -76,5 +76,29 @@ module.exports = {
         ],
       },
     },
+    {
+      // W3-07 (D-068) tenant fence structural boundary, IDE-speed layer only - same caveat as
+      // the domain/ rule above applies: this is text-matching on the import specifier, not the
+      // resolved module graph, so it cannot see a transitive re-export. The AUTHORITATIVE
+      // enforcement is `npm run check-boundaries`'s `no-raw-dynamodb-writes-outside-lanes` rule
+      // (.dependency-cruiser.cjs), proven against real bypass fixtures by
+      // test/architecture/tenant-fence-boundary.test.ts. This ESLint rule is defense-in-depth
+      // fast feedback only, never the load-bearing guarantee.
+      files: ["src/modules/*/{domain,application,ports,http}/**/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["@aws-sdk/lib-dynamodb"],
+                message:
+                  "Raw DynamoDB write commands (PutCommand/UpdateCommand/DeleteCommand/TransactWriteCommand/BatchWriteCommand) may only be imported by a module's own persistence/ adapter. Route tenant-scoped mutations through TenantBusinessMutation/SystemMutation (src/shared/tenant-lifecycle/) instead (W3-07 fence, architecture boundary).",
+              },
+            ],
+          },
+        ],
+      },
+    },
   ],
 };
