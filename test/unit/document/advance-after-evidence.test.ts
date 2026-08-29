@@ -192,6 +192,91 @@ describe("advanceAfterEvidence — corrida real entre upload e malware", () => {
     expect(doc.status).toBe("SCANNING"); // never advanced to CLEAN on unverified copy.
   });
 
+  it("W3-07 review finding (Codex round 1, 2026-08-29): a verification failure compensates the just-copied clean object instead of leaving it orphaned in the versioned bucket", async () => {
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
+    await store.putIfAbsent(
+      baseDocument({
+        status: "SCANNING",
+        uploadEvidence: { object: QUARANTINE_OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+        malwareEvidence: { object: QUARANTINE_OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+      }),
+    );
+    const deletedVersions: unknown[] = [];
+    const brokenObjects = fakeObjectStore({
+      headObject: async () => ({ contentLength: 50, mediaType: "application/pdf" }), // mismatch -> verification fails
+      deleteObjectVersion: async (obj) => {
+        deletedVersions.push(obj);
+      },
+    });
+    await expect(
+      advanceAfterEvidence({ store, objects: brokenObjects, tableName: TABLE, cleanBucket: CLEAN_BUCKET }, { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT }),
+    ).rejects.toThrow(/verification failed/);
+    expect(deletedVersions).toHaveLength(1);
+    expect(deletedVersions[0]).toMatchObject({ bucket: CLEAN_BUCKET, key: "clean/t1/item1/doc1" });
+  });
+
+  it("W3-07 review finding (Codex round 1, 2026-08-29): an ordinary OCC conflict on a losing attempt compensates that attempt's copied clean object before retrying, not just the final TENANT_NOT_ACTIVE rejection", async () => {
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
+    await store.putIfAbsent(
+      baseDocument({
+        status: "SCANNING",
+        uploadEvidence: { object: QUARANTINE_OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-22T00:01:00.000Z" },
+        malwareEvidence: { object: QUARANTINE_OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-22T00:02:00.000Z" },
+      }),
+    );
+
+    let copyCount = 0;
+    const copiedVersions: string[] = [];
+    const deletedVersions: unknown[] = [];
+    let transactWriteCount = 0;
+    const realTransactWrite = store.transactWrite.bind(store);
+    // Simulate a concurrent writer bumping the Document's version between THIS attempt's read
+    // and its own transactWrite - real OCC contention, not the lifecycle fence - on exactly the
+    // first attempt only, so the caller's own Update entry loses the race (mirrors two evidence
+    // workers racing on the same document, a scenario this module's other tests already cover
+    // for the non-versioned-bucket case).
+    store.transactWrite = async (entries) => {
+      transactWriteCount += 1;
+      if (transactWriteCount === 1) {
+        const doc = (await store.get(documentKey("t1", "item1", "doc1"))) as Document;
+        await store.update({ ...doc, version: doc.version + 1 });
+      }
+      return realTransactWrite(entries);
+    };
+
+    const outcome = await advanceAfterEvidence(
+      {
+        store,
+        objects: fakeObjectStore({
+          copyObject: async (_source, destBucket, destKey) => {
+            copyCount += 1;
+            const versionId = `clean-v${copyCount}`;
+            copiedVersions.push(versionId);
+            return { bucket: destBucket, key: destKey, versionId };
+          },
+          deleteObjectVersion: async (obj) => {
+            deletedVersions.push(obj);
+          },
+        }),
+        tableName: TABLE,
+        cleanBucket: CLEAN_BUCKET,
+      },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", expectedObject: QUARANTINE_OBJECT },
+    );
+
+    expect(outcome).toBe("PROMOTED");
+    expect(copyCount).toBe(2); // one copy per attempt - the first attempt lost the OCC race.
+    // The FIRST attempt's copied version must have been compensated (deleted), not left behind
+    // as an orphan once the SECOND attempt went on to succeed with its own, different version.
+    // Filter to the clean bucket only - the final PROMOTED outcome also does a best-effort
+    // delete of the (unrelated) quarantine source object, which lands in the same fake sink.
+    const cleanBucketDeletes = deletedVersions.filter((v) => (v as { bucket?: string }).bucket === CLEAN_BUCKET);
+    expect(cleanBucketDeletes).toHaveLength(1);
+    expect(cleanBucketDeletes[0]).toMatchObject({ bucket: CLEAN_BUCKET, key: "clean/t1/item1/doc1", versionId: copiedVersions[0] });
+    const doc = (await store.get(documentKey("t1", "item1", "doc1"))) as Document;
+    expect(doc.cleanObject).toMatchObject({ versionId: copiedVersions[1] }); // the winning attempt's version.
+  });
+
   it("ignores late/duplicate evidence once the document is already terminal (CLEAN)", async () => {
     const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument({ status: "CLEAN", cleanObject: { bucket: CLEAN_BUCKET, key: "clean/t1/doc1", versionId: "v1" } }));

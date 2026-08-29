@@ -69,6 +69,14 @@ export async function advanceAfterSubmissionEvidence(
     const cleanObject = await deps.objects.copyObject(sourceObject, deps.cleanBucket, cleanKey);
     const verify = await deps.objects.headObject(cleanObject);
     if (!verify || verify.contentLength !== submission.contentLength) {
+      // W3-07 review finding (Codex round 1, 2026-08-29), same as advance-after-evidence.ts:
+      // `cleanBucket` is versioned - compensate this exact version before surfacing the error,
+      // rather than leaving it orphaned on every failed-verification retry.
+      try {
+        await deps.objects.deleteObjectVersion(cleanObject);
+      } catch {
+        // Best-effort - same backstop reasoning as the TENANT_NOT_ACTIVE compensation below.
+      }
       throw new Error(`Promotion copy verification failed for submission ${submission.submissionId}`);
     }
 
@@ -82,12 +90,16 @@ export async function advanceAfterSubmissionEvidence(
     // session - see advance-after-evidence.ts's comment for the full reasoning).
     const promoteResult = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
     if (!promoteResult.ok) {
-      if (promoteResult.reason === "OCC_CONFLICT") continue;
+      // W3-07 review finding (Codex round 1, 2026-08-29), same as advance-after-evidence.ts:
+      // compensate on EVERY non-committed outcome (OCC_CONFLICT too, not just the fence
+      // rejection) - the deterministic key + versioned bucket means every losing attempt left
+      // its own orphaned version behind even when a later retry went on to succeed.
       try {
         await deps.objects.deleteObjectVersion(cleanObject);
       } catch {
         // Best-effort - see comment above.
       }
+      if (promoteResult.reason === "OCC_CONFLICT") continue;
       return "IGNORED_TENANT_NOT_ACTIVE";
     }
     try {

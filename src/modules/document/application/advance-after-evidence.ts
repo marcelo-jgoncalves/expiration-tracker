@@ -115,6 +115,16 @@ export async function advanceAfterEvidence(
       // reconciler's TIMEOUT path recovers a document stuck here; a bare retry of this
       // function attempt is also safe (copyObject is not required to be idempotent across
       // attempts, but re-copying the same source version to the same destination key is).
+      // W3-07 review finding (Codex round 1, 2026-08-29): `cleanBucket` is versioned
+      // (`infra/modules/document-buckets/main.tf`'s `aws_s3_bucket_versioning.clean`) - a
+      // verification failure that just throws without deleting the just-created version left
+      // an orphaned clean-bucket version behind on every retry, undetected by any existing
+      // test. Compensate this exact version, best-effort, before surfacing the error.
+      try {
+        await deps.objects.deleteObjectVersion(cleanObject);
+      } catch {
+        // Best-effort - same backstop reasoning as the TENANT_NOT_ACTIVE compensation below.
+      }
       throw new Error(`Promotion copy verification failed for document ${doc.documentId}`);
     }
 
@@ -143,13 +153,19 @@ export async function advanceAfterEvidence(
     // which is separate future work, not attempted this session.
     const promoteResult = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
     if (!promoteResult.ok) {
-      if (promoteResult.reason === "OCC_CONFLICT") continue;
+      // W3-07 review finding (Codex round 1, 2026-08-29): the ORIGINAL code only compensated
+      // `cleanObject` on TENANT_NOT_ACTIVE, never on an ordinary OCC_CONFLICT retry - since
+      // `cleanKey` is deterministic and the bucket is versioned, every OCC-losing attempt left
+      // its own orphaned clean-bucket version behind even though the loop went on to succeed on
+      // a later attempt. Compensate on EVERY non-committed outcome, not just the fence
+      // rejection, before deciding whether to retry or give up.
       try {
         await deps.objects.deleteObjectVersion(cleanObject);
       } catch {
         // Best-effort - the permanent post-DELETED sweeper (future work) is the backstop for a
         // failed compensation delete, same as the quarantine-delete backstop below.
       }
+      if (promoteResult.reason === "OCC_CONFLICT") continue;
       return "IGNORED_TENANT_NOT_ACTIVE";
     }
     // Quarantine object removal is best-effort cleanup, never a condition for CLEAN -

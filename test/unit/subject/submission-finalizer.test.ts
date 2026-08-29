@@ -199,5 +199,35 @@ describe("finalizeSubmissionUpload", () => {
       expect(deletedVersions).toHaveLength(1);
       expect(deletedVersions[0]).toMatchObject({ bucket: CLEAN_BUCKET, key: "clean/t1/sub1" });
     });
+
+    it("W3-07 review finding (Codex round 1, 2026-08-29): a verification failure compensates the just-copied clean object instead of leaving it orphaned in the versioned bucket", async () => {
+      const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
+      await store.putIfAbsent(
+        baseSubmission({
+          status: "SCANNING",
+          uploadEvidence: { object: OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-23T00:01:00.000Z" },
+          malwareEvidence: { object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-23T00:02:00.000Z" },
+        }),
+      );
+      const deletedVersions: unknown[] = [];
+      await expect(
+        advanceAfterSubmissionEvidence(
+          {
+            store,
+            objects: fakeObjects({
+              headObject: async () => ({ contentLength: 50, mediaType: "application/pdf" }), // mismatch -> verification fails
+              deleteObjectVersion: async (obj) => {
+                deletedVersions.push(obj);
+              },
+            }),
+            tableName: TABLE,
+            cleanBucket: CLEAN_BUCKET,
+          },
+          { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+        ),
+      ).rejects.toThrow(/verification failed/);
+      expect(deletedVersions).toHaveLength(1);
+      expect(deletedVersions[0]).toMatchObject({ bucket: CLEAN_BUCKET, key: "clean/t1/sub1" });
+    });
   });
 });
