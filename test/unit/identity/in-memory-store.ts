@@ -1,6 +1,32 @@
 import type { EntityKey, IdentityStore, TransactWriteEntry } from "../../../src/modules/identity/ports/identity-store.js";
 
 /**
+ * Generic-enough ConditionExpression evaluator for a `Delete` entry's condition — added for the
+ * W3-07 purge pipeline (`system-mutation.ts`'s `PURGE_DELETE`, the first `Delete` entry this
+ * fake needs to actually evaluate rather than silently no-op). Supports the operators that
+ * module's condition actually uses: `attribute_not_exists`, `begins_with`, and a top-level `OR`
+ * — deliberately narrower than `test/unit/workers/document-purge-fakes.ts`'s evaluator (no
+ * `attribute_exists`/`=`/`<>`/`<=`/`AND` needed here yet), extend if a future Delete condition
+ * needs more.
+ */
+function evaluateDeleteCondition(expression: string, values: Record<string, unknown>, item: Record<string, unknown> | undefined): boolean {
+  function evalAtom(atom: string): boolean {
+    atom = atom.trim();
+    const notExistsMatch = atom.match(/^attribute_not_exists\(([^)]+)\)$/);
+    if (notExistsMatch) return item === undefined;
+    const beginsWithMatch = atom.match(/^begins_with\(([^,]+),\s*(:\S+)\)$/);
+    if (beginsWithMatch) {
+      const [, field, valueKey] = beginsWithMatch;
+      const prefix = values[valueKey!.trim()] as string;
+      const actual = item?.[field!.trim()] as string | undefined;
+      return typeof actual === "string" && actual.startsWith(prefix);
+    }
+    throw new Error(`Unsupported Delete condition atom in fake evaluator: ${atom}`);
+  }
+  return expression.split(" OR ").some((part) => evalAtom(part));
+}
+
+/**
  * In-memory fake of the DynamoDB-backed IdentityStore port, mirroring the semantics
  * required by the identity module (attribute_not_exists(PK) for putIfAbsent). Used by
  * unit + the cross-tenant negative suite so tests exercise real resolver/authz/quota
@@ -145,6 +171,13 @@ export class InMemoryIdentityStore implements IdentityStore {
             }
           }
         }
+      } else if ("Delete" in entry) {
+        const existing = this.items.get(this.k(entry.Delete.Key));
+        if (entry.Delete.ConditionExpression && !evaluateDeleteCondition(entry.Delete.ConditionExpression, entry.Delete.ExpressionAttributeValues ?? {}, existing)) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
       }
     });
 
@@ -173,8 +206,20 @@ export class InMemoryIdentityStore implements IdentityStore {
           }
         }
         this.items.set(this.k(key), next);
+      } else if ("Delete" in entry) {
+        this.items.delete(this.k(entry.Delete.Key));
       }
     }
+  }
+
+  /** Test-only helper for purge tests: seed an arbitrary raw item (not just via putIfAbsent's
+   * attribute_not_exists condition), and check presence. */
+  seedRaw(item: Record<string, unknown> & EntityKey): void {
+    this.items.set(this.k(item), { ...item });
+  }
+
+  hasRaw(key: EntityKey): boolean {
+    return this.items.has(this.k(key));
   }
 
   /** Test-only helper to list raw keys, for cross-tenant leakage assertions. */

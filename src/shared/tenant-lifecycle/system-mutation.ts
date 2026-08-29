@@ -88,7 +88,33 @@ export type SystemMutationOperation =
       blockedReason?: string;
       blockedFrom?: TenantLifecycleStatus;
     }
-  | { kind: "PURGE_DELETE" }
+  | {
+      /** W3-07 purge pipeline (this session): physically removes ONE tenant-owned row from the
+       * main table. Deliberately NOT a bare `BatchWriteCommand` — every purge delete is routed
+       * through this lane so it gets the same structural containment every other write in this
+       * codebase gets (see file header), and so the safety condition below is enforced in
+       * exactly one place rather than trusted to every future purge call site.
+       *
+       * Idempotent by construction: the ConditionExpression this builds is
+       * `attribute_not_exists(PK) OR begins_with(PK, "TENANT#<tenantId>#")` — deleting an
+       * already-purged (or never-existed) key is a clean no-op, never a
+       * `ConditionalCheckFailedException`, so re-running a purge after an interruption never
+       * errors on rows it already removed. The `begins_with` half is a defense-in-depth guard,
+       * not the primary safety mechanism (the caller — `dynamo-tenant-purge.ts` — is what
+       * actually scopes candidates to one tenant); it exists so a caller bug that hands this
+       * lane the wrong tenant's key fails loudly (`SystemMutationConflictError`) instead of
+       * silently deleting another tenant's row.
+       *
+       * Deliberately no `expectedVersion`/OCC condition (unlike every other write in this
+       * codebase, which routes through `buildVersionedUpdate`/`buildVersionedDelete`): a purge
+       * targets a row that is (by the time PURGING is reached) no longer being mutated by any
+       * fenced business writer, and re-checking a version the caller may not have freshly read
+       * (a Scan page can be stale by the time this lane runs) would turn ordinary purge retries
+       * into false conflicts. */
+      kind: "PURGE_DELETE";
+      tenantId: string;
+      key: { PK: string; SK: string };
+    }
   | { kind: "OUTBOX_BOOKKEEPING" };
 
 export interface SystemMutationInput {
@@ -186,7 +212,19 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
         },
       ];
     }
-    case "PURGE_DELETE":
+    case "PURGE_DELETE": {
+      const prefix = `TENANT#${op.tenantId}#`;
+      return [
+        {
+          Delete: {
+            TableName: tableName,
+            Key: op.key,
+            ConditionExpression: "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix)",
+            ExpressionAttributeValues: { ":purgeTenantPrefix": prefix },
+          },
+        },
+      ];
+    }
     case "OUTBOX_BOOKKEEPING":
       throw new SystemMutationNotImplementedError(op.kind);
     default: {
@@ -251,5 +289,28 @@ export async function transitionTenantLifecycle(input: {
       blockedReason: input.blockedReason,
       blockedFrom: input.blockedFrom,
     },
+  });
+}
+
+/**
+ * W3-07 purge pipeline: physically deletes ONE tenant-owned row via the `PURGE_DELETE`
+ * SystemMutation. See that union member's doc comment for why this is idempotent and what the
+ * `begins_with` safety condition actually protects against. Callers (`dynamo-tenant-purge.ts`)
+ * invoke this once per candidate row found by a tenant-scoped scan; `SystemMutationConflictError`
+ * here means the caller handed this lane a key that does not belong to `tenantId` — a caller bug,
+ * never an expected/retryable outcome.
+ */
+export async function purgeTenantItem(input: {
+  store: SystemMutationStore;
+  tableName: string;
+  tenantId: string;
+  key: { PK: string; SK: string };
+  now?: () => string;
+}): Promise<void> {
+  await executeSystemMutation({
+    store: input.store,
+    tableName: input.tableName,
+    now: input.now,
+    operation: { kind: "PURGE_DELETE", tenantId: input.tenantId, key: input.key },
   });
 }

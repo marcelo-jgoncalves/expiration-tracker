@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   executeSystemMutation,
   transitionTenantLifecycle,
+  purgeTenantItem,
   SystemMutationConflictError,
   SystemMutationNotImplementedError,
   type SystemMutationOperation,
@@ -179,17 +180,14 @@ describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)"
 });
 
 describe("executeSystemMutation — allowlist containment", () => {
-  it("PURGE_DELETE and OUTBOX_BOOKKEEPING are allowlisted by type but throw SystemMutationNotImplementedError (not silently accepted)", async () => {
+  it("OUTBOX_BOOKKEEPING is allowlisted by type but throws SystemMutationNotImplementedError (not silently accepted) — PURGE_DELETE is now implemented, see the dedicated describe block below", async () => {
     const store = new InMemoryIdentityStore();
-    await expect(
-      executeSystemMutation({ store, tableName: TABLE, operation: { kind: "PURGE_DELETE" } }),
-    ).rejects.toBeInstanceOf(SystemMutationNotImplementedError);
     await expect(
       executeSystemMutation({ store, tableName: TABLE, operation: { kind: "OUTBOX_BOOKKEEPING" } }),
     ).rejects.toBeInstanceOf(SystemMutationNotImplementedError);
   });
 
-  it("adversarial: an operation with an unrecognized kind that bypassed the type system at a runtime boundary (e.g. JSON.parse) is rejected, not silently executed", async () => {
+  it("adversarial: an operation with an unrecognized kind that bypassed the type system at a runtime boundary (e.g. JSON.parse) is rejected, not silently executed - PURGE_DELETE-specific tests are in the dedicated describe block below", async () => {
     const store = new InMemoryIdentityStore();
     const smuggled = { kind: "DELETE_EVERYTHING_FOR_THIS_TENANT" } as unknown as SystemMutationOperation;
 
@@ -239,5 +237,55 @@ describe("executeSystemMutation — allowlist containment", () => {
     const systemMutationSrc = join(__dirname, "..", "..", "src", "shared", "tenant-lifecycle", "system-mutation.ts");
     const contents = readFileSync(systemMutationSrc, "utf8");
     expect(contents).toContain("not built this session");
+  });
+});
+
+describe("purgeTenantItem / PURGE_DELETE (W3-07 purge pipeline, this session)", () => {
+  it("deletes a tenant-owned row for real", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "TENANT#tenant-1#ITEM#item-1", SK: "ITEM" };
+    store.seedRaw({ ...key, entityType: "ExpirationItem", tenantId: "tenant-1" });
+
+    await purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key });
+
+    expect(store.hasRaw(key)).toBe(false);
+  });
+
+  it("idempotent: re-running against an already-purged (or never-existing) key is a clean no-op, never an error", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "TENANT#tenant-1#ITEM#item-1", SK: "ITEM" };
+
+    // Never existed:
+    await expect(purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key })).resolves.toBeUndefined();
+
+    // Existed, then purged, then purged again:
+    store.seedRaw({ ...key, entityType: "ExpirationItem", tenantId: "tenant-1" });
+    await purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key });
+    await expect(purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key })).resolves.toBeUndefined();
+    expect(store.hasRaw(key)).toBe(false);
+  });
+
+  it("safety condition rejects a key that does not belong to the claimed tenant (defense-in-depth against a caller bug), leaving the row untouched", async () => {
+    const store = new InMemoryIdentityStore();
+    const otherTenantKey = { PK: "TENANT#tenant-2#ITEM#item-1", SK: "ITEM" };
+    store.seedRaw({ ...otherTenantKey, entityType: "ExpirationItem", tenantId: "tenant-2" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key: otherTenantKey }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+
+    expect(store.hasRaw(otherTenantKey)).toBe(true);
+  });
+
+  it("never touches a differently-prefixed key even under the same tenantId claim (e.g. a non-TENANT#-prefixed row accidentally handed to this lane)", async () => {
+    const store = new InMemoryIdentityStore();
+    const nonTenantPrefixedKey = { PK: "IDENTITY#cognito-sub-1", SK: "IDENTITY" };
+    store.seedRaw({ ...nonTenantPrefixedKey, entityType: "IdentityMapping", tenantId: "tenant-1" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key: nonTenantPrefixedKey }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+
+    expect(store.hasRaw(nonTenantPrefixedKey)).toBe(true);
   });
 });

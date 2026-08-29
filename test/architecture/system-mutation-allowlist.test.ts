@@ -173,7 +173,7 @@ describe("architecture: SystemMutationOperation allowlist is closed at compile t
           '',
           'export const realOperations: SystemMutationOperation[] = [',
           '  { kind: "LIFECYCLE_TRANSITION", tenantId: "t", from: "ACTIVE", to: "DELETING", expectedVersion: 1 },',
-          '  { kind: "PURGE_DELETE" },',
+          '  { kind: "PURGE_DELETE", tenantId: "t", key: { PK: "TENANT#t#ITEM#i", SK: "ITEM" } },',
           '  { kind: "OUTBOX_BOOKKEEPING" },',
           '];',
         ].join("\n"),
