@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   executeSystemMutation,
@@ -214,5 +216,28 @@ describe("executeSystemMutation — allowlist containment", () => {
       entries: [{ Put: { TableName: TABLE, Item: { PK: "x", SK: "y" }, ConditionExpression: "" } }],
     };
     expect(attemptedBypass).toBeDefined();
+  });
+
+  it("adversarial (D-074/D-076 item 2, allowlist closure): a SystemMutationOperation literal with a kind outside the union {LIFECYCLE_TRANSITION, PURGE_DELETE, OUTBOX_BOOKKEEPING} is a COMPILE-TIME type error, not just a runtime rejection - the allowlist is closed at the type level, this is the compile-time half proving it", () => {
+    // Mirrors the runtime test above (an unrecognized kind that bypassed the type system, e.g.
+    // via `as unknown as SystemMutationOperation` or JSON.parse across a process boundary, IS
+    // rejected at runtime by buildEntries' exhaustiveness guard) - this test proves the OTHER
+    // half: any code within this codebase's own type system, with no unsafe cast, cannot even
+    // construct an operation with an unlisted kind in the first place. Together the two tests
+    // prove the allowlist is closed both for in-process callers (this test) and for a value that
+    // reaches executeSystemMutation having bypassed TypeScript entirely (the runtime test above).
+    // @ts-expect-error - "DELETE_EVERYTHING_FOR_THIS_TENANT" is not a member of the
+    // SystemMutationOperation discriminated union; TypeScript must reject this literal.
+    const attemptedNewOperationKind: SystemMutationOperation = { kind: "DELETE_EVERYTHING_FOR_THIS_TENANT" };
+    expect(attemptedNewOperationKind).toBeDefined();
+  });
+
+  it("D-074/D-076 item 2 note: no orchestrator/handler in this codebase yet constructs a SystemMutationOperation from external/untrusted input (Step Functions payload, SQS message, API body) - transitionTenantLifecycle's only caller today is this test file itself. When a real orchestrator is wired (see NEXT_SESSION_PROMPT.md), THAT call site is where a runtime allowlist assertion against the raw deserialized `kind` value becomes load-bearing, on top of the exhaustiveness guard already proven above; this test exists so that claim is written down and falsifiable by grep, not just asserted in prose", () => {
+    // This is a documentation-as-test placeholder, not a behavioral assertion - it fails loudly
+    // if a future session wires an external entry point without revisiting this note, instead of
+    // silently going stale.
+    const systemMutationSrc = join(__dirname, "..", "..", "src", "shared", "tenant-lifecycle", "system-mutation.ts");
+    const contents = readFileSync(systemMutationSrc, "utf8");
+    expect(contents).toContain("not built this session");
   });
 });

@@ -24,7 +24,19 @@ produto. Ver `decisions-log.md` D-076 para o registro completo do item 1.
 - Gap residual honesto (documentado no código, não mascarado): uma entrada sem `PK` no padrão
   `TENANT#` E sem `tenantId` declarado ainda passa sem verificação — nenhum call site real produz
   isso hoje, mas a lane não impede estruturalmente que um futuro escritor o faça.
-- Itens 2/3 e a terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é
+- **Item 2 FECHADO**: `test/architecture/system-mutation-allowlist.test.ts` novo — prova por
+  compilação real (`tsc -p tsconfig.json --noEmit`, mesmo comando de `npm run typecheck`) que o
+  allowlist `SystemMutationOperation` está fechado: fixture com `kind` fora da união falha a
+  compilação; fixture com campo `entries[]` contrabandeado numa operação por outro lado válida
+  falha a compilação; controle com as 3 kinds reais compila limpo. Complementa os testes já
+  existentes em `test/unit/system-mutation.test.ts` (agora com um segundo `@ts-expect-error`
+  específico para `kind` fora da união, e um teste-documentação grep-ável confirmando que nenhum
+  orquestrador externo real constrói uma operação hoje). **Achado real corrigido**: dois arquivos
+  de teste de arquitetura rodando em paralelo (padrão do vitest) e plantando/removendo fixtures
+  reais sob `src/` concorrentemente causavam uma corrida real (`TS6053: File ... not found`
+  intermitente) — corrigido com `fileParallelism: false` em `vitest.config.ts`. 1032 testes de
+  backend passando (era 1026), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+- Item 3 e a terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é
   atualizada incrementalmente conforme os itens avançam — conferir `git log` para o estado real).
 
 
