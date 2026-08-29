@@ -1,12 +1,13 @@
 /** UploadFinalizerWorker core logic (M6 design §3.2). Pure(ish): injected store/objects/parser,
  * no AWS SDK/Lambda runtime dependency directly (adapters are injected). */
-import { buildVersionedUpdate, isTransactionCanceled } from "../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { validateObservedUpload } from "../../modules/document/application/upload-validation.js";
 import { advanceAfterEvidence } from "../../modules/document/application/advance-after-evidence.js";
 import { documentKey, type Document } from "../../modules/document/domain/document.js";
 import type { DocumentStore } from "../../modules/document/ports/document-store.js";
 import type { DocumentObjectStore } from "../../modules/document/ports/document-object-store.js";
 import type { PdfParser } from "../../modules/document/ports/pdf-parser.js";
+import { tryTenantBusinessMutation } from "../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface FinalizeUploadInput {
   tenantId: string;
@@ -24,7 +25,7 @@ export interface FinalizeUploadDeps {
   now?: () => string;
 }
 
-export type FinalizeOutcome = "CONFIRMED" | "REJECTED_INVALID" | "IGNORED_UNKNOWN_SLOT" | "IGNORED_STALE";
+export type FinalizeOutcome = "CONFIRMED" | "REJECTED_INVALID" | "IGNORED_UNKNOWN_SLOT" | "IGNORED_STALE" | "IGNORED_TENANT_NOT_ACTIVE";
 
 const MAX_OCC_RETRIES = 10;
 
@@ -74,8 +75,13 @@ export async function finalizeUpload(deps: FinalizeUploadDeps, input: FinalizeUp
       observedAt: now(),
     };
 
-    try {
-      await deps.store.transactWrite([
+    // W3-07 (Round F finding): uploadEvidence is itself a TenantBusinessMutation, not just the
+    // final CLEAN promotion advanceAfterEvidence() owns.
+    const evidenceResult = await tryTenantBusinessMutation({
+      store: deps.store,
+      tableName: deps.tableName,
+      tenantId: input.tenantId,
+      entries: [
         {
           Update: buildVersionedUpdate({
             tableName: deps.tableName,
@@ -85,17 +91,20 @@ export async function finalizeUpload(deps: FinalizeUploadDeps, input: FinalizeUp
             set: { status: "SCANNING", uploadEvidence },
           }),
         },
-      ]);
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue; // concurrent evidence write raced us - re-read fresh and retry.
-      throw err;
+      ],
+    });
+    if (!evidenceResult.ok) {
+      if (evidenceResult.reason === "OCC_CONFLICT") continue; // concurrent evidence write raced us - re-read fresh and retry.
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
 
     const outcome = await advanceAfterEvidence(
       { store: deps.store, objects: deps.objects, tableName: deps.tableName, cleanBucket: deps.cleanBucket },
       { tenantId: input.tenantId, itemId: input.itemId, documentId: input.documentId, expectedObject: input.object },
     );
-    return outcome === "REJECTED" ? "REJECTED_INVALID" : "CONFIRMED";
+    if (outcome === "REJECTED") return "REJECTED_INVALID";
+    if (outcome === "IGNORED_TENANT_NOT_ACTIVE") return "IGNORED_TENANT_NOT_ACTIVE";
+    return "CONFIRMED";
   }
 
   throw new Error(`finalizeUpload exhausted retries for document ${input.documentId} under contention.`);

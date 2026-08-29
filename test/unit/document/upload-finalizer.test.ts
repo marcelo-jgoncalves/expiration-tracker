@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentStore } from "./in-memory-store.js";
+import { InMemoryDocumentStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { finalizeUpload } from "../../../src/workers/upload-finalizer/finalizer.js";
 import { documentKey, type Document } from "../../../src/modules/document/domain/document.js";
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
@@ -47,7 +47,7 @@ function fakeObjects(overrides: Partial<DocumentObjectStore> = {}): DocumentObje
 
 describe("finalizeUpload", () => {
   it("confirms slot, transitions to SCANNING then stays there awaiting malware result, on a valid matching object", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, now: () => "2026-08-22T00:05:00.000Z" },
@@ -60,7 +60,7 @@ describe("finalizeUpload", () => {
   });
 
   it("rejects when the observed size doesn't match what was declared at reservation", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     const badObjects = fakeObjects({ headObject: async () => ({ contentLength: 999, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }) });
     const outcome = await finalizeUpload(
@@ -74,7 +74,7 @@ describe("finalizeUpload", () => {
   });
 
   it("rejects when the PDF sandbox parser reports invalid structure, even though size/checksum matched", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects(), parser: fakeParser("INVALID_STRUCTURE"), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -84,7 +84,7 @@ describe("finalizeUpload", () => {
   });
 
   it("ignores an event for an object that doesn't match the reserved quarantine key (fail-closed)", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -94,7 +94,7 @@ describe("finalizeUpload", () => {
   });
 
   it("ignores an event for a document that doesn't exist at all", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
       { tenantId: "t1", itemId: "item1", documentId: "missing", object: OBJECT },
@@ -103,7 +103,7 @@ describe("finalizeUpload", () => {
   });
 
   it("ignores a redelivered event for a document already past SCANNING (terminal)", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument({ status: "CLEAN" }));
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -113,7 +113,7 @@ describe("finalizeUpload", () => {
   });
 
   it("returns REJECTED_INVALID when HeadObject can't find the object at all", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     const outcome = await finalizeUpload(
       { store, objects: fakeObjects({ headObject: async () => undefined }), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -123,7 +123,7 @@ describe("finalizeUpload", () => {
   });
 
   it("real bug found via Camada 3 (2026-08-22): retries and still confirms when MalwareResultWorker's own evidence write races in between this worker's read and write, instead of giving up as IGNORED_STALE", async () => {
-    const store = new InMemoryDocumentStore();
+    const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseDocument());
     let getCalls = 0;
     const racingStore: DocumentStore = {
@@ -155,5 +155,31 @@ describe("finalizeUpload", () => {
     expect(doc?.status).toBe("CLEAN"); // both evidences ended up applied: upload valid + malware clean -> PROMOTE.
     expect(doc?.uploadEvidence?.valid).toBe(true);
     expect(doc?.malwareEvidence?.status).toBe("NO_THREATS_FOUND");
+  });
+
+  describe("W3-07 tenant deletion fence (D-070 chunk 6/N) - uploadEvidence admission", () => {
+    it("ACTIVE control case: uploadEvidence is admitted and the worker proceeds to SCANNING", async () => {
+      const store = new InMemoryDocumentStore([activeLifecycleRecord("t1")]);
+      await store.putIfAbsent(baseDocument());
+      const outcome = await finalizeUpload(
+        { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", object: OBJECT },
+      );
+      expect(outcome).toBe("CONFIRMED");
+    });
+
+    it("DELETING: uploadEvidence admission is rejected atomically, document stays PENDING_UPLOAD untouched", async () => {
+      const store = new InMemoryDocumentStore([{ ...activeLifecycleRecord("t1"), status: "DELETING" }]);
+      await store.putIfAbsent(baseDocument());
+      const outcome = await finalizeUpload(
+        { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", object: OBJECT },
+      );
+      expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
+      const doc = (await store.get(documentKey("t1", "item1", "doc1"))) as Document;
+      expect(doc.status).toBe("PENDING_UPLOAD");
+      expect(doc.version).toBe(1);
+      expect(doc.uploadEvidence).toBeUndefined();
+    });
   });
 });

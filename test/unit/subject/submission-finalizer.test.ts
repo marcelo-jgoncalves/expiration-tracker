@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { InMemorySubjectStore } from "./in-memory-store.js";
+import { InMemorySubjectStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { finalizeSubmissionUpload } from "../../../src/workers/submission-finalizer/finalizer.js";
+import { advanceAfterSubmissionEvidence } from "../../../src/modules/subject/application/advance-after-submission-evidence.js";
 import { documentSubmissionKey, type DocumentSubmission } from "../../../src/modules/subject/domain/document-submission.js";
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
 import type { SubjectStore } from "../../../src/modules/subject/ports/subject-store.js";
@@ -49,7 +50,7 @@ const INPUT_BASE = { tenantId: "t1", subjectId: "subject1", assignmentId: "assig
 
 describe("finalizeSubmissionUpload", () => {
   it("confirms and transitions to SCANNING on a valid matching object", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseSubmission());
     const outcome = await finalizeSubmissionUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -62,7 +63,7 @@ describe("finalizeSubmissionUpload", () => {
   });
 
   it("rejects when the observed size doesn't match what was declared", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseSubmission());
     const badObjects = fakeObjects({ headObject: async () => ({ contentLength: 999, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }) });
     const outcome = await finalizeSubmissionUpload({ store, objects: badObjects, parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET }, INPUT_BASE);
@@ -72,7 +73,7 @@ describe("finalizeSubmissionUpload", () => {
   });
 
   it("rejects when the PDF sandbox parser reports invalid structure", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseSubmission());
     const outcome = await finalizeSubmissionUpload(
       { store, objects: fakeObjects(), parser: fakeParser("INVALID_STRUCTURE"), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
@@ -82,7 +83,7 @@ describe("finalizeSubmissionUpload", () => {
   });
 
   it("ignores an event for a submission that doesn't exist (fail-closed)", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     const outcome = await finalizeSubmissionUpload(
       { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
       { ...INPUT_BASE, submissionId: "missing" },
@@ -91,14 +92,14 @@ describe("finalizeSubmissionUpload", () => {
   });
 
   it("ignores a redelivered event for a submission already past SCANNING (terminal)", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseSubmission({ status: "CLEAN" }));
     const outcome = await finalizeSubmissionUpload({ store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET }, INPUT_BASE);
     expect(outcome).toBe("IGNORED_STALE");
   });
 
   it("retries and still confirms when the malware-result worker's own evidence write races in between this worker's read and write (mesma lição real de M6)", async () => {
-    const store = new InMemorySubjectStore();
+    const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
     await store.putIfAbsent(baseSubmission());
     let getCalls = 0;
     const racingStore: SubjectStore = {
@@ -126,5 +127,77 @@ describe("finalizeSubmissionUpload", () => {
     expect(submission?.status).toBe("CLEAN");
     expect(submission?.uploadEvidence?.valid).toBe(true);
     expect(submission?.malwareEvidence?.status).toBe("NO_THREATS_FOUND");
+  });
+
+  describe("W3-07 tenant deletion fence (D-070 chunk 6/N) - uploadEvidence admission", () => {
+    it("ACTIVE control case: uploadEvidence is admitted and the worker proceeds to SCANNING", async () => {
+      const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
+      await store.putIfAbsent(baseSubmission());
+      const outcome = await finalizeSubmissionUpload(
+        { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        INPUT_BASE,
+      );
+      expect(outcome).toBe("CONFIRMED");
+    });
+
+    it("DELETING: uploadEvidence admission is rejected atomically, submission stays PENDING_UPLOAD untouched", async () => {
+      const store = new InMemorySubjectStore([{ ...activeLifecycleRecord("t1"), status: "DELETING" }]);
+      await store.putIfAbsent(baseSubmission());
+      const outcome = await finalizeSubmissionUpload(
+        { store, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        INPUT_BASE,
+      );
+      expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
+      const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+      expect(submission.status).toBe("PENDING_UPLOAD");
+      expect(submission.version).toBe(1);
+      expect(submission.uploadEvidence).toBeUndefined();
+    });
+  });
+
+  describe("W3-07 tenant deletion fence (D-070 chunk 6/N) - advanceAfterSubmissionEvidence PROMOTE admission + orphan compensation", () => {
+    it("ACTIVE control case: PROMOTE is admitted normally", async () => {
+      const store = new InMemorySubjectStore([activeLifecycleRecord("t1")]);
+      await store.putIfAbsent(
+        baseSubmission({
+          status: "SCANNING",
+          uploadEvidence: { object: OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-23T00:01:00.000Z" },
+          malwareEvidence: { object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-23T00:02:00.000Z" },
+        }),
+      );
+      const outcome = await advanceAfterSubmissionEvidence(
+        { store, objects: fakeObjects(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+        { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+      );
+      expect(outcome).toBe("PROMOTED");
+    });
+
+    it("DELETING: PROMOTE admission is rejected atomically AND the already-copied clean object is compensated (deleted) - no orphan left behind", async () => {
+      const store = new InMemorySubjectStore([{ ...activeLifecycleRecord("t1"), status: "DELETING" }]);
+      await store.putIfAbsent(
+        baseSubmission({
+          status: "SCANNING",
+          uploadEvidence: { object: OBJECT, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-08-23T00:01:00.000Z" },
+          malwareEvidence: { object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-08-23T00:02:00.000Z" },
+        }),
+      );
+      const deletedVersions: unknown[] = [];
+      const outcome = await advanceAfterSubmissionEvidence(
+        {
+          store,
+          objects: fakeObjects({ deleteObjectVersion: async (obj) => { deletedVersions.push(obj); } }),
+          tableName: TABLE,
+          cleanBucket: CLEAN_BUCKET,
+        },
+        { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+      );
+      expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
+      const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+      expect(submission.status).toBe("SCANNING");
+      expect(submission.version).toBe(1);
+      expect(submission.cleanObject).toBeUndefined();
+      expect(deletedVersions).toHaveLength(1);
+      expect(deletedVersions[0]).toMatchObject({ bucket: CLEAN_BUCKET, key: "clean/t1/sub1" });
+    });
   });
 });

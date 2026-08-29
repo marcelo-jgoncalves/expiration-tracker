@@ -4,13 +4,14 @@
  * Owns the OCC read-decide-write loop and the actual promotion copy; the pure decision logic
  * itself lives in document-state-machine.ts.
  */
-import { buildVersionedUpdate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { decideNextAction } from "../domain/document-state-machine.js";
 import { documentKey, type Document } from "../domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.js";
 import type { DocumentObjectStore } from "../ports/document-object-store.js";
 import { sameObjectVersion } from "../domain/document-object-reference.js";
+import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface AdvanceAfterEvidenceDeps {
   store: DocumentStore;
@@ -19,7 +20,7 @@ export interface AdvanceAfterEvidenceDeps {
   cleanBucket: string;
 }
 
-export type AdvanceOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION";
+export type AdvanceOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION" | "IGNORED_TENANT_NOT_ACTIVE";
 
 const MAX_OCC_RETRIES = 10;
 
@@ -86,13 +87,12 @@ export async function advanceAfterEvidence(
         { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: doc.version, set: { status: decision.status } }) },
       ];
       await appendSlotConsumption(deps, rejectEntries, input.tenantId, doc.uploadSlotId);
-      try {
-        await deps.store.transactWrite(rejectEntries);
-        return "REJECTED";
-      } catch (err) {
-        if (isTransactionCanceled(err)) continue; // concurrent update won the race, retry fresh.
-        throw err;
-      }
+      // W3-07 (Round F/G finding): the REJECT transition is itself a TenantBusinessMutation -
+      // fence it, not just the final CLEAN promotion below.
+      const rejectResult = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries: rejectEntries });
+      if (rejectResult.ok) return "REJECTED";
+      if (rejectResult.reason === "OCC_CONFLICT") continue; // concurrent update won the race, retry fresh.
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
 
     // decision.action === "PROMOTE": copy quarantine -> clean, verify, then confirm CLEAN.
@@ -130,23 +130,39 @@ export async function advanceAfterEvidence(
       },
     ];
     await appendSlotConsumption(deps, entries, input.tenantId, doc.uploadSlotId);
-    try {
-      await deps.store.transactWrite(entries);
-      // Quarantine object removal is best-effort cleanup, never a condition for CLEAN -
-      // M6 design §2.3 ("Falha nessa remoção não reverte CLEAN; gera métrica e é recuperada
-      // por lifecycle/reconciliação"). The quarantine bucket's own 24h lifecycle rule is the
-      // backstop even if this delete call fails or is never reached.
+    // W3-07 (Round F finding): the copy to `cleanObject` above already happened BEFORE this
+    // fenced commit - if the tenant moved to DELETING in that exact window, the commit below is
+    // rejected atomically by the lifecycle fence, but `cleanObject` now exists in S3 with no
+    // corresponding Document row. Immediate compensation (Round G's proposed closure item 3,
+    // endorsed by Codex against the real TransactWriteItems/CancellationReasons API): on a
+    // TENANT_NOT_ACTIVE rejection specifically, delete the just-copied clean object right here,
+    // best-effort. This does NOT fully close the race Round G also found (an operation that was
+    // admitted before DELETING and only creates its S3 object after the purge sweep's final
+    // authoritative re-scan) - that residual case is covered by the permanent post-DELETED
+    // sweeper (approved design §O-6 item 1c, reusing the DocumentPurgeWorker/D-061 pattern),
+    // which is separate future work, not attempted this session.
+    const promoteResult = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
+    if (!promoteResult.ok) {
+      if (promoteResult.reason === "OCC_CONFLICT") continue;
       try {
-        await deps.objects.deleteObjectVersion(sourceObject);
+        await deps.objects.deleteObjectVersion(cleanObject);
       } catch {
-        // Intentionally swallowed - see comment above. Real failure visibility comes from the
-        // bucket lifecycle rule + reconciliation metrics, not from this call succeeding.
+        // Best-effort - the permanent post-DELETED sweeper (future work) is the backstop for a
+        // failed compensation delete, same as the quarantine-delete backstop below.
       }
-      return "PROMOTED";
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue;
-      throw err;
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
+    // Quarantine object removal is best-effort cleanup, never a condition for CLEAN -
+    // M6 design §2.3 ("Falha nessa remoção não reverte CLEAN; gera métrica e é recuperada
+    // por lifecycle/reconciliação"). The quarantine bucket's own 24h lifecycle rule is the
+    // backstop even if this delete call fails or is never reached.
+    try {
+      await deps.objects.deleteObjectVersion(sourceObject);
+    } catch {
+      // Intentionally swallowed - see comment above. Real failure visibility comes from the
+      // bucket lifecycle rule + reconciliation metrics, not from this call succeeding.
+    }
+    return "PROMOTED";
   }
 
   throw new Error(`advanceAfterEvidence exhausted retries for document ${input.documentId} under contention.`);

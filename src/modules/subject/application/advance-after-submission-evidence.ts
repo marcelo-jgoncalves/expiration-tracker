@@ -6,12 +6,13 @@
  * store, e replica as mesmas lições de bug real já documentadas em M6 (retry sob OCC
  * concorrente, nunca copiar de `quarantineObject` com versionId vazio, delete best-effort).
  */
-import { buildVersionedUpdate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { decideNextAction } from "../../document/domain/document-state-machine.js";
 import { sameObjectVersion } from "../../document/domain/document-object-reference.js";
 import type { DocumentObjectStore } from "../../document/ports/document-object-store.js";
 import { documentSubmissionKey, type DocumentSubmission } from "../domain/document-submission.js";
 import type { SubjectStore, TransactWriteEntry } from "../ports/subject-store.js";
+import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface AdvanceAfterSubmissionEvidenceDeps {
   store: SubjectStore;
@@ -20,7 +21,7 @@ export interface AdvanceAfterSubmissionEvidenceDeps {
   cleanBucket: string;
 }
 
-export type AdvanceSubmissionOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION";
+export type AdvanceSubmissionOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION" | "IGNORED_TENANT_NOT_ACTIVE";
 
 const MAX_OCC_RETRIES = 10;
 
@@ -50,15 +51,17 @@ export async function advanceAfterSubmissionEvidence(
     if (decision.action === "AWAIT_MORE_EVIDENCE") return "AWAITING";
 
     if (decision.action === "REJECT") {
-      try {
-        await deps.store.transactWrite([
-          { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: submission.version, set: { status: decision.status } }) },
-        ]);
-        return "REJECTED";
-      } catch (err) {
-        if (isTransactionCanceled(err)) continue;
-        throw err;
-      }
+      // W3-07 (Round F/G finding, same as advance-after-evidence.ts): REJECT is itself a
+      // TenantBusinessMutation, not just the final CLEAN promotion.
+      const rejectResult = await tryTenantBusinessMutation({
+        store: deps.store,
+        tableName: deps.tableName,
+        tenantId: input.tenantId,
+        entries: [{ Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: submission.version, set: { status: decision.status } }) }],
+      });
+      if (rejectResult.ok) return "REJECTED";
+      if (rejectResult.reason === "OCC_CONFLICT") continue;
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
 
     const sourceObject = knownObject ?? submission.quarantineObject;
@@ -72,19 +75,28 @@ export async function advanceAfterSubmissionEvidence(
     const entries: TransactWriteEntry[] = [
       { Update: buildVersionedUpdate({ tableName: deps.tableName, key, tenantId: input.tenantId, expectedVersion: submission.version, set: { status: "CLEAN", cleanObject } }) },
     ];
-    try {
-      await deps.store.transactWrite(entries);
+    // W3-07 (Round F/G finding, same as advance-after-evidence.ts): the copy above already
+    // happened before this fenced commit - on TENANT_NOT_ACTIVE specifically, compensate the
+    // orphaned clean object right here (immediate compensation; permanent post-DELETED sweeper
+    // is the backstop for the residual post-final-scan late-copy race, not attempted this
+    // session - see advance-after-evidence.ts's comment for the full reasoning).
+    const promoteResult = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
+    if (!promoteResult.ok) {
+      if (promoteResult.reason === "OCC_CONFLICT") continue;
       try {
-        await deps.objects.deleteObjectVersion(sourceObject);
+        await deps.objects.deleteObjectVersion(cleanObject);
       } catch {
-        // Best-effort - mesma decisão de M6 (advance-after-evidence.ts): lifecycle rule do
-        // bucket de quarentena é o backstop.
+        // Best-effort - see comment above.
       }
-      return "PROMOTED";
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue;
-      throw err;
+      return "IGNORED_TENANT_NOT_ACTIVE";
     }
+    try {
+      await deps.objects.deleteObjectVersion(sourceObject);
+    } catch {
+      // Best-effort - mesma decisão de M6 (advance-after-evidence.ts): lifecycle rule do
+      // bucket de quarentena é o backstop.
+    }
+    return "PROMOTED";
   }
 
   throw new Error(`advanceAfterSubmissionEvidence exhausted retries for submission ${input.submissionId} under contention.`);

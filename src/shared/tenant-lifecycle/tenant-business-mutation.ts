@@ -96,3 +96,26 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
     throw err;
   }
 }
+
+/**
+ * Discriminated-result sibling of `executeTenantBusinessMutation` for callers that already run
+ * their own bounded OCC-retry loop (finalizer/malware-result workers, `advance-after-evidence.ts`
+ * and its submission sibling — W3-07 chunk 6/N) and need to distinguish three outcomes without a
+ * try/catch at every call site: committed; lost an ordinary OCC race on the caller's own entries
+ * (retry, same as before this lane existed); or the lifecycle fence itself rejected the mutation
+ * (never retried — the tenant is being deleted). Same pattern `TenantQuotaService`'s private
+ * `tryFencedWrite` established, promoted here so every writer with its own retry loop can reuse
+ * it instead of re-deriving the try/catch dance.
+ */
+export type TenantBusinessMutationResult = { ok: true } | { ok: false; reason: "OCC_CONFLICT" } | { ok: false; reason: "TENANT_NOT_ACTIVE" };
+
+export async function tryTenantBusinessMutation(input: TenantBusinessMutationInput): Promise<TenantBusinessMutationResult> {
+  try {
+    await executeTenantBusinessMutation(input);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof Error && err.name === "TenantNotActiveError") return { ok: false, reason: "TENANT_NOT_ACTIVE" };
+    if (isTransactionCanceled(err)) return { ok: false, reason: "OCC_CONFLICT" };
+    throw err;
+  }
+}

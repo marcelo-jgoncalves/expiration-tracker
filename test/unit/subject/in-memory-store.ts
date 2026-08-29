@@ -1,6 +1,22 @@
 import type { EntityKey, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../../../src/modules/subject/ports/subject-store.js";
 import type { SubjectIdGenerator } from "../../../src/modules/subject/application/id-generator.js";
 import type { ExpirationItemLookup } from "../../../src/modules/subject/ports/expiration-item-lookup.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** W3-07 (evidence-mutation worker fencing): submission-finalizer/submission-malware-result now
+ * fence through TenantBusinessMutation, which requires a TenantLifecycleRecord to exist. Same
+ * synchronous-seed convention as test/unit/document/in-memory-store.ts's activeLifecycleRecord. */
+export function activeLifecycleRecord(tenantId: string, now = "2026-08-29T00:00:00.000Z"): Record<string, unknown> & EntityKey {
+  return {
+    ...tenantLifecycleKey(tenantId),
+    entityType: "TenantLifecycleRecord",
+    tenantId,
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+}
 
 /**
  * In-memory fake de SubjectStore, mesmas convenções de test/unit/expiration/in-memory-store.ts
@@ -8,6 +24,10 @@ import type { ExpirationItemLookup } from "../../../src/modules/subject/ports/ex
  */
 export class InMemorySubjectStore implements SubjectStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
+
+  constructor(seed: (Record<string, unknown> & EntityKey)[] = []) {
+    for (const item of seed) this.items.set(this.k(item), item);
+  }
 
   private k(key: EntityKey): string {
     return `${key.PK}#${key.SK}`;
@@ -35,27 +55,64 @@ export class InMemorySubjectStore implements SubjectStore {
     return true;
   }
 
+  /** W3-07 (evidence-mutation worker fencing) - same CancellationReasons-aware two-pass
+   * validate-then-apply convention as test/unit/document/in-memory-store.ts / identity's fake:
+   * evaluates ConditionCheck entries (the lifecycle fence) and threads a per-entry Code through
+   * TransactionCanceledException, so an ordinary OCC version conflict on the caller's own Update
+   * is never misclassified as a lifecycle-fence rejection. */
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
-    for (const entry of entries) {
+    const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
+    let anyFailed = false;
+
+    entries.forEach((entry, i) => {
       if ("Put" in entry) {
         const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put" };
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
+      } else if ("ConditionCheck" in entry) {
+        const check = entry.ConditionCheck;
+        const existing = this.items.get(this.k(check.Key));
+        if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
+        const names = check.ExpressionAttributeNames ?? {};
+        const values = check.ExpressionAttributeValues ?? {};
+        for (const [nameKey, fieldName] of Object.entries(names)) {
+          const valueKey = `:${nameKey.slice(1)}`;
+          if (!(valueKey in values)) continue;
+          const expected = values[valueKey];
+          if (!existing || existing[fieldName] !== expected) {
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
+          }
         }
       } else if ("Update" in entry) {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
         if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
           if (!existing) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
           const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
           const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
           if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
         }
       }
+    });
+
+    if (anyFailed) {
+      throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed", CancellationReasons: reasons };
     }
 
     for (const entry of entries) {
