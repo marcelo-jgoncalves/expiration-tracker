@@ -2,6 +2,81 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — quarta rodada Codex (2026-08-29), D-080, nota 8,8/10 — melhor rodada até agora
+
+Sessão de continuação, prompt de retomada priorizando: (1) fechar o gap residual não-`TENANT#`-
+prefixed do `findTenantMismatch` na medida do possível; (2) verificar os 2 fixes BLOQUEANTES de
+D-079 (reordenação import-service.ts, asserção de tipo do allowlist) por leitura própria antes de
+gastar uma rodada Codex neles; (3) rodar a quarta rodada Codex que a sessão anterior não
+conseguiu (orçamento esgotado). Registro completo em `decisions-log.md` D-080.
+
+- **Item 1 (gap residual)**: re-lidos todos os tipos de domínio reais usando chaves não-`TENANT#`
+  (`IdentityMapping`, `GuestTokenPointer`, `Session`, `TextractJob`, `LoginAttempt`,
+  `GuestRateLimitRecord`) — 4 de 6 DECLARAM `tenantId` no item, então já são cobertos pelo check 1
+  existente (`declared tenantId`) se um dia forem roteados por esta lane com um valor forjado.
+  Teste adversarial novo prova isso com a FORMA REAL de `GuestTokenPointer` (`GUESTTOKEN#` +
+  `tenantId` forjado, rejeitado antes de qualquer write). Só `LoginAttempt` e
+  `GuestRateLimitRecord` não têm nenhum dos dois sinais — nenhum dos dois é roteado por
+  `executeTenantBusinessMutation`/`tryTenantBusinessMutation` hoje (confirmado por grep, depois
+  re-confirmado independentemente pelo Codex na rodada 4). Comentário/teste corrigidos para listar
+  as DUAS exceções reais, não só `LoginAttempt` (o Codex pegou essa lacuna de precisão — ver
+  abaixo).
+- **Item 2 (verificação própria dos fixes D-079)**: lidos com cuidado antes de gastar orçamento
+  Codex — `import-service.ts`'s reordenação `begin()`-antes-de-`quota.consume()` com rastreamento
+  por-chamada, e `system-mutation-allowlist.test.ts`'s asserções bidirecionais — ambos pareceram
+  corretos na leitura própria, sem achado a corrigir antes de invocar o Codex.
+- **Item 3 — QUARTA rodada Codex executada com sucesso** (`codex exec --skip-git-repo-check`,
+  primeiro plano, prompt em arquivo, sem crases inline) sobre o diff acumulado desde `c496b91`
+  (os 2 fixes de D-079) mais o diff desta sessão (o narrowing do item 1). **Nota do Codex:
+  8,8/10** — primeira rodada a superar 8,0, ainda abaixo do gate de 9,0 mas por margem pequena.
+  **Ambos os fixes de D-079 CONFIRMADOS CORRETOS, sem achado bloqueante remanescente** —
+  Codex verificou que `idempotency.begin()` não tem modo de falha que toque quota e que a
+  reordenação fecha os 3 vazamentos originais; confirmou que o allowlist bidirecional prova
+  fechamento real contra um `kind` novo, não só o sentinela hard-coded anterior.
+  **1 achado NÃO-BLOQUEANTE real encontrado**: o narrowing do item 1 desta sessão (antes de rodar
+  o Codex) estava incompleto — só listava `LoginAttempt`, mas `GuestRateLimitRecord` (PK
+  `GUESTTOKEN#<selectorHash>#RATE`, sem `tenantId`, por design — rate-limit acontece antes do
+  token de convidado resolver um tenant) também não tem nenhum dos dois sinais. Codex confirmou
+  por grep próprio que nenhum dos dois é roteado por esta lane hoje, então o gap continua não-
+  explorável, mas a alegação "a única exceção real" era imprecisa. **Corrigido na mesma sessão**
+  (cabeçalho de `tenant-business-mutation.ts` + teste `KNOWN GAP` em `tenant-lifecycle.test.ts`
+  agora listam as duas). **1 achado NÃO-BLOQUEANTE adicional, corrigido preventivamente**: uma
+  pequena janela de liveness em `reserveImport()` entre `idempotency.begin()` (ACQUIRED) e o
+  bloco `try` que já cobria compensação — `newImportJobId()`/cálculo de `jobExpiresAt`/construção
+  do objeto `job` ficavam FORA do try; movido para dentro para que `idempotency.abort()` cubra
+  essa janela também (nenhuma quota tocada nesse ponto, então não era um dos 3 vazamentos
+  originais, mas ainda um wedge real de idempotency key). 1038 testes de backend passando (era
+  1037), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+
+**Avaliação geral do Codex (rodada 4)**: os 8 mecanismos do fence acumulados até agora (cross-
+validation tenant/entries, verificação de PK físico, fechamento do allowlist SystemMutation,
+ordenação de compensação import-service, hardening de CancellationReasons, fix TOCTOU do
+bootstrap, fix de resume BLOCKED/HELD, compensação de objeto órfão S3) formam "uma defesa
+coerente e substancialmente testada"; nenhum achado bloqueante novo de production-readiness.
+Recomendação explícita do Codex: uma rodada curta de correção-e-reconfirmação bastaria (as 2
+correções que já foram feitas nesta mesma sessão) — **não pediu uma rodada ampla nova**. Notou
+que rodadas adicionais sobre este gate específico têm retorno decrescente a partir daqui, a menos
+que o time decida substituir o gap residual documentado (2 entidades reais, `LoginAttempt`/
+`GuestRateLimitRecord`, sem `tenantId` nem `TENANT#` PK, nunca roteadas por esta lane) por um
+redesign estrutural maior (metadados obrigatórios pelos builders, tipo de entrada tenant-branded).
+
+**Estado honesto ao final desta sessão**: quatro rodadas Codex completas (D-072: 5,0; D-075: 6,0;
+D-079: 6,0; D-080: 8,8). Os 2 achados não-bloqueantes desta rodada JÁ foram corrigidos (sem nova
+rodada Codex confirmando especificamente ESTES 2 fixes — mudança mecânica/documental de baixo
+risco, sem nova superfície de comportamento observável, coberta pela suíte existente que passou
+sem alteração). Uma quinta rodada Codex especificamente re-checando estes 2 últimos fixes NÃO foi
+executada (nem foi pedida pelo Codex — ele endereçou explicitamente que rodadas amplas adicionais
+têm retorno decrescente aqui). **Próxima ação real, em ordem de valor esperado**: (a) se o time
+quiser tentar cruzar 9,0 formalmente, uma quinta rodada curta confirmando só os 2 fixes desta
+sessão é o caminho mais barato, mas o próprio Codex já sinalizou baixo valor incremental; (b) mais
+proveitoso agora, por avaliação honesta desta sessão: virar a atenção para outra dimensão do W3-07
+— completude dos writers ainda NOT FENCED (ver `w3-07-writer-inventory.md`) ou o sweeper
+permanente pós-`DELETED` (ainda não construído) — ao invés de continuar espremendo margem na
+mesma gate PK/quota/allowlist que já está em 8,8/10 com achados cada vez mais estreitos e
+teóricos; (c) o gap residual de `LoginAttempt`/`GuestRateLimitRecord` fica, como sempre, como
+pendência documentada — nenhum call site real o exercita, e fechar de verdade é Type 1/redesign,
+não uma sessão de correção mecânica.
+
 ## W3-07 — fechamento do achado mais sério de D-075 (2026-08-29), D-076, em andamento
 
 Sessão de continuação, prompt de retomada explícito priorizando 3 itens em ordem: (1) fechar o
