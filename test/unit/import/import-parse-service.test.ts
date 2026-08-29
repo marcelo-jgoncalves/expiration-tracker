@@ -7,6 +7,7 @@ import { parseImportJob } from "../../../src/modules/import/application/import-p
 import { importJobKey, type ImportJob } from "../../../src/modules/import/domain/import-job.js";
 import { importDedupKey, type ImportDedupRecord } from "../../../src/modules/import/domain/import-dedup.js";
 import { gsi7Keys } from "../../../src/modules/subject/domain/tracked-subject.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TENANT = "tenant-1";
 const JOB_ID = "job-1";
@@ -24,7 +25,19 @@ describe("parseImportJob (M11, D-042)", () => {
     store = new InMemoryImportStore();
     subjectStore = new InMemorySubjectStore();
     objectStore = new FakeImportObjectStore();
-    quota = new TenantQuotaService(new InMemoryIdentityStore(), () => NOW);
+    const identityStore = new InMemoryIdentityStore();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() (IMPORT_ROWS et al) now requires a
+    // TenantLifecycleRecord to exist for the tenant.
+    await identityStore.putIfAbsent({
+      ...tenantLifecycleKey(TENANT),
+      entityType: "TenantLifecycleRecord",
+      tenantId: TENANT,
+      status: "ACTIVE",
+      createdAt: NOW,
+      updatedAt: NOW,
+      version: 1,
+    });
+    quota = new TenantQuotaService(identityStore, "MainTable", () => NOW);
 
     const job: ImportJob = {
       ...importJobKey(TENANT, JOB_ID),

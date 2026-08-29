@@ -12,15 +12,16 @@ import { DocumentService } from "../../../src/modules/document/application/docum
 import { DocumentDeletionService } from "../../../src/modules/document/application/document-deletion-service.js";
 import { handleDeleteDocument, handleGetDocument, handleListDocuments, handleReserveUpload, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
 const BUCKET = "quarantine-bucket";
 const VALID_SHA256 = "a".repeat(64);
 
-function buildDeps(): DocumentHttpDeps {
+function buildDeps(): DocumentHttpDeps & { identityStore: InMemoryIdentityStore } {
   const identityStore = new InMemoryIdentityStore();
   const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, TABLE);
   const documentStore = new InMemoryDocumentStore();
   const documents = new DocumentService({
     store: documentStore,
@@ -30,7 +31,7 @@ function buildDeps(): DocumentHttpDeps {
     signer: { presignUpload: async (input) => ({ uploadUrl: `https://s3.example/${input.key}`, requiredHeaders: {} }) },
   });
   const deletion = new DocumentDeletionService({ store: documentStore, tableName: TABLE });
-  return { resolver, documents, deletion, quota };
+  return { resolver, documents, deletion, quota, identityStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -87,6 +88,18 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
     const deps = buildDeps();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() (API_REQUEST, ahead of authorize())
+    // now requires a TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the
+    // real bootstrap flow that would normally create one, so seed it directly.
+    await deps.identityStore.putIfAbsent({
+      ...tenantLifecycleKey("tenant-x"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-x",
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
     const noRoleResolver = {
       resolve: async () => ({ tenant: { tenantId: "tenant-x", roles: [] }, principal: { userId: "user-x" }, requestId: "r1" }),
     } as unknown as DocumentHttpDeps["resolver"];

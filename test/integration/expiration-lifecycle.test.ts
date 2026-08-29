@@ -42,7 +42,7 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     const mappings = new IdentityMappingRepository(identityStore);
     const users = new UserRepository(identityStore);
     resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), identityStore, "MainTable");
-    const quota = new TenantQuotaService(identityStore);
+    const quota = new TenantQuotaService(identityStore, "MainTable");
 
     expirationStore = new InMemoryExpirationStore();
     const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator() });

@@ -15,14 +15,15 @@ import { UserRepository } from "../../../src/modules/identity/persistence/user-r
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { ProfileService } from "../../../src/modules/identity/application/profile-service.js";
 import { handleGetProfile, handleUpdateProfile, type ProfileHttpDeps } from "../../../src/modules/identity/http/profile-handlers.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
-function buildDeps(): ProfileHttpDeps {
+function buildDeps(): ProfileHttpDeps & { identityStore: InMemoryIdentityStore } {
   const identityStore = new InMemoryIdentityStore();
   const users = new UserRepository(identityStore);
   const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), users, makeIdGenerator(), identityStore, "MainTable");
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, "MainTable");
   const profiles = new ProfileService({ users });
-  return { resolver, profiles, quota };
+  return { resolver, profiles, quota, identityStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -86,6 +87,18 @@ describe("profile-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
     const deps = buildDeps();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
+    // TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the real bootstrap
+    // flow that would normally create one, so seed it directly.
+    await deps.identityStore.putIfAbsent({
+      ...tenantLifecycleKey("tenant-x"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-x",
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
     const noRoleResolver = {
       resolve: async () => ({
         tenant: { tenantId: "tenant-x", roles: [] },

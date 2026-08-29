@@ -25,19 +25,20 @@ import { UserRepository } from "../../../src/modules/identity/persistence/user-r
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { NotificationPreferencesService } from "../../../src/modules/notification/application/notification-preferences-service.js";
 import { handleGetPreferences, handleUpdatePreferences, type NotificationHttpDeps } from "../../../src/modules/notification/http/preferences-handlers.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
 
-function buildDeps(): NotificationHttpDeps {
+function buildDeps(): NotificationHttpDeps & { identityStore: InMemoryIdentityStore } {
   const identityStore = new InMemoryIdentityStore();
   const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, TABLE);
   const preferences = new NotificationPreferencesService({
     store: new InMemoryNotificationStore(),
     tableName: TABLE,
     now: () => "2026-08-21T00:00:00.000Z",
   });
-  return { resolver, preferences, quota };
+  return { resolver, preferences, quota, identityStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -87,6 +88,18 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
     const deps = buildDeps();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
+    // TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the real bootstrap
+    // flow that would normally create one, so seed it directly.
+    await deps.identityStore.putIfAbsent({
+      ...tenantLifecycleKey("tenant-x"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-x",
+      status: "ACTIVE",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
     const noRoleResolver = {
       resolve: async () => ({
         tenant: { tenantId: "tenant-x", roles: [] },

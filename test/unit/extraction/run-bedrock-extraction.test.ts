@@ -38,6 +38,25 @@ import type { BedrockClient } from "../../../src/modules/extraction/ports/bedroc
 import type { BedrockExtractionRequest, BedrockExtractionResult } from "../../../src/modules/extraction/domain/bedrock-extraction.js";
 import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a TenantLifecycleRecord
+ * to exist for the tenant ("t1" throughout this file's baseInput()). Synchronous helper (the
+ * fake's putIfAbsent resolves synchronously) so it can be used inline in a `new
+ * TenantQuotaService(seededIdentityStore(), ...)` expression. */
+function seededIdentityStore(): InMemoryIdentityStore {
+  const store = new InMemoryIdentityStore();
+  void store.putIfAbsent({
+    ...tenantLifecycleKey("t1"),
+    entityType: "TenantLifecycleRecord",
+    tenantId: "t1",
+    status: "ACTIVE",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:00.000Z",
+    version: 1,
+  });
+  return store;
+}
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {
   constructor(
@@ -84,7 +103,7 @@ describe("runBedrockExtraction", () => {
   it("happy path: calls Bedrock with only the artifact ref, shapes the result for item 7", async () => {
     const bedrock = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.92 }] });
     const output = await runBedrockExtraction(
-      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(new InMemoryIdentityStore()), bedrock },
+      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
       baseInput(),
     );
     expect(bedrock.calls).toHaveLength(1);
@@ -97,7 +116,7 @@ describe("runBedrockExtraction", () => {
     const bedrock = new FakeBedrockClient(undefined);
     await expect(
       runBedrockExtraction(
-        { featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false }), quota: new TenantQuotaService(new InMemoryIdentityStore()), bedrock },
+        { featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false }), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
         baseInput(),
       ),
     ).rejects.toBeInstanceOf(AiExtractionDisabledError);
@@ -108,7 +127,7 @@ describe("runBedrockExtraction", () => {
     const bedrock = new FakeBedrockClient(undefined);
     await expect(
       runBedrockExtraction(
-        { featureFlags: new FakeFeatureFlagsReader(undefined, true), quota: new TenantQuotaService(new InMemoryIdentityStore()), bedrock },
+        { featureFlags: new FakeFeatureFlagsReader(undefined, true), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
         baseInput(),
       ),
     ).rejects.toBeInstanceOf(AiExtractionDisabledError);
@@ -118,7 +137,7 @@ describe("runBedrockExtraction", () => {
   it("never calls Bedrock and returns zero fields when no OCR artifact exists (fully degraded run)", async () => {
     const bedrock = new FakeBedrockClient(undefined);
     const output = await runBedrockExtraction(
-      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(new InMemoryIdentityStore()), bedrock },
+      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
       baseInput({ ocrAvailable: false, artifact: undefined }),
     );
     expect(bedrock.calls).toHaveLength(0);
@@ -127,8 +146,8 @@ describe("runBedrockExtraction", () => {
 
   it("propagates BedrockExtractionFailedError and compensates (releases) the quota reservation on call failure", async () => {
     const bedrock = new FakeBedrockClient(undefined, new BedrockExtractionFailedError("boom"));
-    const store = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(store);
+    const store = seededIdentityStore();
+    const quota = new TenantQuotaService(store, "MainTable");
     await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, callAttempts: 1 }, baseInput())).rejects.toBeInstanceOf(BedrockExtractionFailedError);
 
     // Compensation proves the reservation was released: a fresh call for the SAME run must be
@@ -140,8 +159,8 @@ describe("runBedrockExtraction", () => {
   it("14th adversarial case (cost-abuse): a retried/duplicate execution for the same run reserves against its own prior AI_CALL/BEDROCK window, never a second unrelated reservation", async () => {
     // Same runId used twice (mirrors deriveExtractionRunId()'s own idempotency guarantee - a
     // retried Step Functions execution for an UNCHANGED document reuses the same runId).
-    const store = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(store);
+    const store = seededIdentityStore();
+    const quota = new TenantQuotaService(store, "MainTable");
 
     const bedrock1 = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] });
     await runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock1 }, baseInput());

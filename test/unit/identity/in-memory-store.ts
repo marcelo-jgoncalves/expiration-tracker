@@ -52,18 +52,51 @@ export class InMemoryIdentityStore implements IdentityStore {
    * test/unit/expiration/in-memory-store.ts.
    */
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
-    // Pass 1: validate every condition without mutating anything.
-    for (const entry of entries) {
+    // Pass 1: validate every condition without mutating anything. Unlike the previous
+    // fail-fast version, this evaluates EVERY entry and records a per-entry Code (mirroring
+    // real DynamoDB's TransactionCanceledException.CancellationReasons[] shape) so callers -
+    // notably `TenantBusinessMutation`'s lane - can distinguish "the caller's own entry lost
+    // an ordinary OCC race" from "the lifecycle fence entry specifically failed", the exact
+    // distinction `TenantQuotaService.consume()`'s retry loop depends on (W3-07 writer
+    // migration; see tenant-business-mutation.ts's CancellationReasons handling).
+    const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
+    let anyFailed = false;
+
+    entries.forEach((entry, i) => {
       if ("Put" in entry) {
         const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put" };
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
+        // occ.ts's buildConditionalPut - quota.consume()'s count/resetAt-gated overwrite
+        // (W3-07 writer migration). Its ConditionExpression is
+        // "#count = :expectedCount AND resetAt = :expectedResetAt" - the value placeholder
+        // suffix deliberately does NOT match its name placeholder suffix (mirrors the real
+        // production ConditionExpression this mirrors, `identity-store.ts`'s
+        // `updateConditional`), so this cannot use the generic #name/:name-suffix pairing the
+        // ConditionCheck/Update branches below use. Known-shape fake (see file header) -
+        // recognizes this exact pattern by its literal placeholder keys rather than parsing
+        // the expression string.
+        if (entry.Put.ConditionExpression.includes(":expectedCount") || entry.Put.ConditionExpression.includes(":expectedResetAt")) {
+          const existing = this.items.get(this.k(entry.Put.Item as unknown as EntityKey));
+          const values = entry.Put.ExpressionAttributeValues ?? {};
+          const expectedCount = values[":expectedCount"];
+          const expectedResetAt = values[":expectedResetAt"];
+          if (!existing || existing["count"] !== expectedCount || existing["resetAt"] !== expectedResetAt) {
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
+          }
         }
       } else if ("ConditionCheck" in entry) {
         const check = entry.ConditionCheck;
         const existing = this.items.get(this.k(check.Key));
         if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
         }
         const names = check.ExpressionAttributeNames ?? {};
         const values = check.ExpressionAttributeValues ?? {};
@@ -72,7 +105,9 @@ export class InMemoryIdentityStore implements IdentityStore {
           if (!(valueKey in values)) continue; // not an equality placeholder pair
           const expected = values[valueKey];
           if (!existing || existing[fieldName] !== expected) {
-            throw { name: "TransactionCanceledException", message: `ConditionalCheckFailed: ${fieldName} mismatch` };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
         }
       } else if ("Update" in entry) {
@@ -80,12 +115,16 @@ export class InMemoryIdentityStore implements IdentityStore {
         const existing = this.items.get(this.k(key));
         if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
           if (!existing) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
           const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
           const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
           if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
           // extraConditions (occ.ts's buildVersionedUpdate) add extra #cN/:cN or caller-named
           // equality placeholder pairs beyond the base version/tenantId/updatedAt/set/rem ones -
@@ -100,11 +139,17 @@ export class InMemoryIdentityStore implements IdentityStore {
             if (!(valueKey in entry.Update.ExpressionAttributeValues)) continue;
             const expected = entry.Update.ExpressionAttributeValues[valueKey];
             if (existing[fieldName] !== expected) {
-              throw { name: "TransactionCanceledException", message: `ConditionalCheckFailed: ${fieldName} mismatch` };
+              reasons[i] = { Code: "ConditionalCheckFailed" };
+              anyFailed = true;
+              return;
             }
           }
         }
       }
+    });
+
+    if (anyFailed) {
+      throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed", CancellationReasons: reasons };
     }
 
     // Pass 2: apply (Put/Update only - ConditionCheck never mutates).

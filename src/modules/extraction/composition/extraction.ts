@@ -56,7 +56,7 @@ export function buildTextractTaskWorkerDeps(
   config: TextractTaskWorkerConfig,
 ): TextractTaskWorkerDeps {
   const identityStore = new DynamoDbIdentityStore(clients.dynamo, config.tableName);
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, config.tableName);
   const jobs = new DynamoDbTextractJobStore(clients.dynamo, config.tableName);
   const textract = new TextractSdkClient(clients.textract);
   const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
@@ -145,7 +145,7 @@ export function buildBedrockExtractionTaskWorkerDeps(
   config: BedrockExtractionTaskWorkerConfig,
 ): BedrockExtractionTaskWorkerDeps {
   const identityStore = new DynamoDbIdentityStore(clients.dynamo, config.tableName);
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, config.tableName);
   const artifacts = new S3OcrArtifactStore(clients.s3, config.extractionTransientBucket);
   const featureFlags = new AppConfigFeatureFlagsReader(clients.appConfigData, config.appConfig);
   const bedrock = new BedrockRuntimeConverseClient(clients.bedrockRuntime, artifacts, config.bedrockModelId);

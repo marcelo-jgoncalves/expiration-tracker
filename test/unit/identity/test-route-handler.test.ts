@@ -16,7 +16,7 @@ function makeDeps() {
     store,
     "MainTable",
   );
-  const quota = new TenantQuotaService(store);
+  const quota = new TenantQuotaService(store, "MainTable");
   return { resolver, quota };
 }
 
@@ -48,7 +48,7 @@ describe("handleTestRoute", () => {
     const store = new InMemoryIdentityStore();
     const users = new UserRepository(store);
     const resolver = new RequestContextResolver(new IdentityMappingRepository(store), users, makeIdGenerator(), store, "MainTable");
-    const quota = new TenantQuotaService(store);
+    const quota = new TenantQuotaService(store, "MainTable");
     const claims = {
       sub: "sub-3",
       tokenId: "t1",

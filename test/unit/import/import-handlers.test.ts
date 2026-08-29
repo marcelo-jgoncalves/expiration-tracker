@@ -20,7 +20,7 @@ const NOW = "2026-08-23T12:00:00.000Z";
 function buildDeps(): { deps: ImportHttpDeps; store: InMemoryImportStore } {
   const identityStore = new InMemoryIdentityStore();
   const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
-  const quota = new TenantQuotaService(identityStore);
+  const quota = new TenantQuotaService(identityStore, TABLE);
   const store = new InMemoryImportStore();
   let counter = 0;
   const imports = new ImportService({

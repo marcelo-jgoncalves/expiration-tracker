@@ -6,6 +6,7 @@ import { reconcileExpiredUploadSlots } from "../../../src/workers/upload-slot-re
 import { documentKey, type Document } from "../../../src/modules/document/domain/document.js";
 import { uploadSlotKey, type UploadSlot } from "../../../src/modules/document/domain/upload-slot.js";
 import type { Gsi6QueryInput, Page, UploadSlotReconciliationSource, EntityKey } from "../../../src/modules/document/ports/document-store.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
 
@@ -71,7 +72,18 @@ describe("reconcileExpiredUploadSlots", () => {
     await store.putIfAbsent(baseDocument());
 
     const identityStore = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(identityStore, () => "2026-08-22T00:15:00.000Z");
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
+    // TenantLifecycleRecord to exist for the tenant.
+    await identityStore.putIfAbsent({
+      ...tenantLifecycleKey("t1"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "t1",
+      status: "ACTIVE",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      updatedAt: "2026-08-22T00:00:00.000Z",
+      version: 1,
+    });
+    const quota = new TenantQuotaService(identityStore, "MainTable", () => "2026-08-22T00:15:00.000Z");
     await quota.consume({ tenantId: "t1", quotaType: "UPLOAD_COUNT", window: "current", limit: 1, windowSeconds: 60 });
 
     const result = await reconcileExpiredUploadSlots({
@@ -101,7 +113,7 @@ describe("reconcileExpiredUploadSlots", () => {
     await store.putIfAbsent(baseSlot());
     await store.putIfAbsent(baseDocument({ status: "CLEAN", cleanObject: { bucket: "clean", key: "k", versionId: "v" } }));
     const identityStore = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(identityStore, () => "2026-08-22T00:15:00.000Z");
+    const quota = new TenantQuotaService(identityStore, "MainTable", () => "2026-08-22T00:15:00.000Z");
 
     await reconcileExpiredUploadSlots({ store, candidates: fakeCandidateSource([baseSlot()]), quota, tableName: TABLE, now: () => "2026-08-22T00:15:00.000Z" });
 
@@ -113,7 +125,7 @@ describe("reconcileExpiredUploadSlots", () => {
     const store = new InMemoryDocumentStore();
     await store.putIfAbsent(baseSlot({ status: "EXPIRED" }));
     const identityStore = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(identityStore, () => "2026-08-22T00:15:00.000Z");
+    const quota = new TenantQuotaService(identityStore, "MainTable", () => "2026-08-22T00:15:00.000Z");
 
     const result = await reconcileExpiredUploadSlots({ store, candidates: fakeCandidateSource([baseSlot({ status: "EXPIRED" })]), quota, tableName: TABLE, now: () => "2026-08-22T00:15:00.000Z" });
     expect(result.slotsExpired).toBe(1); // processOneSlot returns cleanly (no-op) and still counts as "handled".
@@ -124,7 +136,7 @@ describe("reconcileExpiredUploadSlots", () => {
     await store.putIfAbsent(baseSlot({ uploadSlotId: "slot-bad", documentId: "doc-bad" })); // no matching Document -> get() returns undefined, handled gracefully, not an error actually.
     await store.putIfAbsent(baseSlot({ uploadSlotId: "slot-good", documentId: "doc-good", version: 999 })); // wrong version -> ConditionalCheckFailed is swallowed, not an error either.
     const identityStore = new InMemoryIdentityStore();
-    const quota = new TenantQuotaService(identityStore, () => "2026-08-22T00:15:00.000Z");
+    const quota = new TenantQuotaService(identityStore, "MainTable", () => "2026-08-22T00:15:00.000Z");
 
     const result = await reconcileExpiredUploadSlots({
       store,

@@ -7,6 +7,7 @@ import { importJobKey, type ImportJob } from "../../../src/modules/import/domain
 import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TENANT = "tenant-1";
 const TABLE = "MainTable";
@@ -32,9 +33,21 @@ describe("ImportService (M11, D-042)", () => {
   let store: InMemoryImportStore;
   let service: ImportService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     store = new InMemoryImportStore();
-    const quota = new TenantQuotaService(new InMemoryIdentityStore(), () => NOW);
+    const identityStore = new InMemoryIdentityStore();
+    // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
+    // TenantLifecycleRecord to exist for the tenant.
+    await identityStore.putIfAbsent({
+      ...tenantLifecycleKey(TENANT),
+      entityType: "TenantLifecycleRecord",
+      tenantId: TENANT,
+      status: "ACTIVE",
+      createdAt: NOW,
+      updatedAt: NOW,
+      version: 1,
+    });
+    const quota = new TenantQuotaService(identityStore, "MainTable", () => NOW);
     let counter = 0;
     service = new ImportService({
       store,

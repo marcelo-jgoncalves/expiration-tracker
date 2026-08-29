@@ -76,7 +76,22 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
     await input.store.transactWrite([...input.entries, fence]);
   } catch (err) {
     if (isTransactionCanceled(err)) {
-      throw new TenantNotActiveError("Tenant is not ACTIVE; mutation rejected.", { tenantId: input.tenantId });
+      // The fence is always appended LAST, so its CancellationReasons index is
+      // input.entries.length. Real DynamoDB's TransactionCanceledException always populates
+      // CancellationReasons (one entry per TransactItem, "None" for entries that were not the
+      // cause) - inspecting it lets callers whose own entry can independently fail an OCC/
+      // create-race condition (e.g. TenantQuotaService.consume()'s retry loop) tell that apart
+      // from "the tenant is being deleted" instead of every cancellation collapsing into
+      // TenantNotActiveError, which would make an ordinary concurrent-write conflict
+      // unretriable. Closes the "CancellationReasons tipado" gap this file's header used to
+      // note as deferred (W3-07 writer-migration chunk, quota.consume() being the writer that
+      // actually needed the distinction).
+      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      const fenceIndex = input.entries.length;
+      const fenceFailed = !reasons || reasons[fenceIndex]?.Code === "ConditionalCheckFailed";
+      if (fenceFailed) {
+        throw new TenantNotActiveError("Tenant is not ACTIVE; mutation rejected.", { tenantId: input.tenantId });
+      }
     }
     throw err;
   }

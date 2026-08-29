@@ -2,6 +2,73 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — chunk 4/N implementado nesta sessão (2026-08-29), D-070
+
+Continuação direta do chunk 3/N (D-069, abaixo). Escopo desta sessão: Parte 1 (inventário real de
+writers) e Parte 2 (migração dos admission points de maior valor).
+
+- **Inventário real**: `docs/architecture/w3-07-writer-inventory.md` — matriz writer/admission
+  point/transaction boundary/fence status/late-result behavior/test coverage, construída de grep
+  real contra `src/**` mais o inventário já levantado nas Rodadas F/G do design aprovado. Cobre
+  expiration, documents, document submissions, guest submissions, requirements, extraction/OCR/
+  Bedrock, imports, upload promotion workers, SES, quota, outbox, reminders, BFF session table.
+- **`TenantQuotaService.consume()` migrado para `TenantBusinessMutation`** — maior valor de
+  segurança nomeado pelo roteiro (admissão real antes de todo Textract/Bedrock pago) e achado novo
+  desta sessão: também é a admissão `API_REQUEST` genérica na frente de `authorize()` na maioria
+  dos handlers HTTP, tornando o blast radius real desta migração o maior já visto no W3-07 (8
+  arquivos de teste precisaram de seed de `TenantLifecycleRecord`, vs. 1 em D-068). Create path
+  (`putIfAbsent`) e update path (`updateConditional`) viraram uma `TransactWriteItems` de 1 entrada
+  via `executeTenantBusinessMutation`, usando um builder novo (`buildConditionalPut` em `occ.ts`)
+  em vez de `ConditionExpression` manual — preserva exatamente a lógica de negócio/janela/reset
+  existente, só muda a fronteira transacional. `release()` permanece deliberadamente NÃO fenced
+  (compensa uma reserva já admitida, não é uma admissão nova — fenced ela travaria a reserva para
+  sempre num tenant DELETING). **IMPLEMENTED + UNIT TESTED** (3 testes adversariais novos:
+  create-path DELETING rejeitado sem linha deixada para trás, update-path DELETING rejeitado com
+  `count` inalterado, ACTIVE control case).
+- **Achado real corrigido nesta sessão (não pedido explicitamente, descoberto testando a
+  migração)**: `executeTenantBusinessMutation` não distinguia "fence de lifecycle falhou" de "a
+  própria entrada do chamador perdeu uma corrida OCC comum" — gap documentado desde D-068 no
+  cabeçalho do próprio arquivo (`CancellationReasons` não lido), sem efeito observável em
+  `ItemWatchService.removeWatcher` (escrita de tentativa única, sem loop de retry do chamador), mas
+  quebrava silenciosamente o loop de 20 tentativas de `consume()` sob contenção real — o teste de
+  concorrência pré-existente (`does not lose updates under concurrent consume()`) pegou isso na
+  hora: 25 chamadas concorrentes passavam todas em vez de exatamente `limit`, porque toda corrida
+  OCC virava `TenantNotActiveError` (nunca retentada) em vez de retry. Corrigido lendo
+  `TransactWriteItems.CancellationReasons` real da AWS — a fence é sempre a última entrada
+  (`input.entries.length`), só um `ConditionalCheckFailed` nesse índice específico vira
+  `TenantNotActiveError`, qualquer outra falha relança o erro original para o chamador tratar. O
+  fake `InMemoryIdentityStore` (`test/unit/identity/in-memory-store.ts`) foi estendido para popular
+  `CancellationReasons` do mesmo jeito que a AWS real, então esse caminho é exercitado por teste,
+  não só raciocinado — real risco de regressão silenciosa se algum writer futuro reusar a lane sem
+  esse fix.
+- 981 testes de backend passando (era 978), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão.
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk):
+- SES (claim `SUBMITTING` em `email-delivery-workflow.ts`) — política já decidida (D-067, Opção
+  1), só falta o código. Inventariado, não migrado — próximo passo de menor esforço (mesmo padrão
+  de conversão de escrita condicional de item único → transação de 1 entrada que `quota.consume()`
+  acabou de estabelecer).
+- `ExtractionRunStore.putIfAbsent()` — tentativa real de análise nesta sessão encontrou um gap de
+  design genuíno, não um gap de implementação apressada: retry de um run já admitido precisa
+  continuar chamando `StartExecution` sem exigir nova admissão ACTIVE (comportamento correto hoje,
+  via idempotência do nome de execução), e distinguir "isto é retry" de "isto é admissão nova"
+  dentro da mesma transação fenced reintroduziria o TOCTOU que a fence existe para fechar.
+  Registrado como pendência de design real, ver `docs/architecture/w3-07-writer-inventory.md`
+  seção "Why ExtractionRun admission was not migrated this session".
+- As 4 evidence-mutation workers (`upload-finalizer`, `submission-finalizer`, `malware-result`,
+  `submission-malware-result`) + o ordering bug real da Rodada F (cópia S3 para `clean` acontece
+  ANTES do commit DynamoDB fenced) — inventariados, não corrigidos.
+- `ExpirationService.commit()` continua o maior blast-radius pendente (~600 testes existentes
+  precisariam de seed de lifecycle) — não tentado nesta sessão.
+- `GuestSubmissionService`, outbox relay (`SystemMutation` `OUTBOX_BOOKKEEPING`), BFF session
+  table (estruturalmente fora do alcance da fence atual — tabela física separada) — sem progresso.
+- Revisão adversarial Codex desta sessão — sem orçamento restante.
+
+**Próxima ação real**: migrar SES (menor esforço, política já decidida) e/ou as 4 evidence-mutation
+workers (achado real de Rodada F com correção já desenhada via `CancellationReasons`). Ver
+`docs/architecture/w3-07-writer-inventory.md` seção "Recommended next chunk" para a ordem completa.
+
 ## W3-07 — chunk 3/N implementado nesta sessão (2026-08-29), D-069
 
 Continuação direta do chunk 2/N (D-068, abaixo). Escopo desta sessão: roteiro `Q` item 2 (conclusão — lane `SystemMutation`) e item 3 (boundary estrutural completo).
