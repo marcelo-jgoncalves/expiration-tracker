@@ -2,6 +2,77 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — chunks 7/N e 8/N implementados nesta sessão (2026-08-29), D-070 continuação
+
+Continuação direta do chunk 6/N (abaixo). Escopo: `GuestSubmissionService` fencing (chunk 7/N) e
+presigned URL issuance fencing (chunk 8/N) — os dois itens nomeados no prompt desta sessão.
+Commits `693b393` (chunk 7/N) e o commit deste chunk 8/N (ver `git log`), ambos pushed para
+`develop`.
+
+- **`GuestSubmissionService.startSubmission()` fenced** (chunk 7/N) — routes its own
+  `transactWrite` (Put DocumentSubmission + Update DocumentRequest) through
+  `executeTenantBusinessMutation`. Guest-token validation logic untouched. `TenantNotActiveError`
+  is folded into the existing generic `GuestTokenInvalidError` (anti-enumeration — this is a
+  public unauthenticated surface, a DELETING tenant must not be a distinguishable oracle from an
+  invalid/expired token). **IMPLEMENTED + UNIT TESTED** (2 new adversarial tests in
+  `test/unit/subject/guest-upload-flow.test.ts`: ACTIVE control case, DELETING with a
+  still-VALID/non-expired guest token proving the fence — not token expiry — is what blocks the
+  write, with no partial write left behind).
+- **Presigned URL issuance fenced for `document-service.ts`/`import-service.ts`** (chunk 8/N) —
+  **deviates from this session's literal instruction** ("read-then-check before presign, not a
+  transaction") after real code inspection found both call sites already have (or were trivially
+  convertible to) their own tenant-scoped DynamoDB write immediately before the presign call:
+  `DocumentService.reserveUpload`'s existing Document+UploadSlot `transactWrite`, and
+  `ImportService.reserveImport`'s previously-unfenced bare `putIfAbsent` ImportJob creation
+  (converted to a 1-entry `TransactWriteItems` via `buildVersionedCreate`). Fencing THOSE writes
+  via `executeTenantBusinessMutation` (the established pattern) is strictly more correct than a
+  separate unfenced read-check bolted on right before `presignUpload()` — no separate TOCTOU
+  window, and it closes a real writer-inventory gap the design doc's own row had missed (these
+  writes were never fenced, only the presign-issuance QUESTION had been analyzed). Idempotent
+  retries (`COMPLETED_SAME_REQUEST`, no new write) are correctly NOT re-fenced, consistent with
+  the "admitted while ACTIVE may finish" contract already established for other writers. The
+  residual TTL-window risk (an already-issued URL usable until its TTL after DELETING starts)
+  remains accepted and UNCHANGED — this session does not attempt to revoke already-issued
+  presigned URLs, per the approved design's explicit position. `GuestSubmissionService`'s presign
+  is covered transitively by chunk 7/N's fence on the same transaction. **IMPLEMENTED + UNIT
+  TESTED** (ACTIVE control case + DELETING adversarial test per call site, in
+  `test/unit/document/document-service.test.ts` and `test/unit/import/import-service.test.ts`).
+- **Real gap found in `test/unit/import/in-memory-store.ts`**: its `transactWrite` fake never
+  evaluated `ConditionCheck` entries at all (only `"Put"`/`"Update"` branches existed) — a
+  lifecycle fence routed through this fake would have been silently accepted unconditionally,
+  meaning the new fence would have shipped with zero real test coverage. Extended to evaluate
+  `ConditionCheck` with the same `CancellationReasons`-aware convention as every other module's
+  fake (`subject`/`document`/`notification`).
+- **Test-harness gap found and fixed**: `document-handlers.test.ts`/`import-handlers.test.ts`
+  exercise the REAL `RequestContextResolver` bootstrap flow (dynamic tenantId, not hardcoded), but
+  their `DocumentStore`/`ImportStore` in-memory fakes are SEPARATE Maps from the `IdentityStore`
+  fake that receives the bootstrap's `TenantLifecycleRecord` write — in production these share one
+  physical table, in these tests they don't. Fixed by pre-resolving the default `claims()` identity
+  once in `buildDeps()` to learn the bootstrapped `tenantId`, then mirroring an ACTIVE lifecycle
+  record into the module-specific store fake too.
+- 1006 backend tests passing (era 1002), typecheck/lint/check-boundaries/check-docs limpos, zero
+  regressão. `docs/architecture/w3-07-writer-inventory.md` atualizado (GuestSubmissionService row
+  + presigned upload issuance row).
+- Revisão adversarial Codex desta sessão — não executada, sem orçamento restante (recomendado
+  antes do próximo chunk, especialmente sobre a fence de presign issuance dado o desvio da
+  instrução literal desta sessão, e sobre `GuestSubmissionService`, o item de maior risco por ser
+  superfície pública).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, retomando a
+lista já registrada pelo chunk 6/N, menos os 2 itens fechados agora): sweeper permanente
+pós-`DELETED` para o resíduo S3 tardio do Round G; migração de `ExtractionRunStore.putIfAbsent()`
+(gap de design genuíno, não reaberto); `ExpirationService.commit()` (maior blast radius pendente);
+outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora do alcance estrutural da fence atual).
+`ImportService.requestCommit()`'s own `transactWrite` (status `PREVIEW_READY`→`COMMITTING`) was
+inventoried but NOT fenced this session — it resolves an already-admitted job, not a new
+admission, same reasoning as `TenantQuotaService.release()`.
+
+**Próxima ação real**: revisão adversarial Codex sobre a fence de presign issuance (chunk 8/N,
+maior risco desta sessão por desviar da instrução literal) e/ou sobre `GuestSubmissionService`
+(chunk 7/N, superfície pública); depois continuar o roteiro — `ExpirationService.commit()` com um
+helper de seed compartilhado para as ~600 chamadas de teste existentes, ou o sweeper permanente
+pós-`DELETED`.
+
 ## W3-07 — chunks 5/N e 6/N implementados nesta sessão (2026-08-29)
 
 Continuação direta do chunk 4/N (abaixo). Escopo desta sessão: os 3 itens do roteiro

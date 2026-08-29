@@ -9,8 +9,9 @@
 import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
-import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { ConflictError, NotFoundError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
+import { buildVersionedUpdate, buildVersionedCreate } from "../../../shared/dynamodb/occ.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
@@ -134,7 +135,24 @@ export class ImportService {
         updatedAt: now,
         version: 1,
       };
-      await this.store.putIfAbsent(job);
+      // W3-07 (D-070 chunk 8/N): ImportJob creation was a bare `putIfAbsent` (single item, no
+      // transaction) - converted to a 1-entry TransactWriteItems through
+      // executeTenantBusinessMutation so the real admission point that gates a NEW presigned
+      // URL issuance is fenced, same pattern as document-service.ts's reserveUpload. This is
+      // additive on top of the already-transitive protection from quota.consume() above (IMPORT_
+      // COUNT/IMPORT_BYTES) - that fence protects the quota row, this one protects the job row
+      // itself against the gap between the quota check and this write.
+      try {
+        await executeTenantBusinessMutation({
+          store: this.store,
+          tableName: this.tableName,
+          tenantId: ctx.tenant.tenantId,
+          entries: [{ Put: buildVersionedCreate(this.tableName, job as unknown as Record<string, unknown> & { PK: string; SK: string }) }],
+        });
+      } catch (err) {
+        if (err instanceof TenantNotActiveError) throw err;
+        throw new ConflictError("Failed to reserve import job.", { cause: err instanceof Error ? err.message : String(err) });
+      }
       await this.idempotency.complete({ tenantId: ctx.tenant.tenantId, operation: OPERATION, key: idempotencyKey, responseRef: jobId });
     }
 

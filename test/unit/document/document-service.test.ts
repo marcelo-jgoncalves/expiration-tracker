@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentStore } from "./in-memory-store.js";
+import { InMemoryDocumentStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { DocumentService } from "../../../src/modules/document/application/document-service.js";
 import type { UploadUrlSigner } from "../../../src/modules/document/ports/upload-url-signer.js";
 import type { DocumentIdGenerator } from "../../../src/modules/document/application/id-generator.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
 const BUCKET = "quarantine-bucket";
@@ -42,7 +43,7 @@ function fakeIds(): DocumentIdGenerator {
 }
 
 function buildService() {
-  const store = new InMemoryDocumentStore();
+  const store = new InMemoryDocumentStore([activeLifecycleRecord("t1"), activeLifecycleRecord("t2")]);
   const service = new DocumentService({ store, tableName: TABLE, quarantineBucket: BUCKET, ids: fakeIds(), signer: fakeSigner(), now: () => "2026-08-22T00:00:00.000Z" });
   return { store, service };
 }
@@ -189,5 +190,29 @@ describe("DocumentService.getDocument/listDocuments (BLOCKER-A)", () => {
     expect(rows.find((r) => r["documentId"] === tenantBDoc.documentId)?.["tenantId"]).toBe("t2");
     await expect(service.getDocument(ctxFor("t2"), "item1", tenantADoc.documentId)).rejects.toThrow(/not found/i);
     await expect(service.getDocument(ctx(), "item1", tenantBDoc.documentId)).rejects.toThrow(/not found/i);
+  });
+
+  // W3-07 (D-070 chunk 8/N): the Document+UploadSlot Put (real admission point gating a NEW
+  // presigned upload URL) now fences through TenantBusinessMutation.
+  describe("W3-07 tenant lifecycle fence", () => {
+    it("tenant ACTIVE -> reserveUpload issues a presigned upload URL (control case)", async () => {
+      const { service } = buildService();
+      const result = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-active");
+      expect(result.uploadUrl).toBeTruthy();
+    });
+
+    it("tenant DELETING -> reserveUpload's Document/UploadSlot creation is rejected by the fence, no presign issued, no row left behind", async () => {
+      const { store, service } = buildService();
+      const lifecycleKey = tenantLifecycleKey("t1");
+      const existing = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...existing, ...lifecycleKey, status: "DELETING", version: (existing?.version ?? 1) + 1 } as never);
+
+      await expect(
+        service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-deleting"),
+      ).rejects.toThrow(/not ACTIVE/i);
+
+      const rows = store.allItems().filter((i) => i["entityType"] === "Document" || i["entityType"] === "UploadSlot");
+      expect(rows).toHaveLength(0);
+    });
   });
 });

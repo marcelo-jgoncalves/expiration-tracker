@@ -1,8 +1,8 @@
-/** Exercises the REAL defaultSchemaRegistry every Lambda imports (same regression pattern as
+﻿/** Exercises the REAL defaultSchemaRegistry every Lambda imports (same regression pattern as
  * document/http/document-handlers.test.ts - a schema added to disk but never registered in
  * the static import list would otherwise go unnoticed until a real Lambda cold start). */
 import { describe, expect, it } from "vitest";
-import { InMemoryImportStore } from "./in-memory-store.js";
+import { InMemoryImportStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { InMemoryIdentityStore, makeIdGenerator } from "../identity/in-memory-store.js";
 import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
@@ -17,11 +17,18 @@ const RAW_BUCKET = "import-raw-bucket";
 const VALID_SHA256 = "a".repeat(64);
 const NOW = "2026-08-23T12:00:00.000Z";
 
-function buildDeps(): { deps: ImportHttpDeps; store: InMemoryImportStore } {
+// W3-07 (D-070 chunk 8/N): ImportService.reserveImport's job creation now fences its own
+// transactWrite via TenantBusinessMutation, which reads TenantLifecycleRecord from the
+// ImportStore's OWN map - a real DynamoDB table shares the record with identityStore's
+// bootstrap write, but these two in-memory fakes are separate Maps. Pre-resolving the default
+// `claims()` identity once (same idempotent login every test already relies on) lets us learn
+// the bootstrapped tenantId and mirror the ACTIVE lifecycle record into the ImportStore too.
+async function buildDeps(): Promise<{ deps: ImportHttpDeps; store: InMemoryImportStore }> {
   const identityStore = new InMemoryIdentityStore();
   const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
-  const store = new InMemoryImportStore();
+  const bootstrapped = await resolver.resolve({ claims: claims(), requestId: "bootstrap", correlationId: "bootstrap" });
+  const store = new InMemoryImportStore([activeLifecycleRecord(bootstrapped.tenant.tenantId)]);
   let counter = 0;
   const imports = new ImportService({
     store,
@@ -41,7 +48,7 @@ function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
 
 describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("handleReserveImport accepts a valid body through the REAL schema registry every Lambda imports", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const response = await handleReserveImport(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -55,7 +62,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleReserveImport rejects a body that fails schema validation (extra unknown field)", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const response = await handleReserveImport(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -67,7 +74,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleReserveImport requires an Idempotency-Key header", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const response = await handleReserveImport(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -78,7 +85,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleGetImportJob returns 404 for an unknown jobId", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const response = await handleGetImportJob(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -89,7 +96,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleGetImportJob returns the job for a known jobId", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const reserved = await handleReserveImport(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -110,7 +117,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleRequestImportCommit requires an If-Match header", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     const response = await handleRequestImportCommit(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -121,7 +128,7 @@ describe("import-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleRequestImportCommit returns 409 when the job is not yet PREVIEW_READY", async () => {
-    const { deps } = buildDeps();
+    const { deps } = await buildDeps();
     // reserveImport leaves the job in status UPLOADED, never PREVIEW_READY (only the parse
     // worker advances it there) - exactly the precondition this handler must reject.
     const reserved = await handleReserveImport(deps, {

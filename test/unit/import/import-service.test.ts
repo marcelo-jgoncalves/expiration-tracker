@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemoryImportStore } from "./in-memory-store.js";
+import { InMemoryImportStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { ImportService, type ImportCommitCommand } from "../../../src/modules/import/application/import-service.js";
@@ -34,7 +34,7 @@ describe("ImportService (M11, D-042)", () => {
   let service: ImportService;
 
   beforeEach(async () => {
-    store = new InMemoryImportStore();
+    store = new InMemoryImportStore([activeLifecycleRecord(TENANT)]);
     const identityStore = new InMemoryIdentityStore();
     // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
     // TenantLifecycleRecord to exist for the tenant.
@@ -120,5 +120,25 @@ describe("ImportService (M11, D-042)", () => {
 
     const updatedJob = await store.get<ImportJob>(importJobKey(TENANT, jobId));
     expect(updatedJob?.status).toBe("COMMITTING");
+  });
+
+  // W3-07 (D-070 chunk 8/N): the ImportJob creation Put (real admission point gating a NEW
+  // presigned upload URL) now fences through TenantBusinessMutation.
+  describe("W3-07 tenant lifecycle fence", () => {
+    it("tenant ACTIVE -> reserveImport issues a presigned upload URL (control case)", async () => {
+      const result = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-active");
+      expect(result.uploadUrl).toBeTruthy();
+    });
+
+    it("tenant DELETING -> reserveImport's ImportJob creation is rejected by the fence, no presign issued, no row left behind", async () => {
+      const lifecycleKey = tenantLifecycleKey(TENANT);
+      const existing = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...existing, ...lifecycleKey, status: "DELETING", version: (existing?.version ?? 1) + 1 } as never);
+
+      await expect(service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-deleting")).rejects.toThrow(/not ACTIVE/i);
+
+      const jobs = store.allItems().filter((i) => i["entityType"] === "ImportJob");
+      expect(jobs).toHaveLength(0);
+    });
   });
 });
