@@ -34,7 +34,7 @@ Explicitamente fora de escopo nesta etapa (não avaliar como "faltando", são ex
 
 ## 4. Baseline
 
-Antes desta sessão: backend M0-M5 implementado e testado (590 testes antes desta sessão, ver `AGENTS.md` §7); planejamento de interface com 8 de 9 etapas `APPROVED` (`docs/frontend/README.md`), sem nenhum frontend de produção; Full BFF **aprovado apenas em design** (D-053 nota 9,2/9,3, D-054 amendment nota 9,2/9,4) — nenhuma linha de `src/modules/bff/` existia; `expiration-tracker-bff-frontend-quality-standard.md` (raiz do repo) como padrão de qualidade ainda não adotado formalmente, mas usado aqui como referência de linguagem/checklist (CSRF, allowlist, cookies `SameSite`, etc.).
+Antes desta sessão: backend M0-M5 implementado e testado (590 testes antes desta sessão, ver `AGENTS.md` §7); planejamento de interface com 8 de 9 etapas `APPROVED` (`docs/frontend/README.md`), sem nenhum frontend de produção; Full BFF **aprovado apenas em design** (D-053 nota 9,2/9,3, D-054 amendment nota 9,2/9,4) — nenhuma linha de `src/modules/bff/` existia; `bff-frontend-quality-standard-proposal.md` (movido da raiz em 2026-08-29) como padrão de qualidade ainda não adotado formalmente, mas usado aqui como referência de linguagem/checklist (CSRF, allowlist, cookies `SameSite`, etc.).
 
 ## 5. Existing Frontend State (verificado empiricamente antes de escrever qualquer código)
 
@@ -49,7 +49,7 @@ Nenhuma decisão prévia existia — escolhida objetivamente nesta sessão, crit
 | Build/dev server | Vite 5 | Padrão de facto para SPA React em 2026, config mínima, HMR rápido |
 | UI | React 18 | Já usado implicitamente como referência mental do projeto (protótipo é vanilla, mas toda a documentação de interface pressupõe componentização React-like); maduro, grande ecossistema de testing-library |
 | Linguagem | TypeScript estrito | Consistência com o backend (`tsconfig.json` do backend também usa `strict`+`noUncheckedIndexedAccess`) |
-| Roteamento | React Router v7 (API declarativa v6-compatível) | Maduro, sem dependência de framework full-stack (Next.js) desnecessária — `expiration-tracker-bff-frontend-quality-standard.md` §6 já descartava Next.js só para ter BFF, pois o BFF é um Lambda separado, não parte do frontend |
+| Roteamento | React Router v7 (API declarativa v6-compatível) | Maduro, sem dependência de framework full-stack (Next.js) desnecessária — `bff-frontend-quality-standard-proposal.md` §6 já descartava Next.js só para ter BFF, pois o BFF é um Lambda separado, não parte do frontend |
 | Estado de servidor | TanStack Query v5 | Cache/retry/loading-state de chamadas HTTP sem reinventar — retry configurado por call site (§41 da missão), nunca um default genérico |
 | Estado local/global | Nenhuma lib (sem Redux/Zustand) | Nenhuma necessidade comprovada ainda — `AuthContext` via Context API nativa é suficiente para o único estado verdadeiramente global (sessão) |
 | CSS | Nenhum framework, CSS estrutural puro | Design visual final explicitamente fora de escopo (§3) — qualquer framework de UI hoje seria descartado depois de User Validation |
@@ -227,7 +227,7 @@ Herdados de `docs/frontend/README.md`, carregados explicitamente, nenhum mascara
 
 ## 28. Deferred Visual Decisions
 
-Toda decisão de aparência final é adiada para depois de User Validation: paleta de cor, tipografia, espaçamento, iconografia, copy final, layout de coleções, navegação lateral/topo definitiva, todo o design system de `expiration-tracker-bff-frontend-quality-standard.md` §27. `frontend/src/styles/foundation.css` é intencionalmente cru (tokens estruturais em escala de cinza) para que nenhum esforço visual seja descartado depois.
+Toda decisão de aparência final é adiada para depois de User Validation: paleta de cor, tipografia, espaçamento, iconografia, copy final, layout de coleções, navegação lateral/topo definitiva, todo o design system de `bff-frontend-quality-standard-proposal.md` §27. `frontend/src/styles/foundation.css` é intencionalmente cru (tokens estruturais em escala de cinza) para que nenhum esforço visual seja descartado depois.
 
 ## 29. Claude Review (Rodada A — autoavaliação)
 

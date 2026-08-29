@@ -1,8 +1,6 @@
 /**
  * Deterministic doc-drift checker — full-audit round1, eixo Engenharia de Contexto,
- * critério "Auditabilidade & Enforcement do Sistema de Contexto". Two checks, both real
- * bugs found by hand across axes 1-3 of that audit (10+ broken `AGENTS.md §N` references
- * after AGENTS.md was restructured, without every citing document being updated):
+ * critério "Auditabilidade & Enforcement do Sistema de Contexto". Four checks:
  *
  *  1. Every inline-style relative markdown link (`[text](path/to/file.md)`) in every `.md`
  *     file on disk (not just git-tracked ones, so it also catches a doc you're about to
@@ -14,6 +12,15 @@
  *     heading in AGENTS.md right now (not the section number that existed when the citing
  *     doc was written). This only proves the section number exists, not that the citation
  *     is topically correct - that still needs a human/reviewer.
+ *  3. Root allowlist (added 2026-08-29, context-engineering reconciliation): every `.md`
+ *     file directly in the repo root must be in `ROOT_MD_ALLOWLIST` - prevents the exact
+ *     regression this reconciliation fixed (21 stray handoff/mission-brief/prompt files
+ *     accumulated in root over several sessions, none of them indexed anywhere).
+ *  4. Size guardrail (same reconciliation): `AGENTS.md` must stay within the line-count goal
+ *     it declares for itself (§8); `NEXT_SESSION_PROMPT.md` gets a generous ceiling (not a
+ *     tight one - it's allowed to grow with real session detail) specifically to catch
+ *     unbounded reaccumulation of already-duplicated history before it reaches the ~1067
+ *     lines this reconciliation found, not to enforce a tight target.
  *
  * Built because AGENTS.md §6's checklist previously conditioned this kind of automation on
  * "CI real existe" OR "reincidência de drift documental" - both were true (CI has existed
@@ -26,6 +33,15 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+// Every .md file allowed directly in the repo root - anything else is a stray handoff/
+// prompt/mission-brief that belongs in docs/ somewhere (see docs/architecture/README.md's
+// precedence table for where). Update this set deliberately, not by exception-creep.
+export const ROOT_MD_ALLOWLIST = new Set(["AGENTS.md", "ARCHITECTURE.md", "CLAUDE.md", "ENGINEERING.md", "NEXT_SESSION_PROMPT.md", "README.md"]);
+
+export const AGENTS_MD_MAX_LINES = 100; // matches AGENTS.md §8's own declared goal (60-100).
+export const NEXT_SESSION_PROMPT_MAX_LINES = 300; // generous ceiling, see file doc comment above.
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist", "cdk.out", "coverage"]);
@@ -115,6 +131,28 @@ function checkAgentsSectionRefs(
   });
 }
 
+export function checkRootAllowlist(entries: string[], allowlist: Set<string>, violations: Violation[]): void {
+  for (const entry of entries) {
+    if (!entry.endsWith(".md")) continue;
+    if (allowlist.has(entry)) continue;
+    violations.push({
+      file: entry,
+      line: 1,
+      message: `stray .md file in repo root, not in the allowlist (scripts/check-doc-drift.ts's ROOT_MD_ALLOWLIST) - move it under docs/ (see docs/architecture/README.md's precedence table for where) instead of leaving it in root`,
+    });
+  }
+}
+
+export function checkSizeGuardrail(fileBasename: string, lineCount: number, maxLines: number, violations: Violation[]): void {
+  if (lineCount > maxLines) {
+    violations.push({
+      file: fileBasename,
+      line: lineCount,
+      message: `${lineCount} lines, over the ${maxLines}-line guardrail - if this file's own declared goal changed, update the constant in scripts/check-doc-drift.ts; otherwise compact it (move historical detail to session-log.md/decisions-log.md, keep only current state + next action)`,
+    });
+  }
+}
+
 function main(): void {
   const files = walkMarkdownFiles(REPO_ROOT);
   const validSections = loadAgentsMdSections();
@@ -125,6 +163,14 @@ function main(): void {
     checkLinks(file, lines, violations);
     checkAgentsSectionRefs(file, lines, validSections, violations);
   }
+
+  const rootEntries = readdirSync(REPO_ROOT).filter((entry) => statSync(path.join(REPO_ROOT, entry)).isFile());
+  checkRootAllowlist(rootEntries, ROOT_MD_ALLOWLIST, violations);
+
+  const agentsMdLines = readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf-8").split("\n").length;
+  checkSizeGuardrail("AGENTS.md", agentsMdLines, AGENTS_MD_MAX_LINES, violations);
+  const nextSessionPromptLines = readFileSync(path.join(REPO_ROOT, "NEXT_SESSION_PROMPT.md"), "utf-8").split("\n").length;
+  checkSizeGuardrail("NEXT_SESSION_PROMPT.md", nextSessionPromptLines, NEXT_SESSION_PROMPT_MAX_LINES, violations);
 
   if (violations.length > 0) {
     // eslint-disable-next-line no-console -- CLI script, not a Lambda handler.
@@ -137,7 +183,14 @@ function main(): void {
   }
 
   // eslint-disable-next-line no-console -- CLI script.
-  console.log(`Doc drift check: ${files.length} markdown files scanned, no broken links or stale AGENTS.md §N references found.`);
+  console.log(`Doc drift check: ${files.length} markdown files scanned, root allowlist and size guardrails clean, no broken links or stale AGENTS.md §N references found.`);
 }
 
-main();
+// Only run as a side effect when executed directly (`npm run check-docs`) - importing this
+// module for unit tests (test/architecture/check-doc-drift.test.ts) must not trigger a full
+// scan/exit against the real repo. Uses pathToFileURL (not a raw `file://` template) so this
+// still matches with a relative argv[1], spaces, or other characters needing URL-encoding.
+const isDirectRun = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  main();
+}

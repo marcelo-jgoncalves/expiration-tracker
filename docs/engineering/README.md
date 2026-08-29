@@ -3,8 +3,9 @@
 ```text
 Rubrica de qualidade:     CONGELADA (01-engineering-quality-criteria.md)
 Fitness functions:        ativas (02-engineering-fitness-functions.md), enforcement real em CI
-Full-audit 9 eixos:       CONCLUÍDO — 9/9 avaliados (ver NEXT_SESSION_PROMPT.md, só Contexto bateu o gate ≥9.0; os outros 8 ficaram honestamente abaixo, classificados)
-Last verified:            2026-08-20
+Full-audit 9 eixos:       CONCLUÍDO em 2026-08-20 (9/9 avaliados, só Contexto bateu o gate ≥9.0 originalmente) — achados remediados/reavaliados em rodadas posteriores por eixo, ver decisions-log.md/pilot-readiness-program.md, não re-enumerado aqui
+Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
+Last verified:            2026-08-29 (reconciliação de engenharia de contexto — ver docs/architecture/README.md para o estado vigente completo, não duplicado aqui)
 ```
 
 Este diretório trata de **como o trabalho de engenharia é medido e revisado** (rubrica, critérios por eixo, protocolo de debate, achados de auditoria) — não confundir com `docs/architecture/`, que trata do que o sistema É (design, modelo de dados, decisões de arquitetura). Se a dúvida for "o GSI3 é consultável por quem", vá para `docs/architecture/`; se for "que nota isso tira / que processo formal se aplica aqui", este diretório é o certo.
@@ -49,7 +50,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `02-engineering-fitness-functions.md` | normativo atual | Verificações executáveis derivadas da rubrica CONGELADA |
 | `00-research-bibliography.md` | histórico/fundamentação | Fontes de pesquisa que embasam a rubrica original |
 | `03-repository-baseline.md` | histórico | Estado do repositório no início da Engineering Maturity Review — nunca estado atual |
-| `pilot-readiness-program.md` | registro vivo de backlog (não normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`expiration-tracker-next-days-master-plan-and-ai-prompt.md`, raiz) — DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
+| `pilot-readiness-program.md` | registro vivo de backlog (não normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`docs/project/handoffs/expiration-tracker-next-days-master-plan-and-ai-prompt.md`, movido da raiz em 2026-08-29) — DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
 | `pilot-readiness-assessment.md` | síntese/recomendação (entregável final do programa, prompt mestre §42) | GO/CONDITIONAL GO/NO-GO por escopo de piloto, consolidando a evidência de `pilot-readiness-program.md` — não repete achado, só aponta; não é aprovação final, é insumo para a decisão do Marcelo |
 | `reviews/` | histórico/evidência de rodada | Artefatos de toda rodada Claude↔Codex de processo/qualidade — ver seção própria abaixo |
 

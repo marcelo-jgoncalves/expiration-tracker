@@ -1,7 +1,7 @@
 # W3-07 (retomada, Round 3) — avaliação da proposta externa "ACTIVE-only fence"
 
 > Sessão de análise/arquitetura pura (sem implementação), a pedido explícito do Marcelo, avaliando o
-> arquivo externo `expiration-tracker-w3-07-architectural-analysis-2026-08-28.md` (raiz do repo) contra
+> arquivo externo `../w3-07-tenant-cascade-deletion-design/architectural-analysis-2026-08-28.md` (movido da raiz em 2026-08-29) contra
 > o histórico real de D-062→D-065 (`docs/architecture/reviews/w3-07-tenant-cascade-deletion-design/`,
 > `w3-07-tenant-deletion-with-fence-design/`, `w3-07-tenant-fence-round2-design/`) e o código real atual.
 > Branch: `develop` (confirmado). `TenantLifecycleRecord` **não existe em código** — este é

@@ -4,7 +4,7 @@
 
 **Data:** 2026-08-28  
 **Contexto:** W3-07 — exclusão física de tenant / DSR / LGPD  
-**Base da análise:** prompt externo `expiration-tracker-w3-07-claim-outcome-protocol-external-review-prompt.md`, estado atual descrito do projeto e comportamento dos fluxos reais de Step Functions, Textract, Bedrock e S3.
+**Base da análise:** prompt externo `external-review-prompt.md` (mesma pasta), estado atual descrito do projeto e comportamento dos fluxos reais de Step Functions, Textract, Bedrock e S3.
 
 ---
 
