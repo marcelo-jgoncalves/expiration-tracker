@@ -19,7 +19,7 @@ const VALID_SHA256 = "a".repeat(64);
 
 function buildDeps(): DocumentHttpDeps {
   const identityStore = new InMemoryIdentityStore();
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator());
+  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore);
   const documentStore = new InMemoryDocumentStore();
   const documents = new DocumentService({

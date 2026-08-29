@@ -35,7 +35,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
     store = new InMemoryIdentityStore();
     const mappings = new IdentityMappingRepository(store);
     users = new UserRepository(store);
-    resolver = new RequestContextResolver(mappings, users, makeIdGenerator());
+    resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), store, "MainTable");
     quota = new TenantQuotaService(store);
   });
 

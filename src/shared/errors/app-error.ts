@@ -249,6 +249,18 @@ export class BusinessRuleError extends AppError {
   }
 }
 
+/** W3-07 (D-067, `TenantBusinessMutation` lane, `src/shared/tenant-lifecycle/`): thrown when
+ * a tenant-scoped business mutation's ConditionCheck against `TenantLifecycleRecord.status =
+ * ACTIVE` fails — the tenant has entered DELETING (or has no lifecycle record at all, which
+ * this codebase never expects once bootstrap always creates one). `retryable: false`: the
+ * tenant is not coming back to ACTIVE, so retrying identically will fail identically. */
+export class TenantNotActiveError extends AppError {
+  constructor(message = "Tenant is not ACTIVE; mutation rejected.", details?: Record<string, unknown>) {
+    super({ code: "TENANT_NOT_ACTIVE", category: "CONFLICT", message, retryable: false, details });
+    this.name = "TenantNotActiveError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

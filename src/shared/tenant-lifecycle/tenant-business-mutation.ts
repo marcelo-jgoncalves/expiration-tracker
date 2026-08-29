@@ -1,0 +1,83 @@
+/**
+ * TenantBusinessMutation lane — W3-07 (D-067), approved design's "fence estrutural único"
+ * (`docs/architecture/reviews/w3-07-tenant-fence-round3-active-only-design/
+ * claude-analysis-active-only-fence.md` §F.1/§L/§Q roadmap item 2).
+ *
+ * The single supported way for a tenant-scoped business mutation to commit: it appends a
+ * `ConditionCheck` against `TenantLifecycleRecord.status = ACTIVE` to the caller's own
+ * `TransactWriteItems` entries and submits them together, atomically, via
+ * `shared/dynamodb/occ.ts`'s existing `buildExistenceConditionCheck` builder — never a
+ * hand-written `ConditionExpression`, never a parallel transaction-execution path.
+ *
+ * Concurrency contract (approved design §Q, Round E, endorsed by Codex): "ACTIVE->DELETING
+ * blocks new admissions; operations already admitted atomically before the transition may
+ * finish." The linearization point is THIS call's own TransactWriteItems commit, not the
+ * instant any external effect (Textract/Bedrock/SES/S3) is later triggered by the caller —
+ * callers that gate an external effect on this lane must treat "this transaction committed"
+ * as the admission fact, not "the tenant was ACTIVE when I read it earlier".
+ *
+ * Scope note (this session, W3-07 chunk 2/N): this is the executor itself plus one proof-of-
+ * concept call site (`ItemWatchService.removeWatcher`, see NEXT_SESSION_PROMPT.md for which
+ * other writers still need migrating). The full structural boundary the approved design
+ * calls for (an architecture test / ESLint rule that makes `store.transactWrite([...])`
+ * un-callable directly from business modules, forcing every tenant mutation through this
+ * function) is `Q` roadmap item 3 and is NOT implemented yet — today this lane is enforced by
+ * convention only, the same interim state the design doc's roadmap explicitly separates from
+ * item 2 (this file).
+ */
+import { buildExistenceConditionCheck, isTransactionCanceled, type TransactWriteEntry } from "../dynamodb/occ.js";
+import { TenantNotActiveError } from "../errors/app-error.js";
+import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-record.js";
+
+/** Minimal surface this lane needs from a store - both IdentityStore and ExpirationStore
+ * (and any future module's port) satisfy this structurally, since they share the same
+ * physical single-table design and the same `transactWrite(entries)` shape from occ.ts. */
+export interface TenantMutationStore {
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
+}
+
+export interface TenantBusinessMutationInput {
+  store: TenantMutationStore;
+  tableName: string;
+  tenantId: string;
+  /** The caller's own TransactWriteItems entries (Put/Update/Delete/ConditionCheck) built
+   * via occ.ts's builders — this lane only APPENDS the lifecycle fence, it never inspects or
+   * rewrites these. Must be non-empty (a fence with no actual mutation is a no-op that would
+   * silently swallow a caller bug). */
+  entries: TransactWriteEntry[];
+}
+
+/**
+ * Commits `entries` plus a `ConditionCheck` asserting `TenantLifecycleRecord.status =
+ * ACTIVE` for `tenantId`, in the SAME TransactWriteItems call. Throws `TenantNotActiveError`
+ * (never the raw `TransactionCanceledException`) when the fence specifically is what failed
+ * so callers can distinguish "tenant is being deleted" from an ordinary OCC version conflict
+ * on their own entries — callers that need to tell the two apart should check
+ * `err.details?.tenantId` is populated, or inspect `CancellationReasons` on the underlying
+ * SDK error themselves (this lane does not yet thread `CancellationReasons` through in typed
+ * form — a documented gap, see the file header's scope note and `Q` roadmap item 2's
+ * "CancellationReasons tipado" obligation, deferred to the writer-migration chunk that will
+ * actually need to distinguish per-entry causes for compensation).
+ */
+export async function executeTenantBusinessMutation(input: TenantBusinessMutationInput): Promise<void> {
+  if (input.entries.length === 0) {
+    throw new TenantNotActiveError("TenantBusinessMutation called with zero entries — nothing to fence.", {
+      tenantId: input.tenantId,
+    });
+  }
+
+  const fence = buildExistenceConditionCheck({
+    tableName: input.tableName,
+    key: tenantLifecycleKey(input.tenantId),
+    extra: { status: TENANT_ACTIVE_STATUS },
+  });
+
+  try {
+    await input.store.transactWrite([...input.entries, fence]);
+  } catch (err) {
+    if (isTransactionCanceled(err)) {
+      throw new TenantNotActiveError("Tenant is not ACTIVE; mutation rejected.", { tenantId: input.tenantId });
+    }
+    throw err;
+  }
+}

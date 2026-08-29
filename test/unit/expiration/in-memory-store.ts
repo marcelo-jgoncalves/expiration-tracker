@@ -63,6 +63,25 @@ export class InMemoryExpirationStore implements ExpirationStore {
             throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: status mismatch" };
           }
         }
+      } else if ("ConditionCheck" in entry) {
+        // W3-07 (D-067): the TenantBusinessMutation lane's lifecycle fence
+        // (buildExistenceConditionCheck's "attribute_exists(PK) AND #c0 = :c0 [...]" shape) -
+        // same evaluator as test/unit/identity/in-memory-store.ts's transactWrite.
+        const check = entry.ConditionCheck;
+        const existing = this.items.get(this.k(check.Key));
+        if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
+          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+        }
+        const names = check.ExpressionAttributeNames ?? {};
+        const values = check.ExpressionAttributeValues ?? {};
+        for (const [nameKey, fieldName] of Object.entries(names)) {
+          const valueKey = `:${nameKey.slice(1)}`;
+          if (!(valueKey in values)) continue;
+          const expected = values[valueKey];
+          if (!existing || existing[fieldName] !== expected) {
+            throw { name: "TransactionCanceledException", message: `ConditionalCheckFailed: ${fieldName} mismatch` };
+          }
+        }
       }
     }
 

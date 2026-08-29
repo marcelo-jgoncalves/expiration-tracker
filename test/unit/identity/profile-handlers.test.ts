@@ -19,7 +19,7 @@ import { handleGetProfile, handleUpdateProfile, type ProfileHttpDeps } from "../
 function buildDeps(): ProfileHttpDeps {
   const identityStore = new InMemoryIdentityStore();
   const users = new UserRepository(identityStore);
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), users, makeIdGenerator());
+  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), users, makeIdGenerator(), identityStore, "MainTable");
   const quota = new TenantQuotaService(identityStore);
   const profiles = new ProfileService({ users });
   return { resolver, profiles, quota };

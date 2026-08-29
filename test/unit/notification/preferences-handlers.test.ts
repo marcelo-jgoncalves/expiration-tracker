@@ -30,7 +30,7 @@ const TABLE = "MainTable";
 
 function buildDeps(): NotificationHttpDeps {
   const identityStore = new InMemoryIdentityStore();
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator());
+  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore);
   const preferences = new NotificationPreferencesService({
     store: new InMemoryNotificationStore(),
