@@ -5,6 +5,27 @@ import type {
   TransactWriteEntry,
 } from "../../../src/modules/expiration/ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "../../../src/modules/expiration/application/id-generator.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/**
+ * W3-07 (D-070, ExpirationService.commit() migration, chunk 9/N): ExpirationService.commit()
+ * now fences every mutation (createItem/updateItem/archiveItem/deleteItem/renewItem) through
+ * TenantBusinessMutation, which requires a TenantLifecycleRecord to exist and be ACTIVE.
+ * `new InMemoryExpirationStore([activeLifecycleRecord("tenant-1")])` seeds it synchronously in
+ * one line, same convention document/in-memory-store.ts's `activeLifecycleRecord` already
+ * established, rather than duplicating an async seedLifecycle() helper per test file.
+ */
+export function activeLifecycleRecord(tenantId: string, now = "2026-08-29T00:00:00.000Z"): Record<string, unknown> & EntityKey {
+  return {
+    ...tenantLifecycleKey(tenantId),
+    entityType: "TenantLifecycleRecord",
+    tenantId,
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+}
 
 /**
  * In-memory fake of ExpirationStore, mirroring test/unit/identity/in-memory-store.ts's
@@ -17,6 +38,10 @@ import type { ExpirationIdGenerator } from "../../../src/modules/expiration/appl
  */
 export class InMemoryExpirationStore implements ExpirationStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
+
+  constructor(seed: (Record<string, unknown> & EntityKey)[] = []) {
+    for (const item of seed) this.items.set(this.k(item), item);
+  }
 
   private k(key: EntityKey): string {
     return `${key.PK}#${key.SK}`;
@@ -38,29 +63,50 @@ export class InMemoryExpirationStore implements ExpirationStore {
   }
 
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
-    // Pass 1: validate every condition without mutating anything.
-    for (const entry of entries) {
+    // Pass 1: validate every condition without mutating anything, recording a per-entry Code
+    // (mirroring real DynamoDB's TransactionCanceledException.CancellationReasons[] shape) so
+    // callers - notably the TenantBusinessMutation lane's fence-vs-ordinary-OCC-conflict
+    // distinction in tenant-business-mutation.ts - can tell which specific entry failed. W3-07
+    // (ExpirationService.commit() migration, chunk 9/N): previously this fake threw fail-fast
+    // with no CancellationReasons at all, which the lane's `!reasons` branch treats as "the
+    // fence failed" unconditionally - a real caller-side OCC conflict on the item's own Update
+    // entry (e.g. a stale expectedVersion) would have been silently misclassified as
+    // TenantNotActiveError instead of the expected ConflictError, exactly the bug
+    // TenantQuotaService.consume()'s migration found and fixed in the real fake
+    // (test/unit/identity/in-memory-store.ts) - same fix applied here.
+    const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
+    let anyFailed = false;
+
+    entries.forEach((entry, i) => {
       if ("Put" in entry) {
         const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put" };
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
         }
       } else if ("Update" in entry) {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
         if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
           if (!existing) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
           const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
           const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
           if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
         } else if (entry.Update.ConditionExpression === "#status = :expected") {
           const expectedStatus = entry.Update.ExpressionAttributeValues[":expected"];
           if (!existing || existing["status"] !== expectedStatus) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: status mismatch" };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
         }
       } else if ("ConditionCheck" in entry) {
@@ -70,7 +116,9 @@ export class InMemoryExpirationStore implements ExpirationStore {
         const check = entry.ConditionCheck;
         const existing = this.items.get(this.k(check.Key));
         if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
-          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing" };
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
         }
         const names = check.ExpressionAttributeNames ?? {};
         const values = check.ExpressionAttributeValues ?? {};
@@ -79,10 +127,16 @@ export class InMemoryExpirationStore implements ExpirationStore {
           if (!(valueKey in values)) continue;
           const expected = values[valueKey];
           if (!existing || existing[fieldName] !== expected) {
-            throw { name: "TransactionCanceledException", message: `ConditionalCheckFailed: ${fieldName} mismatch` };
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
           }
         }
       }
+    });
+
+    if (anyFailed) {
+      throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed", CancellationReasons: reasons };
     }
 
     // Pass 2: apply.

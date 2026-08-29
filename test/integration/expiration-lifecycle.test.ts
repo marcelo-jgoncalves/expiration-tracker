@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator } from "../unit/identity/in-memory-store.js";
-import { InMemoryExpirationStore, makeExpirationIdGenerator } from "../unit/expiration/in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "../unit/expiration/in-memory-store.js";
 import { IdentityMappingRepository } from "../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
@@ -37,7 +37,7 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
   let expirationStore: InMemoryExpirationStore;
   let deps: { resolver: RequestContextResolver; expiration: ExpirationService; quota: TenantQuotaService };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const identityStore = new InMemoryIdentityStore();
     const mappings = new IdentityMappingRepository(identityStore);
     const users = new UserRepository(identityStore);
@@ -47,6 +47,18 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     expirationStore = new InMemoryExpirationStore();
     const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator() });
     deps = { resolver, expiration, quota };
+
+    // W3-07 (D-070, chunk 9/N): ExpirationService.commit() now fences every mutation through
+    // TenantBusinessMutation, which reads TenantLifecycleRecord from expirationStore's OWN
+    // map - a real DynamoDB table shares the record with identityStore's atomic-bootstrap
+    // write, but these two in-memory fakes are separate Maps (same gap already fixed for
+    // document-handlers.test.ts/import-handlers.test.ts, D-070 chunk 8/N). Pre-resolving both
+    // users this suite exercises (sub-A, sub-B) learns their bootstrapped tenantIds so the
+    // ACTIVE lifecycle record can be mirrored into expirationStore too.
+    for (const sub of ["sub-A", "sub-B"]) {
+      const bootstrapped = await resolver.resolve({ claims: claims(sub), requestId: `bootstrap-${sub}`, correlationId: `bootstrap-${sub}` });
+      await expirationStore.putIfAbsent(activeLifecycleRecord(bootstrapped.tenant.tenantId));
+    }
   });
 
   it("create -> read -> update (due-date change produces the outbox event) -> renew -> soft-delete, all via HTTP handlers, with an audit trail and no ReminderOccurrence/NotificationIntent writes anywhere", async () => {

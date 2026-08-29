@@ -2,6 +2,58 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — chunk 9/N implementado nesta sessão (2026-08-29), D-070/D-071 continuação
+
+Alvo único desta sessão (o maior de blast-radius pendente no roteiro): **`ExpirationService.commit()`**.
+
+- **`ExpirationService.commit()` fenced via `TenantBusinessMutation`** — `commit()` é o único
+  método privado por onde as 5 mutações públicas (`createItem`/`updateItem`/`archiveItem`/
+  `deleteItem`/`renewItem`) já passavam antes desta sessão; ganhou um parâmetro `tenantId` e
+  roteia sua `TransactWriteItems` via `executeTenantBusinessMutation`, mesmo padrão de
+  `TenantQuotaService.consume()`/`ItemWatchService.removeWatcher`. `TenantNotActiveError` é
+  relançado sem alteração (nunca dobrado em `ConflictError("VERSION_CONFLICT")`), preservando a
+  lógica de abort de idempotência já existente em `createItem`/`renewItem`. **IMPLEMENTED + UNIT
+  TESTED** (5 testes adversariais novos em `test/unit/expiration/expiration-service.test.ts`:
+  ACTIVE control case; DELETING rejeita `createItem` sem linha deixada para trás; DELETING rejeita
+  `updateItem`/`archiveItem`/`deleteItem`/`renewItem` atomicamente com o estado pré-DELETING do
+  item inalterado; um conflito OCC comum em `updateItem` continua `ConflictError`, não confundido
+  com a fence — prova o fix de `CancellationReasons` abaixo; um retry de idempotência de
+  `createItem` após DELETING ainda retorna o resultado cacheado em vez de ser bloqueado).
+- **Blast radius real medido, muito menor que o temido (~600 testes)**: apenas 3 arquivos de teste
+  precisaram de seed de `TenantLifecycleRecord` — `expiration-service.test.ts`,
+  `reminder-materialization-trigger.test.ts` (seu fixture `MirroredExpirationStore` exigiu seed
+  via `expirationStore.putIfAbsent()`, não `store.putIfAbsent()` diretamente, por ter um mapa
+  interno próprio herdado além do mirror), e `expiration-lifecycle.test.ts` (mesmo padrão de
+  pré-resolver usuários reais via o resolver de bootstrap, já usado no chunk 8/N para
+  document/import-handlers). Helper reusável `activeLifecycleRecord(tenantId)` + seed opcional no
+  construtor adicionados a `test/unit/expiration/in-memory-store.ts`, mesmo padrão já estabelecido
+  em `document/in-memory-store.ts` — evita duplicar um `seedLifecycle()` async por arquivo.
+- **Achado real corrigido nesta sessão**: o fake `transactWrite` de
+  `test/unit/expiration/in-memory-store.ts` lançava fail-fast sem popular `CancellationReasons`
+  (gap já fechado em D-070 para o fake de identity, não replicado aqui) — uma vez a fence ligada,
+  isso teria classificado erroneamente QUALQUER conflito OCC comum do chamador (ex.:
+  `expectedVersion` obsoleto de `updateItem`) como `TenantNotActiveError` em vez de `ConflictError`;
+  corrigido populando `CancellationReasons` por entrada, mesma convenção dos outros fakes,
+  provado por teste adversarial dedicado.
+- 1011 testes de backend passando (era 1006), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. `docs/architecture/w3-07-writer-inventory.md` atualizado (linha de
+  `ExpirationService.commit()` + nova seção "chunk 9/N").
+- Revisão adversarial Codex desta sessão — não executada, sem orçamento restante (recomendado
+  antes do próximo chunk, dado ser a maior migração de blast radius do W3-07 até agora).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk, retomando a
+lista já registrada pelo chunk 7/8/N, menos o item agora fechado): sweeper permanente
+pós-`DELETED` para o resíduo S3 tardio do Round G; migração de `ExtractionRunStore.putIfAbsent()`
+(gap de design genuíno, não reaberto); outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora
+do alcance estrutural da fence atual); email delivery `SUBMITTING` claim (SES — D-067's política já
+decidida, fence de código ainda não implementado); os 4 evidence-mutation workers + ordering fix do
+objeto `clean` órfão.
+
+**Próxima ação real**: revisão adversarial Codex sobre a migração de `ExpirationService.commit()`
+(maior blast radius do W3-07 até agora); depois continuar o roteiro — email delivery `SUBMITTING`
+claim (SES, D-067's política já decidida, menor esforço) ou os 4 evidence-mutation workers, ou o
+sweeper permanente pós-`DELETED`.
+
 ## W3-07 — chunks 7/N e 8/N implementados nesta sessão (2026-08-29), D-070 continuação
 
 Continuação direta do chunk 6/N (abaixo). Escopo: `GuestSubmissionService` fencing (chunk 7/N) e

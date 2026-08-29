@@ -23,7 +23,7 @@ boundary** (yes/no, what) | **fence status** | **late-result behavior** | **test
 | `TenantQuotaService.consume()` | `identity/application/quota.ts:87` (create path `:109`, update path `:142`) | **Yes — NEW this session**: both the `putIfAbsent` create path and the `updateConditional` update path are now a 1-entry `TransactWriteItems` (Put) through `executeTenantBusinessMutation` | **Fenced via TenantBusinessMutation (THIS SESSION)** | N/A (synchronous DynamoDB write) — this IS the admission point gating every downstream Textract/Bedrock call that reads its result | Yes — `test/unit/identity/quota.test.ts`, 3 new adversarial tests (create-path DELETING rejection with no row left behind, update-path DELETING rejection with count unchanged, ACTIVE control case) + the pre-existing 25-concurrent-callers no-lost-updates test now proves the fence migration preserved retry semantics under real OCC contention |
 | `TenantQuotaService.release()` | `identity/application/quota.ts:178` | No — single-item `updateConditional` (unchanged) | **Deliberately NOT fenced** — compensates a reservation already admitted while ACTIVE; blocking it during DELETING would leak the reservation forever | N/A | Existing tests unchanged (idempotent, no-op cases) |
 | `ItemWatchService.addWatcher`/`reactivate` | `expiration/application/item-watch-service.ts:34,53` | Yes — own `transactWrite` | **NOT FENCED** | N/A | Existing (pre-fence) tests only |
-| `ExpirationService.commit()` (backs `createItem`/`updateItem`/`archiveItem`/`renewItem`) | `expiration/application/expiration-service.ts` | Yes — shared `transactWrite` | **NOT FENCED** (D-068's largest deferred item — ~600 existing tests would need lifecycle seeding) | N/A | Existing (pre-fence) tests only |
+| `ExpirationService.commit()` (backs `createItem`/`updateItem`/`archiveItem`/`deleteItem`/`renewItem`) | `expiration/application/expiration-service.ts` | Yes — shared `transactWrite` (single choke point — every one of the 5 public mutations already funneled through this one private method before this session) | **Fenced via TenantBusinessMutation (THIS SESSION, chunk 9/N)** — `commit()` now takes a `tenantId` parameter and routes its transaction through `executeTenantBusinessMutation`; because every mutation already shared this one method, fencing it here fences all 5 callers at once. `TenantNotActiveError` is rethrown unchanged (never folded into `ConflictError("VERSION_CONFLICT")`), so callers' existing idempotency abort-on-catch logic still runs correctly and a caller can distinguish "tenant is being deleted" from an ordinary OCC conflict on the aggregate itself | N/A (synchronous DynamoDB write) — a mutation admitted while ACTIVE (including one already inside an idempotency-protected `createItem`/`renewItem` call) completes normally even if DELETING starts moments later; only NEW admissions after that point are blocked | Yes — `test/unit/expiration/expiration-service.test.ts` (5 new adversarial tests: ACTIVE control case; DELETING rejects createItem with no row left behind; DELETING rejects updateItem/archiveItem/deleteItem/renewItem all atomically with the pre-DELETING item state unchanged; an ordinary OCC version conflict on updateItem is still `ConflictError`, not misclassified as the fence, proving the `CancellationReasons`-index fix — see `tenant-business-mutation.ts` — applies here too; a retried `createItem` idempotency replay after DELETING starts still returns the cached result rather than being blocked). Real gap found and fixed as a byproduct: `test/unit/expiration/in-memory-store.ts`'s `transactWrite` fake threw fail-fast with no `CancellationReasons` at all — every `TransactionCanceledException` (including an ordinary OCC conflict on the caller's own Update entry, e.g. a stale `expectedVersion`) would have been misclassified as `TenantNotActiveError` once the fence was wired in, exactly the bug `TenantQuotaService.consume()`'s migration found and fixed in the real fake; extended to populate per-entry `CancellationReasons` the same way. Also downstream: `test/unit/reminder/reminder-materialization-trigger.test.ts` (13 tests) and `test/integration/expiration-lifecycle.test.ts` (2 tests) needed `TenantLifecycleRecord` seeding to keep passing — smaller blast radius than the ~600-test worst case originally feared (the shared `commit()` choke point meant seeding once per store fixture, not once per test) |
 | `GuestSubmissionService.startSubmission()` | `subject/application/guest-submission-service.ts` | Yes — own `transactWrite` (Put DocumentSubmission + Update DocumentRequest), never passes through `RequestContext`/Cognito | **Fenced via TenantBusinessMutation (THIS SESSION, chunk 7/N)** — `executeTenantBusinessMutation` appends the lifecycle `ConditionCheck` to the same transaction; `TenantNotActiveError` is folded into the same generic `GuestTokenInvalidError` as every other guest-facing failure (anti-enumeration — a DELETING tenant must not be a distinguishable oracle from an invalid/expired token) | N/A (synchronous DynamoDB write) | Yes — `test/unit/subject/guest-upload-flow.test.ts`, ACTIVE control case + DELETING-with-still-valid-token adversarial test proving the fence (not token expiry) is what blocks the write, no partial write left behind |
 | `DocumentRequest`/`RequirementAssignment` submission writers | `subject/application/document-request-service.ts`, `subject/application/subject-service.ts` | Yes — `transactWrite` | **NOT FENCED** | N/A | Existing tests only |
 | Email delivery claim (`SUBMITTING` transition) | `notification/application/email-delivery-workflow.ts:113` (`tryConditionalUpdate` → `buildVersionedUpdate`, single-item conditional Update, NOT a transaction) | No — single-item conditional `Update` | **NOT FENCED** — per D-067 (SES post-DELETING policy, Option 1 chosen: "block at admission, already-admitted sends may resolve"), Round E of the design doc proposed anchoring the fence to exactly this `SUBMITTING` transition, but the code-level migration was never done | An SES send already admitted (SUBMITTING claimed) before DELETING may complete normally after DELETING starts — accepted risk per D-067, not yet enforced structurally at the admission point itself | Existing tests only; no adversarial ACTIVE/DELETING test exists yet |
@@ -134,3 +134,38 @@ implemented); (3) resolve the `ExtractionRun` retry-vs-fresh-admission question 
 note before attempting the fence; (4) `ExpirationService.commit()` only after a plan for seeding
 ~600 existing tests' lifecycle records exists (likely a shared test helper/fixture, not one-by-one
 edits as this session did for quota's 8 files).
+
+## `ExpirationService.commit()` migrated (chunk 9/N, this session, D-070 continuation)
+
+Contrary to the ~600-test worst case named above and in every prior session's deferral note, the
+actual blast radius was far smaller in practice: `commit()` is a single private method every one
+of the 5 public mutations (`createItem`/`updateItem`/`archiveItem`/`deleteItem`/`renewItem`)
+already funneled through, so fencing it once fenced all 5 at once, and only 3 test files needed
+`TenantLifecycleRecord` seeding to stay green — `test/unit/expiration/expiration-service.test.ts`,
+`test/unit/reminder/reminder-materialization-trigger.test.ts` (its `MirroredExpirationStore`
+fixture needed seeding through `expirationStore.putIfAbsent()`, not `store.putIfAbsent()` directly
+— its override writes to both the mirror AND its own inherited internal map, and only the former
+was reachable from the mirror alone), and `test/integration/expiration-lifecycle.test.ts` (same
+resolver-bootstrap-vs-separate-store-fake gap already fixed for
+`document-handlers.test.ts`/`import-handlers.test.ts` in chunk 8/N — pre-resolve real users to
+learn their bootstrapped tenantId, then mirror the record into `expirationStore` directly). A
+reusable `activeLifecycleRecord(tenantId)` helper + optional constructor seed array was added to
+`test/unit/expiration/in-memory-store.ts`, mirroring the same helper document's in-memory-store.ts
+already established, rather than duplicating an async per-file `seedLifecycle()` (the pattern
+`item-watch-service.test.ts` used before this session).
+
+**Real gap found and fixed as a byproduct**: `test/unit/expiration/in-memory-store.ts`'s
+`transactWrite` fake threw fail-fast with no `CancellationReasons` populated at all (unlike
+`test/unit/identity/in-memory-store.ts`, already fixed for this in D-070's quota migration). Once
+the fence was wired in, `tenant-business-mutation.ts`'s `!reasons` branch treats an absent
+`CancellationReasons` as "the fence is what failed" unconditionally — meaning an ORDINARY OCC
+conflict on the caller's own entry (e.g. `updateItem`'s stale `expectedVersion` guard, exercised by
+a pre-existing test) would have been silently misclassified as `TenantNotActiveError` instead of
+the expected `ConflictError`. Fixed with the same per-entry `CancellationReasons` array this
+codebase's other fakes already use; a new adversarial test (`an ordinary OCC version conflict on
+updateItem is still reported as ConflictError, not misclassified as TenantNotActiveError`) proves
+the fix rather than just reasoning about it.
+
+`ExpirationService.commit()` is no longer NOT FENCED in this inventory — see its updated row above.
+1011 backend tests passing (was 1006), typecheck/lint/check-boundaries/check-docs clean, zero
+regression.
