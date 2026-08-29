@@ -742,6 +742,54 @@ module "deploy_manifests" {
 # Detecta os 2 achados reais abertos (Segurança-Logging/OWASP A09, SRE-Detecção): negação de
 # autorização e acesso a GSI3/GSI6 não tinham trilha dedicada. Reusa o alert-topic real de M5.
 
+# Real deploy failure (2026-08-28, PR #78, CD run 33210539869): brand-new profile_handler's log
+# group didn't exist yet when this module's PutMetricFilter tried to reference
+# "/aws/lambda/exptrk-dev-profile-handler" in the SAME apply that created the function -
+# ResourceNotFoundException, since a Lambda's log group is only auto-created by AWS on its FIRST
+# real invocation, which hadn't happened yet. Same bug class already fixed for malware_result/
+# reconciliation in document-observability (see that module's header comment) - fixed the same
+# way here instead of waiting for a real invocation to happen naturally.
+#
+# Logging-engineering review finding (Codex round 1, 2026-08-29): the lists below were also
+# genuinely INCOMPLETE, independent of the log-group-race bug - `documents_handler`/
+# `subjects_handler`/`imports_handler` all have real call sites of `auditAuthorizationDenied`
+# (document-handlers.ts/extraction-handlers.ts, subject-handlers.ts, import-handlers.ts) that
+# were never wired to a metric filter, and `document_purge_handler`/
+# `upload_slot_reconciliation_handler` both emit `security.global_index_access(_denied)` with a
+# `component` value the `GlobalIndexComponent` union in security-audit.ts explicitly names as a
+# real GSI6 consumer, also never wired. See `test/architecture/security-audit-observability-
+# coverage.test.ts` for the regression-proof cross-check (greps every real call site and asserts
+# its owning Lambda module appears in the two lists below) - the module-local Terraform test
+# (`infra/modules/security-audit-observability/tests/`) uses its own synthetic fixture and
+# cannot catch a root-wiring omission like this one.
+#
+# Of the 2 newly-added functions without a confirmed pre-existing log group (checked via `aws
+# logs describe-log-groups` against real `dev`, 2026-08-29): `subjects_handler`/
+# `imports_handler` had never been invoked in `dev` and need the same explicit-log-group
+# treatment as `profile_handler` above. `documents_handler` (real traffic already),
+# `document_purge_handler` (its EventBridge Scheduler already fired at least once), and
+# `upload_slot_reconciliation_handler` (already Terraform-managed by document-observability's
+# own `aws_cloudwatch_log_group.reconciliation`) all already have a real log group - adding a
+# managed resource for those would try to (re)create an existing one and fail with
+# ResourceAlreadyExistsException, same reasoning as the other 4 functions already noted above.
+resource "aws_cloudwatch_log_group" "profile_handler" {
+  name              = "/aws/lambda/${module.profile_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_log_group" "subjects_handler" {
+  name              = "/aws/lambda/${module.subjects_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_log_group" "imports_handler" {
+  name              = "/aws/lambda/${module.imports_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
 module "security_audit_observability" {
   source = "./modules/security-audit-observability"
 
@@ -751,14 +799,25 @@ module "security_audit_observability" {
     module.notifications_handler.function_name,
     module.profile_handler.function_name,
     module.test_ping_handler.function_name,
+    module.documents_handler.function_name,
+    module.subjects_handler.function_name,
+    module.imports_handler.function_name,
   ]
   global_index_function_names = [
     module.reminder_producer.function_name,
     module.reminder_reconciliation.function_name,
     module.outbox_sweeper.function_name,
+    module.document_purge_handler.function_name,
+    module.upload_slot_reconciliation_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
+
+  depends_on = [
+    aws_cloudwatch_log_group.profile_handler,
+    aws_cloudwatch_log_group.subjects_handler,
+    aws_cloudwatch_log_group.imports_handler,
+  ]
 }
 
 # --- M6: Document upload e malware boundary ------------------------------------------------
