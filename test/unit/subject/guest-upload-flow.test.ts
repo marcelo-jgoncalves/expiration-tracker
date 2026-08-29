@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemorySubjectStore, makeSubjectIdGenerator, makeItemLookup } from "./in-memory-store.js";
+import { InMemorySubjectStore, makeSubjectIdGenerator, makeItemLookup, activeLifecycleRecord } from "./in-memory-store.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { SubjectService } from "../../../src/modules/subject/application/subject-service.js";
 import { RequirementService } from "../../../src/modules/subject/application/requirement-service.js";
 import { DocumentRequestService } from "../../../src/modules/subject/application/document-request-service.js";
@@ -42,7 +43,7 @@ describe("Guest upload flow (DocumentRequest -> GuestSubmissionService)", () => 
   let assignmentId: string;
 
   beforeEach(async () => {
-    store = new InMemorySubjectStore();
+    store = new InMemorySubjectStore([activeLifecycleRecord("tenant-1")]);
     const ids = makeSubjectIdGenerator();
     subjects = new SubjectService({ store, tableName: "MainTable", ids, now: () => "2026-08-23T12:00:00.000Z" });
     requirements = new RequirementService({ store, tableName: "MainTable", ids, itemLookup: makeItemLookup(new Set()), now: () => "2026-08-23T12:00:00.000Z" });
@@ -178,5 +179,46 @@ describe("Guest upload flow (DocumentRequest -> GuestSubmissionService)", () => 
     // permitiria a um atacante diferenciar "token existe mas está sem quota" de "token não
     // existe", vazando a validade do selector).
     await expect(guestSubmissions.getRequestInfo(created.guestToken)).rejects.toBeInstanceOf(GuestTokenInvalidError);
+  });
+
+  // W3-07 (D-070 chunk 7/N): GuestSubmissionService is a public surface that never passes
+  // through RequestContext/Cognito, so the lifecycle fence has to be proven here directly.
+  describe("W3-07 tenant lifecycle fence", () => {
+    it("tenant ACTIVE, guest token valid -> startSubmission is allowed (control case)", async () => {
+      const created = await documentRequests.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "fornecedor@example.com" });
+      const result = await guestSubmissions.startSubmission(created.guestToken, {
+        fileName: "seguro.pdf",
+        mediaType: "application/pdf",
+        contentLength: 1000,
+        checksumSha256: "a".repeat(64),
+      });
+      expect(result.submissionId).toBeDefined();
+    });
+
+    it("tenant DELETING, guest token still valid (not expired) -> startSubmission is denied by the fence, not by token expiry", async () => {
+      const created = await documentRequests.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "fornecedor@example.com" });
+
+      // The token itself is still perfectly valid at this point (not expired, not revoked) -
+      // only the tenant's lifecycle status changes, proving the denial below comes from the
+      // fence and not from ordinary token-lifetime logic.
+      const lifecycleKey = tenantLifecycleKey("tenant-1");
+      const existing = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...existing, ...lifecycleKey, status: "DELETING", version: (existing?.version ?? 1) + 1 } as never);
+
+      await expect(
+        guestSubmissions.startSubmission(created.guestToken, {
+          fileName: "seguro.pdf",
+          mediaType: "application/pdf",
+          contentLength: 1000,
+          checksumSha256: "a".repeat(64),
+        }),
+      ).rejects.toBeInstanceOf(GuestTokenInvalidError);
+
+      // No DocumentSubmission was created and the DocumentRequest was not mutated - the fence
+      // rejected the transaction atomically, it did not partially apply.
+      const request = await documentRequests.getDocumentRequest(ctx(), subjectId, created.request.documentRequestId);
+      expect(request.status).not.toBe("SUBMITTED");
+      expect(request.submissionCount ?? 0).toBe(0);
+    });
   });
 });

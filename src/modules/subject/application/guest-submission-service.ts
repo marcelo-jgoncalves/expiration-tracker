@@ -6,8 +6,9 @@
  * `details` na resposta HTTP, então este módulo nunca populates `details` com o motivo real).
  */
 import { randomUUID } from "node:crypto";
-import { AppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AppError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { parseGuestToken, secretMatches, guestTokenPointerKey, hmacGuestTokenCrypto, type GuestTokenPointer } from "../domain/guest-token.js";
 import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
 import { requirementAssignmentKey, type RequirementAssignment } from "../domain/requirement-assignment.js";
@@ -188,11 +189,19 @@ export class GuestSubmissionService {
     ];
 
     try {
-      await this.store.transactWrite(entries);
+      // W3-07 (D-070 chunk 7/N): fenced via TenantBusinessMutation - GuestSubmissionService is a
+      // public surface that never passes through RequestContext/Cognito, so the lifecycle fence
+      // must be enforced here directly instead of relying on the authenticated-flow machinery
+      // (`bootstrap-identity.ts`'s resolver). The guest-token validation above is completely
+      // unchanged; this only adds the lifecycle ConditionCheck to the SAME TransactWriteItems.
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
-      // Corrida real (ex. dois envios quase simultâneos do mesmo link) - convidado só vê o
-      // erro genérico, nunca detalhe de qual condição falhou.
-      if (isTransactionCanceled(err)) throw new GuestTokenInvalidError();
+      // Corrida real (ex. dois envios quase simultâneos do mesmo link) OU tenant em
+      // DELETING/não-ACTIVE - convidado só vê o erro genérico, nunca detalhe de qual condição
+      // falhou (anti-enumeration: revelar "tenant is being deleted" a um chamador não
+      // autenticado seria um oracle novo, então TenantNotActiveError também vira o mesmo
+      // GuestTokenInvalidError genérico, não um erro distinto).
+      if (isTransactionCanceled(err) || err instanceof TenantNotActiveError) throw new GuestTokenInvalidError();
       throw err;
     }
 
