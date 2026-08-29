@@ -134,7 +134,17 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
       // unretriable. Closes the "CancellationReasons tipado" gap this file's header used to
       // note as deferred (W3-07 writer-migration chunk, quota.consume() being the writer that
       // actually needed the distinction).
-      const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+      //
+      // W3-07 D-072 item 4 hardening (2026-08-29): `Array.isArray` guards against an adapter
+      // that populates `CancellationReasons` with something other than an array (real AWS
+      // DynamoDB never does this, confirmed against the SDK docs during the original design
+      // review - this only matters for a hypothetical broken/stripped adapter). Without the
+      // guard, a non-array truthy value would reach `reasons[fenceIndex]?.Code`, which could
+      // read `undefined` in an unexpected way rather than falling back to the same conservative
+      // "treat as fence failed" classification an absent `CancellationReasons` already gets.
+      // Absent OR malformed both fall back to the same safe-by-default outcome, never a crash.
+      const rawReasons = (err as { CancellationReasons?: unknown }).CancellationReasons;
+      const reasons = Array.isArray(rawReasons) ? (rawReasons as Array<{ Code?: string }>) : undefined;
       const fenceIndex = input.entries.length;
       const fenceFailed = !reasons || reasons[fenceIndex]?.Code === "ConditionalCheckFailed";
       if (fenceFailed) {

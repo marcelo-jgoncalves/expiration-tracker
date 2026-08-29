@@ -2,11 +2,11 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
-## W3-07 — fechamento do item 1 de D-072 (2026-08-29), D-073
+## W3-07 — fechamento dos itens 1/2/3/4 de D-072 (2026-08-29), D-073/D-074
 
 Sessão de continuação retomada após interrupção por rate limit. Escopo: fechar os achados
-deferidos por D-072 (revisão Codex round-1), item 1 primeiro por prioridade e por já estar em
-progresso no working tree ao retomar. Registro completo em `decisions-log.md` D-073.
+deferidos por D-072 (revisão Codex round-1), na ordem de prioridade do prompt de retomada.
+Registro completo em `decisions-log.md` D-073 (item 1) e D-074 (itens 2/3/4).
 
 - **Item 1 FECHADO — cross-validation tenant/entries em `TenantBusinessMutation`**:
   `executeTenantBusinessMutation` agora chama `findTenantMismatch(entries, tenantId)` antes de
@@ -17,18 +17,35 @@ progresso no working tree ao retomar. Registro completo em `decisions-log.md` D-
   próprio código como não sendo uma prova estrutural completa (só pega mismatch DECLARADO).
   Nenhum call site real precisou de mudança (todos já passavam entries corretamente escopadas).
   **IMPLEMENTED + UNIT TESTED** (3 testes adversariais novos em `test/unit/tenant-lifecycle.test.ts`).
-- **Itens 2/3/4 de D-072 NÃO alcançados nesta sessão** (orçamento esgotado após item 1): overclaim
-  estrutural do boundary (`no-raw-dynamodb-writes-outside-lanes`/`system-mutation.ts` header),
-  risco de admissão parcial em `import-service.ts`, hardening de `CancellationReasons` ausente em
-  `tenant-business-mutation.ts`. Permanecem exatamente como D-072 os deixou.
-- **Segunda rodada de revisão Codex sobre os fixes de D-072 NÃO executada** nesta sessão —
-  orçamento esgotado.
-- 1019 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
+- **Item 2 (overclaim estrutural do boundary) — verificado JÁ CORRIGIDO** na sessão anterior de
+  D-072 (commit `94d27e7`, antes desta sessão): `system-mutation.ts`'s cabeçalho já tem uma seção
+  "KNOWN LIMIT" precisa. O fechamento estrutural real (porta mais estreita ou architecture-test
+  bloqueando `.transactWrite(` fora das lanes) foi reavaliado nesta sessão e confirmado
+  desproporcional: `grep` encontra 24 arquivos chamando `.transactWrite(` fora das duas lanes, a
+  maioria writers system-triggered legitimamente fora de escopo (purge, reminder workers,
+  idempotency) — um architecture-test ingênuo produziria dezenas de falsos positivos. Permanece
+  pendência real documentada, não forçado nesta sessão.
+- **Item 3 (risco de admissão parcial em `import-service.ts`) — revisado, confirmado NÃO ser bug
+  mecânico**: `idempotency.begin()` + 2 reservas de quota seguem fora da transação fenceada que
+  cria o `ImportJob`, mesma classe de risco já aceita por design para
+  `TenantQuotaService.release()`. Decisão Type 1 sobre unificar numa transação maior fica para o
+  dono do produto. Permanece pendência real documentada.
+- **Item 4 (hardening de `CancellationReasons` ausente/malformado) FECHADO**:
+  `Array.isArray(rawReasons)` adicionado antes de indexar `reasons[fenceIndex]` em
+  `executeTenantBusinessMutation` — um adapter hipotético quebrado que populasse
+  `CancellationReasons` com um valor não-array agora cai no mesmo fallback seguro
+  "trata como fence falhou" que a ausência completa já tinha, em vez de um acesso mal-comportado.
+  **IMPLEMENTED + UNIT TESTED** (1 teste adversarial simulando o adapter quebrado).
+- **Segunda rodada de revisão Codex sobre os fixes de D-072/D-073/D-074 NÃO executada** nesta
+  sessão — orçamento esgotado após os 4 itens.
+- 1020 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
   zero regressão.
 
-**Próxima ação real**: itens 2/3/4 de D-072 (ver texto completo em `w3-07-writer-inventory.md`'s
-seção "Codex round-1 adversarial review" e em D-072/D-073 no decisions-log), depois a segunda
-rodada de revisão Codex cobrindo o diff acumulado desde `641a47e`.
+**Próxima ação real**: segunda rodada de revisão Codex cobrindo o diff acumulado desde `641a47e`
+(itens 1-4 de D-072 fechados/reavaliados); se/quando o produto decidir sobre o trade-off do item 3
+(latência vs. atomicidade em `import-service.ts`), implementar; item 2's fechamento estrutural
+real fica para uma sessão dedicada de design curto (porta mais estreita ou lista de exceção
+mantida para um architecture-test), não uma correção mecânica.
 
 ## W3-07 — primeira revisão adversarial Codex + correções (2026-08-29), D-072
 

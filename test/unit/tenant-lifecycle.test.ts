@@ -211,4 +211,26 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     ];
     await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
   });
+
+  it("adversarial (D-072 item 4 hardening): a broken adapter that populates CancellationReasons with a non-array shape does not crash - falls back to TenantNotActiveError, the same safe-by-default outcome as CancellationReasons being absent entirely", async () => {
+    // Real AWS DynamoDB always sends CancellationReasons as an array; this simulates a
+    // hypothetical broken/stripped adapter to prove the lane degrades safely instead of
+    // throwing a TypeError from `reasons[fenceIndex]?.Code` on a non-array value.
+    const brokenStore = {
+      transactWrite: async (): Promise<void> => {
+        const err = new Error("TransactionCanceledException");
+        err.name = "TransactionCanceledException";
+        (err as unknown as { CancellationReasons: unknown }).CancellationReasons = "not-an-array";
+        throw err;
+      },
+    };
+
+    const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-3", SK: "META", version: 1 }) },
+    ];
+
+    await expect(
+      executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
+    ).rejects.toBeInstanceOf(TenantNotActiveError);
+  });
 });
