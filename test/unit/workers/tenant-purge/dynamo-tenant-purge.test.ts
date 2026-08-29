@@ -134,6 +134,45 @@ describe("purgeTenantDynamoItems", () => {
     expect(remainingItems).toBe(0);
   });
 
+  it("B1+B7 interaction (Codex round 2 coverage finding): a widened scan returning tenantId-matched rows outside the TENANT# prefix purges a real non-identity row (e.g. GuestTokenPointer) while still protecting IdentityMapping by canonical key", async () => {
+    const store = new InMemoryIdentityStore();
+    const identityMapping: TenantScanItem = { PK: "IDENTITY#cognitoSub#abc123", SK: "MAP", entityType: "IdentityMapping", tenantId: "t1", version: 1 };
+    const guestTokenPointer: TenantScanItem = { PK: "GUESTTOKEN#selectorHash", SK: "POINTER", entityType: "GuestTokenPointer", tenantId: "t1", version: 1 };
+    store.seedRaw(identityMapping);
+    store.seedRaw(guestTokenPointer);
+
+    // Mirrors the REAL widened scan filter (tenant-purge-scan.ts, post-B1 fix): returns rows
+    // matching either the TENANT# prefix or a plain tenantId attribute. `FakeTenantScanSource`
+    // above only ever returns TENANT#-prefixed rows, so it never actually exercises this
+    // interaction — Codex round 2 flagged this as a non-blocking coverage gap ("o teste B7 afirma
+    // mais do que prova").
+    const widenedSource: TenantPurgeCandidateSource = {
+      async scanTenantItems(tenantId: string) {
+        return { items: [identityMapping, guestTokenPointer].filter((i) => i.tenantId === tenantId) };
+      },
+    };
+
+    const result = await purgeTenantDynamoItems({ store, candidates: widenedSource, tableName: "MainTable" }, { tenantId: "t1" });
+
+    expect(result.itemsPurged).toBe(1);
+    expect(result.itemsExcluded).toBe(1);
+    expect(store.hasRaw({ PK: identityMapping.PK, SK: identityMapping.SK })).toBe(true);
+    expect(store.hasRaw({ PK: guestTokenPointer.PK, SK: guestTokenPointer.SK })).toBe(false);
+  });
+
+  it("B7 under the widened scan: verifyTenantDynamoPurgeEmpty does not count a surviving IdentityMapping reached via tenantId-attribute match (not the TENANT# prefix) as a remaining item", async () => {
+    const identityMapping: TenantScanItem = { PK: "IDENTITY#cognitoSub#abc123", SK: "MAP", entityType: "IdentityMapping", tenantId: "t1", version: 1 };
+    const widenedSource: TenantPurgeCandidateSource = {
+      async scanTenantItems(tenantId: string) {
+        return { items: [identityMapping].filter((i) => i.tenantId === tenantId) };
+      },
+    };
+
+    const { remainingItems } = await verifyTenantDynamoPurgeEmpty({ candidates: widenedSource }, "t1");
+
+    expect(remainingItems).toBe(0);
+  });
+
   it("reports checkpoint progress via onCheckpoint after every page, ending with undefined once fully done", async () => {
     const store = new InMemoryIdentityStore();
     const items = [item("t1", "a", "ExpirationItem"), item("t1", "b", "Document"), item("t1", "c", "ImportJob")];

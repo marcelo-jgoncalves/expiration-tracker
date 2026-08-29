@@ -32,10 +32,22 @@ import { purgeS3TenantPrefix, verifyS3TenantPrefixEmpty, type S3TenantPurgeDeps,
 
 export interface TenantS3Target {
   bucket: string;
-  /** Tenant-owned key prefix within `bucket` — e.g. `${tenantId}/` for quarantine/clean/import,
-   * `ocr/${tenantId}/` for the extraction bucket (see `s3-ocr-artifact-store.ts`'s key
-   * convention). Caller supplies the already-built prefix so this module stays agnostic of any
-   * one module's exact key layout. */
+  /** Tenant-owned key prefix within `bucket` — MUST start with one of `TENANT_PREFIX_ROOTS`
+   * below followed by this exact tenantId (enforced by `prefixBelongsToTenant`, see B6): either
+   * `clean/${tenantId}/` (clean-key.ts), `tenant/${tenantId}/` (quarantine-key.ts,
+   * import-raw-key.ts, and submission-quarantine-key.ts all share this root), or
+   * `ocr/${tenantId}/` (s3-ocr-artifact-store.ts). Caller supplies the already-built prefix so
+   * this module stays agnostic of any one module's exact key layout beyond this shared root.
+   *
+   * KNOWN LIMIT (Codex round 5 finding, non-blocking, 2026-08-29): `prefixBelongsToTenant` checks
+   * the prefix shape against the tenant, but NOT that a given root is the one actually used by
+   * `bucket` (e.g. `{ bucket: "clean", prefix: "tenant/t1/" }` — a quarantine-shaped prefix — still
+   * passes today, even though no real key builder ever writes that combination). This does not
+   * reopen cross-tenant deletion (the prefix still must belong to the SAME tenant being purged),
+   * but a future real composition root/orchestrator should build each bucket's target from a
+   * closed per-bucket table (bucket -> its one real root), not accept an arbitrary
+   * `{bucket, prefix}` pairing — not fixed here because no such composition root exists yet (see
+   * `NEXT_SESSION_PROMPT.md`). */
   prefix: string;
   /**
    * The tenant this target is claimed to belong to — MUST equal `purgeTenant`'s
@@ -86,6 +98,54 @@ function s3TargetKey(target: TenantS3Target): string {
   return `${target.bucket}#${target.prefix}`;
 }
 
+/**
+ * W3-07 review finding (Codex round 2 on the purge pipeline, B6 residual, 2026-08-29): the
+ * original B6 fix only compared `target.tenantId` against `purgeTenant`'s own `input.tenantId` —
+ * both are caller-supplied labels, so a composition-root bug that mislabels a WRONG tenant's
+ * prefix with the RIGHT tenantId (e.g. `{ prefix: "tenant-b/", tenantId: "tenant-a" }` while
+ * purging `"tenant-a"`) sailed straight through and would physically delete tenant B's objects.
+ * Unlike the DynamoDB/session-table paths (whose safety condition checks the ACTUAL stored
+ * `tenantId` attribute on the item, not a caller claim), S3 objects carry no such attribute to
+ * check against — the key-prefix convention itself (`${tenantId}/` or `ocr/${tenantId}/`, see
+ * `TenantS3Target.prefix`'s doc comment) is the only signal available. This asserts the tenantId
+ * being purged actually appears as a full path segment inside `prefix` (not just a substring —
+ * `escapeForPathSegmentRegExp` deliberately rejects e.g. tenantId `"12"` being satisfied by a real
+ * prefix for tenant `"123"`), independent of whatever `target.tenantId` claims.
+ *
+ * W3-07 review finding (Codex round 3, 2026-08-29): the first version of this function accepted
+ * the tenantId segment at the very END of `prefix` too (`(/|$)`), reasoning about `prefix` as a
+ * path string — but S3 `ListObjectVersions`/`DeleteObjects` match by RAW BYTE PREFIX, not path
+ * segment. A prefix like `"tenant/tenant-a"` (no trailing `/`) would pass the old check for
+ * tenantId `"tenant-a"`, yet S3 would also purge `tenant/tenant-a2/...` and `tenant/tenant-a-b/...`
+ * — a different tenant's objects, deleted because their key merely starts with the same bytes.
+ *
+ * W3-07 review finding (Codex round 4, 2026-08-29): requiring a trailing `/` after the segment
+ * was still not enough — "tenantId appears as a `/`-delimited segment ANYWHERE in `prefix`" also
+ * accepted a prefix genuinely ROOTED under a DIFFERENT tenant's namespace, e.g.
+ * `"tenant/tenant-b/item/tenant-a/"` for tenantId `"tenant-a"` (purging tenant-a would then
+ * physically delete tenant-b's objects). The property actually needed is stronger: the tenantId
+ * must anchor the START of `prefix`, at one of the specific tenant-owned root shapes this
+ * codebase's key builders actually produce — verified by reading every one directly:
+ * `clean-key.ts` (`clean/<tenantId>/...`), `quarantine-key.ts`/`import-raw-key.ts`/
+ * `submission-quarantine-key.ts` (all three: `tenant/<tenantId>/...` — same root across the
+ * quarantine, import, and subject-submission-quarantine buckets), and `s3-ocr-artifact-store.ts`
+ * (`ocr/<tenantId>/...`). `TENANT_PREFIX_ROOTS` is a closed list, same philosophy as
+ * `system-mutation.ts`'s `SystemMutationOperation` union: a future bucket/key convention needs a
+ * new root added here explicitly, a small reviewable diff, not an open-ended pattern a caller bug
+ * could route around. An empty `tenantId` is rejected outright before any pattern is built.
+ */
+function escapeForPathSegmentRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const TENANT_PREFIX_ROOTS = ["clean/", "tenant/", "ocr/"] as const;
+
+function prefixBelongsToTenant(prefix: string, tenantId: string): boolean {
+  if (tenantId.length === 0) return false;
+  const escapedTenantId = escapeForPathSegmentRegExp(tenantId);
+  return TENANT_PREFIX_ROOTS.some((root) => new RegExp(`^${root}${escapedTenantId}/`).test(prefix));
+}
+
 /** Thrown when a caller hands `purgeTenant` an S3 target claiming a different tenant than the
  * one being purged (B6) — fails loudly before any deletion happens, rather than silently
  * purging the wrong tenant's objects. */
@@ -101,9 +161,12 @@ export class TenantPurgeTargetMismatchError extends Error {
 export async function purgeTenant(deps: TenantPurgeDeps, input: { tenantId: string; startFrom?: TenantPurgeCheckpoint }): Promise<TenantPurgeResult> {
   // B6: verify every S3 target is actually bound to the tenant being purged BEFORE any
   // sub-purge runs — a caller/composition-root bug here must never result in a different
-  // tenant's data being deleted.
+  // tenant's data being deleted. Two independent checks, neither sufficient alone (see
+  // `prefixBelongsToTenant`'s doc comment for why the label alone was not enough): the
+  // caller-supplied label must match, AND the tenantId must actually appear as a path segment
+  // in the prefix itself.
   for (const target of deps.s3Targets) {
-    if (target.tenantId !== input.tenantId) {
+    if (target.tenantId !== input.tenantId || !prefixBelongsToTenant(target.prefix, input.tenantId)) {
       throw new TenantPurgeTargetMismatchError(target, input.tenantId);
     }
   }

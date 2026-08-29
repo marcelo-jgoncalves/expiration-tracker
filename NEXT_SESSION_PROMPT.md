@@ -2,6 +2,41 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — segunda rodada Codex + fechamento de B6 (2026-08-29, sessão em outra máquina), D-083, nota 9,1/10 — purge pipeline pronto para decidir orquestrador
+
+Sessão que retomou o trabalho via `git pull` (a sessão anterior, mesma máquina de D-082, foi
+interrompida no meio — commit `8b6033c "trabalho interrompido"` — depois de um self-review que
+achou e corrigiu um sétimo achado, B7, sem rodar a segunda rodada Codex nem atualizar este
+arquivo). Registro completo em `decisions-log.md` D-083.
+
+Rodou a segunda rodada Codex pedida pela "próxima ação" de D-082, via MCP `codex/codex` (disponível
+diretamente nesta sessão — mesmo protocolo de conteúdo do `AGENTS.md` §4, mecanismo de invocação
+diferente da CLI). Confirmou B1-B5/B7 corrigidos, mas achou **B6 (vínculo S3↔tenant) não fechado de
+verdade** — a asserção de D-082 só comparava dois rótulos fornecidos pelo chamador
+(`target.tenantId` vs `input.tenantId`), nunca o `target.prefix` real. Levou **4 rodadas de
+correção-e-reconfirmação sucessivas sobre o MESMO achado**, cada uma expondo uma variante mais
+profunda que a anterior (nota 7,4 → 8,0 → 8,2 → **9,1/10, zero achados bloqueantes**), até fechar
+com uma checagem ANCORADA no início do prefixo contra uma lista fechada de raízes reais
+(`TENANT_PREFIX_ROOTS = ["clean/", "tenant/", "ocr/"]`, verificada por leitura direta de cada key
+builder tenant-owned do codebase) — mesma filosofia de allowlist fechado que
+`system-mutation.ts`'s `SystemMutationOperation`. Parecer final do Codex: "o B6 está genuinamente
+fechado agora... pronto para avançar à próxima etapa". Zero regressão em toda a sequência
+(1076→1084 testes de backend), typecheck/lint/check-docs limpos em cada rodada.
+
+**2 achados NÃO-BLOQUEANTES aceitos, não corrigidos** (documentados no código, não escondidos): (a)
+a validação de prefixo ainda não acopla cada raiz a um bucket específico — não reabre purga
+cross-tenant, só fica marcado para o futuro composition root construir cada target de uma tabela
+fechada bucket→raiz; (b) adaptadores reais (`tenant-purge-scan.ts`/`tenant-purge-s3-adapter.ts`)
+continuam sem teste de integração contra AWS real — gap conhecido desde D-081, inalterado.
+
+**Próxima ação real, em ordem de valor esperado**: (a) decidir e implementar o orquestrador/trigger
+real (Step Functions vs. Lambda simples via EventBridge Scheduler — decisão de produto/arquitetura,
+Type 1, `AGENTS.md` §4, ainda não decidida — Marcelo deve decidir ou delegar via protocolo
+Claude↔Codex); (b) Terraform para a IAM role do futuro handler de purge; (c) teste de integração
+real dos adaptadores AWS contra DynamoDB/S3 reais (achado não-bloqueante (b) acima); (d) se
+desejado, fechar o achado não-bloqueante (a) acima (acoplar raiz↔bucket) quando o composition root
+real for construído.
+
 ## W3-07 — primeira rodada Codex do purge pipeline (2026-08-29), D-082, nota 4,5/10 — 6 bloqueadores corrigidos, sem reconfirmação
 
 Sessão de continuação direta de D-081 (o purge pipeline tinha sido implementado sem NENHUMA
