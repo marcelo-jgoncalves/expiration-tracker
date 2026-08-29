@@ -2,6 +2,62 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — chunks 5/N e 6/N implementados nesta sessão (2026-08-29)
+
+Continuação direta do chunk 4/N (abaixo). Escopo desta sessão: os 3 itens do roteiro
+"Recommended next chunk" do writer inventory, na ordem recomendada — commits separados,
+`develop` pushed após cada um (`f60f2f5`, `d35c4fe`, `0f14fac`).
+
+- **SES `SUBMITTING` claim fenced** (`email-delivery-workflow.ts`, D-067's já decidida política
+  Opção 1) — `tryFencedSubmittingClaim` roteia a claim SUBMITTING via `executeTenantBusinessMutation`;
+  toda outra transição no arquivo (RECONCILE_UNKNOWN/NOT_SENT_STALE/status final pós-SEND) resolve
+  uma admissão já feita, não fica fenced (mesmo contrato de `quota.consume()`). Novo outcome
+  `SKIPPED_TENANT_NOT_ACTIVE`. `InMemoryNotificationStore` ganhou avaliação de `ConditionCheck` +
+  `CancellationReasons`. **IMPLEMENTED + UNIT TESTED** (3 testes adversariais: ACTIVE control case,
+  DELETING rejeitado atomicamente sem escrita parcial, admissão-enquanto-ACTIVE permitindo o send
+  completar mesmo com DELETING chegando antes da chamada real ao SES).
+- **4 evidence-mutation workers fenced** (`upload-finalizer`, `submission-finalizer`,
+  `malware-result`, `submission-malware-result`) + `advance-after-evidence.ts`/
+  `advance-after-submission-evidence.ts` (Round F: uploadEvidence/malwareEvidence/REJECT/PROMOTE
+  são todos `TenantBusinessMutation`, não só o `CLEAN` final). Novo helper compartilhado
+  `tryTenantBusinessMutation` (`tenant-business-mutation.ts`) — resultado discriminado
+  ok/OCC_CONFLICT/TENANT_NOT_ACTIVE para chamadores com retry loop próprio. **Ordering bug do
+  Round F/G fechado via compensação imediata**: a cópia S3 para `clean` acontece antes do commit
+  fenced — numa rejeição `TENANT_NOT_ACTIVE` especificamente, o objeto `clean` recém-copiado é
+  deletado (best-effort) em vez de ficar órfão. Isso NÃO fecha a corrida residual do Round G (uma
+  operação admitida antes de DELETING que só cria seu objeto S3 depois da varredura final da
+  purga) — esse resíduo continua exigindo o sweeper permanente pós-`DELETED` (design §O-6 item 1c,
+  reusar padrão `DocumentPurgeWorker`/D-061), **não tentado nesta sessão, ainda pendente**.
+  `InMemoryDocumentStore`/`InMemorySubjectStore` (fakes) ganharam a mesma avaliação de
+  `ConditionCheck`+`CancellationReasons` — sem isso, uma corrida OCC comum entre dois workers de
+  evidência era classificada erroneamente como rejeição de fence, quebrando os testes de
+  regressão de corrida pré-existentes assim que o fence foi ligado. **IMPLEMENTED + UNIT TESTED**
+  (13 testes adversariais novos: ACTIVE/DELETING por ponto de admissão + 2 testes explícitos de
+  compensação de órfão, variante Document e DocumentSubmission).
+- **Bug de determinismo da key S3 do OCR corrigido** (`s3-ocr-artifact-store.ts`) —
+  `ocr/<runId>/<randomUUID()>.json` (sufixo aleatório a cada chamada, cada redelivery de
+  `COMPLETE_OCR` criava um objeto órfão novo) virou `ocr/<tenantId>/<runId>.json` (determinístico,
+  redelivery do mesmo run sempre sobrescreve o mesmo objeto). `OcrArtifactStore.put()` ganhou
+  parâmetro `tenantId`; único call site real (`complete-ocr.ts`) atualizado. **IMPLEMENTED + UNIT
+  TESTED** (`test/unit/extraction/s3-ocr-artifact-store.test.ts`, novo: determinismo, regressão de
+  redelivery pós-falha-no-SendTaskSuccess landing na mesma key, não-colisão entre tenants
+  diferentes com o mesmo runId).
+- 1000 testes de backend passando (era 981), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. Revisão adversarial Codex desta sessão — não executada, sem orçamento restante
+  (recomendado antes do próximo chunk, especialmente sobre a fence do SES e a compensação de
+  órfão do S3, os dois itens de maior risco desta sessão).
+
+**Explicitamente NÃO feito nesta sessão** (pendências reais para o próximo chunk): sweeper
+permanente pós-`DELETED` para o resíduo S3 tardio do Round G (mencionado acima); migração de
+`ExtractionRunStore.putIfAbsent()` (gap de design genuíno já registrado no chunk 4/N, não
+reaberto); `ExpirationService.commit()` (maior blast radius pendente); `GuestSubmissionService`;
+outbox relay `OUTBOX_BOOKKEEPING`; BFF session table (fora do alcance estrutural da fence atual).
+
+**Próxima ação real**: revisão adversarial Codex sobre SES fencing + compensação de órfão S3
+(maior risco desta sessão); depois continuar o roteiro — `ExtractionRun` retry-vs-fresh-admission
+como nota de design curta, ou `ExpirationService.commit()` com um helper de seed compartilhado
+para as ~600 chamadas de teste existentes.
+
 ## W3-07 — chunk 4/N implementado nesta sessão (2026-08-29), D-070
 
 Continuação direta do chunk 3/N (D-069, abaixo). Escopo desta sessão: Parte 1 (inventário real de
