@@ -4,7 +4,7 @@
 
 ## Branch / as-of
 
-**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito com `develop` em sincronia com `main` logo após o merge do PR #83 (commit `1d527ba`), mais o trabalho de limpeza de contexto desta sessão ainda não mergeado a `main` no momento da escrita.
+**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito com `develop` em sincronia com `main` logo após o merge do PR #84 (reconciliação de contexto completa, commit `fe32861`).
 
 ## Fase atual
 
@@ -18,13 +18,13 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 - **Frontend/planejamento de interface**: `docs/frontend/README.md` (índice completo, blockers técnicos BLOCKER-A/B/C todos resolvidos, GTR-01 com decisão de produto pendente W5-01 já fechada).
 - **Engenharia/qualidade**: `docs/engineering/README.md` (padrões, gates, backlog do programa de pilot readiness).
 - **Infra**: Terraform (`infra/`, ADR-0009), CI/CD via GitHub Actions OIDC.
+- **Reconciliação de engenharia de contexto (2026-08-29)**: `DONE`, mergeada em `main` (PR #84) — root cleanup + `AGENTS.md`/este arquivo reconciliados + 2 guardrails novos em `check-doc-drift.ts`, revisão Claude↔Codex 9,3/10. Registro completo: `docs/architecture/reviews/context-engineering-reconciliation/`.
+- **E-011 (logging/tracing) — junção `correlationId`↔X-Ray**: `E2E PROVEN` (2026-08-29) — smoke test real em `dev` via `aws --profile claude-dev` confirmou `xrayTraceId` no log idêntico ao trace real do X-Ray. Detalhe: `docs/architecture/correlationid-xray-trace-join.md`.
 
 ## O que está em andamento
 
-1. **Reconciliação de engenharia de contexto (2026-08-29, esta sessão)** — pedido explícito do Marcelo (`docs/architecture/reviews/context-engineering-reconciliation/`, movido da raiz após execução). Fase 1 (limpeza da raiz: 21→7 `.md`, história preservada via `git mv`) `DONE`. Fase 2 (`AGENTS.md`/este arquivo/guardrails, revisão Claude↔Codex) — ver estado exato no próprio documento.
-2. **E-011 (logging/tracing) — junção `correlationId`↔X-Ray**: `IMPLEMENTED`/`UNIT TESTED` (`docs/architecture/correlationid-xray-trace-join.md`). Falta só o smoke test real em `dev` — acesso AWS real disponível via `aws ... --profile claude-dev` (`AGENTS.md` §7). Não é `E2E PROVEN` até esse procedimento (§3.5 do documento) ser executado com sucesso.
-3. **W3-07 — purge pipeline durável**: implementado e revisado (D-081/D-082/D-083, Codex 9,1/10, "pronto para avançar"). **Decisão pendente**: orquestrador real (Step Functions vs. Lambda+EventBridge Scheduler) — Type 1, `AGENTS.md` §4, precisa do Marcelo ou do protocolo Claude↔Codex. Downstream disso: Terraform da IAM role do handler de purge, teste de integração real dos adaptadores AWS, e o achado não-bloqueante de acoplar validação de prefixo↔bucket (ambos aguardando a decisão de orquestrador).
-4. **W3-07 — fencing dos writers de negócio** (`TenantBusinessMutation`): a maioria dos writers reais já fenced (chunks D-068 a D-080, ver `decisions-log.md`). Gap residual documentado, não explorável hoje: entradas sem PK `TENANT#`-prefixed E sem `tenantId` declarado (`LoginAttempt`/`GuestRateLimitRecord`) passam sem verificação — nenhum call site real produz isso.
+1. **W3-07 — purge pipeline durável**: implementado e revisado (D-081/D-082/D-083, Codex 9,1/10, "pronto para avançar"). **Decisão pendente**: orquestrador real (Step Functions vs. Lambda+EventBridge Scheduler) — Type 1, `AGENTS.md` §4, precisa do Marcelo ou do protocolo Claude↔Codex. Downstream disso: Terraform da IAM role do handler de purge, teste de integração real dos adaptadores AWS, e o achado não-bloqueante de acoplar validação de prefixo↔bucket (ambos aguardando a decisão de orquestrador).
+2. **W3-07 — fencing dos writers de negócio** (`TenantBusinessMutation`): a maioria dos writers reais já fenced (chunks D-068 a D-080, ver `decisions-log.md`). Gap residual documentado, não explorável hoje: entradas sem PK `TENANT#`-prefixed E sem `tenantId` declarado (`LoginAttempt`/`GuestRateLimitRecord`) passam sem verificação — nenhum call site real produz isso.
 
 ## Gates / bloqueios abertos
 
@@ -33,7 +33,6 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 | Orquestrador do purge W3-07 (Step Functions vs. Lambda+EventBridge) | Decisão do Marcelo ou protocolo Claude↔Codex (Type 1) | `decisions-log.md` D-083 |
 | `AppError.retryable` — deveria decidir comportamento real de SQS retry/DLQ? | Decisão de produto do Marcelo | `docs/engineering/decisions-log.md` E-011 |
 | 7 de 9 classes de retenção LGPD sem purga física real (`privacy-lgpd.md` §4) | Decisão de escopo/priorização do Marcelo antes de qualquer implementação | `docs/engineering/pilot-readiness-program.md` W3-06 |
-| Smoke test real em `dev` da junção correlationId↔X-Ray | Executar o procedimento (acesso já disponível via `aws --profile claude-dev`) | `docs/architecture/correlationid-xray-trace-join.md` §3.5 |
 | User Validation (planejamento de interface) | Sinal explícito do Marcelo para retomar | `docs/frontend/README.md` |
 | Wave 1 (Design System reconciliation) | Marcelo atualizar o Design System formal primeiro | `docs/engineering/pilot-readiness-program.md` Wave 1 |
 
@@ -49,10 +48,9 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 
 ## Próxima ação, em ordem de valor esperado
 
-1. Concluir a reconciliação de engenharia de contexto em andamento (item 1 acima) — se esta sessão não terminou, retomar a partir de `docs/architecture/reviews/context-engineering-reconciliation/`.
-2. Decidir o orquestrador do purge W3-07 (item 3 acima) — maior item de blast radius pendente com implementação já pronta esperando só essa decisão.
-3. Se houver acesso AWS disponível: rodar o smoke test real do E-011 (item 2 acima) antes de declarar essa feature `E2E PROVEN`.
-4. `AppError.retryable` — decisão de produto pendente, não implementar sem sinal explícito do Marcelo.
+1. Decidir o orquestrador do purge W3-07 (item 1 de "O que está em andamento") — maior item de blast radius pendente com implementação já pronta esperando só essa decisão.
+2. `AppError.retryable` — decisão de produto pendente, não implementar sem sinal explícito do Marcelo.
+3. Decisão de escopo/priorização das 7 classes de retenção LGPD restantes, quando o Marcelo quiser priorizar.
 
 ## Leitura obrigatória antes da próxima ação
 
@@ -66,7 +64,7 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 | Full BFF + Frontend Production Foundation | `APPROVED` + implementado, `E2E PROVEN` |
 | W3-06 (`USER_DOCUMENT` purge) | `IMPLEMENTED`/`E2E PROVEN` (`terraform plan`/`test` reais contra `dev`) |
 | W3-07 purge pipeline (D-081-083) | `IMPLEMENTED`/`UNIT TESTED` — sem orquestrador wireado, sem teste de integração AWS real |
-| E-011 correlationId↔X-Ray | `IMPLEMENTED`/`UNIT TESTED` — smoke test real em `dev` pendente |
+| E-011 correlationId↔X-Ray | `E2E PROVEN` (smoke test real 2026-08-29 contra `dev`) |
 | Visual Language + Design System | `APPROVED ... PROVISIONAL PENDING USER VALIDATION` |
 
 ## Links para histórico (não reler por padrão — só sob demanda)
