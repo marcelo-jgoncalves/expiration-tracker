@@ -20,10 +20,25 @@
  * file — not just call something with an arbitrary business-shaped payload from a call site
  * elsewhere. Combined with the `no-raw-dynamodb-writes-outside-lanes` dependency-cruiser rule
  * (`.dependency-cruiser.cjs`), which confines raw `@aws-sdk/lib-dynamodb` write-command access
- * to this file's directory and its siblings, a business module cannot construct its own
- * `TransactWriteItems` and route around this lane's allowlist even if it imported this
- * module's internals directly (it can't reach the SDK to build the entries in the first
- * place).
+ * to this file's directory and its siblings, a business module cannot import the SDK directly
+ * and build its own `TransactWriteCommand` to route around this lane's allowlist.
+ *
+ * KNOWN LIMIT (W3-07 review finding, Codex round 1, 2026-08-29 — do not overstate this beyond
+ * what it actually proves): the dependency-cruiser rule only blocks a DIRECT SDK import. It does
+ * NOT prove that every store port's `transactWrite(entries: TransactWriteEntry[])` method —
+ * itself already past the SDK boundary, inside a `persistence/` adapter — is unreachable from
+ * application code with an arbitrary, unfenced `entries` array; a store port method is a normal
+ * generically-callable method, not itself contained by this file's allowlist. Every CURRENT call
+ * site in this codebase does route through `TenantBusinessMutation`/`SystemMutation` (verified by
+ * file-by-file review the same session this note was added), but that is a property of this
+ * codebase's current call sites, not a structural guarantee this file or the dependency-cruiser
+ * rule enforces on its own — a future writer could call `store.transactWrite([...])` directly and
+ * nothing here would catch it. Closing that gap for real needs either narrowing the store ports'
+ * public surface (no generic `transactWrite` exposed to application code) or an architecture test
+ * asserting no application-layer file (any module's application directory, or a worker under
+ * src/workers/) calls `.transactWrite(` at all outside this lane's own two files — deferred as a
+ * larger, Type 1 structural change, not fixed in the same session this note was added (see
+ * `w3-07-writer-inventory.md`'s review section and `decisions-log.md` for the full record).
  *
  * Scope note (W3-07 chunk 3/N): the union below names all 3 kinds from the approved design's
  * allowlist so the type itself is honest about what is EVENTUALLY permitted through this lane,
@@ -117,6 +132,19 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
       const key = tenantLifecycleKey(op.tenantId);
       const set: Record<string, unknown> = { status: op.to };
       const remove: string[] = [];
+      const extraConditions: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }> = [
+        {
+          // Re-asserts the CURRENT status is still exactly `from` at commit time, on top
+          // of the version check buildVersionedUpdate already does — belt-and-suspenders
+          // against a concurrent transition that happened to reuse the same version
+          // number is impossible under OCC, but this also gives a semantically clearer
+          // failure ("status drifted") distinct from a bare version mismatch if the two
+          // ever diverge (e.g. a future direct-write bug elsewhere).
+          expression: "#lifecycleStatus = :lifecycleStatus",
+          names: { "#lifecycleStatus": "status" },
+          values: { ":lifecycleStatus": op.from },
+        },
+      ];
       if (op.to === "BLOCKED" || op.to === "HELD") {
         set["blockedReason"] = op.blockedReason ?? "UNSPECIFIED";
         set["blockedFrom"] = op.from;
@@ -124,6 +152,23 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
         // Leaving BLOCKED/HELD (remediation resume) or any normal forward move: clear any
         // stale blocked-state bookkeeping rather than leaving it to rot on the record.
         remove.push("blockedReason", "blockedFrom");
+        if (op.from === "BLOCKED" || op.from === "HELD") {
+          // W3-07 review finding (Codex round 1, 2026-08-29): `canTransition`/`assertValidTransition`
+          // only validate the CALLER-SUPPLIED `op.blockedFrom` against `op.to` in-process - they
+          // never check it against the value actually stored on the record. Without this extra
+          // condition, a caller (bug or forged input) could resume a record genuinely blocked
+          // from DELETING straight to VERIFIED by simply passing `blockedFrom: "VERIFIED"`,
+          // skipping QUIESCING/PURGING entirely - the in-process check would pass (VERIFIED IS
+          // op.blockedFrom, by construction), and the OCC condition above only re-asserts
+          // `status = BLOCKED/HELD`, never the stored `blockedFrom` attribute. Requiring the
+          // STORED `blockedFrom` to match `op.to` atomically closes that gap: a resume can only
+          // ever land back on the exact state the record was actually blocked from.
+          extraConditions.push({
+            expression: "#lifecycleBlockedFrom = :lifecycleBlockedFrom",
+            names: { "#lifecycleBlockedFrom": "blockedFrom" },
+            values: { ":lifecycleBlockedFrom": op.to },
+          });
+        }
       }
 
       return [
@@ -136,19 +181,7 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
             set,
             remove,
             now,
-            extraConditions: [
-              {
-                // Re-asserts the CURRENT status is still exactly `from` at commit time, on top
-                // of the version check buildVersionedUpdate already does — belt-and-suspenders
-                // against a concurrent transition that happened to reuse the same version
-                // number is impossible under OCC, but this also gives a semantically clearer
-                // failure ("status drifted") distinct from a bare version mismatch if the two
-                // ever diverge (e.g. a future direct-write bug elsewhere).
-                expression: "#lifecycleStatus = :expectedStatus",
-                names: { "#lifecycleStatus": "status" },
-                values: { ":expectedStatus": op.from },
-              },
-            ],
+            extraConditions,
           }),
         },
       ];

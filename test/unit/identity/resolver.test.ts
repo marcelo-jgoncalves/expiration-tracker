@@ -202,6 +202,59 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     expect(a.lifecycle.status).toBe("ACTIVE");
   });
 
+  it("adversarial (W3-07 review finding, Codex round 1): a lifecycle transition to DELETING landing between the initial ACTIVE read and the profile create is caught atomically, not just by the earlier snapshot", async () => {
+    // Reproduces the exact TOCTOU the review found: resolveExisting() reads the lifecycle
+    // once (ACTIVE) and used to hand that stale snapshot straight to a bare, unfenced
+    // putIfAbsent() in ensureProfile() - a transition to DELETING landing in that window
+    // was invisible to the write. This test simulates the race deterministically: the wrapped
+    // store's get() for the lifecycle key returns a stale ACTIVE snapshot (as the real read
+    // would, mid-race), but flips the UNDERLYING stored record to DELETING as a side effect
+    // right after - so anything that re-checks the ACTUAL current state (the fence's
+    // ConditionCheck, which reads the live item, not a cached get() result) sees DELETING.
+    const real = new InMemoryIdentityStore();
+    let lifecycleReadCount = 0;
+    const raceyStore = Object.create(real) as InMemoryIdentityStore;
+    raceyStore.get = (async (key: { PK: string; SK: string }) => {
+      const result = await real.get(key as never);
+      if (key.SK === "LIFECYCLE" && result && (result as { status?: string }).status === "ACTIVE") {
+        lifecycleReadCount += 1;
+        if (lifecycleReadCount === 1) {
+          // Side effect: another actor transitions the tenant to DELETING right after this
+          // read returns its (now stale) ACTIVE snapshot.
+          await real.update({ ...(result as Record<string, unknown> & { PK: string; SK: string }), status: "DELETING" });
+        }
+      }
+      return result;
+    }) as typeof real.get;
+
+    const mappings = new IdentityMappingRepository(raceyStore);
+    const users = new UserRepository(raceyStore);
+    const resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), raceyStore, "MainTable");
+
+    // First login: bootstraps mapping + lifecycle(ACTIVE) + profile normally (no race here -
+    // the lifecycle read during bootstrap's createAll path never hits the raceyStore's
+    // intercepted get(), since createAll only transactWrites, never get()s the lifecycle).
+    const ctx1 = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+
+    // Now delete the User profile only (simulating a later state where the mapping+lifecycle
+    // survive but the profile row is gone - e.g. a partial/manual repair scenario), so a
+    // second login re-enters ensureProfile's create path and re-triggers the lifecycle read
+    // resolveExisting performs.
+    const profileKey = { PK: `TENANT#${ctx1.tenant.tenantId}#USER#${ctx1.principal.userId}`, SK: "PROFILE" };
+    // in-memory-store.ts has no delete() - reach into the private map directly for this test only.
+    (real as unknown as { items: Map<string, unknown> }).items.delete(`${profileKey.PK}#${profileKey.SK}`);
+
+    await expect(
+      resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2" }),
+    ).rejects.toBeInstanceOf(AuthenticationError);
+
+    // The profile must NOT have been recreated - the fenced create inside ensureProfile
+    // rejected atomically once the underlying lifecycle was actually DELETING, regardless of
+    // what the earlier read returned.
+    const profileAfter = await real.get(profileKey as never);
+    expect(profileAfter).toBeUndefined();
+  });
+
   it("TenantBootstrapService backfills a legacy pre-migration mapping (no TenantLifecycleRecord yet) as ACTIVE rather than erroring", async () => {
     const store = new InMemoryIdentityStore();
     // Simulate a mapping created before TenantLifecycleRecord existed in code (D-067's

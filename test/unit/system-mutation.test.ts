@@ -113,6 +113,57 @@ describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)"
     expect(record?.status).toBe("PURGING");
   });
 
+  it("adversarial (W3-07 review finding, Codex round 1): resume from BLOCKED cannot be forged to skip stages by lying about blockedFrom", async () => {
+    const store = new InMemoryIdentityStore();
+    // Genuinely blocked from DELETING (early in the cascade, not VERIFIED).
+    await seedLifecycle(store, "tenant-1", "DELETING");
+    await transitionTenantLifecycle({
+      store,
+      tableName: TABLE,
+      tenantId: "tenant-1",
+      from: "DELETING",
+      to: "BLOCKED",
+      expectedVersion: 1,
+      blockedReason: "LEGAL_HOLD",
+    });
+    const blocked = await store.get<EntityKey & { status: string; blockedFrom?: string; version: number }>(tenantLifecycleKey("tenant-1"));
+    expect(blocked?.blockedFrom).toBe("DELETING");
+
+    // Attempt to resume straight to VERIFIED (skipping QUIESCING/PURGING) by simply claiming
+    // blockedFrom: "VERIFIED" — canTransition's in-process check alone would accept this
+    // (to === op.blockedFrom), so only the OCC extraCondition against the STORED blockedFrom
+    // can catch it.
+    await expect(
+      transitionTenantLifecycle({
+        store,
+        tableName: TABLE,
+        tenantId: "tenant-1",
+        from: "BLOCKED",
+        to: "VERIFIED",
+        expectedVersion: blocked!.version,
+        blockedFrom: "VERIFIED", // forged - the record was actually blocked from DELETING
+      }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+
+    // The record must still be BLOCKED, still genuinely tied to DELETING - no stage was skipped.
+    const stillBlocked = await store.get<EntityKey & { status: string; blockedFrom?: string }>(tenantLifecycleKey("tenant-1"));
+    expect(stillBlocked?.status).toBe("BLOCKED");
+    expect(stillBlocked?.blockedFrom).toBe("DELETING");
+
+    // The legitimate resume (matching the TRUE stored blockedFrom) still works.
+    await transitionTenantLifecycle({
+      store,
+      tableName: TABLE,
+      tenantId: "tenant-1",
+      from: "BLOCKED",
+      to: "DELETING",
+      expectedVersion: blocked!.version, // unchanged - the forged attempt's condition failed, no write happened
+      blockedFrom: "DELETING",
+    });
+    const resumed = await store.get<EntityKey & { status: string }>(tenantLifecycleKey("tenant-1"));
+    expect(resumed?.status).toBe("DELETING");
+  });
+
   it("cross-tenant isolation: transitioning tenant-1 never touches tenant-2's lifecycle record", async () => {
     const store = new InMemoryIdentityStore();
     await seedLifecycle(store, "tenant-1", "ACTIVE");

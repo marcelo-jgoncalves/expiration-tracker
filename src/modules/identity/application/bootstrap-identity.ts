@@ -16,9 +16,10 @@
  * same idempotent-under-races contract IdentityMappingRepository.findOrCreate already
  * documented, now extended to cover all three items atomically instead of just the mapping.
  */
-import { InternalError } from "../../../shared/errors/app-error.js";
+import { InternalError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import type { IdentityStore } from "../ports/identity-store.js";
 import { identityMappingKey, type IdentityMapping } from "../persistence/identity-mapping-repository.js";
 import { userProfileKey, type UserProfile } from "../persistence/user-repository.js";
@@ -72,7 +73,7 @@ export class TenantBootstrapService {
       if (winnerLifecycle.status !== TENANT_ACTIVE_STATUS) {
         return { mapping, lifecycle: winnerLifecycle, profile: undefined };
       }
-      const profile = await this.ensureProfile(mapping);
+      const profile = await this.ensureProfileOrUndefined(mapping);
       return { mapping, lifecycle: winnerLifecycle, profile };
     }
 
@@ -82,12 +83,41 @@ export class TenantBootstrapService {
       return { mapping, lifecycle, profile: undefined };
     }
 
-    const profile = await this.ensureProfile(mapping);
+    const profile = await this.ensureProfileOrUndefined(mapping);
     return { mapping, lifecycle, profile };
   }
 
+  /** Wraps `ensureProfile` for callers that already treat "profile undefined" as the uniform
+   * signal for "do not admit this login" (resolveExisting's two call sites, both immediately
+   * above). The read-before-call in resolveExisting already checked `lifecycle.status ===
+   * ACTIVE`, but `ensureProfile`'s own fenced create can still legitimately reject with
+   * TenantNotActiveError if the lifecycle transitioned to DELETING in the window between that
+   * read and this create (the exact TOCTOU the fence exists to close) - converting that
+   * specific rejection back into `profile: undefined` keeps the resolver's existing contract
+   * (AuthenticationError("Tenant is not active.")) instead of leaking a different exception
+   * type for what is, from the caller's perspective, the same outcome. */
+  private async ensureProfileOrUndefined(mapping: IdentityMapping): Promise<UserProfile | undefined> {
+    try {
+      return await this.ensureProfile(mapping);
+    } catch (err) {
+      if (err instanceof TenantNotActiveError) return undefined;
+      throw err;
+    }
+  }
+
   /** Idempotent: returns the existing profile if one is already there (repeat login), only
-   * creates when absent AND the caller has already confirmed lifecycle is ACTIVE. */
+   * creates when absent AND the caller has already confirmed lifecycle is ACTIVE.
+   *
+   * W3-07 review finding (Codex round 1, 2026-08-29): the ORIGINAL implementation used a bare
+   * `putIfAbsent(profile)` here, with the lifecycle ACTIVE check having already happened as a
+   * SEPARATE `store.get()` in the caller (`resolveExisting`). That is exactly the TOCTOU the
+   * design doc's atomic-bootstrap invariant exists to close: `ACTIVE -> DELETING` could occur
+   * in the window between that read and this write, letting a re-login recreate/return a
+   * `User` for a tenant whose deletion had already started - the same class of bug D-063
+   * identified in the OLD sequential `findOrCreate` + `createProfileIfAbsent` resolver, now
+   * reintroduced one layer down. Fixed by routing the create through
+   * `executeTenantBusinessMutation`, so the profile Put and the `TenantLifecycleRecord.status =
+   * ACTIVE` ConditionCheck commit in the SAME TransactWriteItems - no read-then-write gap. */
   private async ensureProfile(mapping: IdentityMapping): Promise<UserProfile> {
     const key = userProfileKey(mapping.tenantId, mapping.userId);
     const existing = await this.store.get<UserProfile>(key);
@@ -108,14 +138,26 @@ export class TenantBootstrapService {
       updatedAt: now,
       version: 1,
     };
-    // putIfAbsent, not a raw put: two concurrent resolves of the SAME already-mapped,
-    // already-ACTIVE tenant (e.g. two devices logging in for the first time after a
-    // pre-migration backfill) could both reach here - only one creation may win.
-    const created = await this.store.putIfAbsent(profile);
-    if (created) return profile;
-    const winner = await this.store.get<UserProfile>(key);
-    if (!winner) throw new InternalError("User profile vanished after losing creation race.", { userId: mapping.userId });
-    return winner;
+    const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(this.tableName, profile as unknown as Record<string, unknown> & { PK: string; SK: string }) },
+    ];
+    try {
+      // Fenced create, not a bare putIfAbsent: two concurrent resolves of the SAME
+      // already-mapped, already-ACTIVE tenant (e.g. two devices logging in for the first time
+      // after a pre-migration backfill) could both reach here - only one creation may win on
+      // the Put's own attribute_not_exists(PK) condition, exactly as before - but now atomic
+      // with the lifecycle check instead of relying on a stale read from the caller.
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId: mapping.tenantId, entries });
+      return profile;
+    } catch (err) {
+      if (err instanceof TenantNotActiveError) throw err;
+      if (!isTransactionCanceled(err)) throw err;
+      // Lost the create race against a concurrent login (attribute_not_exists(PK) failed, not
+      // the fence) - re-read and return the winner, same as before.
+      const winner = await this.store.get<UserProfile>(key);
+      if (!winner) throw new InternalError("User profile vanished after losing creation race.", { userId: mapping.userId });
+      return winner;
+    }
   }
 
   /** No mapping exists yet: create IdentityMapping + TenantLifecycleRecord(ACTIVE) + User
