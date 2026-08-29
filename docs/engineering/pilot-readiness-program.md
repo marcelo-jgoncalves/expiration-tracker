@@ -306,7 +306,7 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 
 ## Wave 4 — Identity / Organization / Admin / RBAC Readiness
 
-**Status geral: `PARTIAL` (W4-01 concluído; W4-02/W4-03 permanecem gated por decisão de negócio, não por falta de auditoria).** Design de Organization/Membership/RBAC existe em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2) mas **não implementado** (M13 gated por gatilho comercial real que não disparou, `AGENTS.md` §1).
+**Status geral: `PARTIAL` (W4-01 concluído; W4-02/W4-03 — ver atualização 2026-08-29 abaixo, gate de timing removido para W4-02).** Design de Organization/Membership/RBAC existia em `docs/architecture/roadmap-evolution/05-domain-model-organization-billing.md` (informativo, reconciliado via protocolo, nota 9,2/9,2), revisado e ampliado em `roadmap-evolution/17-multi-user-b2b-revised-strategy.md` (`APPROVED`, Claude 9,2/Codex 9,2, D-084). **Atualização 2026-08-29 (D-085)**: o Marcelo decidiu diretamente proceder com a implementação agora, supersedendo o gatilho comercial que motivava esta seção — W4-02 deixa de ser `BLOCKED`, ver linha da tabela abaixo.
 
 ### W4-01 — Confirmar `tenantId=userId` contra o código real
 
@@ -314,8 +314,8 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 - **`tenantId` é opaco em quase todo lugar**, com uma exceção real registrada: `src/modules/notification/ports/recipient-resolver.ts:26-32` (`resolveCandidateUserId()`) usa o fallback `candidateUserId = item.assigneeUserId ?? tenantId` quando não há assignee explícito — o próprio docstring já admite "válido só enquanto o produto for single-user-per-tenant". Esse é o único ponto real que quebraria silenciosamente (deixaria de rotear notificação, não corromperia dado) se `tenantId` deixasse de ser 1:1 com um `userId` de verdade.
 - **Migração de dado**: para tenants NOVOS, popular `tenantId` com um `organizationId` gerado é trivial (nenhuma chave física muda de forma). Para tenants JÁ EXISTENTES que precisassem virar multi-usuário, é uma migração real — reescrever PK/SK/GSI/idempotency/outbox/S3 daquele tenant especificamente (o próprio `05-domain-model-organization-billing.md` já registra isso, não é achado novo). **A parte tecnicamente mais arriscada não é modelar Organization/Membership (módulo novo, direto) — é o cutover ao vivo de um tenant com tráfego em andamento** (mensagens SQS já enfileiradas carregando o `tenantId` antigo no corpo, per achado do W3-02) sem duplicar side effect nem downtime.
 - **Evidence**: relatório de pesquisa dedicado, citações arquivo:linha para cada uma das 5 perguntas de escopo.
-- **Desired state**: alcançado — nenhuma decisão nova necessária, o achado confirma exatamente o que `AGENTS.md` §1 e o design doc já presumiam. Não é gatilho para começar a implementação (`M13` segue gated por gatilho comercial real, `AGENTS.md` §1) — este item é só a confirmação técnica que §8.8 do prompt mestre pediu antes de qualquer avanço.
-- **Dependencies**: nenhuma para a auditoria; a implementação real (W4-02) depende do gatilho comercial já definido em `AGENTS.md` §1, não desta sessão.
+- **Desired state**: alcançado — este item é a confirmação técnica que §8.8 do prompt mestre pediu antes de qualquer avanço; serviu de insumo real para `roadmap-evolution/17` (achado do `recipient-resolver.ts` citado lá também). **Nota (2026-08-29)**: o gatilho comercial mencionado abaixo foi supersedido por D-085 — este achado agora É gatilho, não mais confirmação de que não é.
+- **Dependencies**: nenhuma para a auditoria; a implementação real (W4-02) não depende mais do gatilho comercial — ver D-085.
 - **Risk**: nenhum — auditoria confirmatória, zero código alterado.
 - **Priority**: P1 (auditoria) — concluída.
 - **Implementation status**: `DONE`.
@@ -323,8 +323,8 @@ Cada item tem: ID, Wave, Title, Problem, Evidence, Current state, Desired state,
 
 | ID | Título | Wave §ref | Prioridade |
 |---|---|---|---|
-| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | **`BLOCKED`/deferred por design** — `AGENTS.md` §1 já determina que M13 só começa com gatilho comercial real (primeira venda B2B), que não disparou. Não é auditoria pendente, é escopo de implementação genuína gated por decisão de negócio já registrada — não uma tarefa deste programa até o gatilho disparar. |
-| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | **`DEFERRED`** — mesma razão de W4-02, sem justificativa de necessidade real hoje. |
+| W4-02 | Tenant Admin foundation (Organization/Membership/Invitation/roles) antes de qualquer painel super-admin | §8.2 | **`NOT STARTED` (gate de timing removido, D-085, 2026-08-29)** — design técnico completo e `APPROVED` em `roadmap-evolution/17-multi-user-b2b-revised-strategy.md` (Wave B2B-0 em diante é a especificação de implementação vigente). Marcelo decidiu proceder agora, supersedendo o gatilho comercial que bloqueava este item. Ver `NEXT_SESSION_PROMPT.md` para a próxima ação real. |
+| W4-03 | Platform Staff — não inventar sem justificativa (por que/quais ações/qual auditoria) | §8.9 | **`DEFERRED`** — permanece fora de escopo mesmo com D-085: `roadmap-evolution/17` §96 explicitamente exclui `SUPER_ADMIN`/`PLATFORM_ADMIN`/impersonation deste ciclo, sem justificativa de necessidade real ainda. |
 
 ---
 
