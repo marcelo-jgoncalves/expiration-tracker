@@ -87,6 +87,22 @@ export class InMemoryIdentityStore implements IdentityStore {
           if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
             throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch" };
           }
+          // extraConditions (occ.ts's buildVersionedUpdate) add extra #cN/:cN or caller-named
+          // equality placeholder pairs beyond the base version/tenantId/updatedAt/set/rem ones -
+          // e.g. system-mutation.ts's `#lifecycleStatus = :expectedFrom` fence on the transition
+          // primitive. Evaluate any remaining name/value pair generically, same approach as the
+          // ConditionCheck branch above - required for that fence to actually be exercised by
+          // this fake rather than silently no-op'd.
+          const reservedNames = new Set(["#version", "#tenantId", "#updatedAt"]);
+          for (const [nameKey, fieldName] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+            if (reservedNames.has(nameKey) || nameKey.startsWith("#set") || nameKey.startsWith("#rem")) continue;
+            const valueKey = `:${nameKey.slice(1)}`;
+            if (!(valueKey in entry.Update.ExpressionAttributeValues)) continue;
+            const expected = entry.Update.ExpressionAttributeValues[valueKey];
+            if (existing[fieldName] !== expected) {
+              throw { name: "TransactionCanceledException", message: `ConditionalCheckFailed: ${fieldName} mismatch` };
+            }
+          }
         }
       }
     }
@@ -107,6 +123,8 @@ export class InMemoryIdentityStore implements IdentityStore {
           } else if (name.startsWith("#set")) {
             const valueKey = `:${name.slice(1)}`;
             next[placeholder] = entry.Update.ExpressionAttributeValues[valueKey];
+          } else if (name.startsWith("#rem")) {
+            delete next[placeholder];
           }
         }
         this.items.set(this.k(key), next);

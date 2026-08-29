@@ -43,6 +43,30 @@ module.exports = {
       from: { path: "^src/shared/" },
       to: { path: "^src/modules/" },
     },
+    {
+      name: "no-raw-dynamodb-writes-outside-lanes",
+      severity: "error",
+      comment:
+        "W3-07 (D-068) structural fence-bypass guard: raw DynamoDB write commands " +
+        "(PutCommand/UpdateCommand/DeleteCommand/TransactWriteCommand/BatchWriteCommand, all from " +
+        "@aws-sdk/lib-dynamodb) may only be imported by a module's own persistence/ adapter, " +
+        "shared/dynamodb/ (occ.ts's builders + the DynamoDB client wrapper), or " +
+        "shared/outbox/persistence/ (the outbox relay's own adapter) - direct or transitive. Every " +
+        "other tenant-scoped mutation must go through a store port method, which itself routes " +
+        "through TenantBusinessMutation (src/shared/tenant-lifecycle/tenant-business-mutation.ts) or " +
+        "SystemMutation (src/shared/tenant-lifecycle/system-mutation.ts). This is the structural half " +
+        "of the fence: TenantBusinessMutation/SystemMutation are convention-enforced APIs, but nothing " +
+        "stops a future writer from skipping them and calling the SDK directly UNLESS raw command " +
+        "access itself is confined to the same handful of files those two lanes already route " +
+        "through. Proven to actually catch a bypass attempt (not just declared) by " +
+        "test/architecture/tenant-fence-boundary.test.ts.",
+      from: {
+        path: "^src/(modules|shared)/",
+        pathNot:
+          "^src/(modules/[^/]+/persistence/|modules/[^/]+/composition/|shared/dynamodb/|shared/outbox/persistence/)",
+      },
+      to: { path: "^node_modules/@aws-sdk/lib-dynamodb" },
+    },
   ],
   options: {
     tsPreCompilationDeps: true,
