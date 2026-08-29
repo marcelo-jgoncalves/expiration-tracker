@@ -9,8 +9,16 @@ export interface ExtractionArtifactRef {
 
 export interface OcrArtifactStore {
   /** `blocksJson` is the serialized Textract block array — never logged, never placed on an
-   * event/DLQ payload (design §1.9/§20.5: OCR text never leaves this store as a value). */
-  put(runId: string, blocksJson: string): Promise<ExtractionArtifactRef>;
+   * event/DLQ payload (design §1.9/§20.5: OCR text never leaves this store as a value).
+   *
+   * W3-07 (D-070 chunk 6/N, OCR key determinism fix): the S3 key this writes to MUST be
+   * deterministic from `tenantId`+`runId` alone (`ocr/<tenantId>/<runId>.json`, per the
+   * approved design's §Q roadmap item), never a fresh random suffix per call - `runId` is
+   * already the SFN execution's own idempotency key (`ExecutionAlreadyExists` makes retries of
+   * the same run a no-op upstream), so a redelivered `COMPLETE_OCR` completion notification for
+   * the same run must land on the SAME physical object, not create an orphaned duplicate whose
+   * S3 lifecycle rule is the only thing that ever cleans it up. */
+  put(tenantId: string, runId: string, blocksJson: string): Promise<ExtractionArtifactRef>;
 
   /** Reads back the serialized Textract block array written by `put()` — the two real
    * consumers are `PdfParserTaskHandler` (item 5) and `BedrockExtractionTaskHandler` (item 6),
