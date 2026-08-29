@@ -40,6 +40,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `quality-gate-tiers.md` | normativo atual | Tiers de gate (PR vs. deploy), mapeados aos comandos reais |
 | `joint-review-criteria.md` | normativo atual | Critérios/pesos por eixo das revisões conjuntas Claude↔Codex (9 eixos formalizados + FinOps pendente) |
 | `test-engineering-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 8 rodadas, gate elevado 9,5/10) | Padrão de validade/qualidade para teste automatizado e drill operacional (chaos/DiRT) — gates binários (G-V1..G-V6, G-C1), critérios ponderados, fórmula de agregação, auditoria retroativa da Wave 2 (2026-08-28) |
+| `logging-observability-standard.md` | proposta (ainda não `APPROVED` — ver seu próprio §5) | Régua concreta de qualidade para logging/tracing/taxonomia de erro (`src/shared/observability/**`, `app-error.ts`, wiring Terraform de detecção) — critérios ponderados, gate 9,0/10, escrita em resposta a achados reais de uma rodada Codex de 2026-08-29 |
 | `exceptions.md` | normativo atual (registro vivo) | Exceções/vulnerabilidades aceitas com owner e prazo |
 | `decisions-log.md` | decisão (log vivo) | Decisões de engenharia/processo, E-000 em diante |
 | `disagreement-log.md` | histórico/registro vivo | Divergências materiais Claude↔Codex e como foram resolvidas |
