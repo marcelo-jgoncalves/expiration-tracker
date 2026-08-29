@@ -43,6 +43,9 @@ export interface RunDeterministicParserInput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  /** The run's one business correlationId (ExtractionExecutionInput's doc comment) - echoed
+   * back in RunDeterministicParserOutput so RunBedrock/ValidateSchema keep receiving it. */
+  correlationId: string;
   /** Present (`true`) only on the happy path (`RunTextract` succeeded). Absent/false on the
    * degraded path (`RunTextract` failed - `$.ocrFailure` carries the Catch details, not
    * consumed here). */
@@ -65,6 +68,7 @@ export interface RunDeterministicParserOutput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  correlationId: string;
   ocrAvailable: boolean;
   extractedFields: DeterministicFieldCandidateOutput[];
   needsBedrock: boolean;
@@ -157,6 +161,7 @@ export async function runDeterministicParser(deps: RunDeterministicParserDeps, i
     documentVersion: input.documentVersion,
     runId: input.runId,
     pipelineVersion: input.pipelineVersion,
+    correlationId: input.correlationId,
     ocrAvailable,
     extractedFields,
     needsBedrock: bedrockNeeded,

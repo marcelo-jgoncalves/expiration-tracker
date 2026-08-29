@@ -11,6 +11,14 @@ export interface ExtractionExecutionInput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  /** Logging-observability-standard.md criterion "Tracing distribuído" (2026-08-29 audit
+   * finding): the ONE business correlationId for this whole extraction run, established once
+   * by the handler that starts this execution (extraction-starter-handler.ts) and threaded
+   * unchanged through every Task state's input/output from here on — never regenerated per
+   * Task (that was the bug: each of the 4 downstream task handlers used to call
+   * `randomUUID()` fresh, making it impossible to join a run's logs across Step Functions
+   * state boundaries from a single correlationId). */
+  correlationId: string;
   cleanObject: { bucket: string; key: string; versionId: string };
   /** RunTextract's START_OCR operation (`start-ocr.ts`) requires these to classify the document
    * type before calling Textract - real bug found 2026-08-27 verifying the pipeline end-to-end

@@ -22,6 +22,10 @@ export interface StartExtractionRunInput {
   tenantId: string;
   itemId: string;
   documentId: string;
+  /** The business correlationId established by the caller (extraction-starter-handler.ts) —
+   * threaded into the Step Functions execution input so every downstream task handler can
+   * join its logs back to this same run. See ExtractionExecutionInput's doc comment. */
+  correlationId: string;
   cleanObject: { bucket: string; key: string; versionId: string };
 }
 
@@ -86,6 +90,7 @@ export async function startExtractionRun(deps: StartExtractionRunDeps, input: St
       documentVersion,
       runId,
       pipelineVersion,
+      correlationId: input.correlationId,
       cleanObject: input.cleanObject,
       // RunTextract's classifier needs these (see ExtractionExecutionInput's doc comment) -
       // `doc` was already fetched above, no extra read.

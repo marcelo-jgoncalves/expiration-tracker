@@ -68,7 +68,7 @@ describe("startExtractionRun", () => {
     const executions = new FakeExecutionStarter();
     const outcome = await startExtractionRun(
       { documents: new FakeDocumentReader(undefined), runs, executions },
-      { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT },
     );
     expect(outcome).toBe("DOCUMENT_NOT_FOUND");
     expect(executions.calls).toHaveLength(0);
@@ -80,7 +80,7 @@ describe("startExtractionRun", () => {
     await expect(
       startExtractionRun(
         { documents: new FakeDocumentReader(cleanDocument({ status: "SCANNING" })), runs, executions },
-        { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT },
+        { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT },
       ),
     ).rejects.toBeInstanceOf(DocumentNotCleanYetError);
     expect(executions.calls).toHaveLength(0);
@@ -91,7 +91,7 @@ describe("startExtractionRun", () => {
     const executions = new FakeExecutionStarter();
     const outcome = await startExtractionRun(
       { documents: new FakeDocumentReader(cleanDocument()), runs, executions, now: () => "2026-08-26T00:00:00.000Z" },
-      { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT },
     );
 
     expect(outcome).toBe("STARTED");
@@ -106,6 +106,7 @@ describe("startExtractionRun", () => {
       documentVersion: 3,
       runId: expectedRunId,
       pipelineVersion: PIPELINE_VERSION_V1,
+      correlationId: "corr-1",
       cleanObject: CLEAN_OBJECT,
       fileName: "cert.pdf",
       contentType: "application/pdf",
@@ -121,7 +122,7 @@ describe("startExtractionRun", () => {
     const doc = cleanDocument({ fileName: "invoice-2026.PNG", mediaType: "image/png" });
     await startExtractionRun(
       { documents: new FakeDocumentReader(doc), runs, executions },
-      { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT },
+      { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT },
     );
 
     expect(executions.calls[0]?.input.fileName).toBe("invoice-2026.PNG");
@@ -132,7 +133,7 @@ describe("startExtractionRun", () => {
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
     const deps = { documents: new FakeDocumentReader(cleanDocument()), runs, executions };
-    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT };
+    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT };
 
     const first = await startExtractionRun(deps, input);
     const second = await startExtractionRun(deps, input);
@@ -153,7 +154,7 @@ describe("startExtractionRun", () => {
       },
     };
     const deps = { documents: new FakeDocumentReader(cleanDocument()), runs, executions: flaky };
-    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT };
+    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT };
 
     await expect(startExtractionRun(deps, input)).rejects.toThrow("transient SFN throttling");
     // Retry: the ExtractionRun record already exists (putIfAbsent -> false), but
@@ -167,7 +168,7 @@ describe("startExtractionRun", () => {
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
     const deps = { documents: new FakeDocumentReader(cleanDocument({ version: 3 })), runs, executions };
-    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", cleanObject: CLEAN_OBJECT };
+    const input = { tenantId: "t1", itemId: "item1", documentId: "doc1", correlationId: "corr-1", cleanObject: CLEAN_OBJECT };
     await startExtractionRun(deps, input);
 
     const deps2 = { documents: new FakeDocumentReader(cleanDocument({ version: 4 })), runs, executions };

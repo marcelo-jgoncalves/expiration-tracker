@@ -106,6 +106,7 @@ function baseInput(overrides: Partial<StartOcrInput> = {}): StartOcrInput {
     documentVersion: 3,
     runId: "run_x",
     pipelineVersion: "2026-08-01",
+    correlationId: "corr-1",
     cleanObject: { bucket: "clean-bucket", key: "clean/t1/item1/doc1", versionId: "v1" },
     fileName: "cert.pdf",
     ...overrides,
@@ -136,6 +137,10 @@ describe("startOcr", () => {
     expect(jobs.created).toHaveLength(1);
     expect(jobs.created[0]?.status).toBe("STARTED");
     expect(jobs.created[0]?.taskTokenCiphertext).toBe("enc:token-abc");
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29): the run's
+    // correlationId must be persisted on the TextractJob so completeOcr() can re-attach it
+    // later (the SNS/SQS completion callback has no other access to it).
+    expect(jobs.created[0]?.correlationId).toBe("corr-1");
   });
 
   it("throws UnsupportedDocumentTypeError before touching flags/quota/Textract for an unclassifiable file", async () => {

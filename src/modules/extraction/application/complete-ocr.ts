@@ -99,6 +99,7 @@ export async function completeOcr(deps: CompleteOcrDeps, input: CompleteOcrInput
       documentVersion: job.documentVersion,
       runId: job.runId,
       pipelineVersion: job.pipelineVersion,
+      correlationId: job.correlationId,
     };
     outcome = status === "PARTIAL_SUCCESS" ? "PARTIAL_SUCCEEDED" : "SUCCEEDED";
   } else {

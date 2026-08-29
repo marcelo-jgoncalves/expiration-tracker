@@ -39,6 +39,12 @@ export interface TextractJob extends EntityKey {
    * NEXT_SESSION_PROMPT.md (conservative, additive, no persisted-data migration concern:
    * this record's max lifetime is the 24h TTL, never real historical data yet). */
   pipelineVersion: string;
+  /** Same rationale as the fields above (2026-08-29, `logging-observability-standard.md`
+   * audit finding): the run's one business correlationId, re-attached by `completeOcr` to its
+   * `SendTaskSuccess` payload so every state after `RunTextract` can log against the SAME
+   * correlationId the run started with, instead of each Task handler minting its own — no
+   * migration concern, same 24h-max-lifetime reasoning as above. */
+  correlationId: string;
   clientRequestToken: string;
   status: TextractJobStatus;
   /** Present only while a callback might still need to resolve the Step Functions task.

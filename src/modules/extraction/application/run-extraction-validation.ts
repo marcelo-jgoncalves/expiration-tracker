@@ -71,6 +71,12 @@ export interface ValidationContext {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  /** The run's one business correlationId (ExtractionExecutionInput's doc comment). Would
+   * survive the round-trip anyway via this interface's `[passthrough: string]: unknown` index
+   * signature, but named explicitly here (like every other identity field above) rather than
+   * relying on that signature - consistent with how this codebase treats passthrough fields
+   * elsewhere, and greppable for anyone tracing correlationId through this pipeline. */
+  correlationId: string;
   ocrAvailable?: boolean;
   extractedFields?: ValidationFieldCandidate[];
   bedrockFields?: ValidationFieldCandidate[];

@@ -133,6 +133,7 @@ function baseContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     documentVersion: 3,
     runId: "run1",
     pipelineVersion: PIPELINE_VERSION_V1,
+    correlationId: "corr-1",
     ocrAvailable: true,
     extractedFields: [{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.9, source: "DETERMINISTIC_PARSER" }],
     ...overrides,
@@ -159,6 +160,8 @@ describe("validateSchema (VALIDATE_SCHEMA)", () => {
     );
     expect(out.extractedFields?.[0]?.valid).toBe(false);
     expect(out.bedrockFields?.[0]?.valid).toBe(true);
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29).
+    expect(out.correlationId).toBe("corr-1");
   });
 
   it("marks a field with no candidateValue as invalid, never throwing", () => {

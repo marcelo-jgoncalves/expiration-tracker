@@ -36,8 +36,26 @@ export interface AppErrorOptions {
 }
 
 /**
- * Base class for all normalized application errors. `retryable` drives SQS
- * consumer behavior (retry vs. terminal -> DLQ) per implementation-blueprint.md #6.2.
+ * Base class for all normalized application errors.
+ *
+ * HONEST SCOPE of `retryable` (logging-observability-standard.md audit finding, 2026-08-29,
+ * correcting an overclaim this comment used to make): implementation-blueprint.md #6.2 asks
+ * every consumer to "classifica erro como retryable ou terminal", and this field IS that
+ * classification - but no real SQS handler in this codebase branches on it today. Every SQS
+ * consumer (reminder-dispatch-handler.ts, email-delivery-handler.ts, textract-task-handler.ts's
+ * COMPLETE_OCR, ...) reports EVERY caught error as a batch item failure unconditionally,
+ * letting SQS's own `maxReceiveCount`+DLQ redelivery mechanics be the actual retry/terminal
+ * decision - `retryable` only reaches a log line (diagnosis), never an `if`. Separately, the M7
+ * Step Functions ASL's `Retry`/`Catch` blocks (document-extraction.asl.json) do real
+ * conditional retry/terminal routing, but keyed on `errorType` (the thrown class's name)
+ * matched statically at deploy time - never on this runtime boolean either. Whether SQS
+ * consumers SHOULD start branching on `retryable` (e.g. route a known-terminal error straight
+ * to DLQ instead of spending `maxReceiveCount` retries on it first) is a real, undecided
+ * product/architecture question - not implemented here, not this session's call to make
+ * unilaterally (Type 1, `AGENTS.md` §4/§1). This field is not useless: it is real,
+ * meaningful classification metadata surfaced consistently in structured logs today, and the
+ * substrate a future decision would build on - just not, as of this comment, itself deciding
+ * SQS behavior.
  */
 export class AppError extends Error {
   readonly code: string;
@@ -272,9 +290,12 @@ export function toAppError(err: unknown): AppError {
   return new InternalError("Non-Error value thrown.", { thrown: String(err) });
 }
 
-/** SQS/DLQ routing decision. Unknown/internal errors default to retryable=false (terminal) is wrong;
- * default to retryable=true only for explicitly-classified dependency failures, everything unknown is terminal
- * to avoid infinite poison-pill retries per implementation-blueprint.md #6.2. */
+/** Classifies any thrown value's `retryable` flag (defaults to `false`/terminal for an
+ * unclassified error, never `true`, to avoid treating an unknown failure as safe-to-retry
+ * indefinitely per implementation-blueprint.md #6.2). See `AppError`'s own doc comment for the
+ * honest current scope: this is NOT today's real SQS/DLQ routing decision (no real consumer
+ * branches on it - see that comment for why), it is the classification itself, consulted for
+ * logging/diagnosis and available for a future decision to actually drive routing on. */
 export function isRetryable(err: unknown): boolean {
   return toAppError(err).retryable;
 }

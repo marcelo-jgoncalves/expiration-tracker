@@ -5,9 +5,10 @@ import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildEmailDeliveryDeps } from "../composition/notification.js";
 import { processEmailDelivery, type EmailDeliverCommandData } from "../../../modules/notification/application/email-delivery-workflow.js";
-import { runWithContext } from "../../../shared/observability/context.js";
+import { correlationIdFromSqsRecord, runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
+import { toAppError } from "../../../shared/errors/app-error.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -40,52 +41,71 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
-    try {
-      const parsed: unknown = JSON.parse(record.body);
-      const { valid, errors } = defaultSchemaRegistry.validate(EMAIL_DELIVER_SCHEMA_ID, parsed);
-      if (!valid) {
-        logger.error("email-delivery schema-invalid payload", { messageId: record.messageId, errors });
-        batchItemFailures.push({ itemIdentifier: record.messageId });
-        continue;
-      }
-      const envelope = parsed as EmailDeliverEnvelope;
-      await runWithContext({ correlationId: envelope.correlationId, tenantId: envelope.tenantId }, async () => {
-        // try/catch stays INSIDE runWithContext - see dispatch-outbox-relay-handler.ts's
-        // comment on why a catch wrapping runWithContext itself would lose this record's
-        // correlationId/tenantId (AsyncLocalStorage.run already restored the outer/empty
-        // context by the time a catch outside it runs).
-        try {
-          const command: EmailDeliverCommandData = {
-            tenantId: envelope.tenantId,
-            intentId: envelope.data.intentId,
-            attemptId: envelope.data.attemptId,
-            itemId: envelope.data.itemId,
-            expectedItemVersion: envelope.data.expectedItemVersion,
-            templateId: envelope.data.templateId,
-            templateVersion: envelope.data.templateVersion,
-            locale: envelope.data.locale,
-            deliverNotBefore: envelope.data.deliverNotBefore,
-            correlationId: envelope.correlationId,
-          };
-          const outcome = await processEmailDelivery(deps, command);
-          logger.info("email-delivery outcome", { messageId: record.messageId, attemptId: command.attemptId, outcome: outcome.kind });
-          if (outcome.kind === "DEFERRED") {
-            // Quiet hours not over yet - never discard. The router already scheduled a
-            // one-shot EventBridge Scheduler re-delivery (design §5.3); reporting THIS
-            // delivery as a batch item failure would just requeue it needlessly before that
-            // fires. No action needed here beyond the log above.
-            return;
-          }
-        } catch (err) {
-          logger.error("email-delivery failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+    // Logging-observability-standard.md "Propagação de correlação" (2026-08-29 audit finding):
+    // the JSON.parse/schema-validation failure paths below used to log with NO correlationId
+    // at all (outside any runWithContext), unlike reminder-dispatch-handler.ts's established
+    // pattern of an outer, SQS-derived fallback correlationId covering the whole per-record
+    // body - a malformed/schema-invalid message's own failure log was unjoinable to anything.
+    // Mirrors that same pattern here.
+    const fallbackCorrelationId = correlationIdFromSqsRecord(record);
+    await runWithContext({ correlationId: fallbackCorrelationId }, async () => {
+      try {
+        const parsed: unknown = JSON.parse(record.body);
+        const { valid, errors } = defaultSchemaRegistry.validate(EMAIL_DELIVER_SCHEMA_ID, parsed);
+        if (!valid) {
+          logger.error("email-delivery schema-invalid payload", { messageId: record.messageId, errors });
           batchItemFailures.push({ itemIdentifier: record.messageId });
+          return;
         }
-      });
-    } catch (err) {
-      // JSON.parse itself threw on a malformed body - no envelope/correlationId available.
-      logger.error("email-delivery failed to parse message body", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
-      batchItemFailures.push({ itemIdentifier: record.messageId });
-    }
+        const envelope = parsed as EmailDeliverEnvelope;
+        await runWithContext({ correlationId: envelope.correlationId ?? fallbackCorrelationId, tenantId: envelope.tenantId }, async () => {
+          // try/catch stays INSIDE runWithContext - see dispatch-outbox-relay-handler.ts's
+          // comment on why a catch wrapping runWithContext itself would lose this record's
+          // correlationId/tenantId (AsyncLocalStorage.run already restored the outer/empty
+          // context by the time a catch outside it runs).
+          try {
+            const command: EmailDeliverCommandData = {
+              tenantId: envelope.tenantId,
+              intentId: envelope.data.intentId,
+              attemptId: envelope.data.attemptId,
+              itemId: envelope.data.itemId,
+              expectedItemVersion: envelope.data.expectedItemVersion,
+              templateId: envelope.data.templateId,
+              templateVersion: envelope.data.templateVersion,
+              locale: envelope.data.locale,
+              deliverNotBefore: envelope.data.deliverNotBefore,
+              correlationId: envelope.correlationId,
+            };
+            const outcome = await processEmailDelivery(deps, command);
+            logger.info("email-delivery outcome", { messageId: record.messageId, attemptId: command.attemptId, outcome: outcome.kind });
+            if (outcome.kind === "DEFERRED") {
+              // Quiet hours not over yet - never discard. The router already scheduled a
+              // one-shot EventBridge Scheduler re-delivery (design §5.3); reporting THIS
+              // delivery as a batch item failure would just requeue it needlessly before that
+              // fires. No action needed here beyond the log above.
+              return;
+            }
+          } catch (err) {
+            // errorCode/retryable logged for consistency with every other handler's pattern
+            // (e.g. textract-task-handler.ts) - see app-error.ts's isRetryable() doc comment
+            // for the honest, current scope of what `retryable` actually drives today (this
+            // handler, like every other SQS consumer in this codebase, still always reports a
+            // batch item failure regardless of the value - SQS's own maxReceiveCount+DLQ is
+            // the real terminal decision, not this field; logged here for diagnosis, not
+            // branching).
+            const appErr = toAppError(err);
+            logger.error("email-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+            batchItemFailures.push({ itemIdentifier: record.messageId });
+          }
+        });
+      } catch (err) {
+        // JSON.parse itself threw on a malformed body - no envelope available, but the
+        // fallback correlationId above still applies.
+        const appErr = toAppError(err);
+        logger.error("email-delivery failed to parse message body", { messageId: record.messageId, errorCode: appErr.code });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
+      }
+    });
   }
 
   return { batchItemFailures };

@@ -48,6 +48,11 @@ export interface StartOcrInput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  /** The run's one business correlationId (ExtractionExecutionInput's doc comment) — persisted
+   * on the `TextractJob` so `completeOcr()` (a LATER, separately-triggered SQS invocation with
+   * no direct access to this input) can re-attach it when resuming the Step Functions
+   * execution via SendTaskSuccess. */
+  correlationId: string;
   cleanObject: { bucket: string; key: string; versionId: string };
   fileName: string;
   contentType?: string;
@@ -121,6 +126,7 @@ export async function startOcr(deps: StartOcrDeps, input: StartOcrInput): Promis
     documentVersion: input.documentVersion,
     runId: input.runId,
     pipelineVersion: input.pipelineVersion,
+    correlationId: input.correlationId,
     clientRequestToken,
     status: "STARTED",
     taskTokenCiphertext,

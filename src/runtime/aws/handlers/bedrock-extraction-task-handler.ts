@@ -10,7 +10,6 @@
  * rule item 4/5 already followed for OCR text). Only field names, confidence numbers, and
  * identifiers are ever logged.
  */
-import { randomUUID } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
@@ -57,7 +56,9 @@ const deps = buildBedrockExtractionTaskWorkerDeps(
 const logger = new SecureLogger({ baseContext: { service: "bedrock-extraction-task" } });
 
 export async function handler(event: RunBedrockExtractionInput): Promise<RunBedrockExtractionOutput> {
-  return runWithContext({ correlationId: randomUUID(), tenantId: event.tenantId }, async () => {
+  // Uses the run's OWN correlationId, threaded through the Step Functions execution - never a
+  // fresh randomUUID() here (see ExtractionExecutionInput's doc comment).
+  return runWithContext({ correlationId: event.correlationId, tenantId: event.tenantId }, async () => {
     try {
       const output = await runBedrockExtraction(deps.runBedrockExtraction, event);
       logger.info("bedrock-extraction-task RunBedrock succeeded", {

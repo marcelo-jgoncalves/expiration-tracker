@@ -9,7 +9,6 @@
  * `SecureLogger` only - never logs OCR text, candidate values, or document content (only field
  * names, counts, and identifiers).
  */
-import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildExtractionValidationTaskWorkerDeps } from "../../../modules/extraction/composition/extraction.js";
@@ -37,7 +36,9 @@ interface ExtractionValidationEvent {
 }
 
 export async function handler(event: ExtractionValidationEvent): Promise<ValidationContext> {
-  return runWithContext({ correlationId: randomUUID(), tenantId: event.input.tenantId }, async () => {
+  // Uses the run's OWN correlationId, threaded through the Step Functions execution - never a
+  // fresh randomUUID() here (see ExtractionExecutionInput's doc comment).
+  return runWithContext({ correlationId: event.input.correlationId, tenantId: event.input.tenantId }, async () => {
     try {
       const output = await runExtractionValidation(deps.runExtractionValidation, event.operation, event.input);
       logger.info(`extraction-validation-task ${event.operation} succeeded`, {
