@@ -9,10 +9,14 @@ function dynamoItem(tenantId: string, id: string): TenantScanItem {
   return { PK: `TENANT#${tenantId}#ITEM#${id}`, SK: "ITEM", entityType: "ExpirationItem", tenantId, version: 1 };
 }
 
-function makeDynamoSource(items: TenantScanItem[]): TenantPurgeCandidateSource {
+// B2's added final verification pass calls scanTenantItems AGAIN after the purge loop, so this
+// fake must actually reflect deletions against `store` — a fake that just filters a static array
+// (disconnected from the store PURGE_DELETE actually writes to) would make every successful
+// purge look like it left data behind on re-scan.
+function makeDynamoSource(items: TenantScanItem[], store: InMemoryIdentityStore): TenantPurgeCandidateSource {
   return {
     async scanTenantItems(tenantId: string) {
-      return { items: items.filter((i) => i.tenantId === tenantId) };
+      return { items: items.filter((i) => i.tenantId === tenantId && store.hasRaw({ PK: i.PK, SK: i.SK })) };
     },
   };
 }
@@ -23,8 +27,11 @@ function makeSessionSource(items: SessionTableScanItem[]): SessionTablePurgeSour
     async scanTenantSessions(tenantId: string) {
       return { items: [...map.values()].filter((i) => i.tenantId === tenantId) };
     },
-    async deleteSession(key) {
+    async deleteSession(key, expectedTenantId) {
+      const current = map.get(key.PK);
+      if (current && current.tenantId !== expectedTenantId) return { deleted: false };
       map.delete(key.PK);
+      return { deleted: true };
     },
     has(pk: string) {
       return map.has(pk);
@@ -66,7 +73,7 @@ function makeS3Source(versions: S3VersionEntry[], opts: { failAlways?: Set<strin
 function baseDeps(overrides: Partial<TenantPurgeDeps> = {}): TenantPurgeDeps {
   const store = new InMemoryIdentityStore();
   return {
-    dynamo: { store, candidates: makeDynamoSource([]), tableName: "MainTable" },
+    dynamo: { store, candidates: makeDynamoSource([], store), tableName: "MainTable" },
     sessionTable: { source: makeSessionSource([]) },
     s3Source: makeS3Source([]),
     s3Targets: [],
@@ -84,10 +91,10 @@ describe("purgeTenant (composable entry point)", () => {
 
     const result = await purgeTenant(
       {
-        dynamo: { store, candidates: makeDynamoSource(items), tableName: "MainTable" },
+        dynamo: { store, candidates: makeDynamoSource(items, store), tableName: "MainTable" },
         sessionTable: { source: sessionSource },
         s3Source,
-        s3Targets: [{ bucket: "quarantine", prefix: "t1/" }],
+        s3Targets: [{ bucket: "quarantine", prefix: "t1/", tenantId: "t1" }],
       },
       { tenantId: "t1" },
     );
@@ -105,7 +112,7 @@ describe("purgeTenant (composable entry point)", () => {
     const s3Source = makeS3Source([{ key: "t1/doc-1", versionId: "v1", isDeleteMarker: false }], { failAlways: new Set(["t1/doc-1#v1"]) });
 
     const result = await purgeTenant(
-      baseDeps({ s3Source, s3Targets: [{ bucket: "quarantine", prefix: "t1/" }] }),
+      baseDeps({ s3Source, s3Targets: [{ bucket: "quarantine", prefix: "t1/", tenantId: "t1" }] }),
       { tenantId: "t1" },
     );
 
@@ -127,7 +134,7 @@ describe("purgeTenant (composable entry point)", () => {
     expect(result.failure?.stage).toBe("DYNAMO");
   });
 
-  it("resume: a checkpoint marking dynamo/session-table already done skips redoing them, only re-attempting S3", async () => {
+  it("resume: a checkpoint marking dynamo/session-table already done skips the purge loop (only the B2 empty-verification re-scan runs once), only re-attempting S3", async () => {
     let dynamoCalls = 0;
     const dynamoSource: TenantPurgeCandidateSource = {
       async scanTenantItems() {
@@ -141,7 +148,9 @@ describe("purgeTenant (composable entry point)", () => {
         sessionCalls += 1;
         return { items: [] };
       },
-      async deleteSession() {},
+      async deleteSession() {
+        return { deleted: true };
+      },
     };
     const s3Source = makeS3Source([{ key: "t1/doc-1", versionId: "v1", isDeleteMarker: false }]);
 
@@ -150,19 +159,22 @@ describe("purgeTenant (composable entry point)", () => {
         dynamo: { store: new InMemoryIdentityStore(), candidates: dynamoSource, tableName: "MainTable" },
         sessionTable: { source: sessionSource },
         s3Source,
-        s3Targets: [{ bucket: "quarantine", prefix: "t1/" }],
+        s3Targets: [{ bucket: "quarantine", prefix: "t1/", tenantId: "t1" }],
       },
       { tenantId: "t1", startFrom: { dynamoDone: true, sessionTableDone: true } },
     );
 
-    expect(dynamoCalls).toBe(0);
-    expect(sessionCalls).toBe(0);
+    // The purge LOOP itself is skipped via the checkpoint (no page-by-page deletion re-attempt),
+    // but B2's unconditional final verification still performs exactly one empty re-scan of each
+    // store before trusting SUCCESS — this is the whole point of the fix, not a regression.
+    expect(dynamoCalls).toBe(1);
+    expect(sessionCalls).toBe(1);
     expect(result.status).toBe("SUCCESS");
     expect(result.s3[0]?.versionsDeleted).toBe(1);
   });
 
   it("idempotent as a whole: re-running against an already-fully-purged tenant is a clean SUCCESS no-op, never an error", async () => {
-    const deps = baseDeps({ s3Targets: [{ bucket: "quarantine", prefix: "t1/" }] });
+    const deps = baseDeps({ s3Targets: [{ bucket: "quarantine", prefix: "t1/", tenantId: "t1" }] });
     const first = await purgeTenant(deps, { tenantId: "t1" });
     expect(first.status).toBe("SUCCESS");
     const second = await purgeTenant(deps, { tenantId: "t1" });
@@ -170,6 +182,57 @@ describe("purgeTenant (composable entry point)", () => {
     expect(second.dynamo?.itemsPurged).toBe(0);
     expect(second.sessionTable?.sessionsPurged).toBe(0);
     expect(second.s3[0]?.versionsDeleted).toBe(0);
+  });
+
+  it("B4 fix: a nonzero itemsRejectedBySafetyCondition on the dynamo sub-purge forces PARTIAL, never SUCCESS", async () => {
+    const store = new InMemoryIdentityStore();
+    // A scan/filter bug hands back a row belonging to a DIFFERENT tenant than the one being
+    // purged — PURGE_DELETE's safety condition rejects it (SystemMutationConflictError), which
+    // dynamo-tenant-purge.ts counts but previously purge-tenant.ts silently ignored.
+    const foreignItem: TenantScanItem = { PK: "TENANT#other-tenant#ITEM#x", SK: "ITEM", entityType: "ExpirationItem", tenantId: "other-tenant", version: 1 };
+    // Must actually EXIST in the store for the safety condition to genuinely fail — an
+    // attribute_not_exists(PK) match (never-existed key) is the idempotent no-op path, not a
+    // rejection, so this test would falsely "pass" purge for an unseeded row.
+    store.seedRaw(foreignItem);
+    const brokenDynamoSource: TenantPurgeCandidateSource = {
+      async scanTenantItems() {
+        return { items: [foreignItem] };
+      },
+    };
+
+    const result = await purgeTenant(
+      baseDeps({ dynamo: { store, candidates: brokenDynamoSource, tableName: "MainTable" } }),
+      { tenantId: "t1" },
+    );
+
+    expect(result.status).toBe("PARTIAL");
+    expect(result.dynamo?.itemsRejectedBySafetyCondition).toBe(1);
+  });
+
+  it("B6 fix: an S3 target claiming a different tenant than the one being purged is rejected loudly (never silently purges the wrong tenant)", async () => {
+    const deps = baseDeps({ s3Targets: [{ bucket: "quarantine", prefix: "tenant-b/", tenantId: "tenant-b" }] });
+
+    await expect(purgeTenant(deps, { tenantId: "tenant-a" })).rejects.toThrow(/tenantId "tenant-b"/);
+  });
+
+  it("B2 fix: a stale checkpoint claiming dynamo/session already done does not mask leftover data — the unconditional final verification catches it and forces PARTIAL", async () => {
+    // Simulate a resumed run where the checkpoint says the dynamo phase is done, but a re-scan
+    // (the purge loop itself is skipped) still finds a real leftover row — this is exactly the
+    // "one traversal happened to look complete, but nothing re-checked afterward" scenario the
+    // approved design's "re-scan vazio" requirement exists to catch.
+    const leftover: TenantScanItem = { PK: "TENANT#t1#ITEM#leftover", SK: "ITEM", entityType: "ExpirationItem", tenantId: "t1", version: 1 };
+    const staleDynamoSource: TenantPurgeCandidateSource = {
+      async scanTenantItems() {
+        return { items: [leftover] };
+      },
+    };
+
+    const result = await purgeTenant(
+      baseDeps({ dynamo: { store: new InMemoryIdentityStore(), candidates: staleDynamoSource, tableName: "MainTable" } }),
+      { tenantId: "t1", startFrom: { dynamoDone: true, sessionTableDone: true } },
+    );
+
+    expect(result.status).toBe("PARTIAL");
   });
 
   it("invokes onCheckpoint as sub-purges progress, not only at the very end", async () => {
@@ -180,7 +243,7 @@ describe("purgeTenant (composable entry point)", () => {
 
     await purgeTenant(
       {
-        dynamo: { store, candidates: makeDynamoSource(items), tableName: "MainTable" },
+        dynamo: { store, candidates: makeDynamoSource(items, store), tableName: "MainTable" },
         sessionTable: { source: makeSessionSource([]) },
         s3Source: makeS3Source([]),
         s3Targets: [],

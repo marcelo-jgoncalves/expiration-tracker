@@ -82,6 +82,38 @@ export interface DynamoTenantPurgeResult {
   checkpoint: undefined;
 }
 
+/**
+ * W3-07 review finding (Codex round on the purge pipeline, B2, 2026-08-29): the approved design
+ * (`claude-analysis-active-only-fence.md` §K) requires convergence be confirmed by "re-scan vazio
+ * após a última deleção, não uma única varredura" — a single traversal that happened to delete
+ * everything it saw is NOT the same guarantee, especially on a RESUMED run: `purge-tenant.ts`
+ * used to trust a persisted `dynamoDone: true` forever and skip scanning entirely on resume, so a
+ * late-arriving row (a bug elsewhere, a race with an admitted-but-slow writer, a stale checkpoint)
+ * would never be re-detected. This function performs one full, unconditional re-scan (ignoring
+ * any checkpoint) and reports whether the tenant's namespace is actually empty — `purge-tenant.ts`
+ * now calls this unconditionally after the purge phase, whether that phase ran fresh or was
+ * skipped via checkpoint, and never reports SUCCESS if it finds anything.
+ */
+export async function verifyTenantDynamoPurgeEmpty(
+  deps: Pick<DynamoTenantPurgeDeps, "candidates">,
+  tenantId: string,
+): Promise<{ remainingItems: number }> {
+  let remainingItems = 0;
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+
+  for (;;) {
+    const page = await deps.candidates.scanTenantItems(tenantId, exclusiveStartKey);
+    for (const item of page.items) {
+      if (item.entityType && NEVER_PURGE_ENTITY_TYPES.has(item.entityType)) continue;
+      remainingItems += 1;
+    }
+    exclusiveStartKey = page.lastEvaluatedKey;
+    if (!exclusiveStartKey) break;
+  }
+
+  return { remainingItems };
+}
+
 export async function purgeTenantDynamoItems(
   deps: DynamoTenantPurgeDeps,
   input: { tenantId: string; startAfter?: Record<string, unknown> },

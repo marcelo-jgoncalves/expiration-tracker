@@ -213,14 +213,52 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
       ];
     }
     case "PURGE_DELETE": {
+      // W3-07 review finding (Codex round on the purge pipeline, B3, 2026-08-29): the caller-side
+      // exclusion in dynamo-tenant-purge.ts (an optional `entityType` check) is NOT bulletproof —
+      // a legacy/malformed row missing `entityType`, or a future rename of the discriminator,
+      // would slip past it. The permanent anti-reprovisioning tombstone
+      // (`TenantLifecycleRecord`, key `TENANT#<id>#LIFECYCLE`/`LIFECYCLE` — see
+      // `tenant-lifecycle-record.ts`'s `tenantLifecycleKey`) MUST NEVER be deletable through this
+      // lane, full stop — enforced here, at the one privileged deletion lane itself, on the
+      // CANONICAL PHYSICAL KEY (not caller-supplied metadata), so no caller bug or malformed scan
+      // row can ever route a delete of this specific key through PURGE_DELETE.
+      if (op.key.SK === "LIFECYCLE" && op.key.PK === tenantLifecycleKey(op.tenantId).PK) {
+        throw new SystemMutationConflictError(
+          "SystemMutation \"PURGE_DELETE\" rejected: refusing to delete the TenantLifecycleRecord tombstone through the purge lane.",
+        );
+      }
+      // Same rationale, for `IdentityMapping` (key `IDENTITY#cognitoSub#<sub>`/`MAP` — see
+      // `identity-mapping-repository.ts`). This guard is doing real work now that the
+      // ConditionExpression below (B1 fix) accepts a `tenantId` attribute match as an
+      // alternative to the `TENANT#` prefix: `IdentityMapping` declares `tenantId` too, so
+      // WITHOUT this explicit key-shape guard the widened condition would happily accept
+      // deleting it if a caller bug ever routed one through this lane (the caller-side
+      // entityType exclusion in dynamo-tenant-purge.ts is the primary defense; this is the
+      // second layer, on the canonical key shape, independent of that caller).
+      if (op.key.PK.startsWith("IDENTITY#")) {
+        throw new SystemMutationConflictError(
+          "SystemMutation \"PURGE_DELETE\" rejected: refusing to delete an IdentityMapping row through the purge lane.",
+        );
+      }
       const prefix = `TENANT#${op.tenantId}#`;
       return [
         {
           Delete: {
             TableName: tableName,
             Key: op.key,
-            ConditionExpression: "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix)",
-            ExpressionAttributeValues: { ":purgeTenantPrefix": prefix },
+            // W3-07 review finding (Codex round on the purge pipeline, B1, 2026-08-29): the
+            // scan feeding this lane (tenant-purge-scan.ts) now also returns real tenant-owned
+            // rows whose PK is NOT `TENANT#<id>#...` (GuestTokenPointer/TextractJob, both of
+            // which declare `tenantId` as a plain attribute — see those domain files) — the
+            // `begins_with(PK, ...)` half alone would reject every one of them as a safety-
+            // condition failure, permanently blocking convergence for any tenant that has such a
+            // row. Accepting `tenantId = :purgeTenantId` as an alternative match preserves the
+            // same isolation property (the CURRENT item's own stored tenantId must match, not a
+            // caller-supplied claim) while covering both physical key conventions in this
+            // codebase.
+            ConditionExpression:
+              "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix) OR tenantId = :purgeTenantId",
+            ExpressionAttributeValues: { ":purgeTenantPrefix": prefix, ":purgeTenantId": op.tenantId },
           },
         },
       ];

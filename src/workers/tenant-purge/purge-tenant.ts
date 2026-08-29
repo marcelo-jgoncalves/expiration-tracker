@@ -10,8 +10,10 @@
  * Result semantics (never silently swallow a partial failure as success, per this session's
  * explicit requirement): `status` is
  *  - `"SUCCESS"` iff every sub-purge fully converged (S3: zero `unresolvedErrors` and the
- *    version-listing phase reached `versionsDone`; DynamoDB/session-table: no thrown error) — a
- *    caller may safely advance the tenant lifecycle past `PURGING`.
+ *    version-listing phase reached `versionsDone`; DynamoDB/session-table: zero safety-condition
+ *    rejections) AND an unconditional final re-scan/re-list of every store (dynamo, session
+ *    table, every S3 target — see `verifyTenant*Empty` calls below, added for review finding B2)
+ *    finds nothing remaining — a caller may safely advance the tenant lifecycle past `PURGING`.
  *  - `"PARTIAL"` iff every sub-purge ran without throwing, but at least one did not fully
  *    converge (an S3 prefix still has `unresolvedErrors`, or its version phase never finished
  *    convergence). The returned `checkpoint` lets the SAME call be retried/resumed later.
@@ -24,9 +26,9 @@
  * headers) — re-running `purgeTenant` for the same tenant, with or without a checkpoint, never
  * errors on already-purged state; it converges to the same terminal result.
  */
-import { purgeTenantDynamoItems, type DynamoTenantPurgeDeps, type DynamoTenantPurgeResult } from "./dynamo-tenant-purge.js";
-import { purgeTenantSessions, type SessionTableTenantPurgeDeps, type SessionTableTenantPurgeResult } from "./session-table-tenant-purge.js";
-import { purgeS3TenantPrefix, type S3TenantPurgeDeps, type S3TenantPurgeResult, type S3TenantPurgeCheckpoint } from "./s3-tenant-purge.js";
+import { purgeTenantDynamoItems, verifyTenantDynamoPurgeEmpty, type DynamoTenantPurgeDeps, type DynamoTenantPurgeResult } from "./dynamo-tenant-purge.js";
+import { purgeTenantSessions, verifyTenantSessionsEmpty, type SessionTableTenantPurgeDeps, type SessionTableTenantPurgeResult } from "./session-table-tenant-purge.js";
+import { purgeS3TenantPrefix, verifyS3TenantPrefixEmpty, type S3TenantPurgeDeps, type S3TenantPurgeResult, type S3TenantPurgeCheckpoint } from "./s3-tenant-purge.js";
 
 export interface TenantS3Target {
   bucket: string;
@@ -35,6 +37,17 @@ export interface TenantS3Target {
    * convention). Caller supplies the already-built prefix so this module stays agnostic of any
    * one module's exact key layout. */
   prefix: string;
+  /**
+   * The tenant this target is claimed to belong to — MUST equal `purgeTenant`'s
+   * `input.tenantId` for every target (checked in `purgeTenant`, see B6). W3-07 review finding
+   * (Codex round on the purge pipeline, B6, 2026-08-29): the previous shape let
+   * `purgeTenant()` accept `{bucket, prefix}` targets with no binding to the tenant actually
+   * being purged at all — a caller/composition-root bug (wrong tenant's prefix passed in) would
+   * physically delete the WRONG tenant's S3 objects with no structural check catching it. This
+   * field, plus the assertion in `purgeTenant`, makes that class of bug fail loudly instead of
+   * silently.
+   */
+  tenantId: string;
 }
 
 export interface TenantPurgeCheckpoint {
@@ -73,7 +86,28 @@ function s3TargetKey(target: TenantS3Target): string {
   return `${target.bucket}#${target.prefix}`;
 }
 
+/** Thrown when a caller hands `purgeTenant` an S3 target claiming a different tenant than the
+ * one being purged (B6) — fails loudly before any deletion happens, rather than silently
+ * purging the wrong tenant's objects. */
+export class TenantPurgeTargetMismatchError extends Error {
+  constructor(target: TenantS3Target, tenantId: string) {
+    super(
+      `purgeTenant("${tenantId}") was given an S3 target claiming tenantId "${target.tenantId}" (bucket "${target.bucket}", prefix "${target.prefix}") — refusing to purge a target not bound to the tenant being purged.`,
+    );
+    this.name = "TenantPurgeTargetMismatchError";
+  }
+}
+
 export async function purgeTenant(deps: TenantPurgeDeps, input: { tenantId: string; startFrom?: TenantPurgeCheckpoint }): Promise<TenantPurgeResult> {
+  // B6: verify every S3 target is actually bound to the tenant being purged BEFORE any
+  // sub-purge runs — a caller/composition-root bug here must never result in a different
+  // tenant's data being deleted.
+  for (const target of deps.s3Targets) {
+    if (target.tenantId !== input.tenantId) {
+      throw new TenantPurgeTargetMismatchError(target, input.tenantId);
+    }
+  }
+
   const checkpoint: TenantPurgeCheckpoint = { ...input.startFrom, s3: { ...input.startFrom?.s3 } };
   const s3Results: S3TenantPurgeResult[] = [];
 
@@ -148,7 +182,35 @@ export async function purgeTenant(deps: TenantPurgeDeps, input: { tenantId: stri
     }
   }
 
-  if (anyS3Unresolved) {
+  // W3-07 review finding (Codex round on the purge pipeline, B4, 2026-08-29): a nonzero
+  // `itemsRejectedBySafetyCondition` means at least one candidate row failed PURGE_DELETE's
+  // safety ConditionExpression (a scan/filter bug, a foreign row, or — since B3's fix — an
+  // attempted delete of the lifecycle tombstone). That disproves convergence just as surely as
+  // an unresolved S3 error; this function used to ignore the counter entirely and could return
+  // SUCCESS with tenant-owned (or protected) rows still physically present.
+  const dynamoUnresolved = (dynamoResult?.itemsRejectedBySafetyCondition ?? 0) > 0;
+  const sessionUnresolved = (sessionResult?.sessionsRejectedBySafetyCondition ?? 0) > 0;
+
+  // W3-07 review finding (Codex round on the purge pipeline, B2, 2026-08-29): the approved
+  // design requires convergence be proven by an empty re-scan, not just "the purge loop's own
+  // pages ran out" — the latter is especially unsafe on a RESUMED run, where a persisted
+  // `dynamoDone`/`sessionTableDone`/`versionsDone` from an earlier pass used to make this
+  // function skip straight to SUCCESS without ever looking again. Run all three verification
+  // passes UNCONDITIONALLY here (whether the phase above ran fresh this call or was skipped via
+  // checkpoint) — they are cheap (should return empty pages immediately in the success case) and
+  // are the only thing that actually proves the tenant's namespace converged to zero, per design
+  // §K ("re-scan vazio após a última deleção, não uma única varredura").
+  const dynamoVerify = await verifyTenantDynamoPurgeEmpty(deps.dynamo, input.tenantId);
+  const sessionVerify = await verifyTenantSessionsEmpty(deps.sessionTable, input.tenantId);
+  const s3Verify = await Promise.all(
+    deps.s3Targets.map((target) => verifyS3TenantPrefixEmpty({ source: deps.s3Source }, { bucket: target.bucket, prefix: target.prefix })),
+  );
+  const verificationFoundRemainder =
+    dynamoVerify.remainingItems > 0 ||
+    sessionVerify.remainingSessions > 0 ||
+    s3Verify.some((v) => v.remainingVersions > 0 || v.remainingMultipartUploads > 0);
+
+  if (anyS3Unresolved || dynamoUnresolved || sessionUnresolved || verificationFoundRemainder) {
     return { status: "PARTIAL", tenantId: input.tenantId, dynamo: dynamoResult, sessionTable: sessionResult, s3: s3Results, checkpoint };
   }
 

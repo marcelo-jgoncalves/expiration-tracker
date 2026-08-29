@@ -25,8 +25,11 @@ class FakeSessionTable implements SessionTablePurgeSource {
     return { items: page, lastEvaluatedKey: hasMore ? { afterPk: page.at(-1)?.PK } : undefined };
   }
 
-  async deleteSession(key: { PK: string; SK: string }): Promise<void> {
+  async deleteSession(key: { PK: string; SK: string }, expectedTenantId: string): Promise<{ deleted: boolean }> {
+    const current = this.items.get(key.PK);
+    if (current && current.tenantId !== expectedTenantId) return { deleted: false };
     this.items.delete(key.PK);
+    return { deleted: true };
   }
 
   has(pk: string): boolean {
@@ -77,6 +80,25 @@ describe("purgeTenantSessions", () => {
     };
     const result = await purgeTenantSessions({ source: brokenSource }, { tenantId: "t1" });
     expect(result.sessionsPurged).toBe(0);
+  });
+
+  it("B5 regression: a TOCTOU where the row's stored tenantId changed between scan and delete is rejected, not silently deleted", async () => {
+    // Simulates the exact race the review found: the scanned copy said t1, but by the time
+    // deleteSession actually runs the row's stored tenantId has changed to tenant-other (a
+    // repoint/corruption) — the conditional delete must refuse, and the caller must count this
+    // as a safety-condition rejection rather than a normal purge.
+    const table = new FakeSessionTable([session("tenant-other", "a")]); // current row already repointed
+    const staleScanSource: SessionTablePurgeSource = {
+      async scanTenantSessions() {
+        return { items: [session("t1", "a")] }; // stale copy still claims t1
+      },
+      deleteSession: table.deleteSession.bind(table),
+    };
+
+    const result = await purgeTenantSessions({ source: staleScanSource }, { tenantId: "t1" });
+    expect(result.sessionsPurged).toBe(0);
+    expect(result.sessionsRejectedBySafetyCondition).toBe(1);
+    expect(table.has("SESSION#a")).toBe(true); // tenant-other's row survives untouched
   });
 
   it("reports checkpoint progress via onCheckpoint", async () => {

@@ -288,4 +288,49 @@ describe("purgeTenantItem / PURGE_DELETE (W3-07 purge pipeline, this session)", 
 
     expect(store.hasRaw(nonTenantPrefixedKey)).toBe(true);
   });
+
+  it("B1 fix: accepts a real tenant-owned row whose PK is NOT TENANT#-prefixed (e.g. GuestTokenPointer) when its stored tenantId attribute matches", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "GUESTTOKEN#selector-hash-1", SK: "POINTER" };
+    store.seedRaw({ ...key, entityType: "GuestTokenPointer", tenantId: "tenant-1" });
+
+    await purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key });
+
+    expect(store.hasRaw(key)).toBe(false);
+  });
+
+  it("B1 fix + isolation: a non-TENANT#-prefixed row whose stored tenantId does NOT match the claimed tenant is still rejected", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "TEXTRACTJOB#job-1", SK: "TEXTRACTJOB#job-1" };
+    store.seedRaw({ ...key, entityType: "TextractJob", tenantId: "tenant-2" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+    expect(store.hasRaw(key)).toBe(true);
+  });
+
+  it("B3 fix: refuses to delete the TenantLifecycleRecord tombstone via its canonical key even if the caller omits/forges entityType (defense-in-depth independent of dynamo-tenant-purge.ts's exclusion)", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = tenantLifecycleKey("tenant-1");
+    // Seeded WITHOUT entityType — simulates a legacy/malformed row or a caller that never
+    // checked the metadata dynamo-tenant-purge.ts relies on.
+    store.seedRaw({ ...key, tenantId: "tenant-1", status: "PURGING" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+    expect(store.hasRaw(key)).toBe(true);
+  });
+
+  it("B3 fix (IdentityMapping companion): refuses to delete an IdentityMapping row via its canonical key shape even though its declared tenantId now matches (B1's widened condition)", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "IDENTITY#cognitoSub#sub-1", SK: "MAP" };
+    store.seedRaw({ ...key, entityType: "IdentityMapping", tenantId: "tenant-1" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+    expect(store.hasRaw(key)).toBe(true);
+  });
 });

@@ -2,6 +2,56 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — primeira rodada Codex do purge pipeline (2026-08-29), D-082, nota 4,5/10 — 6 bloqueadores corrigidos, sem reconfirmação
+
+Sessão de continuação direta de D-081 (o purge pipeline tinha sido implementado sem NENHUMA
+revisão adversarial). Rodou a primeira rodada Codex real sobre esse código, seguindo o mesmo
+padrão de arquivo-prompt/primeiro-plano do fence de admissão (`AGENTS.md` §4). Registro completo
+em `decisions-log.md` D-082.
+
+- **Nota do Codex: 4,5/10** — abaixo do gate de 9,0, mas no mesmo padrão de "primeira rodada real
+  acha bloqueadores estruturais" que D-072 (5,0/10) já mostrou no lado do fence de admissão.
+- **6 achados BLOQUEANTES, todos confirmados reais e corrigidos NESTA MESMA sessão** (sem uma
+  segunda rodada Codex confirmando os fixes — orçamento):
+  1. **B1 — completude do Scan**: `GuestTokenPointer`/`TextractJob` (tenant-owned, `tenantId`
+     declarado, mas PK fora do prefixo `TENANT#`) nunca eram alcançados pelo Scan. Corrigido
+     ampliando o `FilterExpression`/`ConditionExpression` para aceitar `tenantId = :tenantId` como
+     alternativa ao prefixo `TENANT#`.
+  2. **B2 — convergência não provada em retomada**: um checkpoint com `versionsDone`/`dynamoDone`/
+     `sessionTableDone` fazia uma retomada pular a re-varredura inteiramente, violando o requisito
+     do design aprovado de "re-scan vazio, não uma única varredura". Corrigido com 3 funções de
+     verificação incondicional (`verifyTenantDynamoPurgeEmpty`/`verifyTenantSessionsEmpty`/
+     `verifyS3TenantPrefixEmpty`), sempre chamadas antes de `SUCCESS`.
+  3. **B3 — exclusão do tombstone dependia de metadado mutável**: `TenantLifecycleRecord` só era
+     protegido pelo atributo opcional `entityType` no item escaneado. Corrigido com guarda por
+     CHAVE FÍSICA CANÔNICA dentro da própria lane privilegiada (`PURGE_DELETE`). Guarda equivalente
+     adicionada para `IdentityMapping` (achado próprio desta sessão: o fix de B1 teria reaberto a
+     proteção dela especificamente).
+  4. **B4 — rejeições de segurança ignoradas no result reporting**: `itemsRejectedBySafetyCondition`
+     já existia mas `purge-tenant.ts` nunca o lia — corrigido, agora força `PARTIAL`.
+  5. **B5 — TOCTOU na session table**: `deleteSession()` era incondicional após um check só do lado
+     do chamador. Corrigido com `ConditionExpression` server-side no adaptador real.
+  6. **B6 — S3 targets sem vínculo ao tenant**: `purgeTenant()` aceitava qualquer `{bucket,prefix}`
+     sem checar contra o `tenantId` sendo purgado. Corrigido exigindo `tenantId` no
+     `TenantS3Target` + asserção síncrona (`TenantPurgeTargetMismatchError`) antes de qualquer
+     purga rodar.
+- **2 achados NÃO-BLOQUEANTES avaliados, sem mudança de código**: `LoginAttempt` sem `tenantId`
+  (aceitável como está, já documentado); bucket OCR não-versionado (Codex marcou "bloqueante em
+  combinação com B2", mas com B2 corrigido o mecanismo já funciona corretamente sobre ele — a
+  questão real remanescente é operacional/timing de quando a verificação roda, não um bug de
+  código).
+- 1082 testes de backend passando (era 1066, +16 novos), typecheck/lint/check-boundaries/
+  check-docs limpos, zero regressão.
+
+**Próxima ação real, em ordem de valor esperado**: (a) uma SEGUNDA rodada Codex confirmando
+especificamente os 6 fixes B1-B6 antes de considerar D-082 fechado — mesmo padrão que o fence de
+admissão precisou (D-072→D-075→D-079→D-080) para convergir; (b) decidir e implementar o
+orquestrador/trigger real (Step Functions vs. Lambda simples via EventBridge Scheduler — decisão
+de produto/arquitetura, Type 1, ainda não decidida); (c) Terraform para a IAM role do futuro
+handler de purge; (d) teste de integração real dos adaptadores AWS (`tenant-purge-scan.ts`,
+`tenant-purge-s3-adapter.ts`) contra AWS real — ainda só compilação/lint, nunca exercitados contra
+DynamoDB/S3 reais.
+
 ## W3-07 — pipeline de purga durável (2026-08-29), D-081, ainda sem rodada Codex
 
 Sessão dedicada ao purge/sweeper pós-`DELETED` (Codex, em D-080, recomendou explicitamente

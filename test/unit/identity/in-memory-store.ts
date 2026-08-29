@@ -4,10 +4,11 @@ import type { EntityKey, IdentityStore, TransactWriteEntry } from "../../../src/
  * Generic-enough ConditionExpression evaluator for a `Delete` entry's condition — added for the
  * W3-07 purge pipeline (`system-mutation.ts`'s `PURGE_DELETE`, the first `Delete` entry this
  * fake needs to actually evaluate rather than silently no-op). Supports the operators that
- * module's condition actually uses: `attribute_not_exists`, `begins_with`, and a top-level `OR`
- * — deliberately narrower than `test/unit/workers/document-purge-fakes.ts`'s evaluator (no
- * `attribute_exists`/`=`/`<>`/`<=`/`AND` needed here yet), extend if a future Delete condition
- * needs more.
+ * module's condition actually uses: `attribute_not_exists`, `begins_with`, a plain `field = :value`
+ * equality atom (added for W3-07's B1 fix — `tenant-purge-scan.ts`'s widened
+ * `tenantId = :purgeTenantId` alternative), and a top-level `OR` — deliberately narrower than
+ * `test/unit/workers/document-purge-fakes.ts`'s evaluator (no `attribute_exists`/`<>`/`<=`/`AND`
+ * needed here yet), extend if a future Delete condition needs more.
  */
 function evaluateDeleteCondition(expression: string, values: Record<string, unknown>, item: Record<string, unknown> | undefined): boolean {
   function evalAtom(atom: string): boolean {
@@ -20,6 +21,13 @@ function evaluateDeleteCondition(expression: string, values: Record<string, unkn
       const prefix = values[valueKey!.trim()] as string;
       const actual = item?.[field!.trim()] as string | undefined;
       return typeof actual === "string" && actual.startsWith(prefix);
+    }
+    const equalityMatch = atom.match(/^(\S+)\s*=\s*(:\S+)$/);
+    if (equalityMatch) {
+      const [, field, valueKey] = equalityMatch;
+      const expected = values[valueKey!.trim()];
+      const actual = item?.[field!.trim()];
+      return item !== undefined && actual === expected;
     }
     throw new Error(`Unsupported Delete condition atom in fake evaluator: ${atom}`);
   }

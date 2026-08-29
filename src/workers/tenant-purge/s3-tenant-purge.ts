@@ -123,6 +123,42 @@ async function deleteWithRetry(source: S3PurgeSource, bucket: string, entries: S
   return { deletedCount, errors: lastErrors };
 }
 
+/** Same rationale as `dynamo-tenant-purge.ts`'s `verifyTenantDynamoPurgeEmpty` (B2) — a full,
+ * unconditional re-listing of both object versions/delete markers AND incomplete multipart
+ * uploads under `bucket`/`prefix`, ignoring any `versionsDone` checkpoint. `purge-tenant.ts`
+ * calls this unconditionally after each S3 target's purge attempt, so a persisted
+ * `versionsDone: true` from an earlier pass (which used to make a resumed run skip listing
+ * entirely — the exact scenario the approved design's "re-scan vazio" requirement exists to
+ * catch) can never by itself cause a false SUCCESS. */
+export async function verifyS3TenantPrefixEmpty(
+  deps: Pick<S3TenantPurgeDeps, "source">,
+  input: { bucket: string; prefix: string },
+): Promise<{ remainingVersions: number; remainingMultipartUploads: number }> {
+  let remainingVersions = 0;
+  let keyMarker: string | undefined;
+  let versionIdMarker: string | undefined;
+  for (;;) {
+    const page = await deps.source.listObjectVersions(input.bucket, input.prefix, keyMarker, versionIdMarker);
+    remainingVersions += page.versions.length;
+    keyMarker = page.nextKeyMarker;
+    versionIdMarker = page.nextVersionIdMarker;
+    if (!page.isTruncated) break;
+  }
+
+  let remainingMultipartUploads = 0;
+  let uploadKeyMarker: string | undefined;
+  let uploadIdMarker: string | undefined;
+  for (;;) {
+    const page = await deps.source.listMultipartUploads(input.bucket, input.prefix, uploadKeyMarker, uploadIdMarker);
+    remainingMultipartUploads += page.uploads.length;
+    uploadKeyMarker = page.nextKeyMarker;
+    uploadIdMarker = page.nextUploadIdMarker;
+    if (!page.isTruncated) break;
+  }
+
+  return { remainingVersions, remainingMultipartUploads };
+}
+
 export async function purgeS3TenantPrefix(
   deps: S3TenantPurgeDeps,
   input: { bucket: string; prefix: string; startFrom?: S3TenantPurgeCheckpoint },
