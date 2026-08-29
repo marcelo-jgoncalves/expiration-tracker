@@ -3,7 +3,7 @@
 **Data:** 2026-08-29  
 **Branch analisada:** `develop`  
 **Natureza:** análise estratégica + arquitetural + plano recomendado  
-**Status:** `APPROVED` (qualidade técnica) via protocolo Claude↔Codex — 3 rodadas reais, Claude 9,2/10, Codex 9,2/10, ambos ≥9,0 (ver §125 para o registro completo). **A decisão de TIMING ("fazer agora" vs. manter o gatilho comercial de `roadmap-evolution/05`, primeira venda B2B) permanece integralmente reservada ao Marcelo (`AGENTS.md` §1) — o protocolo aprovou a qualidade técnica do design assumindo implementação futura, nunca decidiu quando implementar.** Não implementar sem essa decisão explícita do Marcelo.
+**Status:** **`APPROVED` — design técnico (protocolo Claude↔Codex, 3 rodadas reais, Claude 9,2/Codex 9,2, ambos ≥9,0, ver §125) E timing (decisão direta do Marcelo, D-085, 2026-08-29: "proceder agora", supersedendo o gatilho comercial de `roadmap-evolution/05`).** Autorizado a prosseguir a partir da Wave B2B-0 (§105). Este documento passa a ser a especificação vigente de Multi-User B2B — ver `NEXT_SESSION_PROMPT.md` para o estado exato de execução.
 
 ---
 
@@ -3126,4 +3126,4 @@ O que **não** está isolado é a suíte de testes (~1104 testes de backend hoje
 
 **Nota de Claude, Rodada 3 (independente)**: **9,2/10** — concordo com a avaliação do Codex: os dois residuais da Rodada 2 foram fechados com mecanismos concretos (pointer único de convite pendente por e-mail+org com reenvio/rotação, terceiro ponto de origem real incluído sem inflar contagem), e o refinamento de `ownerCount` é precisão de especificação bem-vinda, não um achado novo que justifique reabrir rodada.
 
-**Status: TECNICAMENTE CONVERGIDO — `APPROVED` via protocolo Claude↔Codex (Claude 9,2/10, Codex 9,2/10, ambos ≥9,0, sem arredondamento, 3 rodadas reais).** Isto aprova a qualidade técnica do design de Multi-User B2B assumindo implementação futura — **não aprova, recomenda, nem decide "fazer agora"**. A decisão de timing (implementar agora vs. manter o gatilho comercial de `roadmap-evolution/05`, primeira venda B2B) permanece explícita e integralmente reservada ao Marcelo (`AGENTS.md` §1), independente deste resultado técnico.
+**Status: TECNICAMENTE CONVERGIDO — `APPROVED` via protocolo Claude↔Codex (Claude 9,2/10, Codex 9,2/10, ambos ≥9,0, sem arredondamento, 3 rodadas reais).** Isto aprovou a qualidade técnica do design de Multi-User B2B assumindo implementação futura — o protocolo em si não decidiu "fazer agora". **Atualização (2026-08-29, D-085): o Marcelo decidiu diretamente proceder agora**, supersedendo o gatilho comercial de `roadmap-evolution/05` (decisão de produto, protocolo dispensado sob as 3 condições de `docs/engineering/ai-governance.md` §2, registradas em D-085 — não uma decisão técnica adicional deste documento). Este documento está **autorizado a prosseguir a partir da Wave B2B-0** (§105).

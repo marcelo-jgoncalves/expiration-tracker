@@ -4,6 +4,8 @@ owner: Marcelo
 authority: informativo (decisão de domínio reconciliada via protocolo AGENTS.md §4; promovida a ADR formal só na Fase 3, junto do roadmap final)
 ---
 
+> **SUPERSEDED (timing), 2026-08-29, D-085**: a decisão de gating abaixo ("Organization/Membership/RBAC só no gatilho real") foi explicitamente supersedida por decisão direta do Marcelo — ver `decisions-log.md` D-085 e `roadmap-evolution/17-multi-user-b2b-revised-strategy.md`. O modelo de dados e o sequenciamento de billing por `TrackedSubject`/entitlements abaixo permanecem vigentes e não foram alterados — só o gatilho de timing do item 5 do sequenciamento foi substituído por "proceder agora".
+
 # Fase 2b — Modelagem de domínio: Organization/Membership/RBAC + Billing/Entitlements
 
 Terceiro cluster de decisão da Fase 2. Diferente dos dois primeiros, este parte de readiness
