@@ -7,8 +7,8 @@ import {
   type TenantLifecycleStatus,
 } from "../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { executeTenantBusinessMutation } from "../../src/shared/tenant-lifecycle/tenant-business-mutation.js";
-import { buildVersionedCreate, type TransactWriteEntry } from "../../src/shared/dynamodb/occ.js";
-import { TenantNotActiveError } from "../../src/shared/errors/app-error.js";
+import { buildVersionedCreate, buildVersionedUpdate, type TransactWriteEntry } from "../../src/shared/dynamodb/occ.js";
+import { InternalError, TenantNotActiveError } from "../../src/shared/errors/app-error.js";
 import { InMemoryIdentityStore } from "./identity/in-memory-store.js";
 
 const ALL_STATUSES: TenantLifecycleStatus[] = ["ACTIVE", "DELETING", "QUIESCING", "PURGING", "VERIFIED", "DELETED", "BLOCKED", "HELD"];
@@ -145,5 +145,70 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
       { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-2#ITEM#item-1", SK: "META", version: 1 }) },
     ];
     await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-2", entries })).resolves.toBeUndefined();
+  });
+
+  it("adversarial (D-072 tenant/entries cross-validation): rejects a Put entry whose Item.tenantId does not match the fenced tenantId, before any write is attempted", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+
+    // Caller fences on tenant-A but the entry it built is actually scoped to tenant-B.
+    const entries: TransactWriteEntry[] = [
+      {
+        Put: buildVersionedCreate(TABLE, {
+          PK: "TENANT#tenant-B#ITEM#item-1",
+          SK: "META",
+          tenantId: "tenant-B",
+          version: 1,
+        }),
+      },
+    ];
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-A", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+
+    // Neither tenant's row was written - rejected before the transaction was even attempted.
+    expect(await store.get({ PK: "TENANT#tenant-B#ITEM#item-1", SK: "META" })).toBeUndefined();
+  });
+
+  it("adversarial (D-072): rejects an Update entry whose declared tenantId does not match the fenced tenantId", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+    await store.putIfAbsent({ PK: "TENANT#tenant-B#ITEM#item-1", SK: "META", tenantId: "tenant-B", version: 1, count: 0 });
+
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: TABLE,
+          key: { PK: "TENANT#tenant-B#ITEM#item-1", SK: "META" },
+          tenantId: "tenant-B",
+          expectedVersion: 1,
+          set: { count: 1 },
+        }),
+      },
+    ];
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-A", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+
+    const untouched = await store.get<{ PK: string; SK: string; count: number; version: number }>({
+      PK: "TENANT#tenant-B#ITEM#item-1",
+      SK: "META",
+    });
+    expect(untouched?.count).toBe(0);
+    expect(untouched?.version).toBe(1);
+  });
+
+  it("does not reject entries that declare no tenantId at all (e.g. bare ConditionCheck-style Put with no tenantId field) - only a DECLARED mismatch is caught", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-1", "ACTIVE");
+
+    const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-2", SK: "META", version: 1 }) },
+    ];
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
   });
 });

@@ -2,6 +2,34 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — fechamento do item 1 de D-072 (2026-08-29), D-073
+
+Sessão de continuação retomada após interrupção por rate limit. Escopo: fechar os achados
+deferidos por D-072 (revisão Codex round-1), item 1 primeiro por prioridade e por já estar em
+progresso no working tree ao retomar. Registro completo em `decisions-log.md` D-073.
+
+- **Item 1 FECHADO — cross-validation tenant/entries em `TenantBusinessMutation`**:
+  `executeTenantBusinessMutation` agora chama `findTenantMismatch(entries, tenantId)` antes de
+  qualquer `transactWrite`, lendo o `tenantId` já estampado pelos builders de `occ.ts`
+  (`Item.tenantId` em `Put`, `ExpressionAttributeValues[":tenantId"]` em `Update`/`Delete`) e
+  rejeitando com `InternalError` se algum valor declarado divergir do `tenantId` fenceado.
+  `ConditionCheck` entries (sem convenção de tenantId) são puladas — best-effort, documentado no
+  próprio código como não sendo uma prova estrutural completa (só pega mismatch DECLARADO).
+  Nenhum call site real precisou de mudança (todos já passavam entries corretamente escopadas).
+  **IMPLEMENTED + UNIT TESTED** (3 testes adversariais novos em `test/unit/tenant-lifecycle.test.ts`).
+- **Itens 2/3/4 de D-072 NÃO alcançados nesta sessão** (orçamento esgotado após item 1): overclaim
+  estrutural do boundary (`no-raw-dynamodb-writes-outside-lanes`/`system-mutation.ts` header),
+  risco de admissão parcial em `import-service.ts`, hardening de `CancellationReasons` ausente em
+  `tenant-business-mutation.ts`. Permanecem exatamente como D-072 os deixou.
+- **Segunda rodada de revisão Codex sobre os fixes de D-072 NÃO executada** nesta sessão —
+  orçamento esgotado.
+- 1019 testes de backend passando (era 1016), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão.
+
+**Próxima ação real**: itens 2/3/4 de D-072 (ver texto completo em `w3-07-writer-inventory.md`'s
+seção "Codex round-1 adversarial review" e em D-072/D-073 no decisions-log), depois a segunda
+rodada de revisão Codex cobrindo o diff acumulado desde `641a47e`.
+
 ## W3-07 — primeira revisão adversarial Codex + correções (2026-08-29), D-072
 
 Sessão dedicada a review-and-fix, não a novo chunk de migração: rodou a primeira revisão Codex

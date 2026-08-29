@@ -26,8 +26,48 @@
  * item 2 (this file).
  */
 import { buildExistenceConditionCheck, isTransactionCanceled, type TransactWriteEntry } from "../dynamodb/occ.js";
-import { TenantNotActiveError } from "../errors/app-error.js";
+import { InternalError, TenantNotActiveError } from "../errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-record.js";
+
+/**
+ * Best-effort cross-validation that every entry the caller asks this lane to fence is actually
+ * scoped to the `tenantId` the lane fences against (W3-07 Codex round-1 review, D-072 —
+ * `TenantBusinessMutation` previously trusted `input.tenantId` blindly, so a caller bug passing
+ * `tenantId: A` with entries actually built for tenant B would silently commit under A's fence).
+ *
+ * This does NOT parse the DynamoDB key structure (PK/SK) — the `occ.ts` builders this codebase's
+ * `AGENTS.md` §7 mandates ("toda escrita mutável usa os builders de occ.ts, nunca UpdateItem/
+ * PutItem cru") already stamp a `tenantId` onto every entry they build, in a fixed place:
+ * `buildVersionedCreate`/`buildConditionalPut` put it in `Item.tenantId`; `buildVersionedUpdate`/
+ * `buildVersionedDelete` put it in `ExpressionAttributeValues[":tenantId"]` (always paired with
+ * `ExpressionAttributeNames["#tenantId"] = "tenantId"` in their base condition). Reading it back
+ * from those exact conventions is more robust than re-deriving it from a key string, and does not
+ * require every port to expose the physical key schema to this lane.
+ *
+ * `ConditionCheck` entries (e.g. the lifecycle fence this lane itself appends, or a caller's own
+ * freshness check) are intentionally NOT required to declare a tenantId — `buildExistenceCondition
+ * Check`/`buildVersionConditionCheck` have no such convention, and forcing one would be a false
+ * requirement, not a real safety property. An entry that declares no tenantId at all (e.g. a
+ * caller-supplied `ConditionCheck`) is skipped, not rejected — this validator can only catch a
+ * DECLARED mismatch, not prove every entry carries the right tenant; that residual gap is real and
+ * is why this is documented as "best-effort", not a full structural proof.
+ */
+function findTenantMismatch(entries: TransactWriteEntry[], tenantId: string): string | undefined {
+  for (const entry of entries) {
+    if ("Put" in entry) {
+      const declared = (entry.Put.Item as { tenantId?: unknown }).tenantId;
+      if (typeof declared === "string" && declared !== tenantId) return declared;
+    } else if ("Update" in entry) {
+      const declared = entry.Update.ExpressionAttributeValues?.[":tenantId"];
+      if (typeof declared === "string" && declared !== tenantId) return declared;
+    } else if ("Delete" in entry) {
+      const declared = entry.Delete.ExpressionAttributeValues?.[":tenantId"];
+      if (typeof declared === "string" && declared !== tenantId) return declared;
+    }
+    // ConditionCheck: no tenantId convention to check, intentionally skipped (see doc above).
+  }
+  return undefined;
+}
 
 /** Minimal surface this lane needs from a store - both IdentityStore and ExpirationStore
  * (and any future module's port) satisfy this structurally, since they share the same
@@ -64,6 +104,14 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
     throw new TenantNotActiveError("TenantBusinessMutation called with zero entries — nothing to fence.", {
       tenantId: input.tenantId,
     });
+  }
+
+  const mismatch = findTenantMismatch(input.entries, input.tenantId);
+  if (mismatch !== undefined) {
+    throw new InternalError(
+      "TenantBusinessMutation entry declares a tenantId that does not match the fenced tenantId — refusing to write.",
+      { fencedTenantId: input.tenantId, declaredTenantId: mismatch },
+    );
   }
 
   const fence = buildExistenceConditionCheck({
