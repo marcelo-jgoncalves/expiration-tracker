@@ -2,6 +2,24 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## Engenharia de logs/tracing (2026-08-29), E-011 — padrão aprovado + auditoria + 2 pendências reais
+
+Pedido explícito do Marcelo: "máxima qualidade em logs e tracing", avaliado em rodadas Claude↔Codex. Registro completo em `docs/engineering/decisions-log.md` E-011. Resumo do estado: `docs/engineering/logging-observability-standard.md` `APPROVED` (gate 9,5/10); achados reais de wiring de detecção (5 emissores sem metric filter) e propagação de `correlationId` pelo pipeline de extração (Step Functions) já corrigidos e mergeados em `main` (PRs #80/#81) — auditoria da implementação subiu de 7,9 para 8,7/10.
+
+**Pendência 1 — decisão de produto, não implementar sem sinal do Marcelo**: `AppError.retryable` não decide comportamento real de nenhum handler SQS hoje (documentação já corrigida para não afirmar o contrário) — ver E-011 para o detalhe completo.
+
+**Pendência 2 — design `APPROVED`, aguardando decisão de quando implementar**: junção `correlationId` ↔ trace ADOT/X-Ray. Design em `expiration-tracker-correlationid-trace-join-design-2026-08-29.md` (raiz do repo), v2 (Rodada 4 incorporou 4 melhorias propostas pelo Marcelo — validação rígida do `Root`, nota de cardinalidade não-1:1, correção de precedência do logger, smoke test real em `dev`). **Checklist de implementação (nenhum item feito ainda)**:
+
+- [ ] `src/shared/observability/xray-trace-header.ts` novo — `parseXrayTraceHeader(raw: string | undefined)`, parsing determinístico por campo (não por ordem fixa), `Root` validado contra `^1-[0-9a-fA-F]{8}-[0-9a-fA-F]{24}$`, `Sampled` só `"0"`/`"1"`, `Parent` opcional (considerar deixar de fora da v1) validado como hex 16 chars, `Lineage` ignorado, nunca lança.
+- [ ] Testes do parser: formato válido com ordem variável, ausente/vazio, `Root`/`Sampled`/`Parent` inválidos cada um isoladamente, `Lineage` ignorado, fail-open garantido.
+- [ ] **Corrigir a precedência de `SecureLogger.write()` (`logger.ts`) — vale por si só, independente do resto desta feature**: hoje `{ ...getContext(), ...this.baseContext, ...context }` deixa o `context` de cada chamada sobrescrever silenciosamente `tenantId`/`correlationId` reais do `AsyncLocalStorage`. Nova ordem: `context` → `baseContext` → `getContext()` → campos `xray*` derivados (do menos para o mais confiável).
+- [ ] Teste de precedência novo: `context` forjado (`xrayTraceId`/`tenantId`/`correlationId` falsos) nunca vence valores reais de `getContext()`/`_X_AMZN_TRACE_ID`.
+- [ ] Integrar `parseXrayTraceHeader(process.env["_X_AMZN_TRACE_ID"])` em `SecureLogger.write()`, campos incluídos quando presentes, nunca o header bruto.
+- [ ] Nota de cardinalidade (`correlationId`↔`xrayTraceId` não é 1:1) e nota de sampling (`xraySampled:false` não é falha) documentadas no código e em `logging-observability-standard.md`'s critério 4.
+- [ ] `npm run typecheck`/`lint`/`check-docs`/`npm test` limpos antes de commitar.
+- [ ] **Smoke test real em `dev`** (só depois do deploy real via pipeline, nunca apply local): invocar uma Lambda com tracing ativo, confirmar `correlationId`/`xrayTraceId`/`xraySampled=true` numa linha de log real, copiar o `xrayTraceId`, confirmar no console X-Ray que é o mesmo trace. Sem isso, status fica `UNIT TESTED`, nunca `E2E PROVEN`.
+- [ ] Mover o design de `expiration-tracker-correlationid-trace-join-design-2026-08-29.md` (raiz) para `docs/architecture/` (ou anexar como emenda a `m5-observability-design.md`) e apagar da raiz, uma vez implementado.
+
 ## W3-07 — segunda rodada Codex + fechamento de B6 (2026-08-29, sessão em outra máquina), D-083, nota 9,1/10 — purge pipeline pronto para decidir orquestrador
 
 Sessão que retomou o trabalho via `git pull` (a sessão anterior, mesma máquina de D-082, foi
