@@ -36,8 +36,19 @@ produto. Ver `decisions-log.md` D-076 para o registro completo do item 1.
   reais sob `src/` concorrentemente causavam uma corrida real (`TS6053: File ... not found`
   intermitente) — corrigido com `fileParallelism: false` em `vitest.config.ts`. 1032 testes de
   backend passando (era 1026), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
-- Item 3 e a terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é
-  atualizada incrementalmente conforme os itens avançam — conferir `git log` para o estado real).
+- **Item 3 FECHADO (mitigação, não a decisão de produto em si)**: `reserveImport()`'s catch block
+  agora libera best-effort a quota (`IMPORT_COUNT`/`IMPORT_BYTES`) e aborta o idempotency record
+  quando a criação fenceada do `ImportJob` falha — antes, uma rejeição (fence ou OCC comum) deixava
+  a idempotency key presa em `IN_PROGRESS` para sempre e a quota vazada até expirar a janela. A
+  admissão parcial em si (quota/idempotency fora da transação fenceada) continua fora da transação
+  — isso é a decisão de produto real (trade-off latência-vs-atomicidade) que permanece pendente,
+  não forçada. **Achado real corrigido**: `InMemoryImportStore`'s fake de `transactWrite` nunca
+  avaliava a condição `#status = :expected` de `idempotency.abort()` nem aplicava seu SET (nomes
+  literais, não a convenção `#setN`) — `abort()` "funcionava" sem erro mas não mudava nada,
+  mascarando a mitigação nos testes. Generalizado para um parser genérico de condição/update.
+  1034 testes de backend passando (era 1032), typecheck/lint/check-boundaries/check-docs limpos.
+- Terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é atualizada
+  incrementalmente conforme os itens avançam — conferir `git log` para o estado real).
 
 
 

@@ -8,6 +8,7 @@ import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-vali
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { tenantQuotaKey, type TenantQuotaRecord } from "../../../src/modules/identity/application/quota.js";
 
 const TENANT = "tenant-1";
 const TABLE = "MainTable";
@@ -32,10 +33,11 @@ function ctxFor(tenantId: string): RequestContext {
 describe("ImportService (M11, D-042)", () => {
   let store: InMemoryImportStore;
   let service: ImportService;
+  let identityStore: InMemoryIdentityStore;
 
   beforeEach(async () => {
     store = new InMemoryImportStore([activeLifecycleRecord(TENANT)]);
-    const identityStore = new InMemoryIdentityStore();
+    identityStore = new InMemoryIdentityStore();
     // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
     // TenantLifecycleRecord to exist for the tenant.
     await identityStore.putIfAbsent({
@@ -139,6 +141,45 @@ describe("ImportService (M11, D-042)", () => {
 
       const jobs = store.allItems().filter((i) => i["entityType"] === "ImportJob");
       expect(jobs).toHaveLength(0);
+    });
+
+    it("D-076 item 3 mitigation: tenant DELETING -> reserveImport's fence rejection RELEASES the IMPORT_COUNT/IMPORT_BYTES quota consumed just before the fenced write, instead of leaking it for an admission that never happened", async () => {
+      const lifecycleKey = tenantLifecycleKey(TENANT);
+      const existing = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...existing, ...lifecycleKey, status: "DELETING", version: (existing?.version ?? 1) + 1 } as never);
+
+      await expect(service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-quota-release")).rejects.toThrow(
+        /not ACTIVE/i,
+      );
+
+      const countQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_COUNT", "current"));
+      const bytesQuota = await identityStore.get<TenantQuotaRecord>(tenantQuotaKey(TENANT, "IMPORT_BYTES", "current"));
+      // consume() ran once (count=1) before the fenced write rejected; release() must bring both
+      // back to 0 - without the mitigation these would be stuck at 1 despite zero rows admitted.
+      expect(countQuota?.count).toBe(0);
+      expect(bytesQuota?.count).toBe(0);
+    });
+
+    it("D-076 item 3 mitigation: tenant DELETING -> reserveImport's fence rejection ABORTS the idempotency record, so a retry with the SAME Idempotency-Key succeeds (as a fresh reservation) once the tenant is ACTIVE again, instead of being stuck behind a permanently IN_PROGRESS key", async () => {
+      const lifecycleKey = tenantLifecycleKey(TENANT);
+      const deletingRecord = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...deletingRecord, ...lifecycleKey, status: "DELETING", version: (deletingRecord?.version ?? 1) + 1 } as never);
+
+      await expect(service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-retry-after-deleting")).rejects.toThrow(
+        /not ACTIVE/i,
+      );
+
+      // Tenant recovers to ACTIVE (e.g. a mistaken/aborted deletion, or this is a fresh tenant
+      // reusing a key namespace) - without abort(), begin() would see the stale IN_PROGRESS
+      // record and throw ConcurrentOperationError forever, even though nothing was ever admitted.
+      const activeAgain = await store.get<{ PK: string; SK: string; version: number } & Record<string, unknown>>(lifecycleKey);
+      await store.update({ ...activeAgain, ...lifecycleKey, status: "ACTIVE", version: (activeAgain?.version ?? 1) + 1 } as never);
+
+      const retry = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-retry-after-deleting");
+      expect(retry.jobId).toBeTruthy();
+
+      const job = await service.getImportJob(ctx(), retry.jobId);
+      expect(job.status).toBe("UPLOADED");
     });
   });
 });

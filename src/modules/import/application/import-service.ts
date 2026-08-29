@@ -150,6 +150,26 @@ export class ImportService {
           entries: [{ Put: buildVersionedCreate(this.tableName, job as unknown as Record<string, unknown> & { PK: string; SK: string }) }],
         });
       } catch (err) {
+        // W3-07 D-072/D-075 item 3 review: idempotency.begin() and both quota.consume() calls
+        // above run OUTSIDE this fenced transaction, so a failure here (fence rejection or an
+        // ordinary OCC conflict on the job row) previously left both reservations permanently
+        // leaked - the idempotency key stuck IN_PROGRESS forever (same "idempotency liveness
+        // residual" class of bug abort() exists to close elsewhere, e.g. renewItem's OCC-conflict
+        // path) and IMPORT_COUNT/IMPORT_BYTES quota consumed for a job that was never admitted,
+        // recoverable only by window expiry. This does NOT unify the sequence into one larger
+        // transaction (that trade-off - latency vs. atomicity - remains the deferred product
+        // decision, D-074/D-075) - it is a cheap, fail-closed compensating mitigation for the
+        // failure window that exists either way: best-effort release what was reserved before
+        // rethrowing, so a failed reservation attempt does not also poison the tenant's quota or
+        // idempotency key for a request that never actually got admitted. Every compensation is
+        // best-effort and swallowed (never lets a compensation failure hide the real error, or
+        // block the caller from seeing/retrying it) - same discipline as the evidence-mutation
+        // workers' orphan-object compensation (D-072 finding 3).
+        await Promise.allSettled([
+          this.idempotency.abort({ tenantId: ctx.tenant.tenantId, operation: OPERATION, key: idempotencyKey }),
+          this.quota.release({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_COUNT", window: "current", windowSeconds: 60 * 60 }),
+          this.quota.release({ tenantId: ctx.tenant.tenantId, quotaType: "IMPORT_BYTES", window: "current", windowSeconds: 60 * 60 }),
+        ]);
         if (err instanceof TenantNotActiveError) throw err;
         throw new ConflictError("Failed to reserve import job.", { cause: err instanceof Error ? err.message : String(err) });
       }

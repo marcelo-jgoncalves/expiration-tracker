@@ -19,6 +19,87 @@ export function activeLifecycleRecord(tenantId: string, now = "2026-08-29T00:00:
   };
 }
 
+/** Splits a ConditionExpression/UpdateExpression's top-level " AND "-joined clauses, respecting
+ * paren nesting (occ.ts's `extraConditions` wrap each clause in its own parens before ANDing it
+ * in) - avoids the fake special-casing one literal clause shape (e.g. only `#version =
+ * :expectedVersion`) and silently no-op'ing any other equality condition a caller adds (D-076
+ * item 3: `transitionIdempotencyStatus`'s `#status = :expected` condition is exactly such a case
+ * this fake previously never evaluated at all, so `abort()` silently no-op'd through this store). */
+function splitTopLevelAnd(expr: string): string[] {
+  const clauses: string[] = [];
+  let depth = 0;
+  let current = "";
+  const tokens = expr.split(/(\s+AND\s+)/);
+  for (const token of tokens) {
+    if (/^\s+AND\s+$/.test(token) && depth === 0) {
+      clauses.push(current.trim());
+      current = "";
+      continue;
+    }
+    for (const ch of token) {
+      if (ch === "(") depth += 1;
+      if (ch === ")") depth -= 1;
+    }
+    current += token;
+  }
+  if (current.trim()) clauses.push(current.trim());
+  return clauses;
+}
+
+/** Generic equality-condition evaluator for a single clause (after unwrapping outer parens) -
+ * `#name = :value` against `existing`. Returns true (pass) for clause shapes this fake does not
+ * recognize (best-effort fake, same discipline as the rest of this file) rather than failing
+ * closed on an unrecognized clause. */
+function evaluateEqualityClause(
+  clause: string,
+  names: Record<string, string>,
+  values: Record<string, unknown>,
+  existing: (Record<string, unknown> & EntityKey) | undefined,
+): boolean {
+  let c = clause.trim();
+  while (c.startsWith("(") && c.endsWith(")")) c = c.slice(1, -1).trim();
+  const match = /^(#\S+)\s*=\s*(:\S+)$/.exec(c);
+  if (!match) return true; // unrecognized clause shape - ignore, not a hard failure.
+  const nameKey = match[1];
+  const valueKey = match[2];
+  if (nameKey === undefined || valueKey === undefined) return true;
+  const fieldName = names[nameKey];
+  if (fieldName === undefined || !(valueKey in values)) return true;
+  return existing !== undefined && existing[fieldName] === values[valueKey];
+}
+
+/** Generic SET/REMOVE apply for an UpdateExpression, replacing the old `:setN`/`#setN`-only
+ * convention - covers both `occ.ts`'s generated `#setN`/`#remN` placeholders AND a caller's own
+ * literally-named placeholders (e.g. `transitionIdempotencyStatus`'s `#status`/`#requestHash`/
+ * `#responseRef`/`#completedAt`), which the old convention silently never applied at all. */
+function applyUpdateExpression(
+  expr: string,
+  names: Record<string, string>,
+  values: Record<string, unknown>,
+  target: Record<string, unknown>,
+): void {
+  const setMatch = /SET\s+(.+?)(?:\s+REMOVE\s+(.+))?$/.exec(expr);
+  if (!setMatch) return;
+  const setPart = setMatch[1];
+  const removePart = setMatch[2];
+  for (const assignment of (setPart ?? "").split(",")) {
+    const m = /^\s*(#\S+)\s*=\s*(:\S+)\s*$/.exec(assignment);
+    if (!m) continue;
+    const nameKey = m[1];
+    const valueKey = m[2];
+    if (nameKey === undefined || valueKey === undefined) continue;
+    const fieldName = names[nameKey];
+    if (fieldName === undefined || !(valueKey in values)) continue;
+    target[fieldName] = values[valueKey];
+  }
+  if (removePart) {
+    for (const nameKey of removePart.split(",").map((s) => s.trim())) {
+      const fieldName = names[nameKey];
+      if (fieldName !== undefined) delete target[fieldName];
+    }
+  }
+}
+
 /** Mesmas convenções de test/unit/subject/in-memory-store.ts (avalia só os formatos de
  * ConditionExpression que este codebase realmente produz). */
 export class InMemoryImportStore implements ImportStore {
@@ -68,16 +149,27 @@ export class InMemoryImportStore implements ImportStore {
         }
       } else if ("Update" in entry) {
         const existing = this.items.get(this.k(entry.Update.Key));
-        if (!existing) {
+        const cond = entry.Update.ConditionExpression;
+        const requiresExists = cond.includes("attribute_exists(PK)");
+        if (requiresExists && !existing) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
           return;
         }
-        const match = /#version = :expectedVersion/.test(entry.Update.ConditionExpression);
-        const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"] as number | undefined;
-        if (match && expectedVersion !== undefined && existing["version"] !== expectedVersion) {
-          reasons[i] = { Code: "ConditionalCheckFailed" };
-          anyFailed = true;
+        // Generic equality-clause evaluation (D-076 item 3 fix): previously only recognized
+        // `#version = :expectedVersion` literally, silently ignoring every other equality
+        // condition a caller's ConditionExpression names - including
+        // `transitionIdempotencyStatus`'s `#status = :expected`, which made `abort()`
+        // unconditionally "succeed" through this fake without ever checking the prior status.
+        const names = entry.Update.ExpressionAttributeNames ?? {};
+        const values = entry.Update.ExpressionAttributeValues ?? {};
+        for (const clause of splitTopLevelAnd(cond)) {
+          if (clause.startsWith("attribute_exists(") || clause.startsWith("attribute_not_exists(")) continue;
+          if (!evaluateEqualityClause(clause, names, values, existing)) {
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
+          }
         }
       } else if ("ConditionCheck" in entry) {
         const check = entry.ConditionCheck;
@@ -111,16 +203,15 @@ export class InMemoryImportStore implements ImportStore {
         const item = entry.Put.Item as Record<string, unknown> & EntityKey;
         this.items.set(this.k(item), item);
       } else if ("Update" in entry) {
-        const existing = this.items.get(this.k(entry.Update.Key))!;
-        const updated = { ...existing };
-        for (const [name, value] of Object.entries(entry.Update.ExpressionAttributeValues)) {
-          if (name.startsWith(":set")) {
-            const idx = name.slice(4);
-            const attrName = entry.Update.ExpressionAttributeNames[`#set${idx}`];
-            if (attrName) updated[attrName] = value;
-          }
+        const existing = this.items.get(this.k(entry.Update.Key)) ?? { ...entry.Update.Key };
+        const updated: Record<string, unknown> & EntityKey = { ...existing };
+        applyUpdateExpression(entry.Update.UpdateExpression, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues ?? {}, updated);
+        // Only bump `version` if this update's own placeholders actually reference it (occ.ts's
+        // buildVersionedUpdate convention) - transitionIdempotencyStatus's update has no notion
+        // of a version field at all, and idempotency records never carry one.
+        if (Object.values(entry.Update.ExpressionAttributeNames ?? {}).includes("version")) {
+          updated["version"] = ((existing as Record<string, unknown>)["version"] as number | undefined ?? 0) + 1;
         }
-        updated["version"] = (existing["version"] as number) + 1;
         this.items.set(this.k(entry.Update.Key), updated);
       }
     }
