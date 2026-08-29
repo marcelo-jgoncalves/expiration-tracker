@@ -2,6 +2,58 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — primeira revisão adversarial Codex + correções (2026-08-29), D-072
+
+Sessão dedicada a review-and-fix, não a novo chunk de migração: rodou a primeira revisão Codex
+sobre TODA a implementação acumulada de W3-07 (chunks 2/N-9/N), que nunca tinha sido revisada
+apesar de ser Type 1/segurança per `AGENTS.md` §4. Registro completo em `decisions-log.md` D-072;
+matriz atualizada + seção de review em `docs/architecture/w3-07-writer-inventory.md`.
+
+- **Nota do Codex: 5,0/10** sobre o código real (o design em si continua aprovado 9,2/9,1 via
+  D-066 — esta nota é sobre a fidelidade da implementação ao design, não uma reabertura do design).
+- **3 achados bloqueantes reais corrigidos, com teste de regressão cada um**: (1) TOCTOU de
+  ressurreição no bootstrap (`bootstrap-identity.ts`'s `ensureProfile()` agora fenced via
+  `executeTenantBusinessMutation`, não mais um `putIfAbsent` solto após uma leitura de lifecycle já
+  potencialmente obsoleta); (2) resume de `BLOCKED`/`HELD` podia pular estágios do cascade
+  confiando no `blockedFrom` alegado pelo CHAMADOR em vez do valor realmente armazenado
+  (`system-mutation.ts` agora exige, via `extraCondition` na mesma transação, que o `blockedFrom`
+  armazenado bata com o alvo do resume); (3) os workers de evidência só compensavam o objeto `clean`
+  órfão na rejeição do fence, nunca numa perda de corrida OCC comum nem numa falha de verificação de
+  cópia — confirmado que o bucket `clean` É versionado (`infra/modules/document-buckets/main.tf`),
+  então isso deixava versões órfãs reais mesmo em caminhos de sucesso eventual; corrigido para
+  compensar em todo resultado não commitado, nos dois arquivos (`advance-after-evidence.ts` e
+  `advance-after-submission-evidence.ts`).
+- **Achado de doc-drift real corrigido**: `w3-07-writer-inventory.md` tinha 3 linhas desatualizadas
+  (SES/evidence-workers/import-reservation ainda diziam NOT FENCED apesar de já migradas em sessões
+  anteriores) — corrigido, com o histórico da deriva registrado na própria tabela.
+- **Achados reais NÃO corrigidos, documentados como pendência** (ver a seção "Codex round-1
+  adversarial review" no final de `w3-07-writer-inventory.md` para o texto completo por item, e
+  D-072 para a versão com o framing de severidade do Codex preservado): vários writers já
+  documentados como NOT FENCED antes desta revisão (não descobertas novas); a regra
+  `no-raw-dynamodb-writes-outside-lanes` + o comentário de `system-mutation.ts` superestimavam o que
+  provam (bloqueiam import direto do SDK, não provam que `store.transactWrite(entries)` genérico é
+  inalcançável de código de aplicação) — comentário corrigido para não overclaim, fechamento
+  estrutural real adiado; `TenantBusinessMutation` não valida que `entries[]` pertence de fato ao
+  `tenantId` passado (todos os call sites reais conferem hoje, API não impede um mismatch futuro);
+  `import-service.ts`'s reservas de quota/idempotência fora da transação fenced principal
+  (admissão parcial possível numa falha no meio, mesma classe de risco já aceita para
+  `TenantQuotaService.release()`); `tenant-business-mutation.ts`'s tratamento de `CancellationReasons`
+  ausente como fence-failed é conservador mas não hardened contra um adapter hipotético quebrado
+  (DynamoDB real sempre populates, risco real baixo).
+- 1016 testes de backend passando (era 1011), typecheck/lint/check-boundaries/check-docs limpos,
+  zero regressão. Nota do Codex NÃO foi re-solicitada após os fixes (fora do orçamento desta
+  sessão) — recomendado como próximo passo antes de retomar novos chunks de migração.
+
+**Próxima ação real**: (a) opcionalmente, uma segunda rodada Codex sobre só o que mudou nesta
+sessão, para confirmar os 3 fixes e não introduziram nada novo; (b) continuar o roteiro de writers
+ainda NOT FENCED (`ItemWatchService.addWatcher`/`reactivate`, `document-request-service.ts`,
+`subject-service.ts`, `run-extraction-validation.ts`'s `commitOrDiscard`, import parse/commit); (c)
+o fechamento estrutural real do boundary (porta mais estreita para os stores, ou um architecture
+test que bloqueie `store.transactWrite` fora das duas lanes) — Type 1, provavelmente merece seu
+próprio design curto antes de implementar; (d) sweeper permanente pós-`DELETED`; (e) email delivery
+já fenced, mas SES em si (envio real via provider) segue fora do escopo de W3-07 por definição do
+design.
+
 ## W3-07 — chunk 9/N implementado nesta sessão (2026-08-29), D-070/D-071 continuação
 
 Alvo único desta sessão (o maior de blast-radius pendente no roteiro): **`ExpirationService.commit()`**.
