@@ -12,6 +12,7 @@
  */
 import { getContext } from "./context.js";
 import { defaultRedactor, Redactor } from "./redactor.js";
+import { parseXrayTraceHeader } from "./xray-trace-header.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -29,6 +30,20 @@ export interface SecureLoggerOptions {
   /** Injectable sink for tests; defaults to console. */
   sink?: (level: LogLevel, line: string) => void;
   now?: () => string;
+}
+
+// Merges left-to-right, but a source's `undefined` value for a key never overwrites a value
+// already set by an earlier (less trusted) source - only a genuinely present value can win.
+function mergeDefined(...sources: object[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const source of sources) {
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined) {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
 }
 
 const defaultSink = (level: LogLevel, line: string): void => {
@@ -77,7 +92,16 @@ export class SecureLogger {
   }
 
   private write(level: LogLevel, event: string, context: LogContext): void {
-    const merged = { ...getContext(), ...this.baseContext, ...context };
+    // Precedence least -> most trusted (a field undefined at a given layer never overwrites a
+    // value already set by a more trusted one - see xray-trace-header.ts doc comment for why):
+    // per-call context (caller-supplied metadata) < baseContext < getContext() (AsyncLocalStorage,
+    // never forgeable from outside the process) < xray* fields derived from the Lambda runtime env.
+    const merged = mergeDefined(
+      context,
+      this.baseContext,
+      getContext() ?? {},
+      parseXrayTraceHeader(process.env["_X_AMZN_TRACE_ID"]) ?? {},
+    );
     const redacted = this.redactor.redact(merged) as Record<string, unknown>;
     const line = JSON.stringify({
       timestamp: this.now(),

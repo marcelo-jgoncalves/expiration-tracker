@@ -200,6 +200,15 @@ Operar um Collector OTel dedicado (ECS/Fargate) — desnecessário com Lambda + 
 exportando direto para X-Ray; reconsiderar só se o backend de tracing mudar de X-Ray para algo
 que exija Collector (não hipotético agora).
 
+### Emenda (2026-08-29) — junção `correlationId` ↔ trace ADOT/X-Ray
+
+D-022 acima decidiu conscientemente **não construir** essa junção, tratando `correlationId` e
+trace ID como conceitos deliberadamente paralelos. Uma auditoria formal do padrão de logging
+(`logging-observability-standard.md`, E-011) achou essa lacuna abaixo do gate de auditoria —
+reconciliado como lacuna operacional real e compatível com M5, não uma contradição de D-022 (que
+não proibiu uma futura junção, só não a construiu). Design completo + registro de implementação
+em `correlationid-xray-trace-join.md`.
+
 ## 4. Decisão 3 — Destino real de alerta: SNS → e-mail
 
 ### Proposta

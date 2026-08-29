@@ -563,7 +563,7 @@ export class ExpirationService {
       entries.push({
         Put: {
           TableName: this.tableName,
-          Item: { ...policyRefKey(source.tenantId, newItemId, newPolicyId), entityType: "ReminderPolicyRef", policyId: newPolicyId },
+          Item: { ...policyRefKey(source.tenantId, newItemId, newPolicyId), entityType: "ReminderPolicyRef", policyId: newPolicyId, tenantId: source.tenantId },
           ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
         },
       });

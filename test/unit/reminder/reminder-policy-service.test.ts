@@ -109,6 +109,7 @@ describe("ReminderPolicyService - createPolicy", () => {
     const pointer = await store.get(policyRefKey(TENANT, "item1", policy.policyId));
     expect(pointer).toBeDefined();
     expect((pointer as unknown as { policyId: string }).policyId).toBe(policy.policyId);
+    expect((pointer as unknown as { tenantId: string }).tenantId).toBe(TENANT);
 
     const events = outboxEvents(store);
     expect(events).toHaveLength(1);

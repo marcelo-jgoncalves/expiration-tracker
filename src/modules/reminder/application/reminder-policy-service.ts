@@ -236,7 +236,7 @@ export class ReminderPolicyService {
       entries.push({
         Put: {
           TableName: this.tableName,
-          Item: { ...policyRefKey(input.tenantId, input.itemId, input.policyId), entityType: "ReminderPolicyRef", policyId: input.policyId },
+          Item: { ...policyRefKey(input.tenantId, input.itemId, input.policyId), entityType: "ReminderPolicyRef", policyId: input.policyId, tenantId: input.tenantId },
           ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
         },
       });
