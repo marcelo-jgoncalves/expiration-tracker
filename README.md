@@ -2,7 +2,7 @@
 
 Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 20, DynamoDB single-table.
 
-**Status**: pré-produção. Design maturity aprovado; implementação real M0-M3 concluída; infraestrutura provisionada via Terraform/GitHub Actions (ADR-0009); full-audit round1 dos 9 eixos formais de `docs/engineering/joint-review-criteria.md` concluído em 2026-08-20 (só o eixo Engenharia de Contexto bateu o gate de nota ≥9,0 dos dois lados; os outros 8 ficaram honestamente abaixo, cada achado remanescente classificado como impedimento externo real ou escopo maior — ver `docs/engineering/reviews/full-audit-round1-*-summary.md` e `NEXT_SESSION_PROMPT.md`). Ver `ARCHITECTURE.md` e `ENGINEERING.md` (histórico, pré-M3.5) para o estado normativo vigente — este README é só o ponto de entrada, não a fonte de verdade.
+**Status**: pré-produção, recomendação **CONDITIONAL GO** para piloto controlado (`docs/engineering/pilot-readiness-assessment.md`). Design maturity aprovado; backend (M0-M11, mais M6/M7) e infraestrutura (Terraform/GitHub Actions, ADR-0009) implementados e deployados em `dev`; Full BFF + frontend de produção implementados; planejamento de interface com 8 de 9 etapas aprovadas. Este README é só o ponto de entrada — nunca a fonte de verdade: ver `docs/architecture/README.md` (mapa de arquitetura vigente) e `NEXT_SESSION_PROMPT.md` (estado atual + próxima ação, nunca normativo). `ARCHITECTURE.md`/`ENGINEERING.md` são os resumos executivos consolidados de arquitetura/engenharia, não histórico.
 
 ## Começando
 
@@ -18,7 +18,7 @@ npm run test:dynamodb   # Vitest contra DynamoDB Local via Testcontainers (reque
 npm run validate-schemas # valida schemas/ (JSON Schema via Ajv)
 npm run check-docs      # link relativo quebrado + referência AGENTS.md §N desatualizada
 npm run build           # compila para dist/
-npm run build:lambdas   # bundla os 8 handlers via esbuild (pré-requisito de terraform plan/apply)
+npm run build:lambdas   # bundla os handlers via esbuild (pré-requisito de terraform plan/apply)
 ```
 
 Infra (`infra/`, Terraform — ver ADR-0009): `terraform fmt/validate/test/plan` rodam no job `infra` do CI a cada PR; `terraform apply` só roda via `.github/workflows/cd.yml`, em push para `main` — nunca localmente.
@@ -28,14 +28,19 @@ Todos os comandos acima (exceto `test:dynamodb`, que roda num job de CI separado
 ## Estrutura do repositório
 
 ```text
-src/shared/       — primitivas cross-módulo (erros, config, observabilidade, DynamoDB/OCC, idempotência, outbox, schemas)
-src/modules/      — domain/application/ports/http por módulo de negócio (identity, expiration, reminder — mais a caminho)
-src/workers/      — lógica assíncrona pura (producer/dispatch/reconciliation), testável com relógio injetado
-infra/  — Terraform (infraestrutura, ADR-0009 — substituiu o CDK em 2026-08-20)
-schemas/          — contratos JSON Schema (events/queues/api) — fonte de verdade de contrato
-test/             — unit, integration, contract
-docs/architecture/ — design maturity (aprovado) — não é o guia de "como trabalhar no código"
-docs/engineering/  — Engineering Maturity Review (em andamento) — rubrica, evidência, gates, remediação
+src/shared/        — primitivas cross-módulo (erros, config, observabilidade, DynamoDB/OCC, idempotência, outbox, schemas)
+src/modules/       — domain/application/ports/http por módulo de negócio (identity, expiration, reminder, notification, document, subject, import, extraction, bff)
+src/workers/       — lógica assíncrona pura (producer/dispatch/reconciliation/purge), testável com relógio injetado
+src/runtime/aws/   — handlers Lambda reais (único lugar que importa AWS SDK/observability concreta)
+infra/             — Terraform (infraestrutura, ADR-0009)
+frontend/          — SPA de produção (Vite+React+TS+React Router v7+TanStack Query v5)
+prototype/         — protótipo interativo do planejamento de interface (HTML/CSS/JS sem dependências)
+schemas/           — contratos JSON Schema (events/queues/api) — fonte de verdade de contrato
+test/              — unit, integration, contract, architecture
+docs/architecture/ — design maturity + estado de implementação (ver docs/architecture/README.md)
+docs/engineering/  — padrões de qualidade, gates, backlog do programa de pilot readiness
+docs/frontend/     — planejamento de interface (UX/IA/journeys) + docs de produção do frontend
+docs/project/      — como trabalhar com o Marcelo (ferramentas/processo), handoffs históricos
 ```
 
 ## Para agentes de IA (Claude Code, Codex CLI)

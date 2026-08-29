@@ -3,8 +3,9 @@
 ```text
 Rubrica de qualidade:     CONGELADA (01-engineering-quality-criteria.md)
 Fitness functions:        ativas (02-engineering-fitness-functions.md), enforcement real em CI
-Full-audit 9 eixos:       CONCLUÍDO — 9/9 avaliados (ver NEXT_SESSION_PROMPT.md, só Contexto bateu o gate ≥9.0; os outros 8 ficaram honestamente abaixo, classificados)
-Last verified:            2026-08-20
+Full-audit 9 eixos:       CONCLUÍDO em 2026-08-20 (9/9 avaliados, só Contexto bateu o gate ≥9.0 originalmente) — achados remediados/reavaliados em rodadas posteriores por eixo, ver decisions-log.md/pilot-readiness-program.md, não re-enumerado aqui
+Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
+Last verified:            2026-08-29 (reconciliação de engenharia de contexto — ver docs/architecture/README.md para o estado vigente completo, não duplicado aqui)
 ```
 
 Este diretório trata de **como o trabalho de engenharia é medido e revisado** (rubrica, critérios por eixo, protocolo de debate, achados de auditoria) — não confundir com `docs/architecture/`, que trata do que o sistema É (design, modelo de dados, decisões de arquitetura). Se a dúvida for "o GSI3 é consultável por quem", vá para `docs/architecture/`; se for "que nota isso tira / que processo formal se aplica aqui", este diretório é o certo.
