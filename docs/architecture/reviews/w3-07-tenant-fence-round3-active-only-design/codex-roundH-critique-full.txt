@@ -1,0 +1,169 @@
+
+**DECISION: APPROVED WITH CONDITIONS.**
+
+Sole architectural/product condition: an explicit human decision on the SES deletion policy must be recorded before implementation is considered approved:
+
+- either block every send not yet submitted to SES once the tenant leaves `ACTIVE`;
+- or permit already-admitted sends to drain under the specifically documented lease/capability policy and residual-risk statement.
+
+The five-round review-only track has reached what it can close.
+
+## 1. VERIFYING → DELETED — CLOSED
+
+Yes: the combined solution resolves the Round G race without relabelling it.
+
+The crucial improvement is separating three different properties:
+
+- indefinite prevention of new admission, supplied by the DynamoDB lifecycle fence;
+- exhaustion of already-admitted capabilities, supplied by the finalization cutoff;
+- detection and repair of unexpectedly late residue, supplied by the post-`DELETED` sweeper.
+
+The 1800-second value is no longer pretending to bound SQS, DLQ, or scheduler delivery.
+
+That is correct because delayed delivery does not imply delayed authorization.
+
+After `DELETING`, those invocations may execute indefinitely late, but their mutations remain rejected indefinitely by the structural fence.
+
+The cutoff now concerns only capabilities actually admitted while `ACTIVE`.
+
+Its wording is epistemically honest:
+
+> any admitted operation has completed, compensated or committed, or is presumed abandoned.
+
+“Presumed abandoned” is materially weaker than “proved impossible” and must remain exactly that weak.
+
+The two post-cutoff empty scans then support the stated point-in-time claim:
+
+- no reachable DynamoDB business state;
+- no residue observed in any inventoried S3 scope;
+- at the time of those completed scans.
+
+That claim does not promise permanent physical zero.
+
+The recurring sweeper supplies the missing temporal coverage.
+
+For the Round G counterexample:
+
+1. An operation is admitted while `ACTIVE`.
+2. Final purge and verification run.
+3. The operation later creates an S3 object.
+4. Its compensation fails or never executes.
+5. A later scheduled sweep finds the object.
+6. The object is repurged.
+7. The discovery raises an alarm/finding.
+
+Therefore, late residue is neither invisible nor silently normalized.
+
+The solution provides eventual remediation plus operational evidence, rather than claiming an impossible one-time permanent proof.
+
+That is a real closure.
+
+One wording correction is important: the mechanism is not literally a “permanent sweeper” if tenant-specific scanning stops after 90 days.
+
+The durable implementation pattern is permanent.
+
+Each deleted tenant’s enhanced sweep eligibility is bounded to 90 days.
+
+That distinction should appear in the design.
+
+### Is the existing 90-day LGPD ceiling sufficient justification?
+
+It is a legitimate normative ceiling, but it should not be the only derivation.
+
+`privacy-lgpd.md` establishes that no residual copy may survive beyond 90 days.
+
+That justifies 90 days as the outer remediation deadline and maximum monitoring window.
+
+It does not, by itself, prove that no admitted capability can first materialize residue on day 91.
+
+That proof comes from the independently inventoried capability horizons:
+
+- presigned URL expiry;
+- Lambda termination;
+- Step Functions execution timeout;
+- any provider-specific asynchronous completion horizon;
+- any other bearer capability capable of producing in-scope state.
+
+The design should therefore record the logic as:
+
+`tenant sweep window ≥ maximum late-materialization horizon + detection/remediation margin`
+
+and separately:
+
+`tenant sweep window ≤ normative 90-day residual-copy ceiling`
+
+Given the stated maximum horizon of 1800 seconds, a daily sweep retained for 90 days overwhelmingly satisfies the first relationship.
+
+The existing 90-day rule supplies the privacy ceiling; the execution/capability inventory supplies the safety justification.
+
+This is a documentation obligation, not a remaining architecture choice.
+
+The two scans must also be full successful scans:
+
+- every DynamoDB scope;
+- every inventoried S3 prefix;
+- complete pagination;
+- no suppressed access or listing error;
+- no transition to `DELETED` on partial or indeterminate results.
+
+## 2. Discoverable failed compensation — CLOSED
+
+Reusing the same sweeper is the correct design.
+
+A separate compensation-recovery subsystem would add mechanism without adding a stronger invariant.
+
+Including both clean and quarantine prefixes closes the concrete failure modes:
+
+- compensating delete returned an error;
+- the process died before issuing the delete;
+- an external write became visible after final verification;
+- a retry recreated an object before its admitted capability expired.
+
+Alarm-on-find is essential and is present.
+
+The finding should retain tenant, bucket, key classification, discovery time, purge outcome, and correlation/run identity where available.
+
+That is an implementation/audit requirement, not an open design gap.
+
+## 3. Two-phase `ExtractionRun` marker rollout — CLOSED
+
+The Phase A/Phase B sequencing is now migration-safe.
+
+Phase A makes all new qualifying runs marker-bearing before enforcement exists.
+
+The idempotent backfill covers older qualifying runs.
+
+Repeat-until-zero strongly consistent verification correctly avoids treating paginated `Scan` as a database snapshot.
+
+Only after verified convergence does Phase B enable:
+
+- the lifecycle fence;
+- marker-required retry;
+- rejection/reconciliation of markerless runs.
+
+Permanently retaining markerless reconciliation prevents migration assumptions from becoming an unmonitored invariant.
+
+The three named implementation obligations are necessary and sufficient at design level:
+
+- the fenced executor owns transaction construction and the lifecycle entry’s stable identity;
+- typed DynamoDB cancellation reasons survive mapping to the compensation caller;
+- convergence is asserted from eligible markerless rows, never inferred from aggregate counts.
+
+These must become executable tests and deployment gates, but they no longer require another architecture round.
+
+## Remaining status
+
+No further prose reconciliation is likely to improve the architecture materially.
+
+Remaining work is now:
+
+- implementation;
+- migration rehearsal;
+- infrastructure verification;
+- alarm/runbook validation;
+- empirical testing of complete scans and late-residue repair;
+- the explicit SES human decision.
+
+Those are real gates, but they are not unresolved review-only design questions.
+
+Accordingly, another review-only round is not warranted.

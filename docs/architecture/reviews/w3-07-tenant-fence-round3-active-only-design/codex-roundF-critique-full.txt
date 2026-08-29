@@ -1,0 +1,314 @@
+The design needs one enforceable cutover mechanism, for example:
+
+- Add an `admissionFenceVersion` or `admittedWhileActive` marker written only by the new transaction.
+- Migrate verified existing rows to that marker.
+- Refuse automatic restart for unmarked rows.
+- Or drain/delete all legacy `RUNNING` rows and relevant queued events during a controlled deployment cutover.
+
+A timestamp-only test is weaker unless deployment time and clock assumptions are formalized.
+
+A one-time audit is acceptable only if it produces durable machine-verifiable state or eliminates every legacy row.
+
+Without that, “mere existence proves prior admission” is false during the migration window.
+
+Also, `persistExtractedFieldsStage` and `markPendingConfirmationStage` share `commitOrDiscard` and both can write `ExtractedField`, `ExtractionRun`, and potentially `ExpirationItem`.
+
+The lifecycle check must be inside their existing transaction, not an earlier read.
+
+## D — Actual OCR persistence point: CLOSED
+
+The factual ambiguity is resolved.
+
+`completeOcr` writes the transient artifact and completes the task-token interaction.
+
+It does not create `ExtractedField` business state.
+
+The actual persistence boundary is `commitOrDiscard` in [run-extraction-validation.ts](/C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/extraction/application/run-extraction-validation.ts:146).
+
+That transaction must become a `TenantBusinessMutation` with the lifecycle condition.
+
+Both persistence paths must be covered:
+
+- `PERSIST_EXTRACTED_FIELDS`.
+- `MARK_PENDING_CONFIRMATION`.
+
+`COMPLETE_RUN` only performs terminal artifact cleanup.
+
+## Remaining-gap classification
+
+Multipart uploads are an implementation/infra-verification item if the design mandates:
+
+- Enumeration and abortion during purge.
+- Pagination.
+- A bucket lifecycle backstop for incomplete multipart uploads.
+- Tests or live AWS evidence.
+
+It does not block 9.0 architecture direction once that policy is written precisely.
+
+Legacy random-UUID OCR discovery is implementation/migration work if a deterministic discovery algorithm and treatment of undiscoverable artifacts are specified.
+
+It does not block 9.0 if the design explicitly treats the 24-hour lifecycle as the verified backstop and does not claim immediate deterministic deletion where none exists.
+
+The concurrent-test plan is implementation detail once its required races are named:
+
+- Lifecycle transition versus each evidence write.
+- Lifecycle transition between S3 copy and promotion commit.
+- Lifecycle transition versus extraction outcome commit.
+- Legacy versus marked `ExtractionRun` retry.
+- SES admission versus lifecycle transition.
+
+The current quiescence formula does block 9.0 because it is technically unsound as a system-wide bound.
+
+The legacy `ExtractionRun` migration note also blocks 9.0 because it lacks an enforceable discriminator.
+
+The clean-copy-before-commit case needs an explicit cleanup/discovery rule, but does not require redesigning the fence.
+
+These are closable through further design work in this session.
+
+No live AWS account is required to specify them.
+
+Live AWS verification remains necessary later for multipart/list-version pagination evidence.
+
+The SES question requires a real human product/legal decision and cannot be simulated by another review round.
+
+## Final assessment
+
+The typed-lane direction, transactional lifecycle fence, promotion-point reasoning, and admitted-operation retry model are fundamentally correct.
+
+Round F supplied the implementation-adjacent evidence Round E requested.
+
+It also exposed that non-resurrection and bounded cleanup must remain separate claims:
+
+- The fence proves indefinite logical safety.
+- Timeouts, leases, queue retention, and lifecycle policies bound cleanup only when their complete retry horizons are included.
+
+Exactly what remains before 9.0:
+
+1. Replace the 30-minute “system quiescence” claim with either a complete retry-horizon model or an explicitly cleanup-only bound.
+2. Fence every intermediate evidence mutation, not only the final `CLEAN` mutation.
+3. Cover orphan clean copies created before a failed fenced commit.
+4. Define a machine-enforceable legacy `ExtractionRun` cutover.
+5. Record the human SES post-admission policy.
+
+**CODEX SCORE: 8.9/10**
+tokens used
+50.072
+VERDICT: architecture direction is close, but Round F does not yet clear 9.0.
+
+The inventory is materially better and closes the factual ambiguity around SES, Step Functions, OCR persistence, and upload promotion.
+
+Fresh review found two remaining design holes:
+
+- The four upload workers make several business mutations, not one final promotion mutation.
+- The proposed quiescence formula ignores asynchronous retry/redelivery horizons; SQS messages can remain live for 14 days.
+
+## A — S3 presigned uploads: PARTIALLY CLOSED
+
+The central argument is sound:
+
+- A quarantine object alone is physical tenant data, not resurrected application state.
+- Presigned upload TTL is concretely bounded at 900 seconds.
+- Tenant-visible promotion must be fenced at an atomic DynamoDB admission point.
+- Residual quarantine objects belong to physical purge.
+
+But “the finalizer transaction gets the fence” is too coarse.
+
+The upload and malware workers first persist `uploadEvidence`, `malwareEvidence`, and `SCANNING` into the existing `Document` or `DocumentSubmission`.
+
+Those are tenant business mutations themselves and must each carry the `ACTIVE` condition—not merely the final `CLEAN` transition.
+
+There is no separate idempotency/dedup row in these four workers.
+
+Dedup state is embedded in the tenant records, such as `malwareEvidence.scanResultId`.
+
+Therefore it does not create a hidden resurrection category, but it confirms that every evidence transaction belongs to `TenantBusinessMutation`.
+
+More importantly, both promotion functions perform the S3 copy before the fenced DynamoDB transaction:
+
+- [advance-after-evidence.ts](/C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/document/application/advance-after-evidence.ts:111)
+- [advance-after-submission-evidence.ts](/C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/subject/application/advance-after-submission-evidence.ts:66)
+
+The sequence is:
+
+1. Copy quarantine → clean.
+2. Verify the clean object.
+3. Commit `status=CLEAN` and `cleanObject`.
+
+If `ACTIVE→DELETING` wins between steps 1 and 3, the transaction correctly fails, but a new clean-bucket object has already appeared.
+
+That is not logical resurrection if every downstream writer is fenced.
+
+It is nevertheless sensitive physical residue and may emit an extraction event.
+
+The design must consequently require:
+
+- Purge discovery of clean objects independently of a surviving `Document` row.
+- Fencing of the extraction-run creation triggered by that orphan copy.
+- Either compensating deletion after a failed promotion transaction or explicit purge/reconciliation coverage.
+
+The 900-second TTL finding closes presign issuance duration, but not overall quiescence.
+
+The repository’s worker queues retain messages for 14 days, with DLQs retaining them for 4 days.
+
+Lambda timeout bounds one invocation; it does not bound:
+
+- SQS redelivery.
+- EventBridge/S3 delivery retries.
+- DLQ replay.
+- Scheduled reconciliation.
+- Existing notification leases.
+- A message waiting before its next invocation.
+
+Thus `max(900s, 60s, 600s) + 900s = 1800s` is not yet a valid system-wide quiescence bound.
+
+It can become valid only if deletion explicitly disables/drains or permanently fences all delayed work, making quiescence unnecessary for non-resurrection.
+
+That is the preferred interpretation: the fence provides safety indefinitely; time bounds only operational cleanup.
+
+## B — SES: PARTIALLY CLOSED
+
+The technical correction is exactly right.
+
+`extraConditions` cannot inspect `TenantLifecycleRecord`.
+
+The `SUBMITTING` claim therefore requires a real two-item transaction:
+
+- Conditional update of `NotificationAttempt`.
+- `ConditionCheck` asserting lifecycle `ACTIVE`.
+
+Extending `NotificationStore` for that transaction is the correct mechanical design.
+
+The product/legal question is legitimate design-review practice, not a dodge.
+
+Engineering may recommend Option 1 and explain its proportionality.
+
+Engineering may not silently convert that recommendation into the normative LGPD policy.
+
+Accordingly:
+
+- Engineering admission design: closed.
+- Post-admission delivery semantics: intentionally unresolved.
+- Final W3-07 approval: gated on Marcelo/legal selecting the policy.
+
+Option 1 is internally coherent:
+
+- `SUBMITTING` is the linearization point.
+- `DELETING` blocks new admissions.
+- Already-admitted delivery may finish.
+- Provider calls are not transactionally cancellable.
+
+Option 2 genuinely requires a different protocol.
+
+The document should say “recommended default pending human decision,” not “effective default if nobody answers.”
+
+Implementation can proceed only if the product/legal decision is recorded first, or if the implementation is explicitly conditional and not activated.
+
+## C — StartExecution retry: PARTIALLY CLOSED
+
+The steady-state argument is sound after the fenced creation change:
+
+- A newly created `ExtractionRun` proves admission occurred while `ACTIVE`.
+- Retrying `StartExecution` for that row does not require a second lifecycle admission.
+- `ExecutionAlreadyExists` is already handled idempotently.
+- The actual business writes later in validation must independently be fenced.
+
+The legacy-row treatment is not yet concrete enough.
+
+“Legacy/audited once” does not let runtime distinguish:
+
+- A post-fix, transactionally admitted run.
+- A pre-fix run that lacks that guarantee.
+
+The design needs one enforceable cutover mechanism, for example:
+
+- Add an `admissionFenceVersion` or `admittedWhileActive` marker written only by the new transaction.
+- Migrate verified existing rows to that marker.
+- Refuse automatic restart for unmarked rows.
+- Or drain/delete all legacy `RUNNING` rows and relevant queued events during a controlled deployment cutover.
+
+A timestamp-only test is weaker unless deployment time and clock assumptions are formalized.
+
+A one-time audit is acceptable only if it produces durable machine-verifiable state or eliminates every legacy row.
+
+Without that, “mere existence proves prior admission” is false during the migration window.
+
+Also, `persistExtractedFieldsStage` and `markPendingConfirmationStage` share `commitOrDiscard` and both can write `ExtractedField`, `ExtractionRun`, and potentially `ExpirationItem`.
+
+The lifecycle check must be inside their existing transaction, not an earlier read.
+
+## D — Actual OCR persistence point: CLOSED
+
+The factual ambiguity is resolved.
+
+`completeOcr` writes the transient artifact and completes the task-token interaction.
+
+It does not create `ExtractedField` business state.
+
+The actual persistence boundary is `commitOrDiscard` in [run-extraction-validation.ts](/C:/Users/Usuario/Desktop/projects/expiration-tracker/src/modules/extraction/application/run-extraction-validation.ts:146).
+
+That transaction must become a `TenantBusinessMutation` with the lifecycle condition.
+
+Both persistence paths must be covered:
+
+- `PERSIST_EXTRACTED_FIELDS`.
+- `MARK_PENDING_CONFIRMATION`.
+
+`COMPLETE_RUN` only performs terminal artifact cleanup.
+
+## Remaining-gap classification
+
+Multipart uploads are an implementation/infra-verification item if the design mandates:
+
+- Enumeration and abortion during purge.
+- Pagination.
+- A bucket lifecycle backstop for incomplete multipart uploads.
+- Tests or live AWS evidence.
+
+It does not block 9.0 architecture direction once that policy is written precisely.
+
+Legacy random-UUID OCR discovery is implementation/migration work if a deterministic discovery algorithm and treatment of undiscoverable artifacts are specified.
+
+It does not block 9.0 if the design explicitly treats the 24-hour lifecycle as the verified backstop and does not claim immediate deterministic deletion where none exists.
+
+The concurrent-test plan is implementation detail once its required races are named:
+
+- Lifecycle transition versus each evidence write.
+- Lifecycle transition between S3 copy and promotion commit.
+- Lifecycle transition versus extraction outcome commit.
+- Legacy versus marked `ExtractionRun` retry.
+- SES admission versus lifecycle transition.
+
+The current quiescence formula does block 9.0 because it is technically unsound as a system-wide bound.
+
+The legacy `ExtractionRun` migration note also blocks 9.0 because it lacks an enforceable discriminator.
+
+The clean-copy-before-commit case needs an explicit cleanup/discovery rule, but does not require redesigning the fence.
+
+These are closable through further design work in this session.
+
+No live AWS account is required to specify them.
+
+Live AWS verification remains necessary later for multipart/list-version pagination evidence.
+
+The SES question requires a real human product/legal decision and cannot be simulated by another review round.
+
+## Final assessment
+
+The typed-lane direction, transactional lifecycle fence, promotion-point reasoning, and admitted-operation retry model are fundamentally correct.
+
+Round F supplied the implementation-adjacent evidence Round E requested.
+
+It also exposed that non-resurrection and bounded cleanup must remain separate claims:
+
+- The fence proves indefinite logical safety.
+- Timeouts, leases, queue retention, and lifecycle policies bound cleanup only when their complete retry horizons are included.
+
+Exactly what remains before 9.0:
+
+1. Replace the 30-minute “system quiescence” claim with either a complete retry-horizon model or an explicitly cleanup-only bound.
+2. Fence every intermediate evidence mutation, not only the final `CLEAN` mutation.
+3. Cover orphan clean copies created before a failed fenced commit.
+4. Define a machine-enforceable legacy `ExtractionRun` cutover.
+5. Record the human SES post-admission policy.
+
+**CODEX SCORE: 8.9/10**

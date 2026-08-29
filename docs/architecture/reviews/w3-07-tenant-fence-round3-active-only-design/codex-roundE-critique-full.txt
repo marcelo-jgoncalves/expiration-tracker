@@ -1,0 +1,208 @@
+The central claim is universal—no tenant business mutation after the fence—so an incomplete writer inventory means the architecture has not established its coverage boundary.
+
+Likewise, multipart uploads, legacy S3 keys, versioning, late objects, and final rescan semantics are not merely implementation detail.
+
+They determine whether purge completion is true or false.
+
+My scope judgment is:
+
+- architecture direction may be accepted now;
+- blocker #5 can move to the implementation-adjacent session;
+- blocker #2’s inventory evidence and blocker #3’s S3 completion semantics must close before the overall W3-07 design receives ≥9.0;
+- mechanical enumeration tables and code-link verification may be produced in the follow-up session, but approval must wait for their results.
+
+CODEX SCORE: 8.8/10
+
+The score improved because atomic admission and typed lanes resolve the two central directional uncertainties.
+
+A 9.0 is reachable, but not through further prose-only reconciliation of the same proposal.
+
+The remaining ceiling is evidence-driven: inspect every writer/presigner, define the outstanding-capability contract, and validate S3 discovery/reverification against the real key/version/multipart behavior.
+
+That requires an implementation-adjacent architecture session using the real code and infrastructure inventory, though it does not require completing the entire implementation first.
+tokens used
+39.410
+VERDICT: the direction is materially stronger, but Round E does not yet clear 9.0.
+
+Blocker #4 is directionally closed.
+
+Blocker #1 is only partially closed because the proposed transactions establish an admission linearization point; they do not literally eliminate every gap between admission and the external effect.
+
+The design can still become approvable by defining that distinction precisely and resolving the outstanding-capability and post-purge cases.
+
+1. Transactional admission
+
+For Textract and Bedrock, the two-item transaction is a valid fenced admission mechanism:
+
+- quota mutation and `TenantLifecycleRecord.status = ACTIVE` succeed atomically;
+- an operation whose transaction commits before `ACTIVE → DELETING` is admitted;
+- one whose transaction is ordered after that transition fails;
+- the quota OCC/retry behavior can remain intact.
+
+But “there is no window” is technically false.
+
+The process can pause, be descheduled, or lose its network connection after the transaction commits and before the provider call.
+
+Deletion can linearize during that interval.
+
+What the mechanism proves is not “the tenant is ACTIVE at provider-call time.”
+
+It proves “this provider operation was admitted while ACTIVE.”
+
+That is sound only if W3-07 explicitly adopts this concurrency contract:
+
+> `ACTIVE → DELETING` blocks new admissions; operations already atomically admitted before the transition may finish.
+
+Under that contract, Textract/Bedrock are closed architecturally.
+
+The same distinction applies to Step Functions.
+
+A transactionally created `ExtractionRun` is valid admission, but `StartExecution` may occur after deletion has linearized.
+
+That is acceptable only as completion of a pre-DELETING admission.
+
+There is also an important retry wrinkle in the current code: `startExecution()` runs even when `putIfAbsent()` reports an existing run.
+
+The replacement design must permit a retry to recover an already-admitted run without requiring a fresh ACTIVE admission—or persist enough admission evidence to distinguish it from an unadmitted legacy/existing run.
+
+Otherwise deletion between run creation and retry can either orphan a legitimately admitted run or accidentally restart one without proof of admission.
+
+S3 presigning is not closed by “transaction, then next line.”
+
+The presigned URL is a durable bearer capability.
+
+A client may use it minutes after the tenant becomes DELETING, independently of the process that issued it.
+
+Therefore the transactional slot creation proves that URL issuance was admitted while ACTIVE, but it does not provide immediate blocking of later upload use.
+
+This needs an explicit policy:
+
+- outstanding upload capabilities issued before deletion may remain usable until their short expiry;
+- successful late uploads are quarantined/deleted and cannot become business state because confirmation/promotion is fenced;
+- purge reverification covers objects arriving through still-valid URLs;
+- the maximum URL lifetime is the documented residual-risk bound.
+
+Without that statement, S3-presign remains a real exception rather than a closed instance of the synchronous pattern.
+
+2. SES residual risk
+
+The framing is honest, but the proposed plain read is weaker than necessary and does not yet satisfy the stated requirement closely enough.
+
+“Bounded by worker latency” is also imprecise.
+
+The relevant interval is not overall worker latency; it is the interval from the lifecycle read through recipient resolution, rendering, scheduling pauses, SDK retries, and the SES request.
+
+There is no deterministic bound merely because the Lambda has a timeout.
+
+The existing `PREPARED/FAILED_RETRYABLE → SUBMITTING` transaction is the natural admission point.
+
+Add the ACTIVE `ConditionCheck` to that transaction.
+
+Then SES gets the same explicit ordering rule:
+
+- SUBMITTING claim before deletion: admitted send may complete;
+- deletion before SUBMITTING claim: no send;
+- retries after deletion cannot acquire a new sending admission.
+
+This is stronger than a plain read, produces durable evidence, and avoids introducing a special consistency model for notifications.
+
+A final plain read immediately before SES could be defense in depth, but it should not be the normative fence.
+
+Privacy language should say “immediate blocking of new sends at the atomic send-admission point,” while explicitly allowing already-admitted provider calls to resolve.
+
+If product/legal intent instead requires cancellation of every send not yet accepted by SES at the instant of deletion, neither the read nor the transaction suffices; a drain/lease protocol coordinated with the lifecycle transition would be required.
+
+I do not think that stronger interpretation is necessary, but the document must choose explicitly.
+
+3. `completeOcr`
+
+The non-resurrection argument is sound for DynamoDB business-state persistence, provided every later persistence transition is genuinely fenced.
+
+It is not, by itself, a complete LGPD/purge argument.
+
+The OCR artifact in S3 is personal/business data even if no `ExtractedField` is ever created.
+
+Calling it “not business state” must not make it invisible to deletion guarantees.
+
+The resolution is acceptable only if all of these hold:
+
+- the artifact key is deterministically discoverable from tenant/run ownership;
+- late artifacts created after the first purge scan are found by reverification;
+- versioned-object deletion handles every version/delete marker;
+- the purge completion condition cannot pass while a late OCR writer can still create an undiscovered object;
+- `SendTaskSuccess` cannot cause an unfenced downstream external effect;
+- the artifact has a bounded TTL as another backstop.
+
+The known `randomUUID()` artifact-key behavior makes this especially important.
+
+If the purge inventory relies only on DynamoDB references that deletion may remove before the late `PutObject`, this design can leave an orphan containing OCR text.
+
+Use a tenant-scoped deterministic prefix/key and make the final S3 rescan authoritative, or retain a durable inventory sufficient to find late objects.
+
+Therefore: the chosen resolution is sound in principle, but blocker #3 contains conditions necessary to prove it.
+
+4. Typed mutation lanes
+
+This closes the architectural objection behind blocker #4, subject to concrete enforcement rules.
+
+The good parts are:
+
+- safe business mutation is the default;
+- the executor appends the lifecycle check rather than trusting callers;
+- exemptions are operation-specific;
+- adding an exemption requires deliberate review;
+- outbox metadata mutation is distinguished from creating tenant content.
+
+The design document still needs to specify how raw access is prevented.
+
+A branded TypeScript value alone is insufficient if ordinary modules can import an adapter exposing unrestricted `transactWrite`.
+
+Require:
+
+- raw DynamoDB transaction execution confined to persistence/infrastructure boundaries;
+- business ports expose the fenced operation, not arbitrary transaction arrays;
+- the brand/constructor is module-private or otherwise unforgeable without unsafe casts;
+- boundary enforcement prevents feature modules from importing the raw executor;
+- compile-time or architectural tests prove representative callers cannot choose `SystemMutation`;
+- each system operation has a named reason and permitted lifecycle states.
+
+Enumerate operations, not an asserted count of “three call sites.”
+
+The lifecycle transitions, purge mutations, `tryAcquireLease`, and `markPublished` already imply more nuanced operations than that count suggests.
+
+Also, allowing the outbox relay to publish after DELETING is safe only if every resulting consumer is independently fenced or deletion semantics intentionally require that event.
+
+Bookkeeping exemption must not become an indirect external-effect exemption.
+
+With those details recorded, blocker #4 is closed.
+
+5. Deferral boundary
+
+Deferring the full concurrent test plan is legitimate for an architecture-direction decision.
+
+Exact test cases and harness construction are implementation-adjacent, although required scenarios and invariants should be named now.
+
+Deferring the complete writer/presigner inventory is not sufficient for final W3-07 approval.
+
+The central claim is universal—no tenant business mutation after the fence—so an incomplete writer inventory means the architecture has not established its coverage boundary.
+
+Likewise, multipart uploads, legacy S3 keys, versioning, late objects, and final rescan semantics are not merely implementation detail.
+
+They determine whether purge completion is true or false.
+
+My scope judgment is:
+
+- architecture direction may be accepted now;
+- blocker #5 can move to the implementation-adjacent session;
+- blocker #2’s inventory evidence and blocker #3’s S3 completion semantics must close before the overall W3-07 design receives ≥9.0;
+- mechanical enumeration tables and code-link verification may be produced in the follow-up session, but approval must wait for their results.
+
+CODEX SCORE: 8.8/10
+
+The score improved because atomic admission and typed lanes resolve the two central directional uncertainties.
+
+A 9.0 is reachable, but not through further prose-only reconciliation of the same proposal.
+
+The remaining ceiling is evidence-driven: inspect every writer/presigner, define the outstanding-capability contract, and validate S3 discovery/reverification against the real key/version/multipart behavior.
+
+That requires an implementation-adjacent architecture session using the real code and infrastructure inventory, though it does not require completing the entire implementation first.
