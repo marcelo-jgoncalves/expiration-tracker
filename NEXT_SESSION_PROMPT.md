@@ -2,7 +2,32 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
-## W3-07 — fechamento dos itens 1/2/3/4 de D-072 (2026-08-29), D-073/D-074
+## W3-07 — fechamento do achado mais sério de D-075 (2026-08-29), D-076, em andamento
+
+Sessão de continuação, prompt de retomada explícito priorizando 3 itens em ordem: (1) fechar o
+gap PK/SK/TableName do `findTenantMismatch` — o achado mais sério do Codex round-2 (D-075,
+6.0/10); (2) architecture test provando o allowlist `SystemMutation` fechado; (3) mitigação
+barata para admissão parcial em `import-service.ts` se existir uma sem exigir a decisão de
+produto. Ver `decisions-log.md` D-076 para o registro completo do item 1.
+
+- **Item 1 FECHADO de verdade (não documentado como pendência)**: `findTenantMismatch` estendido
+  com checagem de `TableName` (toda entrada deve bater com `input.tableName`) e checagem de `PK`
+  físico contra o padrão universal `TENANT#<tenantId>#...` do modelo de dados — confirmado por
+  grep exaustivo que essa convenção é universal para toda entidade tenant-scoped roteada por esta
+  lane hoje (as exceções reais — `IDENTITY#cognitoSub#`, `GUESTTOKEN#`, `SESSION#`,
+  `LOGINATTEMPT#`, `TEXTRACTJOB#` — nunca são passadas por `executeTenantBusinessMutation`/
+  `tryTenantBusinessMutation`, verificado por grep de todos os call sites reais). Fecha
+  especificamente o cenário do Codex: `Item.tenantId` forjado batendo com a fence enquanto o `PK`
+  real aponta para outro tenant agora é rejeitado antes de qualquer `transactWrite`. **IMPLEMENTED
+  + UNIT TESTED** (4 testes novos em `test/unit/tenant-lifecycle.test.ts`). 1026 testes de backend
+  passando (era 1023), typecheck/lint/check-boundaries/check-docs limpos, zero regressão.
+- Gap residual honesto (documentado no código, não mascarado): uma entrada sem `PK` no padrão
+  `TENANT#` E sem `tenantId` declarado ainda passa sem verificação — nenhum call site real produz
+  isso hoje, mas a lane não impede estruturalmente que um futuro escritor o faça.
+- Itens 2/3 e a terceira rodada Codex: ver progresso abaixo nesta mesma sessão (esta seção é
+  atualizada incrementalmente conforme os itens avançam — conferir `git log` para o estado real).
+
+
 
 Sessão de continuação retomada após interrupção por rate limit. Escopo: fechar os achados
 deferidos por D-072 (revisão Codex round-1), na ordem de prioridade do prompt de retomada.

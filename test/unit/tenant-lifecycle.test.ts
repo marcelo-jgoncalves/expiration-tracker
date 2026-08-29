@@ -202,14 +202,82 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     expect(untouched?.version).toBe(1);
   });
 
-  it("KNOWN GAP, not a hardening target this session (D-072 follow-up review, Codex-confirmed): an entry that declares NO tenantId at all passes through unchecked - this validator only catches a DECLARED mismatch, it does not prove every entry carries the right tenant. buildVersionedCreate/buildConditionalPut do not themselves require Item.tenantId (they pass the caller's item through verbatim), so this is a real residual bypass, not just a defensive default; closing it needs mandatory tenant metadata enforced by the builders themselves, or PK/SK-based validation - both larger, deferred changes, see decisions-log.md", async () => {
+  it("KNOWN GAP, not a hardening target this session (D-072 follow-up review, Codex-confirmed): an entry with neither a declared tenantId NOR a TENANT#-prefixed PK passes through unchecked - closing this fully needs mandatory tenant metadata enforced by the builders themselves or a branded entry type, see decisions-log.md. This is NOT the same as the D-075 PK-encoding gap below, which IS now closed", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-1", "ACTIVE");
+
+    // A hypothetical global/system entity, e.g. GUESTTOKEN#-style key: no TENANT# prefix, no
+    // declared tenantId - neither check can catch a mismatch on a shape like this. Documented
+    // residual gap, not exercised by any real call site today (verified by the same review).
+    const entries: TransactWriteEntry[] = [{ Put: buildVersionedCreate(TABLE, { PK: "GUESTTOKEN#abc123", SK: "POINTER", version: 1 }) }];
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
+  });
+
+  it("D-075 CLOSED: rejects a Put entry whose declared Item.tenantId matches the fenced tenantId but whose physical PK actually encodes a different tenant - the residual bypass Codex's round-2 review flagged as the most serious remaining gap", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+
+    // Item.tenantId is forged to match the fence, but PK genuinely targets tenant-B's key space.
+    const entries: TransactWriteEntry[] = [
+      {
+        Put: buildVersionedCreate(TABLE, {
+          PK: "TENANT#tenant-B#ITEM#item-9",
+          SK: "META",
+          tenantId: "tenant-A",
+          version: 1,
+        }),
+      },
+    ];
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-A", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+    expect(await store.get({ PK: "TENANT#tenant-B#ITEM#item-9", SK: "META" })).toBeUndefined();
+  });
+
+  it("D-075 CLOSED: rejects an Update entry whose Key.PK encodes a different tenant than the fence, even with no declared :tenantId mismatch caught first", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-A", "ACTIVE");
+    await seedLifecycle(store, "tenant-B", "ACTIVE");
+    await store.putIfAbsent({ PK: "TENANT#tenant-B#ITEM#item-10", SK: "META", tenantId: "tenant-B", version: 1, count: 0 });
+
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: TABLE,
+          key: { PK: "TENANT#tenant-B#ITEM#item-10", SK: "META" },
+          tenantId: "tenant-B",
+          expectedVersion: 1,
+          set: { count: 1 },
+        }),
+      },
+    ];
+
+    // Declared :tenantId already mismatches here too (tenant-B vs fenced tenant-A) - proves the
+    // PK check is redundant-but-consistent with the declared check on this path; the dedicated
+    // Put test above is the one proving the PK check catches what the declared check CANNOT.
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-A", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
+    const untouched = await store.get<{ PK: string; SK: string; count: number; version: number }>({
+      PK: "TENANT#tenant-B#ITEM#item-10",
+      SK: "META",
+    });
+    expect(untouched?.count).toBe(0);
+  });
+
+  it("D-075 CLOSED: rejects any entry whose TableName does not match the fenced tableName", async () => {
     const store = new InMemoryIdentityStore();
     await seedLifecycle(store, "tenant-1", "ACTIVE");
 
     const entries: TransactWriteEntry[] = [
-      { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-2", SK: "META", version: 1 }) },
+      { Put: buildVersionedCreate("SomeOtherTable", { PK: "TENANT#tenant-1#ITEM#item-11", SK: "META", version: 1 }) },
     ];
-    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).resolves.toBeUndefined();
+
+    await expect(executeTenantBusinessMutation({ store, tableName: TABLE, tenantId: "tenant-1", entries })).rejects.toBeInstanceOf(
+      InternalError,
+    );
   });
 
   it("adversarial (D-072 follow-up review): rejects a Delete entry whose declared tenantId does not match the fenced tenantId", async () => {

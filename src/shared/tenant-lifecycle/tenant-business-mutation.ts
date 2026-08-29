@@ -35,39 +35,70 @@ import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-rec
  * `TenantBusinessMutation` previously trusted `input.tenantId` blindly, so a caller bug passing
  * `tenantId: A` with entries actually built for tenant B would silently commit under A's fence).
  *
- * This does NOT parse the DynamoDB key structure (PK/SK), and it does NOT prove the entry's item
- * belongs to the fenced tenant — it only cross-checks a `tenantId` value the CALLER already put
- * into the entry, at a fixed convention `occ.ts`'s builders read/write from: `buildVersionedCreate`/
- * `buildConditionalPut` read it from `Item.tenantId` (correction, W3-07 D-072 follow-up review —
- * these builders do NOT themselves add/require a `tenantId`, they pass through whatever `item` the
- * caller supplies verbatim; the convention exists only because every real call site in this
- * codebase happens to already populate it, not because the builder enforces it);
- * `buildVersionedUpdate`/`buildVersionedDelete` read it from `ExpressionAttributeValues[":tenantId"]`
- * (these DO always populate it themselves, from `input.tenantId`, since it is baked into their own
- * base condition — a real, structural guarantee for Update/Delete that Put/Create does not share).
- * Reading it back from these conventions is more robust than re-deriving it from a key string, and
- * does not require every port to expose the physical key schema to this lane — but it is bypassable
- * by construction, not just residually incomplete: a caller could build a `Put` whose `Item.tenantId`
- * matches the fenced tenant while `Item.PK`/`Item.SK` actually target a different tenant's key space
- * (this validator has no way to catch that — it never inspects PK/SK), or omit `Item.tenantId`
- * entirely and pass through unchecked (see the dedicated test proving that path resolves, not
- * rejects — a known, accepted gap, not an oversight).
+ * This does NOT prove the entry's item belongs to the fenced tenant — it only cross-checks two
+ * independent, cheap signals against the fenced `tenantId`, either of which alone is bypassable
+ * but which together close the specific gap D-075 flagged as the most serious remaining one
+ * ("declared tenantId matches, but the physical PK/TableName point elsewhere"):
  *
- * `ConditionCheck` entries (e.g. the lifecycle fence this lane itself appends, or a caller's own
- * freshness check) are intentionally NOT required to declare a tenantId — `buildExistenceCondition
- * Check`/`buildVersionConditionCheck` have no such convention, and forcing one would be a false
+ * 1. A `tenantId` value the CALLER already put into the entry, at a fixed convention `occ.ts`'s
+ *    builders read/write from: `buildVersionedCreate`/`buildConditionalPut` read it from
+ *    `Item.tenantId` (these builders do NOT themselves add/require a `tenantId`, they pass
+ *    through whatever `item` the caller supplies verbatim; the convention exists only because
+ *    every real call site in this codebase happens to already populate it, not because the
+ *    builder enforces it); `buildVersionedUpdate`/`buildVersionedDelete` read it from
+ *    `ExpressionAttributeValues[":tenantId"]` (these DO always populate it themselves, from
+ *    `input.tenantId`, since it is baked into their own base condition — a real, structural
+ *    guarantee for Update/Delete that Put/Create does not share).
+ * 2. The entry's own `TableName` (must equal `input.tableName` — a `TransactWriteItems` call can
+ *    mix table names per-entry, so nothing upstream of this lane otherwise proves every entry
+ *    targets the table the fence's own `ConditionCheck` is written against) and its physical
+ *    key's `PK` (`Item.PK` for Put, `Key.PK` for Update/Delete/ConditionCheck) — every tenant-
+ *    scoped entity in this codebase's data model keys its `PK` as `TENANT#<tenantId>#...`
+ *    (verified against every domain key-builder in `src/modules/**\/domain/*.ts` and
+ *    `src/shared/{idempotency,outbox,tenant-lifecycle}` as of this check's introduction — see
+ *    `docs/architecture/w3-07-writer-inventory.md`). When a `PK` matches that shape, the tenant
+ *    segment it encodes MUST equal `input.tenantId`, independent of whatever `Item.tenantId`/
+ *    `:tenantId` claims — this is the check that catches a `Put` whose `Item.tenantId` was
+ *    forged/copy-pasted to match the fence while its `PK` genuinely targets another tenant's key
+ *    space, which check 1 alone cannot see. A handful of legitimate global/cross-tenant entities
+ *    exist in this codebase (`IDENTITY#cognitoSub#...`, `GUESTTOKEN#...`, `SESSION#...`,
+ *    `LOGINATTEMPT#...`, `TEXTRACTJOB#...`) that are NOT `TENANT#`-prefixed by design — no current
+ *    call site routes one of these through `TenantBusinessMutation` (verified by the same review),
+ *    so a `PK` that does not match `TENANT#<id>#...` at all is intentionally left unchecked here
+ *    rather than rejected, to avoid this lane guessing at a convention it does not own.
+ *
+ * `ConditionCheck` entries participate in the `PK`-based check (their `Key.PK` is inspected same
+ * as Update/Delete) but not the declared-`tenantId` check — `buildExistenceConditionCheck`/
+ * `buildVersionConditionCheck` have no `tenantId` convention, and forcing one would be a false
  * requirement, not a real safety property.
  *
- * Net: this is a cheap tripwire that catches an honest caller bug (copy-paste of the wrong
- * tenantId into an otherwise-correct entry) before it commits, not a structural proof that every
- * entry belongs to the fenced tenant. Closing that fully would need one of: mandatory tenant
- * metadata enforced BY the builders (reject construction if absent, not just read-if-present by
- * this lane), validation against the physical PK/SK plus `TableName`, or a branded tenant-scoped
- * entry type ordinary `TransactWriteEntry` values cannot satisfy — all larger, Type 1 changes,
- * deferred exactly as documented in `decisions-log.md`.
+ * Net: still not a full structural proof (an entry with NO `TENANT#`-prefixed `PK` and no
+ * declared `tenantId` — e.g. a hypothetical future global entity mistakenly routed through this
+ * lane — passes through unchecked; see the dedicated test for that residual case), but it now
+ * catches BOTH the "declared tenantId is wrong" bug AND the "declared tenantId lies, physical key
+ * tells the truth" attack the original best-effort check could not see. Closing the last residual
+ * gap fully would need a branded tenant-scoped entry type ordinary `TransactWriteEntry` values
+ * cannot satisfy, or making `PK`-prefix membership mandatory for every entity — larger, Type 1
+ * changes, deferred exactly as documented in `decisions-log.md`.
  */
-function findTenantMismatch(entries: TransactWriteEntry[], tenantId: string): string | undefined {
+function entryTableName(entry: TransactWriteEntry): string {
+  if ("Put" in entry) return entry.Put.TableName;
+  if ("Update" in entry) return entry.Update.TableName;
+  if ("Delete" in entry) return entry.Delete.TableName;
+  return entry.ConditionCheck.TableName;
+}
+
+function entryPk(entry: TransactWriteEntry): string | undefined {
+  const pk = "Put" in entry ? (entry.Put.Item as { PK?: unknown }).PK : "Update" in entry ? entry.Update.Key.PK : "Delete" in entry ? entry.Delete.Key.PK : entry.ConditionCheck.Key.PK;
+  return typeof pk === "string" ? pk : undefined;
+}
+
+const TENANT_PK_PREFIX = /^TENANT#([^#]+)#/;
+
+function findTenantMismatch(entries: TransactWriteEntry[], tenantId: string, tableName: string): string | undefined {
   for (const entry of entries) {
+    if (entryTableName(entry) !== tableName) return `TableName=${entryTableName(entry)}`;
+
     if ("Put" in entry) {
       const declared = (entry.Put.Item as { tenantId?: unknown }).tenantId;
       if (typeof declared === "string" && declared !== tenantId) return declared;
@@ -78,7 +109,14 @@ function findTenantMismatch(entries: TransactWriteEntry[], tenantId: string): st
       const declared = entry.Delete.ExpressionAttributeValues?.[":tenantId"];
       if (typeof declared === "string" && declared !== tenantId) return declared;
     }
-    // ConditionCheck: no tenantId convention to check, intentionally skipped (see doc above).
+    // ConditionCheck: no declared-tenantId convention to check (see doc above) - falls through
+    // to the PK-based check below same as every other entry kind.
+
+    const pk = entryPk(entry);
+    if (pk !== undefined) {
+      const match = TENANT_PK_PREFIX.exec(pk);
+      if (match && match[1] !== tenantId) return `PK=${pk}`;
+    }
   }
   return undefined;
 }
@@ -120,11 +158,11 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
     });
   }
 
-  const mismatch = findTenantMismatch(input.entries, input.tenantId);
+  const mismatch = findTenantMismatch(input.entries, input.tenantId, input.tableName);
   if (mismatch !== undefined) {
     throw new InternalError(
-      "TenantBusinessMutation entry declares a tenantId that does not match the fenced tenantId — refusing to write.",
-      { fencedTenantId: input.tenantId, declaredTenantId: mismatch },
+      "TenantBusinessMutation entry does not match the fenced tenantId (declared tenantId, TableName, or PK diverges) — refusing to write.",
+      { fencedTenantId: input.tenantId, mismatch },
     );
   }
 
