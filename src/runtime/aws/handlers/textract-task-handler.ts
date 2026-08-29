@@ -78,15 +78,19 @@ function isStartOcrEvent(event: unknown): event is StartOcrEvent {
 }
 
 async function handleStartOcr(event: StartOcrEvent): Promise<void> {
-  await runWithContext({ correlationId: randomUUID(), tenantId: event.input.tenantId }, async () => {
+  // Uses the run's OWN correlationId (threaded from extraction-starter-handler.ts through the
+  // Step Functions execution input, see ExtractionExecutionInput's doc comment) - never a fresh
+  // randomUUID() here, which would make this Task's logs unjoinable to the rest of the run.
+  await runWithContext({ correlationId: event.input.correlationId, tenantId: event.input.tenantId }, async () => {
     try {
       await startOcr(deps.startOcr, { ...event.input, taskToken: event.taskToken });
       logger.info("textract-task START_OCR succeeded", { documentId: event.input.documentId, runId: event.input.runId });
     } catch (err) {
       const appErr = toAppError(err);
       // Rethrown to Step Functions as a real Task failure - the ASL's own Catch block
-      // (ErrorEquals matching appErr.code) routes to RunDeterministicParser regardless of
-      // which of these errors fired, per design §1.2.
+      // (ErrorEquals matching the thrown class's name, i.e. `errorType` - NOT appErr.code,
+      // fixed for real in W2-02, see pilot-readiness-program.md) routes to
+      // RunDeterministicParser regardless of which of these errors fired, per design §1.2.
       logger.error("textract-task START_OCR failed", { documentId: event.input.documentId, runId: event.input.runId, errorCode: appErr.code });
       throw appErr;
     }
@@ -97,6 +101,18 @@ async function handleCompleteOcr(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
+    // Deliberate, documented scope boundary (logging-observability-standard.md audit,
+    // 2026-08-29): this invocation's OWN wrapping correlationId stays a fresh randomUUID(),
+    // never the run's real one - the only identifier available before completeOcr() runs is
+    // `message.JobId`, and fetching the TextractJob a second time here just to read its
+    // correlationId early would duplicate the read completeOcr() already does internally
+    // (and could observe a different, racing value). The run's real correlationId still
+    // reaches every DOWNSTREAM state correctly - completeOcr() re-attaches `job.correlationId`
+    // to its own SendTaskSuccess payload (see that function). Only THIS handler's own two log
+    // lines (below) use a per-delivery-attempt ID instead of the run's - acceptable because
+    // `jobId`/`messageId` in those same log lines is the real join key back to the TextractJob
+    // record for this specific case, same idempotency/join pattern e.g. `outbox_sweeper`
+    // already documents elsewhere in this codebase.
     await runWithContext({ correlationId: randomUUID() }, async () => {
       try {
         const envelope = JSON.parse(record.body) as { Message?: string };

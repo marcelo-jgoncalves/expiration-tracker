@@ -10,6 +10,7 @@ import type { DispatchCommand } from "../../../workers/reminder-producer/produce
 import { correlationIdFromSqsRecord, runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
+import { toAppError } from "../../../shared/errors/app-error.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -59,7 +60,14 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
           logger.info("reminder-dispatch outcome", { messageId: record.messageId, outcome: outcome.kind });
         });
       } catch (err) {
-        logger.error("reminder-dispatch failed", { messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+        // errorCode/retryable logged for consistency with every other handler's pattern (e.g.
+        // textract-task-handler.ts) - see app-error.ts's isRetryable() doc comment for the
+        // honest, current scope of what `retryable` actually drives today (this handler still
+        // always reports a batch item failure regardless of the value - SQS's own
+        // maxReceiveCount+DLQ is the real terminal decision, not this field; logged here for
+        // diagnosis, not branching).
+        const appErr = toAppError(err);
+        logger.error("reminder-dispatch failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     });

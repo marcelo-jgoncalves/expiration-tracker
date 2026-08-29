@@ -38,6 +38,7 @@ function baseInput(overrides: Partial<RunDeterministicParserInput> = {}): RunDet
     documentVersion: 3,
     runId: "run_x",
     pipelineVersion: "2026-08-01",
+    correlationId: "corr-1",
     ...overrides,
   };
 }
@@ -63,6 +64,9 @@ describe("runDeterministicParser", () => {
     // Original run identity is preserved on the output (needed by every later ASL state).
     expect(output.tenantId).toBe("t1");
     expect(output.runId).toBe("run_x");
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29): the run's
+    // correlationId must survive this Task boundary unchanged, never regenerated.
+    expect(output.correlationId).toBe("corr-1");
   });
 
   it("degraded path (RunTextract failed, no artifact): needs Bedrock, never fabricates a candidate", async () => {

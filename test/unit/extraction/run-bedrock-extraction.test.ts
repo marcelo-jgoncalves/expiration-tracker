@@ -90,6 +90,7 @@ function baseInput(overrides: Partial<RunBedrockExtractionInput> = {}): RunBedro
     documentVersion: 3,
     runId: "run_x",
     pipelineVersion: "2026-08-01",
+    correlationId: "corr-1",
     ocrAvailable: true,
     extractedFields: [{ fieldName: "expirationDate", valueType: "DATE", source: "DETERMINISTIC_PARSER" }],
     needsBedrock: true,
@@ -110,6 +111,8 @@ describe("runBedrockExtraction", () => {
     expect(bedrock.calls[0]!.textArtifact).toEqual({ bucket: "b", key: "ocr/run_x.json" });
     expect(output.bedrockFields).toEqual([{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.92, source: "BEDROCK" }]);
     expect(output.runId).toBe("run_x");
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29).
+    expect(output.correlationId).toBe("corr-1");
   });
 
   it("fails closed when AI_EXTRACTION is off, never calling Bedrock", async () => {
@@ -142,6 +145,9 @@ describe("runBedrockExtraction", () => {
     );
     expect(bedrock.calls).toHaveLength(0);
     expect(output.bedrockFields).toEqual([]);
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29) - the degraded
+    // (no-artifact) return path must also thread correlationId, not just the happy path.
+    expect(output.correlationId).toBe("corr-1");
   });
 
   it("propagates BedrockExtractionFailedError and compensates (releases) the quota reservation on call failure", async () => {

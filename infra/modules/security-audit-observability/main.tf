@@ -35,7 +35,7 @@ resource "aws_cloudwatch_metric_alarm" "authorization_denied_burst" {
   evaluation_periods  = 1
   threshold           = 5
   comparison_operator = "GreaterThanOrEqualToThreshold"
-  alarm_description   = "5+ authorization denials (any reason) across the 4 HTTP handlers in 5 minutes - possible enumeration/abuse or an authorization regression. Not per-tenant (metric filters don't create per-dimension alarms); investigate via correlationId in CloudWatch Logs Insights."
+  alarm_description   = "5+ authorization denials (any reason) across the HTTP handlers wired below (http_function_names) in 5 minutes - possible enumeration/abuse or an authorization regression. Not per-tenant (metric filters don't create per-dimension alarms); investigate via correlationId in CloudWatch Logs Insights."
   treat_missing_data  = "notBreaching"
   alarm_actions       = [var.alert_topic_arn]
   ok_actions          = [var.alert_topic_arn]

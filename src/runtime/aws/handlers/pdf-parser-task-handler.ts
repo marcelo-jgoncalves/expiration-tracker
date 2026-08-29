@@ -9,7 +9,6 @@
  * extraction over the OCR artifact (when present) plus the `needsBedrock()`/`AI_EXTRACTION`
  * decision inputs the next ASL states consume. `SecureLogger` only - never logs OCR text.
  */
-import { randomUUID } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildPdfParserTaskWorkerDeps, createRealPdfParserTaskWorkerClients } from "../../../modules/extraction/composition/extraction.js";
 import { runDeterministicParser, type RunDeterministicParserInput, type RunDeterministicParserOutput } from "../../../modules/extraction/application/run-deterministic-parser.js";
@@ -41,7 +40,9 @@ const deps = buildPdfParserTaskWorkerDeps(
 const logger = new SecureLogger({ baseContext: { service: "pdf-parser-task" } });
 
 export async function handler(event: RunDeterministicParserInput): Promise<RunDeterministicParserOutput> {
-  return runWithContext({ correlationId: randomUUID(), tenantId: event.tenantId }, async () => {
+  // Uses the run's OWN correlationId, threaded through the Step Functions execution - never a
+  // fresh randomUUID() here (see ExtractionExecutionInput's doc comment).
+  return runWithContext({ correlationId: event.correlationId, tenantId: event.tenantId }, async () => {
     try {
       const output = await runDeterministicParser(deps.runDeterministicParser, event);
       logger.info("pdf-parser-task RunDeterministicParser succeeded", {

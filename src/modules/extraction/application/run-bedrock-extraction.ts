@@ -49,6 +49,9 @@ export interface RunBedrockExtractionInput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  /** The run's one business correlationId (ExtractionExecutionInput's doc comment) - echoed
+   * back in RunBedrockExtractionOutput so ValidateSchema keeps receiving it. */
+  correlationId: string;
   ocrAvailable: boolean;
   extractedFields: RunBedrockExtractionFieldInput[];
   needsBedrock: boolean;
@@ -76,6 +79,7 @@ export interface RunBedrockExtractionOutput {
   documentVersion: number;
   runId: string;
   pipelineVersion: string;
+  correlationId: string;
   bedrockFields: BedrockFieldCandidateOutput[];
   bedrockSystemPromptVersion: string;
   // Passthrough of RunDeterministicParser's own output (item 7 finding, D-035 §2: the ASL's
@@ -123,6 +127,7 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
       documentVersion: input.documentVersion,
       runId: input.runId,
       pipelineVersion: input.pipelineVersion,
+      correlationId: input.correlationId,
       bedrockFields: [],
       bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
       ocrAvailable: input.ocrAvailable,
@@ -181,6 +186,7 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
         documentVersion: input.documentVersion,
         runId: input.runId,
         pipelineVersion: input.pipelineVersion,
+        correlationId: input.correlationId,
         bedrockFields,
         bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
         ocrAvailable: input.ocrAvailable,

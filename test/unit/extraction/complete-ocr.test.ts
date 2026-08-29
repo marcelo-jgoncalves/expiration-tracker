@@ -92,6 +92,7 @@ function baseJob(overrides: Partial<TextractJob> = {}): TextractJob {
     documentVersion: 3,
     runId: "run_x",
     pipelineVersion: "2026-08-01",
+    correlationId: "corr-1",
     clientRequestToken: "abc",
     status: "STARTED",
     taskTokenCiphertext: "enc:token-abc",
@@ -162,6 +163,11 @@ describe("completeOcr", () => {
     expect(jobsStore.updateCalls).toHaveLength(1);
     expect(jobsStore.updateCalls[0]?.job.taskTokenCiphertext).toBeUndefined();
     expect(jobsStore.updateCalls[0]?.job.status).toBe("COMPLETED");
+    // Logging-observability-standard.md "Tracing distribuído" (2026-08-29): the run's
+    // correlationId (persisted on the job at START_OCR time) must be re-attached to the
+    // SendTaskSuccess payload, since it REPLACES the whole Step Functions `$` from here on.
+    const output = sender.successCalls[0]?.output as { correlationId: string };
+    expect(output.correlationId).toBe("corr-1");
   });
 
   it("on PARTIAL_SUCCESS: still succeeds, tags PARTIAL_OCR, never treated as failure", async () => {
