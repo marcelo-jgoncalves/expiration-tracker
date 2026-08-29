@@ -2,6 +2,83 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
+## W3-07 — pipeline de purga durável (2026-08-29), D-081, ainda sem rodada Codex
+
+Sessão dedicada ao purge/sweeper pós-`DELETED` (Codex, em D-080, recomendou explicitamente
+redirecionar esforço para cá em vez de continuar espremendo o fence de admissão em 8,8/10).
+Registro completo em `decisions-log.md` D-081.
+
+**O que foi construído** (todos os 4 itens do escopo, IMPLEMENTED + UNIT TESTED):
+1. `src/shared/tenant-lifecycle/system-mutation.ts`'s `PURGE_DELETE` — implementado de verdade
+   (era `SystemMutationNotImplementedError`). `Delete` idempotente
+   (`attribute_not_exists(PK) OR begins_with(PK, "TENANT#<id>#")`), sem condição de versão.
+2. `src/workers/tenant-purge/dynamo-tenant-purge.ts` — Scan tenant-scoped da tabela principal +
+   purge via `PURGE_DELETE`, excluindo `TenantLifecycleRecord`/`IdentityMapping` na camada de
+   lógica pura.
+3. `src/workers/tenant-purge/session-table-tenant-purge.ts` — purge do `bff-session-table`
+   (linhas `Session` apenas — `LoginAttempt` não tem `tenantId`, gap real documentado).
+4. `src/workers/tenant-purge/s3-tenant-purge.ts` — `ListObjectVersions` paginado, versões +
+   delete markers, `DeleteObjects.Errors[]` com retry, `ListMultipartUploads` + abort,
+   checkpoint/resume.
+5. `src/workers/tenant-purge/purge-tenant.ts` — ponto de entrada composable único
+   (`SUCCESS`/`PARTIAL`/`FAILED`, nunca reporta sucesso com erro S3 não resolvido).
+6. Adaptadores reais AWS: `src/shared/dynamodb/tenant-purge-scan.ts` (Scan real, tabela
+   principal + bff-session-table), `src/shared/s3/tenant-purge-s3-adapter.ts` (S3 real).
+
+1066 testes de backend passando (era 1038, +28 novos), typecheck/lint/check-boundaries/
+check-docs limpos, zero regressão. Commits: `4eaf593` (pipeline core + testes) e o commit desta
+mensagem (adaptadores reais + docs).
+
+**Infra real verificada, não assumida**:
+- `quarantine`/`clean` (`infra/modules/document-buckets/main.tf`) e `import`
+  (`infra/modules/import-bucket/main.tf`): **versionamento confirmado habilitado**
+  (`aws_s3_bucket_versioning` com `status = "Enabled"`), como o design aprovado assume.
+- `extraction_transient` (bucket OCR, `infra/main.tf` linha ~1702): **deliberadamente SEM
+  versionamento** — comentário do próprio Terraform diz "no versioning/lifecycle safety net",
+  TTL de 24h (`EXTRACTION_TRANSIENT_LIFECYCLE_HOURS`). Isto NÃO é um gap de implementação desta
+  sessão — é uma decisão de design pré-existente (retenção transitória curta substitui
+  versionamento). O mecanismo de purga desta sessão funciona corretamente sobre um bucket não
+  versionado também (cada objeto aparece como uma "versão" `null` em `ListObjectVersions`,
+  purgada do mesmo jeito) — só o argumento "versionamento cobre objeto tardio" do design
+  aprovado não se aplica a este bucket especificamente; o TTL de 24h é o que efetivamente limita
+  a janela de exposição ali.
+- `bff-session-table` (`infra/modules/bff-session-table/main.tf`): confirmado sem GSI — a
+  enumeração tenant-scoped é necessariamente um Scan, não um Query (documentado no próprio
+  módulo).
+- Nenhuma GSI keyed só por `tenantId` existe na tabela principal (GSI1-GSI7, cada uma serve um
+  padrão de acesso por tipo de entidade específico) — confirmado por leitura de
+  `infra/modules/dynamo-table/main.tf` e grep exaustivo de `GSI1PK` em `src/modules/**/domain`.
+  O purge da tabela principal é portanto um Scan com `FilterExpression: begins_with(PK, ...)`,
+  não um Query — aceitável porque deleção de tenant é rara/assíncrona, não um hot path.
+
+**O que NÃO foi construído nesta sessão (explicitamente fora de escopo, ver prompt original)**:
+- Orquestrador/Step Functions ou qualquer wiring real de trigger `QUIESCING`→`PURGING`→
+  `VERIFIED` — `purgeTenant()` é uma primitiva real e chamável, não um Lambda handler ainda; não
+  existe `src/runtime/aws/handlers/tenant-purge-handler.ts` nem composição em
+  `src/runtime/aws/composition/`.
+- Nenhuma mudança em Terraform (`infra/`) — nenhuma IAM role nova para um futuro handler de
+  purge, nenhum EventBridge Scheduler/state machine.
+- Adaptadores reais (`tenant-purge-scan.ts`, `tenant-purge-s3-adapter.ts`) NÃO foram testados
+  contra AWS real nesta sessão (sem ambiente de integração disponível) — só typecheck/lint/
+  compilação limpos. A lógica pura que eles envolvem tem 24 testes unitários com fakes
+  in-memory/S3, mas o adaptador real em si (marshalling de `ScanCommand`/`ListObjectVersionsCommand`/
+  `DeleteObjectsCommand` reais) não tem teste de integração.
+- **Nenhuma rodada Codex executada sobre este código ainda** — ao contrário do fence de admissão
+  (4 rodadas, 8,8/10), o purge pipeline desta sessão não teve nenhuma revisão adversarial. Maior
+  valor esperado da próxima sessão: uma rodada Codex dedicada especificamente a
+  partial-failure handling, checkpoint/resume correctness, isolamento de tenant, e completude do
+  bucket versionado (ver `AGENTS.md` §4 para invocação).
+- O gap `LoginAttempt`/`GuestRateLimitRecord` do `bff-session-table` (sem `tenantId`) permanece
+  documentado, não fechado — mesma classe de pendência já registrada em D-080 para o fence de
+  admissão.
+
+**Próxima ação real, em ordem de valor esperado**: (a) rodada Codex adversarial dedicada ao
+purge pipeline (maior valor, zero rodadas até agora); (b) decidir e implementar o
+orquestrador/trigger real (Step Functions vs. Lambda simples invocado por EventBridge Scheduler
+— decisão de produto/arquitetura, Type 1, não decidida nesta sessão); (c) Terraform para a IAM
+role do futuro handler de purge (least-privilege: Scan na tabela principal + `bff-session-table`,
+`ListObjectVersions`/`DeleteObjects`/`ListMultipartUploads`/`AbortMultipartUpload` nos 4 buckets).
+
 ## W3-07 — quarta rodada Codex (2026-08-29), D-080, nota 8,8/10 — melhor rodada até agora
 
 Sessão de continuação, prompt de retomada priorizando: (1) fechar o gap residual não-`TENANT#`-

@@ -49,8 +49,10 @@ boundary** (yes/no, what) | **fence status** | **late-result behavior** | **test
   `DELETING` tenant cannot reach the writer's external-effect call in the first place. Not
   equivalent to fencing the writer's own transaction directly — if `consume()` is ever bypassed or
   the quota check removed for a given call site, the indirect protection disappears with it.
-- **Fenced via SystemMutation** — none yet; `PURGE_DELETE`/`OUTBOX_BOOKKEEPING` remain reserved,
-  unimplemented allowlist members (`src/shared/tenant-lifecycle/system-mutation.ts`).
+- **Fenced via SystemMutation** — `PURGE_DELETE` implemented for real (D-081, 2026-08-29): the
+  main-table half of `src/workers/tenant-purge/dynamo-tenant-purge.ts` routes every physical
+  delete through it. `OUTBOX_BOOKKEEPING` remains a reserved, unimplemented allowlist member
+  (`src/shared/tenant-lifecycle/system-mutation.ts`).
 - **NOT FENCED** — no lifecycle check anywhere in the write path today.
 - **NOT FENCED (by design)** — a deliberate, documented architectural decision that this
   particular point should never be fenced directly (S3 issuance, `completeOcr`'s `PutObject`),
