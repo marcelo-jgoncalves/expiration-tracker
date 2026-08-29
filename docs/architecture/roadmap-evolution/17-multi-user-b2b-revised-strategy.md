@@ -3,7 +3,7 @@
 **Data:** 2026-08-29  
 **Branch analisada:** `develop`  
 **Natureza:** análise estratégica + arquitetural + plano recomendado  
-**Status:** proposta para novo ciclo Type 1; não implementar diretamente sem o protocolo arquitetural vigente do projeto.
+**Status:** `APPROVED` (qualidade técnica) via protocolo Claude↔Codex — 3 rodadas reais, Claude 9,2/10, Codex 9,2/10, ambos ≥9,0 (ver §125 para o registro completo). **A decisão de TIMING ("fazer agora" vs. manter o gatilho comercial de `roadmap-evolution/05`, primeira venda B2B) permanece integralmente reservada ao Marcelo (`AGENTS.md` §1) — o protocolo aprovou a qualidade técnica do design assumindo implementação futura, nunca decidiu quando implementar.** Não implementar sem essa decisão explícita do Marcelo.
 
 ---
 
@@ -3067,3 +3067,63 @@ evitando que futuras capacidades — especialmente Document Lifecycle, assinatur
 - estado corrente documentado do Full BFF
 - estado corrente de W3-07 / tenant lifecycle
 - modelos existentes de `IdentityMapping`, `ItemWatch`, `GuestTokenPointer`, `TenantEntitlement`, `AuditEvent`
+
+---
+
+# 125. Reconciliação Claude↔Codex (2026-08-29/30)
+
+Rodada 1 de revisão adversarial deste documento (protocolo `AGENTS.md` §4, nota cega — cada avaliador registrou a nota sem ver a do outro): **Claude 6,8/10, Codex 8,0/10**. Ambos abaixo do gate de 9,0 — acordo em não aprovar como está, desacordo real na magnitude. Achados reais de ambos os lados, corrigidos abaixo (não editados nas seções originais §1-124, que permanecem como o documento externo original — correções entram aqui, mesmo padrão já usado em `roadmap-evolution/05-domain-model-organization-billing.md`).
+
+## 125.1 Achado bloqueante de governança — conflito não reconciliado com decisão já aprovada (Claude + Codex, ambos independentemente)
+
+`roadmap-evolution/05-domain-model-organization-billing.md` já é `APPROVED` via protocolo completo (Claude 9,2/Codex 9,2) e decide, textualmente: **"Organization/Membership/RBAC só no gatilho real... nunca por estágio numérico"** — reafirmado depois em `docs/engineering/pilot-readiness-program.md` (auditoria Wave 4/W4-02, "M13 gated por gatilho comercial real que não disparou"). Este documento (§1, §124) recomenda o oposto ("fazer agora") sem citar, reconhecer ou tentar reconciliar essa decisão — a própria lista de "Fontes principais" (§ acima) não menciona `roadmap-evolution/05` nem `decisions-log.md`.
+
+**Isto não é um erro técnico do design em si** — é um gap de completude/rigor: um documento que analisa "profundamente o repositório real" deveria ter encontrado uma decisão formal e diretamente conflitante antes de recomendar o oposto dela. **Resolução**: este documento passa a ser tratado explicitamente como uma **proposta de supersessão** de parte da decisão do cluster 05 (especificamente o gatilho de timing, não o modelo de dados em si, que os dois documentos concordam em linhas gerais) — a decisão de aceitar ou não essa supersessão é do Marcelo (`AGENTS.md` §1), nunca do protocolo Claude↔Codex. O protocolo desta rodada refina só a qualidade técnica do design abaixo, sob a premissa "se/quando isto for implementado".
+
+## 125.2 Last OWNER — falta mecanismo transacional concreto (Codex)
+
+§27/§78 corretamente exigem a invariante "uma Organization ativa deve possuir pelo menos um OWNER ativo", mas não definem como isso é **provado sob concorrência** no single-table. "Consultar membros, depois decidir" é uma corrida real em DynamoDB (TOCTOU clássico, mesma classe de achado que W3-07 já levou várias rodadas para fechar).
+
+**Correção**: manter um contador `ownerCount` no item `META` da própria `Organization` (mesma partição, sempre lido/escrito na mesma `TransactWriteItems` que qualquer mudança de role/remoção de Membership que envolva um OWNER). `ownerCount` é definido precisamente como **a contagem de Memberships `ACTIVE` com `role = OWNER`** — logo, toda transição que reduziria essa contagem (remoção, demote para outra role, **e também suspensão/desativação de uma Membership OWNER**, não só remoção/demote) precisa passar pela mesma transação e pela mesma `ConditionExpression` (`ownerCount > :one`) antes de decrementar. Se falhar, a operação inteira é rejeitada atomicamente, mesma disciplina de `extraConditions`/fence já estabelecida em `occ.ts`/W3-07. Nenhuma leitura solta antes da decisão. (Refinamento de especificação, Codex Rodada 3 — não é um achado bloqueante novo.)
+
+## 125.3 Invitation/Membership — falta constraint de unicidade além do token one-time (Codex)
+
+§21/§77 fecham a corrida do MESMO token de convite (consumo one-time), mas não tratam: (a) dois convites diferentes para o mesmo e-mail/Organization; (b) um convite aceito por um usuário que já é Membership ativo daquela Organization — nenhum dos dois é impedido só pelo consumo one-time do token.
+
+**Correção**: a transação de aceite de convite deve incluir um `ConditionCheck` de **inexistência** de Membership ativa para `(organizationId, userId)` antes de criar uma nova (mesma convenção `attribute_not_exists(PK) AND attribute_not_exists(SK)` já usada em toda escrita condicional do projeto) — falha aqui deve resolver para um outcome terminal idempotente ("já é membro"), nunca criar uma segunda Membership para o mesmo par.
+
+**Correção adicional (Rodada 2, Codex)**: o `ConditionCheck` acima fecha a duplicidade de Membership, mas não fecha um segundo problema real — dois convites PENDENTES diferentes simultâneos para o mesmo `(organizationId, emailNormalized)` (spam, estado ambíguo para quem convida, corrida de auditoria). Um pointer único tenantless (mesma família de `GuestTokenPointer`/`InvitationTokenPointer` já proposta em §20) chaveado por `(organizationId, emailNormalized)` — não só pelo token — resolve isso: criar um novo convite para um par já com convite `PENDING` deve **reenviar/rotacionar o convite existente** (mesmo padrão já usado para reenvio de link de guest upload, `roadmap-evolution/13-guest-link-delivery-design.md`), nunca criar um segundo `Invitation` PENDING concorrente para o mesmo par.
+
+## 125.4 W3-07 — escala da emenda subestimada, falta tabela mantém/emenda/refaz (Codex)
+
+§43/§104 tratam a revisão do W3-07 como uma emenda relativamente contida. O design/implementação real do W3-07 levou múltiplas rodadas adversariais pesadas (D-066 a D-083, algumas peças levando 4-5 rodadas de correção-e-reconfirmação sobre o MESMO achado até convergir ≥9,0). Uma futura sessão de emenda precisa de uma tabela explícita por componente, não uma afirmação genérica:
+
+| Componente W3-07 | Impacto de Organization-as-tenant |
+|---|---|
+| Fence transacional de admissão (`TenantBusinessMutation`/`ConditionCheck ACTIVE`) | **Mantém** — mecanismo é agnóstico ao significado de `tenantId`, só troca de `userId` para `organizationId` |
+| `TenantLifecycleRecord` | **Mantém estruturalmente** — já é keyed por `tenantId`; semântica passa a ser "Organization lifecycle", sem mudança de chave física |
+| Purge pipeline (D-081-083) | **Emenda** — precisa incluir `Membership`/`Invitation` no inventário de entidades tenant-scoped purgadas; mecanismo de scan/purge em si mantém |
+| BFF session ownership | **Refaz** — §45/§46 deste documento corretamente identificam que a sessão deixa de ser tenant-owned; isto é mudança estrutural real no design do Full BFF, não uma emenda pontual, e precisa do mesmo rigor adversarial (D-053/D-054 levaram 6 passagens) |
+| Admission semantics (presigned URLs, async workers) | **Mantém o contrato**, já estabelecido em D-067 ("admitido enquanto ACTIVE pode terminar") — só a fonte do `tenantId` muda |
+
+## 125.5 GTR-01 — reabre D-060 sem reconhecer a supersessão (Codex)
+
+§38 recomenda migrar guest trust de `UserProfile.requesterDisplayName` (D-060, decidido e implementado há poucos dias) para `Organization.displayName`. Tecnicamente correto no modelo B2B, mas deve ser expresso explicitamente como uma **supersessão proposta de D-060**, não como uma lacuna nova — evita o mesmo tipo de gap do achado 125.1 em escala menor.
+
+## 125.6 Escala mecânica do "MVP: tenantId=userId" — parcialmente mitigada, não eliminada
+
+Verificação direta no código (não confiar só na análise): a premissa está **deliberadamente isolada** a poucos pontos de origem real — `bootstrap-identity.ts:163-174` (fluxo de login via API direta), `bff-auth-service.ts:158-161` (fluxo de login via BFF, mesmo comentário citando a mesma regra de `data-model.md` §7.3/`RequestContextResolver.resolve()`), e `recipient-resolver.ts` (fallback `assigneeUserId ?? tenantId`, documentado no próprio arquivo como válido só enquanto o produto for single-user-per-tenant). Isso é um fator atenuante real: a migração do CÓDIGO DE PRODUÇÃO não está espalhada por dezenas de arquivos — são poucos pontos de origem, já conscientemente documentados como tal em cada um.
+
+O que **não** está isolado é a suíte de testes (~1104 testes de backend hoje) — muitos fixtures fabricam `tenantId=userId` como atalho de setup, exatamente o que §72 já pede para mudar. Não foi possível obter uma contagem exata e verificável nesta rodada (uma tentativa de reproduzir uma contagem específica citada informalmente não bateu com busca própria) — **isto reforça, não enfraquece, a necessidade da Wave B2B-0 (§105) como primeiro passo real**: inventariar antes de estimar esforço, não estimar de memória.
+
+## 125.7 Registro de convergência
+
+| Rodada | Nota Claude | Nota Codex | Achado principal |
+|---|---:|---:|---|
+| 1 | 6,8/10 | 8,0/10 | Conflito não reconciliado com cluster 05 (governança); last OWNER sem mecanismo transacional; Invitation sem constraint de unicidade; tabela W3-07 ausente; GTR-01/D-060 não reconhecido como supersessão; escala mecânica não verificada |
+| 2 | 9,1/10 | 8,8/10 | 125.1-125.5 confirmados corrigidos; 2 achados residuais menores: convite pendente duplicado por e-mail+org (não só token), e `bff-auth-service.ts` faltando na lista de origem real do 125.6 |
+| 3 | 9,2/10 | **9,2/10** | Ambos os residuais da Rodada 2 corrigidos e confirmados fechados; 1 refinamento de especificação não-bloqueante aplicado (`ownerCount` = Memberships `ACTIVE` com `role=OWNER`, suspensão de OWNER também passa pela mesma transação) |
+
+**Nota de Claude, Rodada 3 (independente)**: **9,2/10** — concordo com a avaliação do Codex: os dois residuais da Rodada 2 foram fechados com mecanismos concretos (pointer único de convite pendente por e-mail+org com reenvio/rotação, terceiro ponto de origem real incluído sem inflar contagem), e o refinamento de `ownerCount` é precisão de especificação bem-vinda, não um achado novo que justifique reabrir rodada.
+
+**Status: TECNICAMENTE CONVERGIDO — `APPROVED` via protocolo Claude↔Codex (Claude 9,2/10, Codex 9,2/10, ambos ≥9,0, sem arredondamento, 3 rodadas reais).** Isto aprova a qualidade técnica do design de Multi-User B2B assumindo implementação futura — **não aprova, recomenda, nem decide "fazer agora"**. A decisão de timing (implementar agora vs. manter o gatilho comercial de `roadmap-evolution/05`, primeira venda B2B) permanece explícita e integralmente reservada ao Marcelo (`AGENTS.md` §1), independente deste resultado técnico.

@@ -20,6 +20,7 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 - **Infra**: Terraform (`infra/`, ADR-0009), CI/CD via GitHub Actions OIDC.
 - **Reconciliação de engenharia de contexto (2026-08-29)**: `DONE`, mergeada em `main` (PR #84) — root cleanup + `AGENTS.md`/este arquivo reconciliados + 2 guardrails novos em `check-doc-drift.ts`, revisão Claude↔Codex 9,3/10. Registro completo: `docs/architecture/reviews/context-engineering-reconciliation/`.
 - **E-011 (logging/tracing) — junção `correlationId`↔X-Ray**: `E2E PROVEN` (2026-08-29) — smoke test real em `dev` via `aws --profile claude-dev` confirmou `xrayTraceId` no log idêntico ao trace real do X-Ray. Detalhe: `docs/architecture/correlationid-xray-trace-join.md`.
+- **Multi-User B2B revisado — qualidade técnica `APPROVED` via protocolo Claude↔Codex** (D-084, 3 rodadas reais, Claude 9,2/Codex 9,2). Ver "Gates / bloqueios abertos" abaixo — falta só a decisão de TIMING do Marcelo, nada técnico pendente no design em si.
 
 ## O que está em andamento
 
@@ -33,16 +34,16 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 | Orquestrador do purge W3-07 (Step Functions vs. Lambda+EventBridge) | Decisão do Marcelo ou protocolo Claude↔Codex (Type 1) | `decisions-log.md` D-083 |
 | `AppError.retryable` — deveria decidir comportamento real de SQS retry/DLQ? | Decisão de produto do Marcelo | `docs/engineering/decisions-log.md` E-011 |
 | 7 de 9 classes de retenção LGPD sem purga física real (`privacy-lgpd.md` §4) | Decisão de escopo/priorização do Marcelo antes de qualquer implementação | `docs/engineering/pilot-readiness-program.md` W3-06 |
+| Multi-User B2B — timing (implementar agora vs. manter gatilho comercial de `roadmap-evolution/05`) | Decisão de produto do Marcelo (`AGENTS.md` §1) — design tecnicamente `APPROVED` (D-084), não é decisão do protocolo | `roadmap-evolution/17-multi-user-b2b-revised-strategy.md` §125, D-084 |
 | User Validation (planejamento de interface) | Sinal explícito do Marcelo para retomar | `docs/frontend/README.md` |
 | Wave 1 (Design System reconciliation) | Marcelo atualizar o Design System formal primeiro | `docs/engineering/pilot-readiness-program.md` Wave 1 |
 
 ## Decisões deliberadamente adiadas (já decididas como "não agora", não esquecidas)
 
 - M12 (Billing) — bloqueado por escolha de fornecedor de pagamento (D-052).
-- M13 (Organization/Membership/RBAC) — gated por gatilho comercial real (primeira venda B2B), não disparado (`AGENTS.md` §1).
+- M13 (Organization/Membership/RBAC) — gated por gatilho comercial real (primeira venda B2B), não disparado (`AGENTS.md` §1) — ver decisão de timing pendente na tabela de gates acima (D-084).
 - Wave 4 (Identity/RBAC) — `tenantId=userId` aceito como está até o gatilho acima.
 - Opção B (atributo de span OpenTelemetry para correlationId↔trace) — candidata futura, 3 pré-requisitos nomeados, não perseguida agora (`correlationid-xray-trace-join.md` §2).
-- Multi-User B2B revisado — proposta externa arquivada como informativa, não decidida (`docs/architecture/roadmap-evolution/17-multi-user-b2b-revised-strategy.md`).
 - Document Lifecycle Management — mesma classe, arquivado como informativo (`docs/architecture/roadmap-evolution/16-document-lifecycle-strategic-analysis.md`).
 - BFF/frontend quality standard (rubrica mais ampla que `interface-quality-standard.md`) — proposta não adotada (`docs/frontend/bff-frontend-quality-standard-proposal.md`).
 
