@@ -2,23 +2,30 @@
 
 > Este arquivo é estado atual + próxima ação (`AGENTS.md` §2), não histórico. Para a linha do tempo completa por sessão, ver `docs/architecture/session-log.md`; para toda decisão com nota Claude/Codex, ver `docs/architecture/decisions-log.md`. Reescrito em 2026-08-23 para remover narrativa já duplicada nesses dois arquivos (checklist `AGENTS.md` §6). Atualizado em 2026-08-24 com o Core Expiration Vertical Slice (ver abaixo) — confirmar `git log`/branch atual antes de assumir que o PR já foi mergeado, este arquivo pode ficar temporariamente atrás do estado real de `develop`.
 
-## Engenharia de logs/tracing (2026-08-29), E-011 — padrão aprovado + auditoria + 2 pendências reais
+## Engenharia de logs/tracing (2026-08-29), E-011 — padrão aprovado + auditoria + junção X-Ray implementada + 1 pendência real
 
 Pedido explícito do Marcelo: "máxima qualidade em logs e tracing", avaliado em rodadas Claude↔Codex. Registro completo em `docs/engineering/decisions-log.md` E-011. Resumo do estado: `docs/engineering/logging-observability-standard.md` `APPROVED` (gate 9,5/10); achados reais de wiring de detecção (5 emissores sem metric filter) e propagação de `correlationId` pelo pipeline de extração (Step Functions) já corrigidos e mergeados em `main` (PRs #80/#81) — auditoria da implementação subiu de 7,9 para 8,7/10.
 
-**Pendência 1 — decisão de produto, não implementar sem sinal do Marcelo**: `AppError.retryable` não decide comportamento real de nenhum handler SQS hoje (documentação já corrigida para não afirmar o contrário) — ver E-011 para o detalhe completo.
+**Pendência 1 — decisão de produto, não implementar sem sinal do Marcelo**: `AppError.retryable` não decide comportamento real de nenhum handler SQS hoje (documentação já corrigida para não afirmar o contrário) — ver E-011 para o detalhe completo. Ainda não decidida nesta sessão (2026-08-29) — Marcelo pediu para focar primeiro na junção X-Ray (pendência 2 abaixo) e seguir autonomamente pelas demais frentes, postergando qualquer decisão só dele.
 
-**Pendência 2 — design `APPROVED`, aguardando decisão de quando implementar**: junção `correlationId` ↔ trace ADOT/X-Ray. Design em `expiration-tracker-correlationid-trace-join-design-2026-08-29.md` (raiz do repo), v2 (Rodada 4 incorporou 4 melhorias propostas pelo Marcelo — validação rígida do `Root`, nota de cardinalidade não-1:1, correção de precedência do logger, smoke test real em `dev`). **Checklist de implementação (nenhum item feito ainda)**:
+**Pendência 2 — IMPLEMENTADA nesta sessão (2026-08-29), status `IMPLEMENTED`/`UNIT TESTED`, falta só o smoke test real**: junção `correlationId` ↔ trace ADOT/X-Ray. Design + registro de implementação movidos para `docs/architecture/correlationid-xray-trace-join.md` (era `expiration-tracker-correlationid-trace-join-design-2026-08-29.md` na raiz). Checklist:
 
-- [ ] `src/shared/observability/xray-trace-header.ts` novo — `parseXrayTraceHeader(raw: string | undefined)`, parsing determinístico por campo (não por ordem fixa), `Root` validado contra `^1-[0-9a-fA-F]{8}-[0-9a-fA-F]{24}$`, `Sampled` só `"0"`/`"1"`, `Parent` opcional (considerar deixar de fora da v1) validado como hex 16 chars, `Lineage` ignorado, nunca lança.
-- [ ] Testes do parser: formato válido com ordem variável, ausente/vazio, `Root`/`Sampled`/`Parent` inválidos cada um isoladamente, `Lineage` ignorado, fail-open garantido.
-- [ ] **Corrigir a precedência de `SecureLogger.write()` (`logger.ts`) — vale por si só, independente do resto desta feature**: hoje `{ ...getContext(), ...this.baseContext, ...context }` deixa o `context` de cada chamada sobrescrever silenciosamente `tenantId`/`correlationId` reais do `AsyncLocalStorage`. Nova ordem: `context` → `baseContext` → `getContext()` → campos `xray*` derivados (do menos para o mais confiável).
-- [ ] Teste de precedência novo: `context` forjado (`xrayTraceId`/`tenantId`/`correlationId` falsos) nunca vence valores reais de `getContext()`/`_X_AMZN_TRACE_ID`.
-- [ ] Integrar `parseXrayTraceHeader(process.env["_X_AMZN_TRACE_ID"])` em `SecureLogger.write()`, campos incluídos quando presentes, nunca o header bruto.
-- [ ] Nota de cardinalidade (`correlationId`↔`xrayTraceId` não é 1:1) e nota de sampling (`xraySampled:false` não é falha) documentadas no código e em `logging-observability-standard.md`'s critério 4.
-- [ ] `npm run typecheck`/`lint`/`check-docs`/`npm test` limpos antes de commitar.
-- [ ] **Smoke test real em `dev`** (só depois do deploy real via pipeline, nunca apply local): invocar uma Lambda com tracing ativo, confirmar `correlationId`/`xrayTraceId`/`xraySampled=true` numa linha de log real, copiar o `xrayTraceId`, confirmar no console X-Ray que é o mesmo trace. Sem isso, status fica `UNIT TESTED`, nunca `E2E PROVEN`.
-- [ ] Mover o design de `expiration-tracker-correlationid-trace-join-design-2026-08-29.md` (raiz) para `docs/architecture/` (ou anexar como emenda a `m5-observability-design.md`) e apagar da raiz, uma vez implementado.
+- [x] `src/shared/observability/xray-trace-header.ts` novo — `parseXrayTraceHeader`, parsing determinístico por campo, `Root` validado contra `^1-[0-9a-fA-F]{8}-[0-9a-fA-F]{24}$`, `Sampled` só `"0"`/`"1"`, fail-open garantido. **Decisão de implementação**: `Parent`/`xrayParentId` deixado FORA do v1 do código (opção de simplicidade já registrada no design, não bloqueio).
+- [x] Testes do parser (`test/unit/xray-trace-header.test.ts`, 8 testes): ordem variável, ausente/vazio, `Root`/`Sampled` inválidos isoladamente, `Parent`/`Lineage`/chaves desconhecidas ignorados, nunca lança.
+- [x] Precedência de `SecureLogger.write()` corrigida (`logger.ts`) — nova ordem `context` → `baseContext` → `getContext()` → `xray*` (menos para mais confiável, via helper `mergeDefined` que nunca deixa um campo `undefined` de uma camada mais confiável sobrescrever um valor já definido). Zero call site real afetado (grep confirmou: nenhum handler passa `correlationId`/`tenantId` explícito no `context` por chamada hoje).
+- [x] Teste de precedência novo (`test/unit/logger.test.ts`) provando que `context` forjado nunca vence `getContext()` real, tanto para `tenantId`/`correlationId` quanto para os campos `xray*`.
+- [x] `parseXrayTraceHeader(process.env["_X_AMZN_TRACE_ID"])` integrado em `SecureLogger.write()`.
+- [x] Nota de cardinalidade + nota de sampling documentadas no código (`xray-trace-header.ts`) e em `logging-observability-standard.md` critério 4.
+- [x] `npm run typecheck`/`lint`/`check-docs` limpos, `npm test` completo passando (20 testes novos/estendidos desta feature), zero regressão.
+- [ ] **Smoke test real em `dev` — único item pendente, BLOQUEADO nesta sessão por falta de acesso AWS** (sem credenciais locais, MCP `aws-mcp` falhou ao conectar): invocar uma Lambda com tracing ativo, confirmar `correlationId`/`xrayTraceId`/`xraySampled=true` numa linha de log real, copiar o `xrayTraceId`, confirmar no console X-Ray que é o mesmo trace. Sem isso, status fica `UNIT TESTED`, nunca `E2E PROVEN` — próxima sessão com acesso AWS real (ou Marcelo via `!`) deve rodar isto antes de fechar E-011 pendência 2 de vez.
+- [x] Design movido para `docs/architecture/correlationid-xray-trace-join.md`, apagado da raiz.
+
+## Correções mecânicas independentes (2026-08-29)
+
+Encontradas por varredura dedicada a trabalho não bloqueado por decisão do Marcelo/acesso AWS, corrigidas na mesma sessão do item acima:
+
+- `docs/engineering/pilot-readiness-program.md:230` (doc drift): comentário em `infra/main.tf` sobre `ExtractionValidationTaskHandler` já estava atualizado no próprio Terraform ("item 7, implemented") — só a nota no programa de pilot readiness estava desatualizada, dizendo que a correção ainda era candidata futura. Corrigida a nota.
+- `PolicyRef` (`src/modules/reminder/domain/reminder-policy.ts:69-72`) não carregava `tenantId` — nem no tipo, nem nos 2 pontos reais de escrita (`reminder-policy-service.ts`/`expiration-service.ts`'s cópia de renovação). Campo adicionado ao tipo + aos 2 call sites + teste de regressão em cada um (`reminder-policy-service.test.ts`, `reminder-materialization-trigger.test.ts`). Achado original registrado em `pilot-readiness-program.md:265` (W3-07), independente da decisão de orquestrador pendente abaixo.
 
 ## W3-07 — segunda rodada Codex + fechamento de B6 (2026-08-29, sessão em outra máquina), D-083, nota 9,1/10 — purge pipeline pronto para decidir orquestrador
 

@@ -68,14 +68,27 @@ describe("SecureLogger", () => {
     expect(parsed.tenantId).toBe("t_ambient");
   });
 
-  it("lets explicit context win over the ambient AsyncLocalStorage context", () => {
+  it("never lets forged per-call context override the real ambient AsyncLocalStorage context", () => {
+    // Precedence fix (expiration-tracker-correlationid-trace-join-design-2026-08-29.md §3 item 3):
+    // getContext() is more trusted than per-call context, since the latter is caller-supplied
+    // metadata that could otherwise silently spoof tenantId/correlationId.
     const { logger, lines } = captureLogger();
     runWithContext({ correlationId: "cor_ambient", tenantId: "t_ambient" }, () => {
-      logger.info("step_a", { correlationId: "cor_explicit" });
+      logger.info("step_a", { correlationId: "cor_forged", tenantId: "t_forged" });
     });
     const parsed = JSON.parse(lines[0]!);
-    expect(parsed.correlationId).toBe("cor_explicit");
+    expect(parsed.correlationId).toBe("cor_ambient");
     expect(parsed.tenantId).toBe("t_ambient");
+  });
+
+  it("lets explicit context fill in fields the ambient context doesn't set", () => {
+    const { logger, lines } = captureLogger();
+    runWithContext({ correlationId: "cor_ambient" }, () => {
+      logger.info("step_a", { itemId: "item_01" });
+    });
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.correlationId).toBe("cor_ambient");
+    expect(parsed.itemId).toBe("item_01");
   });
 
   it("does not leak ambient context into log lines written outside any runWithContext", () => {
@@ -83,6 +96,60 @@ describe("SecureLogger", () => {
     logger.info("step_outside", {});
     const parsed = JSON.parse(lines[0]!);
     expect(parsed.correlationId).toBeUndefined();
+  });
+
+  it("includes parsed X-Ray trace fields from _X_AMZN_TRACE_ID when present", () => {
+    const original = process.env["_X_AMZN_TRACE_ID"];
+    process.env["_X_AMZN_TRACE_ID"] = "Root=1-5e1b4151-5ac6c58dc39a56f8dead5e08;Parent=53995c3f42cd8ad8;Sampled=1";
+    try {
+      const { logger, lines } = captureLogger();
+      logger.info("step_a", {});
+      const parsed = JSON.parse(lines[0]!);
+      expect(parsed.xrayTraceId).toBe("1-5e1b4151-5ac6c58dc39a56f8dead5e08");
+      expect(parsed.xraySampled).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env["_X_AMZN_TRACE_ID"];
+      } else {
+        process.env["_X_AMZN_TRACE_ID"] = original;
+      }
+    }
+  });
+
+  it("omits X-Ray fields entirely when _X_AMZN_TRACE_ID is absent or malformed", () => {
+    const original = process.env["_X_AMZN_TRACE_ID"];
+    delete process.env["_X_AMZN_TRACE_ID"];
+    try {
+      const { logger, lines } = captureLogger();
+      logger.info("step_a", {});
+      const parsed = JSON.parse(lines[0]!);
+      expect(parsed.xrayTraceId).toBeUndefined();
+      expect(parsed.xraySampled).toBeUndefined();
+    } finally {
+      if (original === undefined) {
+        delete process.env["_X_AMZN_TRACE_ID"];
+      } else {
+        process.env["_X_AMZN_TRACE_ID"] = original;
+      }
+    }
+  });
+
+  it("never lets forged xray fields in per-call context override the real runtime-derived ones", () => {
+    const original = process.env["_X_AMZN_TRACE_ID"];
+    process.env["_X_AMZN_TRACE_ID"] = "Root=1-5e1b4151-5ac6c58dc39a56f8dead5e08;Sampled=1";
+    try {
+      const { logger, lines } = captureLogger();
+      logger.info("step_a", { xrayTraceId: "1-fake-fakefakefakefakefakefakefake", xraySampled: false });
+      const parsed = JSON.parse(lines[0]!);
+      expect(parsed.xrayTraceId).toBe("1-5e1b4151-5ac6c58dc39a56f8dead5e08");
+      expect(parsed.xraySampled).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env["_X_AMZN_TRACE_ID"];
+      } else {
+        process.env["_X_AMZN_TRACE_ID"] = original;
+      }
+    }
   });
 
   it("never lets a canary secret survive across log/exception/DLQ-shaped payloads", () => {

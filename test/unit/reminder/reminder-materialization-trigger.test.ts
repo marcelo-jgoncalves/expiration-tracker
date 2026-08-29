@@ -16,7 +16,7 @@ import { handleTriggerEvent, type TriggerDeps } from "../../../src/workers/remin
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
-import { policyKey } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { policyKey, type PolicyRef } from "../../../src/modules/reminder/domain/reminder-policy.js";
 
 const TENANT = "t1";
 const TABLE = "MainTable";
@@ -234,6 +234,11 @@ describe("reminder-materialization-trigger", () => {
       // part of the renewal) is what the real deploy would use to materialize it; this test
       // fires it explicitly the same way the other scenarios in this file do.
       expect(renewed.copiedReminderPolicyIds).toHaveLength(1);
+      const copiedPointer = await store.get<PolicyRef>({
+        PK: itemKey(TENANT, renewed.item.itemId).PK,
+        SK: `POLICYREF#${renewed.copiedReminderPolicyIds[0]}`,
+      });
+      expect(copiedPointer?.tenantId).toBe(TENANT);
       const result = await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: renewed.item.itemId });
       expect(result.materialized).toBe(1);
       expect((await liveOccurrences(renewed.item.itemId))[0]?.status).toBe("SCHEDULED");

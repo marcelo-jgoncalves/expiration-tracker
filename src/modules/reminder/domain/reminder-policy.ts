@@ -69,6 +69,7 @@ export const POLICY_REF_SK_PREFIX = "POLICYREF#";
 export interface PolicyRef extends EntityKey {
   entityType: "ReminderPolicyRef";
   policyId: string;
+  tenantId: string;
 }
 
 export interface PutPolicyInput {
