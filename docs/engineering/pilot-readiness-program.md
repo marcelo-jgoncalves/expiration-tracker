@@ -1,6 +1,6 @@
 # Pilot Readiness Program — backlog e estado por item
 
-> Documento canônico do "Consolidation + Pilot Readiness Program" (`expiration-tracker-next-days-master-plan-and-ai-prompt.md`, raiz do repo, 2026-08-27). Este arquivo é o backlog vivo pedido pela §13 desse prompt — não duplica o prompt em si (que continua sendo a especificação do programa), só rastreia item-a-item o que já foi feito, o que está bloqueado e por quê, e o que ainda não foi tocado. Atualizar a cada milestone concluído (`AGENTS.md` §6), nunca reescrever entradas fechadas — adicionar uma nova entrada de status em vez de editar o histórico.
+> Documento canônico do "Consolidation + Pilot Readiness Program" (`docs/project/handoffs/expiration-tracker-next-days-master-plan-and-ai-prompt.md`, 2026-08-27, movido da raiz em 2026-08-29). Este arquivo é o backlog vivo pedido pela §13 desse prompt — não duplica o prompt em si (que continua sendo a especificação do programa), só rastreia item-a-item o que já foi feito, o que está bloqueado e por quê, e o que ainda não foi tocado. Atualizar a cada milestone concluído (`AGENTS.md` §6), nunca reescrever entradas fechadas — adicionar uma nova entrada de status em vez de editar o histórico.
 >
 > Precedência idêntica a `docs/architecture/README.md`: `AGENTS.md` > ADR aceito > documento temático corrente > este documento (rastreamento de programa, não normativo sobre arquitetura/design) > `NEXT_SESSION_PROMPT.md` (estado de sessão).
 

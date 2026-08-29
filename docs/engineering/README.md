@@ -49,7 +49,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `02-engineering-fitness-functions.md` | normativo atual | Verificações executáveis derivadas da rubrica CONGELADA |
 | `00-research-bibliography.md` | histórico/fundamentação | Fontes de pesquisa que embasam a rubrica original |
 | `03-repository-baseline.md` | histórico | Estado do repositório no início da Engineering Maturity Review — nunca estado atual |
-| `pilot-readiness-program.md` | registro vivo de backlog (não normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`expiration-tracker-next-days-master-plan-and-ai-prompt.md`, raiz) — DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
+| `pilot-readiness-program.md` | registro vivo de backlog (não normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`docs/project/handoffs/expiration-tracker-next-days-master-plan-and-ai-prompt.md`, movido da raiz em 2026-08-29) — DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
 | `pilot-readiness-assessment.md` | síntese/recomendação (entregável final do programa, prompt mestre §42) | GO/CONDITIONAL GO/NO-GO por escopo de piloto, consolidando a evidência de `pilot-readiness-program.md` — não repete achado, só aponta; não é aprovação final, é insumo para a decisão do Marcelo |
 | `reviews/` | histórico/evidência de rodada | Artefatos de toda rodada Claude↔Codex de processo/qualidade — ver seção própria abaixo |
 

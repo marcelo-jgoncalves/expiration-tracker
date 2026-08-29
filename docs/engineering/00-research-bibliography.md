@@ -1,6 +1,6 @@
 # Research Bibliography — Engineering Maturity Standards
 
-Fase 0 do processo (`Prompt Mestre — Engineering Maturity Review`, §4-5). Pesquisa realizada em 2026-08-19 via busca na Internet. Não copia texto extenso das fontes — extrai princípios e critérios aplicáveis a este repositório (micro-SaaS serverless AWS, estágio pré-produção, equipe pequena, forte uso de agentes de IA).
+Fase 0 do processo (`engineering-maturity-review-mission-brief.md`, §4-5). Pesquisa realizada em 2026-08-19 via busca na Internet. Não copia texto extenso das fontes — extrai princípios e critérios aplicáveis a este repositório (micro-SaaS serverless AWS, estágio pré-produção, equipe pequena, forte uso de agentes de IA).
 
 Cada entrada: organização/documento, versão, status, data de consulta, URL, critérios derivados, limitações, natureza (normativa/recomendação/pesquisa empírica/ferramenta).
 

@@ -90,12 +90,20 @@ padrão de `IdempotencyStore` já usado por `renewItem`) — classificado formal
 Vertical Slice, o frontend/BFF reais enviam o header em ambos os fluxos (Create e Renew) — gap
 fechado para o caminho de item.
 
+## Mission briefs (histórico — entrada bruta que originou as etapas acima)
+
+Movidos da raiz do repo em 2026-08-29 (limpeza de contexto), mesmo tratamento de `docs/architecture/blocker-b-mission-brief.md`: texto verbatim do prompt que abriu cada etapa, preservado como evidência, nunca normativo.
+
+- `interface-context-and-critical-tasks-mission-brief.md` — abriu `interface-context-and-critical-tasks.md`.
+- `interface-conceptual-model-mission-brief.md` — abriu `interface-conceptual-model-and-information-architecture.md` (e a preparação técnica que descobriu os 3 blockers).
+- `interface-screen-and-state-inventory-mission-brief.md` — abriu `interface-screen-and-state-inventory.md`.
+
 ## Padrão de qualidade formalizado
 
 `docs/frontend/interface-quality-standard.md` — criado em `interface-validation-readiness.md`
 (Workstream G), consolidando os 12 eixos, modelo de severidade, quality gates e threshold
 (`Overall ≥ 9.0`) que já eram usados desde a primeira etapa, sem introduzir critério novo.
-`expiration-tracker-bff-frontend-quality-standard.md` (raiz do repo) continua sendo um documento
+`bff-frontend-quality-standard-proposal.md` (mesma pasta, movido da raiz em 2026-08-29) continua sendo um documento
 distinto e mais amplo (BFF, performance, testes de frontend de produção real), ainda não adotado —
 se/quando adotado, precisaria da mesma convergência Claude↔Codex que os 9 eixos de
 `docs/engineering/joint-review-criteria.md` já usaram.

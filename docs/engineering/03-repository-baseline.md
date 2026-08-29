@@ -1,6 +1,6 @@
 # Repository Baseline — Engineering Maturity Review
 
-Congelado no início da Engineering Maturity Review (ver `Prompt Mestre — Engineering Maturity Review do Expiration Tracker.md`, §23). Toda avaliação inicial (Checkpoints 0-12) se refere exatamente a este estado. Correções feitas no Checkpoint 13 serão registradas com novo SHA (BEFORE → AFTER).
+Congelado no início da Engineering Maturity Review (ver `engineering-maturity-review-mission-brief.md`, movido da raiz em 2026-08-29, §23). Toda avaliação inicial (Checkpoints 0-12) se refere exatamente a este estado. Correções feitas no Checkpoint 13 serão registradas com novo SHA (BEFORE → AFTER).
 
 ## Identidade do commit
 

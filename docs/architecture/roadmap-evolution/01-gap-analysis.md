@@ -6,8 +6,8 @@ authority: informativo (insumo de análise, não normativo — ver nota de escop
 
 # Evolução Estratégica do Roadmap — Fase 1: Estado real e gap analysis
 
-Origem: `Prompt — Evolução Estratégica e Arquitetural do Roadmap do Expiration Tracker.md` (raiz do
-repo, 2026-08-22). Este documento é a **Fase 1** de um processo de 3 fases decidido com Marcelo:
+Origem: `00-mission-brief.md` (movido da raiz em 2026-08-29, originalmente escrito 2026-08-22,
+mesma pasta). Este documento é a **Fase 1** de um processo de 3 fases decidido com Marcelo:
 (1) auditoria + gap analysis (este documento), (2) pesquisa de mercado + modelagem de domínio +
 protocolo Claude↔Codex por tema, (3) roadmap final + ADRs. Fases 2-3 ainda não começaram.
 

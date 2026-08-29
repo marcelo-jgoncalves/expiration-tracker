@@ -15,8 +15,8 @@ apontar. Produzido como Workstream G da etapa **Validation Readiness + Product F
 (`interface-validation-readiness.md`), por instrução explícita de não reabrir nem reavaliar
 nenhuma etapa já `APPROVED` — isto é catalogação, não nova revisão.
 
-Este documento é distinto de `expiration-tracker-bff-frontend-quality-standard.md` (raiz do
-repo), que cobre um escopo mais amplo e ainda não adotado (BFF, performance, estratégia de testes
+Este documento é distinto de `bff-frontend-quality-standard-proposal.md` (mesma pasta,
+movido da raiz em 2026-08-29), que cobre um escopo mais amplo e ainda não adotado (BFF, performance, estratégia de testes
 do frontend de produção real) — não decidido se/quando esse candidato mais amplo será convergido
 via protocolo Claude↔Codex. Este documento aqui cobre especificamente a qualidade do
 **planejamento de interface** (os artefatos em `docs/frontend/`), não a implementação real.
