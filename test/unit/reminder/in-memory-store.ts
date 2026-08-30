@@ -89,7 +89,7 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
-        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
           if (placeholder === "version") {
             next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
           } else if (placeholder === "updatedAt") {

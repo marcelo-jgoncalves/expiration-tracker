@@ -63,6 +63,17 @@ export class UpdateOrganizationSettingsService {
       values[":timezone"] = timezone;
     }
 
+    // Wave B2B-14 (Operational Evidence, D-119): real finding - `ExpressionAttributeNames: {}`
+    // (an empty object, present but empty) is NOT the same as omitting the key entirely.
+    // DynamoDB's TransactWriteItems (unlike the raw single-item UpdateItem/aws CLI form this
+    // was apparently never checked against for real) rejects an empty map outright with
+    // `ValidationException: ExpressionAttributeNames must not be empty` - every
+    // displayName-only save (the common case, timezone never sent by the real Settings screen)
+    // has been failing with an uncaught 500 since this service was written in Wave B2B-10,
+    // never caught because no unit test exercises the real DynamoDB SDK/API and no E2E test
+    // hits the real deployed backend. The key must be OMITTED (never present) when there is
+    // nothing to map, not set to `{}`.
+    const expressionAttributeNames = timezone !== undefined ? { "#timezone": "timezone" } : undefined;
     const entries: TransactWriteEntry[] = [
       {
         Update: {
@@ -70,7 +81,7 @@ export class UpdateOrganizationSettingsService {
           Key: organizationKey(ctx.tenant.tenantId),
           UpdateExpression: `SET ${setClauses.join(", ")}`,
           ConditionExpression: "version = :expectedVersion",
-          ExpressionAttributeNames: timezone !== undefined ? { "#timezone": "timezone" } : {},
+          ...(expressionAttributeNames ? { ExpressionAttributeNames: expressionAttributeNames } : {}),
           ExpressionAttributeValues: values,
         },
       },

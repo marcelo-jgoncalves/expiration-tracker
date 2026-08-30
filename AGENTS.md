@@ -75,6 +75,8 @@ Comandos: `npm ci` (install imutável, scripts desabilitados via `.npmrc`) · `n
 
 Convenções: TypeScript estrito (`tsconfig.json`, `noUncheckedIndexedAccess`); erros de app usam a taxonomia normalizada de `src/shared/errors/app-error.ts` (`AppError` + subclasses); toda escrita mutável usa os builders de `src/shared/dynamodb/occ.ts` (nunca `UpdateItem`/`PutItem` cru); eventos críticos usam `src/shared/outbox/outbox.ts` dentro do mesmo `TransactWriteItems` do agregado; schemas JSON são a fonte de verdade dos contratos (`src/shared/contracts/schema-validator.ts` os carrega via Ajv) — todo evento/comando novo ganha um schema em `schemas/{events,queues,api}/` com teste de exemplo válido e inválido em `test/contract/`.
 
+**Comentários (2026-08-30, padrão já observado em todo o código real, agora formalizado)**: comentar o PORQUÊ (uma decisão, um achado real, um trade-off, uma invariante não óbvia — ex. "GSI4 nunca é fonte de autorização, é eventually consistent"), nunca o QUÊ (o código já diz o que faz). Sem comentário nenhum quando o porquê também é óbvio. Vale para qualquer agente (Claude Code, Codex CLI).
+
 ## 8. Manutenção do próprio AGENTS.md
 
 Meta: 60-100 linhas. Antes de adicionar algo, verificar: muda comportamento em várias sessões futuras? É estável, não temporário? Não é derivável do código/Git/decisions-log? Não pertence a `NEXT_SESSION_PROMPT.md`, `working-memory.md` ou a um documento de arquitetura? Se alguma resposta for não, não pertence aqui.

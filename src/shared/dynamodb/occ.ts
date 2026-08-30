@@ -43,7 +43,13 @@ export interface DynamoUpdateCommandInput {
   Key: EntityKey;
   UpdateExpression: string;
   ConditionExpression: string;
-  ExpressionAttributeNames: Record<string, string>;
+  /** Optional, not `Record<string, string>` with an empty-object default (Wave B2B-14, D-119
+   * real finding): DynamoDB's TransactWriteItems rejects an explicitly-empty
+   * ExpressionAttributeNames outright (`ValidationException: ExpressionAttributeNames must
+   * not be empty`) - the key must be OMITTED, never `{}`, when a caller has nothing to map.
+   * `buildVersionedUpdate()` below never hits this (it always maps at least #version/
+   * #tenantId/#updatedAt), but a hand-rolled Update (update-organization-settings.ts) can. */
+  ExpressionAttributeNames?: Record<string, string>;
   ExpressionAttributeValues: Record<string, unknown>;
 }
 

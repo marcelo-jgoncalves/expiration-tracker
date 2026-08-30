@@ -43,9 +43,12 @@ describe("buildVersionedUpdate", () => {
       expectedVersion: 1,
       set: { status: "CANCELLED", note: "x" },
     });
-    expect(cmd.ExpressionAttributeNames["#set0"]).toBe("status");
+    // buildVersionedUpdate() always populates ExpressionAttributeNames (at minimum
+    // #version/#tenantId/#updatedAt) - never the empty-object case update-organization-settings.ts
+    // hit for real (D-119) - safe to assert non-null here.
+    expect(cmd.ExpressionAttributeNames!["#set0"]).toBe("status");
     expect(cmd.ExpressionAttributeValues[":set0"]).toBe("CANCELLED");
-    expect(cmd.ExpressionAttributeNames["#set1"]).toBe("note");
+    expect(cmd.ExpressionAttributeNames!["#set1"]).toBe("note");
   });
 
   it("ANDs extraConditions into the ConditionExpression, each wrapped in its own parens", () => {
@@ -64,7 +67,7 @@ describe("buildVersionedUpdate", () => {
       "attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion AND #tenantId = :tenantId" +
         " AND (attribute_not_exists(#legalHold) OR #legalHold = :false) AND (purgeAfter <= :purgeCutoff)",
     );
-    expect(cmd.ExpressionAttributeNames["#legalHold"]).toBe("legalHold");
+    expect(cmd.ExpressionAttributeNames!["#legalHold"]).toBe("legalHold");
     expect(cmd.ExpressionAttributeValues[":false"]).toBe(false);
     expect(cmd.ExpressionAttributeValues[":purgeCutoff"]).toBe("2026-08-28T00:00:00.000Z");
   });
