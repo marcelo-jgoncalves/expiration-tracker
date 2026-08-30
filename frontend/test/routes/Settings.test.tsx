@@ -47,7 +47,10 @@ describe("Settings", () => {
     // fixo, fechando o bug que existia antes desta correção (activeOrganization.role usado como
     // condição sem sentido).
     await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/organizations/settings", { method: "PATCH", body: { displayName: "Acme Corp" }, expectedVersion: 3 }));
-    await waitFor(() => expect(screen.getByText("Configurações atualizadas.")).toBeInTheDocument());
+    // Wave B2B-11: observed a one-off flake on a post-merge CI run (this exact assertion,
+    // never reproduced locally across repeated runs) - a longer timeout is a proportional
+    // defensive margin against CI scheduling variance, not a change to what is being proven.
+    await waitFor(() => expect(screen.getByText("Configurações atualizadas.")).toBeInTheDocument(), { timeout: 3000 });
   });
 
   it("shows a conflict-specific message on a stale expectedVersion (OCC)", async () => {
@@ -59,6 +62,6 @@ describe("Settings", () => {
     await waitFor(() => expect(screen.getByLabelText(/Nome da organização/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
-    await waitFor(() => expect(screen.getByText(/Alguém mais alterou a organização/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Alguém mais alterou a organização/)).toBeInTheDocument(), { timeout: 3000 });
   });
 });
