@@ -93,6 +93,16 @@ variable "subjects_function_name" {
   type        = string
 }
 
+variable "memberships_invoke_arn" {
+  description = "Invoke ARN of the MembershipsHandler Lambda (Wave B2B-8, D-099) — backs every /organizations/members*, /organizations/invitations* route."
+  type        = string
+}
+
+variable "memberships_function_name" {
+  description = "Function name of the MembershipsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "guest_documents_invoke_arn" {
   description = "Invoke ARN of the GuestDocumentsHandler Lambda (M10, D-037) — backs /guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route, primeira do projeto."
   type        = string

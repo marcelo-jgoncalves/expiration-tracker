@@ -115,6 +115,32 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
+  // Wave B2B-8 (Invitations/Team, D-099): convite para ingressar numa Organization como
+  // membro de equipe - distinto de "document-request-initial-invite" acima (aquele é convite
+  // de guest upload para um destinatário externo/documento; este é convite de time/produto).
+  // `inviterDisplayName` nunca inferido, mesma disciplina W5-01/GTR-01 - fallback genérico
+  // quando ausente.
+  "organization-invitation": {
+    1: {
+      "pt-BR": (context) => {
+        const organizationDisplayName = sanitizeTenantText(context["organizationDisplayName"] as string | undefined, "uma organização");
+        const inviterDisplayName = sanitizeTenantText(context["inviterDisplayName"] as string | undefined, "Alguém");
+        const invitationLink = String(context["invitationLink"] ?? "");
+        const subject = `${inviterDisplayName} convidou você para ${organizationDisplayName}`;
+        const text = [
+          `${inviterDisplayName} convidou você para ingressar em "${organizationDisplayName}".`,
+          `Aceite pelo link: ${invitationLink}`,
+          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
+        ].join("\n");
+        const html = [
+          `<p>${escapeHtml(inviterDisplayName)} convidou você para ingressar em <strong>${escapeHtml(organizationDisplayName)}</strong>.</p>`,
+          `<p><a href="${escapeHtml(invitationLink)}">Aceitar convite</a></p>`,
+          `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
+        ].join("\n");
+        return { subject, html, text };
+      },
+    },
+  },
 };
 
 /** Sanitização de campo fornecido pelo tenant antes de interpolar num e-mail externo (D-049):

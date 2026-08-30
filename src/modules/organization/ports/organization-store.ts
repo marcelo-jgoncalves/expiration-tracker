@@ -18,6 +18,10 @@ export interface OrganizationStore {
   /** Leitura fortemente consistente. */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
+  /** PutItem condicionado ao contador ainda bater com `expected` no momento da escrita — B2B-8
+   * (`MembershipInviteRateLimiter`), mesma assinatura literal de `SubjectStore.updateConditional`
+   * (`subject/ports/subject-store.ts`). */
+  updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
   /** Query pela partição da Organization com prefixo de SK opcional — lista Membership/
    * Invitation sob a mesma partição sem GSI novo (adjacency-list, mesmo padrão já em

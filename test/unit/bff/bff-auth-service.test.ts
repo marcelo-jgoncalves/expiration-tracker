@@ -7,6 +7,7 @@ import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { GlobalUserRepository, globalUserKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
+import { AcceptInvitationService } from "../../../src/modules/organization/application/accept-invitation.js";
 import { AuthenticationError, ConflictError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
 
 const TABLE = "MainTable";
@@ -21,7 +22,10 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
   const createOrganization = new CreateOrganizationService(organizations, TABLE, {
     newOrganizationId: () => `org-${++orgIdCounter}`,
     newMembershipId: () => `membership-${orgIdCounter}`,
+    newInvitationId: () => `invitation-${orgIdCounter}`,
+    newAuditEventId: () => `audit-${orgIdCounter}`,
   });
+  const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => `org-${++orgIdCounter}`, newMembershipId: () => `membership-${orgIdCounter}`, newInvitationId: () => `invitation-${orgIdCounter}`, newAuditEventId: () => `audit-${orgIdCounter}` }, "test-pepper");
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
@@ -39,6 +43,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
     organizations,
     mainTableName: TABLE,
     createOrganization,
+    acceptInvitation,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",
     authorizeUrl: "https://auth.example.com/oauth2/authorize",
@@ -463,7 +468,8 @@ describe("BffAuthService.resolveSession", () => {
     const organizations = new InMemoryOrganizationStore();
     const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
     const globalUsers = new GlobalUserRepository(identityStore);
-    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
+    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
+    const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
     const cognitoClient = new FakeCognitoOidcClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
     const tokenEncryptor = new FakeTokenEncryptor();
@@ -480,6 +486,7 @@ describe("BffAuthService.resolveSession", () => {
       organizations,
       mainTableName: TABLE,
       createOrganization,
+      acceptInvitation,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",
       authorizeUrl: "https://auth.example.com/oauth2/authorize",
@@ -519,7 +526,8 @@ describe("BffAuthService.resolveSession", () => {
     const organizations = new InMemoryOrganizationStore();
     const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
     const globalUsers = new GlobalUserRepository(identityStore);
-    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
+    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
+    const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
     const cognitoClient = new FakeCognitoOidcClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
     const tokenEncryptor = new FakeTokenEncryptor();
@@ -536,6 +544,7 @@ describe("BffAuthService.resolveSession", () => {
       organizations,
       mainTableName: TABLE,
       createOrganization,
+      acceptInvitation,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",
       authorizeUrl: "https://auth.example.com/oauth2/authorize",

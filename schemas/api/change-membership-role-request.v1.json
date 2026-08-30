@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/change-membership-role-request.v1.json",
+  "title": "ChangeMembershipRoleRequest v1",
+  "description": "PUT /organizations/members/{userId}/role request body (src/modules/organization/application/change-membership-role.ts). Wave B2B-8, D-099.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role"],
+  "properties": {
+    "role": { "type": "string", "enum": ["OWNER", "ADMIN", "MEMBER", "VIEWER"] }
+  }
+}

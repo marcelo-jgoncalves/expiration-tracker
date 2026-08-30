@@ -25,6 +25,7 @@ import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
+import { AcceptInvitationService } from "../../../src/modules/organization/application/accept-invitation.js";
 import { CSRF_COOKIE_NAME, LOGIN_COOKIE_NAME, SESSION_COOKIE_NAME } from "../../../src/modules/bff/domain/cookies.js";
 
 const TABLE = "MainTable";
@@ -35,7 +36,8 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
   const organizations = new InMemoryOrganizationStore();
   const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
   const globalUsers = new GlobalUserRepository(identityStore);
-  const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
+  const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
+  const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
@@ -53,6 +55,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
     organizations,
     mainTableName: TABLE,
     createOrganization,
+    acceptInvitation,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",
     authorizeUrl: "https://auth.example.com/oauth2/authorize",

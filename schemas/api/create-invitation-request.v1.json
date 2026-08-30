@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/create-invitation-request.v1.json",
+  "title": "CreateInvitationRequest v1",
+  "description": "POST /organizations/members/invite request body (src/modules/organization/application/create-invitation.ts CreateInvitationInput). Wave B2B-8, D-099.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["email", "role"],
+  "properties": {
+    "email": { "type": "string", "format": "email", "maxLength": 255 },
+    "role": { "type": "string", "enum": ["OWNER", "ADMIN", "MEMBER", "VIEWER"] }
+  }
+}

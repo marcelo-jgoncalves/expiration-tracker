@@ -269,6 +269,46 @@ resource "aws_lambda_permission" "subjects" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/subjects*"
 }
 
+# --- MembershipsHandler: /organizations/members*, /organizations/invitations* (B2B-8, D-099) -
+
+resource "aws_apigatewayv2_integration" "memberships" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.memberships_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  memberships_routes = {
+    invite            = { method = "POST", path = "/organizations/members/invite" }
+    revoke_invitation = { method = "POST", path = "/organizations/invitations/{invitationId}/revoke" }
+    list_members      = { method = "GET", path = "/organizations/members" }
+    list_invitations  = { method = "GET", path = "/organizations/invitations" }
+    change_role       = { method = "PUT", path = "/organizations/members/{userId}/role" }
+    remove_member     = { method = "DELETE", path = "/organizations/members/{userId}" }
+    leave             = { method = "POST", path = "/organizations/members/leave" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "memberships" {
+  for_each = local.memberships_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.memberships.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "memberships" {
+  statement_id  = "AllowApiGatewayInvokeMemberships"
+  action        = "lambda:InvokeFunction"
+  function_name = var.memberships_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/organizations*"
+}
+
 # --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) -----------------
 # PRIMEIRA rota pública do projeto: authorization_type = NONE, sem authorizer JWT. Validação
 # fica inteiramente na aplicação (GuestSubmissionService#resolveToken) - decisão explícita do

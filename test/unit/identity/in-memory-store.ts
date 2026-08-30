@@ -247,6 +247,8 @@ export function makeIdGenerator() {
     newSessionId: () => `session-${++counter}`,
     newOrganizationId: () => `org-${++counter}`,
     newMembershipId: () => `membership-${++counter}`,
+    newInvitationId: () => `invitation-${++counter}`,
+    newAuditEventId: () => `audit-${++counter}`,
   };
 }
 

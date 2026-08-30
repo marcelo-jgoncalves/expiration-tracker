@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/accept-invitation-request.v1.json",
+  "title": "AcceptInvitationRequest v1",
+  "description": "POST /bff/invitations/accept request body (src/modules/organization/application/accept-invitation.ts). Wave B2B-8, D-099. Identity-only route (no tenant yet), same class as POST /bff/organizations (D-096).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token"],
+  "properties": {
+    "token": { "type": "string", "minLength": 1, "maxLength": 512 }
+  }
+}

@@ -15,6 +15,7 @@ import { GlobalUserRepository, deviceSessionKey, globalUserKey } from "../../ide
 import { OnboardingStateResolver, type OnboardingState } from "../../organization/application/onboarding-state.js";
 import { resolveActiveMembership } from "../../organization/application/resolve-active-membership.js";
 import { CreateOrganizationService } from "../../organization/application/create-organization.js";
+import { AcceptInvitationService } from "../../organization/application/accept-invitation.js";
 import type { OrganizationStore } from "../../organization/ports/organization-store.js";
 import type { SessionStore } from "../ports/session-store.js";
 import type { CognitoOidcClient, IdTokenVerifier } from "../ports/cognito-oidc-client.js";
@@ -46,6 +47,9 @@ export interface BffAuthServiceDeps {
   organizations: OrganizationStore;
   mainTableName: string;
   createOrganization: CreateOrganizationService;
+  /** Wave B2B-8 (D-099): identity-only route, same class as `createOrganization` above - no
+   * tenant exists yet at the moment `POST /bff/invitations/accept` is called. */
+  acceptInvitation: AcceptInvitationService;
   pepper: string;
   redirectUri: string;
   authorizeUrl: string; // Cognito Hosted UI /oauth2/authorize base URL (from Terraform output/env, not hardcoded)
@@ -603,6 +607,34 @@ export class BffAuthService {
     );
 
     return { organizationId: organization.organizationId };
+  }
+
+  /** POST /bff/invitations/accept (Wave B2B-8, D-099). Identity-only, same class as
+   * `createOrganization` above - the caller may have zero Membership anywhere, so there is no
+   * tenant-scoped `RequestContext` to build. `callerVerifiedEmail` comes from `GlobalUser`
+   * (verified at login time), never from client input - this is the fact
+   * `AcceptInvitationService` checks structurally against the invitation's own
+   * `emailNormalized` (anti-account-takeover). */
+  async acceptInvitation(session: Session, input: { token: string }): Promise<{ organizationId: string }> {
+    const globalUser = await this.deps.globalUsers.get(session.userId);
+    if (!globalUser) {
+      throw new AuthenticationError("Session references a GlobalUser that no longer exists.");
+    }
+
+    const { organizationId } = await this.deps.acceptInvitation.accept({
+      token: input.token,
+      userId: session.userId,
+      callerVerifiedEmail: globalUser.emailNormalized,
+    });
+
+    // Best-effort, mesmo padrão de `createOrganization` acima - a Membership já existe de
+    // verdade independente deste passo, self-heal fecha uma sessão desatualizada.
+    await this.deps.sessionStore.updateConditional<Session>(
+      { ...session, activeOrganizationId: organizationId, updatedAt: this.deps.now(), version: session.version + 1 },
+      { version: session.version },
+    );
+
+    return { organizationId };
   }
 
   /** Shared by `handleCallback` and `resolveSessionWithOnboarding` - derives the (today,

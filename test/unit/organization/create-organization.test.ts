@@ -11,6 +11,8 @@ function makeIds() {
   return {
     newOrganizationId: () => `org-${++counter}`,
     newMembershipId: () => `mem-${++counter}`,
+    newInvitationId: () => `invitation-${++counter}`,
+    newAuditEventId: () => `audit-${++counter}`,
   };
 }
 

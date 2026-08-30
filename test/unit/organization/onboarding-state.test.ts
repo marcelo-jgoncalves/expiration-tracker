@@ -58,6 +58,10 @@ class StaleGsi4Store implements OrganizationStore {
     throw new Error("StaleGsi4Store: putIfAbsent not needed by this test");
   }
 
+  async updateConditional(): Promise<boolean> {
+    throw new Error("StaleGsi4Store: updateConditional not needed by this test");
+  }
+
   async transactWrite(_entries: TransactWriteEntry[]): Promise<void> {
     throw new Error("StaleGsi4Store: transactWrite not needed by this test");
   }

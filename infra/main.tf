@@ -144,6 +144,23 @@ module "profile_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+module "memberships_handler" {
+  source = "./modules/lambda-function"
+
+  # Wave B2B-8 (D-099): Invitations/Team. GUEST_TOKEN_PEPPER reaproveitado (não um secret novo,
+  # ver src/runtime/aws/composition/organization.ts para a justificativa completa) - o mesmo
+  # pepper já provisionado acima para subjects_handler, só concedido a mais um Lambda.
+  function_name  = "${local.name_prefix}-memberships-handler"
+  handler_name   = "memberships-handler"
+  source_dir     = "${local.dist_dir}/memberships-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
+  })
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 module "reminder_producer" {
   source = "./modules/lambda-function"
 
@@ -305,6 +322,8 @@ module "api" {
   documents_function_name       = module.documents_handler.function_name
   subjects_invoke_arn           = module.subjects_handler.live_alias_invoke_arn
   subjects_function_name        = module.subjects_handler.function_name
+  memberships_invoke_arn        = module.memberships_handler.live_alias_invoke_arn
+  memberships_function_name     = module.memberships_handler.function_name
   guest_documents_invoke_arn    = module.guest_documents_handler.live_alias_invoke_arn
   guest_documents_function_name = module.guest_documents_handler.function_name
   imports_invoke_arn            = module.imports_handler.live_alias_invoke_arn
@@ -790,6 +809,14 @@ resource "aws_cloudwatch_log_group" "imports_handler" {
   tags              = { Project = local.project_name, Environment = var.environment }
 }
 
+# Wave B2B-8 (D-099): brand-new Lambda, same log-group-race treatment as profile_handler/
+# subjects_handler/imports_handler above (no real invocation yet to auto-create the log group).
+resource "aws_cloudwatch_log_group" "memberships_handler" {
+  name              = "/aws/lambda/${module.memberships_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
 module "security_audit_observability" {
   source = "./modules/security-audit-observability"
 
@@ -802,6 +829,7 @@ module "security_audit_observability" {
     module.documents_handler.function_name,
     module.subjects_handler.function_name,
     module.imports_handler.function_name,
+    module.memberships_handler.function_name,
   ]
   global_index_function_names = [
     module.reminder_producer.function_name,
@@ -817,6 +845,7 @@ module "security_audit_observability" {
     aws_cloudwatch_log_group.profile_handler,
     aws_cloudwatch_log_group.subjects_handler,
     aws_cloudwatch_log_group.imports_handler,
+    aws_cloudwatch_log_group.memberships_handler,
   ]
 }
 

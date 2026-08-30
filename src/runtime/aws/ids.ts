@@ -71,6 +71,9 @@ export class UlidIdGenerator
   newMembershipId(): string {
     return `membership_${ulid()}`;
   }
+  newInvitationId(): string {
+    return `invitation_${ulid()}`;
+  }
 }
 
 export function newCorrelationId(): string {
