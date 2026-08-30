@@ -15,6 +15,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { Button } from "../components/ui/Button.js";
+import { OrganizationSwitcher } from "../components/OrganizationSwitcher.js";
 
 function navLinkClassName(): string {
   return "app-shell__link";
@@ -66,10 +67,14 @@ export function AppShell() {
         <NavLink to="/subjects" className={navLinkClassName}>
           Fornecedores
         </NavLink>
+        <NavLink to="/members" className={navLinkClassName}>
+          Membros
+        </NavLink>
         <NavLink to="/settings" className={navLinkClassName}>
           Configurações
         </NavLink>
         <span className="app-shell__nav-spacer" />
+        <OrganizationSwitcher />
         <Button variant="tertiary" size="sm" onClick={() => void logout()}>
           Sair
         </Button>

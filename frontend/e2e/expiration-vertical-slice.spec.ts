@@ -8,7 +8,8 @@ import { test, expect, type Page } from "@playwright/test";
  * from this sandbox (see e2e/smoke.spec.ts's header comment).
  */
 
-function mockSession(page: Page, session: { authenticated: boolean; tenantId?: string; userId?: string }) {
+// Wave B2B-10: real GET /bff/session shape since B2B-6/D-102, never tenantId/userId.
+function mockSession(page: Page, session: { authenticated: boolean; activeOrganizationId?: string }) {
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
@@ -37,7 +38,7 @@ function activeItem(overrides: Record<string, unknown> = {}) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
 });
 
 test("E2E-01: login -> collection -> open detail", async ({ page }) => {

@@ -9,11 +9,8 @@
  * summary that answers the question directly is the approved design, and a number that is not
  * linked to a task earns nothing.
  */
-import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { apiClient } from "../api/apiClient.js";
-import { retryPolicyFor } from "../api/retryPolicy.js";
 import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
@@ -22,17 +19,14 @@ import { PageHeader, Panel } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
-
-interface DashboardResponse {
-  items: ExpirationItem[];
-}
+import { useItemsDashboard } from "../hooks/useItemsDashboard.js";
 
 export function Overview() {
-  const query = useQuery<DashboardResponse, unknown>({
-    queryKey: ["items", "dashboard", "ACTIVE"],
-    queryFn: () => apiClient.get<DashboardResponse>("/items/dashboard?status=ACTIVE"),
-    retry: retryPolicyFor("safe-read"),
-  });
+  // Wave B2B-10: previously duplicated apiClient.get() call inline with an unscoped queryKey
+  // (["items","dashboard","ACTIVE"]) - the one org-scoping gap the Round 2 inventory found that
+  // wasn't already covered by a shared hook. Now goes through the same org-scoped hook as the
+  // Items Collection screen, closing the duplication and the cache-isolation gap in one edit.
+  const query = useItemsDashboard("ACTIVE");
   const now = useMemo(() => new Date(), []);
 
   const columns: DataTableColumn<ExpirationItem>[] = [

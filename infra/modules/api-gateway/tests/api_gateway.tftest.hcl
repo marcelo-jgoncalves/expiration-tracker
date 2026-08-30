@@ -298,8 +298,17 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.memberships) == 7
-    error_message = "Expected exactly 7 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave)"
+    condition     = length(aws_apigatewayv2_route.memberships) == 8
+    error_message = "Expected exactly 8 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings)"
+  }
+
+  # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same Lambda, new route.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "PATCH /organizations/settings",
+    )
+    error_message = "PATCH /organizations/settings route must exist"
   }
 
   assert {

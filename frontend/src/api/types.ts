@@ -147,3 +147,40 @@ export interface RequirementAssignmentsResponse {
 export interface DocumentSubmissionsResponse {
   submissions: DocumentSubmission[];
 }
+
+// Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.
+
+export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
+export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";
+export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
+
+export interface Member {
+  userId: string;
+  role: MembershipRole;
+  status: MembershipStatus;
+  joinedAt: string;
+  version: number;
+}
+
+export interface MembersResponse {
+  members: Member[];
+}
+
+export interface Invitation {
+  invitationId: string;
+  emailNormalized: string;
+  role: MembershipRole;
+  status: InvitationStatus;
+  expiresAt: string;
+}
+
+export interface InvitationsResponse {
+  invitations: Invitation[];
+}
+
+export interface OrganizationSettingsResponse {
+  organizationId: string;
+  displayName: string;
+  timezone: string;
+  version: number;
+}

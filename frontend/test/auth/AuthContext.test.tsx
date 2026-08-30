@@ -38,8 +38,12 @@ beforeEach(() => {
 });
 
 describe("AuthProvider", () => {
+  // Wave B2B-10 (D-1XX): the mocked shape here is the REAL GET /bff/session response since
+  // B2B-6 (no tenantId/userId, ever) - mutation: reverting probe() to require
+  // info.tenantId && info.userId (the pre-B2B-10 regression) makes this test hang at
+  // SESSION_REFRESHING/fail the AUTHENTICATED assertion, since neither field exists here.
   it("starts at SESSION_REFRESHING, then resolves to AUTHENTICATED when the BFF confirms a session", async () => {
-    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, tenantId: "t1", userId: "u1" });
+    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
     render(
       <AuthProvider>
         <Probe />
@@ -81,7 +85,7 @@ describe("AuthProvider", () => {
   }
 
   it("reportUnauthorized transitions AUTHENTICATED -> SESSION_EXPIRED, carrying a returnTo", async () => {
-    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, tenantId: "t1", userId: "u1" });
+    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
     render(
       <AuthProvider>
         <ProbeWithControls />
@@ -111,7 +115,7 @@ describe("AuthProvider", () => {
   });
 
   it("logout() calls the BFF's logout endpoint and returns to SESSION_MISSING", async () => {
-    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, tenantId: "t1", userId: "u1" });
+    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
     logoutMock.mockResolvedValue(undefined);
     render(
       <AuthProvider>

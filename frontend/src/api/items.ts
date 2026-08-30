@@ -7,12 +7,12 @@
 import { apiClient } from "./apiClient.js";
 import type { CreateItemInput, DashboardResponse, ExpirationItemStatus, ItemResponse, RenewItemInput, RenewItemResponse } from "./types.js";
 
-export function fetchDashboard(status: ExpirationItemStatus): Promise<DashboardResponse> {
-  return apiClient.get<DashboardResponse>(`/items/dashboard?status=${encodeURIComponent(status)}`);
+export function fetchDashboard(status: ExpirationItemStatus, options?: { signal?: AbortSignal }): Promise<DashboardResponse> {
+  return apiClient.get<DashboardResponse>(`/items/dashboard?status=${encodeURIComponent(status)}`, { signal: options?.signal });
 }
 
-export function fetchItem(itemId: string): Promise<ItemResponse> {
-  return apiClient.get<ItemResponse>(`/items/${encodeURIComponent(itemId)}`);
+export function fetchItem(itemId: string, options?: { signal?: AbortSignal }): Promise<ItemResponse> {
+  return apiClient.get<ItemResponse>(`/items/${encodeURIComponent(itemId)}`, { signal: options?.signal });
 }
 
 export function createItem(input: CreateItemInput, idempotencyKey: string): Promise<ItemResponse> {

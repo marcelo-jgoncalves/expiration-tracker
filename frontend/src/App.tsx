@@ -1,14 +1,15 @@
 /**
- * Routing skeleton (mission §26) matching the approved dual-anchor IA's top-level areas only
- * - Overview, Vencimentos (Items), Fornecedores (Subjects), Configurações (Settings). No
- * route invented purely for technical convenience; no attempt to cover all 17 Interaction
+ * Routing skeleton (mission §26) matching the approved dual-anchor IA's top-level areas -
+ * Overview, Vencimentos (Items), Fornecedores (Subjects) - plus Membros/Configurações (Wave
+ * B2B-10, Tenant-aware Frontend), never part of the original single-tenant interface planning.
+ * No route invented purely for technical convenience; no attempt to cover all 17 Interaction
  * Surfaces (mission §77). Overview, Vencimentos (Core Expiration Vertical Slice) and
- * Fornecedores (BLOCKER-C review queue, Variante B - 2026-08-25) have real implementations;
- * Configurações remains an honest placeholder.
+ * Fornecedores (BLOCKER-C review queue, Variante B - 2026-08-25) have real implementations.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext.js";
+import { ActiveOrganizationProvider } from "./auth/ActiveOrganizationContext.js";
 import { ProtectedRoute } from "./auth/ProtectedRoute.js";
 import { AppShell } from "./shell/AppShell.js";
 import { Overview } from "./routes/Overview.js";
@@ -18,7 +19,8 @@ import { CreateItem } from "./routes/items/CreateItem.js";
 import { RenewItem } from "./routes/items/RenewItem.js";
 import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
 import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
-import { NotImplementedPlaceholder } from "./routes/NotImplementedPlaceholder.js";
+import { Members } from "./routes/Members.js";
+import { Settings } from "./routes/Settings.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 
@@ -45,7 +47,9 @@ export function App() {
               <Route
                 element={
                   <ProtectedRoute>
-                    <AppShell />
+                    <ActiveOrganizationProvider>
+                      <AppShell />
+                    </ActiveOrganizationProvider>
                   </ProtectedRoute>
                 }
               >
@@ -57,7 +61,8 @@ export function App() {
                 <Route path="items/:itemId/renew" element={<RenewItem />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
                 <Route path="subjects/:subjectId" element={<SubjectDetail />} />
-                <Route path="settings" element={<NotImplementedPlaceholder title="Configurações" />} />
+                <Route path="members" element={<Members />} />
+                <Route path="settings" element={<Settings />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

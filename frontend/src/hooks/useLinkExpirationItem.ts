@@ -1,7 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useOccMutation } from "./useOccMutation.js";
 import { linkExpirationItem } from "../api/subjects.js";
+import { queryKeys } from "../api/queryKeys.js";
 import type { RequirementAssignmentResponse } from "../api/types.js";
+import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
 export interface LinkVariables {
   itemId: string;
@@ -14,10 +16,11 @@ export interface LinkVariables {
  * conflict the caller must handle explicitly, never a silent overwrite. */
 export function useLinkExpirationItem(subjectId: string, assignmentId: string) {
   const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   return useOccMutation<RequirementAssignmentResponse, LinkVariables>({
     mutationFn: ({ itemId, expectedVersion }) => linkExpirationItem(subjectId, assignmentId, itemId, expectedVersion),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["subjects", "requirements", subjectId] });
+      if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
     },
   });
 }

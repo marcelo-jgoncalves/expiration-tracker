@@ -10,6 +10,7 @@ import { ListMembersService, ListInvitationsService } from "../../../modules/org
 import { ChangeMembershipRoleService } from "../../../modules/organization/application/change-membership-role.js";
 import { RemoveMembershipService } from "../../../modules/organization/application/remove-membership.js";
 import { LeaveOrganizationService } from "../../../modules/organization/application/leave-organization.js";
+import { UpdateOrganizationSettingsService } from "../../../modules/organization/application/update-organization-settings.js";
 import { UlidIdGenerator } from "../ids.js";
 
 /** `invitationTokenPepper` reuses the SAME secret as `GUEST_TOKEN_PEPPER` (subject module,
@@ -30,5 +31,6 @@ export function buildMembershipDeps(client: DynamoDBDocumentClient, tableName: s
   const changeRole = new ChangeMembershipRoleService(organizations, tableName, ids);
   const removeMembership = new RemoveMembershipService(organizations, tableName, ids);
   const leaveOrganization = new LeaveOrganizationService(organizations, tableName, ids);
-  return { createInvitation, revokeInvitation, acceptInvitation, listMembers, listInvitations, changeRole, removeMembership, leaveOrganization };
+  const updateSettings = new UpdateOrganizationSettingsService(organizations, tableName);
+  return { createInvitation, revokeInvitation, acceptInvitation, listMembers, listInvitations, changeRole, removeMembership, leaveOrganization, updateSettings };
 }

@@ -15,20 +15,20 @@ import type {
   TrackedSubjectStatus,
 } from "./types.js";
 
-export function fetchSubjectsDashboard(status: TrackedSubjectStatus): Promise<SubjectsDashboardResponse> {
-  return apiClient.get<SubjectsDashboardResponse>(`/subjects/dashboard?status=${encodeURIComponent(status)}`);
+export function fetchSubjectsDashboard(status: TrackedSubjectStatus, options?: { signal?: AbortSignal }): Promise<SubjectsDashboardResponse> {
+  return apiClient.get<SubjectsDashboardResponse>(`/subjects/dashboard?status=${encodeURIComponent(status)}`, { signal: options?.signal });
 }
 
-export function fetchSubject(subjectId: string): Promise<SubjectResponse> {
-  return apiClient.get<SubjectResponse>(`/subjects/${encodeURIComponent(subjectId)}`);
+export function fetchSubject(subjectId: string, options?: { signal?: AbortSignal }): Promise<SubjectResponse> {
+  return apiClient.get<SubjectResponse>(`/subjects/${encodeURIComponent(subjectId)}`, { signal: options?.signal });
 }
 
-export function fetchRequirementAssignments(subjectId: string): Promise<RequirementAssignmentsResponse> {
-  return apiClient.get<RequirementAssignmentsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements`);
+export function fetchRequirementAssignments(subjectId: string, options?: { signal?: AbortSignal }): Promise<RequirementAssignmentsResponse> {
+  return apiClient.get<RequirementAssignmentsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements`, { signal: options?.signal });
 }
 
-export function fetchDocumentSubmissions(subjectId: string, assignmentId: string): Promise<DocumentSubmissionsResponse> {
-  return apiClient.get<DocumentSubmissionsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/submissions`);
+export function fetchDocumentSubmissions(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<DocumentSubmissionsResponse> {
+  return apiClient.get<DocumentSubmissionsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/submissions`, { signal: options?.signal });
 }
 
 /** BLOCKER-C's actual review action: the operator, having seen the uploaded evidence, links

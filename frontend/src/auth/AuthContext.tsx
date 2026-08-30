@@ -17,7 +17,12 @@ import { apiClient } from "../api/apiClient.js";
 export type AuthState =
   /** Initial session probe in flight (also re-entered on an explicit re-check). */
   | { status: "SESSION_REFRESHING" }
-  | { status: "AUTHENTICATED"; tenantId: string; userId: string }
+  /** Organization selection (activeOrganizationId, onboardingState, organizationSelectionRequired)
+   * is deliberately NOT part of this state (Wave B2B-10 design decision, `reviews/
+   * multi-user-b2b-wave-b2b10-scoping/`) — authentication and tenant selection have different
+   * lifecycles; that data lives in `ActiveOrganizationContext`, consumed only by components
+   * already inside AUTHENTICATED. */
+  | { status: "AUTHENTICATED" }
   /** The BFF says plainly "not authenticated" (no cookie, or a resolved-but-invalid one) -
    * this is the common "never logged in on this browser" case. */
   | { status: "SESSION_MISSING" }
@@ -60,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: "SESSION_REFRESHING" });
     try {
       const info = await fetchSessionInfo();
-      if (info.authenticated && info.tenantId && info.userId) {
-        setState({ status: "AUTHENTICATED", tenantId: info.tenantId, userId: info.userId });
+      if (info.authenticated) {
+        setState({ status: "AUTHENTICATED" });
       } else {
         setState({ status: "SESSION_MISSING" });
       }

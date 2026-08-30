@@ -46,7 +46,7 @@ async function setup(page: Page, count = 9) {
     }
     globalThis.Date = FrozenDate;
   }`);
-  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, tenantId: "tenant-1", userId: "user-1" } }));
+  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
   await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items: items(count) } }));
 }
 

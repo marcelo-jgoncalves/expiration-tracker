@@ -52,7 +52,7 @@ async function freezeClock(page: Page) {
 
 async function setup(page: Page, count: number) {
   await freezeClock(page);
-  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, tenantId: "tenant-1", userId: "user-1" } }));
+  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
   await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items: stressItems(count) } }));
 }
 

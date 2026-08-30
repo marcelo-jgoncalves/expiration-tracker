@@ -74,7 +74,12 @@ export type Action =
   | "membership:list-members"
   | "membership:role-change"
   | "membership:remove"
-  | "membership:leave";
+  | "membership:leave"
+  // Wave B2B-10 (Tenant-aware Frontend): Organization.displayName/timezone. OWNER_ROLES, same
+  // tier as "tenant:configure-document-request-delivery" above — workspace identity/settings
+  // that reads externally (invitation emails, guest-facing name) is consistently kept OWNER-only
+  // in this codebase, not paritary with ADMIN like most other membership-management actions.
+  | "organization:update-settings";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -152,6 +157,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "membership:role-change": ADMIN_ROLES,
   "membership:remove": ADMIN_ROLES,
   "membership:leave": READ_ONLY_ROLES,
+  "organization:update-settings": OWNER_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
