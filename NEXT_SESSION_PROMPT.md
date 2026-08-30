@@ -79,7 +79,7 @@ Wave B2B-11 (Responsibility + Notifications) — escopo não debatido | Rodada d
 | W3-07 purge pipeline (D-081-083, emendado B2B-9/D-104) | `IMPLEMENTED`/`UNIT TESTED` — entidades B2B incluídas, sem orquestrador wireado, sem teste de integração AWS real |
 | E-011 correlationId↔X-Ray | `E2E PROVEN` (smoke test real 2026-08-29 contra `dev`) |
 | Visual Language + Design System | `APPROVED ... PROVISIONAL PENDING USER VALIDATION` |
-| B2B-10 Tenant-aware Frontend (D-105/D-106) | `IMPLEMENTED`/`UNIT+COMPONENT TESTED` (139/139 frontend, mutação verificada em 3 pontos) — sem E2E Playwright dedicado a multi-organização ainda (fica para B2B-13) |
+| B2B-10 Tenant-aware Frontend (D-105/D-106) | `IMPLEMENTED`/`UNIT+COMPONENT+E2E TESTED` (139/139 vitest, 24/24 Playwright, mutação verificada em 3 pontos) — os 5 specs E2E mockavam `GET /bff/session` com a forma antiga (`tenantId`/`userId`), achado só pelo CI após o push inicial, corrigido; sem E2E dedicado a multi-organização/switcher ainda (fica para B2B-13) |
 
 ## Links para histórico (não reler por padrão — só sob demanda)
 
