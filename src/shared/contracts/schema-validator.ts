@@ -51,6 +51,10 @@ import reserveImportRequestV1 from "../../../schemas/api/reserve-import-request.
 import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
 import confirmExtractedFieldRequestV1 from "../../../schemas/api/confirm-extracted-field-request.v1.json";
 import rejectExtractedFieldRequestV1 from "../../../schemas/api/reject-extracted-field-request.v1.json";
+// Wave B2B-8 (D-099).
+import createInvitationRequestV1 from "../../../schemas/api/create-invitation-request.v1.json";
+import changeMembershipRoleRequestV1 from "../../../schemas/api/change-membership-role-request.v1.json";
+import acceptInvitationRequestV1 from "../../../schemas/api/accept-invitation-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -138,4 +142,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   // M7 verification section for the captured evidence.
   confirmExtractedFieldRequestV1,
   rejectExtractedFieldRequestV1,
+  createInvitationRequestV1,
+  changeMembershipRoleRequestV1,
+  acceptInvitationRequestV1,
 ]);

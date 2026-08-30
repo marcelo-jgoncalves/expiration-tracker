@@ -4,7 +4,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildBffDeps } from "../composition/bff.js";
-import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
+import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleAcceptInvitation, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest, BffHttpResponse } from "../../../modules/bff/http/http-types.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 
@@ -27,6 +27,9 @@ const { auth, proxy } = buildBffDeps(client, client, {
   authorizeUrl: `${requiredEnv("COGNITO_DOMAIN")}/oauth2/authorize`,
   redirectUri: requiredEnv("BFF_REDIRECT_URI"),
   apiBaseUrl: requiredEnv("API_BASE_URL"),
+  // Wave B2B-8 (D-099): reaproveita o mesmo secret de GUEST_TOKEN_PEPPER (subject module,
+  // D-037) - ver composition/organization.ts para a justificativa completa da reutilização.
+  invitationTokenPepper: requiredEnv("GUEST_TOKEN_PEPPER"),
 });
 const deps: BffHttpDeps = { auth, proxy, appOrigin: requiredEnv("APP_ORIGIN") };
 
@@ -74,6 +77,7 @@ async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStru
   if (routeKey === "POST /bff/session/logout") return toApiGatewayResult(await handleLogout(deps, req));
   if (routeKey === "POST /bff/session/logout-all") return toApiGatewayResult(await handleLogoutAll(deps, req));
   if (routeKey === "POST /bff/organizations") return toApiGatewayResult(await handleCreateOrganization(deps, req));
+  if (routeKey === "POST /bff/invitations/accept") return toApiGatewayResult(await handleAcceptInvitation(deps, req));
 
   if (event.rawPath.startsWith(BFF_API_PREFIX)) {
     const backendPath = event.rawPath.slice(BFF_API_PREFIX.length) || "/";

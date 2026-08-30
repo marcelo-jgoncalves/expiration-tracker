@@ -36,6 +36,7 @@ const AUTHORIZATION_DENIED_CALL_SITES: Array<{ file: string; lambdaModule: strin
   { file: "src/modules/identity/http/test-route-handler.ts", lambdaModule: "test_ping_handler" },
   { file: "src/modules/import/http/import-handlers.ts", lambdaModule: "imports_handler" },
   { file: "src/modules/subject/http/subject-handlers.ts", lambdaModule: "subjects_handler" },
+  { file: "src/modules/organization/http/membership-handlers.ts", lambdaModule: "memberships_handler" },
 ];
 
 /** Every real persistence/store file that calls auditGlobalIndexAccess/

@@ -207,6 +207,39 @@ export async function handleCreateOrganization(deps: BffHttpDeps, req: BffHttpRe
   }
 }
 
+/** POST /bff/invitations/accept (Wave B2B-8, D-099) - identity-only, same class as
+ * `handleCreateOrganization` above (no Organization to be a member of yet, by definition, when
+ * the caller has no prior Membership anywhere). */
+export async function handleAcceptInvitation(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const cookies = cookiesOf(req);
+    const session = await deps.auth.resolveSession(cookies[SESSION_COOKIE_NAME]);
+
+    if (
+      !checkCsrf({
+        method: req.method,
+        secFetchSite: req.headers["sec-fetch-site"],
+        headerToken: req.headers["x-csrf-token"],
+        cookieToken: cookies[CSRF_COOKIE_NAME],
+        sessionCsrfSecret: session.csrfSecret,
+      })
+    ) {
+      return { statusCode: 403, body: { code: "CSRF_CHECK_FAILED", category: "AUTHORIZATION", message: "CSRF check failed.", retryable: false } };
+    }
+
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const token = typeof body["token"] === "string" ? body["token"] : undefined;
+    if (!token) {
+      throw new ValidationError("token is required.");
+    }
+
+    const { organizationId } = await deps.auth.acceptInvitation(session, { token });
+    return { statusCode: 200, body: { organizationId } };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
 /** POST/PUT/PATCH/DELETE/GET /bff/api/{proxy+} - the allowlisted forward to the real API. */
 export async function handleProxy(deps: BffHttpDeps, req: BffHttpRequest, backendPath: string, queryString: string | undefined): Promise<BffHttpResponse> {
   try {

@@ -5,6 +5,7 @@ import { IdentityBootstrapService } from "../../../modules/identity/application/
 import { GlobalUserRepository } from "../../../modules/identity/persistence/global-user-repository.js";
 import { DynamoDbOrganizationStore } from "../../../modules/organization/persistence/dynamodb-organization-store.js";
 import { CreateOrganizationService } from "../../../modules/organization/application/create-organization.js";
+import { AcceptInvitationService } from "../../../modules/organization/application/accept-invitation.js";
 import { DynamoDbSessionStore } from "../../../modules/bff/persistence/dynamodb-session-store.js";
 import { KmsTokenEncryptor, createKmsClient } from "../../../modules/bff/persistence/kms-token-encryptor.js";
 import { FetchCognitoOidcClient } from "../../../modules/bff/persistence/fetch-cognito-oidc-client.js";
@@ -25,6 +26,9 @@ export interface BffConfig {
   authorizeUrl: string; // `${cognitoDomain}/oauth2/authorize`
   redirectUri: string; // e.g. https://app.example.com/bff/callback
   apiBaseUrl: string; // the real, JWT-authorizer-protected API's base URL
+  /** Wave B2B-8 (D-099): reuses GUEST_TOKEN_PEPPER (subject module, D-037) - see
+   * composition/organization.ts for the full reuse justification. */
+  invitationTokenPepper: string;
 }
 
 const fetchBackend: BackendFetcher = {
@@ -45,6 +49,7 @@ export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: 
   const organizations = new DynamoDbOrganizationStore(mainClient, config.mainTableName);
   const ids = new UlidIdGenerator();
   const createOrganization = new CreateOrganizationService(organizations, config.mainTableName, ids);
+  const acceptInvitation = new AcceptInvitationService(organizations, config.mainTableName, ids, config.invitationTokenPepper);
 
   const sessionStore = new DynamoDbSessionStore(sessionClient, config.sessionTableName);
   const tokenEncryptor = new KmsTokenEncryptor(createKmsClient(), config.kmsKeyId);
@@ -61,6 +66,7 @@ export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: 
     organizations,
     mainTableName: config.mainTableName,
     createOrganization,
+    acceptInvitation,
     pepper: config.sessionTokenPepper,
     redirectUri: config.redirectUri,
     authorizeUrl: config.authorizeUrl,

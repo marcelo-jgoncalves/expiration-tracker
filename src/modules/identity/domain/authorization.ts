@@ -55,7 +55,26 @@ export type Action =
   // this one is tied to the ability to ACT (create a RequirementAssignment), so VIEWER - who
   // never can - is correctly excluded here, unlike notification:configure's "receive" framing.
   | "profile:read"
-  | "profile:update";
+  | "profile:update"
+  // B2B-8 (D-099, docs/architecture/multi-user-b2b-wave-b2b8-scope.md): Invitations/Team.
+  // Pesquisa (GitHub/Slack/Linear/Notion, 2026-08-30) convergiu em ADMIN-tier-e-acima gerencia
+  // membros (nunca MEMBER/VIEWER), e só OWNER promove/demove o próprio tier OWNER (Slack:
+  // "Owners can assign Owners... [and] assign Admins") — a segunda parte não é expressável na
+  // matriz genérica (não há um "OWNER, exceto quando o alvo/novo role é OWNER"), fica como
+  // checagem de serviço nomeada (OwnerTierChangeRequiresOwnerError) em cima do ADMIN_ROLES
+  // baseline abaixo. `membership:leave` nunca aceita um alvo externo (LeaveOrganizationService
+  // opera só sobre ctx.principal.userId por assinatura) - a proteção real é o LastOwnerError
+  // transacional, não a matriz.
+  | "membership:invite"
+  | "membership:revoke-invitation"
+  // Convites pendentes carregam e-mail + intenção de adicionar pessoa - superfície
+  // administrativa (Linear "Settings > Administration > Members" para pending invites), nunca
+  // a mesma tier de "listar membros ativos" (achado real da Rodada 1 do Codex).
+  | "membership:list-invitations"
+  | "membership:list-members"
+  | "membership:role-change"
+  | "membership:remove"
+  | "membership:leave";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -126,6 +145,13 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "import:commit": WRITE_ROLES,
   "profile:read": READ_ONLY_ROLES,
   "profile:update": WRITE_ROLES,
+  "membership:invite": ADMIN_ROLES,
+  "membership:revoke-invitation": ADMIN_ROLES,
+  "membership:list-invitations": ADMIN_ROLES,
+  "membership:list-members": READ_ONLY_ROLES,
+  "membership:role-change": ADMIN_ROLES,
+  "membership:remove": ADMIN_ROLES,
+  "membership:leave": READ_ONLY_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

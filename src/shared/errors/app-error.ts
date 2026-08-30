@@ -321,6 +321,47 @@ export class UnsupportedMembershipRoleError extends AppError {
   }
 }
 
+/** Wave B2B-8 (D-099, physical model §8): thrown when a transaction's `ownerCount > :one`
+ * guard fails — the target `Membership` is the organization's last `ACTIVE` `OWNER`, and the
+ * requested role-change/remove/leave would zero out `Organization.ownerCount`. Research
+ * (GitHub/Slack/Notion, 2026-08-30) found this exact protection convergent across all 4
+ * products consulted — this error is the UX-facing name for a mechanism already `APPROVED` in
+ * D-086 §8, never exercised by a real writer until this wave. `retryable: false`: the caller
+ * must promote a second `OWNER` first, not just retry. */
+export class LastOwnerError extends AppError {
+  constructor(message = "Cannot complete this action - the organization would be left with no OWNER. Promote another member to OWNER first.", details?: Record<string, unknown>) {
+    super({ code: "LAST_OWNER", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "LastOwnerError";
+  }
+}
+
+/** Wave B2B-8 (D-099): a `membership:invite`/`membership:role-change`/`membership:remove` call
+ * targets (or would create/promote to) the `OWNER` tier, but the caller's own role is not
+ * `OWNER`. Distinct from the generic `AuthorizationDeniedError` (identity/domain/
+ * authorization.ts) - the matrix baseline (`ADMIN_ROLES`) already let the caller attempt the
+ * action; this is a named service-level check on top of it (research: Slack - only Owners
+ * assign/demote Owners, no source shows an Admin touching the Owner tier). */
+export class OwnerTierChangeRequiresOwnerError extends AppError {
+  constructor(message = "Only an OWNER can invite, promote, or change the role of another OWNER.", details?: Record<string, unknown>) {
+    super({ code: "OWNER_TIER_CHANGE_REQUIRES_OWNER", category: "AUTHORIZATION", message, retryable: false, details });
+    this.name = "OwnerTierChangeRequiresOwnerError";
+  }
+}
+
+/** Wave B2B-8 (D-099, physical model §7/§121 Q14): the `InvitationTokenPointer` resolved for an
+ * `AcceptInvitation` call failed its transactional guard (`attribute_not_exists(consumedAt) AND
+ * expiresAt > :now`) - deliberately generic naming (not `...AlreadyConsumed`): the failed
+ * condition cannot distinguish replay from a token that expired in the narrow window between
+ * the pre-transaction resolution and the transaction commit (Codex Rodada 2/3 achado,
+ * docs/architecture/reviews/multi-user-b2b-wave-b2b8-scoping/), and claiming a specific cause
+ * the check cannot prove would be a false diagnostic. */
+export class InvitationTokenUnavailableError extends AppError {
+  constructor(message = "This invitation link is no longer valid.", details?: Record<string, unknown>) {
+    super({ code: "INVITATION_TOKEN_UNAVAILABLE", category: "CONFLICT", message, retryable: false, details });
+    this.name = "InvitationTokenUnavailableError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

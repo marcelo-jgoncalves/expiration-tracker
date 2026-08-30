@@ -66,6 +66,14 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" },
   { method: "GET", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}" },
   { method: "POST", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" },
+  // Wave B2B-8 (D-099).
+  { method: "POST", pathTemplate: "/organizations/members/invite" },
+  { method: "POST", pathTemplate: "/organizations/invitations/{invitationId}/revoke" },
+  { method: "GET", pathTemplate: "/organizations/members" },
+  { method: "GET", pathTemplate: "/organizations/invitations" },
+  { method: "PUT", pathTemplate: "/organizations/members/{userId}/role" },
+  { method: "DELETE", pathTemplate: "/organizations/members/{userId}" },
+  { method: "POST", pathTemplate: "/organizations/members/leave" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

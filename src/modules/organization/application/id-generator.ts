@@ -5,4 +5,7 @@
 export interface OrganizationIdGenerator {
   newOrganizationId(): string;
   newMembershipId(): string;
+  /** B2B-8 (D-099). */
+  newInvitationId(): string;
+  newAuditEventId(): string;
 }

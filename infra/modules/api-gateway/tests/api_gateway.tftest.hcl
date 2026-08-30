@@ -35,6 +35,8 @@ run "jwt_authorizer_attached_to_every_route" {
     documents_function_name       = "documents"
     subjects_invoke_arn           = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
     subjects_function_name        = "subjects"
+    memberships_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:memberships/invocations"
+    memberships_function_name     = "memberships"
     guest_documents_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:guest-documents/invocations"
     guest_documents_function_name = "guest-documents"
     imports_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
@@ -284,6 +286,36 @@ run "jwt_authorizer_attached_to_every_route" {
       "POST /subjects/{subjectId}/requirements/{assignmentId}/link",
     )
     error_message = "POST /subjects/{subjectId}/requirements/{assignmentId}/link route must exist"
+  }
+
+  # Every /organizations/members*, /organizations/invitations* route exists and is
+  # JWT-authorized (Wave B2B-8, D-099).
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.memberships : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every /organizations/members*, /organizations/invitations* route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = length(aws_apigatewayv2_route.memberships) == 7
+    error_message = "Expected exactly 7 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "DELETE /organizations/members/{userId}",
+    )
+    error_message = "DELETE /organizations/members/{userId} route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "POST /organizations/members/leave",
+    )
+    error_message = "POST /organizations/members/leave route must exist"
   }
 
   # /guest/document-requests/* routes (M10, D-037) are the project's first PUBLIC routes —

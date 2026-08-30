@@ -2,15 +2,18 @@ import type { EntityKey, Gsi4QueryInput, OrganizationStore, TransactWriteEntry }
 
 /**
  * In-memory fake de OrganizationStore, mesma convenção de test/unit/subject/in-memory-store.ts.
- * Escopo original (B2B-3.2/B2B-3.3): `transactWrite` só validava `Put` condicionado a
- * `attribute_not_exists(PK)` — `CreateOrganization` é uma criação pura. Wave B2B-5 (D-095)
- * acrescenta suporte a `Update` — só o formato exato de `buildAttributeOnceUpdate()`
- * (`shared/dynamodb/occ.ts`: `SET #attr = :value` condicionado a `attribute_not_exists(#attr)`),
- * o único que este módulo produz até agora (o cap transacional de `GlobalUser.
- * hasCreatedOrganization` em `bff-auth-service.ts`) — mesma convenção de "formatos conhecidos
- * apenas" já estabelecida por `test/unit/identity/in-memory-store.ts`. `CancellationReasons` é
- * populado por índice real (não mais "falha tudo"), para que
- * `getCancellationReasonCodes()`-based callers consigam distinguir qual entry específico falhou.
+ * B2B-8 (D-099) introduziu Update/Delete com formatos genuinamente mais ricos que o único
+ * shape conhecido até B2B-5 (`buildAttributeOnceUpdate`) — upsert de Membership com condição OR
+ * e `if_not_exists`, decremento/incremento condicionado de `ownerCount`, consumo de token com
+ * duas cláusulas AND. Em vez de acumular um branch por shape (a convenção anterior), este fake
+ * ganhou um mini-avaliador de ConditionExpression/UpdateExpression cobrindo só os operadores que
+ * o código real deste módulo produz (documentados abaixo) — nunca uma reimplementação genérica
+ * do DynamoDB, só o suficiente para simular os writers reais deste módulo em teste unitário.
+ *
+ * Operadores de condição suportados: `attribute_not_exists(x)`, `attribute_exists(x)`,
+ * `x = :v`, `x > :v`, combinados com `AND`/`OR` (sem parênteses aninhados — nenhum writer real
+ * produz isso hoje). Operadores de update (`SET` apenas): `x = :v`, `x = if_not_exists(x, :v)`,
+ * `x = x + :v`, `x = x - :v`.
  */
 export class InMemoryOrganizationStore implements OrganizationStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
@@ -30,6 +33,101 @@ export class InMemoryOrganizationStore implements OrganizationStore {
     return true;
   }
 
+  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+    const key = this.k(item);
+    const existing = this.items.get(key) as unknown as { count?: number; resetAt?: string } | undefined;
+    if (existing && (existing.count !== expected.count || existing.resetAt !== expected.resetAt)) return false;
+    this.items.set(key, item as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
+  /** Resolve um token `#name`/`literal` contra ExpressionAttributeNames. */
+  private resolveName(token: string, names: Record<string, string> | undefined): string {
+    return token.startsWith("#") ? (names?.[token] ?? token) : token;
+  }
+
+  /** Resolve um token `:value`/literal contra ExpressionAttributeValues. */
+  private resolveValue(token: string, values: Record<string, unknown> | undefined): unknown {
+    return token.startsWith(":") ? values?.[token] : token;
+  }
+
+  private evalConditionClause(clause: string, item: Record<string, unknown> | undefined, names?: Record<string, string>, values?: Record<string, unknown>): boolean {
+    const trimmed = clause.trim();
+    const notExists = /^attribute_not_exists\(([^)]+)\)$/.exec(trimmed);
+    if (notExists) return item?.[this.resolveName(notExists[1]!.trim(), names)] === undefined;
+    const exists = /^attribute_exists\(([^)]+)\)$/.exec(trimmed);
+    if (exists) return item?.[this.resolveName(exists[1]!.trim(), names)] !== undefined;
+    const gt = /^(\S+)\s*>\s*(\S+)$/.exec(trimmed);
+    if (gt) {
+      const left = item?.[this.resolveName(gt[1]!, names)];
+      const right = this.resolveValue(gt[2]!, values);
+      return (left as string | number) > (right as string | number);
+    }
+    const eq = /^(\S+)\s*=\s*(\S+)$/.exec(trimmed);
+    if (eq) {
+      const left = item?.[this.resolveName(eq[1]!, names)];
+      const right = this.resolveValue(eq[2]!, values);
+      return left === right;
+    }
+    throw new Error(`InMemoryOrganizationStore: unsupported ConditionExpression clause "${clause}" (see file header for supported operators).`);
+  }
+
+  /** Suporta só `AND` ou só `OR` numa expressão (nenhum writer real deste módulo mistura os
+   * dois nem usa parênteses aninhados). */
+  private evalCondition(expression: string | undefined, item: Record<string, unknown> | undefined, names?: Record<string, string>, values?: Record<string, unknown>): boolean {
+    if (!expression) return true;
+    if (expression.includes(" OR ")) {
+      return expression.split(" OR ").some((clause) => this.evalConditionClause(clause, item, names, values));
+    }
+    return expression.split(" AND ").every((clause) => this.evalConditionClause(clause, item, names, values));
+  }
+
+  private applyUpdate(expression: string, existing: Record<string, unknown> | undefined, key: EntityKey, names?: Record<string, string>, values?: Record<string, unknown>): Record<string, unknown> & EntityKey {
+    const setMatch = /^SET (.+)$/.exec(expression.trim());
+    if (!setMatch) throw new Error(`InMemoryOrganizationStore: unsupported UpdateExpression "${expression}" (only SET is supported).`);
+    const result: Record<string, unknown> = { ...key, ...existing };
+
+    // Split top-level clauses on commas that are not inside if_not_exists(...) parens.
+    const clauses: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of setMatch[1]!) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        clauses.push(current);
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    if (current.trim()) clauses.push(current);
+
+    for (const rawClause of clauses) {
+      const clause = rawClause.trim();
+      const eqMatch = /^(\S+)\s*=\s*(.+)$/.exec(clause);
+      if (!eqMatch) throw new Error(`InMemoryOrganizationStore: unsupported SET clause "${clause}".`);
+      const [, targetToken, rhs] = eqMatch;
+      const targetName = this.resolveName(targetToken!.trim(), names);
+
+      const ifNotExists = /^if_not_exists\(([^,]+),\s*(\S+)\)$/.exec(rhs!.trim());
+      if (ifNotExists) {
+        const existingValue = result[this.resolveName(ifNotExists[1]!.trim(), names)];
+        result[targetName] = existingValue !== undefined ? existingValue : this.resolveValue(ifNotExists[2]!.trim(), values);
+        continue;
+      }
+      const arithmetic = /^(\S+)\s*([+-])\s*(\S+)$/.exec(rhs!.trim());
+      if (arithmetic) {
+        const base = Number(result[this.resolveName(arithmetic[1]!, names)] ?? 0);
+        const delta = Number(this.resolveValue(arithmetic[3]!, values));
+        result[targetName] = arithmetic[2] === "+" ? base + delta : base - delta;
+        continue;
+      }
+      result[targetName] = this.resolveValue(rhs!.trim(), values);
+    }
+    return result as Record<string, unknown> & EntityKey;
+  }
+
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
     const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
     let anyFailed = false;
@@ -37,22 +135,25 @@ export class InMemoryOrganizationStore implements OrganizationStore {
     entries.forEach((entry, i) => {
       if ("Put" in entry) {
         const item = entry.Put.Item as unknown as EntityKey;
-        if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && this.items.has(this.k(item))) {
+        const existing = this.items.get(this.k(item));
+        if (entry.Put.ConditionExpression && !this.evalCondition(entry.Put.ConditionExpression, existing, entry.Put.ExpressionAttributeNames, entry.Put.ExpressionAttributeValues)) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
         }
       } else if ("Update" in entry) {
-        const attrName = entry.Update.ExpressionAttributeNames?.["#attr"];
-        if (!attrName || entry.Update.ExpressionAttributeValues?.[":value"] === undefined) {
-          throw new Error("InMemoryOrganizationStore.transactWrite: unsupported Update shape - only buildAttributeOnceUpdate() is known.");
-        }
         const existing = this.items.get(this.k(entry.Update.Key));
-        if (entry.Update.ConditionExpression.includes(`attribute_not_exists(#attr)`) && existing && existing[attrName] !== undefined) {
+        if (!this.evalCondition(entry.Update.ConditionExpression, existing, entry.Update.ExpressionAttributeNames, entry.Update.ExpressionAttributeValues)) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
+      } else if ("Delete" in entry) {
+        const existing = this.items.get(this.k(entry.Delete.Key));
+        if (!this.evalCondition(entry.Delete.ConditionExpression, existing, entry.Delete.ExpressionAttributeNames, entry.Delete.ExpressionAttributeValues)) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
         }
       } else {
-        throw new Error("InMemoryOrganizationStore.transactWrite: only Put/Update entries are supported (see file header).");
+        throw new Error("InMemoryOrganizationStore.transactWrite: only Put/Update/Delete entries are supported (see file header).");
       }
     });
 
@@ -65,11 +166,11 @@ export class InMemoryOrganizationStore implements OrganizationStore {
         const item = entry.Put.Item as unknown as Record<string, unknown> & EntityKey;
         this.items.set(this.k(item), item);
       } else if ("Update" in entry) {
-        const key = entry.Update.Key;
-        const attrName = entry.Update.ExpressionAttributeNames!["#attr"]!;
-        const value = entry.Update.ExpressionAttributeValues![":value"];
-        const existing = this.items.get(this.k(key)) ?? { ...key };
-        this.items.set(this.k(key), { ...existing, [attrName]: value });
+        const existing = this.items.get(this.k(entry.Update.Key));
+        const updated = this.applyUpdate(entry.Update.UpdateExpression, existing, entry.Update.Key, entry.Update.ExpressionAttributeNames, entry.Update.ExpressionAttributeValues);
+        this.items.set(this.k(entry.Update.Key), updated);
+      } else if ("Delete" in entry) {
+        this.items.delete(this.k(entry.Delete.Key));
       }
     }
   }
@@ -88,8 +189,7 @@ export class InMemoryOrganizationStore implements OrganizationStore {
   }
 
   /** Test-only: unconditional overwrite, for simulating a state transition the module's real
-   * writers don't have a call site for yet (e.g. Organization deletion lifecycle - real writer
-   * is Wave B2B-9). Never a stand-in for a real OCC-conditioned write. */
+   * writers don't have a call site for yet. Never a stand-in for a real OCC-conditioned write. */
   forceUpdate<T extends EntityKey>(item: T): void {
     this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
   }

@@ -52,6 +52,7 @@ const HANDLERS = [
   "upload-slot-reconciliation-handler",
   "parser-sandbox-handler",
   "subjects-handler",
+  "memberships-handler",
   "guest-documents-handler",
   "document-chasing-dispatch-handler",
   "imports-handler",

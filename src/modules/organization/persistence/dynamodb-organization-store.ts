@@ -35,6 +35,26 @@ export class DynamoDbOrganizationStore implements OrganizationStore {
     }
   }
 
+  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: item,
+          // Mesma correção real de dynamodb-identity-store.ts/dynamodb-subject-store.ts: `count`
+          // é palavra reservada do DynamoDB - exige ExpressionAttributeNames.
+          ConditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
+          ExpressionAttributeNames: { "#count": "count" },
+          ExpressionAttributeValues: { ":expectedCount": expected.count, ":expectedResetAt": expected.resetAt },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) return false;
+      throw mapDynamoError(err, "OrganizationStore.updateConditional");
+    }
+  }
+
   // TransactionCanceledException precisa chegar intacta ao chamador (isTransactionCanceled())
   // - nunca envolvida por mapDynamoError, mesmo motivo de dynamodb-subject-store.ts.
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {

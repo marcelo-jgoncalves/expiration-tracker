@@ -856,4 +856,45 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // Wave B2B-8 (Invitations/Team, D-099) - schemas novos do módulo organization.
+
+  it("accepts a valid create-invitation-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/create-invitation-request.v1.json", {
+      email: "new.member@example.com",
+      role: "MEMBER",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a create-invitation-request.v1 with an unknown role", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/create-invitation-request.v1.json", {
+      email: "new.member@example.com",
+      role: "SUPERADMIN",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid change-membership-role-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/change-membership-role-request.v1.json", { role: "ADMIN" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a change-membership-role-request.v1 missing role", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/change-membership-role-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid accept-invitation-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/accept-invitation-request.v1.json", { token: "abcdef0123456789abcdef0123456789.abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an accept-invitation-request.v1 with an empty token", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/accept-invitation-request.v1.json", { token: "" });
+    expect(valid).toBe(false);
+  });
 });
