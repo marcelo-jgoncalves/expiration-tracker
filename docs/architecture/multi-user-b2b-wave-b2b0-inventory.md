@@ -28,7 +28,7 @@ Ruled out as false positives: `schemas/events/domain-event-envelope.v1.json` (te
 
 ### IdentityMapping
 
-`src/modules/identity/persistence/identity-mapping-repository.ts:11-19`: `PK=IDENTITY#COGNITO#<sub>`, `SK=MAP`, and it embeds `tenantId: string` (line 17) directly alongside `userId: string` on the record — confirms `roadmap-evolution/17` §5 exactly. `findOrCreate(cognitoSub, newUserId, newTenantId)` (line 45) takes tenant and user as separate parameters, but every call site passes the same value for both (both origins above). No other production writers.
+`src/modules/identity/persistence/identity-mapping-repository.ts:11-22`: `PK=IDENTITY#cognitoSub#<sub>` (corrected 2026-08-30 — an earlier version of this document said `IDENTITY#COGNITO#<sub>`, not the real literal; caught during Wave B2B-1's design round when the proposal built on this inventory was checked against the actual file), `SK=MAP`, and it embeds `tenantId: string` (line 17) directly alongside `userId: string` on the record — confirms `roadmap-evolution/17` §5 exactly. `findOrCreate(cognitoSub, newUserId, newTenantId)` (line 45) takes tenant and user as separate parameters, but every call site passes the same value for both (both origins above). **Second write site not previously flagged here**: `bootstrap-identity.ts:166-177`'s `createAll()` constructs its own `IdentityMapping` object literal inline (does not call `IdentityMappingRepository.findOrCreate()` at all) — any future change to `IdentityMapping`'s shape/construction (e.g. Wave B2B-2) must update both sites, not just the repository method.
 
 ### BFF session
 

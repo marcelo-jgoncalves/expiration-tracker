@@ -7,9 +7,9 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | Wave | Nome | Status | Nota |
 |---|---|---|---|
 | B2B-0 | Current Truth + Inventory (read-only) | **DONE** (2026-08-29) | `docs/architecture/multi-user-b2b-wave-b2b0-inventory.md` |
-| B2B-1 | Type 1 Design — physical model | **NOT STARTED** | Rodada Claude↔Codex dedicada (`roadmap-evolution/17` §106/§60), usa achados do B2B-0 como insumo adicional (S3 3 prefixos, frontend zero isolamento) além das 25 perguntas de §121 |
-| B2B-2 | Global Identity Foundation | NOT STARTED | Bloqueado por B2B-1 (design físico) |
-| B2B-3 | Organization + Membership | NOT STARTED | Bloqueado por B2B-1 |
+| B2B-1 | Type 1 Design — physical model | **DONE** (2026-08-30, D-086) | `docs/architecture/multi-user-b2b-physical-model.md` — protocolo Claude↔Codex 5 rodadas (6,7/8,7 → 8,1/8,9 → 8,4/9,2 → 8,6/9,4 → 9,3/9,5), evidência em `reviews/multi-user-b2b-physical-model/` |
+| B2B-2 | Global Identity Foundation | **NOT STARTED (unblocked)** | `User` global + `IdentityMapping` tenantless + `bootstrapUser()` unificado (§2-3 do physical model) — primeira wave de implementação real, decompor por `docs/engineering/definition-of-done.md` (E-012) |
+| B2B-3 | Organization + Membership | NOT STARTED (unblocked) | `Organization`/`Membership`/GSI4 `MembershipByUser`/`ownerCount` (§4-6/8 do physical model) |
 | B2B-4 | Onboarding | NOT STARTED | Bloqueado por B2B-2/B2B-3 |
 | B2B-5 | RequestContext Cutover | NOT STARTED | Bloqueado por B2B-2/B2B-3 |
 | B2B-6 | BFF Organization Context | NOT STARTED | Bloqueado por B2B-5; muda semântica que W3-07 assume (`roadmap-evolution/17` §125.4) — avaliar sequenciamento com a decisão do orquestrador do purge W3-07 (ver `NEXT_SESSION_PROMPT.md` gates) |
