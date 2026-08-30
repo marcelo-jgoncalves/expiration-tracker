@@ -34,14 +34,24 @@ export class DynamoDbTenantPurgeCandidateSource implements TenantPurgeCandidateS
     // are the two documented exceptions (see their domain files) that still declare `tenantId` as
     // a plain attribute. OR'ing in `tenantId = :tenantId` catches these (and any future exception
     // of the same shape) without needing a new GSI — same discipline as `findTenantMismatch`'s
-    // declared-tenantId check on the business-mutation side. `IdentityMapping` also declares
-    // `tenantId` and would now be returned by this scan too; it stays protected by the pure-logic
-    // exclusion in `dynamo-tenant-purge.ts` (entityType) and, for `TenantLifecycleRecord`
-    // specifically, by the canonical-key guard inside `PURGE_DELETE` itself (system-mutation.ts).
+    // declared-tenantId check on the business-mutation side. `IdentityMapping`
+    // (`identity-mapping-repository.ts`) is tenantless since B2B-5/D-095 (no `tenantId` attribute,
+    // `PK=IDENTITY#cognitoSub#<sub>`) — neither clause below returns it, so it is out of reach of
+    // this scan entirely; `PURGE_DELETE`'s canonical-key guard (`system-mutation.ts`) is defense in
+    // depth for a hypothetical future regression, not a defense against something this scan finds
+    // today.
+    //
+    // Wave B2B-9 (W3-07/Privacy Reconciliation, D-104, 2026-08-30): a THIRD real exception found —
+    // `InvitationTokenPointer` (`organization/domain/invitation-token.ts`, `PK=INVITATION_TOKEN#
+    // <selectorHash>`, same tenantless-pointer family as `GuestTokenPointer`) declares
+    // `organizationId`, not `tenantId`, as its tenant-scoping attribute. Post-B2B, "tenantId" and
+    // "organizationId" name the same concept (`roadmap-evolution/17` §125.4) but not every writer
+    // uses the historical name — OR'ing in `organizationId = :tenantId` closes this without forcing
+    // a rename of an already-shipped field.
     const result = await this.client.send(
       new ScanCommand({
         TableName: this.tableName,
-        FilterExpression: "begins_with(PK, :prefix) OR tenantId = :tenantId",
+        FilterExpression: "begins_with(PK, :prefix) OR tenantId = :tenantId OR organizationId = :tenantId",
         ExpressionAttributeValues: { ":prefix": `TENANT#${tenantId}#`, ":tenantId": tenantId },
         ExclusiveStartKey: exclusiveStartKey,
         Limit: this.pageLimit,

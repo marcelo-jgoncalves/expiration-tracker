@@ -79,6 +79,33 @@ describe("purgeTenantDynamoItems", () => {
     expect(store.hasRaw({ PK: tenantBItems[0]!.PK, SK: tenantBItems[0]!.SK })).toBe(true);
   });
 
+  it("Wave B2B-9 (D-104): purging Organization A leaves the same physical User's GlobalUser row and their Membership in Organization B untouched", async () => {
+    const store = new InMemoryIdentityStore();
+    const orgAItems = [item("org-a", "1", "ExpirationItem"), { PK: "TENANT#org-a#ORG#org-a", SK: "MEMBER#user-1", entityType: "Membership", organizationId: "org-a", version: 1 } satisfies TenantScanItem];
+    // GlobalUser is tenantless by design (PK=USER#<userId>, no TENANT# prefix, no tenantId/
+    // organizationId attribute) — a real Scan's FilterExpression (proven in
+    // test/unit/shared/dynamodb/tenant-purge-scan.test.ts) can never return it for ANY tenant, so
+    // it is not even a candidate here; seeded directly in the store to prove it survives.
+    const globalUser = { PK: "USER#user-1", SK: "PROFILE", entityType: "GlobalUser", version: 1 };
+    // Same user's Membership in a DIFFERENT organization — different PK prefix/organizationId,
+    // must never be reachable by an Organization-A-scoped purge.
+    const orgBMembership = { PK: "TENANT#org-b#ORG#org-b", SK: "MEMBER#user-1", entityType: "Membership", organizationId: "org-b", version: 1 };
+    for (const i of orgAItems) store.seedRaw(i);
+    store.seedRaw(globalUser);
+    store.seedRaw(orgBMembership);
+
+    const source = new FakeTenantScanSource(new Map([["org-a", orgAItems]]), 10);
+    const result = await purgeTenantDynamoItems({ store, candidates: source, tableName: "MainTable" }, { tenantId: "org-a" });
+
+    // Mutation: widening FakeTenantScanSource's own prefix filter (or a real Scan's
+    // FilterExpression) to also match org-b/GlobalUser rows would make this assertion fail by
+    // purging more than the 2 org-a-owned items.
+    expect(result.itemsPurged).toBe(2);
+    for (const i of orgAItems) expect(store.hasRaw({ PK: i.PK, SK: i.SK })).toBe(false);
+    expect(store.hasRaw({ PK: globalUser.PK, SK: globalUser.SK })).toBe(true);
+    expect(store.hasRaw({ PK: orgBMembership.PK, SK: orgBMembership.SK })).toBe(true);
+  });
+
   it("idempotent: re-running against an already-purged tenant is a clean no-op, never an error", async () => {
     const store = new InMemoryIdentityStore();
     const items = [item("t1", "a", "ExpirationItem"), item("t1", "b", "Document")];

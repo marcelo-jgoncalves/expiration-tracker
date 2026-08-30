@@ -218,6 +218,47 @@ describe("BffAuthService.resolveSessionWithOnboarding - multi-org cardinality (W
     expect(withOnboarding.organizationSelectionRequired).toEqual({ organizations: [] });
   });
 
+  // Wave B2B-9 (D-104): a Organization completamente deletada (status terminal DELETED, não só
+  // DELETING) deve disparar exatamente a mesma auto-cura de sessão - a distinção "session
+  // behavior" do escopo de B2B-9 já era coberta pelo mecanismo de B2B-6, mas nenhum teste
+  // existente nomeava o estado terminal explicitamente.
+  // Mutação: se resolveWorkingOrganization() tratasse DELETED como um caso especial não coberto
+  // pelo "qualquer status != ACTIVE" genérico, este teste falharia com activeOrganizationId ainda
+  // apontando para a organização deletada.
+  it("clears and re-derives a stale activeOrganizationId whose Organization lifecycle reached the terminal DELETED status", async () => {
+    const ctx = buildService();
+    const result = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const { organizationId } = await ctx.service.createOrganization(session, { displayName: "Acme", timezone: "UTC" });
+    await ctx.service.selectOrganization(session, organizationId);
+
+    const lifecycle = await ctx.organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(organizationId));
+    ctx.organizations.forceUpdate({ ...lifecycle!, status: "DELETED" });
+
+    const withOnboarding = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(withOnboarding.activeOrganizationId).toBeUndefined();
+    expect(withOnboarding.organizationSelectionRequired).toEqual({ organizations: [] });
+  });
+
+  // Wave B2B-9 (D-104): cenário multi-org real - a Organization ativa da sessão é deletada, mas o
+  // usuário ainda tem uma segunda Membership usável; a sessão deve se autocurar para a
+  // organização sobrevivente (regra de cardinalidade "1 usável -> self-heal" de B2B-6), nunca
+  // ficar presa a organizationSelectionRequired vazio nem à organização deletada.
+  it("self-heals to the surviving Organization when the session's active Organization is deleted but a second Membership remains usable", async () => {
+    const ctx = buildService();
+    const result = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const { organizationId: deletedOrgId } = await ctx.service.createOrganization(session, { displayName: "Acme", timezone: "UTC" });
+    await ctx.service.selectOrganization(session, deletedOrgId);
+    graftSecondOrganization(ctx.organizations, session.userId, "org-survivor", "ACTIVE");
+
+    const lifecycle = await ctx.organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(deletedOrgId));
+    ctx.organizations.forceUpdate({ ...lifecycle!, status: "DELETED" });
+
+    const withOnboarding = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(withOnboarding.activeOrganizationId).toBe("org-survivor");
+  });
+
   // Prova multi-sessão: 2 sessões do mesmo usuário mantêm activeOrganizationId
   // independentemente - verificado por leitura direta do schema (sem GSI por userId) na própria
   // Rodada 1 do debate de escopo, este teste prova o comportamento observável.
