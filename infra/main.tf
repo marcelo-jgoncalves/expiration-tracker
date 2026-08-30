@@ -51,7 +51,13 @@ module "test_ping_handler" {
   source_dir            = "${local.dist_dir}/test-ping-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (Operational Evidence, D-116): real finding - this handler destructures
+  # `resolver` from buildIdentityDeps() and calls resolver.resolve() for real
+  # (test-route-handler.ts), which queries GSI4 (RequestContextResolver -> OnboardingStateResolver
+  # -> queryGsi4) - every Lambda that does this needs gsi4_read_policy_json, granted to none of
+  # them since GSI4's isolation policy was created (B2B-3/D-08x) with the note "attachment
+  # happens when B2B-5/B2B-6's BFF/RequestContext/onboarding code is built" - never done.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -63,7 +69,8 @@ module "items_handler" {
   source_dir            = "${local.dist_dir}/items-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -101,9 +108,11 @@ module "subjects_handler" {
     # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado do
     # document_chasing_dispatch_handler (ver comentário lá).
   })
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.ses_send_email.json,
+    module.table.gsi4_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -116,7 +125,8 @@ module "reminders_handler" {
   source_dir            = "${local.dist_dir}/reminders-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -128,7 +138,8 @@ module "notifications_handler" {
   source_dir            = "${local.dist_dir}/notifications-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -140,7 +151,8 @@ module "profile_handler" {
   source_dir            = "${local.dist_dir}/profile-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -157,7 +169,8 @@ module "memberships_handler" {
   environment_variables = merge(local.common_env, {
     GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
   })
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -384,10 +397,14 @@ module "bff_handler" {
   # Identity module reads/writes (User/IdentityMapping/DeviceSession) on the MAIN table -
   # the SAME policy items_handler already uses, nothing new granted there. Session-table
   # access is the separate, narrowly-scoped policy from bff_session_table (D-054: never
-  # merged into the general tenant_facing policy).
+  # merged into the general tenant_facing policy). gsi4_read_policy_json (Wave B2B-14/D-116):
+  # this is the Lambda whose real, live 500 ("DynamoDB access denied during
+  # OrganizationStore.queryGsi4") is the concrete evidence for this whole fix - bff-auth-service.ts
+  # calls OnboardingStateResolver.resolve() (queryGsi4) on every session/callback resolution.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.bff_session_table.bff_session_access_policy_json,
+    module.table.gsi4_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -999,9 +1016,11 @@ module "documents_handler" {
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
   })
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.documents_presign_quarantine_put.json,
+    module.table.gsi4_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1609,9 +1628,11 @@ module "imports_handler" {
   environment_variables = merge(local.common_env, {
     IMPORT_RAW_BUCKET_NAME = module.import_bucket.bucket_name
   })
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.imports_presign_raw_put.json,
+    module.table.gsi4_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
