@@ -18,7 +18,7 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | B2B-9 | W3-07 / Privacy Reconciliation | **DONE** (2026-08-30, D-104) | Fix real de purga: `InvitationTokenPointer` (declara `organizationId`, não `tenantId`) ganha 3ª cláusula OR no scan/`PURGE_DELETE` — fechava órfão pós-exclusão de Organization. `privacy-lgpd.md` §4.1/§4.2 novos (User-level vs. Organization-level erasure, 3 fontes externas, invariante de último OWNER documentada) + 4 linhas de retenção novas. `GlobalUser`/session self-heal (B2B-6) confirmados por teste adversarial contra o estado terminal `DELETED`. Quarta aplicação real de `docs/engineering/research-protocol.md`/E-014 |
 | B2B-10 | Tenant-aware Frontend | **DONE** (2026-08-30, D-106) | Fix de regressão real (`AuthContext` tratava todo usuário autenticado como deslogado desde B2B-5). Arquitetura de cache isolation (query keys escopadas por `organizationId` + `ActiveOrganizationProvider` com gate `switching`/`cancelQueries`/`AbortSignal` ponta-a-ponta) fecha uma corrida real de vazamento de dado entre tenants na UI. Switcher/Members/Settings novos + `UpdateOrganizationSettingsService` (writer novo, `organization:update-settings`/`OWNER_ROLES`). Primeira aplicação do protocolo Claude↔Codex a uma decisão de frontend nesta sessão — ver `docs/architecture/multi-user-b2b-wave-b2b10-scope.md` |
 | B2B-11 | Responsibility + Notifications | **DONE** (2026-08-30, D-108) | `NotificationRecipientResolver`/`resolveCandidateUserId` migrados de `UserProfile` (vestigial) para `Membership`+`GlobalUser` (2 condições, mesma regra dupla de `resolve-request-context.ts`); `assigneeUserId`/`ItemWatch.userId` agora validados contra `Membership` real (`MemberEligibilityChecker`, novo port). **Nota de escopo**: a supersessão de `UserProfile.requesterDisplayName` por `Organization.displayName` (GTR-01, mencionada como previsão em B2B-5/D-096) NÃO foi decidida nem implementada nesta wave — o escopo real, definido e `APPROVED` via protocolo Claude↔Codex (`multi-user-b2b-wave-b2b11-scope.md`), não incluiu esse item; continua pendente, ver seção de achados abaixo |
-| B2B-12 | Cutover de dev | NOT STARTED | Decisão de reset/reseed vs. migração one-shot, ver `roadmap-evolution/17` §62-68 |
+| B2B-12 | Cutover de dev | **DONE** (2026-08-30, D-111) — execução real destrutiva à parte, gated | `docs/architecture/multi-user-b2b-wave-b2b12-scope.md` — protocolo Claude↔Codex 3 rodadas (Claude 9,2/Codex 9,1), `scripts/reset-dev-data.ts` implementado e verificado (Fase A real rodada contra `dev`) + `LEGACY_TENANT_ONLY` removido; `--confirm`/`--include-cognito` reais aguardam confirmação explícita do Marcelo |
 | B2B-13 | E2E / Adversarial Security | NOT STARTED | Usa as 25 perguntas de §121 como checklist |
 | B2B-14 | Operational Evidence | NOT STARTED | Evidência real contra `dev` via `aws --profile claude-dev` |
 | B2B-15 | Documentation Reconciliation | NOT STARTED | Checklist de `AGENTS.md` §6 |
@@ -137,4 +137,42 @@ Com este subitem, **Wave B2B-6 (BFF Organization Context) está `DONE`**.
 - Transporte de `activeOrganizationId` do BFF até o `RequestContextResolver` do recurso (achado 2.1, D-095) — **RESOLVIDO** por B2B-6 (`X-Organization-Id`).
 - `InvitationTokenPointer` inalcançável pelo scan/`PURGE_DELETE` de purga (declara `organizationId`, não `tenantId` — gap real introduzido por B2B-8, não coberto pelo fix B1 de D-082) — **RESOLVIDO** por B2B-9/D-104 (3ª cláusula OR em ambos).
 - Orquestrador do purge pipeline (Step Functions vs. Lambda+EventBridge Scheduler, apontado como "próxima etapa real" em D-083) — **AINDA PENDENTE**, decisão de infraestrutura/operação (quem/quando dispara `purgeTenant()` de forma durável) explicitamente fora do escopo de B2B-9 (que tratou só do CONTEÚDO da purga e retenção de dados, não de quem a invoca) — não bloqueia nenhuma wave B2B seguinte, registrado para uma sessão dedicada futura.
+- `frontend/test/routes/Settings.test.tsx` (linha 65, "conflict-specific message on a stale expectedVersion") flakou em CI **pela 2ª vez** (PR #112, B2B-12) mesmo após o timeout já ter sido alargado para 3000ms na correção anterior (PR de B2B-11, commit `b76970d`) — nunca reproduzido localmente nas duas ocasiões, e um simples `gh run rerun --failed` passou de novo sem mudança de código. Não bloqueou B2B-12 (rerun verde), mas 2 ocorrências do mesmo teste específico sugere uma causa raiz real (não só variância de CI) que um 3º timeout-bump não resolveria de forma definitiva — candidato a investigação dedicada (ex.: fake timers/microtask scheduling do próprio componente `Settings.tsx` sob carga do runner) antes de uma 3ª ocorrência.
 - Supersessão de `UserProfile.requesterDisplayName` por `Organization.displayName` (GTR-01, prevista como item de B2B-11 em B2B-5/D-096) — **AINDA PENDENTE**. O escopo real de B2B-11, definido e `APPROVED` via protocolo Claude↔Codex (Rodada 1-3, `multi-user-b2b-wave-b2b11-scope.md`), tratou de responsible member/ItemWatch/notification routing (per o texto real do roadmap §116) — a supersessão de GTR-01 nunca foi levantada nem debatida nas 3 rodadas, não é a mesma coisa que "responsible member" (GTR-01 é sobre a identidade mostrada ao guest externo, não sobre quem é responsável/assignee interno). Não bloqueia nenhuma wave seguinte; registrado explicitamente para não ficar perdido entre a previsão antiga e o escopo real fechado agora.
+
+## Escopo de Wave B2B-12 (Cutover de dev) — `APPROVED`, D-110
+
+Ver `docs/architecture/multi-user-b2b-wave-b2b12-scope.md` para o registro completo — protocolo
+Claude↔Codex 3 rodadas (Claude 9,2/Codex 9,1), **declaração E-014 NÃO** (política reset-vs-migração já
+aprovada dentro do próprio `roadmap-evolution/17` §62-63, esta wave só aplica contra inventário real).
+Inventário real via `aws --profile claude-dev` (não hipotético) confirma `dev` 100% sintético/descartável:
+`exptrk-dev-table` 47 itens/zero `Organization`/`Membership`, `exptrk-dev-bff-session` 0 itens, Cognito 0
+usuários reais, S3 só `extraction-transient` com conteúdo, 2 de 24 filas SQS com mensagens reais. A
+Rodada 1 do Codex achou 7 achados reais (faltava snapshot/export, `BatchWriteItem` subespecificado,
+`--table` sozinho não protege contra erro de operador, Cognito/filas fora do inventário, `bff-session`
+subestimado, escopo de `LEGACY_TENANT_ONLY` sem o frontend) — corrigidos na Rodada 2, que por sua vez
+teve 1 achado bloqueante grave (snapshot bruto em `docs/architecture/reviews/` arriscava commitar
+PII/segredo real de `Session`/`GlobalUser`) corrigido na Rodada 3. Escopo final: `scripts/reset-dev-data.ts`
+(fase A inventário+snapshot sempre, fase B delete real só com `--confirm`, allowlist de ambiente,
+verificação final fail-loud) + remoção de `LEGACY_TENANT_ONLY` (backend+frontend+teste). **Execução real
+(`--confirm`/`--include-cognito`/`s3 rm` reais) gated por confirmação explícita do Marcelo** — pendente,
+registrado abaixo, não bloqueia implementação/teste do script contra fakes nem `--dry-run` real (leitura).
+
+### Implementação (D-111) — `Wave B2B-12 DONE`
+
+`scripts/reset-dev-data.ts` implementado exatamente per o escopo `APPROVED`: Fase A (sempre, read-only)
++ Fase B (`--confirm`) + allowlist (`assertAllowedTable`) + guarda de conta (`assertExpectedAccount` via
+`sts:GetCallerIdentity`) + `deleteBatchWithRetry()` (backoff local, sem módulo novo em `shared/`) +
+manifest redigido (`buildManifestEntry`/`hashItem`, nunca valor sensível) + verificação final fail-loud
+(`assertAllEmpty`). **Verificação real, não só contra fakes**: Fase A rodada de fato contra `dev`
+(`AWS_PROFILE=claude-dev npx tsx scripts/reset-dev-data.ts --user-pool-id us-east-1_NZlvr5IIn`, sem
+`--confirm`) — confirmou 47 itens/0 sessões/21 objetos S3/0 usuários Cognito/24 filas (1 com 3 mensagens
+reais), manifest gravado com sucesso em `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/
+dev-reset-manifest-2026-08-30T16-22-38-931Z.json`, parou antes da Fase B exatamente como projetado.
+`LEGACY_TENANT_ONLY` removido de `onboarding-state.ts`/`frontend/src/api/session.ts`/teste, confirmado
+seguro (nenhum switch exaustivo nos 2 call sites reais). G-V3 verificado por mutação real em 3 pontos
+(retry de `deleteBatchWithRetry`, ordenação de chaves de `hashItem`, allowlist de `--table`). Suíte
+completa: backend `npm test` 1232/1232 (zero regressão), frontend `vitest` 139/139 + `playwright`
+24/24 (zero regressão), `build:lambdas` 34/34. **Execução real destrutiva (`--confirm`/
+`--include-cognito`) permanece pendente de confirmação explícita do Marcelo** — não bloqueia o
+fechamento desta wave nem waves seguintes.

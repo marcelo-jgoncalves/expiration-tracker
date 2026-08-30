@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OnboardingStateResolver } from "../../../src/modules/organization/application/onboarding-state.js";
 import { membershipGsi4Keys, membershipKey, type Membership, type MembershipStatus } from "../../../src/modules/organization/domain/membership.js";
-import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { EntityKey, Gsi4QueryInput, OrganizationStore, TransactWriteEntry } from "../../../src/modules/organization/ports/organization-store.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 
@@ -18,19 +17,6 @@ function makeMembership(organizationId: string, userId: string, status: Membersh
     createdBy: userId,
     version: 1,
     ...membershipGsi4Keys(userId, organizationId, `mem-${organizationId}-${userId}`),
-  };
-}
-
-function makeLegacyLifecycle(tenantId: string): TenantLifecycleRecord {
-  return {
-    ...tenantLifecycleKey(tenantId),
-    SK: "LIFECYCLE",
-    entityType: "TenantLifecycleRecord",
-    tenantId,
-    status: TENANT_ACTIVE_STATUS,
-    createdAt: "2026-08-30T00:00:00.000Z",
-    updatedAt: "2026-08-30T00:00:00.000Z",
-    version: 1,
   };
 }
 
@@ -103,7 +89,7 @@ describe("OnboardingStateResolver", () => {
   });
 
   // Mutação: remover o passo 2 inteiro (não checar SUSPENDED antes de cair para
-  // legado/NO_TENANT) faria este caso pular direto para LEGACY_TENANT_ONLY/NO_TENANT, nunca
+  // NO_TENANT_NO_MEMBERSHIP) faria este caso pular direto para NO_TENANT_NO_MEMBERSHIP, nunca
   // retornando SUSPENDED_ONLY mesmo sem nenhuma Membership ACTIVE.
   it("classifies SUSPENDED_ONLY when no ACTIVE Membership exists but a SUSPENDED one does", async () => {
     const store = new InMemoryOrganizationStore();
@@ -113,33 +99,20 @@ describe("OnboardingStateResolver", () => {
     expect(await resolver.resolve("user-1")).toBe("SUSPENDED_ONLY");
   });
 
-  // Mutação: agrupar REMOVED junto de SUSPENDED no mesmo `.some(...)` (o erro real introduzido
-  // e depois corrigido na Rodada 3 do debate de escopo) faria este caso retornar SUSPENDED_ONLY
-  // em vez de LEGACY_TENANT_ONLY, mesmo sem nenhuma Membership SUSPENDED real.
-  it("ignores a REMOVED-only Membership and falls through to LEGACY_TENANT_ONLY when the legacy tenant record exists", async () => {
+  // Mutação: agrupar REMOVED junto de SUSPENDED no mesmo `.some(...)` faria este caso retornar
+  // SUSPENDED_ONLY em vez de NO_TENANT_NO_MEMBERSHIP, mesmo sem nenhuma Membership SUSPENDED real.
+  it("ignores a REMOVED-only Membership and falls through to NO_TENANT_NO_MEMBERSHIP", async () => {
     const store = new InMemoryOrganizationStore();
     await store.putIfAbsent(makeMembership("org-1", "user-1", "REMOVED"));
-    await store.putIfAbsent(makeLegacyLifecycle("user-1"));
 
     const resolver = new OnboardingStateResolver(store);
-    expect(await resolver.resolve("user-1")).toBe("LEGACY_TENANT_ONLY");
+    expect(await resolver.resolve("user-1")).toBe("NO_TENANT_NO_MEMBERSHIP");
   });
 
-  // Mutação: trocar `tenantLifecycleKey(userId)` por `tenantLifecycleKey(membership.organizationId)`
-  // (checar o tenant legado errado) faria este teste falhar, já que o único registro de
-  // lifecycle existente pertence a `userId`, não a nenhuma organizationId de Membership.
-  it("classifies LEGACY_TENANT_ONLY when no usable Membership exists at all, only the legacy TenantLifecycleRecord", async () => {
-    const store = new InMemoryOrganizationStore();
-    await store.putIfAbsent(makeLegacyLifecycle("user-1"));
-
-    const resolver = new OnboardingStateResolver(store);
-    expect(await resolver.resolve("user-1")).toBe("LEGACY_TENANT_ONLY");
-  });
-
-  // Mutação: retornar `"LEGACY_TENANT_ONLY"` como fallback padrão em vez de
-  // `"NO_TENANT_NO_MEMBERSHIP"` quando `legacy` for `undefined` faria este teste (fixture
-  // sintético sem nenhum Membership e sem TenantLifecycleRecord) falhar.
-  it("classifies NO_TENANT_NO_MEMBERSHIP when neither a usable Membership nor a legacy tenant record exists (synthetic fixture, only reachable for real post-B2B-5)", async () => {
+  // Mutação: retornar `"SUSPENDED_ONLY"` como fallback padrão em vez de
+  // `"NO_TENANT_NO_MEMBERSHIP"` quando não há nenhuma Membership faria este teste (fixture
+  // sintético, sem nenhum Membership) falhar.
+  it("classifies NO_TENANT_NO_MEMBERSHIP when no Membership exists at all (synthetic fixture, only reachable for real post-B2B-5)", async () => {
     const store = new InMemoryOrganizationStore();
 
     const resolver = new OnboardingStateResolver(store);
