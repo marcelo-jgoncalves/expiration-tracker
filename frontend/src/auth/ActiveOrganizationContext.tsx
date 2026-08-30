@@ -32,6 +32,12 @@ export interface ActiveOrganizationValue {
   organizationId: string | undefined;
   onboardingState: OnboardingState | undefined;
   organizationSelectionRequired: { organizations: UsableOrganization[] } | undefined;
+  /** True only for the session query's OWN first resolution (Wave B2B-14's `OnboardingGate`
+   * needs this to tell "haven't checked yet" apart from "checked, no organization exists" -
+   * both look identical from `organizationId`/`organizationSelectionRequired` alone, since
+   * neither is populated until the query actually resolves). Never true again after the first
+   * resolution - a later `switching`/refetch is a distinct, already-covered state. */
+  isPending: boolean;
   /** True from the moment `select()` is called until the session refetch confirms the new
    * `activeOrganizationId` - every org-scoped `useQuery` must gate on `!switching` (via
    * `enabled`) for the duration. */
@@ -82,8 +88,9 @@ export function ActiveOrganizationProvider({ children }: { children: ReactNode }
       organizationSelectionRequired: sessionQuery.data?.organizationSelectionRequired,
       switching,
       select,
+      isPending: sessionQuery.isPending,
     }),
-    [sessionQuery.data, switching, select],
+    [sessionQuery.data, sessionQuery.isPending, switching, select],
   );
 
   return <ActiveOrganizationContext.Provider value={value}>{children}</ActiveOrganizationContext.Provider>;

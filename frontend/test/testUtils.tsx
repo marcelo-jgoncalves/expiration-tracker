@@ -19,6 +19,7 @@ function defaultActiveOrganizationValue(): ActiveOrganizationValue {
     organizationSelectionRequired: undefined,
     switching: false,
     select: () => {},
+    isPending: false,
   };
 }
 

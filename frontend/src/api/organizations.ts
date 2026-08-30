@@ -29,6 +29,31 @@ function readCsrfHeader(): Record<string, string> {
   return csrfCookie ? { "x-csrf-token": csrfCookie.split("=")[1] ?? "" } : {};
 }
 
+export interface CreateOrganizationResponse {
+  organizationId: string;
+}
+
+/** `POST /bff/organizations` (Wave B2B-5, D-096) - the one real way out of
+ * NO_TENANT_NO_MEMBERSHIP for a freshly-bootstrapped identity. Same direct-fetch/CSRF pattern
+ * as `selectOrganization` below (BFF-owned route, never proxied through `/bff/api/*`). */
+export async function createOrganization(input: { displayName: string; timezone: string }): Promise<CreateOrganizationResponse> {
+  let response: Response;
+  try {
+    response = await fetch("/bff/organizations", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json", ...readCsrfHeader() },
+      body: JSON.stringify(input),
+    });
+  } catch (cause) {
+    throw ApiError.network(cause);
+  }
+  if (!response.ok) {
+    throw ApiError.fromResponseBody(await response.json().catch(() => undefined), response.status);
+  }
+  return (await response.json()) as CreateOrganizationResponse;
+}
+
 export async function selectOrganization(organizationId: string): Promise<void> {
   let response: Response;
   try {
