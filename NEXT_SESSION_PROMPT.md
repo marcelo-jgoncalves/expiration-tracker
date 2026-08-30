@@ -91,7 +91,7 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 | `AppError.retryable` — deveria decidir comportamento real de SQS retry/DLQ? | Decisão de produto do Marcelo | `docs/engineering/decisions-log.md` E-011 |
 | 7 de 9 classes de retenção LGPD sem purga física real (`privacy-lgpd.md` §4) | Decisão de escopo/priorização do Marcelo antes de qualquer implementação | `docs/engineering/pilot-readiness-program.md` W3-06 |
 | User Validation (planejamento de interface) | Sinal explícito do Marcelo para retomar | `docs/frontend/README.md` |
-| Wave 1 (Design System reconciliation) | Marcelo atualizar o Design System formal primeiro | `docs/engineering/pilot-readiness-program.md` Wave 1 |
+| Wave 1 (Design System reconciliation) — **dependência resolvida (2026-08-30)**: Marcelo trouxe `docs/frontend/design-system-v1-proposal.md` + `docs/frontend/frontend-engineering-quality-standard-v1-proposal.md` (movidos da raiz para `docs/frontend/`) | Revisar/adotar as 2 propostas via protocolo Claude↔Codex antes de rodar a Wave 1 de verdade — nenhuma foi lida em profundidade ainda | `docs/frontend/README.md`, `docs/engineering/pilot-readiness-program.md` Wave 1 |
 
 ## Decisões deliberadamente adiadas (já decididas como "não agora", não esquecidas)
 
