@@ -66,4 +66,48 @@ describe("authorize()", () => {
       }),
     ).not.toThrow();
   });
+
+  // B2B-7 (D-097/D-098): ADMIN gets parity with OWNER over business-resource actions.
+  // Mutação: remover "ADMIN" de ADMIN_ROLES (voltar ao estado pré-B2B-7) faria esta asserção
+  // lançar AuthorizationDeniedError("INSUFFICIENT_ROLE") em vez de passar.
+  it("allows ADMIN to perform an admin-tier resource action (delete), parity with OWNER", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["ADMIN"] }), action: "item:delete", resource: { tenantId: "tenant-a" } }),
+    ).not.toThrow();
+  });
+
+  // Mutação: mudar "tenant:configure-document-request-delivery" de OWNER_ROLES para ADMIN_ROLES
+  // faria esta asserção não lançar - é exatamente a exceção nomeada que B2B-7 decidiu manter
+  // OWNER-exclusive (config. externa/reputacional do tenant, não paritária com ADMIN).
+  it("denies ADMIN the OWNER-exclusive tenant:configure-document-request-delivery action", () => {
+    expect(() =>
+      authorize({
+        context: ctx({ roles: ["ADMIN"] }),
+        action: "tenant:configure-document-request-delivery",
+        resource: { tenantId: "tenant-a" },
+      }),
+    ).toThrow(AuthorizationDeniedError);
+  });
+
+  // Mutação: manter "notification:configure": ADMIN_ROLES (estado pré-B2B-7) faria esta
+  // asserção lançar AuthorizationDeniedError - o bug fix real desta wave (VIEWER pode
+  // legitimamente ser destinatário de lembretes e precisa configurar a própria preferência).
+  it("allows VIEWER to configure their own notification preferences (bug fix, not an ADMIN-vs-OWNER call)", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["VIEWER"] }), action: "notification:configure", resource: { tenantId: "tenant-a" } }),
+    ).not.toThrow();
+  });
+
+  // Mutação: remover "ADMIN" do bypass de ownership (linha `!roles.includes("ADMIN")`) faria
+  // esta asserção lançar RESOURCE_OWNERSHIP_MISMATCH em vez de passar - espelha o teste de
+  // OWNER acima, decisão explícita da Rodada 2 do debate de escopo (achado 6 do Codex).
+  it("ADMIN bypasses per-resource ownership mismatch, same as OWNER", () => {
+    expect(() =>
+      authorize({
+        context: ctx({ roles: ["ADMIN"] }, "user-a"),
+        action: "item:update",
+        resource: { tenantId: "tenant-a", ownerUserId: "user-b", assigneeUserId: "user-b" },
+      }),
+    ).not.toThrow();
+  });
 });

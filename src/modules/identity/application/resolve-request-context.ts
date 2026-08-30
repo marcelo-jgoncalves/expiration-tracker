@@ -178,13 +178,13 @@ export class RequestContextResolver {
     return membership;
   }
 
-  /** Assert explicit (Codex Rodada 1 achado 2.2 / Rodada 2 mudança F, D-095): `Membership.role`
-   * has 4 values but the live authorization matrix (`identity/domain/authorization.ts`) only
-   * knows 3 until Wave B2B-7 ships the real permission derivation — loud, not silent, instead of
-   * letting an unsupported role fail every `authorize()` check via that matrix's own unsafe
-   * cast. */
+  /** B2B-7 (D-097/D-098) closed the gap named in D-095: `authorization.ts` now recognizes all
+   * 4 real `Membership.role` values. The assert stays (fail-closed, Codex Rodada 1 achado
+   * 2.2/Rodada 2 mudança F, D-095) for any value outside that domain — loud, not silent,
+   * instead of letting an unrecognized role fail every `authorize()` check via that matrix's
+   * own unsafe cast. */
   private resolveRoles(role: Membership["role"]): string[] {
-    if (role !== "OWNER" && role !== "MEMBER" && role !== "VIEWER") {
+    if (role !== "OWNER" && role !== "ADMIN" && role !== "MEMBER" && role !== "VIEWER") {
       throw new UnsupportedMembershipRoleError(role);
     }
     return [role];
