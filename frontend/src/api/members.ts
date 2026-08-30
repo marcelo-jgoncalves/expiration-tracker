@@ -31,6 +31,13 @@ export function removeMember(userId: string, expectedVersion: number): Promise<v
   return apiClient.delete(`/organizations/members/${encodeURIComponent(userId)}`, { expectedVersion });
 }
 
+/** Wave B2B-14 (D-120) - `handleLeaveOrganization`/`POST /organizations/members/leave` has been
+ * fully wired (Lambda dispatch, API Gateway route, proxy allowlist) since Wave B2B-8/D-099, but
+ * no frontend call site ever existed. */
+export function leaveOrganization(): Promise<void> {
+  return apiClient.post("/organizations/members/leave", undefined);
+}
+
 export function updateOrganizationSettings(input: { displayName?: string; timezone?: string }, expectedVersion: number): Promise<OrganizationSettingsResponse> {
   return apiClient.request<OrganizationSettingsResponse>("/organizations/settings", { method: "PATCH", body: input, expectedVersion });
 }

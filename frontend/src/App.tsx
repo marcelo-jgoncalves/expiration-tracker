@@ -22,6 +22,7 @@ import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
 import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
+import { AcceptInvitation } from "./routes/AcceptInvitation.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 
@@ -67,6 +68,17 @@ export function App() {
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
+              {/* Sibling of the main protected group, never nested under ActiveOrganizationProvider/
+                  OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships
+                  anywhere yet, exactly the case those two assume never happens. */}
+              <Route
+                path="accept-invitation"
+                element={
+                  <ProtectedRoute>
+                    <AcceptInvitation />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

@@ -17,14 +17,19 @@ mfa_policy        = "OPTIONAL"
 # true (or remove this line) once AWS raises the account's quota. See variables.tf.
 enable_reserved_concurrency = false
 
-# M4 (2026-08-20): placeholder pending the real SES sandbox identity verification spike
-# (docs/architecture/m4-notification-engine-design.md, item aberto do fechamento de rodada
-# 3) - safe as a placeholder because this value is never used by any Terraform resource
-# itself (SES identity verification is a manual, out-of-band step, not Terraform-managed
-# here); it only becomes the EmailDelivery Lambda's SES_FROM_ADDRESS env var, so a
-# `terraform plan`/`test` against this placeholder never actually attempts to send e-mail.
-# Update to the real verified address before EmailDelivery is exercised against live SES.
-ses_from_address = "noreply@example.com"
+# Wave B2B-14 (D-120, 2026-08-30): real verified SES identity, closing the M4 placeholder above -
+# `create-email-identity` triggered via `aws sesv2 --profile claude-dev` for this exact address,
+# verification completed by Marcelo clicking the confirmation e-mail. This was the real blocker
+# for EVERY SES-dependent flow in this environment (EmailDeliveryWorker, DocumentChasingDispatch,
+# now membership invitations too) - none of them could ever have sent real e-mail against the
+# unverified placeholder, sandbox mode or not.
+ses_from_address = "marcelo.mjgoncalves@gmail.com"
+
+# Wave B2B-14 (D-120): kill switch for real invitation e-mail delivery - see variables.tf's
+# membership_invite_email_enabled for the full rationale. Safe to enable in `dev` only after
+# verifying both the sender above and the invited test recipient in SES (sandbox mode requires
+# both sides verified).
+membership_invite_email_enabled = true
 
 # M5 (2026-08-21): ADOT Lambda layer for Node.js, us-east-1/x86_64, published AWS account
 # 901920570463 (m5-observability-design.md §3). Verified real via

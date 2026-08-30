@@ -70,3 +70,31 @@ export async function selectOrganization(organizationId: string): Promise<void> 
     throw ApiError.fromResponseBody(await response.json().catch(() => undefined), response.status);
   }
 }
+
+export interface AcceptInvitationResponse {
+  organizationId: string;
+}
+
+/** `POST /bff/invitations/accept` (Wave B2B-8, D-099 backend; frontend wired in Wave B2B-14,
+ * D-120 - the handler/dispatch existed since B2B-8 but no route/page ever called it, found only
+ * by trying the real invite flow end-to-end). Identity-only, same direct-fetch/CSRF pattern as
+ * `createOrganization`/`selectOrganization` above - requires the caller to already be logged in
+ * as the exact invited email (`AcceptInvitationService`'s anti-takeover check), never a tenant
+ * context. */
+export async function acceptInvitation(token: string): Promise<AcceptInvitationResponse> {
+  let response: Response;
+  try {
+    response = await fetch("/bff/invitations/accept", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json", ...readCsrfHeader() },
+      body: JSON.stringify({ token }),
+    });
+  } catch (cause) {
+    throw ApiError.network(cause);
+  }
+  if (!response.ok) {
+    throw ApiError.fromResponseBody(await response.json().catch(() => undefined), response.status);
+  }
+  return (await response.json()) as AcceptInvitationResponse;
+}

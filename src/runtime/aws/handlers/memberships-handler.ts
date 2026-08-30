@@ -28,8 +28,17 @@ const invitationTokenPepper = process.env["GUEST_TOKEN_PEPPER"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!invitationTokenPepper) throw new Error("GUEST_TOKEN_PEPPER env var is required.");
 
+// Wave B2B-14 (D-120): kill switch + SES config, same pattern as subjects-handler.ts's
+// DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED - absent/false env values default the
+// composition root's own params, never a required env var (email stays off unless explicitly
+// enabled).
+const membershipInviteEmailEnabled = process.env["MEMBERSHIP_INVITE_EMAIL_ENABLED"] === "true";
+const sesFromAddress = process.env["SES_FROM_ADDRESS"];
+const sesConfigurationSet = process.env["SES_CONFIGURATION_SET"];
+const invitationBaseUrl = process.env["INVITATION_BASE_URL"];
+
 const { resolver } = buildIdentityDeps(client, tableName);
-const membership = buildMembershipDeps(client, tableName, invitationTokenPepper);
+const membership = buildMembershipDeps(client, tableName, invitationTokenPepper, membershipInviteEmailEnabled, sesFromAddress, sesConfigurationSet, invitationBaseUrl);
 const deps: MembershipHttpDeps = { resolver, ...membership };
 const settingsDeps: OrganizationSettingsHttpDeps = { resolver, updateSettings: membership.updateSettings };
 

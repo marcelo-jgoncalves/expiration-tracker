@@ -4,9 +4,9 @@ import { renderAtRoute } from "../testUtils.js";
 import { Settings } from "../../src/routes/Settings.js";
 import { ApiError } from "../../src/api/errors.js";
 
-const { getMock, patchMock } = vi.hoisted(() => ({ getMock: vi.fn(), patchMock: vi.fn() }));
+const { getMock, patchMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), patchMock: vi.fn(), postMock: vi.fn() }));
 vi.mock("../../src/api/apiClient.js", () => ({
-  apiClient: { get: getMock, request: patchMock, post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: { get: getMock, request: patchMock, post: postMock, put: vi.fn(), delete: vi.fn() },
 }));
 
 const { fetchOrganizationsMock } = vi.hoisted(() => ({ fetchOrganizationsMock: vi.fn() }));
@@ -18,6 +18,7 @@ vi.mock("../../src/api/organizations.js", () => ({
 beforeEach(() => {
   getMock.mockReset();
   patchMock.mockReset();
+  postMock.mockReset();
   fetchOrganizationsMock.mockReset();
 });
 
@@ -63,5 +64,31 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() => expect(screen.getByText(/Alguém mais alterou a organização/)).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  // Wave B2B-14 (D-120): handleLeaveOrganization has been fully wired end-to-end since B2B-8,
+  // but no frontend call site ever existed until this button.
+  it("shows a leave-organization button for a non-OWNER, and calls the leave endpoint on click", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "MEMBER", version: 1 }] });
+    postMock.mockResolvedValue(undefined);
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Sair da organização" }));
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/organizations/members/leave", undefined));
+  });
+
+  it("shows a leave-organization button for an OWNER too, with a friendly message on LAST_OWNER", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    postMock.mockRejectedValue(new ApiError({ code: "LAST_OWNER", category: "BUSINESS_RULE", message: "Cannot complete this action.", retryable: false }, 422));
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Nome da organização/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Sair da organização" }));
+
+    await waitFor(() => expect(screen.getByText(/único Owner desta organização/)).toBeInTheDocument());
   });
 });

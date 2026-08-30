@@ -71,7 +71,14 @@ locals {
     # because this is the first real browser session this environment has ever had.
     organizations_list  = { method = "GET", path = "/bff/organizations" }
     organization_select = { method = "POST", path = "/bff/organization/select" }
-    proxy_catch         = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
+    # Wave B2B-14 (Operational Evidence, D-120): real finding, same class as D-117 above -
+    # handleAcceptInvitation (bff-handlers.ts) and its dispatch in bff-handler.ts have existed
+    # since Wave B2B-8/D-099, but this route was never added here - every real
+    # POST /bff/invitations/accept has been returning API Gateway's own generic 404 (never even
+    # reaching the Lambda) since that deploy. Caught only by building the frontend page that
+    # finally calls it for the first time.
+    invitations_accept = { method = "POST", path = "/bff/invitations/accept" }
+    proxy_catch        = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
   }
 }
 
