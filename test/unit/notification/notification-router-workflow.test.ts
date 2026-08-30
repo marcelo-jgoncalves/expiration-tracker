@@ -14,6 +14,8 @@ const ITEM_ID = "item1";
 const POLICY_ID = "policy1";
 const NOW = "2026-09-10T12:00:00.000Z";
 
+const ASSIGNEE = "assignee-1";
+
 function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
   return {
     ...itemKey(TENANT, ITEM_ID),
@@ -24,6 +26,12 @@ function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
     category: "document",
     categoryNormalized: "document",
     dueDate: "2026-12-01",
+    // Wave B2B-11: a real default assignee - resolveCandidateUserId no longer falls back to
+    // tenantId (never a real userId post-B2B), so a test seeding an item with NO assigneeUserId
+    // now hits an immediate RECIPIENT_NOT_FOUND cancellation before the resolver is ever called
+    // (see the dedicated test for exactly that below) - every OTHER test in this file that wants
+    // the resolver actually reached needs a real candidate here.
+    assigneeUserId: ASSIGNEE,
     tags: [],
     status: "ACTIVE",
     createdAt: NOW,
@@ -81,7 +89,7 @@ function makeIntent(overrides: Partial<NotificationIntent> = {}): NotificationIn
 }
 
 class FakeRecipientResolver implements NotificationRecipientResolver {
-  result: ResolvedRecipient | undefined = { userId: TENANT, tenantId: TENANT, active: true };
+  result: ResolvedRecipient | undefined = { userId: ASSIGNEE, tenantId: TENANT, active: true };
   async resolve(): Promise<ResolvedRecipient | undefined> {
     return this.result;
   }
@@ -147,7 +155,7 @@ describe("routeNotificationIntent", () => {
   }
 
   it("happy path: routes EMAIL, creates attempt + lookup pointer + outbox event, marks intent DISPATCHED", async () => {
-    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(TENANT) });
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
     const intent = makeIntent();
     await store.putIfAbsent(intent);
 
@@ -172,7 +180,7 @@ describe("routeNotificationIntent", () => {
   });
 
   it("intent no longer PENDING (duplicate Streams delivery) -> NOOP_NOT_PENDING, no writes", async () => {
-    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(TENANT) });
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
     const intent = makeIntent({ status: "DISPATCHED" });
     await store.putIfAbsent(intent);
 
@@ -181,7 +189,7 @@ describe("routeNotificationIntent", () => {
   });
 
   it("item inactive -> CANCELLED, cancelledChannels recorded with ITEM_INACTIVE", async () => {
-    await seed({ item: makeItem({ status: "ARCHIVED" }), entitlements: defaultEntitlements(), preferences: defaultPreferences(TENANT) });
+    await seed({ item: makeItem({ status: "ARCHIVED" }), entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
     const intent = makeIntent();
     await store.putIfAbsent(intent);
 
@@ -194,7 +202,7 @@ describe("routeNotificationIntent", () => {
   });
 
   it("item version stale, no prior attempt -> STALE_REPLACEMENT, creates a new REPLACEMENT intent, cancels the old one", async () => {
-    await seed({ item: makeItem({ version: 4 }), entitlements: defaultEntitlements(), preferences: defaultPreferences(TENANT) });
+    await seed({ item: makeItem({ version: 4 }), entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
     const intent = makeIntent(); // itemVersion: 3, item is now version 4
     await store.putIfAbsent(intent);
 
@@ -226,8 +234,28 @@ describe("routeNotificationIntent", () => {
     expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(false);
   });
 
+  // Wave B2B-11: mutação: fazer resolveCandidateUserId retornar QUALQUER string não-vazia como
+  // fallback (o antigo `?? tenantId`, ou qualquer outro placeholder) faria este teste falhar - o
+  // candidato deixaria de ser vazio, o resolver seria chamado e retornaria o resultado canned em
+  // vez de cancelar. Prova que "sem assignee" nunca chega a chamar recipientResolver.resolve() -
+  // a checagem `candidateWasEmpty` intercepta antes (verificado manualmente revertendo o fix).
+  it("no assigneeUserId at all -> CANCELLED RECIPIENT_NOT_FOUND without ever calling the recipient resolver", async () => {
+    let resolveCalled = false;
+    resolver.resolve = async () => {
+      resolveCalled = true;
+      return resolver.result;
+    };
+    await seed({ item: makeItem({ assigneeUserId: undefined }), entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
+    const intent = makeIntent();
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "CANCELLED", reason: "RECIPIENT_NOT_FOUND" });
+    expect(resolveCalled).toBe(false);
+  });
+
   it("entitlement record missing (technical gap) -> RETRY, no write at all", async () => {
-    await seed({ preferences: defaultPreferences(TENANT) }); // no entitlements record
+    await seed({ preferences: defaultPreferences(ASSIGNEE) }); // no entitlements record
     const intent = makeIntent();
     await store.putIfAbsent(intent);
 
@@ -239,8 +267,8 @@ describe("routeNotificationIntent", () => {
   });
 
   it("opted out -> CANCELLED OPTED_OUT", async () => {
-    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(TENANT) });
-    await store.update({ ...defaultPreferences(TENANT), emailEnabled: false });
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
+    await store.update({ ...defaultPreferences(ASSIGNEE), emailEnabled: false });
     const intent = makeIntent();
     await store.putIfAbsent(intent);
 

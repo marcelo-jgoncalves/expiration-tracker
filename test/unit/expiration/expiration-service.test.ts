@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "./in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator, allowAllMemberEligibilityChecker, fakeMemberEligibilityChecker } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
-import { ConflictError, NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
 import { ConcurrentOperationError } from "../../../src/shared/idempotency/idempotency.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -28,7 +28,7 @@ describe("ExpirationService", () => {
     // This suite exercises both "tenant-1" and "tenant-2" (cross-tenant idempotency test), so
     // both need seeding.
     store = new InMemoryExpirationStore([activeLifecycleRecord("tenant-1"), activeLifecycleRecord("tenant-2")]);
-    service = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), now: () => "2026-08-19T12:00:00.000Z" });
+    service = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker(), now: () => "2026-08-19T12:00:00.000Z" });
   });
 
   it("createItem writes the item (version 1, ACTIVE, GSI1 keyed by status+dueDate) and an audit record atomically", async () => {
@@ -120,6 +120,55 @@ describe("ExpirationService", () => {
         dueDate: "2026-09-10T00:00:00.000Z",
       }),
     ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+  });
+
+  // Wave B2B-11: mutação: remover `await this.validateAssignee(...)` de createItem (ou trocar
+  // `members` por `allowAllMemberEligibilityChecker()` no setup deste teste) faria este teste
+  // falhar - antes desta wave, qualquer string era aceita como assigneeUserId sem validação.
+  it("createItem rejects an assigneeUserId that is not an eligible member of the Organization, with no item left behind", async () => {
+    const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-19T12:00:00.000Z" });
+
+    await expect(
+      restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z", assigneeUserId: "not-a-member" }),
+    ).rejects.toBeInstanceOf(IneligibleAssigneeError);
+    const dashboard = await restrictedService.listDashboard(ctx(), { status: "ACTIVE" });
+    expect(dashboard).toHaveLength(0);
+  });
+
+  it("createItem accepts an assigneeUserId that IS an eligible member of the Organization", async () => {
+    const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-19T12:00:00.000Z" });
+
+    const item = await restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z", assigneeUserId: "member-user" });
+    expect(item.assigneeUserId).toBe("member-user");
+  });
+
+  it("createItem never validates assigneeUserId when none is provided (no candidate to check)", async () => {
+    const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker([]), now: () => "2026-08-19T12:00:00.000Z" });
+
+    const item = await restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    expect(item.assigneeUserId).toBeUndefined();
+  });
+
+  it("updateItem rejects changing assigneeUserId to a userId that is not an eligible member", async () => {
+    const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-19T12:00:00.000Z" });
+    const item = await restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+    await expect(restrictedService.updateItem(ctx(), item.itemId, { assigneeUserId: "not-a-member" }, item.version)).rejects.toBeInstanceOf(IneligibleAssigneeError);
+    const unchanged = await restrictedService.getItem(ctx(), item.itemId);
+    expect(unchanged.assigneeUserId).toBeUndefined();
+    expect(unchanged.version).toBe(1); // rejected before any write, never a partial update
+  });
+
+  it("updateItem never re-validates assigneeUserId when it is not part of the update (unrelated field change)", async () => {
+    const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-19T12:00:00.000Z" });
+    const item = await restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z", assigneeUserId: "member-user" });
+
+    // Even if the member later became ineligible, an update that never TOUCHES assigneeUserId
+    // must not be blocked by re-validating an unchanged value (same "admitted while ACTIVE may
+    // finish" posture as the rest of this codebase).
+    const stillRestrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker([]), now: () => "2026-08-19T12:00:00.000Z" });
+    const updated = await stillRestrictedService.updateItem(ctx(), item.itemId, { name: "b" }, item.version);
+    expect(updated.assigneeUserId).toBe("member-user");
   });
 
   it("getItem 404s on a soft-deleted item", async () => {

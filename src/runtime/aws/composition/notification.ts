@@ -8,6 +8,7 @@ import { SesEmailAdapter, createSesClient } from "../../../modules/notification/
 import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { UlidIdGenerator } from "../ids.js";
+import { globalUserKey } from "../../../modules/identity/persistence/global-user-repository.js";
 
 export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbNotificationStore(client, tableName);
@@ -48,12 +49,19 @@ export function buildNotificationEmailOutboxRelayDeps(client: DynamoDBDocumentCl
   };
 }
 
-async function resolveRecipientEmail(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
-  const result = await client.send(
-    new GetCommand({ TableName: tableName, Key: { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "PROFILE" }, ConsistentRead: true }),
-  );
-  const profile = result.Item as { emailNormalized?: string } | undefined;
-  return profile?.emailNormalized;
+/** Wave B2B-11: migrated from `UserProfile` (`TENANT#<tenantId>#USER#<userId>`/PROFILE, only
+ * provisioned lazily on first `RequestContext` resolution IN THIS SPECIFIC Organization) to
+ * `GlobalUser` (`USER#<userId>`/PROFILE, tenantless) - closes a real sequencing gap: a member who
+ * just accepted an invitation has a real ACTIVE `Membership` (`accept-invitation.ts`) before ever
+ * resolving a `RequestContext` in that Organization, but `AcceptInvitationService.accept()`
+ * already requires their `GlobalUser` to exist (`bff-auth-service.ts`'s `acceptInvitation()`
+ * throws otherwise) - so `GlobalUser.emailNormalized` is guaranteed available at exactly the
+ * moment a Membership starts existing, unlike the lazy `UserProfile`. `tenantId` no longer used
+ * (the key is tenantless) - kept in the exposed signature below for call-site compatibility. */
+async function resolveRecipientEmail(client: DynamoDBDocumentClient, tableName: string, userId: string): Promise<string | undefined> {
+  const result = await client.send(new GetCommand({ TableName: tableName, Key: globalUserKey(userId), ConsistentRead: true }));
+  const globalUser = result.Item as { emailNormalized?: string } | undefined;
+  return globalUser?.emailNormalized;
 }
 
 /** Placeholder template rendering (see ses-email-adapter.ts's own note) - real
@@ -69,7 +77,7 @@ export function buildEmailDeliveryDeps(client: DynamoDBDocumentClient, tableName
     store,
     tableName,
     emailProvider: new SesEmailAdapter(sesClient, sesFromAddress, sesConfigurationSet),
-    resolveRecipientEmail: (input: { tenantId: string; userId: string }) => resolveRecipientEmail(client, tableName, input.tenantId, input.userId),
+    resolveRecipientEmail: (input: { tenantId: string; userId: string }) => resolveRecipientEmail(client, tableName, input.userId),
     renderTemplate: (input: { item: ExpirationItem }) => renderTemplate(input.item),
     now: () => new Date().toISOString(),
     newIntentId: () => new UlidIdGenerator().newIntentId(),

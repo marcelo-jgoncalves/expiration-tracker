@@ -115,6 +115,20 @@ export class NotFoundError extends AppError {
   }
 }
 
+/** Wave B2B-11 (Responsibility + Notifications) - the target userId for an assignee/watcher
+ * write is not an eligible member of the Organization (no Membership at all, or a Membership
+ * that exists but is not ACTIVE, or a globally-suspended identity - see
+ * `expiration/ports/member-eligibility.ts`). Mapped to the same NOT_FOUND category/404 as
+ * `NotFoundError` deliberately (Codex round 1: never let the HTTP status distinguish "this
+ * person exists but isn't eligible" from "no such person", which would let a caller enumerate
+ * real userIds) - the distinction is a NAMED error class for internal logs/metrics only. */
+export class IneligibleAssigneeError extends AppError {
+  constructor(message = "Target user is not an eligible member of this organization.", details?: Record<string, unknown>) {
+    super({ code: "INELIGIBLE_ASSIGNEE", category: "NOT_FOUND", message, retryable: false, details });
+    this.name = "IneligibleAssigneeError";
+  }
+}
+
 /** Version/state conflicts - OCC failures, duplicate creation, stale aggregate. */
 export class ConflictError extends AppError {
   constructor(message: string, details?: Record<string, unknown>) {
