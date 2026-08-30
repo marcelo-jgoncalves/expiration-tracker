@@ -41,3 +41,15 @@ adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-am
 # the AWS confirmation e-mail sent to this address - that manual step is the milestone's
 # explicit acceptance criterion (m5-observability-design.md §4), not closed by `apply` alone.
 alert_email = "tchelojg@gmail.com"
+
+# Wave B2B-14 (Operational Evidence, 2026-08-30): the real, already-deployed CloudFront
+# distribution fronting the SPA + Full BFF (ADR-0011) - "exptrk-dev SPA + Full BFF (ADR-0011)"
+# comment, confirmed via `aws cloudfront list-distributions --profile claude-dev`
+# (distribution E2XPYCT6NSP8R1, origins exptrk-dev-spa/4nl1x2vufc.execute-api...). This is
+# exactly the "second apply, real distribution_domain_name now known" step main.tf's own
+# spa_hosting comment anticipated - `app_origin` (and therefore Cognito's `callback_urls`/the
+# BFF Lambda's `BFF_REDIRECT_URI`/`APP_ORIGIN`) had never been updated from the placeholder
+# default since the distribution was first created, so no real OAuth login has ever completed
+# against this environment (real finding, not hypothetical - Wave B2B-12's inventory already
+# found zero Organization/Membership rows in dev, consistent with this).
+app_origin = "https://d1mbs2t047qo9d.cloudfront.net"
