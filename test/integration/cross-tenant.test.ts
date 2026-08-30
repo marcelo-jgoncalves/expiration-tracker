@@ -144,6 +144,12 @@ describe("Cross-tenant isolation (negative suite)", () => {
     expect(stillOkB.statusCode).toBe(200);
   });
 
+  // G-V3 (test-engineering-standard.md): mutação que quebraria isto — remover a exceção
+  // estreita `k !== \`USER#${ctxB.tenant.tenantId}#PROFILE\`` deixaria o `GlobalUser`
+  // aditivo de B2B-2 acusar falso-positivo (achado real desta sessão, D-088); mutação
+  // OPOSTA que este teste TAMBÉM precisa pegar — trocar a exceção por um wildcard (ex.
+  // `k.startsWith("USER#")` sem o `#PROFILE` exato) deixaria passar despercebido um vazamento
+  // real de `tenantId` em qualquer outra entidade cuja chave comece com `USER#`.
   it("no DynamoDB item written for one tenant is ever addressable under another tenant's PK prefix", async () => {
     await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
