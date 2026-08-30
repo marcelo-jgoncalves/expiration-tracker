@@ -14,7 +14,8 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError } from "../../../shared/errors/app-error.js";
+import type { MemberEligibilityChecker } from "../ports/member-eligibility.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
@@ -50,6 +51,7 @@ export interface ExpirationServiceDeps {
   store: ExpirationStore;
   tableName: string;
   ids: ExpirationIdGenerator;
+  members: MemberEligibilityChecker;
   now?: () => string;
 }
 
@@ -63,6 +65,7 @@ export class ExpirationService {
   private readonly store: ExpirationStore;
   private readonly tableName: string;
   private readonly ids: ExpirationIdGenerator;
+  private readonly members: MemberEligibilityChecker;
   private readonly now: () => string;
   private readonly idempotency: IdempotencyStore;
 
@@ -70,6 +73,7 @@ export class ExpirationService {
     this.store = deps.store;
     this.tableName = deps.tableName;
     this.ids = deps.ids;
+    this.members = deps.members;
     this.now = deps.now ?? (() => new Date().toISOString());
     // Adapts ExpirationStore (get/putIfAbsent/update/transactWrite) to IdempotencyStore's
     // DynamoLike port.
@@ -94,6 +98,9 @@ export class ExpirationService {
    */
   async createItem(ctx: RequestContext, input: CreateItemInput, idempotencyKey?: string): Promise<ExpirationItem> {
     authorize({ context: ctx, action: "item:create", resource: { tenantId: ctx.tenant.tenantId } });
+    // Wave B2B-11: validated BEFORE any idempotency state is created, so a rejected assignee
+    // never burns an idempotency key for a request that will never succeed.
+    await this.validateAssignee(ctx.tenant.tenantId, input.assigneeUserId);
 
     const operation = "expiration.createItem";
     let idempotencyState: { key: string } | undefined;
@@ -241,6 +248,13 @@ export class ExpirationService {
   ): Promise<ExpirationItem> {
     const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
     authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
+    // Wave B2B-11: only validated when assigneeUserId is actually being CHANGED - re-validating
+    // an unchanged value on every update to unrelated fields would be pure overhead and could
+    // spuriously reject an update if the assignee's eligibility lapsed after the original
+    // assignment (same "admitted while ACTIVE may finish" posture as the rest of this codebase).
+    if (input.assigneeUserId !== undefined) {
+      await this.validateAssignee(ctx.tenant.tenantId, input.assigneeUserId);
+    }
 
     const dueDateChanged = input.dueDate !== undefined && input.dueDate !== item.dueDate;
     const nextDueDate = input.dueDate ?? item.dueDate;
@@ -682,6 +696,17 @@ export class ExpirationService {
       throw new NotFoundError("ExpirationItem not found.", { itemId });
     }
     return item;
+  }
+
+  /** Wave B2B-11: an empty string clears the assignee (never validated as a candidate userId -
+   * same "empty means no candidate" convention as `resolveCandidateUserId`), `undefined` means
+   * "not provided" and never reaches here (callers already gate on `!== undefined`). Any other
+   * value must be a real, eligible member of this Organization. */
+  private async validateAssignee(tenantId: string, assigneeUserId: string | undefined): Promise<void> {
+    if (!assigneeUserId) return;
+    if (!(await this.members.isEligibleMember(tenantId, assigneeUserId))) {
+      throw new IneligibleAssigneeError("assigneeUserId is not an eligible member of this organization.", { assigneeUserId });
+    }
   }
 
   /**

@@ -10,7 +10,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-store.js";
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
-import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "../expiration/in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator, allowAllMemberEligibilityChecker } from "../expiration/in-memory-store.js";
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import { handleTriggerEvent, type TriggerDeps } from "../../../src/workers/reminder-materialization-trigger/trigger.js";
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
@@ -115,7 +115,7 @@ describe("reminder-materialization-trigger", () => {
     // same way it would in production.
     let clock = Date.parse(NOW);
     const advancingNow = () => new Date((clock += 1)).toISOString();
-    expirationService = new ExpirationService({ store: expirationStore, tableName: TABLE, ids: makeExpirationIdGenerator(), now: advancingNow });
+    expirationService = new ExpirationService({ store: expirationStore, tableName: TABLE, ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker(), now: advancingNow });
     policyService = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: advancingNow });
     deps = { store, tableName: TABLE, now: () => NOW, shardConfig: defaultShardConfig() };
     ctx = contextFor(TENANT);
@@ -187,7 +187,7 @@ describe("reminder-materialization-trigger", () => {
       const item1 = await expirationService.createItem(ctx, { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
       await policyService.createPolicy(ctx, { scope: "ITEM", itemId: item1.itemId, rule: RULE });
 
-      const expirationService2 = new ExpirationService({ store: expirationStore, tableName: TABLE, ids: makeExpirationIdGenerator(), now: () => NOW });
+      const expirationService2 = new ExpirationService({ store: expirationStore, tableName: TABLE, ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker(), now: () => NOW });
       const policyService2 = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => NOW });
       const item2 = await expirationService2.createItem(ctx2, { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
       await policyService2.createPolicy(ctx2, { scope: "ITEM", itemId: item2.itemId, rule: RULE });

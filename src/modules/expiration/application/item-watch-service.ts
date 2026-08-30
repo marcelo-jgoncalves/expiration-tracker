@@ -7,33 +7,44 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { itemKey } from "../domain/expiration-item.js";
 import { itemWatchKey, ITEM_WATCH_SK_PREFIX, type ItemWatch } from "../domain/item-watch.js";
 import { isTransactionCanceled, type ExpirationStore, type TransactWriteEntry } from "../ports/expiration-store.js";
+import type { MemberEligibilityChecker } from "../ports/member-eligibility.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 
 export interface ItemWatchServiceDeps {
   store: ExpirationStore;
   tableName: string;
+  members: MemberEligibilityChecker;
   now?: () => string;
 }
 
 export class ItemWatchService {
   private readonly store: ExpirationStore;
   private readonly tableName: string;
+  private readonly members: MemberEligibilityChecker;
   private readonly now: () => string;
 
   constructor(deps: ItemWatchServiceDeps) {
     this.store = deps.store;
     this.tableName = deps.tableName;
+    this.members = deps.members;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
+  /** Wave B2B-11: the target `userId` must be a real, eligible member of the SAME Organization
+   * before a new watch grant is created - `removeWatcher` deliberately does NOT call this
+   * (removing/cleaning up an already-invalid watch row is always safe, never grants anything
+   * new). */
   async addWatcher(ctx: RequestContext, itemId: string, userId: string): Promise<ItemWatch> {
     await this.requireActiveItem(ctx.tenant.tenantId, itemId);
     authorize({ context: ctx, action: "item:watch", resource: { tenantId: ctx.tenant.tenantId } });
+    if (!(await this.members.isEligibleMember(ctx.tenant.tenantId, userId))) {
+      throw new IneligibleAssigneeError("Target user is not an eligible member of this organization.", { userId });
+    }
 
     const key = itemWatchKey(ctx.tenant.tenantId, itemId, userId);
     const existing = await this.store.get<ItemWatch>(key);

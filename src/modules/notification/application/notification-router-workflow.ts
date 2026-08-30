@@ -58,7 +58,7 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
   const item = await deps.store.get<ExpirationItem>(itemKey(intent.tenantId, intent.itemId), true);
   const policy = await deps.store.get<ReminderPolicy>(policyKey(intent.tenantId, intent.policyId), true);
 
-  const candidateUserId = resolveCandidateUserId({ tenantId: intent.tenantId, assigneeUserId: item?.assigneeUserId });
+  const candidateUserId = resolveCandidateUserId({ assigneeUserId: item?.assigneeUserId });
   const candidateWasEmpty = candidateUserId.trim().length === 0;
   const resolved = candidateWasEmpty ? undefined : await deps.recipientResolver.resolve({ tenantId: intent.tenantId, candidateUserId });
 

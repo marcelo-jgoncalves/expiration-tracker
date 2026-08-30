@@ -5,7 +5,24 @@ import type {
   TransactWriteEntry,
 } from "../../../src/modules/expiration/ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "../../../src/modules/expiration/application/id-generator.js";
+import type { MemberEligibilityChecker } from "../../../src/modules/expiration/ports/member-eligibility.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** Wave B2B-11: fake `MemberEligibilityChecker` for tests that don't exercise
+ * assignee/watcher eligibility rejection specifically - every candidate is eligible, matching
+ * this module's test suite's behavior before this wave (assigneeUserId/watcher userId were
+ * never validated). `item-watch-service.test.ts` uses a configurable variant instead where the
+ * rejection behavior itself is under test. */
+export function allowAllMemberEligibilityChecker(): MemberEligibilityChecker {
+  return { isEligibleMember: async () => true };
+}
+
+/** Configurable fake - `eligibleUserIds` is the closed set of userIds this Organization
+ * considers real, active members; anything else is rejected. */
+export function fakeMemberEligibilityChecker(eligibleUserIds: readonly string[]): MemberEligibilityChecker {
+  const eligible = new Set(eligibleUserIds);
+  return { isEligibleMember: async (_organizationId, userId) => eligible.has(userId) };
+}
 
 /**
  * W3-07 (D-070, ExpirationService.commit() migration, chunk 9/N): ExpirationService.commit()

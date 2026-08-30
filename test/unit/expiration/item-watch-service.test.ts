@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemoryExpirationStore, makeExpirationIdGenerator } from "./in-memory-store.js";
+import { InMemoryExpirationStore, makeExpirationIdGenerator, allowAllMemberEligibilityChecker, fakeMemberEligibilityChecker } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
 import { ItemWatchService } from "../../../src/modules/expiration/application/item-watch-service.js";
-import { NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
+import { IneligibleAssigneeError, NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord, type TenantLifecycleStatus } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -42,8 +42,8 @@ describe("ItemWatchService", () => {
 
   beforeEach(async () => {
     store = new InMemoryExpirationStore();
-    expiration = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), now: () => "2026-08-23T12:00:00.000Z" });
-    watches = new ItemWatchService({ store, tableName: "MainTable", now: () => "2026-08-23T12:00:00.000Z" });
+    expiration = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker(), now: () => "2026-08-23T12:00:00.000Z" });
+    watches = new ItemWatchService({ store, tableName: "MainTable", members: allowAllMemberEligibilityChecker(), now: () => "2026-08-23T12:00:00.000Z" });
     await seedLifecycle(store, "tenant-1");
   });
 
@@ -62,6 +62,26 @@ describe("ItemWatchService", () => {
 
   it("addWatcher 404s against a non-existent item", async () => {
     await expect(watches.addWatcher(ctx(), "no-such-item", "watcher-user")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  // Wave B2B-11: mutação: remover a checagem `members.isEligibleMember` (ou trocar por
+  // `allowAllMemberEligibilityChecker()`) faria este teste falhar - antes desta wave, qualquer
+  // string era aceita como watcher sem validação nenhuma.
+  it("addWatcher rejects a userId that is not an eligible member of the Organization", async () => {
+    const ineligibleWatches = new ItemWatchService({ store, tableName: "MainTable", members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-23T12:00:00.000Z" });
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+    await expect(ineligibleWatches.addWatcher(ctx(), item.itemId, "not-a-member")).rejects.toBeInstanceOf(IneligibleAssigneeError);
+    const list = await watches.listWatchers(ctx(), item.itemId);
+    expect(list).toHaveLength(0);
+  });
+
+  it("addWatcher accepts a userId that IS an eligible member of the Organization", async () => {
+    const eligibleWatches = new ItemWatchService({ store, tableName: "MainTable", members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-23T12:00:00.000Z" });
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+
+    const watch = await eligibleWatches.addWatcher(ctx(), item.itemId, "member-user");
+    expect(watch.status).toBe("ACTIVE");
   });
 
   it("addWatcher denies a VIEWER role", async () => {

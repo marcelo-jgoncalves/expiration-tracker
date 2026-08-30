@@ -8,7 +8,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
-import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "../unit/expiration/in-memory-store.js";
+import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator, allowAllMemberEligibilityChecker } from "../unit/expiration/in-memory-store.js";
 import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
@@ -46,7 +46,7 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     expirationStore = new InMemoryExpirationStore();
-    const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator() });
+    const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker() });
     deps = { resolver, expiration, quota };
 
     // W3-07 (D-070, chunk 9/N): ExpirationService.commit() now fences every mutation through
