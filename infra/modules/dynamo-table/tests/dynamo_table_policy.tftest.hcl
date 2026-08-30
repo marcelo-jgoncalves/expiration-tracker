@@ -47,6 +47,55 @@ run "tenant_facing_policy_excludes_gsi3_and_gsi6" {
   }
 }
 
+# GSI4 isolation — Wave B2B-3 of Multi-User B2B (docs/architecture/multi-user-b2b-physical-
+# model.md §6). GSI4 previously sat in the general tenant-facing policy with zero real
+# consumers (harmless while unused); this proves it is now excluded before any real
+# Membership write can occur, same discipline as GSI3/GSI6 above.
+run "tenant_facing_policy_excludes_gsi4" {
+  command = plan
+
+  variables {
+    table_name     = "expiration-tracker-test"
+    aws_region     = "us-east-1"
+    aws_account_id = "123456789012"
+  }
+
+  assert {
+    condition     = !strcontains(data.aws_iam_policy_document.tenant_facing_read_write.json, "/index/GSI4")
+    error_message = "General read/write policy must NEVER reference GSI4"
+  }
+
+  assert {
+    condition     = !strcontains(data.aws_iam_policy_document.tenant_facing_read.json, "/index/GSI4")
+    error_message = "General read-only policy must NEVER reference GSI4"
+  }
+}
+
+run "gsi4_narrow_policy_references_only_its_own_index" {
+  command = plan
+
+  variables {
+    table_name     = "expiration-tracker-test"
+    aws_region     = "us-east-1"
+    aws_account_id = "123456789012"
+  }
+
+  assert {
+    condition     = strcontains(data.aws_iam_policy_document.gsi4_read.json, "/index/GSI4")
+    error_message = "gsi4_read policy must reference GSI4"
+  }
+
+  assert {
+    condition     = !strcontains(data.aws_iam_policy_document.gsi4_read.json, "/index/GSI3")
+    error_message = "gsi4_read policy must NOT reference GSI3"
+  }
+
+  assert {
+    condition     = !strcontains(data.aws_iam_policy_document.gsi4_read.json, "/index/GSI6")
+    error_message = "gsi4_read policy must NOT reference GSI6"
+  }
+}
+
 run "gsi3_and_gsi6_narrow_policies_reference_only_their_own_index" {
   command = plan
 
