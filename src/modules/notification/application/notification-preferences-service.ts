@@ -3,9 +3,11 @@
  * pendency: "rota HTTP de preferências... o runtime depende de NotificationPreferences
  * existir (via onboarding), mas não há endpoint para o usuário editar depois"). Mirrors
  * ReminderPolicyService's shape: authorize() (action `notification:configure`, already in
- * the M1 authorization matrix - ADMIN_ROLES-gated, which is a no-op restriction under the
- * current MVP model where tenantId=userId/single-owner tenants, per authorization.ts:36),
- * OCC via shared/dynamodb/occ.ts.
+ * the M1 authorization matrix - originally ADMIN_ROLES-gated, a no-op restriction under the
+ * original MVP model where tenantId=userId/single-owner tenants; reclassified to
+ * READ_ONLY_ROLES in Wave B2B-7/D-097-098 once real multi-user tenants existed - the action
+ * gates a user's OWN preference, so any real Membership must be able to configure it for
+ * themself), OCC via shared/dynamodb/occ.ts.
  *
  * `defaultNotificationPreferences()` (notification-preferences.ts) was previously never
  * called anywhere in src/ - onboarding wiring for it is still a documented gap, not real
