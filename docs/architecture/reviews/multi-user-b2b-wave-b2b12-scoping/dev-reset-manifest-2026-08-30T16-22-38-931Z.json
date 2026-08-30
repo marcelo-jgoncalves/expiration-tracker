@@ -1,0 +1,176 @@
+{
+  "generatedAt": "2026-08-30T16:22:50.285Z",
+  "rawSnapshotPath": "/mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker/.local-artifacts/dev-reset/2026-08-30T16-22-38-931Z",
+  "table": {
+    "source": "exptrk-dev-table",
+    "itemCount": 47,
+    "entityTypes": [
+      "IdentityMapping",
+      "NotificationPreferences",
+      "TenantQuota",
+      "TextractJob",
+      "User"
+    ],
+    "hashes": [
+      "9ab76077e1aa85ad0afde30178672a43afbfdfa20b4dea2d466bfa27f0497ce5",
+      "75ea74b00fdbce2bd48fa77afac1ea03a926df1e0c0aa642fbb13d5006c83105",
+      "ba0744aee5a76d73a6e948d31c3fd1988ba4b50aa6a34b3c699984c38eeab7b1",
+      "cd204a22005cb077a30a2446fe60923d855e39a71929596015792191f666ee32",
+      "79c69daaff5c90db820ce694efc0362733d5ec7d528f61e6c6ffdea84c3518b4",
+      "3f0e3bee3b63693d93349948848188b3c661dacbbd11e936cbae0ed72d142c69",
+      "16ab0a35d7104c5665341fd1906b84966626347ae06a356694c384f63e5a0624",
+      "640f50492119b5f56fe4cef81e49b1c998a50655b42a757f4b0e0646bb4e3b42",
+      "23d417e86ca1de66b650844300782d2bdc9fa22ca56cae74c168202f22cf43f1",
+      "25d67229755823405413e2f558bd041fa44fa84102a181e62ecfc405c0b186b6",
+      "dc00b4236bd198fec2dc84eb1b03652c36fc0f290ad66dd90a891d04965bcb5a",
+      "ee846d2468f9075d93b2eec94bf298cec8c39dd525210031b9037de321f7c13c",
+      "9897859b8b9ca65ee99ade9b0d28cc5b67b4971cadf1627b0f504e97a978eb1f",
+      "163ad364a03234742d163aa9611e99e12ef07afd3e7d83e3a671ae7610bfed29",
+      "01a9da7a617e82d5871da1f743fa67a85ab9d3abe62e15f70438530e3d7db472",
+      "17c9eaf6a23fc44c8b7969c333f8a970a25b78c06007f4064b2a2f4af6064bab",
+      "cc7ca7ce59c07d1a229f187ba0e9daaa1399fd1de7166b9a756780493cd8c250",
+      "3c643eea748bc12c39b50e8f8ca837fd46c1fdc43c94c8e0335e6ec4a5b09407",
+      "fdb2160900dd888cb7ca1878577a64908af99bba3311ba102f138f37b8ab35dc",
+      "d21feedc6c748908d98c9809bb5c6d9276acd7e5a2909f19fd810cf1ed058eca",
+      "65a826835206788d3a4910a2e659e519415fc9bce376f8ff34bb8f9d6c6e80de",
+      "0c3ab67207d0771f19169d2cf892ade96687a1daaf19426b3901ace583b31f88",
+      "decc13c8bb703113714dff6c7a5cd9e4b8bc6addef3908069138bcf16007645f",
+      "ab710227941f8a1cb6fb8c5b8d1442d08cddf8338618373b56ec23dfb835b61b",
+      "2d64a3ef83dae407344f0288d49401dc269146880a01df4a1599c629b141ecee",
+      "a107569ed034c381bb453c8992c18f9f685adf05f0797f8b7c93f46964553471",
+      "a8640950b1c0a8ff48128863e4531d0ef78f22668859711dd5e18c19ae64ea44",
+      "f0efdcc088e53089936601e5008dec6e94bcfc25317ef5af37b4cf63c12edc52",
+      "3bf50fab638a1c3a5700c039884bffae28234be6f5429592a26bbcdb78ff24e8",
+      "042c585235924e18909c72b50e3941e1d17e5221a6704bc1e64aeac823fe80c4",
+      "476c656733eee1f1c6c1c0b2c9e9c5711243ff198a480cd40d26ca05d528b452",
+      "a0b7b3e36bd454b8bb82e9ff86f78862582223cbd154e34d31916ba5c2cf0ef9",
+      "8c3a7b94b0f51589726f62556805ed6e5f00adcdf621ce582ee89b7153c32b3d",
+      "a3b6426e81afed2d2b2180f87c2cfaf1d52d14422f2fddcc3bcca1379310f98c",
+      "79e8775482025f5b5f92a4c3e630bbab63baa2a05c7a30d2e560b852ce71354c",
+      "d08325fa0b14b4994491c466d10e03e5cc5d30a47d3685df6e9a84aa06e492b5",
+      "ca4d0ab3f765ae9a5009c70215f35dce22dbdb1c2e37e3a8f761c4546ea2981d",
+      "ac3295dfe59a9c83698f37dc987444e93fd7c2c7a59adaaf755ea95c4882de0a",
+      "9e0a3d16461e3476bac8af629ec274be661382e7dd515c490e3c8ecc7dde29e0",
+      "13d731ec6a0a72c48572aac085eabbf3e650ed30947d6b5e2e1d874e21f77196",
+      "1556cac1522636316009655d80c875c3b3a934a45b8a80819d811a40f3947be2",
+      "2d36917ab845184ca171fd6b1849d82f29dc08a5f31a45ea50239aa8db6b1a01",
+      "b6e0ff37e05343883678195f9d872c1962882d7aeef92ca832a32d9661194bd7",
+      "83a7d5a2b6f689decdc438df26bf14c01fa271e73618792f9184af8450f5efb4",
+      "02216c02c1b83041df918d6e7c27f8458eb283638a48e19494492f51ee158abe",
+      "d073f41787bba41b3c5b08ce986ea62c1a1cfca19f2aebbcb16e558291943413",
+      "345facc83bd298e78b4d9dce1a3ee9bbe4842575fb1ea0df86a8f4cd4f766876"
+    ]
+  },
+  "sessionTable": {
+    "source": "exptrk-dev-bff-session",
+    "itemCount": 0,
+    "entityTypes": [],
+    "hashes": []
+  },
+  "s3": {
+    "bucket": "exptrk-dev-extraction-transient",
+    "objectCount": 21
+  },
+  "cognito": {
+    "userPoolId": "us-east-1_NZlvr5IIn",
+    "userCount": 0
+  },
+  "queues": {
+    "exptrk-dev-document-chasing-dispatch": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-document-chasing-dispatch-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-extraction-starter": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-extraction-starter-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-commit": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-commit-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-malware-result": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-malware-result-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-email-deliver": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-email-deliver-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-router": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-router-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-dispatch": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-dispatch-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-materialization-trigger": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-materialization-trigger-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-ses-callback": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-ses-callback-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-textract-completion": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-textract-completion-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-upload-finalizer": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-upload-finalizer-dlq": {
+      "visible": 3,
+      "notVisible": 0
+    }
+  }
+}

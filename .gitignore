@@ -7,3 +7,8 @@ cdk.out/
 .env.*
 !.env.example
 .claude/settings.local.json
+
+# scripts/reset-dev-data.ts's raw snapshot (Wave B2B-12/D-110) - may contain real PII/secrets
+# (session tokens, e-mails) from a live dev scan. Never committed - only the redacted manifest
+# (docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/) goes in the repo.
+.local-artifacts/

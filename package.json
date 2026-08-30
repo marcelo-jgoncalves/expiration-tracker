@@ -40,6 +40,7 @@
   "dependencies": {
     "@aws-sdk/client-appconfigdata": "3.1114.0",
     "@aws-sdk/client-bedrock-runtime": "3.1114.0",
+    "@aws-sdk/client-cognito-identity-provider": "3.1114.0",
     "@aws-sdk/client-dynamodb": "3.1114.0",
     "@aws-sdk/client-kms": "3.1114.0",
     "@aws-sdk/client-lambda": "3.1114.0",
@@ -47,6 +48,7 @@
     "@aws-sdk/client-sesv2": "3.1114.0",
     "@aws-sdk/client-sfn": "3.1114.0",
     "@aws-sdk/client-sqs": "3.1114.0",
+    "@aws-sdk/client-sts": "3.1114.0",
     "@aws-sdk/client-textract": "3.1114.0",
     "@aws-sdk/lib-dynamodb": "3.1114.0",
     "@aws-sdk/s3-request-presigner": "3.1114.0",
