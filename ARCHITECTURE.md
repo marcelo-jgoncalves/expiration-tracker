@@ -12,7 +12,7 @@ Ver `docs/00-prompt-mestre.md` seções 4–8. Resumo: itens com prazo/validade 
 Simplicidade, custo idle≈0 nos estágios iniciais, correção/confiabilidade dos vencimentos (nenhum perdido silenciosamente), segurança e privacidade por padrão, extensibilidade de canais/provedores sem acoplamento.
 
 ## Non-goals
-Multi-tenancy plena, RBAC, SSO, app mobile nativo, workflows de aprovação, integrações ERP/CRM — todos readiness, não implementação, no MVP (ver `requirements.md` seção 12, NG-001..006).
+Multi-tenancy plena, RBAC, SSO, app mobile nativo, workflows de aprovação, integrações ERP/CRM — todos readiness, não implementação, no MVP (ver `requirements.md` seção 12, NG-001..006). **Multi-tenancy plena/RBAC deixaram de ser non-goal em 2026-08-29** (D-085, decisão direta do Marcelo, supersedendo o gatilho comercial original de `roadmap-evolution/05`) — iniciativa Multi-User B2B em implementação (`Organization`/`Membership` já em produção desde D-089/D-090/D-091, `docs/architecture/multi-user-b2b-wave-tracker.md`); este documento é o registro do checkpoint de Design Maturity original e não foi reescrito para acompanhar essa mudança de escopo posterior, mesma ressalva já registrada acima na seção Security para o threat model.
 
 ## Quality Criteria
 12 critérios, pesos somando 100%, com gates eliminatórios G1-G6 — ver `docs/architecture/quality-criteria.md` e `docs/architecture/fitness-function.md` (Fase 0, aprovados).
