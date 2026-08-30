@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext.js";
 import { ActiveOrganizationProvider } from "./auth/ActiveOrganizationContext.js";
+import { OnboardingGate } from "./auth/OnboardingGate.js";
 import { ProtectedRoute } from "./auth/ProtectedRoute.js";
 import { AppShell } from "./shell/AppShell.js";
 import { Overview } from "./routes/Overview.js";
@@ -48,7 +49,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <ActiveOrganizationProvider>
-                      <AppShell />
+                      <OnboardingGate>
+                        <AppShell />
+                      </OnboardingGate>
                     </ActiveOrganizationProvider>
                   </ProtectedRoute>
                 }
