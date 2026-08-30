@@ -13,7 +13,7 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | B2B-4 | Onboarding | **DONE** (2026-08-30, D-094) | `OnboardingStateResolver` (`src/modules/organization/application/onboarding-state.ts`) implementado exatamente per escopo `APPROVED` D-092 — ver subitem abaixo e `docs/architecture/multi-user-b2b-wave-b2b4-scope.md` |
 | B2B-5 | RequestContext Cutover | **DONE** (2026-08-30, D-096) | `IdentityMapping` tenantless + `bootstrapUser()` 2 itens + `RequestContextResolver` reescrito + cap transacional em `POST /bff/organizations` — ver subitens abaixo e `docs/architecture/multi-user-b2b-wave-b2b5-scope.md` |
 | B2B-6 | BFF Organization Context | NOT STARTED | Bloqueado por B2B-5 (agora `DONE`) — próxima wave candidata; muda semântica que W3-07 assume (`roadmap-evolution/17` §125.4) — avaliar sequenciamento com a decisão do orquestrador do purge W3-07 (ver `NEXT_SESSION_PROMPT.md` gates) |
-| B2B-7 | RBAC | NOT STARTED | Bloqueado por B2B-3 (agora `DONE`) — inclui fechar o gap nomeado de `ADMIN` deixado explícito por B2B-5 |
+| B2B-7 | RBAC | **DONE** (2026-08-30, D-098) | `Role` ganha `ADMIN`, `notification:configure`/`tenant:configure-document-request-delivery` reclassificados, `resolveRoles()` aceita os 4 valores reais — ver `docs/architecture/multi-user-b2b-wave-b2b7-scope.md` e subitens abaixo. Primeira aplicação real de `docs/engineering/research-protocol.md` (E-014) |
 | B2B-8 | Invitations / Team | NOT STARTED | Bloqueado por B2B-7 |
 | B2B-9 | W3-07 / Privacy Reconciliation | NOT STARTED | Usar `docs/architecture/w3-07-writer-inventory.md` como base, não re-derivar (per achado 125.4 do roadmap doc) |
 | B2B-10 | Tenant-aware Frontend | NOT STARTED | Bloqueado por B2B-6; B2B-0 confirmou isolamento de cache hoje é zero (green-field, não modificação) |
@@ -80,6 +80,19 @@ Com este subitem, **Wave B2B-5 (RequestContext Cutover) está `DONE`**.
 - **Gate de `TenantLifecycleRecord(organizationId)` ACTIVE estava faltando** — o design (§11) exige que a cadeia de resolução termine checando o lifecycle da Organization, não só da Membership; a primeira versão do `RequestContextResolver` reescrito pulava esse passo. Achado por revisão própria antes de rodar os testes, não pelo Codex — adicionado e coberto por teste dedicado (`resolver.test.ts`, describe "Organization lifecycle gate").
 
 Ambos registrados aqui por honestidade de processo (mesmo padrão de E-013) — nenhum dos dois exigiu reabrir o protocolo Claude↔Codex (correções factuais/de implementação de um escopo já aprovado, não decisões de arquitetura novas).
+
+## Escopo de Wave B2B-7 (RBAC) — `APPROVED`, D-097
+
+Ver `docs/architecture/multi-user-b2b-wave-b2b7-scope.md` para o registro completo — protocolo Claude↔Codex 3 rodadas, **primeira aplicação real de `docs/engineering/research-protocol.md` (E-014)**. A Rodada 1 do Codex contestou o próprio checklist de critérios de nota (não só a nota do design) — reconciliado na Rodada 2 (régua 9,1/9,1) antes da nota do design contar para o fechamento. Evidência das 3 rodadas em `reviews/multi-user-b2b-wave-b2b7-scoping/`.
+
+### Subitem de B2B-7 (implementação, D-098 — mantido como item coeso per `definition-of-done.md` "diff atomicamente revisável": domain e application não compilam de forma independente entre si)
+
+| Subitem | Camada | Status |
+|---|---|---|
+| B2B-7.1+7.2 | Domain (`authorization.ts`) — `Role` ganha `ADMIN`; `READ_ONLY_ROLES`/`WRITE_ROLES`/`ADMIN_ROLES` passam a incluir `ADMIN`; novo tier `OWNER_ROLES`; `notification:configure`→`READ_ONLY_ROLES` (bug fix real, não escolha ADMIN-vs-OWNER); `tenant:configure-document-request-delivery`→`OWNER_ROLES`; branch de bypass de ownership estendido a `ADMIN`. Application (`resolve-request-context.ts`) — `resolveRoles()` aceita os 4 valores reais de `Membership["role"]` | **DONE** (2026-08-30) — `DoD: item=Role ADMIN + reclassificação de 2 actions + resolveRoles(); risco=5 (muda o contrato da matriz de autorização real em produção, change-risk-scale.md nível 5 — mas implementação direta do escopo já APPROVED em D-097 via protocolo completo); evidência=npm run typecheck PASS, npm run lint PASS, npm run check-boundaries PASS (393 módulos, 0 violação), testes-alvo test/unit/identity/authorization.test.ts 12/12 PASS (4 novos: ADMIN paritário em item:delete, ADMIN negado em tenant:configure-document-request-delivery, VIEWER aceito em notification:configure, ADMIN bypassa ownership) + test/unit/identity/resolver.test.ts 15/15 PASS (substituindo o teste de D-095 que esperava UnsupportedMembershipRoleError para ADMIN por um par: ADMIN resolve normalmente + fail-closed preservado para um valor fora do domínio real), G-V3 aplicado desde a escrita (mutação nomeada em comentário por teste); lacunas=nenhuma` |
+| B2B-7.3 | Testes — suíte completa (`npm test`) + `build:lambdas` para toda a Wave B2B-7 | **DONE** (2026-08-30) — `DoD: item=suíte completa pós-B2B-7 + build de Lambdas; risco=2 (verificação, não decisão); evidência=npm test 1139/1139 (123 arquivos), zero regressão (+5 líquidos vs. B2B-5: 4 testes novos em authorization.test.ts, 1 líquido em resolver.test.ts); npm run build:lambdas PASS (33/33 Lambdas); lacunas=nenhuma` |
+
+Com este subitem, **Wave B2B-7 (RBAC) está `DONE`**.
 
 ## Achados/pendências laterais abertos durante a execução (não bloqueiam waves seguintes)
 

@@ -38,8 +38,10 @@ export type Action =
   | "requirement:request-document"
   // M10 cluster 4 (D-049): política de tenant para automatizar o convite inicial de guest
   // upload — decisão de comunicação externa/reputação de todo o tenant, não uma ação por
-  // request individual (essa é `requirement:request-document` acima) - ADMIN_ROLES, nunca
-  // WRITE_ROLES.
+  // request individual (essa é `requirement:request-document` acima). B2B-7 (D-097/D-098):
+  // OWNER_ROLES, não ADMIN_ROLES — a classe de "workspace settings"/comunicação externa que a
+  // pesquisa de RBAC (research-protocol.md) mostrou ficar separada mesmo em produtos que dão
+  // a ADMIN paridade de conteúdo com OWNER.
   | "tenant:configure-document-request-delivery"
   // M11 (CSV import/export, D-042, 09-domain-model-csv-import.md, cluster 7): superfície de
   // processamento em massa - mesma granularidade de document:reserve-upload/document:read.
@@ -47,9 +49,11 @@ export type Action =
   | "import:read"
   | "import:commit"
   // W5-01/GTR-01 (D-060): a user editing their own UserProfile.requesterDisplayName, the name
-  // shown to a guest as "who is requesting this document" - tenant-scoped WRITE like every
-  // other self-service setting (notification:configure), not ADMIN, since any member can be
-  // the one creating a RequirementAssignment/DocumentRequest and should be able to set it.
+  // shown to a guest as "who is requesting this document" - tenant-scoped WRITE, not ADMIN,
+  // since any member can be the one creating a RequirementAssignment/DocumentRequest and
+  // should be able to set it. Narrower than notification:configure (READ_ONLY_ROLES, B2B-7):
+  // this one is tied to the ability to ACT (create a RequirementAssignment), so VIEWER - who
+  // never can - is correctly excluded here, unlike notification:configure's "receive" framing.
   | "profile:read"
   | "profile:update";
 
@@ -67,15 +71,22 @@ export interface AuthorizationInput {
 }
 
 /**
- * Minimal role model for M1 (MVP: tenantId=userId, single-owner tenants). Membership/roles
- * beyond OWNER are FUT-001 (Organization/Membership) per data-model.md — the matrix is
- * structured so adding roles later doesn't change call sites, only this table.
+ * Role model closed by Wave B2B-7 (RBAC, D-097/D-098) — `Membership.role` (D-090) has 4 real
+ * values; this matrix now recognizes all of them. Research protocol E-014 applied for the
+ * first time (docs/engineering/research-protocol.md): GitHub/Linear/Slack/Notion + NIST/ANSI
+ * INCITS 359 (Hierarchical RBAC) don't converge on a single "what does Admin get beyond
+ * Member" answer, so each action formerly gated to ADMIN_ROLES got a named, individual
+ * decision instead of a blanket parity rule — see multi-user-b2b-wave-b2b7-scope.md.
  */
-export type Role = "OWNER" | "MEMBER" | "VIEWER";
+export type Role = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 
-const READ_ONLY_ROLES: ReadonlySet<Role> = new Set(["OWNER", "MEMBER", "VIEWER"]);
-const WRITE_ROLES: ReadonlySet<Role> = new Set(["OWNER", "MEMBER"]);
-const ADMIN_ROLES: ReadonlySet<Role> = new Set(["OWNER"]);
+const READ_ONLY_ROLES: ReadonlySet<Role> = new Set(["OWNER", "ADMIN", "MEMBER", "VIEWER"]);
+const WRITE_ROLES: ReadonlySet<Role> = new Set(["OWNER", "ADMIN", "MEMBER"]);
+const ADMIN_ROLES: ReadonlySet<Role> = new Set(["OWNER", "ADMIN"]);
+/** Owner-exclusive tier (B2B-7) — reserved for actions with tenant-wide external/reputational
+ * impact (research: the class GitHub/Linear/Slack/Notion keep apart from ordinary content
+ * admin). Today only `tenant:configure-document-request-delivery` belongs here. */
+const OWNER_ROLES: ReadonlySet<Role> = new Set(["OWNER"]);
 
 const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "item:create": WRITE_ROLES,
@@ -88,7 +99,15 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "document:read": READ_ONLY_ROLES,
   "document:delete": ADMIN_ROLES,
   "extraction:confirm": WRITE_ROLES,
-  "notification:configure": ADMIN_ROLES,
+  // B2B-7 bug fix (not an ADMIN-vs-OWNER call): this action gates both read and update of a
+  // per-user preference (ctx.principal.userId-keyed, notification-preferences-service.ts),
+  // never tenant-wide config. Unlike profile:update (WRITE_ROLES, D-060 - tied to the ability
+  // to ACT, since only a role that can create a RequirementAssignment needs a display name),
+  // this is tied to the ability to RECEIVE a reminder - assigneeUserId is never role-checked,
+  // so a VIEWER can legitimately be a notification recipient and must be able to configure it
+  // for themself. Reuses READ_ONLY_ROLES (already "any real Membership") rather than adding a
+  // 5th constant with the same 4 members.
+  "notification:configure": READ_ONLY_ROLES,
   "audit:read": READ_ONLY_ROLES,
   "system:ping": READ_ONLY_ROLES,
   "subject:create": WRITE_ROLES,
@@ -101,7 +120,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "requirement:delete": ADMIN_ROLES,
   "requirement:review": WRITE_ROLES,
   "requirement:request-document": WRITE_ROLES,
-  "tenant:configure-document-request-delivery": ADMIN_ROLES,
+  "tenant:configure-document-request-delivery": OWNER_ROLES,
   "import:create": WRITE_ROLES,
   "import:read": READ_ONLY_ROLES,
   "import:commit": WRITE_ROLES,
@@ -162,12 +181,12 @@ export function authorize(input: AuthorizationInput): void {
     const isOwnerOrAssignee =
       resource.ownerUserId === context.principal.userId ||
       resource.assigneeUserId === context.principal.userId;
-    // OWNER role bypasses per-resource ownership (tenant-wide admin), MEMBER/VIEWER
-    // scoped resources would require ownership match once per-item ACLs exist. MVP:
-    // tenant-wide access for any authenticated member is the approved model (single
-    // owner per tenant today), so this is enforced only when both fields ARE present
-    // (defensive for future use), never invented from nothing.
-    if (!roles.includes("OWNER") && !isOwnerOrAssignee) {
+    // OWNER and ADMIN bypass per-resource ownership (tenant-wide content admin, B2B-7 -
+    // ADMIN has parity with OWNER over business resources, see authorization.ts role model
+    // comment above), MEMBER/VIEWER scoped resources require ownership match once per-item
+    // ACLs exist. This is enforced only when both fields ARE present (defensive for future
+    // use), never invented from nothing.
+    if (!roles.includes("OWNER") && !roles.includes("ADMIN") && !isOwnerOrAssignee) {
       throw new AuthorizationDeniedError("RESOURCE_OWNERSHIP_MISMATCH", action);
     }
   }

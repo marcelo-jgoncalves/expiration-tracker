@@ -236,15 +236,29 @@ describe("RequestContextResolver - Organization lifecycle gate (physical model �
   });
 });
 
-describe("RequestContextResolver - unsupported Membership role (Codex Rodada 1 achado 2.2, D-095)", () => {
-  // Mutação: remover o assert de resolveRoles() (deixar o cast unsafe de authorization.ts
-  // decidir sozinho) faria este teste não lançar UnsupportedMembershipRoleError - o achado
-  // central que motivou a mudança F da Rodada 2 do debate de escopo.
-  it("throws UnsupportedMembershipRoleError for a Membership.role the authorization matrix doesn't know yet (ADMIN, unreachable via any real writer today)", async () => {
+describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-098)", () => {
+  // Mutação: remover "ADMIN" da lista aceita em resolveRoles() (voltar ao estado pré-B2B-7)
+  // faria esta asserção lançar UnsupportedMembershipRoleError em vez de resolver normalmente -
+  // exatamente o gap que B2B-7 fecha (D-095 achado 2.2).
+  it("resolves ADMIN into RequestContext.tenant.roles instead of throwing UnsupportedMembershipRoleError", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId, organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const membership = await organizations.get(membershipKey(organizationId, userId));
     organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "ADMIN" });
+
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    expect(ctx.tenant.roles).toEqual(["ADMIN"]);
+  });
+
+  // Mutação: remover o assert de resolveRoles() por completo (deixar o cast unsafe de
+  // authorization.ts decidir sozinho) faria este teste não lançar UnsupportedMembershipRoleError
+  // para um valor de role fora do domínio real de Membership["role"] - fail-closed preservado
+  // mesmo depois de B2B-7 ampliar o domínio aceito de 3 para 4 valores.
+  it("still throws UnsupportedMembershipRoleError for a role value outside the real 4-value domain (corrupted data)", async () => {
+    const { store, organizations, resolver } = makeResolver();
+    const { userId, organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
+    const membership = await organizations.get(membershipKey(organizationId, userId));
+    organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "SUPERADMIN" });
 
     const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" }).catch((err: unknown) => err);
     expect(rejection).toBeInstanceOf(UnsupportedMembershipRoleError);
