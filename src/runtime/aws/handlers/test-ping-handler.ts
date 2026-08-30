@@ -24,7 +24,7 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
     const claims = extractClaims(event);
     const response = await handleTestRoute(
       { resolver, quota },
-      { requestId: event.requestContext.requestId, correlationId: ulid(), claims },
+      { requestId: event.requestContext.requestId, correlationId: ulid(), claims, headers: event.headers },
     );
     return toApiGatewayResult(response);
   });

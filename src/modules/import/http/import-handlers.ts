@@ -94,7 +94,7 @@ export async function handleReserveImport(deps: ImportHttpDeps, req: HttpRequest
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(RESERVE_IMPORT_SCHEMA_ID, req.body);
     const idempotencyKey = requireIdempotencyKey(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiQuota(deps.quota, context);
     const result = await deps.imports.reserveImport(context, req.body, idempotencyKey);
     return { statusCode: 201, body: { ...result } };
@@ -104,7 +104,7 @@ export async function handleReserveImport(deps: ImportHttpDeps, req: HttpRequest
 export async function handleGetImportJob(deps: ImportHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const jobId = requireJobId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiQuota(deps.quota, context);
     const job = await deps.imports.getImportJob(context, jobId);
     return { statusCode: 200, body: { job } };
@@ -115,7 +115,7 @@ export async function handleRequestImportCommit(deps: ImportHttpDeps, req: HttpR
   return withErrorMapping(async () => {
     const jobId = requireJobId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiQuota(deps.quota, context);
     await deps.imports.requestCommit(context, jobId, expectedVersion);
     return { statusCode: 202, body: {} };

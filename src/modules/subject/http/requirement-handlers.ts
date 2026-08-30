@@ -39,7 +39,7 @@ export async function handleAssignRequirement(deps: RequirementHttpDeps, req: Ht
     const subjectId = requireSubjectId(req);
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(ASSIGN_REQUIREMENT_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignment = await deps.requirements.assignRequirement(context, subjectId, req.body);
     return { statusCode: 201, body: { assignment } };
@@ -49,7 +49,7 @@ export async function handleAssignRequirement(deps: RequirementHttpDeps, req: Ht
 export async function handleListRequirementAssignments(deps: RequirementHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignments = await deps.requirements.listRequirementAssignments(context, subjectId);
     return { statusCode: 200, body: { assignments } };
@@ -60,7 +60,7 @@ export async function handleGetRequirementAssignment(deps: RequirementHttpDeps, 
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignment = await deps.requirements.getRequirementAssignment(context, subjectId, assignmentId);
     return { statusCode: 200, body: { assignment } };
@@ -77,7 +77,7 @@ export async function handleUpdateRequirementAssignment(
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_REQUIREMENT_ASSIGNMENT_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignment = await deps.requirements.updateRequirementAssignment(context, subjectId, assignmentId, req.body, expectedVersion);
     return { statusCode: 200, body: { assignment } };
@@ -89,7 +89,7 @@ export async function handleDeleteRequirementAssignment(deps: RequirementHttpDep
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     await deps.requirements.deleteRequirementAssignment(context, subjectId, assignmentId, expectedVersion);
     return { statusCode: 204, body: {} };
@@ -103,7 +103,7 @@ export async function handleLinkExpirationItem(deps: RequirementHttpDeps, req: H
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(LINK_ITEM_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignment = await deps.requirements.linkExpirationItem(context, subjectId, assignmentId, req.body.itemId, expectedVersion);
     return { statusCode: 200, body: { assignment } };
@@ -115,7 +115,7 @@ export async function handleUnlinkExpirationItem(deps: RequirementHttpDeps, req:
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const assignment = await deps.requirements.unlinkExpirationItem(context, subjectId, assignmentId, expectedVersion);
     return { statusCode: 200, body: { assignment } };
@@ -133,7 +133,7 @@ export async function handleListDocumentSubmissions(deps: RequirementHttpDeps, r
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const submissions = await deps.requirements.listDocumentSubmissions(context, subjectId, assignmentId);
     return { statusCode: 200, body: { submissions } };
@@ -146,7 +146,7 @@ export async function handleGetDocumentSubmission(deps: RequirementHttpDeps, req
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
     const submissionId = requireSubmissionId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
     const submission = await deps.requirements.getDocumentSubmission(context, subjectId, assignmentId, submissionId);
     return { statusCode: 200, body: { ...submission } };

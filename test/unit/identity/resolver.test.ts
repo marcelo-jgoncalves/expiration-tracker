@@ -5,7 +5,7 @@ import { UserRepository } from "../../../src/modules/identity/persistence/user-r
 import { GlobalUserRepository, deviceSessionKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
-import { AuthenticationError, OnboardingRequiredError, UnsupportedMembershipRoleError } from "../../../src/shared/errors/app-error.js";
+import { AuthenticationError, OnboardingRequiredError, OrganizationSelectionRequiredError, OrganizationUnavailableError, UnsupportedMembershipRoleError } from "../../../src/shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { membershipKey } from "../../../src/modules/organization/domain/membership.js";
 
@@ -86,7 +86,7 @@ describe("RequestContextResolver - onboarding gate (no working Membership yet)",
   // (D-095) existe para produzir.
   it("throws OnboardingRequiredError(NO_TENANT_NO_MEMBERSHIP) for a brand-new user with no Organization", async () => {
     const { resolver } = makeResolver();
-    const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" }).catch((err: unknown) => err);
+    const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined }).catch((err: unknown) => err);
 
     expect(rejection).toBeInstanceOf(OnboardingRequiredError);
     expect((rejection as OnboardingRequiredError).onboardingState).toBe("NO_TENANT_NO_MEMBERSHIP");
@@ -100,7 +100,7 @@ describe("RequestContextResolver - working context once an Organization exists",
   it("resolves tenantId=organizationId, membershipId populated, roles=[OWNER]", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId, organizationId, membershipId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
 
     expect(ctx.principal.userId).toBe(userId);
     expect(ctx.tenant.tenantId).toBe(organizationId);
@@ -114,7 +114,7 @@ describe("RequestContextResolver - working context once an Organization exists",
   it("lazily provisions a per-Organization UserProfile the first time it resolves", async () => {
     const { store, organizations, resolver, users } = makeResolver();
     const { organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
 
     const profile = await users.getProfile(organizationId, ctx.principal.userId);
     expect(profile).toBeDefined();
@@ -124,17 +124,18 @@ describe("RequestContextResolver - working context once an Organization exists",
   it("returns the same userId/tenantId on repeat login (idempotent)", async () => {
     const { store, organizations, resolver } = makeResolver();
     await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const ctx1 = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
-    const ctx2 = await resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2" });
+    const ctx1 = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const ctx2 = await resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2", organizationIdHint: undefined });
 
     expect(ctx2.principal.userId).toBe(ctx1.principal.userId);
     expect(ctx2.tenant.tenantId).toBe(ctx1.tenant.tenantId);
   });
 
-  // Mutação: trocar o assert de `active.length > 1` por "pega a primeira" (active[0]) faria
-  // este teste passar mesmo com 2 Memberships ACTIVE simultâneas para o mesmo usuário -
-  // fixture sintético, hoje inalcançável por nenhum writer real (só possível via B2B-8).
-  it("fails closed, loud, if a user somehow has more than one ACTIVE Membership (synthetic - unreachable via any real writer today)", async () => {
+  // Mutação: trocar o throw de `OrganizationSelectionRequiredError` por "pega a primeira"
+  // (active[0]) faria este teste passar mesmo com 2 Memberships ACTIVE simultâneas para o
+  // mesmo usuário - Wave B2B-6 (D-101) fecha o InternalError 500 que este caso costumava
+  // produzir (achado real: B2B-8 tornou isso alcançável de verdade via convite).
+  it("throws OrganizationSelectionRequiredError (not a crash) when a user has more than one ACTIVE Membership and no X-Organization-Id hint", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const { organizationId: secondOrgId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1-second-org-fixture");
@@ -156,7 +157,47 @@ describe("RequestContextResolver - working context once an Organization exists",
       GSI4SK: `ORG#${secondOrgId}#MEMBERSHIP#membership-forced`,
     });
 
-    await expect(resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" })).rejects.toThrow(/more than one ACTIVE Membership/);
+    await expect(resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined })).rejects.toBeInstanceOf(OrganizationSelectionRequiredError);
+  });
+
+  // Mutação: usar o valor do hint sem revalidar via resolveWorkingOrganization() (confiar nele
+  // "como está") faria isto resolver a organização errada em vez de lançar
+  // OrganizationSelectionRequiredError - o hint só desambigua quando aponta para uma Membership
+  // real e ACTIVE do próprio usuário.
+  it("resolves the hinted organization directly when X-Organization-Id matches one of the user's ACTIVE Memberships, even with >1 active", async () => {
+    const { store, organizations, resolver } = makeResolver();
+    const { userId, organizationId: firstOrgId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
+    const { organizationId: secondOrgId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1-second-org-fixture");
+    organizations.forceUpdate({
+      ...membershipKey(secondOrgId, userId),
+      entityType: "Membership",
+      membershipId: "membership-forced",
+      organizationId: secondOrgId,
+      userId,
+      role: "OWNER",
+      status: "ACTIVE",
+      joinedAt: "2026-08-30T00:00:00.000Z",
+      createdBy: userId,
+      version: 1,
+      GSI4PK: `USER#${userId}`,
+      GSI4SK: `ORG#${secondOrgId}#MEMBERSHIP#membership-forced`,
+    });
+
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: secondOrgId });
+    expect(ctx.tenant.tenantId).toBe(secondOrgId);
+    expect(ctx.tenant.tenantId).not.toBe(firstOrgId);
+  });
+
+  // Mutação: cair de volta para a derivação via GSI4 quando o hint não bate com nenhuma
+  // Membership real faria isto silenciosamente resolver OUTRA organização do usuário em vez de
+  // falhar fechado - um hint explícito que não bate é sempre tratado como seleção inválida.
+  it("throws OrganizationUnavailableError when X-Organization-Id does not match any real Membership, even if the user has a different valid one", async () => {
+    const { store, organizations, resolver } = makeResolver();
+    await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
+
+    await expect(
+      resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: "org-does-not-exist" }),
+    ).rejects.toBeInstanceOf(OrganizationUnavailableError);
   });
 });
 
@@ -165,11 +206,11 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
     const { store, organizations, resolver, globalUsers } = makeResolver();
     await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const staleIssuedAt = new Date(Date.now() - 60_000).toISOString();
-    const ctx = await resolver.resolve({ claims: claims({ issuedAt: staleIssuedAt }), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims({ issuedAt: staleIssuedAt }), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     await globalUsers.logoutAll(ctx.principal.userId);
 
     await expect(
-      resolver.resolve({ claims: claims({ tokenId: "jti-old", issuedAt: staleIssuedAt }), requestId: "r2", correlationId: "c2" }),
+      resolver.resolve({ claims: claims({ tokenId: "jti-old", issuedAt: staleIssuedAt }), requestId: "r2", correlationId: "c2", organizationIdHint: undefined }),
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 
@@ -177,7 +218,7 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
     const { store, organizations, resolver, globalUsers } = makeResolver();
     await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const staleIssuedAt = new Date(Date.now() - 60_000).toISOString();
-    const ctx = await resolver.resolve({ claims: claims({ deviceId: "device-1", issuedAt: staleIssuedAt }), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims({ deviceId: "device-1", issuedAt: staleIssuedAt }), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     await globalUsers.upsertDeviceSession({
       ...deviceSessionKey(ctx.principal.userId, "device-1"),
       entityType: "DeviceSession",
@@ -193,7 +234,7 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
     await globalUsers.logoutDevice(ctx.principal.userId, "device-1");
 
     await expect(
-      resolver.resolve({ claims: claims({ deviceId: "device-1", tokenId: "jti-old", issuedAt: staleIssuedAt }), requestId: "r2", correlationId: "c2" }),
+      resolver.resolve({ claims: claims({ deviceId: "device-1", tokenId: "jti-old", issuedAt: staleIssuedAt }), requestId: "r2", correlationId: "c2", organizationIdHint: undefined }),
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 
@@ -202,12 +243,12 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
   it("suspended identity (GlobalUser.identityStatus) is rejected even with a valid token", async () => {
     const { store, organizations, resolver, globalUsers } = makeResolver();
     await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     const user = await globalUsers.get(ctx.principal.userId);
     await store.update({ ...user!, identityStatus: "SUSPENDED" });
 
     await expect(
-      resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2" }),
+      resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2", organizationIdHint: undefined }),
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 });
@@ -215,14 +256,17 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
 describe("RequestContextResolver - Organization lifecycle gate (physical model §11's chain ends 'TenantLifecycleRecord ACTIVE')", () => {
   // Mutação: remover a leitura de tenantLifecycleKey(membership.organizationId)/o check de
   // status ACTIVE do resolver faria este teste (única evidência de que o gate existe de
-  // verdade, não só na documentação do arquivo) passar mesmo com o tenant DELETING.
+  // verdade, não só na documentação do arquivo) passar mesmo com o tenant DELETING. Wave B2B-6
+  // (D-101): `resolveWorkingOrganization()` substitui o `AuthenticationError` (401) que este
+  // caso costumava lançar por `OrganizationUnavailableError` (403) - achado real de
+  // inconsistência pré-existente corrigido na Rodada 3 do debate de escopo.
   it("rejects when the Organization's own TenantLifecycleRecord is not ACTIVE, even with a real ACTIVE Membership", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(organizationId));
     organizations.forceUpdate({ ...lifecycle!, status: "DELETING" });
 
-    await expect(resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" })).rejects.toBeInstanceOf(AuthenticationError);
+    await expect(resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined })).rejects.toBeInstanceOf(OrganizationUnavailableError);
   });
 
   it("resolves normally when the Organization's TenantLifecycleRecord is ACTIVE (sanity, not just the negative case)", async () => {
@@ -231,7 +275,7 @@ describe("RequestContextResolver - Organization lifecycle gate (physical model �
     const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(organizationId));
     expect(lifecycle?.status).toBe(TENANT_ACTIVE_STATUS);
 
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     expect(ctx.tenant.tenantId).toBe(organizationId);
   });
 });
@@ -246,7 +290,7 @@ describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-09
     const membership = await organizations.get(membershipKey(organizationId, userId));
     organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "ADMIN" });
 
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     expect(ctx.tenant.roles).toEqual(["ADMIN"]);
   });
 
@@ -260,7 +304,7 @@ describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-09
     const membership = await organizations.get(membershipKey(organizationId, userId));
     organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "SUPERADMIN" });
 
-    const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" }).catch((err: unknown) => err);
+    const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined }).catch((err: unknown) => err);
     expect(rejection).toBeInstanceOf(UnsupportedMembershipRoleError);
   });
 });

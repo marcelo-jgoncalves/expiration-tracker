@@ -15,6 +15,7 @@ export interface TestRouteHttpRequest {
   requestId: string;
   correlationId: string;
   claims: ValidatedClaims;
+  headers?: Record<string, string | undefined>;
 }
 
 export interface TestRouteHttpResponse {
@@ -44,6 +45,7 @@ export async function handleTestRoute(deps: TestRouteDeps, req: TestRouteHttpReq
       claims: req.claims,
       requestId: req.requestId,
       correlationId: req.correlationId,
+      organizationIdHint: req.headers?.["x-organization-id"],
     });
 
     // Authorization matrix gate: every route declares its action before touching data.

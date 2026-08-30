@@ -61,7 +61,7 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     // Organization+Membership for each sub first, via CreateOrganizationService, before resolve().
     for (const sub of ["sub-A", "sub-B"]) {
       await bootstrapWithOrganization(identityStore, organizations, "MainTable", sub);
-      const bootstrapped = await resolver.resolve({ claims: claims(sub), requestId: `bootstrap-${sub}`, correlationId: `bootstrap-${sub}` });
+      const bootstrapped = await resolver.resolve({ claims: claims(sub), requestId: `bootstrap-${sub}`, correlationId: `bootstrap-${sub}`, organizationIdHint: undefined });
       await expirationStore.putIfAbsent(activeLifecycleRecord(bootstrapped.tenant.tenantId));
     }
   });

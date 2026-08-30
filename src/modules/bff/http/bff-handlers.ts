@@ -95,8 +95,8 @@ export async function handleCallback(deps: BffHttpDeps, req: BffHttpRequest): Pr
  * the two is present: an established organization, or the reason there isn't one yet. */
 export async function handleGetSession(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const { activeOrganizationId, onboardingState } = await deps.auth.resolveSessionWithOnboarding(cookiesOf(req)[SESSION_COOKIE_NAME]);
-    return { statusCode: 200, body: { authenticated: true, activeOrganizationId, onboardingState } };
+    const { activeOrganizationId, onboardingState, organizationSelectionRequired } = await deps.auth.resolveSessionWithOnboarding(cookiesOf(req)[SESSION_COOKIE_NAME]);
+    return { statusCode: 200, body: { authenticated: true, activeOrganizationId, onboardingState, organizationSelectionRequired } };
   } catch (err) {
     if (err instanceof AuthenticationError) {
       // Definitive: no session, or one that is genuinely gone (expired/revoked/malformed) -
@@ -202,6 +202,55 @@ export async function handleCreateOrganization(deps: BffHttpDeps, req: BffHttpRe
 
     const { organizationId } = await deps.auth.createOrganization(session, { displayName, timezone });
     return { statusCode: 201, body: { organizationId } };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** GET /bff/organizations (Wave B2B-6, D-101) - lists only effectively usable organizations
+ * (Membership ACTIVE + TenantLifecycleRecord ACTIVE). Read-only, no CSRF needed (same posture as
+ * `handleGetSession`). */
+export async function handleListOrganizations(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const session = await deps.auth.resolveSession(cookiesOf(req)[SESSION_COOKIE_NAME]);
+    const organizations = await deps.auth.listOrganizations(session.userId);
+    return { statusCode: 200, body: { organizations } };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** POST /bff/organization/select (Wave B2B-6, D-101) - same CSRF/mutation discipline as
+ * `handleCreateOrganization` above. Validates via `resolveWorkingOrganization()` (never trusts
+ * the client-supplied `organizationId` without a real Membership + lifecycle check). */
+export async function handleSelectOrganization(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const cookies = cookiesOf(req);
+    const session = await deps.auth.resolveSession(cookies[SESSION_COOKIE_NAME]);
+
+    if (
+      !checkCsrf({
+        method: req.method,
+        secFetchSite: req.headers["sec-fetch-site"],
+        headerToken: req.headers["x-csrf-token"],
+        cookieToken: cookies[CSRF_COOKIE_NAME],
+        sessionCsrfSecret: session.csrfSecret,
+      })
+    ) {
+      return { statusCode: 403, body: { code: "CSRF_CHECK_FAILED", category: "AUTHORIZATION", message: "CSRF check failed.", retryable: false } };
+    }
+
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const organizationId = typeof body["organizationId"] === "string" ? body["organizationId"] : undefined;
+    if (!organizationId) {
+      throw new ValidationError("organizationId is required.");
+    }
+
+    const result = await deps.auth.selectOrganization(session, organizationId);
+    if (!result.ok) {
+      return { statusCode: 403, body: { code: "ORGANIZATION_UNAVAILABLE", category: "AUTHORIZATION", message: "This organization is not available in your current context.", retryable: false } };
+    }
+    return { statusCode: 204, body: {} };
   } catch (err) {
     return toErrorResponse(err);
   }

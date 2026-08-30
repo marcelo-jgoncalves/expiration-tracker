@@ -362,6 +362,37 @@ export class InvitationTokenUnavailableError extends AppError {
   }
 }
 
+/** Wave B2B-6 (D-101, physical model §11/§12): the caller's selected organization (via
+ * `X-Organization-Id`, BFF-derived, or the BFF session's own `activeOrganizationId`) does not
+ * resolve to a usable working context - the `Membership` isn't `ACTIVE`, or the `Organization`'s
+ * own `TenantLifecycleRecord` isn't `ACTIVE`. `category: "AUTHORIZATION"` (403), not `CONFLICT`:
+ * this is an access/context check at the RequestContext-building boundary, not a concurrent-
+ * write conflict (research: DEV's x-tenant-id pattern returns 403 on membership mismatch, OWASP
+ * Multi Tenant Security treats this as the "Tenant Context Injection" access-control class).
+ * Replaces (does not coexist with) the pre-existing `AuthenticationError` this same lifecycle
+ * check used to throw - a deliberate, small observable-contract fix (D-093: acceptable, no real
+ * users/production). */
+export class OrganizationUnavailableError extends AppError {
+  constructor(message = "This organization is not available in your current context.", details?: Record<string, unknown>) {
+    super({ code: "ORGANIZATION_UNAVAILABLE", category: "AUTHORIZATION", message, retryable: false, details });
+    this.name = "OrganizationUnavailableError";
+  }
+}
+
+/** Wave B2B-6 (D-101): the caller has more than one usable `Membership` (`ACTIVE` + its
+ * Organization's `TenantLifecycleRecord` `ACTIVE`) and supplied no `X-Organization-Id` hint -
+ * ambiguous, never "pick the first" (same fail-closed discipline as the rest of this codebase).
+ * Replaces the `InternalError` this case used to throw before Wave B2B-8 made it reachable. */
+export class OrganizationSelectionRequiredError extends AppError {
+  constructor(message = "Multiple organizations are available; select one via X-Organization-Id.", details?: Record<string, unknown>) {
+    // CONFLICT (409), not AUTHORIZATION - the caller IS allowed, the request is just
+    // ambiguous (more than one valid Membership) without a disambiguating hint, closer to "the
+    // request can't be completed as given" than to "access denied".
+    super({ code: "ORGANIZATION_SELECTION_REQUIRED", category: "CONFLICT", message, retryable: false, details });
+    this.name = "OrganizationSelectionRequiredError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

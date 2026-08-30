@@ -107,7 +107,7 @@ export async function handleCreateSubject(deps: SubjectHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CREATE_SUBJECT_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const subject = await deps.subjects.createSubject(context, req.body);
     return { statusCode: 201, body: { subject } };
@@ -117,7 +117,7 @@ export async function handleCreateSubject(deps: SubjectHttpDeps, req: HttpReques
 export async function handleGetSubject(deps: SubjectHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const subject = await deps.subjects.getSubject(context, subjectId);
     return { statusCode: 200, body: { subject } };
@@ -130,7 +130,7 @@ export async function handleUpdateSubject(deps: SubjectHttpDeps, req: HttpReques
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_SUBJECT_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const subject = await deps.subjects.updateSubject(context, subjectId, req.body, expectedVersion);
     return { statusCode: 200, body: { subject } };
@@ -141,7 +141,7 @@ export async function handleArchiveSubject(deps: SubjectHttpDeps, req: HttpReque
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     await deps.subjects.archiveSubject(context, subjectId, expectedVersion);
     return { statusCode: 204, body: {} };
@@ -152,7 +152,7 @@ export async function handleDeleteSubject(deps: SubjectHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     await deps.subjects.deleteSubject(context, subjectId, expectedVersion);
     return { statusCode: 204, body: {} };
@@ -162,7 +162,7 @@ export async function handleDeleteSubject(deps: SubjectHttpDeps, req: HttpReques
 export async function handleListSubjects(deps: SubjectHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const status = requireListStatus(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const subjects = await deps.subjects.listSubjects(context, { status });
     return { statusCode: 200, body: { subjects } };

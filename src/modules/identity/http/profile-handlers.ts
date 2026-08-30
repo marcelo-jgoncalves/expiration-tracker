@@ -83,7 +83,7 @@ async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpRe
  * the resource is always "the calling user's own", same convention as GET /notifications/preferences. */
 export async function handleGetProfile(deps: ProfileHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const profile = await deps.profiles.getProfile(context);
     return { statusCode: 200, body: { profile: { requesterDisplayName: profile.requesterDisplayName ?? null } } };
@@ -94,7 +94,7 @@ export async function handleUpdateProfile(deps: ProfileHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_PROFILE_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const profile = await deps.profiles.setRequesterDisplayName(context, req.body.requesterDisplayName ?? undefined);
     return { statusCode: 200, body: { profile: { requesterDisplayName: profile.requesterDisplayName ?? null } } };

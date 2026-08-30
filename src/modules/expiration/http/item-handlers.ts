@@ -142,7 +142,7 @@ export async function handleCreateItem(deps: ExpirationHttpDeps, req: HttpReques
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CREATE_ITEM_SCHEMA_ID, req.body);
     const idempotencyKey = req.headers?.["idempotency-key"];
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const item = await deps.expiration.createItem(context, req.body, idempotencyKey);
     return { statusCode: 201, body: { item } };
@@ -152,7 +152,7 @@ export async function handleCreateItem(deps: ExpirationHttpDeps, req: HttpReques
 export async function handleGetItem(deps: ExpirationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const item = await deps.expiration.getItem(context, itemId);
     return { statusCode: 200, body: { item } };
@@ -165,7 +165,7 @@ export async function handleUpdateItem(deps: ExpirationHttpDeps, req: HttpReques
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_ITEM_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const item = await deps.expiration.updateItem(context, itemId, req.body, expectedVersion);
     return { statusCode: 200, body: { item } };
@@ -176,7 +176,7 @@ export async function handleArchiveItem(deps: ExpirationHttpDeps, req: HttpReque
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     await deps.expiration.archiveItem(context, itemId, expectedVersion);
     return { statusCode: 204, body: {} };
@@ -187,7 +187,7 @@ export async function handleDeleteItem(deps: ExpirationHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     await deps.expiration.deleteItem(context, itemId, expectedVersion);
     return { statusCode: 204, body: {} };
@@ -201,7 +201,7 @@ export async function handleRenewItem(deps: ExpirationHttpDeps, req: HttpRequest
     validateAgainstSchema(RENEW_ITEM_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
     const idempotencyKey = req.headers?.["idempotency-key"];
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const { item, copiedReminderPolicyIds } = await deps.expiration.renewItem(context, itemId, req.body, expectedVersion, idempotencyKey);
     // reminder-delivery-pipeline.md §8 (Marcelo's decision, 2026-08-25): never a silent
@@ -215,7 +215,7 @@ export async function handleRenewItem(deps: ExpirationHttpDeps, req: HttpRequest
 export async function handleDashboard(deps: ExpirationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const status = requireDashboardStatus(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const items = await deps.expiration.listDashboard(context, { status });
     return { statusCode: 200, body: { items } };
