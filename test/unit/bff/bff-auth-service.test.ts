@@ -113,6 +113,9 @@ describe("BffAuthService.handleCallback", () => {
     expect(session.tenantId).toBe("user-1"); // MVP tenantId=userId, same rule as RequestContextResolver
   });
 
+  // G-V3 (test-engineering-standard.md): mutação que quebraria isto — reverter
+  // `handleCallback()` para passar `newUserId` como e-mail para `bootstrap()` (ou omitir o
+  // parâmetro, voltando ao default `""` de `TenantBootstrapService.bootstrap()`).
   it("captures the ID token's verified email onto the new profile (Wave B2B-2: TenantBootstrapService.bootstrap() now takes emailNormalized so switching to the shared atomic path doesn't silently drop it - FakeIdTokenVerifier.nextResult.email defaults to user@example.com)", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
@@ -121,6 +124,9 @@ describe("BffAuthService.handleCallback", () => {
     expect(profile?.emailNormalized).toBe("user@example.com");
   });
 
+  // G-V3: mutação que quebraria isto — em `TenantBootstrapService.createAll()`, gravar
+  // `globalUser.emailNormalized = ""` em vez de reencaminhar o parâmetro `emailNormalized`
+  // recebido de `bootstrap()`.
   it("also creates the additive global User row via the shared bootstrap (Wave B2B-2 follow-up) with the same verified email", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
@@ -131,6 +137,10 @@ describe("BffAuthService.handleCallback", () => {
     expect(globalUser?.emailNormalized).toBe("user@example.com");
   });
 
+  // G-V3: mutação que quebraria isto — reverter `handleCallback()` para a lógica sequencial
+  // antiga (`identityMappings.findOrCreate` + `users.getProfile`/`createProfileIfAbsent`, sem
+  // `bootstrap.bootstrap()`), que nunca consultava `TenantLifecycleRecord` e sempre criaria/
+  // retornaria um profile mesmo com o tenant DELETING.
   it("rejects a repeat login for a tenant whose TenantLifecycleRecord has moved to DELETING - capability this path never had before Wave B2B-2 (the old sequential findOrCreate/createProfileIfAbsent logic never checked lifecycle at all)", async () => {
     const ctx = buildService();
     await loginOnce(ctx); // first login: creates IdentityMapping + TenantLifecycleRecord(ACTIVE) + profile

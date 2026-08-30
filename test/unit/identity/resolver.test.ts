@@ -37,6 +37,9 @@ describe("RequestContextResolver", () => {
     expect(store.allKeys().some((k) => k.startsWith("IDENTITY#cognitoSub#cognito-sub-1"))).toBe(true);
   });
 
+  // G-V3 (test-engineering-standard.md): mutação que quebraria isto — remover o 4º entry
+  // (`Put globalUser`) de TenantBootstrapService.createAll()'s TransactWriteItems, ou não
+  // repassar `emailNormalized`/`newUserId` para o objeto GlobalUser antes de montar o Put.
   it("also creates the additive global User row (Wave B2B-2, D-086/D-087 follow-up) atomically with the legacy tenant-scoped profile - nothing reads this row yet, it's foundation for Wave B2B-3's Membership", async () => {
     const { resolver, store } = makeResolver();
     const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
@@ -175,6 +178,10 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 
+  // G-V3: mutação que quebraria isto — reverter `bootstrap()`'s corrida perdedora
+  // (`resolveExisting` no branch de erro de `createAll`) para não re-ler e simplesmente
+  // tentar criar de novo, produzindo 2 IdentityMapping/TenantLifecycleRecord/GlobalUser
+  // para o mesmo cognitoSub em vez de convergir no vencedor.
   it("two concurrent first logins for the same sub converge on one tenant, with exactly one TenantLifecycleRecord, one legacy User profile, and one global User (Wave B2B-2)", async () => {
     const { resolver, store } = makeResolver();
     const [a, b] = await Promise.all([
@@ -194,6 +201,9 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     expect(globalUserKeys).toHaveLength(1);
   });
 
+  // G-V3: mutação que quebraria isto — remover o `if (existingMapping) return
+  // this.resolveExisting(...)` early-return de `bootstrap()`, fazendo todo repeat-login cair
+  // em `createAll()` de novo e duplicar as 4 linhas atômicas a cada chamada.
   it("repeat login of an already-bootstrapped identity is idempotent - no duplicate rows, no error", async () => {
     const { resolver, store } = makeResolver();
     await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });

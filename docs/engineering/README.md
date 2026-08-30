@@ -4,7 +4,7 @@
 Rubrica de qualidade:     CONGELADA (01-engineering-quality-criteria.md)
 Fitness functions:        ativas (02-engineering-fitness-functions.md), enforcement real em CI
 Full-audit 9 eixos:       CONCLUÍDO em 2026-08-20 (9/9 avaliados, só Contexto bateu o gate ≥9.0 originalmente) — achados remediados/reavaliados em rodadas posteriores por eixo, ver decisions-log.md/pilot-readiness-program.md, não re-enumerado aqui
-Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), definition-of-done.md (E-012, APPROVED — gate por item de todo list), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
+Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), definition-of-done.md (E-012, APPROVED — gate por item de todo list; emenda E-013 tornando a aplicação de test-engineering-standard.md operacional, não só referencial), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
 Last verified:            2026-08-29 (reconciliação de engenharia de contexto — ver docs/architecture/README.md para o estado vigente completo, não duplicado aqui)
 ```
 
@@ -40,7 +40,7 @@ Mesma regra de `docs/architecture/README.md` — `AGENTS.md` (raiz) sempre vence
 | `principles.md` | normativo atual | Princípios de engenharia adotados (proporcionalidade, evidência antes de mecanismo) |
 | `change-risk-scale.md` | normativo atual | Escala de risco de mudança Nível 1-6, régua concreta para "isso precisa de protocolo formal?" |
 | `quality-gate-tiers.md` | normativo atual | Tiers de gate (PR vs. deploy), mapeados aos comandos reais |
-| `definition-of-done.md` | normativo atual (APPROVED, protocolo Claude↔Codex 3 rodadas, Claude 9,1/Codex 9,2, E-012) | Definition of Done por item de todo list — granularidade ("unidade de conclusão"), gate por nível de risco, classificação de risco na prática, registro mínimo de evidência; complementa `quality-gate-tiers.md`/`change-risk-scale.md` sem substituí-los |
+| `definition-of-done.md` | normativo atual (APPROVED, protocolo Claude↔Codex 3 rodadas, Claude 9,1/Codex 9,2, E-012; emenda E-013) | Definition of Done por item de todo list — granularidade ("unidade de conclusão"), gate por nível de risco, classificação de risco na prática, registro mínimo de evidência; complementa `quality-gate-tiers.md`/`change-risk-scale.md` sem substituí-los. E-013 tornou a aplicação de `test-engineering-standard.md` operacional (G-V3 mutação nomeada por escrito), não só referencial |
 | `joint-review-criteria.md` | normativo atual | Critérios/pesos por eixo das revisões conjuntas Claude↔Codex (9 eixos formalizados + FinOps pendente) |
 | `test-engineering-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 8 rodadas, gate elevado 9,5/10) | Padrão de validade/qualidade para teste automatizado e drill operacional (chaos/DiRT) — gates binários (G-V1..G-V6, G-C1), critérios ponderados, fórmula de agregação, auditoria retroativa da Wave 2 (2026-08-28) |
 | `logging-observability-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 3 rodadas, gate elevado 9,5/10) | Régua concreta de qualidade para logging/tracing/taxonomia de erro (`src/shared/observability/**`, `app-error.ts`, wiring Terraform de detecção) — 8 critérios ponderados, âncoras de pontuação, gate de auditoria 9,0/10, escrita em resposta a achados reais de uma rodada Codex de 2026-08-29 |
