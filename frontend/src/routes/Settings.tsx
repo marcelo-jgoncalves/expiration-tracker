@@ -29,9 +29,9 @@ export function Settings() {
   // the SOURCE value itself changes. `exhaustive-deps` proposes `[activeOrganization]`, which
   // would re-run (and clobber in-progress typing) on every refetch even when displayName itself
   // is unchanged, since `organizationsQuery.data` is a fresh object reference each time.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (activeOrganization) setDisplayName(activeOrganization.displayName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrganization?.displayName]);
 
   const header = <PageHeader title="Configurações" description="Nome da sua organização." />;
