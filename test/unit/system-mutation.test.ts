@@ -310,6 +310,30 @@ describe("purgeTenantItem / PURGE_DELETE (W3-07 purge pipeline, this session)", 
     expect(store.hasRaw(key)).toBe(true);
   });
 
+  it("Wave B2B-9 fix (D-104): accepts a real tenant-owned row that declares organizationId instead of tenantId (InvitationTokenPointer)", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "INVITATION_TOKEN#selector-hash-1", SK: "POINTER" };
+    store.seedRaw({ ...key, entityType: "InvitationTokenPointer", organizationId: "tenant-1" });
+
+    // Mutation: dropping the `organizationId = :purgeTenantId` clause from PURGE_DELETE's
+    // ConditionExpression makes this purge rejected (SystemMutationConflictError), leaving the
+    // row orphaned forever — exactly the gap Wave B2B-9's Round 1 Codex critique confirmed.
+    await purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key });
+
+    expect(store.hasRaw(key)).toBe(false);
+  });
+
+  it("Wave B2B-9 fix + isolation: an organizationId-declaring row belonging to a DIFFERENT organization is still rejected", async () => {
+    const store = new InMemoryIdentityStore();
+    const key = { PK: "INVITATION_TOKEN#selector-hash-2", SK: "POINTER" };
+    store.seedRaw({ ...key, entityType: "InvitationTokenPointer", organizationId: "tenant-2" });
+
+    await expect(
+      purgeTenantItem({ store, tableName: TABLE, tenantId: "tenant-1", key }),
+    ).rejects.toBeInstanceOf(SystemMutationConflictError);
+    expect(store.hasRaw(key)).toBe(true);
+  });
+
   it("B3 fix: refuses to delete the TenantLifecycleRecord tombstone via its canonical key even if the caller omits/forges entityType (defense-in-depth independent of dynamo-tenant-purge.ts's exclusion)", async () => {
     const store = new InMemoryIdentityStore();
     const key = tenantLifecycleKey("tenant-1");

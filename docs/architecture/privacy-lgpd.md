@@ -34,19 +34,81 @@ Endpoint autenticado + canal alternativo verificado criam `DataSubjectRequest` (
 
 | `retentionClass` | Dados | Prazo padrão | Hold | Cross-region/Object Lock |
 |---|---|---|---|---|
-| `ACCOUNT_ACTIVE` | User, Organization, Membership, Channel | encerramento + 30 dias | litígio/obrigação confirmada | não |
+| `ACCOUNT_ACTIVE` | User, Organization, Membership, Invitation, Channel | encerramento + 30 dias | litígio/obrigação confirmada | não |
 | `CORE_USER_DATA` | itens, políticas, ocorrências | exclusão/encerramento + 30 dias | obrigação ligada ao item | não |
 | `USER_DOCUMENT` | Document/S3, campos e runs | exclusão/encerramento + 30 dias; runs falhos/descartados: 7 dias | obrigação específica | não |
 | `LEGAL_EVIDENCE` | documento expressamente classificado | prazo legal/contratual com data final obrigatória | sim; revisão periódica | somente após aprovação jurídica; KMS independente e Object Lock temporário |
 | `DELIVERY_RECORD` | intents/attempts | criação + 180 dias | disputa/incidente | não |
-| `TRANSIENT` | WebhookInbox, UploadSlot | 7 dias; slot incompleto: 24h | não | não |
-| `SECURITY_AUDIT` | AuditEvent/logs redigidos | criação + 365 dias | incidente/litígio | backup regional |
-| `QUOTA_TELEMETRY` | quotas/métricas identificáveis | fim da janela + 30 dias | não | não |
+| `TRANSIENT` | WebhookInbox, UploadSlot, InvitationTokenPointer | 7 dias; slot incompleto: 24h; token de convite: 14 dias (`purgeAfterTtl` físico já implementado, `invitation-token.ts`) | não | não |
+| `SECURITY_AUDIT` | AuditEvent/logs redigidos, MembershipAuditEvent | criação + 365 dias | incidente/litígio | backup regional |
+| `QUOTA_TELEMETRY` | quotas/métricas identificáveis, MembershipInviteRateLimitRecord | fim da janela + 30 dias | não | não |
 | `EXTRACTION_TRANSIENT` | texto OCR (Textract) do pipeline de extração M7, artefato transitório em bucket/prefixo dedicado | exclusão explícita ao concluir/falhar/descartar o run; lifecycle S3 de 24h como safety net (nunca o prazo real esperado) | não | não |
 
 `EXTRACTION_TRANSIENT` (adicionado 2026-08-25, pré-requisito de design registrado antes de qualquer implementação de M7 — `docs/architecture/reviews/m7-extraction-design/claude-reconciliation-final-design.md` §1.4/§4, GATE atingido 9,2/9,3): o texto OCR nunca é o dado final do sistema (`ExtractedField`/`USER_DOCUMENT` acima são as classes do resultado persistido) — é um artefato de trabalho intermediário entre `RunTextract` e `ExtractionValidationTaskHandler`, sem versionamento/backup/replicação (nada aqui deve sobreviver a uma restauração de disaster recovery), nunca entra em DynamoDB/logs/traces/eventos/DLQ. Único bucket/prefixo cujo prazo padrão é medido em horas, não dias — reflete que seu único propósito é existir pelo tempo mínimo entre duas etapas de um mesmo pipeline.
 
 Nenhuma classe aceita prazo nulo, salvo conta ainda ativa. `LEGAL_EVIDENCE` sem fundamento e data final regride automaticamente para `USER_DOCUMENT` — nunca fica em limbo indefinido. **Validar juridicamente**: prazos, documentos probatórios, obrigações fiscais/consumeristas/contratuais.
+
+## 4.1 User-level vs. Organization-level erasure (Wave B2B-9/W3-07, D-104, 2026-08-30)
+
+Desde o modelo Multi-User B2B (`Organization`/`Membership` N:N, `physical-model.md` D-086), um `User`
+(titular) pode pertencer a múltiplas `Organization`s — "excluir minha conta" e "excluir a
+Organization" deixaram de ser a mesma operação. Esta seção formaliza a distinção como decisão de
+design (protocolo Claude↔Codex completo, `AGENTS.md` §4, `reviews/multi-user-b2b-wave-b2b9-scoping/`,
+Claude 9,3/Codex 9,3, 3 rodadas) — **não constrói nenhum endpoint novo**: `DataSubjectRequest` real
+(§3/§7) continua "não implementado ainda", decisão pré-existente não revisitada aqui.
+
+**Padrão externo verificado (E-014, `docs/engineering/research-protocol.md`, SIM)**: pesquisa real
+em 3 vendors B2B multi-tenant estabelecidos convergindo independentemente no mesmo par de regras —
+GitHub (`docs.github.com`, exclusão de conta pessoal exige transferir ou apagar toda Organization da
+qual o titular é o único OWNER antes; exclusão de Organization é irreversível e apaga TODO o dado da
+Organization, não só o do titular que aciona), Slack (`slack.com/help`, exclusão de perfil individual
+nunca remove "Customer Data" do workspace — controlado pelo Primary Owner/controlador de dados do
+workspace), Atlassian (`support.atlassian.com`, conta gerenciada por uma organização não se
+autodeleta, passa pelo admin da organização).
+
+**Organization-level erasure** (mecanismo já existente, W3-07/D-081-083, emendado nesta wave — §4.2):
+apaga INCONDICIONALMENTE todo dado tenant-scoped da Organization (`ExpirationItem`, `Document`,
+`DocumentRequest`, `TrackedSubject`, `Membership`, `Invitation`, etc.) — irreversível, afeta TODOS os
+membros, não só quem aciona. Único caminho que remove dado de negócio real.
+
+**User-level erasure** (titular individual, DSR — regra formalizada aqui, endpoint real fora de
+escopo): removeria/anonimizaria só identidade/sessão/perfil do PRÓPRIO titular — `GlobalUser`, todo
+`DeviceSession`, `Session` (BFF, pós-autenticação), `IdentityMapping`, cada `UserProfile` e
+`NotificationPreferences` que o titular tem em CADA Organization de que é membro, e as próprias
+`Membership`s do titular — **nunca cascateia para dado de negócio organization-owned** que outros
+membros ainda usam. `LoginAttempt` (artefato pré-autenticação, sem `userId`/`cognitoSub`) fica de
+fora do inventário por titular, TTL-only.
+
+**Invariante de último OWNER (consistente com `ownerCount` de `roadmap-evolution/17` §125.2)**: um
+titular que é `OWNER` `ACTIVE` único de qualquer `Organization` `ACTIVE` não pode ser apagado nem
+suspenso enquanto for o último — precisa primeiro transferir a role `OWNER` (mecanismo já existe,
+`change-membership-role.ts`, B2B-8) ou a própria Organization ser deletada. **Documentada como
+invariante, sem guard de código nesta wave** — não há call site real de exclusão/suspensão de `User`
+hoje (mesmo raciocínio de proporcionalidade já usado em B2B-3 para adiar o decremento de
+`ownerCount`, `principles.md` #1); implementar o guard fica para quando o endpoint DSR real existir.
+
+## 4.2 Purge pipeline — entidades B2B incluídas (emenda ao W3-07, D-104)
+
+Per `roadmap-evolution/17` §125.4 ("Purge pipeline: Emenda — precisa incluir Membership/Invitation no
+inventário"): `Membership`/`Invitation`/`InvitationDedupPointer`/`MembershipAuditEvent`/
+`MembershipInviteRateLimitRecord` já são `PK=TENANT#<organizationId>#...` — cobertos estruturalmente
+pelo scan `begins_with(PK,"TENANT#<id>#")` existente (`dynamo-tenant-purge.ts`), sem mudança de
+mecanismo. Achado real (não hipotético, verificado por leitura de código): `InvitationTokenPointer`
+(`organization/domain/invitation-token.ts`, `PK=INVITATION_TOKEN#<selectorHash>`, mesma família
+tenantless de `GuestTokenPointer`) declara `organizationId`, não `tenantId`, como atributo de
+escopo — o scan/`PURGE_DELETE` ampliados em D-082/B1 só cobriam o nome `tenantId`, deixando esse
+pointer órfão para sempre após a exclusão da Organization. Corrigido nesta wave: `tenant-purge-scan.ts`
+e `system-mutation.ts`'s `PURGE_DELETE` ganham uma 3ª cláusula `OR organizationId = :tenantId`
+(mesma disciplina do fix B1 original) — `GlobalUser` e `Membership`s do titular em outras
+Organizations permanecem estruturalmente fora de alcance (nem `TENANT#` prefix nem atributo
+`tenantId`/`organizationId`), provado por teste adversarial, não só por leitura de chave.
+
+**Session behavior** (mecanismo já existente, B2B-6/D-102, confirmado nesta wave): uma Organization
+cujo `TenantLifecycleRecord.status` deixa de ser `ACTIVE` (`DELETING`, `QUIESCING`, `PURGING`, ou o
+estado terminal `DELETED`) já é tratada por `resolveWorkingOrganization()` como indisponível,
+disparando a mesma auto-cura de sessão (limpa `activeOrganizationId` stale, recalcula
+`organizationSelectionRequired`/auto-seleciona a única organização usável restante) — provado por
+teste nomeando explicitamente o estado terminal `DELETED`, não só `DELETING`.
 
 ## 5. Subprocessadores e transferência internacional (PRIV-005/007)
 Inventário versionado: fornecedor, serviço, finalidade, dados, papel, região/país, suboperadores, retenção, exclusão, criptografia, incidentes, DPA. Escopo previsto: AWS (Cognito, DynamoDB, S3, Backup, KMS, Lambda, filas, logs), Bedrock, Textract, provedores efetivamente habilitados de e-mail/WhatsApp/Telegram.

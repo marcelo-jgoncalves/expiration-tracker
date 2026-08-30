@@ -228,13 +228,12 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
         );
       }
       // Same rationale, for `IdentityMapping` (key `IDENTITY#cognitoSub#<sub>`/`MAP` — see
-      // `identity-mapping-repository.ts`). This guard is doing real work now that the
-      // ConditionExpression below (B1 fix) accepts a `tenantId` attribute match as an
-      // alternative to the `TENANT#` prefix: `IdentityMapping` declares `tenantId` too, so
-      // WITHOUT this explicit key-shape guard the widened condition would happily accept
-      // deleting it if a caller bug ever routed one through this lane (the caller-side
-      // entityType exclusion in dynamo-tenant-purge.ts is the primary defense; this is the
-      // second layer, on the canonical key shape, independent of that caller).
+      // `identity-mapping-repository.ts`). `IdentityMapping` is tenantless since B2B-5/D-095 (no
+      // `tenantId` attribute, so the widened ConditionExpression below would not match it on that
+      // clause), but the guard stays as a second layer independent of any attribute the row does
+      // or does not declare — it rejects by canonical PHYSICAL KEY shape alone, so a future
+      // regression (e.g. `IdentityMapping` regaining a `tenantId`/`organizationId`-shaped
+      // attribute) cannot silently reopen this lane for it.
       if (op.key.PK.startsWith("IDENTITY#")) {
         throw new SystemMutationConflictError(
           "SystemMutation \"PURGE_DELETE\" rejected: refusing to delete an IdentityMapping row through the purge lane.",
@@ -256,8 +255,15 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
             // same isolation property (the CURRENT item's own stored tenantId must match, not a
             // caller-supplied claim) while covering both physical key conventions in this
             // codebase.
+            //
+            // Wave B2B-9 (D-104, 2026-08-30): a third clause, `organizationId = :purgeTenantId`,
+            // mirrors the same fix in `tenant-purge-scan.ts` for `InvitationTokenPointer`, the
+            // one real writer that declares `organizationId` instead of `tenantId` — without this
+            // clause the scan would find the row (via the mirrored fix) but this delete would
+            // reject it as a safety-condition failure, blocking convergence the same way the
+            // original B1 gap did for GuestTokenPointer/TextractJob.
             ConditionExpression:
-              "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix) OR tenantId = :purgeTenantId",
+              "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix) OR tenantId = :purgeTenantId OR organizationId = :purgeTenantId",
             ExpressionAttributeValues: { ":purgeTenantPrefix": prefix, ":purgeTenantId": op.tenantId },
           },
         },
