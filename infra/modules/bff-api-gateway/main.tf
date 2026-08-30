@@ -63,7 +63,15 @@ locals {
     # Wave B2B-5 (D-095): first real HTTP consumer of CreateOrganizationService (B2B-3/D-091) -
     # authorized by identity alone inside the handler, never by API Gateway.
     organizations_create = { method = "POST", path = "/bff/organizations" }
-    proxy_catch          = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
+    # Wave B2B-14 (Operational Evidence, D-117): real finding - handleListOrganizations/
+    # handleSelectOrganization (bff-handlers.ts) and their dispatch in bff-handler.ts have
+    # existed since Wave B2B-6/D-102, but these 2 routes were never added here - every real
+    # GET /bff/organizations or POST /bff/organization/select has been returning API Gateway's
+    # own generic 404 (never even reaching the Lambda) since that deploy. Caught only now
+    # because this is the first real browser session this environment has ever had.
+    organizations_list  = { method = "GET", path = "/bff/organizations" }
+    organization_select = { method = "POST", path = "/bff/organization/select" }
+    proxy_catch         = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
   }
 }
 
