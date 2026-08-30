@@ -87,4 +87,22 @@ describe("DynamoDbNotificationRecipientResolver", () => {
 
     expect(result).toEqual({ userId: "user-1", tenantId: "org-1", active: false });
   });
+
+  // Wave B2B-13 (E2E/Adversarial Security, D-112): `email` lets composition roots that deliver
+  // an async notification (notification.ts/subject.ts) reuse this resolver instead of reading
+  // GlobalUser on their own - closing the TOCTOU gap where delivery never re-checked Membership.
+  // Mutação: retornar `email: undefined` (ou omitir o campo) sem ler `globalUser?.emailNormalized`
+  // faria este teste falhar - prova que o valor vem da mesma leitura já feita para `active`, não
+  // de uma leitura nova.
+  it("returns the GlobalUser's emailNormalized alongside active:true", async () => {
+    const items = new Map<string, Record<string, unknown>>([
+      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
+      [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "ACTIVE", emailNormalized: "user1@example.com" }],
+    ]);
+    const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);
+
+    const result = await resolver.resolve({ tenantId: "org-1", candidateUserId: "user-1" });
+
+    expect(result).toEqual({ userId: "user-1", tenantId: "org-1", active: true, email: "user1@example.com" });
+  });
 });

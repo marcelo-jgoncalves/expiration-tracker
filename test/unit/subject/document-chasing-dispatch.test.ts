@@ -271,7 +271,17 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
     expect(intent?.failureReason).toContain("simulated SES failure");
   });
 
-  it("EXPIRED with no resolvable internal user email marks the intent FAILED without crashing", async () => {
+  // Wave B2B-13 (E2E/Adversarial Security, D-112): `resolveInternalUserEmail` returning
+  // `undefined` covers 2 real scenarios that collapse to the same outcome by design - the
+  // GlobalUser was never found, OR (the TOCTOU gap this wave closed) the requester's Membership
+  // was revoked/suspended in the window between this EXPIRED occurrence being CLAIMED and
+  // dispatch actually running (async, can be delayed). dispatch.ts itself cannot and does not
+  // distinguish the two (both are "not a legitimate recipient right now"), so one test covers
+  // both. The real 2-condition Membership+GlobalUser check this fake stands in for is proven
+  // directly by dynamodb-recipient-resolver.test.ts's "active:false" cases - this test only
+  // proves dispatch.ts's OWN handling of the outcome (no crash, no send, FAILED with the right
+  // reason), not the resolver's real DynamoDB wiring, which the fake replaces entirely.
+  it("EXPIRED with no resolvable/eligible internal user email marks the intent FAILED without crashing, never sends", async () => {
     await seedRequest();
     await seedAssignment();
     await seedOccurrence("EXPIRED");

@@ -190,6 +190,20 @@ export class DocumentService {
         // already-admitted reservation (COMPLETED_SAME_REQUEST branch above) never reaches this
         // block, so it is free to re-presign per the established "admitted while ACTIVE may
         // finish" contract.
+        //
+        // Wave B2B-13 (E2E/Adversarial Security, D-112, Q16 of roadmap-evolution/17 §121)
+        // audited this same admission-point contract against Membership (not just Organization
+        // lifecycle) and confirmed it needs no code change here - the full contract, split
+        // across 2 layers this function never touches: (a) a NEW reservation after the caller's
+        // Membership is revoked is denied one layer up, at RequestContextResolver/
+        // resolveWorkingOrganization() (proven by resolver.test.ts's Q6 revocation test) -
+        // DocumentService only ever runs with an already-resolved, already-valid RequestContext,
+        // it never re-checks Membership itself; (b) a presigned URL already issued before that
+        // revocation remains a valid capability for its TTL regardless (roadmap-evolution/17
+        // §47/§48: "emissão da URL é o admission point... não prometer revogação instantânea de
+        // uma capability impossível de revogar") - not re-validated by this application at all,
+        // by design, since S3 verifies the SigV4 signature itself; there is no code path here to
+        // test for that half of the contract.
         await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId: ctx.tenant.tenantId, entries });
       } catch (err) {
         if (err instanceof TenantNotActiveError) throw err;

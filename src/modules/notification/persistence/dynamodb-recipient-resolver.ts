@@ -45,6 +45,6 @@ export class DynamoDbNotificationRecipientResolver implements NotificationRecipi
 
     if (!membership) return undefined; // never a member of this Organization - RECIPIENT_NOT_FOUND
     const active = membership.status === "ACTIVE" && globalUser?.identityStatus === "ACTIVE";
-    return { userId: membership.userId, tenantId: membership.organizationId, active };
+    return { userId: membership.userId, tenantId: membership.organizationId, active, email: globalUser?.emailNormalized };
   }
 }

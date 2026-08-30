@@ -21,7 +21,7 @@ import { UlidIdGenerator } from "../ids.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
-import { globalUserKey } from "../../../modules/identity/persistence/global-user-repository.js";
+import { DynamoDbNotificationRecipientResolver } from "../../../modules/notification/persistence/dynamodb-recipient-resolver.js";
 
 /** Adapter somente-leitura: subject nunca importa expiration-store.ts/expiration-service.ts
  * diretamente no código de produção - só aqui, no composition root, onde plugar módulos é
@@ -112,23 +112,20 @@ export function buildSubjectWorkerDeps(client: DynamoDBDocumentClient, tableName
   return { store, objects, parser, tableName, cleanBucket };
 }
 
-/** M10 cluster 4 (D-039/D-046/D-048): mesma consulta pontual de `User`/`PROFILE` já usada por
- * `resolveRecipientEmail` em `composition/notification.ts` (não exportada de lá - duplicar essa
- * leitura pontual de 1 item aqui é wiring de composition root, mesmo espírito de
- * `buildExpirationItemLookup` acima, não lógica de negócio a compartilhar). */
-/** Wave B2B-11 follow-up (found while scoping B2B-12, same already-`APPROVED` principle as
- * D-107/D-108's `resolveRecipientEmail` fix, not a new design decision): migrated from
- * `UserProfile` (lazy, only provisioned on first `RequestContext` resolution IN THIS SPECIFIC
- * Organization) to `GlobalUser` (tenantless, guaranteed to exist since the user's very first
- * login anywhere in the system) - same sequencing gap, same fix. A member who accepted an
- * invitation but never yet resolved a `RequestContext` in that Organization has a real ACTIVE
- * `Membership` (and is a legitimate document-chasing-dispatch recipient) before `UserProfile`
- * would exist for them. `tenantId` no longer used (the key is tenantless) - kept in the exposed
- * signature for call-site compatibility. */
-async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableName: string, userId: string): Promise<string | undefined> {
-  const result = await client.send(new GetCommand({ TableName: tableName, Key: globalUserKey(userId), ConsistentRead: true }));
-  const globalUser = result.Item as { emailNormalized?: string } | undefined;
-  return globalUser?.emailNormalized;
+/** Wave B2B-11 follow-up (D-109) migrated this from `UserProfile` to `GlobalUser` (same
+ * sequencing gap/fix as `composition/notification.ts`'s `resolveRecipientEmail`). Wave B2B-13
+ * (E2E/Adversarial Security, D-112) closes a SEPARATE, more serious gap the Codex review found in
+ * that same function: reading only `GlobalUser` at actual dispatch time (which can happen well
+ * after the `EXPIRED` occurrence was claimed) never re-checked `Membership` - the same TOCTOU
+ * window as `resolveRecipientEmail`'s original bug. Reuses
+ * `DynamoDbNotificationRecipientResolver` (already `notification/persistence/`'s unit-tested
+ * authority on this exact rule) instead of reading `GlobalUser` directly - composition roots
+ * already cross module boundaries freely (`ses-email-adapter.ts` below is `notification/`'s own
+ * provider, already imported here), so this is not a new boundary. */
+async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
+  const resolver = new DynamoDbNotificationRecipientResolver(client, tableName);
+  const result = await resolver.resolve({ tenantId, candidateUserId: userId });
+  return result?.active ? result.email : undefined;
 }
 
 /** W5-01/GTR-01 (D-060): mesma consulta pontual de `User`/`PROFILE` de `resolveInternalUserEmail`
@@ -164,7 +161,7 @@ export function buildDocumentChasingDispatchDeps(
     newIntentId: () => ids.newIntentId(),
     guestTokenPepper,
     emailProvider,
-    resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => resolveInternalUserEmail(client, tableName, input.userId),
+    resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => resolveInternalUserEmail(client, tableName, input.tenantId, input.userId),
     resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
     guestUploadBaseUrl,
   };

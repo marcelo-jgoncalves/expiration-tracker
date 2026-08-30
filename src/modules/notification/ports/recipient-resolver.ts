@@ -24,6 +24,21 @@ export interface ResolvedRecipient {
   userId: string;
   tenantId: string;
   active: boolean;
+  /** Wave B2B-13 (E2E/Adversarial Security, D-112): `GlobalUser.emailNormalized`, populated by
+   * the same read this resolver already does for `active` - added so composition roots that
+   * need to deliver an async notification (`runtime/aws/composition/notification.ts`'s
+   * `resolveRecipientEmail`, `subject.ts`'s `resolveInternalUserEmail`) can reuse this resolver
+   * instead of reading `GlobalUser` on their own, which is exactly the TOCTOU gap this wave
+   * closed: a resolver read at delivery time (not just at routing time) that never re-checked
+   * `Membership`/`GlobalUser.identityStatus`. Optional because it is meaningless when
+   * `active` is `false` - callers must check `active` before reading it, never the reverse. This
+   * resolver and `expiration/ports/member-eligibility.ts`'s `MemberEligibilityChecker` both
+   * enforce the exact same rule (`Membership.status==="ACTIVE" &&
+   * GlobalUser.identityStatus==="ACTIVE"`) against the same two entities - deliberately not
+   * merged into one abstraction, since one resolves a recipient (with email) and the other
+   * validates a candidate (boolean only, for watchers/assignees) - different enough shapes that
+   * unifying them would obscure more than it would share. */
+  email?: string;
 }
 
 export interface NotificationRecipientResolver {
