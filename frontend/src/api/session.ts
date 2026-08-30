@@ -5,10 +5,24 @@
  */
 import { ApiError } from "./errors.js";
 
+/** Matches the real `GET /bff/session` response shape since Wave B2B-6 (D-102,
+ * `src/modules/bff/http/bff-handlers.ts`'s `handleGetSession`) — `tenantId`/`userId` were
+ * removed from the session in B2B-5 (D-095-096) and never existed in this shape; the fields
+ * below are the only ones the BFF actually returns. */
+export type OnboardingState = "HAS_USABLE_MEMBERSHIP" | "SUSPENDED_ONLY" | "LEGACY_TENANT_ONLY" | "NO_TENANT_NO_MEMBERSHIP";
+
+export interface UsableOrganization {
+  organizationId: string;
+  displayName: string;
+  role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
+  version: number;
+}
+
 export interface SessionInfo {
   authenticated: boolean;
-  tenantId?: string;
-  userId?: string;
+  activeOrganizationId?: string;
+  onboardingState?: OnboardingState;
+  organizationSelectionRequired?: { organizations: UsableOrganization[] };
 }
 
 /** Never throws on a network/parse failure by returning `{authenticated:false}` - a broken
@@ -17,10 +31,10 @@ export interface SessionInfo {
  * not silently assume logged-out. */
 export class SessionProbeError extends Error {}
 
-export async function fetchSessionInfo(): Promise<SessionInfo> {
+export async function fetchSessionInfo(options?: { signal?: AbortSignal }): Promise<SessionInfo> {
   let response: Response;
   try {
-    response = await fetch("/bff/session", { credentials: "include" });
+    response = await fetch("/bff/session", { credentials: "include", signal: options?.signal });
   } catch (cause) {
     throw new SessionProbeError(`Could not reach the session endpoint: ${String(cause)}`);
   }

@@ -287,6 +287,8 @@ locals {
     change_role       = { method = "PUT", path = "/organizations/members/{userId}/role" }
     remove_member     = { method = "DELETE", path = "/organizations/members/{userId}" }
     leave             = { method = "POST", path = "/organizations/members/leave" }
+    # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same handler/Lambda, new route.
+    update_settings = { method = "PATCH", path = "/organizations/settings" }
   }
 }
 

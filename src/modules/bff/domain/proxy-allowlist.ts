@@ -74,6 +74,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "PUT", pathTemplate: "/organizations/members/{userId}/role" },
   { method: "DELETE", pathTemplate: "/organizations/members/{userId}" },
   { method: "POST", pathTemplate: "/organizations/members/leave" },
+  // Wave B2B-10 (Tenant-aware Frontend, "settings" scope item).
+  { method: "PATCH", pathTemplate: "/organizations/settings" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

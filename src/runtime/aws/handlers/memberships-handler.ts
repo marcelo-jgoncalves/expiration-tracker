@@ -15,6 +15,7 @@ import {
   handleLeaveOrganization,
   type MembershipHttpDeps,
 } from "../../../modules/organization/http/membership-handlers.js";
+import { handleUpdateOrganizationSettings, type OrganizationSettingsHttpDeps } from "../../../modules/organization/http/organization-settings-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -30,6 +31,7 @@ if (!invitationTokenPepper) throw new Error("GUEST_TOKEN_PEPPER env var is requi
 const { resolver } = buildIdentityDeps(client, tableName);
 const membership = buildMembershipDeps(client, tableName, invitationTokenPepper);
 const deps: MembershipHttpDeps = { resolver, ...membership };
+const settingsDeps: OrganizationSettingsHttpDeps = { resolver, updateSettings: membership.updateSettings };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleMembershipsRoute(event));
@@ -64,6 +66,8 @@ async function handleMembershipsRoute(event: APIGatewayProxyEventV2WithJWTAuthor
           return await handleRemoveMembership(deps, base);
         case "POST /organizations/members/leave":
           return await handleLeaveOrganization(deps, base);
+        case "PATCH /organizations/settings":
+          return await handleUpdateOrganizationSettings(settingsDeps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

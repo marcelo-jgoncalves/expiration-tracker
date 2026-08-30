@@ -28,6 +28,11 @@ export interface UsableOrganization {
   organizationId: string;
   displayName: string;
   role: Membership["role"];
+  /** Organization's own OCC version (Wave B2B-10) - the frontend needs this as the `If-Match`
+   * value for `PATCH /organizations/settings`; every other tenant-scoped write in this app
+   * already requires an `expectedVersion`, this list is simply where the frontend's only
+   * current source of Organization data already has it available. */
+  version: number;
 }
 
 /** Wave B2B-6 (D-101, achado 4 da Rodada 1 do Codex): `Membership` `ACTIVE` sozinho não basta -
@@ -44,7 +49,7 @@ export async function listUsableOrganizations(organizations: OrganizationStore, 
       if (!lifecycle || lifecycle.status !== TENANT_ACTIVE_STATUS) return undefined;
       const organization = await organizations.get<Organization>(organizationKey(membership.organizationId));
       if (!organization) return undefined;
-      return { organizationId: membership.organizationId, displayName: organization.displayName, role: membership.role };
+      return { organizationId: membership.organizationId, displayName: organization.displayName, role: membership.role, version: organization.version };
     }),
   );
   return results.filter((result): result is UsableOrganization => result !== undefined);

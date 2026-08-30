@@ -89,7 +89,7 @@ describe("ItemsCollection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Arquivados" }));
 
     await waitFor(() => expect(screen.getByText("Nenhum vencimento neste status.")).toBeInTheDocument());
-    expect(getMock).toHaveBeenCalledWith(expect.stringContaining("status=ARCHIVED"));
+    expect(getMock).toHaveBeenCalledWith(expect.stringContaining("status=ARCHIVED"), expect.anything());
   });
 
   it("maps an AUTHORIZATION error to the permission-limited empty state, not a retry-offering error banner", async () => {
