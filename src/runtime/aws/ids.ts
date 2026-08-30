@@ -12,8 +12,11 @@ import type { IdGenerator as IdentityIdGenerator } from "../../modules/identity/
 import type { DocumentIdGenerator } from "../../modules/document/application/id-generator.js";
 import type { SubjectIdGenerator } from "../../modules/subject/application/id-generator.js";
 import type { ImportIdGenerator } from "../../modules/import/application/id-generator.js";
+import type { OrganizationIdGenerator } from "../../modules/organization/application/id-generator.js";
 
-export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator, SubjectIdGenerator, ImportIdGenerator {
+export class UlidIdGenerator
+  implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator, SubjectIdGenerator, ImportIdGenerator, OrganizationIdGenerator
+{
   newItemId(): string {
     return `item_${ulid()}`;
   }
@@ -61,6 +64,12 @@ export class UlidIdGenerator implements ExpirationIdGenerator, ReminderIdGenerat
   }
   newDeviceId(): string {
     return `device_${ulid()}`;
+  }
+  newOrganizationId(): string {
+    return `org_${ulid()}`;
+  }
+  newMembershipId(): string {
+    return `membership_${ulid()}`;
   }
 }
 
