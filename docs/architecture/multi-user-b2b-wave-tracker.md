@@ -32,7 +32,7 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | B2B-2.1 | Domain/Persistence — entidade `User` global aditiva (`PK=USER#<userId>`) | **NOT STARTED** — pré-requisito real de B2B-3 (`Membership.userId` referencia essa identidade), não trabalho opcional adiável |
 | B2B-2.2 | (fundido com 2.1 — mesmo arquivo/commit, diff atomicamente revisável per DoD) | ver acima |
 | B2B-2.3 + B2B-2.4 | Application + call sites — unificar `bootstrap-identity.ts`/`bff-auth-service.ts` no `TenantBootstrapService` já existente (em vez de uma classe `IdentityBootstrapService` nova — mais conservador, DRY) | **DONE** (2026-08-30) — `DoD: item=unificar bootstrap BFF+API; risco=3 (implementação de padrão já aprovado/fencing existente, sem novo contrato); evidência=npm run typecheck PASS, npm run lint PASS, npm run check-boundaries PASS (384 módulos, 0 violação), suíte-alvo 51/51 PASS incl. 2 testes adversariais novos (email verificado preservado; login rejeitado para tenant DELETING — capacidade que o caminho BFF nunca teve antes); lacunas=nenhuma` |
-| B2B-2.5 | Testes — suíte completa (`npm test`) para os subitens acima | **DONE** (2026-08-30) — ver linha de evidência abaixo |
+| B2B-2.5 | Testes — suíte completa (`npm test`) para os subitens acima | **DONE** (2026-08-30) — `DoD: item=suíte completa pós-unificação; risco=2 (verificação, não decisão); evidência=npm test 1106/1106 (120 arquivos), zero regressão; lacunas=nenhuma`. Registrado em `decisions-log.md` D-087 |
 
 ## Achados/pendências laterais abertos durante a execução (não bloqueiam waves seguintes)
 
