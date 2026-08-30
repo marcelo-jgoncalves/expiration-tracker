@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { AuthenticationError, ConflictError, DependencyUnavailableError, ValidationError } from "../../../shared/errors/app-error.js";
-import { IdentityMappingRepository } from "../../identity/persistence/identity-mapping-repository.js";
+import { TenantBootstrapService } from "../../identity/application/bootstrap-identity.js";
 import { UserRepository } from "../../identity/persistence/user-repository.js";
 import type { SessionStore } from "../ports/session-store.js";
 import type { CognitoOidcClient, IdTokenVerifier } from "../ports/cognito-oidc-client.js";
@@ -30,7 +30,12 @@ export interface BffAuthServiceDeps {
   cognitoClient: CognitoOidcClient;
   idTokenVerifier: IdTokenVerifier;
   tokenEncryptor: TokenEncryptor;
-  identityMappings: IdentityMappingRepository;
+  /** Wave B2B-2 (D-086 physical model §3): both login paths bootstrap identity through this
+   * single atomic service now, closing the BFF path's pre-existing gap (Wave B2B-0 inventory
+   * §1.1) — no TenantLifecycleRecord, no fencing — where it used to build its own
+   * IdentityMapping/UserProfile sequentially instead of sharing the direct-API path's
+   * TransactWriteItems-backed bootstrap. */
+  bootstrap: TenantBootstrapService;
   users: UserRepository;
   pepper: string;
   redirectUri: string;
@@ -156,19 +161,13 @@ export class BffAuthService {
     const accessClaims = decodeJwtPayloadUnverified(tokens.accessToken);
 
     // MVP: tenantId=userId (data-model.md §7.3, same rule RequestContextResolver.resolve()
-    // applies) - newUserId() must be called exactly ONCE and reused for both, never twice.
+    // applies) - newUserId() must be called exactly ONCE, TenantBootstrapService reuses it for
+    // both userId and tenantId internally. Same atomic bootstrap the direct-API path uses
+    // (bootstrap-identity.ts) - closes this path's prior fencing gap (Wave B2B-0 §1.1).
     const newUserId = this.deps.newUserId();
-    const mapping = await this.deps.identityMappings.findOrCreate(idClaims.subject, newUserId, newUserId);
-    let profile = await this.deps.users.getProfile(mapping.tenantId, mapping.userId);
+    const { mapping, profile } = await this.deps.bootstrap.bootstrap(idClaims.subject, newUserId, (idClaims.email ?? "").toLowerCase());
     if (!profile) {
-      profile = await this.deps.users.createProfileIfAbsent({
-        userId: mapping.userId,
-        tenantId: mapping.tenantId,
-        identitySubject: idClaims.subject,
-        emailNormalized: (idClaims.email ?? "").toLowerCase(),
-        roles: ["OWNER"],
-        status: "ACTIVE",
-      });
+      throw new AuthenticationError("Tenant is not active.");
     }
     if (profile.status !== "ACTIVE") {
       throw new AuthenticationError("User is not active.");

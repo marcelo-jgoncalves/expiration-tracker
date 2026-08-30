@@ -1,7 +1,7 @@
 /** Composition root for the BFF module against real DynamoDB/KMS/Cognito. */
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { DynamoDbIdentityStore } from "../../../modules/identity/persistence/dynamodb-identity-store.js";
-import { IdentityMappingRepository } from "../../../modules/identity/persistence/identity-mapping-repository.js";
+import { TenantBootstrapService } from "../../../modules/identity/application/bootstrap-identity.js";
 import { UserRepository } from "../../../modules/identity/persistence/user-repository.js";
 import { DynamoDbSessionStore } from "../../../modules/bff/persistence/dynamodb-session-store.js";
 import { KmsTokenEncryptor, createKmsClient } from "../../../modules/bff/persistence/kms-token-encryptor.js";
@@ -38,7 +38,7 @@ const fetchBackend: BackendFetcher = {
 
 export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: DynamoDBDocumentClient, config: BffConfig) {
   const identityStore = new DynamoDbIdentityStore(mainClient, config.mainTableName);
-  const identityMappings = new IdentityMappingRepository(identityStore);
+  const bootstrap = new TenantBootstrapService(identityStore, config.mainTableName);
   const users = new UserRepository(identityStore);
 
   const sessionStore = new DynamoDbSessionStore(sessionClient, config.sessionTableName);
@@ -52,7 +52,7 @@ export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: 
     cognitoClient,
     idTokenVerifier,
     tokenEncryptor,
-    identityMappings,
+    bootstrap,
     users,
     pepper: config.sessionTokenPepper,
     redirectUri: config.redirectUri,

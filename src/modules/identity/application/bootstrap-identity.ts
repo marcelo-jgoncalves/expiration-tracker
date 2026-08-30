@@ -39,12 +39,20 @@ export class TenantBootstrapService {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  async bootstrap(cognitoSub: string, newUserId: string): Promise<BootstrapResult> {
+  /**
+   * `emailNormalized` is only used on first-login creation (`createAll`), and only by callers
+   * who actually have a verified email at hand (BFF/OIDC login - `idClaims.email`). The direct-
+   * API path (bearer JWT, no OIDC claims beyond `sub`) omits it, matching prior behavior
+   * (`emailNormalized: ""`) exactly - see Wave B2B-0 inventory §1/§1.1: this is the single
+   * bootstrap contract both real construction sites now share, closing the BFF path's
+   * pre-existing fencing gap (no `TenantLifecycleRecord`, no atomicity) as a side effect.
+   */
+  async bootstrap(cognitoSub: string, newUserId: string, emailNormalized = ""): Promise<BootstrapResult> {
     const existingMapping = await this.store.get<IdentityMapping>(identityMappingKey(cognitoSub));
     if (existingMapping) {
       return this.resolveExisting(existingMapping);
     }
-    return this.createAll(cognitoSub, newUserId);
+    return this.createAll(cognitoSub, newUserId, emailNormalized);
   }
 
   /** Existing mapping: read the lifecycle tombstone and decide whether User may be created/kept. */
@@ -161,9 +169,11 @@ export class TenantBootstrapService {
   }
 
   /** No mapping exists yet: create IdentityMapping + TenantLifecycleRecord(ACTIVE) + User
-   * atomically. MVP: tenantId=userId (same judgment call as
-   * IdentityMappingRepository.findOrCreate - decided here and in that one other place only). */
-  private async createAll(cognitoSub: string, newUserId: string): Promise<BootstrapResult> {
+   * atomically. MVP: tenantId=userId (same judgment call as IdentityMappingRepository.
+   * findOrCreate - decided here and, until Wave B2B-2, also inline in bff-auth-service.ts;
+   * Wave B2B-0 inventory §1.2 found that stale claim of "nowhere else" and this is the fix -
+   * bff-auth-service.ts now calls this same method instead of constructing its own mapping). */
+  private async createAll(cognitoSub: string, newUserId: string, emailNormalized: string): Promise<BootstrapResult> {
     const now = this.now();
     const mapping: IdentityMapping = {
       ...identityMappingKey(cognitoSub),
@@ -191,7 +201,7 @@ export class TenantBootstrapService {
       userId: newUserId,
       tenantId: newUserId,
       identitySubject: cognitoSub,
-      emailNormalized: "",
+      emailNormalized,
       roles: ["OWNER"],
       status: "ACTIVE",
       createdAt: now,
