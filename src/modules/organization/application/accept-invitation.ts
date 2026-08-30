@@ -115,7 +115,9 @@ export class AcceptInvitationService {
         Key: invitationTokenPointerKey(pointer.selectorHash),
         UpdateExpression: "SET consumedAt = :now",
         ConditionExpression: "attribute_not_exists(consumedAt) AND expiresAt > :now",
-        ExpressionAttributeNames: {},
+        // Wave B2B-14 (D-119): ExpressionAttributeNames OMITTED, never `{}` - neither
+        // expression above uses a `#` placeholder (consumedAt/expiresAt aren't reserved
+        // words), and DynamoDB's TransactWriteItems rejects an explicitly-empty map outright.
         ExpressionAttributeValues: { ":now": nowIso },
       },
     };
@@ -152,7 +154,7 @@ export class AcceptInvitationService {
           Key: organizationKey(invitation.organizationId),
           UpdateExpression: "SET ownerCount = ownerCount + :one",
           ConditionExpression: "attribute_exists(PK)",
-          ExpressionAttributeNames: {},
+          // Wave B2B-14 (D-119): see tokenEntry's comment above - omitted, never `{}`.
           ExpressionAttributeValues: { ":one": 1 },
         },
       });

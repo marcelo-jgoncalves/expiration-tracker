@@ -171,7 +171,7 @@ export class InMemoryIdentityStore implements IdentityStore {
           // ConditionCheck branch above - required for that fence to actually be exercised by
           // this fake rather than silently no-op'd.
           const reservedNames = new Set(["#version", "#tenantId", "#updatedAt"]);
-          for (const [nameKey, fieldName] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+          for (const [nameKey, fieldName] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
             if (reservedNames.has(nameKey) || nameKey.startsWith("#set") || nameKey.startsWith("#rem")) continue;
             const valueKey = `:${nameKey.slice(1)}`;
             if (!(valueKey in entry.Update.ExpressionAttributeValues)) continue;
@@ -205,7 +205,7 @@ export class InMemoryIdentityStore implements IdentityStore {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
-        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
           if (placeholder === "version") {
             next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
           } else if (placeholder === "updatedAt") {

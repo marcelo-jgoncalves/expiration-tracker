@@ -171,7 +171,7 @@ export class InMemoryExpirationStore implements ExpirationStore {
         // ExpressionAttributeValues (as `:<placeholder>`) is a SET; one absent from it but named
         // in ExpressionAttributeNames is a REMOVE.
         const IDEMPOTENCY_TRANSITION_FIELDS = new Set(["status", "requestHash", "responseRef", "completedAt"]);
-        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
           if (placeholder === "version") {
             next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
           } else if (placeholder === "updatedAt") {

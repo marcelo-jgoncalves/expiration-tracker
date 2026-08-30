@@ -129,6 +129,19 @@ export class InMemoryOrganizationStore implements OrganizationStore {
   }
 
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
+    // Wave B2B-14 (D-119): real DynamoDB rejects an explicitly-empty ExpressionAttributeNames
+    // outright (`ValidationException: ExpressionAttributeNames must not be empty`) - this fake
+    // previously accepted `{}` silently, which is exactly why update-organization-settings.ts's
+    // real bug (passing `{}` instead of omitting the key when there's nothing to map) was never
+    // caught by any unit test. Mirrors the real API's behavior for every entry kind, not just
+    // Update, so no future writer can hit the same invisible gap.
+    for (const entry of entries) {
+      const names = "Put" in entry ? entry.Put.ExpressionAttributeNames : "Update" in entry ? entry.Update.ExpressionAttributeNames : "Delete" in entry ? entry.Delete.ExpressionAttributeNames : undefined;
+      if (names !== undefined && Object.keys(names).length === 0) {
+        throw { name: "ValidationException", message: "ExpressionAttributeNames must not be empty" };
+      }
+    }
+
     const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
     let anyFailed = false;
 

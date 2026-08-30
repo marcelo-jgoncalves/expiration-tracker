@@ -26,7 +26,15 @@ export function buildOwnerCountDeltaEntry(tableName: string, organizationId: str
         Key: organizationKey(organizationId),
         UpdateExpression: "SET ownerCount = ownerCount - :one",
         ConditionExpression: "ownerCount > :one",
-        ExpressionAttributeNames: {},
+        // Wave B2B-14 (Operational Evidence, D-119): real finding, the most severe of this
+        // wave - ExpressionAttributeNames must be OMITTED, never `{}` (DynamoDB's
+        // TransactWriteItems rejects an explicitly-empty map with
+        // `ValidationException: ExpressionAttributeNames must not be empty`). This builder is
+        // the LAST-OWNER PROTECTION GUARD shared by Change/Remove/Leave - every real attempt
+        // to demote/remove/leave-as-the-last-owner (the exact case this guard exists to
+        // handle) crashed with an uncaught 500 instead of the correct LastOwnerError, since
+        // Wave B2B-8/D-100 first wrote this file. Caught only now because no unit test
+        // exercises the real DynamoDB API and no E2E test hits the real deployed backend.
         ExpressionAttributeValues: { ":one": 1 },
       },
     };
@@ -38,7 +46,7 @@ export function buildOwnerCountDeltaEntry(tableName: string, organizationId: str
       Key: organizationKey(organizationId),
       UpdateExpression: "SET ownerCount = ownerCount + :one",
       ConditionExpression: "attribute_exists(PK)",
-      ExpressionAttributeNames: {},
+      // Wave B2B-14 (D-119): see the decrement branch's comment above - omitted, never `{}`.
       ExpressionAttributeValues: { ":one": 1 },
     },
   };

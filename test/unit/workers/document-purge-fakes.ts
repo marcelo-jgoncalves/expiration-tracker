@@ -97,7 +97,7 @@ export class FakeDocumentPurgeStore implements DocumentStore {
     for (const entry of entries) {
       if ("Update" in entry) {
         const existing = this.items.get(this.k(entry.Update.Key));
-        if (!evaluateCondition(entry.Update.ConditionExpression, entry.Update.ExpressionAttributeNames, entry.Update.ExpressionAttributeValues, existing)) {
+        if (!evaluateCondition(entry.Update.ConditionExpression, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues, existing)) {
           throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Update" };
         }
       } else if ("Delete" in entry) {
@@ -118,7 +118,7 @@ export class FakeDocumentPurgeStore implements DocumentStore {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
-        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames)) {
+        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
           if (placeholder === "version") next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
           else if (placeholder === "updatedAt") next["updatedAt"] = entry.Update.ExpressionAttributeValues[":now"];
           else if (name.startsWith("#set")) next[placeholder] = entry.Update.ExpressionAttributeValues[`:${name.slice(1)}`];
