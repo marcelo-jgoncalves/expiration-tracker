@@ -4,7 +4,7 @@
 
 ## Branch / as-of
 
-**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito com `develop` em sincronia com `main` logo após o merge do PR #84 (reconciliação de contexto completa, commit `fe32861`).
+**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito com `develop` em sincronia com `main` logo após o merge do PR #98 (Wave B2B-4/D-094, commit `06f89a5`, CI verde).
 
 ## Fase atual
 
