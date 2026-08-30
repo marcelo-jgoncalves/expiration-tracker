@@ -16,6 +16,7 @@ export type BackendErrorCategory =
   | "CONFLICT"
   | "QUOTA_EXCEEDED"
   | "DEPENDENCY_UNAVAILABLE"
+  | "BUSINESS_RULE"
   | "INTERNAL";
 
 export type ErrorCategory = BackendErrorCategory | "NETWORK" | "UNKNOWN_OUTCOME" | "PROCESSING";
@@ -125,4 +126,12 @@ export function isAuthError(err: unknown): err is ApiError {
 
 export function isUnknownOutcome(err: unknown): err is ApiError {
   return err instanceof ApiError && err.category === "UNKNOWN_OUTCOME";
+}
+
+/** `LastOwnerError` (Wave B2B-8, D-099/D-100) - the organization's last ACTIVE OWNER can't
+ * leave/be demoted/be removed. Checked by `code`, not just `category` - BUSINESS_RULE also
+ * covers `OwnerTierChangeRequiresOwnerError` (`BUSINESS_RULE_VIOLATION`), a distinct case this
+ * helper must not match. */
+export function isLastOwnerError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.category === "BUSINESS_RULE" && err.code === "LAST_OWNER";
 }

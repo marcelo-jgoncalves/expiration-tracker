@@ -4,7 +4,7 @@
 
 ## Branch / as-of
 
-**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito logo após implementar e fechar a Wave B2B-11 (D-107/D-108) — confirmar se já foi commitado/mergeado ou se ainda está pendente antes de assumir qualquer coisa.
+**Não confie nesta seção sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5` e `git status` antes de assumir qualquer coisa abaixo como pendente ou concluído — múltiplas sessões/máquinas trabalham neste repo. Escrito logo após mergear D-119 em `main` (PR #120, commit `636468f`) — CD (`run 33336273397`) confirmado `success`, aplicado em `dev` de verdade. Falta só o Marcelo reexercitar o save de Settings no navegador para fechar B2B-14 de fato.
 
 ## Fase atual
 
@@ -36,15 +36,36 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 
 1. **Multi-User B2B — autorizado a prosseguir, Waves B2B-0 a B2B-13 `DONE` (D-084 a D-113).** Design técnico `APPROVED` (protocolo completo em `roadmap-evolution/17-multi-user-b2b-revised-strategy.md` §125) e timing decidido diretamente pelo Marcelo. Estado detalhado por subitem (evidência `DoD:`, judgment calls de sequenciamento documentados) vive em `docs/architecture/multi-user-b2b-wave-tracker.md` — não duplicado aqui. Resumo: **B2B-0** inventário read-only; **B2B-1** physical model formalizado via protocolo Claude↔Codex 5 rodadas (D-086, `docs/architecture/multi-user-b2b-physical-model.md`); **B2B-2** fundação de identidade global aditiva (D-087/D-088); **B2B-3** `Organization`/`Membership`/`CreateOrganizationService` (D-089/D-090/D-091); **B2B-4** `OnboardingStateResolver` (D-092/D-094); **B2B-5** `RequestContext Cutover` (D-095/D-096) — login não cria mais tenant sozinho, `RequestContextResolver` resolve a Organization real, `POST /bff/organizations` fecha o loop de onboarding; **B2B-7** `RBAC` (D-097/D-098) — `Membership.role=ADMIN` real na matriz de autorização; **B2B-8** `Invitations/Team` (D-099/D-100) — `Invitation`/aceite/revogação/gerência de membros com last-owner protection, primeiro writer real de `Membership` além da criação, `ADMIN` finalmente alcançável em produção via convite; **B2B-6** `BFF Organization Context` (D-101/D-102) — `X-Organization-Id` transportado do BFF ao recurso, multi-org selecionável de verdade, fecha o `InternalError` 500 que B2B-8 tornou explorável; **B2B-9** `W3-07/Privacy Reconciliation` (D-103/D-104) — fecha o `InvitationTokenPointer` órfão pós-exclusão de Organization, formaliza User-level vs. Organization-level erasure em `privacy-lgpd.md` §4.1; **B2B-10** `Tenant-aware Frontend` (D-105/D-106) — corrige a regressão real do `AuthContext`, isolamento de cache real entre tenants, switcher/members/settings; **B2B-11** `Responsibility + Notifications` (D-107/D-108) — `NotificationRecipientResolver`/`assigneeUserId`/`ItemWatch.userId` migrados para `Membership`+`GlobalUser` reais (NÃO inclui a supersessão de GTR-01, ainda pendente); **B2B-12** `Cutover de dev` (D-110/D-111) — `scripts/reset-dev-data.ts` (Fase A inventário+snapshot sempre, Fase B delete real só `--confirm`, allowlist de tabela/conta, verificação final fail-loud), `LEGACY_TENANT_ONLY` removido (backend+frontend+teste), Fase A (leitura) já verificada de fato contra `dev` real; execução real destrutiva permanece pendente de confirmação explícita do Marcelo; **B2B-13** `E2E/Adversarial Security` (D-112/D-113) — auditoria contra as 25 perguntas de §121 (20/25 já cobertas por waves anteriores, 2 fecham com fix real de TOCTOU em entrega assíncrona de notificação, 2 ganham teste novo de revogação/isolamento de role, 1 é auditoria de fixture IDs sem achado).
 
-   **Multi-User B2B — todas as 14 waves originais (B2B-0 a B2B-13) `DONE`.** Próxima wave real:
-   **B2B-14 (Operational Evidence, §119 do roadmap) — ainda não tem escopo debatido, precisa de
-   rodada de design/scoping antes de codificar** (mesmo padrão das waves anteriores: primeira
-   ação é montar a proposta e submeter ao protocolo Claude↔Codex, não codificar direto). Job de
-   B2B-14: evidência operacional real contra `dev` via `aws --profile claude-dev` (mesmo espírito
-   de E-011/M7's E2E PROVEN) — provavelmente cobre os itens da tabela "Status de evidência"
-   abaixo ainda sem verificação real (B2B-10 parcial, B2B-11 sem E2E). B2B-15 (Documentation
+   **Multi-User B2B — todas as 14 waves originais (B2B-0 a B2B-13) `DONE`. B2B-14 (Operational
+   Evidence) `EM ANDAMENTO`, 6 achados reais severos já corrigidos (D-114 a D-119), todos só
+   descobertos por exercitar o fluxo de verdade contra `dev` pela primeira vez** — exatamente o
+   job desta wave (mesmo espírito de E-011/M7's E2E PROVEN): (1) `app_origin` placeholder nunca
+   trocado, OAuth nunca funcionou (D-114); (2) `bff-handler` crashava em TODA invocação desde
+   B2B-8, `GUEST_TOKEN_PEPPER` nunca wireado (D-115); (3) `gsi4_read_policy_json` nunca anexado
+   aos 10 Lambdas reais que o consomem (D-116); (4) `GET /bff/organizations`/`POST
+   /bff/organization/select` nunca tiveram rota real no API Gateway (D-117); (5) nenhuma tela de
+   "criar organização" existia no frontend, todo usuário sem Organization ficava preso em
+   "Carregando…" para sempre (D-118, feature nova `Onboarding.tsx`+`OnboardingGate.tsx`); (6)
+   `ExpressionAttributeNames: {}` explícito quebrava `TransactWriteItems` real com
+   `ValidationException` em 3 arquivos, o mais severo sendo o guard de última-proteção-de-OWNER
+   (D-119, mergeado PR #120, CD disparado — confirmar conclusão antes de considerar aplicado).
+   **Pendente para fechar B2B-14**: Marcelo reexercitar o save de Settings em `dev` após o CD de
+   D-119 confirmar; depois continuar o roteiro manual (convite de 2º membro → aceite → trabalhar
+   no mesmo tenant → trocar role → trocar de organização → revogar membership → excluir
+   organização → confirmar isolamento da outra organização). B2B-15 (Documentation
    Reconciliation, checklist `AGENTS.md` §6) é a última wave do backlog original, natural
-   seguinte após B2B-14.
+   seguinte após B2B-14 fechar.
+
+   **3 lacunas reais de produto, fora do escopo original de B2B-0..15, levantadas pelo Marcelo em
+   2026-08-30 e ainda não escopadas em nenhuma wave** (detalhe completo nas memórias de sessão —
+   ver rodapé deste arquivo): (a) o pipeline de purga de tenant (W3-07) está implementado e
+   testado, mas nada o aciona automaticamente hoje quando uma conta/organização é fechada —
+   mesma decisão pendente do item 2 de "O que está em andamento" abaixo, não uma lacuna nova;
+   (b) exportação de dados (CSV/planilha) nunca foi implementada, só importação (M10) — lacuna
+   real dado que LGPD exige portabilidade como direito do titular; (c) quando um `Membership` é
+   removido, `ExpirationItem.assigneeUserId`/`ItemWatch` não são reatribuídos nem limpos — o
+   campo fica órfão indefinidamente e a notificação só para de disparar silenciosamente, sem
+   fallback nem fluxo de reatribuição. Nenhuma das 3 tem escopo debatido ainda.
 2. **W3-07 — purge pipeline durável**: implementado, revisado (D-081/D-082/D-083, Codex 9,1/10) e emendado para as entidades B2B (B2B-9/D-104 — `InvitationTokenPointer` já alcançável). **Decisão pendente, inalterada por B2B-9**: orquestrador real (Step Functions vs. Lambda+EventBridge Scheduler) — Type 1, `AGENTS.md` §4, precisa do Marcelo ou do protocolo Claude↔Codex; B2B-9 tratou só do CONTEÚDO/retenção da purga, não de quem a invoca, e confirmou essa decisão como ortogonal ao seu escopo (não precisa ser resolvida antes de mais nenhuma wave B2B). Downstream disso: Terraform da IAM role do handler de purge, teste de integração real dos adaptadores AWS, e o achado não-bloqueante de acoplar validação de prefixo↔bucket.
 3. **W3-07 — fencing dos writers de negócio** (`TenantBusinessMutation`): a maioria dos writers reais já fenced (chunks D-068 a D-080, ver `decisions-log.md`). Gap residual documentado, não explorável hoje: entradas sem PK `TENANT#`-prefixed E sem `tenantId` declarado (`LoginAttempt`/`GuestRateLimitRecord`) passam sem verificação — nenhum call site real produz isso.
 
@@ -52,10 +73,12 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 
 | Item | Precisa de | Onde está o detalhe |
 |---|---|---|
-Wave B2B-14 (Operational Evidence) — escopo não debatido | Rodada de design/scoping via protocolo Claude↔Codex antes de codificar (mesmo padrão de D-092/D-095/D-097/D-099/D-101/D-103/D-105/D-107/D-110/D-112) | `docs/architecture/multi-user-b2b-wave-tracker.md`, `roadmap-evolution/17` §119 |
+| Wave B2B-14 — Marcelo reexercitar o save de Settings em `dev` pós-CD de D-119, depois continuar o roteiro manual (convite/2º membro, troca de role, switch de organização, revogação, exclusão de organização) | Ação do Marcelo no browser — não scriptável sem o cookie de sessão dele | `decisions-log.md` D-119, `multi-user-b2b-wave-tracker.md` linha B2B-14 |
 | Execução real destrutiva de `scripts/reset-dev-data.ts` (`--confirm`/`--include-cognito` contra `dev`) | Confirmação explícita do Marcelo antes de rodar — design/implementação/verificação de leitura já `DONE` (D-110/D-111) | `docs/architecture/multi-user-b2b-wave-b2b12-scope.md`, `decisions-log.md` D-111 |
 | Supersessão de GTR-01 (`UserProfile.requesterDisplayName`→`Organization.displayName`) — prevista em B2B-5, nunca debatida | Rodada de design/scoping própria via protocolo Claude↔Codex (fora do escopo real de B2B-11) | `docs/architecture/multi-user-b2b-wave-tracker.md` (achados/pendências), `roadmap-evolution/17` §121 Q21 |
-| Orquestrador do purge W3-07 (Step Functions vs. Lambda+EventBridge) | Decisão do Marcelo ou protocolo Claude↔Codex (Type 1) — confirmado ortogonal ao escopo de B2B-9, não bloqueia nenhuma wave B2B seguinte | `decisions-log.md` D-083, `multi-user-b2b-wave-tracker.md` (seção de achados/pendências laterais) |
+| Orquestrador do purge W3-07 (Step Functions vs. Lambda+EventBridge) — também é o gap real de "nada aciona a purga quando uma conta/organização é fechada" (levantado pelo Marcelo 2026-08-30) | Decisão do Marcelo ou protocolo Claude↔Codex (Type 1) — confirmado ortogonal ao escopo de B2B-9, não bloqueia nenhuma wave B2B seguinte | `decisions-log.md` D-083, `multi-user-b2b-wave-tracker.md` (seção de achados/pendências laterais) |
+| Exportação de dados (CSV/planilha) — nunca implementada, só importação (M10); lacuna real dado LGPD/portabilidade (levantado pelo Marcelo 2026-08-30) | Rodada de design/scoping (escopo novo, não existe hoje nem como item de backlog formal) | `roadmap-evolution/09-domain-model-csv-import.md` (só menciona a metade de import) |
+| Reatribuição de responsabilidade ao remover um Membership — `assigneeUserId`/`ItemWatch` ficam órfãos, notificação só para de disparar silenciosamente (levantado pelo Marcelo 2026-08-30) | Rodada de design/scoping (escopo novo) | `roadmap-evolution/17` §121 itens 22-23 (pergunta aberta, nunca respondida com mecanismo) |
 | `AppError.retryable` — deveria decidir comportamento real de SQS retry/DLQ? | Decisão de produto do Marcelo | `docs/engineering/decisions-log.md` E-011 |
 | 7 de 9 classes de retenção LGPD sem purga física real (`privacy-lgpd.md` §4) | Decisão de escopo/priorização do Marcelo antes de qualquer implementação | `docs/engineering/pilot-readiness-program.md` W3-06 |
 | User Validation (planejamento de interface) | Sinal explícito do Marcelo para retomar | `docs/frontend/README.md` |
@@ -71,11 +94,14 @@ Wave B2B-14 (Operational Evidence) — escopo não debatido | Rodada de design/s
 
 ## Próxima ação, em ordem de valor esperado
 
-1. **Multi-User B2B, Wave B2B-14 (Operational Evidence)** — escopo não debatido ainda; primeira ação é montar a proposta e submeter ao protocolo Claude↔Codex (item 1 de "O que está em andamento"). Waves B2B-0 a B2B-13 `DONE`.
-2. Decidir o orquestrador do purge W3-07 (item 2) — pode avançar via protocolo Claude↔Codex de forma independente, sem dependência de nenhuma wave B2B pendente.
-3. `AppError.retryable` — decisão de produto pendente, não implementar sem sinal explícito do Marcelo.
-4. Decisão de escopo/priorização das 7 classes de retenção LGPD restantes, quando o Marcelo quiser priorizar.
-5. Execução real destrutiva de `scripts/reset-dev-data.ts` (`--confirm`) — aguarda confirmação explícita do Marcelo, não bloqueia nenhuma wave seguinte.
+1. **Confirmar que o CD de D-119 (PR #120, `main`@`636468f`) concluiu com sucesso** antes de assumir Wave B2B-14 aplicada em `dev` — se ainda não confirmado, checar `gh run list --branch main --workflow "Deploy (CD)" --limit 3` primeiro.
+2. **Continuar Wave B2B-14** — pedir ao Marcelo para reexercitar o save de Settings, depois seguir o roteiro manual restante (convite/2º membro, troca de role, switch de organização, revogação, exclusão de organização). Sem isso a wave não fecha.
+3. **Wave B2B-15 (Documentation Reconciliation)** — depois de B2B-14 fechar, é a última wave do backlog original de 15; usar o checklist `AGENTS.md` §6.
+4. **3 lacunas de produto novas (2026-08-30, ainda sem escopo debatido)**: (a) orquestrador/gatilho do purge W3-07 na exclusão de conta — mesmo item do 5 abaixo; (b) exportação de dados (CSV/planilha); (c) reatribuição de responsabilidade ao remover um Membership. Nenhuma tem urgência declarada pelo Marcelo — trazer à tona quando ele quiser priorizar, não implementar sem sinal dele.
+5. Decidir o orquestrador do purge W3-07 — pode avançar via protocolo Claude↔Codex de forma independente, sem dependência de nenhuma wave B2B pendente.
+6. `AppError.retryable` — decisão de produto pendente, não implementar sem sinal explícito do Marcelo.
+7. Decisão de escopo/priorização das 7 classes de retenção LGPD restantes, quando o Marcelo quiser priorizar.
+8. Execução real destrutiva de `scripts/reset-dev-data.ts` (`--confirm`) — aguarda confirmação explícita do Marcelo, não bloqueia nenhuma wave seguinte.
 
 ## Leitura obrigatória antes da próxima ação
 
@@ -95,6 +121,7 @@ Wave B2B-14 (Operational Evidence) — escopo não debatido | Rodada de design/s
 | B2B-11 Responsibility + Notifications (D-107/D-108) | `IMPLEMENTED`/`UNIT TESTED` (1210/1210 backend, mutação verificada em 2 pontos) — sem verificação E2E real contra `dev` (fica para B2B-14, Operational Evidence) |
 | B2B-12 Cutover de dev (D-110/D-111) | `IMPLEMENTED`/`UNIT TESTED` (1232/1232 backend + 139/139 vitest + 24/24 Playwright frontend, mutação verificada em 3 pontos) — Fase A (read-only) do script **`E2E PROVEN`** (rodada de fato contra `dev` real via `aws --profile claude-dev`, manifest gravado com sucesso); Fase B (`--confirm` real, destrutiva) nunca executada — aguarda confirmação explícita do Marcelo |
 | B2B-13 E2E/Adversarial Security (D-112/D-113) | `IMPLEMENTED`/`UNIT TESTED` (1235/1235 backend, mutação verificada em 4 pontos) — auditoria contra as 25 perguntas de §121 completa (matriz Q→arquivo:linha em `multi-user-b2b-wave-b2b13-scope.md`); sem verificação E2E real contra `dev` (fica para B2B-14, Operational Evidence) |
+| B2B-14 Operational Evidence (D-114 a D-119) | `EM ANDAMENTO` — 6 achados reais corrigidos e mergeados (D-119 é o mais recente, PR #120, CD disparado, confirmar conclusão); login OAuth, onboarding e GSI4/rotas de organização já exercitados de verdade em `dev` pelo Marcelo; save de Settings (D-119) ainda não reexercitado pós-CD; roteiro manual de convite/troca de role/switch/revogação/exclusão de organização ainda não iniciado |
 
 ## Links para histórico (não reler por padrão — só sob demanda)
 

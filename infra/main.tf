@@ -168,10 +168,25 @@ module "memberships_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
+    # Wave B2B-14 (D-120): mesmo padrão de subjects_handler acima - SES_FROM_ADDRESS/
+    # SES_CONFIGURATION_SET/INVITATION_BASE_URL sempre wireados (reaproveita o MESMO SES já
+    # usado por EmailDeliveryWorker/DocumentChasingDispatch, nenhum recurso novo), mas o ENVIO
+    # real só acontece se o kill switch abaixo estiver true - default false em todos os
+    # ambientes.
+    MEMBERSHIP_INVITE_EMAIL_ENABLED = tostring(var.membership_invite_email_enabled)
+    SES_FROM_ADDRESS                = var.ses_from_address
+    SES_CONFIGURATION_SET           = module.ses_notifications.configuration_set_name
+    INVITATION_BASE_URL             = local.invitation_base_url
   })
-  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  # Wave B2B-14 (D-116/D-120): gsi4_read_policy_json - see test_ping_handler's comment above.
+  # ses_send_email - same policy data.aws_iam_policy_document already used by
+  # subjects_handler/EmailDeliveryWorker, granted here for the same reason.
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi4_read_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 module "reminder_producer" {

@@ -57,6 +57,21 @@ variable "document_request_initial_invite_email_enabled" {
   default     = false
 }
 
+variable "membership_invite_email_enabled" {
+  description = <<-EOT
+    Kill switch global do e-mail de convite de organização (Wave B2B-8, D-099/D-100). Default
+    `false` em todos os ambientes, inclusive prod - mesmo padrão de
+    document_request_initial_invite_email_enabled: o mecanismo técnico (SesEmailAdapter/template
+    "organization-invitation") já é implementado independente deste valor, mas o ENVIO em si nunca
+    acontece com o switch desligado. Ligar em `dev` (Wave B2B-14, D-120) foi possível só depois de
+    verificar manualmente 2 endereços reais na conta SES sandbox (nenhum identity verificado antes
+    disso) - ligar em produção real exigiria o mesmo gate operacional ainda pendente para D-049
+    (sandbox->produção, alarme de bounce/complaint, runbook de desligamento).
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "mfa_policy" {
   description = "Cognito MFA enforcement policy: OFF, OPTIONAL, or REQUIRED. UNK-006 is pending external research — default OPTIONAL matches infra/lib/expiration-tracker-stack.ts's own default (props.mfaPolicy undefined -> ExpirationTrackerAuth's default)."
   type        = string
@@ -205,7 +220,11 @@ variable "bff_cognito_domain_prefix" {
 
 locals {
   bff_redirect_uri = "${var.app_origin}/bff/callback"
-  project_name     = "expiration-tracker"
+  # Wave B2B-14 (D-120): frontend route added in the same change that wires this - unlike
+  # guest_upload_base_url (deliberately left unset, no frontend page exists yet), this one has a
+  # real destination from the moment it's wired.
+  invitation_base_url = "${var.app_origin}/accept-invitation"
+  project_name        = "expiration-tracker"
   # Matches infra/bin/app.ts's stack id (ExpirationTrackerStack-Dev) in spirit, lowercased/
   # kebab-cased for Terraform resource naming (CDK/CloudFormation and Terraform/AWS resource
   # names follow different casing conventions; the stack's logical identity is what's

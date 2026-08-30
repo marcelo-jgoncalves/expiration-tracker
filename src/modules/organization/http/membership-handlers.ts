@@ -129,7 +129,11 @@ export async function handleListMembers(deps: MembershipHttpDeps, req: HttpReque
   return withErrorMapping(async () => {
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const members = await deps.listMembers.listMembers(context);
-    return { statusCode: 200, body: { members } };
+    // Wave B2B-14 (D-120): real finding - this used to return the raw Membership item
+    // (PK/SK/GSI4PK/GSI4SK/entityType, internal DynamoDB key structure) straight to the client,
+    // unlike handleListInvitations' sibling below which already projects to a safe subset.
+    // Never found until a real browser session actually inspected the response body.
+    return { statusCode: 200, body: { members: members.map((m) => ({ userId: m.userId, role: m.role, status: m.status, version: m.version })) } };
   });
 }
 

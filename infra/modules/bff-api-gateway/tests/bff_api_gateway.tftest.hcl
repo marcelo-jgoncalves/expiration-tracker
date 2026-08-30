@@ -29,8 +29,8 @@ run "every_bff_route_is_unauthenticated_at_the_gateway_layer" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.bff) == 9
-    error_message = "Expected exactly 9 BFF routes (login, callback, session, logout, logout-all, organizations create, organizations list, organization select, proxy catch-all)"
+    condition     = length(aws_apigatewayv2_route.bff) == 10
+    error_message = "Expected exactly 10 BFF routes (login, callback, session, logout, logout-all, organizations create, organizations list, organization select, invitations accept, proxy catch-all)"
   }
 }
 
@@ -82,6 +82,27 @@ run "organizations_list_and_select_routes_exist_for_multi_org_to_work_at_all" {
   assert {
     condition     = aws_apigatewayv2_route.bff["organization_select"].route_key == "POST /bff/organization/select"
     error_message = "The POST /bff/organization/select route must exist - handleSelectOrganization has been unreachable without it since B2B-6"
+  }
+}
+
+# Wave B2B-14 (Operational Evidence, D-120): real finding, same class as the run above -
+# handleAcceptInvitation (bff-handlers.ts) has existed since Wave B2B-8/D-099, but this route
+# was never added here. Every real POST /bff/invitations/accept returned API Gateway's own
+# generic 404 (never reaching the Lambda) since that deploy - caught only by building the
+# frontend page that finally calls it for the first time.
+run "invitations_accept_route_exists_for_the_invite_flow_to_ever_complete" {
+  command = apply
+
+  variables {
+    api_name          = "expiration-tracker-test-bff"
+    bff_invoke_arn    = "arn:aws:lambda:us-east-1:123456789012:function:test-bff:live"
+    bff_function_name = "test-bff"
+    app_origin        = "https://app.example.com"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.bff["invitations_accept"].route_key == "POST /bff/invitations/accept"
+    error_message = "The POST /bff/invitations/accept route must exist - handleAcceptInvitation has been unreachable without it since B2B-8"
   }
 }
 

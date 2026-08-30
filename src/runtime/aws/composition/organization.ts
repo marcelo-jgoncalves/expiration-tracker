@@ -12,18 +12,35 @@ import { RemoveMembershipService } from "../../../modules/organization/applicati
 import { LeaveOrganizationService } from "../../../modules/organization/application/leave-organization.js";
 import { UpdateOrganizationSettingsService } from "../../../modules/organization/application/update-organization-settings.js";
 import { UlidIdGenerator } from "../ids.js";
+import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 
 /** `invitationTokenPepper` reuses the SAME secret as `GUEST_TOKEN_PEPPER` (subject module,
  * D-037) - a deliberate judgment call (level 3-4, reuse of an already-approved secret-
  * management mechanism, not a new Type 1 security decision): `InvitationTokenPointer` lives in
  * a structurally distinct key namespace (`INVITATION_TOKEN#`, never `GUESTTOKEN#`), so sharing
  * the pepper creates no cross-family confusion, and provisioning a brand new Terraform secret
- * for one more HMAC pepper would be disproportionate (`principles.md` #1). */
-export function buildMembershipDeps(client: DynamoDBDocumentClient, tableName: string, invitationTokenPepper: string) {
+ * for one more HMAC pepper would be disproportionate (`principles.md` #1).
+ *
+ * Wave B2B-14 (D-120): `membershipInviteEmailEnabled`/`sesFromAddress`/`sesConfigurationSet`/
+ * `invitationBaseUrl` mirror `subject.ts`'s `buildDocumentRequestDeps` exactly - same kill-switch
+ * pattern (D-049), same `SesEmailAdapter`, no new provider. The token itself never leaves this
+ * process except via the e-mail this builds (`create-invitation.ts`'s HTTP handler still never
+ * returns it in the response body - that boundary is unchanged by this wave). */
+export function buildMembershipDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  invitationTokenPepper: string,
+  membershipInviteEmailEnabled = false,
+  sesFromAddress?: string,
+  sesConfigurationSet?: string,
+  invitationBaseUrl?: string,
+) {
   const organizations = new DynamoDbOrganizationStore(client, tableName);
   const ids = new UlidIdGenerator();
   const rateLimiter = new MembershipInviteRateLimiter(organizations);
-  const createInvitation = new CreateInvitationService(organizations, tableName, ids, rateLimiter, invitationTokenPepper);
+  const emailProvider =
+    membershipInviteEmailEnabled && sesFromAddress && sesConfigurationSet ? new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet) : undefined;
+  const createInvitation = new CreateInvitationService(organizations, tableName, ids, rateLimiter, invitationTokenPepper, undefined, emailProvider, invitationBaseUrl);
   const revokeInvitation = new RevokeInvitationService(organizations, tableName, ids);
   const acceptInvitation = new AcceptInvitationService(organizations, tableName, ids, invitationTokenPepper);
   const listMembers = new ListMembersService(organizations);

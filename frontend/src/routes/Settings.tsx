@@ -8,12 +8,44 @@ import { useOrganizationsList } from "../hooks/useOrganizationsList.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useUpdateOrganizationSettings } from "../hooks/useUpdateOrganizationSettings.js";
-import { ApiError, isConflict } from "../api/errors.js";
+import { useLeaveOrganization } from "../hooks/useLeaveOrganization.js";
+import { ApiError, isConflict, isLastOwnerError } from "../api/errors.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { PageHeader, Panel } from "../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
+
+/** Wave B2B-14 (D-120) - `handleLeaveOrganization` has been fully wired end-to-end (Lambda,
+ * API Gateway route, proxy allowlist) since Wave B2B-8/D-099, but no frontend call site ever
+ * existed. Visible to every role (not gated like the displayName form below, which is
+ * OWNER-only) - the backend's own last-owner guard is the real authority on when leaving is
+ * actually allowed, never re-implemented here. */
+function LeaveOrganizationSection() {
+  const leave = useLeaveOrganization();
+
+  const errorMessage = leave.isError
+    ? isLastOwnerError(leave.error)
+      ? "Você é o único Owner desta organização - promova outra pessoa a Owner antes de sair."
+      : "Não foi possível sair da organização. Tente novamente."
+    : undefined;
+
+  return (
+    <Section heading="Sair da organização" headingId="leave-organization">
+      <Panel>
+        <p>Você perderá o acesso a esta organização imediatamente.</p>
+        <Button variant="danger" onClick={() => leave.mutate()} pending={leave.isPending}>
+          {leave.isPending ? "Saindo…" : "Sair da organização"}
+        </Button>
+        {errorMessage ? (
+          <InlineNotice tone="critical" announce="alert">
+            {errorMessage}
+          </InlineNotice>
+        ) : null}
+      </Panel>
+    </Section>
+  );
+}
 
 export function Settings() {
   const { organizationId } = useActiveOrganization();
@@ -67,6 +99,7 @@ export function Settings() {
           </p>
           <p>Somente o Owner da organização pode alterar essas configurações.</p>
         </Panel>
+        <LeaveOrganizationSection />
       </>
     );
   }
@@ -102,6 +135,7 @@ export function Settings() {
           ) : null}
         </form>
       </Panel>
+      <LeaveOrganizationSection />
     </>
   );
 }
