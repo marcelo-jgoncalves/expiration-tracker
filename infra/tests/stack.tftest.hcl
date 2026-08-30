@@ -247,6 +247,70 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   }
 }
 
+run "gsi4_access_granted_only_to_identity_context_lambdas" {
+  command = plan
+
+  # Multi-User B2B (D-08x/physical-model.md §6, Wave B2B-14/D-116): GSI4 (MembershipByUser)
+  # resolves which Organizations a User belongs to given only a userId - crosses tenants by
+  # design, so (same isolation posture as GSI3/GSI6) it must be reachable ONLY via the narrow
+  # gsi4_read policy, never the general tenant_facing policy, and ONLY by the Lambdas that
+  # actually construct a RequestContextResolver and call .resolve() (destructure `resolver`
+  # from buildIdentityDeps(), not just `quota`) - real finding, D-116: this policy existed
+  # since B2B-3 but was never attached to any of these 10 real consumers until now.
+  assert {
+    condition     = anytrue([for p in module.bff_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "BffHandler must have a policy referencing GSI4 - bff-auth-service.ts calls OnboardingStateResolver.resolve() on every session/callback"
+  }
+  assert {
+    condition     = anytrue([for p in module.items_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "ItemsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.subjects_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "SubjectsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.reminders_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "RemindersHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "NotificationsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.profile_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "ProfileHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.memberships_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "MembershipsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.documents_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "DocumentsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.imports_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "ImportsHandler must have a policy referencing GSI4"
+  }
+  assert {
+    condition     = anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "TestPingHandler must have a policy referencing GSI4 (real.resolve() call in test-route-handler.ts)"
+  }
+
+  # Representative sample of Lambdas that must NOT reference GSI4 - workers/handlers that
+  # only destructure `quota` from buildIdentityDeps() (never `resolver`), or don't use
+  # buildIdentityDeps() at all.
+  assert {
+    condition     = !anytrue([for p in module.upload_slot_reconciliation_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "UploadSlotReconciliationWorker must NOT reference GSI4 - it only uses quota, never resolver.resolve()"
+  }
+  assert {
+    condition     = !anytrue([for p in module.reminder_producer.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "ReminderProducer must NOT reference GSI4 - it's GSI3-privileged, unrelated to identity/onboarding resolution"
+  }
+}
+
 run "dlq_max_receive_count_5_and_age_alarm_exists" {
   command = plan
 
