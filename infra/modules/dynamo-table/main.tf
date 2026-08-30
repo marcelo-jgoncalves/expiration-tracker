@@ -12,6 +12,17 @@
 # general policy document. GSI6 gained a FOURTH consumer in W3-06/D-061: DocumentPurgeWorker
 # (alongside ReminderReconciliation/OutboxSweeperReminderDispatch/
 # UploadSlotReconciliationWorker) - acknowledged explicitly, not silently expanded.
+#
+# GSI4 joined this isolation family in Wave B2B-3 of Multi-User B2B (D-08x,
+# docs/architecture/multi-user-b2b-physical-model.md §6): previously in the general policy
+# but with zero real consumers (data-model.md's old pre-multi-org "membership por usuário"
+# documentation was never implemented in code) — harmless while unused, but its NEW
+# `MembershipByUser` semantics cross tenants by design (resolves which Organizations a User
+# belongs to, given only a userId), so it must never be reachable via the general
+# tenant-facing role. `gsi4_read_policy_json` exists now so the isolation is correct from
+# the first real Membership write; no Lambda role attaches it yet (Wave B2B-3 doesn't wire
+# any consumer) — that attachment happens when Wave B2B-5/B2B-6's BFF/RequestContext/
+# onboarding code is built, mirroring gsi3_read/gsi6_read's own attach-when-consumed pattern.
 
 resource "aws_dynamodb_table" "this" {
   name         = var.table_name
@@ -165,15 +176,17 @@ locals {
   # stable/documented: arn:aws:dynamodb:<region>:<account>:table/<name>.
   table_arn = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.table_name}"
 
-  # Resource ARNs for every GSI EXCEPT GSI3/GSI6 (data-model.md §3's isolation safeguard).
+  # Resource ARNs for every GSI EXCEPT GSI3/GSI6/GSI4 (data-model.md §3's isolation
+  # safeguard, extended to GSI4 in Wave B2B-3 of Multi-User B2B — see comment above).
   # DynamoDB IAM cannot restrict by SK prefix, so grants are table-level per index
   # (documented judgment call, same as the CDK construct's tenantFacingResources()).
-  tenant_facing_index_names = ["GSI1", "GSI2", "GSI4", "GSI5", "GSI7"]
+  tenant_facing_index_names = ["GSI1", "GSI2", "GSI5", "GSI7"]
   tenant_facing_resources = concat(
     [local.table_arn],
     [for name in local.tenant_facing_index_names : "${local.table_arn}/index/${name}"],
   )
   gsi3_resource = "${local.table_arn}/index/GSI3"
+  gsi4_resource = "${local.table_arn}/index/GSI4"
   gsi6_resource = "${local.table_arn}/index/GSI6"
 }
 
@@ -231,5 +244,18 @@ data "aws_iam_policy_document" "gsi6_read" {
     sid       = "Gsi6ReadOnly"
     actions   = ["dynamodb:Query", "dynamodb:GetItem"]
     resources = [local.gsi6_resource]
+  }
+}
+
+# The ONLY sanctioned way to read GSI4 (`MembershipByUser`, Wave B2B-3 of Multi-User B2B) -
+# resource is the GSI4 index ARN exclusively. No caller attaches this yet (Wave B2B-3 adds
+# no consumer); future callers are limited to identity-context resolution only (BFF/session
+# context, RequestContextResolver, onboarding) — never a general tenant-facing role, per
+# docs/architecture/multi-user-b2b-physical-model.md §6.
+data "aws_iam_policy_document" "gsi4_read" {
+  statement {
+    sid       = "Gsi4ReadOnly"
+    actions   = ["dynamodb:Query", "dynamodb:GetItem"]
+    resources = [local.gsi4_resource]
   }
 }

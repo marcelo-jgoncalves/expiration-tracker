@@ -11,7 +11,7 @@ output "stream_arn" {
 }
 
 # General read/write and read-only policy documents — safe to attach to any
-# tenant-facing Lambda role. NEVER includes GSI3 or GSI6.
+# tenant-facing Lambda role. NEVER includes GSI3, GSI4, or GSI6.
 output "tenant_facing_read_write_policy_json" {
   value = data.aws_iam_policy_document.tenant_facing_read_write.json
 }
@@ -21,10 +21,16 @@ output "tenant_facing_read_policy_json" {
 }
 
 # Narrow, single-purpose policy documents. Attach gsi3_read only to ReminderProducer's
-# role, and gsi6_read only to ReminderReconciliation's / OutboxSweeperReminderDispatch's
-# roles. No other caller may attach these.
+# role, gsi6_read only to ReminderReconciliation's / OutboxSweeperReminderDispatch's /
+# UploadSlotReconciliationWorker's / DocumentPurgeWorker's roles, and gsi4_read only to
+# roles that resolve identity context (BFF/session context, RequestContextResolver,
+# onboarding — none exist yet, Wave B2B-3 of Multi-User B2B). No other caller may attach these.
 output "gsi3_read_policy_json" {
   value = data.aws_iam_policy_document.gsi3_read.json
+}
+
+output "gsi4_read_policy_json" {
+  value = data.aws_iam_policy_document.gsi4_read.json
 }
 
 output "gsi6_read_policy_json" {
