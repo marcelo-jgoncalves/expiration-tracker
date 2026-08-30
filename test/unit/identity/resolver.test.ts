@@ -6,6 +6,7 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { TenantBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { AuthenticationError } from "../../../src/shared/errors/app-error.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 
 function makeResolver() {
   const store = new InMemoryIdentityStore();
@@ -34,6 +35,17 @@ describe("RequestContextResolver", () => {
     expect(ctx.tenant.tenantId).toBe(ctx.principal.userId); // MVP: tenantId=userId
     expect(ctx.tenant.roles).toEqual(["OWNER"]);
     expect(store.allKeys().some((k) => k.startsWith("IDENTITY#cognitoSub#cognito-sub-1"))).toBe(true);
+  });
+
+  it("also creates the additive global User row (Wave B2B-2, D-086/D-087 follow-up) atomically with the legacy tenant-scoped profile - nothing reads this row yet, it's foundation for Wave B2B-3's Membership", async () => {
+    const { resolver, store } = makeResolver();
+    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" });
+
+    const globalUsers = new GlobalUserRepository(store);
+    const globalUser = await globalUsers.get(ctx.principal.userId);
+    expect(globalUser).toBeDefined();
+    expect(globalUser?.identityStatus).toBe("ACTIVE");
+    expect(globalUser?.version).toBe(1);
   });
 
   it("returns the same userId/tenantId on repeat login (idempotent mapping)", async () => {
@@ -163,7 +175,7 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 
-  it("two concurrent first logins for the same sub converge on one tenant, with exactly one TenantLifecycleRecord and one User", async () => {
+  it("two concurrent first logins for the same sub converge on one tenant, with exactly one TenantLifecycleRecord, one legacy User profile, and one global User (Wave B2B-2)", async () => {
     const { resolver, store } = makeResolver();
     const [a, b] = await Promise.all([
       resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1" }),
@@ -173,8 +185,13 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     expect(a.tenant.tenantId).toBe(b.tenant.tenantId);
     const lifecycleKeys = store.allKeys().filter((k) => k.includes("#LIFECYCLE"));
     expect(lifecycleKeys).toHaveLength(1);
-    const profileKeys = store.allKeys().filter((k) => k.endsWith("#PROFILE"));
-    expect(profileKeys).toHaveLength(1);
+    // Two distinct rows share the "#PROFILE" SK suffix since Wave B2B-2 added the additive
+    // global User (PK=USER#<userId>) alongside the legacy tenant-scoped one
+    // (PK=TENANT#<tenantId>#USER#<userId>) - filter each by its distinct PK prefix.
+    const legacyProfileKeys = store.allKeys().filter((k) => k.startsWith("TENANT#") && k.endsWith("#PROFILE"));
+    expect(legacyProfileKeys).toHaveLength(1);
+    const globalUserKeys = store.allKeys().filter((k) => k.startsWith("USER#") && k.endsWith("#PROFILE"));
+    expect(globalUserKeys).toHaveLength(1);
   });
 
   it("repeat login of an already-bootstrapped identity is idempotent - no duplicate rows, no error", async () => {
@@ -184,10 +201,12 @@ describe("RequestContextResolver — W3-07 atomic bootstrap (D-067)", () => {
     await resolver.resolve({ claims: claims({ tokenId: "jti-3" }), requestId: "r3", correlationId: "c3" });
 
     const lifecycleKeys = store.allKeys().filter((k) => k.includes("#LIFECYCLE"));
-    const profileKeys = store.allKeys().filter((k) => k.endsWith("#PROFILE"));
+    const legacyProfileKeys = store.allKeys().filter((k) => k.startsWith("TENANT#") && k.endsWith("#PROFILE"));
+    const globalUserKeys = store.allKeys().filter((k) => k.startsWith("USER#") && k.endsWith("#PROFILE"));
     const mappingKeys = store.allKeys().filter((k) => k.startsWith("IDENTITY#cognitoSub#"));
     expect(lifecycleKeys).toHaveLength(1);
-    expect(profileKeys).toHaveLength(1);
+    expect(legacyProfileKeys).toHaveLength(1);
+    expect(globalUserKeys).toHaveLength(1);
     expect(mappingKeys).toHaveLength(1);
   });
 
