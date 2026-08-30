@@ -1,8 +1,10 @@
 /** Composition root for the BFF module against real DynamoDB/KMS/Cognito. */
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { DynamoDbIdentityStore } from "../../../modules/identity/persistence/dynamodb-identity-store.js";
-import { TenantBootstrapService } from "../../../modules/identity/application/bootstrap-identity.js";
-import { UserRepository } from "../../../modules/identity/persistence/user-repository.js";
+import { IdentityBootstrapService } from "../../../modules/identity/application/bootstrap-identity.js";
+import { GlobalUserRepository } from "../../../modules/identity/persistence/global-user-repository.js";
+import { DynamoDbOrganizationStore } from "../../../modules/organization/persistence/dynamodb-organization-store.js";
+import { CreateOrganizationService } from "../../../modules/organization/application/create-organization.js";
 import { DynamoDbSessionStore } from "../../../modules/bff/persistence/dynamodb-session-store.js";
 import { KmsTokenEncryptor, createKmsClient } from "../../../modules/bff/persistence/kms-token-encryptor.js";
 import { FetchCognitoOidcClient } from "../../../modules/bff/persistence/fetch-cognito-oidc-client.js";
@@ -38,14 +40,16 @@ const fetchBackend: BackendFetcher = {
 
 export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: DynamoDBDocumentClient, config: BffConfig) {
   const identityStore = new DynamoDbIdentityStore(mainClient, config.mainTableName);
-  const bootstrap = new TenantBootstrapService(identityStore, config.mainTableName);
-  const users = new UserRepository(identityStore);
+  const bootstrap = new IdentityBootstrapService(identityStore, config.mainTableName);
+  const globalUsers = new GlobalUserRepository(identityStore);
+  const organizations = new DynamoDbOrganizationStore(mainClient, config.mainTableName);
+  const ids = new UlidIdGenerator();
+  const createOrganization = new CreateOrganizationService(organizations, config.mainTableName, ids);
 
   const sessionStore = new DynamoDbSessionStore(sessionClient, config.sessionTableName);
   const tokenEncryptor = new KmsTokenEncryptor(createKmsClient(), config.kmsKeyId);
   const cognitoClient = new FetchCognitoOidcClient(config.cognitoDomain, config.cognitoClientId, config.cognitoClientSecret);
   const idTokenVerifier = new AwsJwtIdTokenVerifier(config.cognitoUserPoolId, config.cognitoClientId);
-  const ids = new UlidIdGenerator();
 
   const auth = new BffAuthService({
     sessionStore,
@@ -53,7 +57,10 @@ export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: 
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,
-    users,
+    globalUsers,
+    organizations,
+    mainTableName: config.mainTableName,
+    createOrganization,
     pepper: config.sessionTokenPepper,
     redirectUri: config.redirectUri,
     authorizeUrl: config.authorizeUrl,

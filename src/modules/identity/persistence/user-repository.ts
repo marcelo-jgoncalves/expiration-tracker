@@ -1,12 +1,15 @@
 /**
- * User repository — data-model.md §2 (`TENANT#t#USER#u` / `PROFILE`) plus the session-
- * revocation fields required by implementation-blueprint.md §4.2 ("Logout por dispositivo
- * atualiza deviceLogoutAfter/revoga a família de refresh. Logout global atualiza
- * globalLogoutAfter"). data-model.md doesn't enumerate a standalone Session entity, so
- * this module keeps revocation watermarks on the User item itself (globalLogoutAfter) and
- * per-device entries as child items under the same tenant partition
- * (`TENANT#t#USER#u` / `SESSION#<deviceId>`) rather than inventing a new top-level
- * aggregate — see the M1 report for this judgment call.
+ * User repository — data-model.md §2 (`TENANT#t#USER#u` / `PROFILE`), org-scoped profile only.
+ *
+ * `DeviceSession`, `logoutAll`, `logoutDevice`, and `UserProfile.globalLogoutAfter` moved to
+ * `global-user-repository.ts` in Wave B2B-5 (D-095, physical model §10) — device sessions and
+ * global-logout revocation are properties of the tenant-independent identity now, never of a
+ * single Organization's profile row. This repository keeps only what is genuinely per-org:
+ * `UserProfile` itself (created lazily by `RequestContextResolver` for whichever Organization a
+ * `Membership` resolves to, per-org — not at bootstrap time anymore) and the guest-facing
+ * `requesterDisplayName` it carries (W5-01/GTR-01), whose eventual home is
+ * `Organization.displayName` (physical model §121 Q21) but whose real migration is explicitly
+ * Wave B2B-11's job, not B2B-5's.
  */
 import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
 
@@ -18,9 +21,12 @@ export interface UserProfile {
   tenantId: string;
   identitySubject: string;
   emailNormalized: string;
+  /** Vestigial post-cutover (Wave B2B-5, D-095): `RequestContext.tenant.roles` is now sourced
+   * directly from `Membership.role` (organization/domain/membership.ts), never from here.
+   * Carried along only because `ProfileService`/`profile-handlers.ts` destructure the whole
+   * `UserProfile` shape — never read for authorization. */
   roles: string[];
   status: "ACTIVE" | "SUSPENDED";
-  globalLogoutAfter?: string;
   /** W5-01/GTR-01 (`decisions-log.md` D-060): name shown to a guest as "who is requesting this
    * document" (`GuestRequestInfo.requesterDisplayName`) and interpolated into the guest-facing
    * email templates. Optional and user-editable (`PUT /profile`) — never inferred from the
@@ -32,28 +38,8 @@ export interface UserProfile {
   version: number;
 }
 
-export interface DeviceSession {
-  PK: string;
-  SK: string; // SESSION#<deviceId>
-  entityType: "DeviceSession";
-  tenantId: string;
-  userId: string;
-  deviceId: string;
-  sessionId: string;
-  refreshFamilyId: string;
-  deviceLogoutAfter?: string;
-  createdAt: string;
-  lastSeenAt: string;
-  expiresAt: string;
-  status: "ACTIVE" | "REVOKED";
-}
-
 export function userProfileKey(tenantId: string, userId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "PROFILE" };
-}
-
-export function deviceSessionKey(tenantId: string, userId: string, deviceId: string): EntityKey {
-  return { PK: `TENANT#${tenantId}#USER#${userId}`, SK: `SESSION#${deviceId}` };
 }
 
 export class UserRepository {
@@ -86,31 +72,10 @@ export class UserRepository {
     return item;
   }
 
-  async getDeviceSession(tenantId: string, userId: string, deviceId: string): Promise<DeviceSession | undefined> {
-    return this.store.get<DeviceSession>(deviceSessionKey(tenantId, userId, deviceId));
-  }
-
-  async upsertDeviceSession(session: DeviceSession): Promise<void> {
-    await this.store.update(session);
-  }
-
-  /** Logout global — implementation-blueprint.md §4.2: revokes every token issued before now. */
-  async logoutAll(tenantId: string, userId: string): Promise<void> {
-    const profile = await this.getProfile(tenantId, userId);
-    if (!profile) return;
-    await this.store.update({ ...profile, globalLogoutAfter: this.now(), updatedAt: this.now() });
-  }
-
-  /** Logout by device — revokes only this device's refresh family. */
-  async logoutDevice(tenantId: string, userId: string, deviceId: string): Promise<void> {
-    const session = await this.getDeviceSession(tenantId, userId, deviceId);
-    if (!session) return;
-    await this.store.update({ ...session, status: "REVOKED", deviceLogoutAfter: this.now() });
-  }
-
   /** W5-01/GTR-01: sets or clears (`undefined`) the name shown to guests as the requester's
-   * identity. Same unconditional-overwrite pattern as `logoutAll`/`logoutDevice` above — this
-   * port has no per-item OCC beyond `updateConditional`'s counter-only use (quota.ts), and a
+   * identity. Same unconditional-overwrite pattern as `GlobalUserRepository.logoutAll`/
+   * `logoutDevice` — this port has no per-item OCC beyond `updateConditional`'s counter-only use
+   * (quota.ts), and a
    * lost update on this single self-editable text field carries the same negligible,
    * already-accepted risk as those two fields. Caller (`ProfileService`) is responsible for
    * confirming the profile exists first. */

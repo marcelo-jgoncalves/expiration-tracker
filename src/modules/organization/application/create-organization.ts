@@ -20,6 +20,14 @@
  * fora do escopo desta wave — sem writer real de Membership além desta criação até Wave
  * B2B-7/B2B-8 existirem (nota de escopo registrada em
  * docs/architecture/multi-user-b2b-wave-tracker.md B2B-3).
+ *
+ * `buildCreateEntries()` (Wave B2B-5, D-095) separa "montar as 4 entradas da transação" de
+ * "executar" — refatoração aditiva, `createOrganization()` continua com o mesmo comportamento
+ * de sempre para todo chamador existente (chama build + `transactWrite`). Existe para o fluxo
+ * `POST /bff/organizations` poder compor um 5º entry (o cap transacional de
+ * `GlobalUser.hasCreatedOrganization`, `bff-auth-service.ts`) na MESMA `TransactWriteItems`, sem
+ * duplicar a lógica dos outros 4 itens nem dar a este serviço genérico conhecimento nenhum sobre
+ * cap/onboarding (que não é responsabilidade dele — decisão do chamador HTTP).
  */
 import { buildVersionedCreate, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -40,6 +48,10 @@ export interface CreateOrganizationResult {
   membership: Membership;
 }
 
+export interface CreateOrganizationEntries extends CreateOrganizationResult {
+  entries: TransactWriteEntry[];
+}
+
 export class CreateOrganizationService {
   constructor(
     private readonly store: OrganizationStore,
@@ -49,6 +61,12 @@ export class CreateOrganizationService {
   ) {}
 
   async createOrganization(input: CreateOrganizationInput): Promise<CreateOrganizationResult> {
+    const { entries, organization, membership } = this.buildCreateEntries(input);
+    await this.store.transactWrite(entries);
+    return { organization, membership };
+  }
+
+  buildCreateEntries(input: CreateOrganizationInput): CreateOrganizationEntries {
     const organizationId = this.ids.newOrganizationId();
     const membershipId = this.ids.newMembershipId();
     const now = this.now();
@@ -99,7 +117,6 @@ export class CreateOrganizationService {
       { Put: buildVersionedCreate(this.tableName, entitlement as unknown as Record<string, unknown> & { PK: string; SK: string }) },
     ];
 
-    await this.store.transactWrite(entries);
-    return { organization, membership };
+    return { entries, organization, membership };
   }
 }

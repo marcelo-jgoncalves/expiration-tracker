@@ -10,7 +10,6 @@ function fakeSession(overrides: Partial<Session> = {}): Session {
     entityType: "Session",
     selectorHash: "x",
     secretHash: "y",
-    tenantId: "tenant-1",
     userId: "user-1",
     cognitoSubject: "sub-1",
     deviceId: "device-1",

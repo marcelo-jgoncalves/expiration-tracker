@@ -279,6 +279,48 @@ export class TenantNotActiveError extends AppError {
   }
 }
 
+/** Wave B2B-5 (D-095, RequestContext Cutover): the identity itself is valid/active, but no
+ * `ACTIVE` `Membership` exists yet to build a working `RequestContext` from — the caller must
+ * be routed through onboarding, never treated as a hard authentication failure. Carries the
+ * exact `OnboardingState` (`OnboardingStateResolver`, Wave B2B-4/D-094) so the HTTP/BFF layer
+ * can distinguish "create an organization" from "you were suspended" instead of collapsing all
+ * non-working states into one generic denial. */
+export class OnboardingRequiredError extends AppError {
+  constructor(
+    readonly onboardingState: string,
+    details?: Record<string, unknown>,
+  ) {
+    super({
+      code: "ONBOARDING_REQUIRED",
+      category: "AUTH",
+      message: `No usable Membership for this identity (onboardingState=${onboardingState}).`,
+      retryable: false,
+      details: { ...details, onboardingState },
+    });
+    this.name = "OnboardingRequiredError";
+  }
+}
+
+/** Wave B2B-5 (D-095, Codex Rodada 1 achado 2.2): `Membership.role` supports 4 values
+ * (`OWNER|ADMIN|MEMBER|VIEWER`, `organization/domain/membership.ts`) but the real authorization
+ * matrix (`identity/domain/authorization.ts`) only knows 3 until Wave B2B-7 ships the real
+ * permission derivation. Thrown explicitly at the `RequestContext`-building boundary instead of
+ * letting an unsupported role silently fail every `authorize()` check via the matrix's own
+ * unsafe cast — loud, not silent, until the real policy exists. Unreachable today: the only
+ * `Membership` writer (`CreateOrganizationService`) always grants `OWNER`. */
+export class UnsupportedMembershipRoleError extends AppError {
+  constructor(role: string, details?: Record<string, unknown>) {
+    super({
+      code: "UNSUPPORTED_MEMBERSHIP_ROLE",
+      category: "INTERNAL",
+      message: `Membership role "${role}" is not supported by the authorization matrix yet (Wave B2B-7).`,
+      retryable: false,
+      details: { ...details, role },
+    });
+    this.name = "UnsupportedMembershipRoleError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

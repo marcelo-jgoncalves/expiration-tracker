@@ -60,7 +60,10 @@ locals {
     session     = { method = "GET", path = "/bff/session" }
     logout      = { method = "POST", path = "/bff/session/logout" }
     logout_all  = { method = "POST", path = "/bff/session/logout-all" }
-    proxy_catch = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
+    # Wave B2B-5 (D-095): first real HTTP consumer of CreateOrganizationService (B2B-3/D-091) -
+    # authorized by identity alone inside the handler, never by API Gateway.
+    organizations_create = { method = "POST", path = "/bff/organizations" }
+    proxy_catch           = { method = "ANY", path = "/bff/api/{proxy+}" } # allowlist enforcement happens in application code (src/modules/bff/domain/proxy-allowlist.ts), never at this layer
   }
 }
 

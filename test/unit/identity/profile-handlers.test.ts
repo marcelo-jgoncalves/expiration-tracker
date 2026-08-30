@@ -8,19 +8,25 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
-import { InMemoryIdentityStore, makeIdGenerator } from "./in-memory-store.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "./in-memory-store.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { ProfileService } from "../../../src/modules/identity/application/profile-service.js";
 import { handleGetProfile, handleUpdateProfile, type ProfileHttpDeps } from "../../../src/modules/identity/http/profile-handlers.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
-function buildDeps(): ProfileHttpDeps & { identityStore: InMemoryIdentityStore } {
+// Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - buildDeps() must
+// seed a real Organization+Membership for "cognito-sub-1" (via CreateOrganizationService, not a
+// hand-rolled fixture) before any handler call can resolve a working RequestContext.
+async function buildDeps(): Promise<ProfileHttpDeps & { identityStore: InMemoryIdentityStore }> {
   const identityStore = new InMemoryIdentityStore();
+  const organizations = new InMemoryOrganizationStore();
+  await bootstrapWithOrganization(identityStore, organizations, "MainTable", "cognito-sub-1");
   const users = new UserRepository(identityStore);
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), users, makeIdGenerator(), identityStore, "MainTable");
+  const resolver = new RequestContextResolver(users, new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, "MainTable");
   const quota = new TenantQuotaService(identityStore, "MainTable");
   const profiles = new ProfileService({ users });
   return { resolver, profiles, quota, identityStore };
@@ -38,14 +44,14 @@ function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
 
 describe("profile-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("handleGetProfile returns the caller's own profile, requesterDisplayName null by default", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleGetProfile(deps, { requestId: "r1", correlationId: "c1", claims: claims() });
     expect(response.statusCode).toBe(200);
     expect((response.body["profile"] as { requesterDisplayName: string | null }).requesterDisplayName).toBeNull();
   });
 
   it("handleUpdateProfile accepts a valid body through the REAL schema registry every Lambda imports", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleUpdateProfile(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -60,7 +66,7 @@ describe("profile-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleUpdateProfile(null) clears a previously-set value", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     await handleUpdateProfile(deps, { requestId: "r1", correlationId: "c1", claims: claims(), body: { requesterDisplayName: "Empresa Alfa Ltda." } });
     const cleared = await handleUpdateProfile(deps, { requestId: "r2", correlationId: "c1", claims: claims(), body: { requesterDisplayName: null } });
     expect(cleared.statusCode).toBe(200);
@@ -68,7 +74,7 @@ describe("profile-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleUpdateProfile rejects a body that fails schema validation (extra unknown field)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleUpdateProfile(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -79,14 +85,14 @@ describe("profile-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleUpdateProfile rejects an empty-string requesterDisplayName (schema minLength 1 - use null to clear)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleUpdateProfile(deps, { requestId: "r1", correlationId: "c1", claims: claims(), body: { requesterDisplayName: "" } });
     expect(response.statusCode).toBe(400);
   });
 
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
-    const deps = buildDeps();
+    const deps = await buildDeps();
     // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
     // TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the real bootstrap
     // flow that would normally create one, so seed it directly.

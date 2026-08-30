@@ -16,7 +16,12 @@ export interface Session {
   entityType: "Session";
   selectorHash: string;
   secretHash: string;
-  tenantId: string;
+  /** Wave B2B-5 (D-095, physical model §12): replaces the old `tenantId` — cache/hint of UX
+   * only, NEVER a source of authorization (the resource-side `RequestContextResolver` always
+   * re-derives the working organization independently, `resolve-active-membership.ts`). Absent
+   * until the user has created/joined an Organization; self-heals on `GET /bff/session` when
+   * stale (`resolveSessionWithOnboarding`, `bff-auth-service.ts`). */
+  activeOrganizationId?: string;
   userId: string;
   cognitoSubject: string;
   deviceId: string;

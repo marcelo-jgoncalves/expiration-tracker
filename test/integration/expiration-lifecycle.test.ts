@@ -6,10 +6,11 @@
  * convention of exercising real handlers end-to-end rather than units in isolation.
  */
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemoryIdentityStore, makeIdGenerator } from "../unit/identity/in-memory-store.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
+import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
 import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator } from "../unit/expiration/in-memory-store.js";
-import { IdentityMappingRepository } from "../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
 import { ExpirationService } from "../../src/modules/expiration/application/expiration-service.js";
@@ -39,9 +40,9 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
 
   beforeEach(async () => {
     const identityStore = new InMemoryIdentityStore();
-    const mappings = new IdentityMappingRepository(identityStore);
+    const organizations = new InMemoryOrganizationStore();
     const users = new UserRepository(identityStore);
-    resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), identityStore, "MainTable");
+    resolver = new RequestContextResolver(users, new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, "MainTable");
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     expirationStore = new InMemoryExpirationStore();
@@ -55,7 +56,11 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     // document-handlers.test.ts/import-handlers.test.ts, D-070 chunk 8/N). Pre-resolving both
     // users this suite exercises (sub-A, sub-B) learns their bootstrapped tenantIds so the
     // ACTIVE lifecycle record can be mirrored into expirationStore too.
+    //
+    // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
+    // Organization+Membership for each sub first, via CreateOrganizationService, before resolve().
     for (const sub of ["sub-A", "sub-B"]) {
+      await bootstrapWithOrganization(identityStore, organizations, "MainTable", sub);
       const bootstrapped = await resolver.resolve({ claims: claims(sub), requestId: `bootstrap-${sub}`, correlationId: `bootstrap-${sub}` });
       await expirationStore.putIfAbsent(activeLifecycleRecord(bootstrapped.tenant.tenantId));
     }

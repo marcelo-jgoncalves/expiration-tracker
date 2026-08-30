@@ -29,8 +29,30 @@ run "every_bff_route_is_unauthenticated_at_the_gateway_layer" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.bff) == 6
-    error_message = "Expected exactly 6 BFF routes (login, callback, session, logout, logout-all, proxy catch-all)"
+    condition     = length(aws_apigatewayv2_route.bff) == 7
+    error_message = "Expected exactly 7 BFF routes (login, callback, session, logout, logout-all, organizations create, proxy catch-all)"
+  }
+}
+
+# Wave B2B-5 (D-095): POST /bff/organizations is the first real HTTP consumer of
+# CreateOrganizationService (B2B-3/D-091) - authorized by identity alone inside the application
+# handler (any valid session may call it, there is no Organization to be a member of yet at the
+# moment of the call), never by API Gateway - same unauthenticated-at-the-gateway posture as
+# every other /bff/* route, asserted generically by the run above but worth a route-specific
+# existence check too (mirrors the proxy catch-all's own dedicated run below).
+run "organizations_create_route_exists_for_the_first_onboarding_action" {
+  command = apply
+
+  variables {
+    api_name          = "expiration-tracker-test-bff"
+    bff_invoke_arn    = "arn:aws:lambda:us-east-1:123456789012:function:test-bff:live"
+    bff_function_name = "test-bff"
+    app_origin        = "https://app.example.com"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.bff["organizations_create"].route_key == "POST /bff/organizations"
+    error_message = "The POST /bff/organizations route must exist so a fresh login has a real way out of NO_TENANT_NO_MEMBERSHIP"
   }
 }
 

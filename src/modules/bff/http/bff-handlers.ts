@@ -87,11 +87,16 @@ export async function handleCallback(deps: BffHttpDeps, req: BffHttpRequest): Pr
 
 /** GET /bff/session - lets the frontend learn its own auth state on boot without needing to
  * probe a proxied resource route first (AUTHENTICATED/SESSION_MISSING/SESSION_EXPIRED per the
- * Frontend Production Foundation mission's required auth-state contract). */
+ * Frontend Production Foundation mission's required auth-state contract).
+ *
+ * Wave B2B-5 (D-095): `tenantId` leaves the response - `activeOrganizationId`/`onboardingState`
+ * take its place (`resolveSessionWithOnboarding`, self-heals a stale/missing
+ * `activeOrganizationId` against the real Membership data before responding). Exactly one of
+ * the two is present: an established organization, or the reason there isn't one yet. */
 export async function handleGetSession(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const session = await deps.auth.resolveSession(cookiesOf(req)[SESSION_COOKIE_NAME]);
-    return { statusCode: 200, body: { authenticated: true, tenantId: session.tenantId, userId: session.userId } };
+    const { activeOrganizationId, onboardingState } = await deps.auth.resolveSessionWithOnboarding(cookiesOf(req)[SESSION_COOKIE_NAME]);
+    return { statusCode: 200, body: { authenticated: true, activeOrganizationId, onboardingState } };
   } catch (err) {
     if (err instanceof AuthenticationError) {
       // Definitive: no session, or one that is genuinely gone (expired/revoked/malformed) -
@@ -164,6 +169,42 @@ export async function handleLogoutAll(deps: BffHttpDeps, req: BffHttpRequest): P
     ],
     body: {},
   };
+}
+
+/** POST /bff/organizations (Wave B2B-5, D-095, achado 2.3): the first real HTTP consumer of
+ * `CreateOrganizationService` (B2B-3/D-091) - without it, `bootstrapUser()`'s 2-item transact
+ * would strand every fresh login in `NO_TENANT_NO_MEMBERSHIP` with no way out. Authorized by
+ * identity alone (a valid session), never by `authorize()`'s tenant-scoped matrix - there is no
+ * Organization to be a member of yet at the moment this call is made, by definition. */
+export async function handleCreateOrganization(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const cookies = cookiesOf(req);
+    const session = await deps.auth.resolveSession(cookies[SESSION_COOKIE_NAME]);
+
+    if (
+      !checkCsrf({
+        method: req.method,
+        secFetchSite: req.headers["sec-fetch-site"],
+        headerToken: req.headers["x-csrf-token"],
+        cookieToken: cookies[CSRF_COOKIE_NAME],
+        sessionCsrfSecret: session.csrfSecret,
+      })
+    ) {
+      return { statusCode: 403, body: { code: "CSRF_CHECK_FAILED", category: "AUTHORIZATION", message: "CSRF check failed.", retryable: false } };
+    }
+
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const displayName = typeof body["displayName"] === "string" ? body["displayName"] : undefined;
+    const timezone = typeof body["timezone"] === "string" ? body["timezone"] : undefined;
+    if (!displayName || !timezone) {
+      throw new ValidationError("displayName and timezone are required.");
+    }
+
+    const { organizationId } = await deps.auth.createOrganization(session, { displayName, timezone });
+    return { statusCode: 201, body: { organizationId } };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
 }
 
 /** POST/PUT/PATCH/DELETE/GET /bff/api/{proxy+} - the allowlisted forward to the real API. */

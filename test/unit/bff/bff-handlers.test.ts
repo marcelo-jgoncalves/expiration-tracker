@@ -21,15 +21,21 @@ import { ProxyService, type BackendFetcher } from "../../../src/modules/bff/appl
 import { InMemorySessionStore } from "./in-memory-session-store.js";
 import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
-import { TenantBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
-import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
+import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
+import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
 import { CSRF_COOKIE_NAME, LOGIN_COOKIE_NAME, SESSION_COOKIE_NAME } from "../../../src/modules/bff/domain/cookies.js";
+
+const TABLE = "MainTable";
 
 function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode: 200, headers: {}, body: "{}" }) }) {
   const sessionStore = new InMemorySessionStore();
   const identityStore = new InMemoryIdentityStore();
-  const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
-  const users = new UserRepository(identityStore);
+  const organizations = new InMemoryOrganizationStore();
+  const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
+  const globalUsers = new GlobalUserRepository(identityStore);
+  const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
@@ -43,7 +49,10 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,
-    users,
+    globalUsers,
+    organizations,
+    mainTableName: TABLE,
+    createOrganization,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",
     authorizeUrl: "https://auth.example.com/oauth2/authorize",
@@ -116,12 +125,15 @@ describe("handleCallback", () => {
 });
 
 describe("handleGetSession", () => {
-  it("returns 200 {authenticated:true} for a real session", async () => {
+  // Wave B2B-5 (D-095): tenantId leaves the response - activeOrganizationId/onboardingState
+  // take its place. A fresh login has no Organization yet, so onboardingState is reported.
+  it("returns 200 {authenticated:true, onboardingState:NO_TENANT_NO_MEMBERSHIP} for a fresh session with no Organization yet", async () => {
     const { deps } = buildDeps();
     const { sessionCookie } = await loginViaHttp(deps);
     const res = await handleGetSession(deps, authenticatedRequest({ sessionCookie }));
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({ authenticated: true, tenantId: "user-1", userId: "user-1" });
+    expect(res.body).toMatchObject({ authenticated: true, onboardingState: "NO_TENANT_NO_MEMBERSHIP" });
+    expect((res.body as Record<string, unknown>)["activeOrganizationId"]).toBeUndefined();
   });
 
   it("returns 200 {authenticated:false} when there is definitively no session (missing cookie)", async () => {
