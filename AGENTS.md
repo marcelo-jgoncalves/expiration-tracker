@@ -10,6 +10,8 @@ Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. 
 
 Princípios de engenharia, tiers de gate de qualidade, escala de risco que calibra quando o protocolo do §4 é obrigatório, e os critérios ponderados por eixo (Arquitetura/Qualidade de Engenharia/Engenharia de Contexto) usados nas revisões conjuntas: `docs/engineering/{principles,quality-gate-tiers,change-risk-scale,joint-review-criteria}.md` (padrões adotados do projeto irmão `event-discovery-platform`, adaptados — não copiados — à complexidade real deste projeto).
 
+**Definition of Done por item de todo list (2026-08-29, decisão de processo permanente, protocolo `§4` completo)**: nenhum item de todo list que produza/altere código real é marcado concluído sem passar pelo gate correspondente ao seu nível de risco (`docs/engineering/definition-of-done.md`) — inclui decompor itens guarda-chuva, classificar o risco pelo diff real, e registrar uma linha `DoD:` de evidência mínima antes de fechar. Aplica-se a partir de agora, em toda sessão, não só a esta.
+
 **`docs/00-prompt-mestre.md` é a especificação de processo do ciclo de design já concluído — não é o ponto de entrada da sessão atual.** Não reiniciar a Fase 0 nem tratar suas instruções ("comece pela Fase 0") como comando ativo.
 
 ## 2. Início de sessão
