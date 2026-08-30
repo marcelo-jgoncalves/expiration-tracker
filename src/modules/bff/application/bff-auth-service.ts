@@ -13,7 +13,8 @@ import { getCancellationReasonCodes, isTransactionCanceled, buildAttributeOnceUp
 import { IdentityBootstrapService } from "../../identity/application/bootstrap-identity.js";
 import { GlobalUserRepository, deviceSessionKey, globalUserKey } from "../../identity/persistence/global-user-repository.js";
 import { OnboardingStateResolver, type OnboardingState } from "../../organization/application/onboarding-state.js";
-import { resolveActiveMembership } from "../../organization/application/resolve-active-membership.js";
+import { listUsableOrganizations, type UsableOrganization } from "../../organization/application/resolve-active-membership.js";
+import { resolveWorkingOrganization } from "../../organization/application/resolve-working-organization.js";
 import { CreateOrganizationService } from "../../organization/application/create-organization.js";
 import { AcceptInvitationService } from "../../organization/application/accept-invitation.js";
 import type { OrganizationStore } from "../../organization/ports/organization-store.js";
@@ -63,6 +64,12 @@ export interface SessionWithOnboarding {
   session: Session;
   activeOrganizationId?: string;
   onboardingState?: OnboardingState;
+  /** Wave B2B-6 (D-101): mutually exclusive with the 2 fields above - the user has more than
+   * one usable Membership (ACTIVE + its Organization's own TenantLifecycleRecord ACTIVE) and no
+   * valid selection is on the session yet. Explicit, typed contract (not a reused/overloaded
+   * meaning of `onboardingState`, which `OnboardingStateResolver` never evaluates lifecycle
+   * for - achado da Rodada 1 do Codex). */
+  organizationSelectionRequired?: { organizations: UsableOrganization[] };
 }
 
 export interface StartedLogin {
@@ -521,40 +528,86 @@ export class BffAuthService {
     await this.logout(sessionCookie);
   }
 
-  /** `GET /bff/session` needs enriched state (`onboardingState`) that every other
-   * `resolveSession()` caller (proxy, CSRF check, plain logout) does not - kept separate so
-   * those hot paths never pay for an extra `OnboardingStateResolver` query. Self-heals a stale
-   * `activeOrganizationId` (D-095 mudança 3: main table is the only source of truth, the session
-   * field is a cache/hint) - if absent but a real `ACTIVE` Membership now exists (e.g. a
-   * concurrent `POST /bff/organizations` updated the org but lost the race to write the session
-   * back, or a second device/session logging in after the org already existed), derives it and
-   * returns it immediately, then tries to write it back best-effort (never blocks the
-   * response, never fails the request if the write loses a race - next read just re-derives). */
+  /** `GET /bff/session` needs enriched state (`onboardingState`/`organizationSelectionRequired`)
+   * that every other `resolveSession()` caller (proxy, CSRF check, plain logout) does not - kept
+   * separate so those hot paths never pay for the extra queries. Two self-heal cases (Wave
+   * B2B-6/D-101):
+   *  - INVALID selection recovery: `activeOrganizationId` is set but no longer resolves (org
+   *    lifecycle inactive, or the Membership itself got revoked) - clears it best-effort and
+   *    falls through to re-derive, exactly like the absent case, instead of trusting a stale
+   *    value forever (achado real: the pre-B2B-6 code trusted this field with zero revalidation).
+   *  - ABSENT/cleared: re-derives from the lifecycle-filtered usable-organizations list (D-095
+   *    mudança 3: main table is the only source of truth, the session field is a cache/hint).
+   *    Explicit cardinality rule over that SAME list (Codex Rodada 2/3 achado - never a second,
+   *    diverging source of truth for "how many usable orgs"): 0 -> `onboardingState` (or, if
+   *    OnboardingStateResolver itself already said HAS_USABLE_MEMBERSHIP - a state it cannot
+   *    express because it never evaluates lifecycle - an empty `organizationSelectionRequired`
+   *    list, honest about "a Membership exists but nothing is currently usable" rather than
+   *    misreporting `NO_TENANT_NO_MEMBERSHIP`); 1 -> self-heal (write back best-effort, never
+   *    blocks the response, never fails the request if the write loses a race); >1 ->
+   *    `organizationSelectionRequired` with the full list, never "pega a primeira". */
   async resolveSessionWithOnboarding(sessionCookie: string | undefined): Promise<SessionWithOnboarding> {
     const session = await this.resolveSession(sessionCookie);
+
     if (session.activeOrganizationId) {
-      return { session, activeOrganizationId: session.activeOrganizationId };
+      const result = await resolveWorkingOrganization(this.deps.organizations, session.userId, session.activeOrganizationId);
+      if (result.status === "OK") {
+        return { session, activeOrganizationId: session.activeOrganizationId };
+      }
+      await this.deps.sessionStore.updateConditional<Session>(
+        { ...session, activeOrganizationId: undefined, updatedAt: this.deps.now(), version: session.version + 1 },
+        { version: session.version },
+      );
     }
 
     const onboardingState = await this.onboarding.resolve(session.userId);
-    if (onboardingState !== "HAS_USABLE_MEMBERSHIP") {
-      return { session, onboardingState };
+    const usable = await listUsableOrganizations(this.deps.organizations, session.userId);
+
+    if (usable.length === 0) {
+      if (onboardingState !== "HAS_USABLE_MEMBERSHIP") {
+        return { session, onboardingState };
+      }
+      // OnboardingStateResolver never evaluates lifecycle - HAS_USABLE_MEMBERSHIP here means
+      // only "some Membership exists", not "some Membership is currently usable". Honest signal
+      // (empty list) instead of a misleading onboardingState.
+      return { session, organizationSelectionRequired: { organizations: [] } };
     }
 
-    const derived = await this.deriveActiveOrganizationId(session.userId);
-    if (!derived) {
-      // OnboardingStateResolver said HAS_USABLE_MEMBERSHIP but resolveActiveMembership couldn't
-      // derive exactly one (0 or >1 - the latter unreachable today, B2B-6's job once possible).
-      // Benign for this read path: report the raw state rather than asserting like the
-      // resource-side resolver does.
-      return { session, onboardingState };
+    if (usable.length === 1) {
+      const [organization] = usable;
+      await this.deps.sessionStore.updateConditional<Session>(
+        { ...session, activeOrganizationId: organization!.organizationId, updatedAt: this.deps.now(), version: session.version + 1 },
+        { version: session.version },
+      );
+      return { session, activeOrganizationId: organization!.organizationId };
     }
 
+    return { session, organizationSelectionRequired: { organizations: usable } };
+  }
+
+  /** `POST /bff/organization/select` (Wave B2B-6, D-101). Same CSRF/mutation discipline as
+   * `createOrganization` - the handler runs `checkCsrf()` before calling this. Validates via
+   * `resolveWorkingOrganization()` (never trusts the client-supplied `organizationId` without
+   * a real Membership + lifecycle check), then CAS-writes `activeOrganizationId` (same
+   * `updateConditional` pattern as every other session mutation here). */
+  async selectOrganization(session: Session, organizationId: string): Promise<{ ok: true } | { ok: false }> {
+    const result = await resolveWorkingOrganization(this.deps.organizations, session.userId, organizationId);
+    if (result.status !== "OK") {
+      return { ok: false };
+    }
     await this.deps.sessionStore.updateConditional<Session>(
-      { ...session, activeOrganizationId: derived, updatedAt: this.deps.now(), version: session.version + 1 },
+      { ...session, activeOrganizationId: organizationId, updatedAt: this.deps.now(), version: session.version + 1 },
       { version: session.version },
     );
-    return { session, activeOrganizationId: derived };
+    return { ok: true };
+  }
+
+  /** `GET /bff/organizations` (Wave B2B-6, D-101) - lists only EFFECTIVELY usable organizations
+   * (Membership ACTIVE + TenantLifecycleRecord ACTIVE), never just the first half (Codex Rodada
+   * 1 achado 4: without the lifecycle filter, this could offer an organization that `select`/the
+   * resource API would then reject). */
+  async listOrganizations(userId: string): Promise<UsableOrganization[]> {
+    return listUsableOrganizations(this.deps.organizations, userId);
   }
 
   /** `POST /bff/organizations` (D-095 achado 2.3/mudança C): the first real consumer of
@@ -637,14 +690,16 @@ export class BffAuthService {
     return { organizationId };
   }
 
-  /** Shared by `handleCallback` and `resolveSessionWithOnboarding` - derives the (today,
-   * invariantly unique) `ACTIVE` `Membership`'s organizationId, or `undefined` if zero or more
-   * than one (benign here, unlike the resource-side resolver's own assertion - a BFF session
-   * hint that stays unset just means the frontend still sees `onboardingState` instead). */
+  /** `handleCallback` (login) only - derives the initial `activeOrganizationId` for a
+   * freshly-created session (no session row exists yet to CAS against). Filtered by lifecycle
+   * too (Wave B2B-6/D-101, `listUsableOrganizations`), not just raw Membership ACTIVE. `0` or
+   * `>1` usable organizations both leave it `undefined`, benignly - unlike the resource-side
+   * resolver's own fail-closed errors, a BFF session hint that stays unset just means the next
+   * `GET /bff/session` reports `onboardingState`/`organizationSelectionRequired` instead. */
   private async deriveActiveOrganizationId(userId: string): Promise<string | undefined> {
-    const active = await resolveActiveMembership(this.deps.organizations, userId);
-    if (active.length !== 1) return undefined;
-    return active[0]?.organizationId;
+    const usable = await listUsableOrganizations(this.deps.organizations, userId);
+    if (usable.length !== 1) return undefined;
+    return usable[0]?.organizationId;
   }
 }
 

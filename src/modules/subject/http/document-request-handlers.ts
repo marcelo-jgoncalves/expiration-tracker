@@ -47,7 +47,7 @@ export async function handleCreateDocumentRequest(deps: DocumentRequestHttpDeps,
     const assignmentId = requireAssignmentId(req);
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CREATE_DOCUMENT_REQUEST_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     const { request, guestToken, initialInviteDeliveryStatus } = await deps.documentRequests.createDocumentRequest(context, subjectId, assignmentId, req.body);
     // guestToken só é retornado nesta chamada - nunca reconstruível depois (só o hash persiste).
@@ -57,7 +57,7 @@ export async function handleCreateDocumentRequest(deps: DocumentRequestHttpDeps,
 
 export async function handleGetDocumentRequestDeliveryPreference(deps: DocumentRequestHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     const initialInviteDeliveryDefault = await deps.documentRequests.getDocumentRequestDeliveryPreference(context);
     return { statusCode: 200, body: { initialInviteDeliveryDefault } };
@@ -68,7 +68,7 @@ export async function handleUpdateDocumentRequestDeliveryPreference(deps: Docume
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_DELIVERY_PREFERENCE_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     await deps.documentRequests.setDocumentRequestDeliveryPreference(context, req.body.initialInviteDeliveryDefault);
     return { statusCode: 204, body: {} };
@@ -79,7 +79,7 @@ export async function handleListDocumentRequests(deps: DocumentRequestHttpDeps, 
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const assignmentId = requireAssignmentId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     const requests = await deps.documentRequests.listDocumentRequests(context, subjectId, assignmentId);
     return { statusCode: 200, body: { requests } };
@@ -90,7 +90,7 @@ export async function handleGetDocumentRequest(deps: DocumentRequestHttpDeps, re
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const documentRequestId = requireDocumentRequestId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     const request = await deps.documentRequests.getDocumentRequest(context, subjectId, documentRequestId);
     return { statusCode: 200, body: { request } };
@@ -102,7 +102,7 @@ export async function handleRevokeDocumentRequest(deps: DocumentRequestHttpDeps,
     const subjectId = requireSubjectId(req);
     const documentRequestId = requireDocumentRequestId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeQuota(deps, context);
     await deps.documentRequests.revokeDocumentRequest(context, subjectId, documentRequestId, expectedVersion);
     return { statusCode: 204, body: {} };

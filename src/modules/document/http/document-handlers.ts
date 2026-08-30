@@ -94,7 +94,7 @@ export async function handleReserveUpload(deps: DocumentHttpDeps, req: HttpReque
     validateAgainstSchema(RESERVE_UPLOAD_SCHEMA_ID, req.body);
     const itemId = requireItemId(req);
     const idempotencyKey = requireIdempotencyKey(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeUploadQuota(deps.quota, context);
     const result = await deps.documents.reserveUpload(context, itemId, req.body, idempotencyKey);
     return { statusCode: 201, body: { ...result } };
@@ -105,7 +105,7 @@ export async function handleDeleteDocument(deps: DocumentHttpDeps, req: HttpRequ
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const documentId = requireDocumentId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.deletion.deleteDocument(context, itemId, documentId);
     return { statusCode: 204, body: {} };
   });
@@ -116,7 +116,7 @@ export async function handleGetDocument(deps: DocumentHttpDeps, req: HttpRequest
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const documentId = requireDocumentId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const document = await deps.documents.getDocument(context, itemId, documentId);
     return { statusCode: 200, body: { ...document } };
   });
@@ -126,7 +126,7 @@ export async function handleGetDocument(deps: DocumentHttpDeps, req: HttpRequest
 export async function handleListDocuments(deps: DocumentHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const documents = await deps.documents.listDocuments(context, itemId);
     return { statusCode: 200, body: { documents } };
   });

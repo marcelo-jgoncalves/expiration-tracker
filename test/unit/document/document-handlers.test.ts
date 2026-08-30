@@ -33,7 +33,7 @@ async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemory
   await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
   const resolver = new RequestContextResolver(new UserRepository(identityStore), new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
-  const bootstrapped = await resolver.resolve({ claims: claims(), requestId: "bootstrap", correlationId: "bootstrap" });
+  const bootstrapped = await resolver.resolve({ claims: claims(), requestId: "bootstrap", correlationId: "bootstrap", organizationIdHint: undefined });
   const documentStore = new InMemoryDocumentStore([activeLifecycleRecord(bootstrapped.tenant.tenantId)]);
   const documents = new DocumentService({
     store: documentStore,

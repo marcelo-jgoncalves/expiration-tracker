@@ -93,7 +93,7 @@ function requireExpectedVersion(req: HttpRequest): number {
  * arbitrary id. */
 export async function handleGetPreferences(deps: NotificationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const preferences = await deps.preferences.getOrCreatePreferences(context);
     return { statusCode: 200, body: { preferences } };
@@ -108,7 +108,7 @@ export async function handleUpdatePreferences(
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(UPDATE_PREFERENCES_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const preferences = await deps.preferences.updatePreferences(context, req.body, expectedVersion);
     return { statusCode: 200, body: { preferences } };

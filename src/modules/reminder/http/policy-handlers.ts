@@ -103,7 +103,7 @@ export async function handleCreatePolicy(deps: ReminderHttpDeps, req: HttpReques
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(PUT_POLICY_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const policy = await deps.policies.createPolicy(context, req.body);
     return { statusCode: 201, body: { policy } };
@@ -113,7 +113,7 @@ export async function handleCreatePolicy(deps: ReminderHttpDeps, req: HttpReques
 export async function handleGetPolicy(deps: ReminderHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const policyId = requirePolicyId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const policy = await deps.policies.getPolicy(context, policyId);
     return { statusCode: 200, body: { policy } };
@@ -126,7 +126,7 @@ export async function handleUpdatePolicy(deps: ReminderHttpDeps, req: HttpReques
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(PUT_POLICY_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const policy = await deps.policies.updatePolicy(context, policyId, req.body, expectedVersion);
     return { statusCode: 200, body: { policy } };
@@ -137,7 +137,7 @@ export async function handleDisablePolicy(deps: ReminderHttpDeps, req: HttpReque
   return withErrorMapping(async () => {
     const policyId = requirePolicyId(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     await deps.policies.disablePolicy(context, policyId, expectedVersion);
     return { statusCode: 204, body: {} };

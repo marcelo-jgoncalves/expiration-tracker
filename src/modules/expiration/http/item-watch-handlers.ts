@@ -76,7 +76,7 @@ export async function handleAddWatcher(deps: ItemWatchHttpDeps, req: HttpRequest
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const userId = requireUserId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps, context);
     const watch = await deps.watches.addWatcher(context, itemId, userId);
     return { statusCode: 201, body: { watch } };
@@ -87,7 +87,7 @@ export async function handleRemoveWatcher(deps: ItemWatchHttpDeps, req: HttpRequ
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
     const userId = requireUserId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps, context);
     await deps.watches.removeWatcher(context, itemId, userId);
     return { statusCode: 204, body: {} };
@@ -97,7 +97,7 @@ export async function handleRemoveWatcher(deps: ItemWatchHttpDeps, req: HttpRequ
 export async function handleListWatchers(deps: ItemWatchHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const itemId = requireItemId(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps, context);
     const watchers = await deps.watches.listWatchers(context, itemId);
     return { statusCode: 200, body: { watchers } };

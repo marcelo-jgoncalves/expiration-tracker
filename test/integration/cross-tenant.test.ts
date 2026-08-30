@@ -55,8 +55,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   it("two distinct Cognito subs resolve to two distinct, non-overlapping tenants", async () => {
     await ensureOrg("sub-A");
     await ensureOrg("sub-B");
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
-    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2", organizationIdHint: undefined });
 
     expect(ctxA.tenant.tenantId).not.toBe(ctxB.tenant.tenantId);
     expect(ctxA.principal.userId).not.toBe(ctxB.principal.userId);
@@ -65,8 +65,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   it("swapping the resource's tenantId for another tenant's ID is denied (ID substitution attack)", async () => {
     await ensureOrg("sub-A");
     await ensureOrg("sub-B");
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
-    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2", organizationIdHint: undefined });
 
     // A tries to read a resource whose tenantId is actually B's tenant.
     expect(() =>
@@ -76,7 +76,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
 
   it("a maliciously supplied tenantId in the DTO is ignored - resource.tenantId always comes from a DB read keyed by ctx.tenant.tenantId", async () => {
     await ensureOrg("sub-A");
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
 
     // Simulate: client payload claims tenantId "tenant-B-forged", but the authz
     // resource object is built from context, never from the DTO - the call site
@@ -89,7 +89,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
 
   it("authenticated user with no membership (empty roles) is denied on every action", async () => {
     await ensureOrg("sub-A");
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     const noMembership = { ...ctxA, tenant: { ...ctxA.tenant, roles: [] } };
 
     expect(() => authorize({ context: noMembership, action: "item:read", resource: { tenantId: ctxA.tenant.tenantId } })).toThrow(
@@ -104,6 +104,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
       claims: claims("sub-A", { issuedAt: staleIssuedAt }),
       requestId: "r1",
       correlationId: "c1",
+      organizationIdHint: undefined,
     });
     // Wave B2B-5 (D-095): logoutAll moved to GlobalUserRepository, user-global (no tenantId).
     await globalUsers.logoutAll(ctxA.principal.userId);
@@ -113,13 +114,14 @@ describe("Cross-tenant isolation (negative suite)", () => {
         claims: claims("sub-A", { tokenId: "jti-stale", issuedAt: staleIssuedAt }),
         requestId: "r2",
         correlationId: "c2",
+        organizationIdHint: undefined,
       }),
     ).rejects.toBeInstanceOf(AuthenticationError);
   });
 
   it("insufficient role (VIEWER) is denied a write action even within the correct tenant", async () => {
     await ensureOrg("sub-A");
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
     const viewerCtx = { ...ctxA, tenant: { ...ctxA.tenant, roles: ["VIEWER"] } };
 
     expect(() =>
@@ -134,8 +136,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
     // (blueprint §4.3): pretend a GSI query returned an item belonging to tenant-B
     // (GSIs are eventually consistent and keyed independent of caller identity), and
     // the caller (tenant A) then tries to act on it.
-    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
-    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
+    const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2", organizationIdHint: undefined });
     const gsiResultFromTenantB = { tenantId: ctxB.tenant.tenantId, ownerUserId: ctxB.principal.userId };
 
     expect(() => authorize({ context: ctxA, action: "document:read", resource: gsiResultFromTenantB })).toThrow(
@@ -179,8 +181,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   it("no DynamoDB item written for one tenant is ever addressable under another tenant's PK prefix", async () => {
     await ensureOrg("sub-A");
     await ensureOrg("sub-B");
-    await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
-    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
+    await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2", organizationIdHint: undefined });
 
     const keysUnderB = store.allKeys().filter((k) => k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`));
     for (const k of keysUnderB) {

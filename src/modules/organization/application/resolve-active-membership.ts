@@ -14,10 +14,38 @@
  * authorization).
  */
 import { membershipKey, type Membership } from "../domain/membership.js";
+import { organizationKey, type Organization } from "../domain/organization.js";
+import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 
 export async function resolveActiveMembership(organizations: OrganizationStore, userId: string): Promise<Membership[]> {
   const pointers = await organizations.queryGsi4<Membership>({ gsi4pk: `USER#${userId}` });
   const hydrated = await Promise.all(pointers.map((pointer) => organizations.get<Membership>(membershipKey(pointer.organizationId, userId))));
   return hydrated.filter((membership): membership is Membership => membership !== undefined && membership.status === "ACTIVE");
+}
+
+export interface UsableOrganization {
+  organizationId: string;
+  displayName: string;
+  role: Membership["role"];
+}
+
+/** Wave B2B-6 (D-101, achado 4 da Rodada 1 do Codex): `Membership` `ACTIVE` sozinho não basta -
+ * uma organização só é "utilizável" se sua própria `TenantLifecycleRecord` também for `ACTIVE`
+ * (physical model §11 exige a checagem dupla). Sem este filtro, `GET /bff/organizations`
+ * ofereceria uma organização que `resolveWorkingOrganization()`/`select` rejeitariam depois -
+ * uma única fonte de verdade para "quantas organizações utilizáveis" (reaproveitada também pela
+ * regra de cardinalidade 0/1/>1 de `resolveSessionWithOnboarding()`). */
+export async function listUsableOrganizations(organizations: OrganizationStore, userId: string): Promise<UsableOrganization[]> {
+  const memberships = await resolveActiveMembership(organizations, userId);
+  const results = await Promise.all(
+    memberships.map(async (membership): Promise<UsableOrganization | undefined> => {
+      const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(membership.organizationId));
+      if (!lifecycle || lifecycle.status !== TENANT_ACTIVE_STATUS) return undefined;
+      const organization = await organizations.get<Organization>(organizationKey(membership.organizationId));
+      if (!organization) return undefined;
+      return { organizationId: membership.organizationId, displayName: organization.displayName, role: membership.role };
+    }),
+  );
+  return results.filter((result): result is UsableOrganization => result !== undefined);
 }

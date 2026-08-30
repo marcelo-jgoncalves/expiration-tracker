@@ -110,7 +110,7 @@ export async function handleConfirmField(deps: ExtractionHttpDeps, req: HttpRequ
     const runId = requirePathParam(req, "runId");
     const fieldName = requirePathParam(req, "fieldName");
     const idempotencyKey = requireIdempotencyKey(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const field = await confirmField(deps.fields, context, {
       itemId,
@@ -137,7 +137,7 @@ export async function handleRejectField(deps: ExtractionHttpDeps, req: HttpReque
     const runId = requirePathParam(req, "runId");
     const fieldName = requirePathParam(req, "fieldName");
     const idempotencyKey = requireIdempotencyKey(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
     const field = await rejectField(deps.fields, context, {
       itemId,

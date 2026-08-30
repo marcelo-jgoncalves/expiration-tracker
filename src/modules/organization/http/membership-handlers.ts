@@ -108,7 +108,7 @@ export async function handleCreateInvitation(deps: MembershipHttpDeps, req: Http
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CREATE_INVITATION_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const { invitation } = await deps.createInvitation.invite(context, req.body);
     // O token bruto NUNCA volta na resposta HTTP - só é entregue pelo canal de e-mail (achado
     // real: o response de criação de convite não é o mesmo canal que prova posse do link).
@@ -119,7 +119,7 @@ export async function handleCreateInvitation(deps: MembershipHttpDeps, req: Http
 export async function handleRevokeInvitation(deps: MembershipHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const invitationId = requireInvitationIdParam(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.revokeInvitation.revoke(context, invitationId);
     return { statusCode: 204, body: {} };
   });
@@ -127,7 +127,7 @@ export async function handleRevokeInvitation(deps: MembershipHttpDeps, req: Http
 
 export async function handleListMembers(deps: MembershipHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const members = await deps.listMembers.listMembers(context);
     return { statusCode: 200, body: { members } };
   });
@@ -135,7 +135,7 @@ export async function handleListMembers(deps: MembershipHttpDeps, req: HttpReque
 
 export async function handleListInvitations(deps: MembershipHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const invitations = await deps.listInvitations.listInvitations(context);
     // Nunca inclui `tokenPointerId` (referencia o token de posse) na resposta HTTP.
     return { statusCode: 200, body: { invitations: invitations.map((i) => ({ invitationId: i.invitationId, emailNormalized: i.emailNormalized, role: i.role, status: i.status, expiresAt: i.expiresAt })) } };
@@ -148,7 +148,7 @@ export async function handleChangeMembershipRole(deps: MembershipHttpDeps, req: 
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(CHANGE_MEMBERSHIP_ROLE_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.changeRole.changeRole(context, targetUserId, req.body.role, expectedVersion);
     return { statusCode: 204, body: {} };
   });
@@ -158,7 +158,7 @@ export async function handleRemoveMembership(deps: MembershipHttpDeps, req: Http
   return withErrorMapping(async () => {
     const targetUserId = requireUserIdParam(req);
     const expectedVersion = requireExpectedVersion(req);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.removeMembership.remove(context, targetUserId, expectedVersion);
     return { statusCode: 204, body: {} };
   });
@@ -166,7 +166,7 @@ export async function handleRemoveMembership(deps: MembershipHttpDeps, req: Http
 
 export async function handleLeaveOrganization(deps: MembershipHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId });
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.leaveOrganization.leave(context);
     return { statusCode: 204, body: {} };
   });

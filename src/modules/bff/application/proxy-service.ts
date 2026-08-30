@@ -49,6 +49,13 @@ export class ProxyService {
       const value = req.headers[name];
       if (value !== undefined) headers[name] = value;
     }
+    // Wave B2B-6 (D-101): X-Organization-Id NEVER comes from `req.headers` (Tenant Context
+    // Injection, OWASP Multi Tenant Security Cheat Sheet) - deliberately not part of
+    // FORWARDED_REQUEST_HEADERS. Its only source is the BFF's own server-side session; a
+    // browser sending this header has zero effect on what actually reaches the resource API.
+    if (session.activeOrganizationId) {
+      headers["x-organization-id"] = session.activeOrganizationId;
+    }
 
     const url = `${this.apiBaseUrl}${req.path}${req.queryString ? `?${req.queryString}` : ""}`;
     const result = await this.backend.fetch({ method: req.method, url, headers, body: req.body });
