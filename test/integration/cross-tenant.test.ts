@@ -6,9 +6,10 @@
  * proves the wiring, not just each unit.
  */
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemoryIdentityStore, makeIdGenerator } from "../unit/identity/in-memory-store.js";
-import { IdentityMappingRepository } from "../../src/modules/identity/persistence/identity-mapping-repository.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
+import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
 import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
 import { authorize, AuthorizationDeniedError } from "../../src/modules/identity/domain/authorization.js";
@@ -27,19 +28,33 @@ function claims(sub: string, overrides: Partial<ValidatedClaims> = {}): Validate
 
 describe("Cross-tenant isolation (negative suite)", () => {
   let store: InMemoryIdentityStore;
+  let organizations: InMemoryOrganizationStore;
   let resolver: RequestContextResolver;
   let quota: TenantQuotaService;
-  let users: UserRepository;
+  let globalUsers: GlobalUserRepository;
+  const bootstrappedSubs = new Set<string>();
 
   beforeEach(() => {
     store = new InMemoryIdentityStore();
-    const mappings = new IdentityMappingRepository(store);
-    users = new UserRepository(store);
-    resolver = new RequestContextResolver(mappings, users, makeIdGenerator(), store, "MainTable");
+    organizations = new InMemoryOrganizationStore();
+    globalUsers = new GlobalUserRepository(store);
+    resolver = new RequestContextResolver(new UserRepository(store), globalUsers, organizations, makeIdGenerator(), store, "MainTable");
     quota = new TenantQuotaService(store, "MainTable");
+    bootstrappedSubs.clear();
   });
 
+  // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - every sub this
+  // suite resolves needs a real Organization+Membership seeded first (idempotent per test, since
+  // several tests resolve the same sub more than once).
+  async function ensureOrg(sub: string): Promise<void> {
+    if (bootstrappedSubs.has(sub)) return;
+    await bootstrapWithOrganization(store, organizations, "MainTable", sub);
+    bootstrappedSubs.add(sub);
+  }
+
   it("two distinct Cognito subs resolve to two distinct, non-overlapping tenants", async () => {
+    await ensureOrg("sub-A");
+    await ensureOrg("sub-B");
     const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
 
@@ -48,6 +63,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("swapping the resource's tenantId for another tenant's ID is denied (ID substitution attack)", async () => {
+    await ensureOrg("sub-A");
+    await ensureOrg("sub-B");
     const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
 
@@ -58,6 +75,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("a maliciously supplied tenantId in the DTO is ignored - resource.tenantId always comes from a DB read keyed by ctx.tenant.tenantId", async () => {
+    await ensureOrg("sub-A");
     const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
 
     // Simulate: client payload claims tenantId "tenant-B-forged", but the authz
@@ -70,6 +88,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("authenticated user with no membership (empty roles) is denied on every action", async () => {
+    await ensureOrg("sub-A");
     const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const noMembership = { ...ctxA, tenant: { ...ctxA.tenant, roles: [] } };
 
@@ -79,13 +98,15 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("membership revoked (globalLogoutAfter) with a token issued before revocation is rejected at resolve() time, before authorize() ever runs", async () => {
+    await ensureOrg("sub-A");
     const staleIssuedAt = new Date(Date.now() - 60_000).toISOString();
     const ctxA = await resolver.resolve({
       claims: claims("sub-A", { issuedAt: staleIssuedAt }),
       requestId: "r1",
       correlationId: "c1",
     });
-    await users.logoutAll(ctxA.tenant.tenantId, ctxA.principal.userId);
+    // Wave B2B-5 (D-095): logoutAll moved to GlobalUserRepository, user-global (no tenantId).
+    await globalUsers.logoutAll(ctxA.principal.userId);
 
     await expect(
       resolver.resolve({
@@ -97,6 +118,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("insufficient role (VIEWER) is denied a write action even within the correct tenant", async () => {
+    await ensureOrg("sub-A");
     const ctxA = await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const viewerCtx = { ...ctxA, tenant: { ...ctxA.tenant, roles: ["VIEWER"] } };
 
@@ -106,6 +128,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("a resource read via a cross-tenant GSI-shaped lookup still fails authz on tenant mismatch", async () => {
+    await ensureOrg("sub-A");
+    await ensureOrg("sub-B");
     // Simulates "leitura por GSI seguida de tentativa de agir sobre recurso alheio"
     // (blueprint §4.3): pretend a GSI query returned an item belonging to tenant-B
     // (GSIs are eventually consistent and keyed independent of caller identity), and
@@ -120,6 +144,8 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   it("end-to-end: tenant A's authenticated request never returns tenant B's tenantId, and each tenant has an independent quota bucket", async () => {
+    await ensureOrg("sub-A");
+    await ensureOrg("sub-B");
     const resA1 = await handleTestRoute({ resolver, quota }, { requestId: "r1", correlationId: "c1", claims: claims("sub-A") });
     const resB1 = await handleTestRoute({ resolver, quota }, { requestId: "r2", correlationId: "c2", claims: claims("sub-B") });
 
@@ -145,12 +171,14 @@ describe("Cross-tenant isolation (negative suite)", () => {
   });
 
   // G-V3 (test-engineering-standard.md): mutação que quebraria isto — remover a exceção
-  // estreita `k !== \`USER#${ctxB.tenant.tenantId}#PROFILE\`` deixaria o `GlobalUser`
+  // estreita `k !== \`USER#${ctxB.principal.userId}#PROFILE\`` deixaria o `GlobalUser`
   // aditivo de B2B-2 acusar falso-positivo (achado real desta sessão, D-088); mutação
   // OPOSTA que este teste TAMBÉM precisa pegar — trocar a exceção por um wildcard (ex.
   // `k.startsWith("USER#")` sem o `#PROFILE` exato) deixaria passar despercebido um vazamento
   // real de `tenantId` em qualquer outra entidade cuja chave comece com `USER#`.
   it("no DynamoDB item written for one tenant is ever addressable under another tenant's PK prefix", async () => {
+    await ensureOrg("sub-A");
+    await ensureOrg("sub-B");
     await resolver.resolve({ claims: claims("sub-A"), requestId: "r1", correlationId: "c1" });
     const ctxB = await resolver.resolve({ claims: claims("sub-B"), requestId: "r2", correlationId: "c2" });
 
@@ -160,16 +188,18 @@ describe("Cross-tenant isolation (negative suite)", () => {
     }
     // Sanity: tenant A's items exist and are disjoint from tenant B's prefix. One deliberate,
     // documented exception since Wave B2B-2 (D-087, docs/architecture/multi-user-b2b-physical-
-    // model.md §1): the additive global User row (`PK=USER#<userId>#PROFILE`) legitimately
-    // contains the same raw ID string as `tenantId` under today's MVP `tenantId=userId` rule -
-    // it is not tenant-scoped business data (carries no Document/ExpirationItem/etc.), is never
-    // reachable via any `TENANT#`-scoped query, and is the intended foundation for Wave B2B-3's
-    // `Membership` to reference a real, tenant-independent `userId`. Excluding it here narrowly
-    // (by its exact known key shape, not a broad wildcard) keeps this negative suite meaningful
-    // for every OTHER entity, which must still never leak a tenant id outside its `TENANT#` prefix.
+    // model.md §1): the additive global User row (`PK=USER#<userId>#PROFILE`) is keyed by the
+    // real, tenant-independent `userId` (Wave B2B-5/D-095: `tenant.tenantId` is now the
+    // Organization id, a DIFFERENT string from `principal.userId` - the exception below compares
+    // against the latter, not the former, unlike the pre-cutover MVP `tenantId=userId` rule this
+    // comment used to describe). It is not tenant-scoped business data (carries no Document/
+    // ExpirationItem/etc.), is never reachable via any `TENANT#`-scoped query. Excluding it here
+    // narrowly (by its exact known key shape, not a broad wildcard) keeps this negative suite
+    // meaningful for every OTHER entity, which must still never leak a tenant id outside its
+    // `TENANT#` prefix.
     const anyCrossover = store
       .allKeys()
-      .some((k) => k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`) === false && k !== `USER#${ctxB.tenant.tenantId}#PROFILE` && k.includes(ctxB.tenant.tenantId));
+      .some((k) => k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`) === false && k !== `USER#${ctxB.principal.userId}#PROFILE` && k.includes(ctxB.tenant.tenantId));
     expect(anyCrossover).toBe(false);
   });
 });

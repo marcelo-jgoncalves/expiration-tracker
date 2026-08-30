@@ -18,10 +18,11 @@
 import { describe, expect, it, vi } from "vitest";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 import { InMemoryNotificationStore } from "./in-memory-store.js";
-import { InMemoryIdentityStore, makeIdGenerator } from "../identity/in-memory-store.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../identity/in-memory-store.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { NotificationPreferencesService } from "../../../src/modules/notification/application/notification-preferences-service.js";
 import { handleGetPreferences, handleUpdatePreferences, type NotificationHttpDeps } from "../../../src/modules/notification/http/preferences-handlers.js";
@@ -29,9 +30,13 @@ import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-
 
 const TABLE = "MainTable";
 
-function buildDeps(): NotificationHttpDeps & { identityStore: InMemoryIdentityStore } {
+async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMemoryIdentityStore }> {
   const identityStore = new InMemoryIdentityStore();
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
+  const organizations = new InMemoryOrganizationStore();
+  // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
+  // Organization+Membership for "cognito-sub-1" before any handler call can resolve.
+  await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
+  const resolver = new RequestContextResolver(new UserRepository(identityStore), new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
   const preferences = new NotificationPreferencesService({
     store: new InMemoryNotificationStore(),
@@ -53,7 +58,7 @@ function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
 
 describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
   it("handleUpdatePreferences accepts a valid body through the REAL schema registry every Lambda imports (regression: catches a schema added to disk but never registered)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleUpdatePreferences(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -67,14 +72,14 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
   });
 
   it("handleGetPreferences lazily creates and returns the caller's own preferences", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleGetPreferences(deps, { requestId: "r1", correlationId: "c1", claims: claims() });
     expect(response.statusCode).toBe(200);
     expect((response.body["preferences"] as { emailEnabled: boolean }).emailEnabled).toBe(true);
   });
 
   it("handleUpdatePreferences rejects a body that fails schema validation (extra unknown field)", async () => {
-    const deps = buildDeps();
+    const deps = await buildDeps();
     const response = await handleUpdatePreferences(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -87,7 +92,7 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
 
   it("emits exactly one security.authorization_denied event on a real authorize() denial, without changing the 403 response", async () => {
     const auditSpy = vi.spyOn(securityAudit, "auditAuthorizationDenied");
-    const deps = buildDeps();
+    const deps = await buildDeps();
     // W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a
     // TenantLifecycleRecord for "tenant-x" - this stub resolver bypasses the real bootstrap
     // flow that would normally create one, so seed it directly.

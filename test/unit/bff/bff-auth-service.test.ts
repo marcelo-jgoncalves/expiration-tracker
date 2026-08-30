@@ -3,17 +3,25 @@ import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-se
 import { InMemorySessionStore, HookableSessionStore } from "./in-memory-session-store.js";
 import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor, fakeAccessToken } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
-import { TenantBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
-import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
-import { AuthenticationError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
-import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
-import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
+import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
+import { GlobalUserRepository, globalUserKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
+import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
+import { AuthenticationError, ConflictError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
+
+const TABLE = "MainTable";
 
 function buildService(overrides: Partial<{ now: () => string }> = {}) {
   const sessionStore = new InMemorySessionStore();
   const identityStore = new InMemoryIdentityStore();
-  const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
-  const users = new UserRepository(identityStore);
+  const organizations = new InMemoryOrganizationStore();
+  const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
+  const globalUsers = new GlobalUserRepository(identityStore);
+  let orgIdCounter = 0;
+  const createOrganization = new CreateOrganizationService(organizations, TABLE, {
+    newOrganizationId: () => `org-${++orgIdCounter}`,
+    newMembershipId: () => `membership-${orgIdCounter}`,
+  });
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
@@ -27,7 +35,10 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,
-    users,
+    globalUsers,
+    organizations,
+    mainTableName: TABLE,
+    createOrganization,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",
     authorizeUrl: "https://auth.example.com/oauth2/authorize",
@@ -41,10 +52,11 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
     service,
     sessionStore,
     identityStore,
+    organizations,
+    globalUsers,
     cognitoClient,
     idTokenVerifier,
     tokenEncryptor,
-    users,
     setClock: (iso: string) => {
       clock = iso;
     },
@@ -102,7 +114,10 @@ describe("BffAuthService.startLogin", () => {
 });
 
 describe("BffAuthService.handleCallback", () => {
-  it("happy path: creates a session, provisions the user on first login, returns session+csrf tokens", async () => {
+  // Wave B2B-5 (D-095): handleCallback's bootstrap is now the 2-item IdentityBootstrapService -
+  // a session is ALWAYS created, but activeOrganizationId stays absent until a real Organization
+  // exists (mudança E, achado 2.3 - login never fails just because there's no org yet).
+  it("happy path: creates a session with no activeOrganizationId yet (no Organization exists), returns session+csrf tokens", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
     expect(result.sessionToken).toMatch(/^[a-f0-9]{32}\.[a-f0-9]{64}$/);
@@ -110,43 +125,32 @@ describe("BffAuthService.handleCallback", () => {
 
     const session = await ctx.service.resolveSession(result.sessionToken);
     expect(session.userId).toBe("user-1");
-    expect(session.tenantId).toBe("user-1"); // MVP tenantId=userId, same rule as RequestContextResolver
+    expect(session.activeOrganizationId).toBeUndefined();
   });
 
-  // G-V3 (test-engineering-standard.md): mutação que quebraria isto — reverter
-  // `handleCallback()` para passar `newUserId` como e-mail para `bootstrap()` (ou omitir o
-  // parâmetro, voltando ao default `""` de `TenantBootstrapService.bootstrap()`).
-  it("captures the ID token's verified email onto the new profile (Wave B2B-2: TenantBootstrapService.bootstrap() now takes emailNormalized so switching to the shared atomic path doesn't silently drop it - FakeIdTokenVerifier.nextResult.email defaults to user@example.com)", async () => {
-    const ctx = buildService();
-    const { result } = await loginOnce(ctx);
-    const session = await ctx.service.resolveSession(result.sessionToken);
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.emailNormalized).toBe("user@example.com");
-  });
-
-  // G-V3: mutação que quebraria isto — em `TenantBootstrapService.createAll()`, gravar
-  // `globalUser.emailNormalized = ""` em vez de reencaminhar o parâmetro `emailNormalized`
-  // recebido de `bootstrap()`.
-  it("also creates the additive global User row via the shared bootstrap (Wave B2B-2 follow-up) with the same verified email", async () => {
+  // G-V3 (test-engineering-standard.md): mutação que quebraria isto — em
+  // IdentityBootstrapService.createAll(), gravar `user.emailNormalized = ""` em vez de
+  // reencaminhar o parâmetro `emailNormalized` recebido de `bootstrapUser()`, ou reverter
+  // handleCallback() para não passar `idClaims.email` adiante.
+  it("captures the ID token's verified email onto the GlobalUser row created on first login", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
     const session = await ctx.service.resolveSession(result.sessionToken);
 
-    const globalUsers = new GlobalUserRepository(ctx.identityStore);
-    const globalUser = await globalUsers.get(session.userId);
-    expect(globalUser?.emailNormalized).toBe("user@example.com");
+    const globalUser = await ctx.globalUsers.get(session.userId);
+    expect(globalUser?.emailNormalized).toBe("user@example.com"); // FakeIdTokenVerifier.nextResult.email default
+    expect(globalUser?.identityStatus).toBe("ACTIVE");
+    expect(globalUser?.version).toBe(1);
   });
 
-  // G-V3: mutação que quebraria isto — reverter `handleCallback()` para a lógica sequencial
-  // antiga (`identityMappings.findOrCreate` + `users.getProfile`/`createProfileIfAbsent`, sem
-  // `bootstrap.bootstrap()`), que nunca consultava `TenantLifecycleRecord` e sempre criaria/
-  // retornaria um profile mesmo com o tenant DELETING.
-  it("rejects a repeat login for a tenant whose TenantLifecycleRecord has moved to DELETING - capability this path never had before Wave B2B-2 (the old sequential findOrCreate/createProfileIfAbsent logic never checked lifecycle at all)", async () => {
+  // Mutação: remover o check `user.identityStatus !== "ACTIVE"` de handleCallback() (ou de
+  // resolveSession's caminho equivalente) faria este login suspenso passar silenciosamente.
+  it("rejects a repeat login when GlobalUser.identityStatus has been suspended", async () => {
     const ctx = buildService();
-    await loginOnce(ctx); // first login: creates IdentityMapping + TenantLifecycleRecord(ACTIVE) + profile
+    await loginOnce(ctx); // first login: creates GlobalUser(identityStatus=ACTIVE) + IdentityMapping
 
-    const lifecycle = await ctx.identityStore.get<TenantLifecycleRecord>(tenantLifecycleKey("user-1"));
-    await ctx.identityStore.update({ ...lifecycle!, status: "DELETING" });
+    const user = await ctx.globalUsers.get("user-1");
+    await ctx.identityStore.update({ ...user!, identityStatus: "SUSPENDED" });
 
     await expect(loginOnce(ctx)).rejects.toBeInstanceOf(AuthenticationError);
   });
@@ -224,14 +228,13 @@ describe("BffAuthService.handleCallback", () => {
     await expect(ctx.service.handleCallback({ loginCookie: started.loginToken, code: "c", state })).rejects.toThrow();
   });
 
-  it("second login for the same Cognito subject reuses the same tenant/user (no duplicate provisioning)", async () => {
+  it("second login for the same Cognito subject reuses the same userId (no duplicate provisioning)", async () => {
     const ctx = buildService();
     const first = await loginOnce(ctx);
     const second = await loginOnce(ctx);
     const s1 = await ctx.service.resolveSession(first.result.sessionToken);
     const s2 = await ctx.service.resolveSession(second.result.sessionToken);
     expect(s2.userId).toBe(s1.userId);
-    expect(s2.tenantId).toBe(s1.tenantId);
   });
 
   it("encrypts the refresh token before persisting it - never stored in plaintext", async () => {
@@ -240,6 +243,101 @@ describe("BffAuthService.handleCallback", () => {
     const session = await ctx.service.resolveSession(result.sessionToken);
     expect(session.encryptedRefreshToken).not.toBe("refresh-1");
     expect(session.encryptedRefreshToken).toContain(".enc");
+  });
+});
+
+describe("BffAuthService.createOrganization (Wave B2B-5, D-095, achado 2.3)", () => {
+  // Mutação: usar CreateOrganizationService.createOrganization() diretamente (sem o 5º entry
+  // do cap) em vez de buildCreateEntries()+capEntry faria a segunda chamada desta suíte
+  // (teste seguinte) suceder em vez de ser rejeitada com 409 - o achado central da Rodada 3
+  // do debate de escopo.
+  it("creates the organization and sets activeOrganizationId on the session", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+
+    const { organizationId } = await ctx.service.createOrganization(session, { displayName: "Acme Inc", timezone: "UTC" });
+
+    const updated = await ctx.service.resolveSession(result.sessionToken);
+    expect(updated.activeOrganizationId).toBe(organizationId);
+  });
+
+  // Mutação: remover o mapeamento de TransactionCanceledException para ConflictError (deixar o
+  // erro genérico propagar) faria este teste falhar - o cap precisa virar um 409 nomeado, não
+  // um 500 opaco.
+  it("rejects a second organization creation for the same user with a transactional cap - never check-then-act", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+
+    await ctx.service.createOrganization(session, { displayName: "Acme Inc", timezone: "UTC" });
+
+    await expect(ctx.service.createOrganization(session, { displayName: "Acme Inc 2", timezone: "UTC" })).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  // Mutação: gravar o cap num item novo sem `attribute_not_exists` (ou usar
+  // buildVersionedUpdate, cuja condição reservada exige tenantId - GlobalUser não tem) faria
+  // esta transação de 5 itens falhar de forma diferente ou nunca fechar o cap de verdade.
+  //
+  // Lido via ctx.organizations (não ctx.globalUsers/identityStore): o cap entry é escrito na
+  // MESMA TransactWriteItems que os 4 Puts de CreateOrganizationService, via
+  // this.deps.organizations.transactWrite() - correto em produção (uma única tabela física
+  // real por trás dos dois ports), mas os fakes de teste modelam identity/organization como
+  // Maps separados (mesma convenção já estabelecida por document-handlers.test.ts et al para
+  // TenantLifecycleRecord), então a escrita real do cap só é visível pelo store que a executou.
+  it("sets GlobalUser.hasCreatedOrganization atomically with the Organization/Membership creation", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    await ctx.service.createOrganization(session, { displayName: "Acme Inc", timezone: "UTC" });
+
+    const user = await ctx.organizations.get(globalUserKey(session.userId));
+    expect((user as Record<string, unknown> | undefined)?.["hasCreatedOrganization"]).toBe(true);
+  });
+});
+
+describe("BffAuthService.resolveSessionWithOnboarding (Wave B2B-5, D-095, self-heal)", () => {
+  it("reports onboardingState=NO_TENANT_NO_MEMBERSHIP when no Organization exists yet", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+
+    const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(resolved.activeOrganizationId).toBeUndefined();
+    expect(resolved.onboardingState).toBe("NO_TENANT_NO_MEMBERSHIP");
+  });
+
+  // Mutação: remover a chamada a resolveActiveMembership/o write-back best-effort desta função
+  // faria o usuário ficar preso vendo "crie uma organização" mesmo já tendo uma - exatamente o
+  // cenário que o Codex apontou na Rodada 2 (item D residual).
+  it("self-heals a stale/missing activeOrganizationId when a real ACTIVE Membership already exists", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const { organizationId } = await ctx.service.createOrganization(session, { displayName: "Acme Inc", timezone: "UTC" });
+
+    // Simulate the session-table write-back having lost a race/never happened (D-095 mudança
+    // 2: main table is the source of truth, session field is just a cache) - the org is real,
+    // the session just doesn't know about it yet.
+    const stale = await ctx.sessionStore.get<import("../../../src/modules/bff/domain/session.js").Session>({ PK: session.PK, SK: session.SK });
+    await ctx.sessionStore.update({ ...stale!, activeOrganizationId: undefined });
+
+    const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(resolved.activeOrganizationId).toBe(organizationId);
+    expect(resolved.onboardingState).toBeUndefined();
+
+    // Best-effort write-back happened - a subsequent plain resolveSession also sees it now.
+    const healed = await ctx.service.resolveSession(result.sessionToken);
+    expect(healed.activeOrganizationId).toBe(organizationId);
+  });
+
+  it("trusts an already-set activeOrganizationId without any extra OnboardingStateResolver query (fast path)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const { organizationId } = await ctx.service.createOrganization(session, { displayName: "Acme Inc", timezone: "UTC" });
+
+    const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(resolved.activeOrganizationId).toBe(organizationId);
   });
 });
 
@@ -284,8 +382,8 @@ describe("BffAuthService.resolveSession", () => {
 
     await ctx.service.logoutAll(result.sessionToken);
 
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.globalLogoutAfter).toBeFalsy();
+    const user = await ctx.globalUsers.get(session.userId);
+    expect(user?.globalLogoutAfter).toBeFalsy();
   });
 
   it("rejects a revoked session", async () => {
@@ -362,73 +460,10 @@ describe("BffAuthService.resolveSession", () => {
   it("a session revoked (e.g. concurrent logout) between resolveSession's initial read and its own idle-TTL bump write is never resurrected by that bump - same residual bug class found by Codex's Round D re-verification, outside the refresh path entirely", async () => {
     const rawStore = new InMemorySessionStore();
     const identityStore = new InMemoryIdentityStore();
-    const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
-    const users = new UserRepository(identityStore);
-    const cognitoClient = new FakeCognitoOidcClient();
-    const idTokenVerifier = new FakeIdTokenVerifier();
-    const tokenEncryptor = new FakeTokenEncryptor();
-    let userCounter = 0;
-    let deviceCounter = 0;
-    let clock = "2026-08-24T12:00:00.000Z";
-    const now = () => clock;
-
-    // Build a throwaway service (same store) only to perform the login and the concurrent
-    // logout - the service under test below shares the same underlying data via the hookable
-    // wrapper, so writes from either are visible to both.
-    const setupService = new BffAuthService({
-      sessionStore: rawStore,
-      cognitoClient,
-      idTokenVerifier,
-      tokenEncryptor,
-      bootstrap,
-      users,
-      pepper: "test-pepper",
-      redirectUri: "https://app.example.com/bff/callback",
-      authorizeUrl: "https://auth.example.com/oauth2/authorize",
-      clientId: "client-1",
-      now,
-      newUserId: () => `user-${++userCounter}`,
-      newDeviceId: () => `device-${++deviceCounter}`,
-    });
-    const started = await setupService.startLogin("/");
-    const state = new URL(started.redirectUrl).searchParams.get("state")!;
-    const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
-
-    // 5 minutes later: access token (900s TTL) is still valid, but enough idle time passed
-    // that resolveSession's idle-TTL bump will actually attempt a write.
-    clock = "2026-08-24T12:05:00.000Z";
-
-    const hookableStore = new HookableSessionStore(rawStore, async () => {
-      await setupService.logout(sessionToken);
-    });
-    const serviceUnderTest = new BffAuthService({
-      sessionStore: hookableStore,
-      cognitoClient,
-      idTokenVerifier,
-      tokenEncryptor,
-      bootstrap,
-      users,
-      pepper: "test-pepper",
-      redirectUri: "https://app.example.com/bff/callback",
-      authorizeUrl: "https://auth.example.com/oauth2/authorize",
-      clientId: "client-1",
-      now,
-      newUserId: () => `user-${++userCounter}`,
-      newDeviceId: () => `device-${++deviceCounter}`,
-    });
-
-    // The concurrent logout fires right after resolveSession's own initial read - before it
-    // reaches the idle-TTL bump write.
-    const error = await serviceUnderTest.resolveSession(sessionToken).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(AuthenticationError);
-    await expect(setupService.resolveSession(sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
-  });
-
-  it("a session revoked (concurrent logout) exactly between refresh()'s successful commit and resolveSession's own subsequent re-read is never returned as authenticated (found in Round D re-verification: the re-read only checked existence, not revokedAt)", async () => {
-    const rawStore = new InMemorySessionStore();
-    const identityStore = new InMemoryIdentityStore();
-    const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
-    const users = new UserRepository(identityStore);
+    const organizations = new InMemoryOrganizationStore();
+    const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
+    const globalUsers = new GlobalUserRepository(identityStore);
+    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
     const cognitoClient = new FakeCognitoOidcClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
     const tokenEncryptor = new FakeTokenEncryptor();
@@ -441,7 +476,66 @@ describe("BffAuthService.resolveSession", () => {
       idTokenVerifier,
       tokenEncryptor,
       bootstrap,
-      users,
+      globalUsers,
+      organizations,
+      mainTableName: TABLE,
+      createOrganization,
+      pepper: "test-pepper",
+      redirectUri: "https://app.example.com/bff/callback",
+      authorizeUrl: "https://auth.example.com/oauth2/authorize",
+      clientId: "client-1",
+      now,
+      newUserId: () => `user-${++userCounter}`,
+      newDeviceId: () => `device-${++deviceCounter}`,
+    };
+
+    // Build a throwaway service (same store) only to perform the login and the concurrent
+    // logout - the service under test below shares the same underlying data via the hookable
+    // wrapper, so writes from either are visible to both.
+    const setupService = new BffAuthService({ ...depsBase, sessionStore: rawStore });
+    const started = await setupService.startLogin("/");
+    const state = new URL(started.redirectUrl).searchParams.get("state")!;
+    const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
+
+    // 5 minutes later: access token (900s TTL) is still valid, but enough idle time passed
+    // that resolveSession's idle-TTL bump will actually attempt a write.
+    clock = "2026-08-24T12:05:00.000Z";
+
+    const hookableStore = new HookableSessionStore(rawStore, async () => {
+      await setupService.logout(sessionToken);
+    });
+    const serviceUnderTest = new BffAuthService({ ...depsBase, sessionStore: hookableStore });
+
+    // The concurrent logout fires right after resolveSession's own initial read - before it
+    // reaches the idle-TTL bump write.
+    const error = await serviceUnderTest.resolveSession(sessionToken).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AuthenticationError);
+    await expect(setupService.resolveSession(sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
+  });
+
+  it("a session revoked (concurrent logout) exactly between refresh()'s successful commit and resolveSession's own subsequent re-read is never returned as authenticated (found in Round D re-verification: the re-read only checked existence, not revokedAt)", async () => {
+    const rawStore = new InMemorySessionStore();
+    const identityStore = new InMemoryIdentityStore();
+    const organizations = new InMemoryOrganizationStore();
+    const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
+    const globalUsers = new GlobalUserRepository(identityStore);
+    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1" });
+    const cognitoClient = new FakeCognitoOidcClient();
+    const idTokenVerifier = new FakeIdTokenVerifier();
+    const tokenEncryptor = new FakeTokenEncryptor();
+    let userCounter = 0;
+    let deviceCounter = 0;
+    let clock = "2026-08-24T12:00:00.000Z";
+    const now = () => clock;
+    const depsBase = {
+      cognitoClient,
+      idTokenVerifier,
+      tokenEncryptor,
+      bootstrap,
+      globalUsers,
+      organizations,
+      mainTableName: TABLE,
+      createOrganization,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",
       authorizeUrl: "https://auth.example.com/oauth2/authorize",
@@ -539,8 +633,8 @@ describe("BffAuthService.logout / logoutAll", () => {
 
     await ctx.service.logoutAll(forged);
 
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.globalLogoutAfter).toBeFalsy();
+    const user = await ctx.globalUsers.get(session.userId);
+    expect(user?.globalLogoutAfter).toBeFalsy();
     await expect(ctx.service.resolveSession(result.sessionToken)).resolves.toBeDefined();
   });
 
@@ -552,8 +646,8 @@ describe("BffAuthService.logout / logoutAll", () => {
 
     await ctx.service.logoutAll(result.sessionToken);
 
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.globalLogoutAfter).toBeFalsy();
+    const user = await ctx.globalUsers.get(session.userId);
+    expect(user?.globalLogoutAfter).toBeFalsy();
   });
 
   it("logoutAll with the CORRECT token but an already-revoked session never triggers a global logout", async () => {
@@ -564,8 +658,8 @@ describe("BffAuthService.logout / logoutAll", () => {
 
     await ctx.service.logoutAll(result.sessionToken);
 
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.globalLogoutAfter).toBeFalsy();
+    const user = await ctx.globalUsers.get(session.userId);
+    expect(user?.globalLogoutAfter).toBeFalsy();
   });
 
   it("logoutAll revokes the current session AND sets the global logout watermark used by every Bearer-authenticated request", async () => {
@@ -573,8 +667,8 @@ describe("BffAuthService.logout / logoutAll", () => {
     const { result } = await loginOnce(ctx);
     const session = await ctx.service.resolveSession(result.sessionToken);
     await ctx.service.logoutAll(result.sessionToken);
-    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
-    expect(profile?.globalLogoutAfter).toBeTruthy();
+    const user = await ctx.globalUsers.get(session.userId);
+    expect(user?.globalLogoutAfter).toBeTruthy();
     await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
   });
 });

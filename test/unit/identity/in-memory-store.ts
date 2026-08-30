@@ -1,4 +1,8 @@
 import type { EntityKey, IdentityStore, TransactWriteEntry } from "../../../src/modules/identity/ports/identity-store.js";
+import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
+import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import type { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 
 /**
  * Generic-enough ConditionExpression evaluator for a `Delete` entry's condition — added for the
@@ -241,5 +245,48 @@ export function makeIdGenerator() {
   return {
     newUserId: () => `user-${++counter}`,
     newSessionId: () => `session-${++counter}`,
+    newOrganizationId: () => `org-${++counter}`,
+    newMembershipId: () => `membership-${++counter}`,
   };
+}
+
+/**
+ * Wave B2B-5 (D-095): `bootstrapUser()` no longer auto-provisions a tenant on first login, so
+ * every test that needs a fully-working `RequestContext` (not just a bare identity) must seed a
+ * real `Organization`+`Membership` first — this used to be implicit (any new `cognitoSub` got a
+ * working tenant for free), now it is explicit. Bootstraps the identity directly (learning the
+ * real `userId`, generated internally - callers cannot know it in advance), then creates an
+ * Organization with that user as `OWNER` via the real `CreateOrganizationService` (D-091), never
+ * a hand-rolled fixture — exercises the same atomic 4-item transaction production code does.
+ *
+ * Also mirrors the freshly-created `TenantLifecycleRecord(ACTIVE)` into `identityStore` — the
+ * canonical copy now lives in `organizations` (a structurally different, separate in-memory Map),
+ * but `TenantQuotaService` (and any other identity-store-scoped service fenced through
+ * `executeTenantBusinessMutation`) still reads its own fence from `identityStore` directly, same
+ * "separate fakes, separate Maps" gap `document-handlers.test.ts`/`import-handlers.test.ts`/
+ * `expiration-lifecycle.test.ts` already mirror into their OWN per-module store (W3-07/D-070
+ * chunk 8-9/N) — without this, every quota-consuming call in a test would fail closed with
+ * `TenantNotActiveError` even though the Organization is genuinely ACTIVE.
+ */
+export async function bootstrapWithOrganization(
+  identityStore: InMemoryIdentityStore,
+  organizations: InMemoryOrganizationStore,
+  tableName: string,
+  cognitoSub: string,
+): Promise<{ userId: string; organizationId: string; membershipId: string }> {
+  const ids = makeIdGenerator();
+  const bootstrap = new IdentityBootstrapService(identityStore, tableName);
+  const { user } = await bootstrap.bootstrapUser(cognitoSub, ids.newUserId());
+
+  const createOrganization = new CreateOrganizationService(organizations, tableName, ids);
+  const { organization, membership } = await createOrganization.createOrganization({
+    creatorUserId: user.userId,
+    displayName: "Test Org",
+    timezone: "UTC",
+  });
+
+  const lifecycle = await organizations.get(tenantLifecycleKey(organization.organizationId));
+  await identityStore.putIfAbsent(lifecycle as unknown as Record<string, unknown> & EntityKey);
+
+  return { userId: user.userId, organizationId: organization.organizationId, membershipId: membership.membershipId };
 }

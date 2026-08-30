@@ -1,28 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
-import { InMemoryIdentityStore, makeIdGenerator } from "./in-memory-store.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "./in-memory-store.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver } from "../../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { handleTestRoute } from "../../../src/modules/identity/http/test-route-handler.js";
 
 function makeDeps() {
   const store = new InMemoryIdentityStore();
+  const organizations = new InMemoryOrganizationStore();
   const resolver = new RequestContextResolver(
-    new IdentityMappingRepository(store),
     new UserRepository(store),
+    new GlobalUserRepository(store),
+    organizations,
     makeIdGenerator(),
     store,
     "MainTable",
   );
   const quota = new TenantQuotaService(store, "MainTable");
-  return { resolver, quota };
+  return { resolver, quota, store, organizations };
 }
 
 describe("handleTestRoute", () => {
   it("returns 200 with tenantId/userId for a valid authenticated request", async () => {
     const deps = makeDeps();
+    // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - a real
+    // Organization+Membership must exist before resolve() can succeed.
+    await bootstrapWithOrganization(deps.store, deps.organizations, "MainTable", "sub-1");
     const res = await handleTestRoute(deps, {
       requestId: "r1",
       correlationId: "c1",
@@ -35,6 +41,7 @@ describe("handleTestRoute", () => {
 
   it("returns 429 once the API_REQUEST quota is exhausted", async () => {
     const deps = makeDeps();
+    await bootstrapWithOrganization(deps.store, deps.organizations, "MainTable", "sub-2");
     const claims = { sub: "sub-2", tokenId: "t1", issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
     for (let i = 0; i < 100; i++) {
       const res = await handleTestRoute(deps, { requestId: `r${i}`, correlationId: "c", claims });
@@ -46,8 +53,10 @@ describe("handleTestRoute", () => {
 
   it("returns 401 for a token issued before global logout", async () => {
     const store = new InMemoryIdentityStore();
-    const users = new UserRepository(store);
-    const resolver = new RequestContextResolver(new IdentityMappingRepository(store), users, makeIdGenerator(), store, "MainTable");
+    const organizations = new InMemoryOrganizationStore();
+    const globalUsers = new GlobalUserRepository(store);
+    const { userId } = await bootstrapWithOrganization(store, organizations, "MainTable", "sub-3");
+    const resolver = new RequestContextResolver(new UserRepository(store), globalUsers, organizations, makeIdGenerator(), store, "MainTable");
     const quota = new TenantQuotaService(store, "MainTable");
     const claims = {
       sub: "sub-3",
@@ -59,7 +68,8 @@ describe("handleTestRoute", () => {
     const ok = await handleTestRoute({ resolver, quota }, { requestId: "r1", correlationId: "c", claims });
     expect(ok.statusCode).toBe(200);
 
-    await users.logoutAll(ok.body.tenantId as string, ok.body.userId as string);
+    // Wave B2B-5 (D-095): logoutAll moved to GlobalUserRepository, user-global (no tenantId).
+    await globalUsers.logoutAll(userId);
 
     const denied = await handleTestRoute(
       { resolver, quota },

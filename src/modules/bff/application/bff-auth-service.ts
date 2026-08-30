@@ -9,8 +9,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { AuthenticationError, ConflictError, DependencyUnavailableError, ValidationError } from "../../../shared/errors/app-error.js";
-import { TenantBootstrapService } from "../../identity/application/bootstrap-identity.js";
-import { UserRepository } from "../../identity/persistence/user-repository.js";
+import { getCancellationReasonCodes, isTransactionCanceled, buildAttributeOnceUpdate, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { IdentityBootstrapService } from "../../identity/application/bootstrap-identity.js";
+import { GlobalUserRepository, deviceSessionKey, globalUserKey } from "../../identity/persistence/global-user-repository.js";
+import { OnboardingStateResolver, type OnboardingState } from "../../organization/application/onboarding-state.js";
+import { resolveActiveMembership } from "../../organization/application/resolve-active-membership.js";
+import { CreateOrganizationService } from "../../organization/application/create-organization.js";
+import type { OrganizationStore } from "../../organization/ports/organization-store.js";
 import type { SessionStore } from "../ports/session-store.js";
 import type { CognitoOidcClient, IdTokenVerifier } from "../ports/cognito-oidc-client.js";
 import type { TokenEncryptor } from "../ports/token-encryptor.js";
@@ -30,13 +35,17 @@ export interface BffAuthServiceDeps {
   cognitoClient: CognitoOidcClient;
   idTokenVerifier: IdTokenVerifier;
   tokenEncryptor: TokenEncryptor;
-  /** Wave B2B-2 (D-086 physical model §3): both login paths bootstrap identity through this
-   * single atomic service now, closing the BFF path's pre-existing gap (Wave B2B-0 inventory
-   * §1.1) — no TenantLifecycleRecord, no fencing — where it used to build its own
-   * IdentityMapping/UserProfile sequentially instead of sharing the direct-API path's
-   * TransactWriteItems-backed bootstrap. */
-  bootstrap: TenantBootstrapService;
-  users: UserRepository;
+  /** Wave B2B-5 (D-095): renamed from `TenantBootstrapService` — no longer creates any
+   * tenant/Organization at login, just the global identity (2-item transact). Both login paths
+   * still bootstrap through this single atomic service (D-087/B2B-2). */
+  bootstrap: IdentityBootstrapService;
+  /** Wave B2B-5 (D-095): device sessions and global-logout revocation moved here from
+   * `UserRepository` (now `UserProfile`-only, per-Organization) — both are properties of the
+   * tenant-independent identity (physical model §10). */
+  globalUsers: GlobalUserRepository;
+  organizations: OrganizationStore;
+  mainTableName: string;
+  createOrganization: CreateOrganizationService;
   pepper: string;
   redirectUri: string;
   authorizeUrl: string; // Cognito Hosted UI /oauth2/authorize base URL (from Terraform output/env, not hardcoded)
@@ -44,6 +53,12 @@ export interface BffAuthServiceDeps {
   now: () => string;
   newUserId: () => string;
   newDeviceId: () => string;
+}
+
+export interface SessionWithOnboarding {
+  session: Session;
+  activeOrganizationId?: string;
+  onboardingState?: OnboardingState;
 }
 
 export interface StartedLogin {
@@ -59,7 +74,11 @@ function isValidReturnPath(path: string): boolean {
 }
 
 export class BffAuthService {
-  constructor(private readonly deps: BffAuthServiceDeps) {}
+  private readonly onboarding: OnboardingStateResolver;
+
+  constructor(private readonly deps: BffAuthServiceDeps) {
+    this.onboarding = new OnboardingStateResolver(deps.organizations);
+  }
 
   /** Step 1 of the OIDC flow: mint a LoginAttempt (state/nonce/PKCE verifier), return the
    * Cognito Hosted UI URL to redirect the browser to, and the opaque login-cookie value. */
@@ -160,25 +179,19 @@ export class BffAuthService {
     // corresponding security gain. Never do this for a token that arrived via the browser.
     const accessClaims = decodeJwtPayloadUnverified(tokens.accessToken);
 
-    // MVP: tenantId=userId (data-model.md §7.3, same rule RequestContextResolver.resolve()
-    // applies) - newUserId() must be called exactly ONCE, TenantBootstrapService reuses it for
-    // both userId and tenantId internally. Same atomic bootstrap the direct-API path uses
-    // (bootstrap-identity.ts) - closes this path's prior fencing gap (Wave B2B-0 §1.1).
+    // Wave B2B-5 (D-095): newUserId() only matters on first-ever login for this cognitoSub
+    // (IdentityBootstrapService ignores it on repeat logins) - authentication no longer creates
+    // any tenant, just the global identity (2-item transact: GlobalUser + IdentityMapping).
     const newUserId = this.deps.newUserId();
-    const { mapping, profile } = await this.deps.bootstrap.bootstrap(idClaims.subject, newUserId, (idClaims.email ?? "").toLowerCase());
-    if (!profile) {
-      throw new AuthenticationError("Tenant is not active.");
-    }
-    if (profile.status !== "ACTIVE") {
+    const { mapping, user } = await this.deps.bootstrap.bootstrapUser(idClaims.subject, newUserId, (idClaims.email ?? "").toLowerCase());
+    if (user.identityStatus !== "ACTIVE") {
       throw new AuthenticationError("User is not active.");
     }
 
     const deviceId = this.deps.newDeviceId();
-    await this.deps.users.upsertDeviceSession({
-      PK: `TENANT#${mapping.tenantId}#USER#${mapping.userId}`,
-      SK: `SESSION#${deviceId}`,
+    await this.deps.globalUsers.upsertDeviceSession({
+      ...deviceSessionKey(mapping.userId, deviceId),
       entityType: "DeviceSession",
-      tenantId: mapping.tenantId,
       userId: mapping.userId,
       deviceId,
       sessionId: randomUUID(),
@@ -188,6 +201,11 @@ export class BffAuthService {
       expiresAt: new Date(Date.parse(this.deps.now()) + SESSION_ABSOLUTE_TTL_SECONDS * 1000).toISOString(),
       status: "ACTIVE",
     });
+
+    // Sessão sempre criada aqui, nunca falha por falta de Organization (D-095 mudança E) -
+    // activeOrganizationId fica ausente se este usuário ainda não tem Membership utilizável;
+    // GET /bff/session reporta onboardingState nesse caso (resolveSessionWithOnboarding).
+    const activeOrganizationId = await this.deriveActiveOrganizationId(mapping.userId);
 
     const issuedSession = issueOpaqueToken(this.deps.pepper);
     const csrfSecret = issueCsrfSecret();
@@ -199,7 +217,7 @@ export class BffAuthService {
       entityType: "Session",
       selectorHash: issuedSession.selectorHash,
       secretHash: issuedSession.secretHash,
-      tenantId: mapping.tenantId,
+      activeOrganizationId,
       userId: mapping.userId,
       cognitoSubject: idClaims.subject,
       deviceId,
@@ -467,7 +485,7 @@ export class BffAuthService {
     // Session mutation to detect that the row moved out from under it (found in review: a
     // concurrent logout mid-refresh could otherwise be silently overwritten back to "alive").
     await this.deps.sessionStore.update<Session>({ ...session, revokedAt: now, updatedAt: now, version: session.version + 1 });
-    await this.deps.users.logoutDevice(session.tenantId, session.userId, session.deviceId);
+    await this.deps.globalUsers.logoutDevice(session.userId, session.deviceId);
 
     try {
       const refreshToken = await this.deps.tokenEncryptor.decrypt(session.encryptedRefreshToken);
@@ -495,8 +513,106 @@ export class BffAuthService {
     // called out - a stale cookie forcing every OTHER active session/device to log out).
     if (!this.sessionIsCurrentlyValid(session)) return;
 
-    await this.deps.users.logoutAll(session.tenantId, session.userId);
+    await this.deps.globalUsers.logoutAll(session.userId);
     await this.logout(sessionCookie);
+  }
+
+  /** `GET /bff/session` needs enriched state (`onboardingState`) that every other
+   * `resolveSession()` caller (proxy, CSRF check, plain logout) does not - kept separate so
+   * those hot paths never pay for an extra `OnboardingStateResolver` query. Self-heals a stale
+   * `activeOrganizationId` (D-095 mudança 3: main table is the only source of truth, the session
+   * field is a cache/hint) - if absent but a real `ACTIVE` Membership now exists (e.g. a
+   * concurrent `POST /bff/organizations` updated the org but lost the race to write the session
+   * back, or a second device/session logging in after the org already existed), derives it and
+   * returns it immediately, then tries to write it back best-effort (never blocks the
+   * response, never fails the request if the write loses a race - next read just re-derives). */
+  async resolveSessionWithOnboarding(sessionCookie: string | undefined): Promise<SessionWithOnboarding> {
+    const session = await this.resolveSession(sessionCookie);
+    if (session.activeOrganizationId) {
+      return { session, activeOrganizationId: session.activeOrganizationId };
+    }
+
+    const onboardingState = await this.onboarding.resolve(session.userId);
+    if (onboardingState !== "HAS_USABLE_MEMBERSHIP") {
+      return { session, onboardingState };
+    }
+
+    const derived = await this.deriveActiveOrganizationId(session.userId);
+    if (!derived) {
+      // OnboardingStateResolver said HAS_USABLE_MEMBERSHIP but resolveActiveMembership couldn't
+      // derive exactly one (0 or >1 - the latter unreachable today, B2B-6's job once possible).
+      // Benign for this read path: report the raw state rather than asserting like the
+      // resource-side resolver does.
+      return { session, onboardingState };
+    }
+
+    await this.deps.sessionStore.updateConditional<Session>(
+      { ...session, activeOrganizationId: derived, updatedAt: this.deps.now(), version: session.version + 1 },
+      { version: session.version },
+    );
+    return { session, activeOrganizationId: derived };
+  }
+
+  /** `POST /bff/organizations` (D-095 achado 2.3/mudança C): the first real consumer of
+   * `CreateOrganizationService` (B2B-3/D-091) - without this, `bootstrapUser()`'s 2-item
+   * transact would strand every fresh login in `NO_TENANT_NO_MEMBERSHIP` with no way out.
+   *
+   * Cap is TRANSACTIONAL, not check-then-act (Codex Rodada 3 achado): `GlobalUser.
+   * hasCreatedOrganization` is set via a `Update` (`buildAttributeOnceUpdate`, tenantless -
+   * `GlobalUser` has no `tenantId` for `buildVersionedUpdate`'s reserved condition to check)
+   * inside the SAME `TransactWriteItems` as the 4 `Put`s `CreateOrganizationService.
+   * buildCreateEntries()` builds - 5 items, not 4, committed atomically. The cap entry is index
+   * 0 - only ITS `ConditionalCheckFailed` means "already created an organization"; any other
+   * index failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as
+   * a genuine unexpected error instead of being misreported as the cap (Codex Rodada 3 achado).
+   *
+   * Takes an already-resolved `Session` (same pattern as `ProxyService.forward(session, ...)`)
+   * instead of a cookie - the handler already resolves the session once to run its own CSRF
+   * check before calling this, resolving twice would be a wasted read (and a second implicit
+   * idle-TTL bump) for no benefit. */
+  async createOrganization(session: Session, input: { displayName: string; timezone: string }): Promise<{ organizationId: string }> {
+    const { entries, organization } = this.deps.createOrganization.buildCreateEntries({
+      creatorUserId: session.userId,
+      displayName: input.displayName,
+      timezone: input.timezone,
+    });
+    const capEntry: TransactWriteEntry = {
+      Update: buildAttributeOnceUpdate({
+        tableName: this.deps.mainTableName,
+        key: globalUserKey(session.userId),
+        attribute: "hasCreatedOrganization",
+        value: true,
+      }),
+    };
+
+    try {
+      await this.deps.organizations.transactWrite([capEntry, ...entries]);
+    } catch (err) {
+      if (isTransactionCanceled(err) && getCancellationReasonCodes(err)?.[0] === "ConditionalCheckFailed") {
+        throw new ConflictError("You have already created an organization.", { userId: session.userId });
+      }
+      throw err;
+    }
+
+    // Best-effort, tabela de sessão é separada da tabela principal (não há TransactWriteItems
+    // cruzando as duas) - a organização já existe de verdade independente deste passo; falha
+    // aqui é inofensiva por construção, fechada pelo self-heal de resolveSessionWithOnboarding.
+    await this.deps.sessionStore.updateConditional<Session>(
+      { ...session, activeOrganizationId: organization.organizationId, updatedAt: this.deps.now(), version: session.version + 1 },
+      { version: session.version },
+    );
+
+    return { organizationId: organization.organizationId };
+  }
+
+  /** Shared by `handleCallback` and `resolveSessionWithOnboarding` - derives the (today,
+   * invariantly unique) `ACTIVE` `Membership`'s organizationId, or `undefined` if zero or more
+   * than one (benign here, unlike the resource-side resolver's own assertion - a BFF session
+   * hint that stays unset just means the frontend still sees `onboardingState` instead). */
+  private async deriveActiveOrganizationId(userId: string): Promise<string | undefined> {
+    const active = await resolveActiveMembership(this.deps.organizations, userId);
+    if (active.length !== 1) return undefined;
+    return active[0]?.organizationId;
   }
 }
 

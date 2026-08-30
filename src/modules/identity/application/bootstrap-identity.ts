@@ -1,39 +1,36 @@
 /**
- * TenantBootstrapService — W3-07 atomic first-login bootstrap (D-067,
- * `docs/architecture/reviews/w3-07-tenant-fence-round3-active-only-design/
- * claude-analysis-active-only-fence.md` §F.6/§Q roadmap): replaces
- * RequestContextResolver's previous sequential `IdentityMapping.findOrCreate()` then
- * `User.createProfileIfAbsent()` (D-063's confirmed bug — a resolver that re-provisions a
- * fresh ACTIVE User on next login, silently resurrecting a tenant the deletion cascade
- * already removed) with a single `TransactWriteItems` that creates `IdentityMapping` +
- * `TenantLifecycleRecord(ACTIVE)` + `User` together, and refuses to (re)create `User` when
- * the tenant's lifecycle is anything other than ACTIVE.
+ * IdentityBootstrapService — Multi-User B2B Wave B2B-5 (RequestContext Cutover, D-095,
+ * docs/architecture/multi-user-b2b-physical-model.md §3 "bootstrapUser() — contrato único de
+ * primeiro login", estado final). Renomeia `TenantBootstrapService`: a razão de manter esse
+ * nome em B2B-2 (D-087 — "ainda cria TenantLifecycleRecord/UserProfile tenant-scoped junto
+ * deste row") deixa de existir agora que `bootstrapUser()` não cria mais nenhum tenant.
  *
- * Race/retry semantics: two concurrent first logins for the same `cognitoSub` both attempt
- * the 3-item create; DynamoDB accepts exactly one (the mapping's own
- * `attribute_not_exists(PK)` condition), the loser's TransactWriteItems cancels as a whole,
- * and this service re-reads and resolves against the winner's state instead of erroring -
- * same idempotent-under-races contract IdentityMappingRepository.findOrCreate already
- * documented, now extended to cover all three items atomically instead of just the mapping.
+ * `TransactWriteItems` de **2 itens**, não mais 4: Put `GlobalUser` + Put `IdentityMapping`,
+ * ambos condicionados a `attribute_not_exists(PK)`. Nenhuma `Organization`/`TenantLifecycleRecord`/
+ * `UserProfile` criada aqui — autenticação deixa de equivaler a criar tenant (roadmap §110/§22).
+ * Depois do bootstrap, `RequestContextResolver` decide o próximo passo via
+ * `OnboardingStateResolver` (Wave B2B-4/D-094): zero `Membership` utilizável → onboarding
+ * explícito; uma existe → resolve a `Organization` normalmente.
+ *
+ * Race/retry: duas primeiras autenticações concorrentes do mesmo `cognitoSub` disputam a mesma
+ * transação de 2 itens — a perdedora recebe `TransactionCanceledException`
+ * (`attribute_not_exists(PK)` falhou em pelo menos um dos itens), re-lê e resolve contra a
+ * vencedora, sem erro — first-login continua seguro para retry, mesmo contrato que a versão
+ * anterior já documentava, agora mais simples (sem fencing de `TenantLifecycleRecord`, que não
+ * existe mais neste ponto do fluxo).
  */
-import { InternalError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
-import { buildVersionedCreate, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
-import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { InternalError } from "../../../shared/errors/app-error.js";
+import { isTransactionCanceled, buildVersionedCreate, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import type { IdentityStore } from "../ports/identity-store.js";
 import { identityMappingKey, type IdentityMapping } from "../persistence/identity-mapping-repository.js";
-import { userProfileKey, type UserProfile } from "../persistence/user-repository.js";
 import { globalUserKey, type GlobalUser } from "../persistence/global-user-repository.js";
 
 export interface BootstrapResult {
   mapping: IdentityMapping;
-  lifecycle: TenantLifecycleRecord;
-  /** Absent exactly when the tenant's lifecycle is not ACTIVE - the caller (resolver) must
-   * treat this as "do not admit this login", never fabricate a profile to fall back to. */
-  profile: UserProfile | undefined;
+  user: GlobalUser;
 }
 
-export class TenantBootstrapService {
+export class IdentityBootstrapService {
   constructor(
     private readonly store: IdentityStore,
     private readonly tableName: string,
@@ -41,146 +38,24 @@ export class TenantBootstrapService {
   ) {}
 
   /**
-   * `emailNormalized` is only used on first-login creation (`createAll`), and only by callers
-   * who actually have a verified email at hand (BFF/OIDC login - `idClaims.email`). The direct-
-   * API path (bearer JWT, no OIDC claims beyond `sub`) omits it, matching prior behavior
-   * (`emailNormalized: ""`) exactly - see Wave B2B-0 inventory §1/§1.1: this is the single
-   * bootstrap contract both real construction sites now share, closing the BFF path's
-   * pre-existing fencing gap (no `TenantLifecycleRecord`, no atomicity) as a side effect.
+   * `emailNormalized` is only used on first-login creation, and only by callers who actually
+   * have a verified email at hand (BFF/OIDC login — `idClaims.email`). The direct-API path
+   * (bearer JWT, no OIDC claims beyond `sub`) omits it, matching prior behavior
+   * (`emailNormalized: ""`) exactly — same single bootstrap contract both real call sites share
+   * since B2B-2 (D-087).
    */
-  async bootstrap(cognitoSub: string, newUserId: string, emailNormalized = ""): Promise<BootstrapResult> {
+  async bootstrapUser(cognitoSub: string, newUserId: string, emailNormalized = ""): Promise<BootstrapResult> {
     const existingMapping = await this.store.get<IdentityMapping>(identityMappingKey(cognitoSub));
     if (existingMapping) {
-      return this.resolveExisting(existingMapping);
+      const user = await this.store.get<GlobalUser>(globalUserKey(existingMapping.userId));
+      if (!user) {
+        throw new InternalError("GlobalUser missing for an existing IdentityMapping.", { userId: existingMapping.userId });
+      }
+      return { mapping: existingMapping, user };
     }
     return this.createAll(cognitoSub, newUserId, emailNormalized);
   }
 
-  /** Existing mapping: read the lifecycle tombstone and decide whether User may be created/kept. */
-  private async resolveExisting(mapping: IdentityMapping): Promise<BootstrapResult> {
-    const lifecycle = await this.store.get<TenantLifecycleRecord>(tenantLifecycleKey(mapping.tenantId));
-
-    if (!lifecycle) {
-      // Pre-migration tenant: this mapping was created before TenantLifecycleRecord existed
-      // in code (grep -ril "TenantLifecycle" src/ was empty before this session, per the
-      // approved design doc §O-5's migration note). Backfill the tombstone as ACTIVE now -
-      // true by construction, not an inferred guess, since "non-ACTIVE" wasn't even a
-      // representable concept when this mapping was created. Best-effort/non-atomic
-      // (putIfAbsent, safe under a repeat-login race - the loser just re-reads).
-      const backfilled: TenantLifecycleRecord = {
-        ...tenantLifecycleKey(mapping.tenantId),
-        SK: "LIFECYCLE",
-        entityType: "TenantLifecycleRecord",
-        tenantId: mapping.tenantId,
-        status: TENANT_ACTIVE_STATUS,
-        createdAt: this.now(),
-        updatedAt: this.now(),
-        version: 1,
-      };
-      await this.store.putIfAbsent(backfilled);
-      const winnerLifecycle = (await this.store.get<TenantLifecycleRecord>(tenantLifecycleKey(mapping.tenantId))) ?? backfilled;
-      if (winnerLifecycle.status !== TENANT_ACTIVE_STATUS) {
-        return { mapping, lifecycle: winnerLifecycle, profile: undefined };
-      }
-      const profile = await this.ensureProfileOrUndefined(mapping);
-      return { mapping, lifecycle: winnerLifecycle, profile };
-    }
-
-    if (lifecycle.status !== TENANT_ACTIVE_STATUS) {
-      // The central W3-07 invariant: never reprovision/return a User for a tenant that is
-      // DELETING/DELETED/etc. just because its owner authenticates again.
-      return { mapping, lifecycle, profile: undefined };
-    }
-
-    const profile = await this.ensureProfileOrUndefined(mapping);
-    return { mapping, lifecycle, profile };
-  }
-
-  /** Wraps `ensureProfile` for callers that already treat "profile undefined" as the uniform
-   * signal for "do not admit this login" (resolveExisting's two call sites, both immediately
-   * above). The read-before-call in resolveExisting already checked `lifecycle.status ===
-   * ACTIVE`, but `ensureProfile`'s own fenced create can still legitimately reject with
-   * TenantNotActiveError if the lifecycle transitioned to DELETING in the window between that
-   * read and this create (the exact TOCTOU the fence exists to close) - converting that
-   * specific rejection back into `profile: undefined` keeps the resolver's existing contract
-   * (AuthenticationError("Tenant is not active.")) instead of leaking a different exception
-   * type for what is, from the caller's perspective, the same outcome. */
-  private async ensureProfileOrUndefined(mapping: IdentityMapping): Promise<UserProfile | undefined> {
-    try {
-      return await this.ensureProfile(mapping);
-    } catch (err) {
-      if (err instanceof TenantNotActiveError) return undefined;
-      throw err;
-    }
-  }
-
-  /** Idempotent: returns the existing profile if one is already there (repeat login), only
-   * creates when absent AND the caller has already confirmed lifecycle is ACTIVE.
-   *
-   * W3-07 review finding (Codex round 1, 2026-08-29): the ORIGINAL implementation used a bare
-   * `putIfAbsent(profile)` here, with the lifecycle ACTIVE check having already happened as a
-   * SEPARATE `store.get()` in the caller (`resolveExisting`). That is exactly the TOCTOU the
-   * design doc's atomic-bootstrap invariant exists to close: `ACTIVE -> DELETING` could occur
-   * in the window between that read and this write, letting a re-login recreate/return a
-   * `User` for a tenant whose deletion had already started - the same class of bug D-063
-   * identified in the OLD sequential `findOrCreate` + `createProfileIfAbsent` resolver, now
-   * reintroduced one layer down. Fixed by routing the create through
-   * `executeTenantBusinessMutation`, so the profile Put and the `TenantLifecycleRecord.status =
-   * ACTIVE` ConditionCheck commit in the SAME TransactWriteItems - no read-then-write gap. */
-  private async ensureProfile(mapping: IdentityMapping): Promise<UserProfile> {
-    const key = userProfileKey(mapping.tenantId, mapping.userId);
-    const existing = await this.store.get<UserProfile>(key);
-    if (existing) return existing;
-
-    const now = this.now();
-    const profile: UserProfile = {
-      ...key,
-      SK: "PROFILE",
-      entityType: "User",
-      userId: mapping.userId,
-      tenantId: mapping.tenantId,
-      identitySubject: mapping.cognitoSub,
-      emailNormalized: "",
-      roles: ["OWNER"],
-      status: "ACTIVE",
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    };
-    const entries: TransactWriteEntry[] = [
-      { Put: buildVersionedCreate(this.tableName, profile as unknown as Record<string, unknown> & { PK: string; SK: string }) },
-    ];
-    try {
-      // Fenced create, not a bare putIfAbsent: two concurrent resolves of the SAME
-      // already-mapped, already-ACTIVE tenant (e.g. two devices logging in for the first time
-      // after a pre-migration backfill) could both reach here - only one creation may win on
-      // the Put's own attribute_not_exists(PK) condition, exactly as before - but now atomic
-      // with the lifecycle check instead of relying on a stale read from the caller.
-      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId: mapping.tenantId, entries });
-      return profile;
-    } catch (err) {
-      if (err instanceof TenantNotActiveError) throw err;
-      if (!isTransactionCanceled(err)) throw err;
-      // Lost the create race against a concurrent login (attribute_not_exists(PK) failed, not
-      // the fence) - re-read and return the winner, same as before.
-      const winner = await this.store.get<UserProfile>(key);
-      if (!winner) throw new InternalError("User profile vanished after losing creation race.", { userId: mapping.userId });
-      return winner;
-    }
-  }
-
-  /** No mapping exists yet: create IdentityMapping + TenantLifecycleRecord(ACTIVE) + User (+
-   * GlobalUser, Wave B2B-2/D-087 follow-up) atomically. MVP: tenantId=userId (same judgment
-   * call as IdentityMappingRepository.findOrCreate - decided here and, until Wave B2B-2, also
-   * inline in bff-auth-service.ts; Wave B2B-0 inventory §1.2 found that stale claim of "nowhere
-   * else" and this is the fix - bff-auth-service.ts now calls this same method instead of
-   * constructing its own mapping).
-   *
-   * GlobalUser (docs/architecture/multi-user-b2b-physical-model.md §1, `PK=USER#<userId>`) is
-   * purely additive here: nothing reads it yet (RequestContext/every tenant-scoped consumer
-   * still resolves identity through the legacy tenant-scoped `UserProfile` above until Wave
-   * B2B-5's cutover) - it exists so Wave B2B-3's `Membership` has a real global `userId` to
-   * reference without a second migration later. */
   private async createAll(cognitoSub: string, newUserId: string, emailNormalized: string): Promise<BootstrapResult> {
     const now = this.now();
     const mapping: IdentityMapping = {
@@ -189,35 +64,9 @@ export class TenantBootstrapService {
       entityType: "IdentityMapping",
       cognitoSub,
       userId: newUserId,
-      tenantId: newUserId,
       createdAt: now,
     };
-    const lifecycle: TenantLifecycleRecord = {
-      ...tenantLifecycleKey(newUserId),
-      SK: "LIFECYCLE",
-      entityType: "TenantLifecycleRecord",
-      tenantId: newUserId,
-      status: TENANT_ACTIVE_STATUS,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    };
-    const profile: UserProfile = {
-      ...userProfileKey(newUserId, newUserId),
-      SK: "PROFILE",
-      entityType: "User",
-      userId: newUserId,
-      tenantId: newUserId,
-      identitySubject: cognitoSub,
-      emailNormalized,
-      roles: ["OWNER"],
-      status: "ACTIVE",
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    };
-
-    const globalUser: GlobalUser = {
+    const user: GlobalUser = {
       ...globalUserKey(newUserId),
       SK: "PROFILE",
       entityType: "GlobalUser",
@@ -230,25 +79,27 @@ export class TenantBootstrapService {
     };
 
     const entries: TransactWriteEntry[] = [
+      { Put: buildVersionedCreate(this.tableName, user as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, mapping as unknown as Record<string, unknown> & { PK: string; SK: string }) },
-      { Put: buildVersionedCreate(this.tableName, lifecycle as unknown as Record<string, unknown> & { PK: string; SK: string }) },
-      { Put: buildVersionedCreate(this.tableName, profile as unknown as Record<string, unknown> & { PK: string; SK: string }) },
-      { Put: buildVersionedCreate(this.tableName, globalUser as unknown as Record<string, unknown> & { PK: string; SK: string }) },
     ];
 
     try {
       await this.store.transactWrite(entries);
-      return { mapping, lifecycle, profile };
+      return { mapping, user };
     } catch (err) {
       if (!isTransactionCanceled(err)) throw err;
-      // Lost the race: another concurrent first-login for the same cognitoSub committed its
-      // own 3-item create between our get() and transactWrite(). Re-read and resolve against
-      // the winner instead of erroring - first login must be safe to retry.
-      const winner = await this.store.get<IdentityMapping>(identityMappingKey(cognitoSub));
-      if (!winner) {
+      // Lost the race: another concurrent first-login for the same cognitoSub committed its own
+      // 2-item create between our get() and transactWrite(). Re-read and resolve against the
+      // winner instead of erroring - first login must be safe to retry.
+      const winnerMapping = await this.store.get<IdentityMapping>(identityMappingKey(cognitoSub));
+      if (!winnerMapping) {
         throw new InternalError("IdentityMapping vanished after losing bootstrap race.", { cognitoSub });
       }
-      return this.resolveExisting(winner);
+      const winnerUser = await this.store.get<GlobalUser>(globalUserKey(winnerMapping.userId));
+      if (!winnerUser) {
+        throw new InternalError("GlobalUser vanished after losing bootstrap race.", { userId: winnerMapping.userId });
+      }
+      return { mapping: winnerMapping, user: winnerUser };
     }
   }
 }

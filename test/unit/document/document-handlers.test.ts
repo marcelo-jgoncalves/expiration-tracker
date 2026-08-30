@@ -2,10 +2,11 @@
  * notification/preferences-handlers.test.ts, which caught a real production bug: a schema
  * added to disk but never registered in the static import list). */
 import { describe, expect, it, vi } from "vitest";
-import { InMemoryIdentityStore, makeIdGenerator } from "../identity/in-memory-store.js";
+import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../identity/in-memory-store.js";
+import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { InMemoryDocumentStore, activeLifecycleRecord } from "./in-memory-store.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { DocumentService } from "../../../src/modules/document/application/document-service.js";
@@ -26,7 +27,11 @@ const VALID_SHA256 = "a".repeat(64);
 // mirror the ACTIVE lifecycle record into documentStore too.
 async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemoryIdentityStore }> {
   const identityStore = new InMemoryIdentityStore();
-  const resolver = new RequestContextResolver(new IdentityMappingRepository(identityStore), new UserRepository(identityStore), makeIdGenerator(), identityStore, TABLE);
+  const organizations = new InMemoryOrganizationStore();
+  // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
+  // Organization+Membership for "cognito-sub-1" before resolve() can succeed below.
+  await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
+  const resolver = new RequestContextResolver(new UserRepository(identityStore), new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
   const bootstrapped = await resolver.resolve({ claims: claims(), requestId: "bootstrap", correlationId: "bootstrap" });
   const documentStore = new InMemoryDocumentStore([activeLifecycleRecord(bootstrapped.tenant.tenantId)]);

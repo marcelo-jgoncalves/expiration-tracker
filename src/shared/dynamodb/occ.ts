@@ -340,6 +340,46 @@ export function isTransactionCanceled(err: unknown): boolean {
   );
 }
 
+/**
+ * Reads the per-item `CancellationReasons` array off a `TransactionCanceledException` (verify
+ * with `isTransactionCanceled` first) - the real AWS SDK error carries one entry per transact
+ * item, each with a `Code` ("None" for an item that did not cause the cancellation,
+ * "ConditionalCheckFailed" for one that did). Wave B2B-5 (D-095, Codex Rodada 3 achado): a
+ * `TransactWriteItems` with more than one conditioned entry must never collapse "the
+ * transaction was canceled" into "MY condition specifically failed" - a caller distinguishing,
+ * say, a cap-guard `Update` at index 0 from an unrelated `Put` collision at index 2 needs the
+ * reason for the SPECIFIC index it cares about, not just the fact that something failed.
+ * Returns `undefined` (never throws) for any error shape that doesn't carry this array - callers
+ * fall back to treating the cancellation as "index unknown" rather than guessing.
+ */
+export function getCancellationReasonCodes(err: unknown): string[] | undefined {
+  if (typeof err !== "object" || err === null || !("CancellationReasons" in err)) return undefined;
+  const reasons = (err as { CancellationReasons?: unknown }).CancellationReasons;
+  if (!Array.isArray(reasons)) return undefined;
+  return reasons.map((reason) => (typeof reason === "object" && reason !== null && "Code" in reason ? String((reason as { Code?: unknown }).Code) : "Unknown"));
+}
+
+/**
+ * Builds an UpdateItem input for a narrow, single-purpose guard write: set one attribute exactly
+ * once, gated on it not already existing - no `version` counter, no `tenantId` condition (unlike
+ * `buildVersionedUpdate`, whose reserved condition requires `tenantId` and is therefore unusable
+ * for a genuinely tenantless entity). Wave B2B-5 (D-095, Codex Rodada 2/3 achado): `GlobalUser`
+ * (identity/persistence/global-user-repository.ts) is tenantless, so its
+ * `hasCreatedOrganization` cap flag needs this instead. Not a general-purpose OCC update - an
+ * entity that needs real optimistic concurrency later should get its own tenantless variant of
+ * `buildVersionedUpdate`, not a generalization of this narrow helper.
+ */
+export function buildAttributeOnceUpdate(input: { tableName: string; key: EntityKey; attribute: string; value: unknown }): DynamoUpdateCommandInput {
+  return {
+    TableName: input.tableName,
+    Key: input.key,
+    UpdateExpression: "SET #attr = :value",
+    ConditionExpression: "attribute_not_exists(#attr)",
+    ExpressionAttributeNames: { "#attr": input.attribute },
+    ExpressionAttributeValues: { ":value": input.value },
+  };
+}
+
 /** Name of the AWS SDK error thrown when a ConditionExpression fails - used by callers
  * to distinguish OCC conflicts from other DynamoDB errors without importing the SDK type. */
 export const CONDITIONAL_CHECK_FAILED = "ConditionalCheckFailedException";

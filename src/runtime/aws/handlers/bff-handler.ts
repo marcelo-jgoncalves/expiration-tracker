@@ -4,7 +4,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildBffDeps } from "../composition/bff.js";
-import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
+import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest, BffHttpResponse } from "../../../modules/bff/http/http-types.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 
@@ -73,6 +73,7 @@ async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStru
   if (routeKey === "GET /bff/session") return toApiGatewayResult(await handleGetSession(deps, req));
   if (routeKey === "POST /bff/session/logout") return toApiGatewayResult(await handleLogout(deps, req));
   if (routeKey === "POST /bff/session/logout-all") return toApiGatewayResult(await handleLogoutAll(deps, req));
+  if (routeKey === "POST /bff/organizations") return toApiGatewayResult(await handleCreateOrganization(deps, req));
 
   if (event.rawPath.startsWith(BFF_API_PREFIX)) {
     const backendPath = event.rawPath.slice(BFF_API_PREFIX.length) || "/";
