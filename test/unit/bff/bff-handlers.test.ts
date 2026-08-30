@@ -21,14 +21,14 @@ import { ProxyService, type BackendFetcher } from "../../../src/modules/bff/appl
 import { InMemorySessionStore } from "./in-memory-session-store.js";
 import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
+import { TenantBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { CSRF_COOKIE_NAME, LOGIN_COOKIE_NAME, SESSION_COOKIE_NAME } from "../../../src/modules/bff/domain/cookies.js";
 
 function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode: 200, headers: {}, body: "{}" }) }) {
   const sessionStore = new InMemorySessionStore();
   const identityStore = new InMemoryIdentityStore();
-  const identityMappings = new IdentityMappingRepository(identityStore);
+  const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
   const users = new UserRepository(identityStore);
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
@@ -42,7 +42,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
     cognitoClient,
     idTokenVerifier,
     tokenEncryptor,
-    identityMappings,
+    bootstrap,
     users,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",

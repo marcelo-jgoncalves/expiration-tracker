@@ -3,14 +3,15 @@ import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-se
 import { InMemorySessionStore, HookableSessionStore } from "./in-memory-session-store.js";
 import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor, fakeAccessToken } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
-import { IdentityMappingRepository } from "../../../src/modules/identity/persistence/identity-mapping-repository.js";
+import { TenantBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { AuthenticationError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
+import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 function buildService(overrides: Partial<{ now: () => string }> = {}) {
   const sessionStore = new InMemorySessionStore();
   const identityStore = new InMemoryIdentityStore();
-  const identityMappings = new IdentityMappingRepository(identityStore);
+  const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
   const users = new UserRepository(identityStore);
   const cognitoClient = new FakeCognitoOidcClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
@@ -24,7 +25,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
     cognitoClient,
     idTokenVerifier,
     tokenEncryptor,
-    identityMappings,
+    bootstrap,
     users,
     pepper: "test-pepper",
     redirectUri: "https://app.example.com/bff/callback",
@@ -38,6 +39,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
   return {
     service,
     sessionStore,
+    identityStore,
     cognitoClient,
     idTokenVerifier,
     tokenEncryptor,
@@ -108,6 +110,24 @@ describe("BffAuthService.handleCallback", () => {
     const session = await ctx.service.resolveSession(result.sessionToken);
     expect(session.userId).toBe("user-1");
     expect(session.tenantId).toBe("user-1"); // MVP tenantId=userId, same rule as RequestContextResolver
+  });
+
+  it("captures the ID token's verified email onto the new profile (Wave B2B-2: TenantBootstrapService.bootstrap() now takes emailNormalized so switching to the shared atomic path doesn't silently drop it - FakeIdTokenVerifier.nextResult.email defaults to user@example.com)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    const profile = await ctx.users.getProfile(session.tenantId, session.userId);
+    expect(profile?.emailNormalized).toBe("user@example.com");
+  });
+
+  it("rejects a repeat login for a tenant whose TenantLifecycleRecord has moved to DELETING - capability this path never had before Wave B2B-2 (the old sequential findOrCreate/createProfileIfAbsent logic never checked lifecycle at all)", async () => {
+    const ctx = buildService();
+    await loginOnce(ctx); // first login: creates IdentityMapping + TenantLifecycleRecord(ACTIVE) + profile
+
+    const lifecycle = await ctx.identityStore.get<TenantLifecycleRecord>(tenantLifecycleKey("user-1"));
+    await ctx.identityStore.update({ ...lifecycle!, status: "DELETING" });
+
+    await expect(loginOnce(ctx)).rejects.toBeInstanceOf(AuthenticationError);
   });
 
   it("passes the LoginAttempt's nonce to the ID token verifier (nonce binding)", async () => {
@@ -321,7 +341,7 @@ describe("BffAuthService.resolveSession", () => {
   it("a session revoked (e.g. concurrent logout) between resolveSession's initial read and its own idle-TTL bump write is never resurrected by that bump - same residual bug class found by Codex's Round D re-verification, outside the refresh path entirely", async () => {
     const rawStore = new InMemorySessionStore();
     const identityStore = new InMemoryIdentityStore();
-    const identityMappings = new IdentityMappingRepository(identityStore);
+    const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
     const users = new UserRepository(identityStore);
     const cognitoClient = new FakeCognitoOidcClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
@@ -339,7 +359,7 @@ describe("BffAuthService.resolveSession", () => {
       cognitoClient,
       idTokenVerifier,
       tokenEncryptor,
-      identityMappings,
+      bootstrap,
       users,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",
@@ -365,7 +385,7 @@ describe("BffAuthService.resolveSession", () => {
       cognitoClient,
       idTokenVerifier,
       tokenEncryptor,
-      identityMappings,
+      bootstrap,
       users,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",
@@ -386,7 +406,7 @@ describe("BffAuthService.resolveSession", () => {
   it("a session revoked (concurrent logout) exactly between refresh()'s successful commit and resolveSession's own subsequent re-read is never returned as authenticated (found in Round D re-verification: the re-read only checked existence, not revokedAt)", async () => {
     const rawStore = new InMemorySessionStore();
     const identityStore = new InMemoryIdentityStore();
-    const identityMappings = new IdentityMappingRepository(identityStore);
+    const bootstrap = new TenantBootstrapService(identityStore, "MainTable");
     const users = new UserRepository(identityStore);
     const cognitoClient = new FakeCognitoOidcClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
@@ -399,7 +419,7 @@ describe("BffAuthService.resolveSession", () => {
       cognitoClient,
       idTokenVerifier,
       tokenEncryptor,
-      identityMappings,
+      bootstrap,
       users,
       pepper: "test-pepper",
       redirectUri: "https://app.example.com/bff/callback",

@@ -8,8 +8,8 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 |---|---|---|---|
 | B2B-0 | Current Truth + Inventory (read-only) | **DONE** (2026-08-29) | `docs/architecture/multi-user-b2b-wave-b2b0-inventory.md` |
 | B2B-1 | Type 1 Design — physical model | **DONE** (2026-08-30, D-086) | `docs/architecture/multi-user-b2b-physical-model.md` — protocolo Claude↔Codex 5 rodadas (6,7/8,7 → 8,1/8,9 → 8,4/9,2 → 8,6/9,4 → 9,3/9,5), evidência em `reviews/multi-user-b2b-physical-model/` |
-| B2B-2 | Global Identity Foundation | **NOT STARTED (unblocked)** | `User` global + `IdentityMapping` tenantless + `bootstrapUser()` unificado (§2-3 do physical model) — primeira wave de implementação real, decompor por `docs/engineering/definition-of-done.md` (E-012) |
-| B2B-3 | Organization + Membership | NOT STARTED (unblocked) | `Organization`/`Membership`/GSI4 `MembershipByUser`/`ownerCount` (§4-6/8 do physical model) |
+| B2B-2 | Global Identity Foundation | **IN PROGRESS** (2026-08-30) | `User` global + `IdentityMapping` tenantless + `bootstrapUser()` unificado (§1-3 do physical model) — primeira wave de implementação real, decomposta por `docs/engineering/definition-of-done.md` (E-012), ver subitens abaixo |
+| B2B-3 | Organization + Membership | NOT STARTED (unblocked, mas depende de B2B-2.1/2.2 para `Membership.userId`) | `Organization`/`Membership`/GSI4 `MembershipByUser`/`ownerCount` (§4-6/8 do physical model) |
 | B2B-4 | Onboarding | NOT STARTED | Bloqueado por B2B-2/B2B-3 |
 | B2B-5 | RequestContext Cutover | NOT STARTED | Bloqueado por B2B-2/B2B-3 |
 | B2B-6 | BFF Organization Context | NOT STARTED | Bloqueado por B2B-5; muda semântica que W3-07 assume (`roadmap-evolution/17` §125.4) — avaliar sequenciamento com a decisão do orquestrador do purge W3-07 (ver `NEXT_SESSION_PROMPT.md` gates) |
@@ -23,6 +23,17 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | B2B-14 | Operational Evidence | NOT STARTED | Evidência real contra `dev` via `aws --profile claude-dev` |
 | B2B-15 | Documentation Reconciliation | NOT STARTED | Checklist de `AGENTS.md` §6 |
 
+## Subitens de B2B-2 (decompostos per DoD E-012 — cada um gated antes do próximo)
+
+**Nota de sequenciamento (judgment call nível 3-4, `change-risk-scale.md` — não é mudança do design aprovado em D-086, só de faseamento de rollout, documentado aqui em vez de reabrir o protocolo Claude↔Codex)**: `physical-model.md` §3 descreve o `bootstrapUser()` de ESTADO FINAL (2 itens, sem `TenantLifecycleRecord`) — implementá-lo literalmente agora deixaria todo novo usuário sem nenhum espaço de tenant, quebrando toda funcionalidade tenant-scoped existente, porque `Organization`/onboarding (B2B-3/B2B-4) ainda não existem para assumir a criação de tenant. O próprio roadmap já separa "Global Identity Foundation" (B2B-2) de "RequestContext Cutover... eliminar fallback tenantId=userId" (B2B-5) em waves distintas — B2B-2 nesta sessão implementa a fundação de forma ADITIVA: unifica os dois caminhos de login no `TenantBootstrapService` já existente e já fenced (fechando o gap real do BFF achado na Wave B2B-0), preservando a criação de `TenantLifecycleRecord`/tenant legado até B2B-4/B2B-5 poderem assumir com segurança.
+
+| Subitem | Camada | Status |
+|---|---|---|
+| B2B-2.1 | Domain/Persistence — entidade `User` global aditiva (`PK=USER#<userId>`) | **NOT STARTED** — pré-requisito real de B2B-3 (`Membership.userId` referencia essa identidade), não trabalho opcional adiável |
+| B2B-2.2 | (fundido com 2.1 — mesmo arquivo/commit, diff atomicamente revisável per DoD) | ver acima |
+| B2B-2.3 + B2B-2.4 | Application + call sites — unificar `bootstrap-identity.ts`/`bff-auth-service.ts` no `TenantBootstrapService` já existente (em vez de uma classe `IdentityBootstrapService` nova — mais conservador, DRY) | **DONE** (2026-08-30) — `DoD: item=unificar bootstrap BFF+API; risco=3 (implementação de padrão já aprovado/fencing existente, sem novo contrato); evidência=npm run typecheck PASS, npm run lint PASS, npm run check-boundaries PASS (384 módulos, 0 violação), suíte-alvo 51/51 PASS incl. 2 testes adversariais novos (email verificado preservado; login rejeitado para tenant DELETING — capacidade que o caminho BFF nunca teve antes); lacunas=nenhuma` |
+| B2B-2.5 | Testes — suíte completa (`npm test`) para os subitens acima | **DONE** (2026-08-30) — ver linha de evidência abaixo |
+
 ## Achados/pendências laterais abertos durante a execução (não bloqueiam waves seguintes)
 
-- BFF login path (`bff-auth-service.ts`) sem `TenantLifecycleRecord`/fencing — achado da Wave B2B-0, registrado em `NEXT_SESSION_PROMPT.md` "Gates / bloqueios abertos". Decidir se corrige como chunk isolado ou dentro de B2B-2 (mesmos arquivos de bootstrap).
+- BFF login path sem `TenantLifecycleRecord`/fencing (achado da Wave B2B-0) — **RESOLVIDO** por B2B-2.3+2.4 acima.
