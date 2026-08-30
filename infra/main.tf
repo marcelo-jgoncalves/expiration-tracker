@@ -371,6 +371,15 @@ module "bff_handler" {
     # any of this, exactly as designed (D-053: Full BFF is additive, resource routes keep
     # accepting a direct Bearer token from any other caller too).
     API_BASE_URL = module.api.api_endpoint
+    # Wave B2B-14 (Operational Evidence, D-115): real finding - `bff-handler.ts:32` has
+    # required this env var (module-level, eager) since Wave B2B-8/D-100 wired
+    # `handleAcceptInvitation` into the BFF, but this module was never updated to grant it -
+    # the BFF Lambda has been crashing with `Runtime.Unknown`/"GUEST_TOKEN_PEPPER env var is
+    # required" on EVERY cold start since that deploy, caught only now by the first real
+    # invocation against dev (no unit test mocks env vars at this layer, and no E2E test in
+    # this repo hits the real deployed backend - see multi-user-b2b-wave-b2b14-scope.md).
+    # Same pepper already granted to memberships_handler/guest_documents_handler/etc. below.
+    GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
   })
   # Identity module reads/writes (User/IdentityMapping/DeviceSession) on the MAIN table -
   # the SAME policy items_handler already uses, nothing new granted there. Session-table
