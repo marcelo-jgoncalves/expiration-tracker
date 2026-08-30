@@ -7,7 +7,8 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { AuthenticationError, OnboardingRequiredError, OrganizationSelectionRequiredError, OrganizationUnavailableError, UnsupportedMembershipRoleError } from "../../../src/shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
-import { membershipKey } from "../../../src/modules/organization/domain/membership.js";
+import { membershipKey, membershipGsi4Keys } from "../../../src/modules/organization/domain/membership.js";
+import { RemoveMembershipService } from "../../../src/modules/organization/application/remove-membership.js";
 
 function makeResolver() {
   const store = new InMemoryIdentityStore();
@@ -306,5 +307,96 @@ describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-09
 
     const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined }).catch((err: unknown) => err);
     expect(rejection).toBeInstanceOf(UnsupportedMembershipRoleError);
+  });
+});
+
+// Wave B2B-13 (E2E/Adversarial Security, D-112, Q6/Q7 of roadmap-evolution/17 §121): closes 2
+// real gaps found while auditing existing coverage - a real Membership revocation had never been
+// chained with a subsequent resolve() in the same test (only the WRITE side, "status becomes
+// REMOVED", was ever proven - membership-management.test.ts), and no test used genuinely
+// different roles per Organization for the same user (both existing multi-org tests used OWNER
+// in both orgs, never proving a role from one Organization can't leak into another's authorize()).
+describe("RequestContextResolver - Membership revocation and cross-org role isolation (Q6/Q7)", () => {
+  // Mutação: `RemoveMembershipService.remove()` deixando de gravar `status: "REMOVED"` (ou
+  // `resolveActiveMembership()` deixando de checar `status === "ACTIVE"`) faria este teste passar
+  // mesmo com o acesso já revogado - a cadeia escrita-then-leitura no MESMO teste é o que prova
+  // que a revogação é respeitada de verdade, não só gravada.
+  it("a real RemoveMembershipService revocation is respected by a subsequent resolve() for the removed user, scoped to that Organization", async () => {
+    const { store, organizations, resolver } = makeResolver();
+    const { organizationId: sharedOrg } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-owner");
+
+    // The member also owns their OWN, unrelated Organization - this isolates the assertion to
+    // "access to THIS org is revoked" (resolveWorkingOrganization's OrganizationUnavailableError)
+    // rather than conflating it with the separate onboarding gate that would fire first if this
+    // were the member's ONLY membership (a member with zero usable memberships anywhere gets
+    // OnboardingRequiredError instead, a real and correct - but different - denial).
+    const { userId: memberUserId, organizationId: memberOwnOrg } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-member");
+
+    const ids = makeIdGenerator();
+    const membershipId = ids.newMembershipId();
+    organizations.forceUpdate({
+      ...membershipKey(sharedOrg, memberUserId),
+      entityType: "Membership",
+      membershipId,
+      organizationId: sharedOrg,
+      userId: memberUserId,
+      role: "MEMBER",
+      status: "ACTIVE",
+      joinedAt: "2026-08-30T00:00:00.000Z",
+      createdBy: memberUserId,
+      version: 1,
+      ...membershipGsi4Keys(memberUserId, sharedOrg, membershipId),
+    });
+
+    // Sanity - the member can resolve the shared org BEFORE removal (proves the setup is real).
+    const beforeCtx = await resolver.resolve({ claims: claims({ sub: "cognito-sub-member" }), requestId: "r1", correlationId: "c1", organizationIdHint: sharedOrg });
+    expect(beforeCtx.tenant.tenantId).toBe(sharedOrg);
+
+    const ownerCtx = await resolver.resolve({ claims: claims({ sub: "cognito-sub-owner" }), requestId: "r2", correlationId: "c2", organizationIdHint: sharedOrg });
+    const removeMembership = new RemoveMembershipService(organizations, "MainTable", ids);
+    await removeMembership.remove(ownerCtx, memberUserId, 1);
+
+    await expect(
+      resolver.resolve({ claims: claims({ sub: "cognito-sub-member", tokenId: "jti-2" }), requestId: "r3", correlationId: "c3", organizationIdHint: sharedOrg }),
+    ).rejects.toBeInstanceOf(OrganizationUnavailableError);
+
+    // The member's OWN Organization is untouched - proves the revocation is scoped, not a
+    // blanket "this user can never resolve anything again".
+    const stillWorksCtx = await resolver.resolve({ claims: claims({ sub: "cognito-sub-member", tokenId: "jti-3" }), requestId: "r4", correlationId: "c4", organizationIdHint: memberOwnOrg });
+    expect(stillWorksCtx.tenant.tenantId).toBe(memberOwnOrg);
+  });
+
+  // Mutação: `resolveRoles()` ou `authorize()` lendo o role de uma Membership errada (ex.
+  // reaproveitando um valor cacheado da última Organization resolvida) faria este teste passar
+  // mesmo com o role real da Organization B sendo diferente - prova que o role resolvido reflete
+  // sempre a Organization ATIVA no momento, nunca vaza de outra Membership do mesmo usuário.
+  it("a role never leaks between Organizations - MEMBER in one, OWNER in another, same user", async () => {
+    const { store, organizations, resolver } = makeResolver();
+    const { userId, organizationId: orgA } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
+    const membershipA = await organizations.get(membershipKey(orgA, userId));
+    organizations.forceUpdate({ ...(membershipA as Record<string, unknown> & { PK: string; SK: string }), role: "MEMBER" });
+
+    const { organizationId: orgB } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1-second-org-fixture");
+    const ids = makeIdGenerator();
+    const membershipIdB = ids.newMembershipId();
+    organizations.forceUpdate({
+      ...membershipKey(orgB, userId),
+      entityType: "Membership",
+      membershipId: membershipIdB,
+      organizationId: orgB,
+      userId,
+      role: "OWNER",
+      status: "ACTIVE",
+      joinedAt: "2026-08-30T00:00:00.000Z",
+      createdBy: userId,
+      version: 1,
+      ...membershipGsi4Keys(userId, orgB, membershipIdB),
+    });
+
+    const ctxA = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: orgA });
+    expect(ctxA.tenant.roles).toEqual(["MEMBER"]);
+
+    const ctxB = await resolver.resolve({ claims: claims({ tokenId: "jti-2" }), requestId: "r2", correlationId: "c2", organizationIdHint: orgB });
+    expect(ctxB.tenant.roles).toEqual(["OWNER"]);
   });
 });

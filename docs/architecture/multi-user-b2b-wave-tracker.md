@@ -19,7 +19,7 @@ Cada wave é avaliada contra `docs/engineering/definition-of-done.md` (E-012) an
 | B2B-10 | Tenant-aware Frontend | **DONE** (2026-08-30, D-106) | Fix de regressão real (`AuthContext` tratava todo usuário autenticado como deslogado desde B2B-5). Arquitetura de cache isolation (query keys escopadas por `organizationId` + `ActiveOrganizationProvider` com gate `switching`/`cancelQueries`/`AbortSignal` ponta-a-ponta) fecha uma corrida real de vazamento de dado entre tenants na UI. Switcher/Members/Settings novos + `UpdateOrganizationSettingsService` (writer novo, `organization:update-settings`/`OWNER_ROLES`). Primeira aplicação do protocolo Claude↔Codex a uma decisão de frontend nesta sessão — ver `docs/architecture/multi-user-b2b-wave-b2b10-scope.md` |
 | B2B-11 | Responsibility + Notifications | **DONE** (2026-08-30, D-108) | `NotificationRecipientResolver`/`resolveCandidateUserId` migrados de `UserProfile` (vestigial) para `Membership`+`GlobalUser` (2 condições, mesma regra dupla de `resolve-request-context.ts`); `assigneeUserId`/`ItemWatch.userId` agora validados contra `Membership` real (`MemberEligibilityChecker`, novo port). **Nota de escopo**: a supersessão de `UserProfile.requesterDisplayName` por `Organization.displayName` (GTR-01, mencionada como previsão em B2B-5/D-096) NÃO foi decidida nem implementada nesta wave — o escopo real, definido e `APPROVED` via protocolo Claude↔Codex (`multi-user-b2b-wave-b2b11-scope.md`), não incluiu esse item; continua pendente, ver seção de achados abaixo |
 | B2B-12 | Cutover de dev | **DONE** (2026-08-30, D-111) — execução real destrutiva à parte, gated | `docs/architecture/multi-user-b2b-wave-b2b12-scope.md` — protocolo Claude↔Codex 3 rodadas (Claude 9,2/Codex 9,1), `scripts/reset-dev-data.ts` implementado e verificado (Fase A real rodada contra `dev`) + `LEGACY_TENANT_ONLY` removido; `--confirm`/`--include-cognito` reais aguardam confirmação explícita do Marcelo |
-| B2B-13 | E2E / Adversarial Security | NOT STARTED | Usa as 25 perguntas de §121 como checklist |
+| B2B-13 | E2E / Adversarial Security | **DONE** (2026-08-30, D-113) | `docs/architecture/multi-user-b2b-wave-b2b13-scope.md` — protocolo Claude↔Codex 3 rodadas (Claude 9,1/Codex 9,2), fix real de TOCTOU (notification+document-chasing) implementado e testado, 2 testes novos (revogação/roles), auditoria de fixture IDs sem achado |
 | B2B-14 | Operational Evidence | NOT STARTED | Evidência real contra `dev` via `aws --profile claude-dev` |
 | B2B-15 | Documentation Reconciliation | NOT STARTED | Checklist de `AGENTS.md` §6 |
 
@@ -176,3 +176,27 @@ completa: backend `npm test` 1232/1232 (zero regressão), frontend `vitest` 139/
 24/24 (zero regressão), `build:lambdas` 34/34. **Execução real destrutiva (`--confirm`/
 `--include-cognito`) permanece pendente de confirmação explícita do Marcelo** — não bloqueia o
 fechamento desta wave nem waves seguintes.
+
+## Escopo de Wave B2B-13 (E2E/Adversarial Security) — `APPROVED`, D-112 — implementada, D-113
+
+Ver `docs/architecture/multi-user-b2b-wave-b2b13-scope.md` para o registro completo — protocolo
+Claude↔Codex 3 rodadas (Claude 9,1/Codex 9,2, régua E-014 9,3/10). Auditoria contra as 25 perguntas
+de `roadmap-evolution/17` §121: **20/25 já cobertas** por testes reais das próprias waves B2B-5 a
+B2B-12; **2 fecham com fix real de produção** (mesmo bug TOCTOU em 2 pontos —
+`resolveRecipientEmail`/`notification.ts` e `resolveInternalUserEmail`/`subject.ts` liam só
+`GlobalUser` no momento de ENVIO assíncrono, nunca revalidavam `Membership`, janela real entre
+roteamento — que já checava elegibilidade — e entrega; achado #3 original + um 6º achado real do
+próprio Codex na Rodada 1, mesma classe de bug em `document-chasing-dispatch`); **2 ganham teste
+novo** (revogação de Membership nunca encadeada ponta-a-ponta com `resolve()` subsequente; nenhum
+teste usava roles DIFERENTES por Organization do mesmo usuário); **1** é auditoria de fixture IDs
+(zero achado real). Implementação: `ResolvedRecipient` ganha `email?: string`, os 2 composition
+roots reaproveitam `DynamoDbNotificationRecipientResolver` já testado em vez de ler `GlobalUser`
+sozinhos (evitando um 3º código não-testável com a mesma regra — composition roots nunca são
+unit-testados diretamente neste projeto, precedente D-109). Achado real durante a implementação
+(não estava no escopo `APPROVED`, honestidade de processo): o teste de revogação em
+`resolver.test.ts` esperava `OrganizationUnavailableError`, mas o `OnboardingStateResolver` roda
+ANTES e lança `OnboardingRequiredError` quando a Membership removida é a única do usuário —
+corrigido dando ao membro uma segunda Organization própria, isolando a asserção à revogação
+escopada. G-V3 verificado por mutação real em 4 pontos. Suíte completa `npm test` 1235/1235, zero
+regressão, `build:lambdas` 34/34. Nenhuma mudança de frontend (fora de escopo). Com este item,
+**Wave B2B-13 está `DONE`**.
