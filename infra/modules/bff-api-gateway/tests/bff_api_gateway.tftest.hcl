@@ -29,8 +29,8 @@ run "every_bff_route_is_unauthenticated_at_the_gateway_layer" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.bff) == 7
-    error_message = "Expected exactly 7 BFF routes (login, callback, session, logout, logout-all, organizations create, proxy catch-all)"
+    condition     = length(aws_apigatewayv2_route.bff) == 9
+    error_message = "Expected exactly 9 BFF routes (login, callback, session, logout, logout-all, organizations create, organizations list, organization select, proxy catch-all)"
   }
 }
 
@@ -53,6 +53,35 @@ run "organizations_create_route_exists_for_the_first_onboarding_action" {
   assert {
     condition     = aws_apigatewayv2_route.bff["organizations_create"].route_key == "POST /bff/organizations"
     error_message = "The POST /bff/organizations route must exist so a fresh login has a real way out of NO_TENANT_NO_MEMBERSHIP"
+  }
+}
+
+# Wave B2B-14 (Operational Evidence, D-117): real finding - handleListOrganizations/
+# handleSelectOrganization (bff-handlers.ts) have existed since Wave B2B-6/D-102, but these 2
+# routes were never added here, unlike every other B2B-6 route (organizations_create). Every
+# real GET /bff/organizations or POST /bff/organization/select returned API Gateway's own
+# generic 404 (never reaching the Lambda) since that deploy - caught only by a real browser
+# session (this environment's first), never by this test suite, because this exact class of
+# existence check (route wiring, not authorization posture) was only ever written for
+# organizations_create, not for its 2 siblings added in the very same wave.
+run "organizations_list_and_select_routes_exist_for_multi_org_to_work_at_all" {
+  command = apply
+
+  variables {
+    api_name          = "expiration-tracker-test-bff"
+    bff_invoke_arn    = "arn:aws:lambda:us-east-1:123456789012:function:test-bff:live"
+    bff_function_name = "test-bff"
+    app_origin        = "https://app.example.com"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.bff["organizations_list"].route_key == "GET /bff/organizations"
+    error_message = "The GET /bff/organizations route must exist - handleListOrganizations has been unreachable without it since B2B-6"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.bff["organization_select"].route_key == "POST /bff/organization/select"
+    error_message = "The POST /bff/organization/select route must exist - handleSelectOrganization has been unreachable without it since B2B-6"
   }
 }
 
