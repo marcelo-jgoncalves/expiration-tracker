@@ -13,7 +13,11 @@ import { test, expect, type Page } from "@playwright/test";
  * than faked here against UI that doesn't exist yet.
  */
 
-function mockSession(page: Page, session: { authenticated: boolean; tenantId?: string; userId?: string }) {
+// Wave B2B-10: real GET /bff/session shape since B2B-6/D-102 is
+// { authenticated, activeOrganizationId?, onboardingState?, organizationSelectionRequired? } -
+// never tenantId/userId (those never existed on this response). Every org-scoped query in the
+// app now gates on ActiveOrganizationContext's organizationId, itself sourced from this mock.
+function mockSession(page: Page, session: { authenticated: boolean; activeOrganizationId?: string }) {
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
@@ -34,7 +38,7 @@ test("an unauthenticated visit is redirected to the BFF login, carrying the orig
 });
 
 test("an authenticated session renders the dashboard sorted by due date ascending (most urgent first)", async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await mockDashboard(page, {
     items: [
       { itemId: "b", tenantId: "tenant-1", name: "Later", category: "x", dueDate: "2026-12-01", tags: [], status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", version: 1 },
@@ -53,7 +57,7 @@ test("an authenticated session renders the dashboard sorted by due date ascendin
 });
 
 test("a true-empty dashboard shows the true-empty state, distinct copy from a filtered/unavailable state", async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await mockDashboard(page, { items: [] });
 
   await page.goto("/overview");
@@ -62,7 +66,7 @@ test("a true-empty dashboard shows the true-empty state, distinct copy from a fi
 });
 
 test("a backend failure on the dashboard call shows the error state with a working retry", async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   let callCount = 0;
   await page.route("**/bff/api/items/dashboard**", (route) => {
     callCount += 1;
@@ -86,7 +90,7 @@ test("a backend failure on the dashboard call shows the error state with a worki
 });
 
 test("a 401 mid-session (session expired) triggers a redirect back to the BFF login", async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ status: 401, json: { code: "AUTH_REQUIRED", category: "AUTH", message: "sessão expirada", retryable: false } }));
   const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
   await page.route("**/bff/login**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>mock hosted UI</body></html>" }));
@@ -99,7 +103,7 @@ test("a 401 mid-session (session expired) triggers a redirect back to the BFF lo
 });
 
 test("logout calls the BFF's logout endpoint and returns to the login redirect", async ({ page }) => {
-  await mockSession(page, { authenticated: true, tenantId: "tenant-1", userId: "user-1" });
+  await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await mockDashboard(page, { items: [] });
   const logoutRequest = page.waitForRequest((req) => req.url().includes("/bff/session/logout") && req.method() === "POST");
   await page.route("**/bff/session/logout", (route) => route.fulfill({ status: 204, body: "" }));

@@ -95,7 +95,7 @@ async function freezeClock(page: Page) {
 }
 
 async function mockSession(page: Page) {
-  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, tenantId: "tenant-1", userId: "user-1" } }));
+  await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
 }
 
 async function mockDashboard(page: Page, items: unknown[]) {
