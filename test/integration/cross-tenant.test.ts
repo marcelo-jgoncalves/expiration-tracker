@@ -152,8 +152,18 @@ describe("Cross-tenant isolation (negative suite)", () => {
     for (const k of keysUnderB) {
       expect(k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`)).toBe(true);
     }
-    // Sanity: tenant A's items exist and are disjoint from tenant B's prefix.
-    const anyCrossover = store.allKeys().some((k) => k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`) === false && k.includes(ctxB.tenant.tenantId));
+    // Sanity: tenant A's items exist and are disjoint from tenant B's prefix. One deliberate,
+    // documented exception since Wave B2B-2 (D-087, docs/architecture/multi-user-b2b-physical-
+    // model.md §1): the additive global User row (`PK=USER#<userId>#PROFILE`) legitimately
+    // contains the same raw ID string as `tenantId` under today's MVP `tenantId=userId` rule -
+    // it is not tenant-scoped business data (carries no Document/ExpirationItem/etc.), is never
+    // reachable via any `TENANT#`-scoped query, and is the intended foundation for Wave B2B-3's
+    // `Membership` to reference a real, tenant-independent `userId`. Excluding it here narrowly
+    // (by its exact known key shape, not a broad wildcard) keeps this negative suite meaningful
+    // for every OTHER entity, which must still never leak a tenant id outside its `TENANT#` prefix.
+    const anyCrossover = store
+      .allKeys()
+      .some((k) => k.startsWith(`TENANT#${ctxB.tenant.tenantId}#`) === false && k !== `USER#${ctxB.tenant.tenantId}#PROFILE` && k.includes(ctxB.tenant.tenantId));
     expect(anyCrossover).toBe(false);
   });
 });

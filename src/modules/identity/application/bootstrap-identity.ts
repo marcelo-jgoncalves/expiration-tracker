@@ -23,6 +23,7 @@ import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/
 import type { IdentityStore } from "../ports/identity-store.js";
 import { identityMappingKey, type IdentityMapping } from "../persistence/identity-mapping-repository.js";
 import { userProfileKey, type UserProfile } from "../persistence/user-repository.js";
+import { globalUserKey, type GlobalUser } from "../persistence/global-user-repository.js";
 
 export interface BootstrapResult {
   mapping: IdentityMapping;
@@ -168,11 +169,18 @@ export class TenantBootstrapService {
     }
   }
 
-  /** No mapping exists yet: create IdentityMapping + TenantLifecycleRecord(ACTIVE) + User
-   * atomically. MVP: tenantId=userId (same judgment call as IdentityMappingRepository.
-   * findOrCreate - decided here and, until Wave B2B-2, also inline in bff-auth-service.ts;
-   * Wave B2B-0 inventory §1.2 found that stale claim of "nowhere else" and this is the fix -
-   * bff-auth-service.ts now calls this same method instead of constructing its own mapping). */
+  /** No mapping exists yet: create IdentityMapping + TenantLifecycleRecord(ACTIVE) + User (+
+   * GlobalUser, Wave B2B-2/D-087 follow-up) atomically. MVP: tenantId=userId (same judgment
+   * call as IdentityMappingRepository.findOrCreate - decided here and, until Wave B2B-2, also
+   * inline in bff-auth-service.ts; Wave B2B-0 inventory §1.2 found that stale claim of "nowhere
+   * else" and this is the fix - bff-auth-service.ts now calls this same method instead of
+   * constructing its own mapping).
+   *
+   * GlobalUser (docs/architecture/multi-user-b2b-physical-model.md §1, `PK=USER#<userId>`) is
+   * purely additive here: nothing reads it yet (RequestContext/every tenant-scoped consumer
+   * still resolves identity through the legacy tenant-scoped `UserProfile` above until Wave
+   * B2B-5's cutover) - it exists so Wave B2B-3's `Membership` has a real global `userId` to
+   * reference without a second migration later. */
   private async createAll(cognitoSub: string, newUserId: string, emailNormalized: string): Promise<BootstrapResult> {
     const now = this.now();
     const mapping: IdentityMapping = {
@@ -209,10 +217,23 @@ export class TenantBootstrapService {
       version: 1,
     };
 
+    const globalUser: GlobalUser = {
+      ...globalUserKey(newUserId),
+      SK: "PROFILE",
+      entityType: "GlobalUser",
+      userId: newUserId,
+      emailNormalized,
+      identityStatus: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+
     const entries: TransactWriteEntry[] = [
       { Put: buildVersionedCreate(this.tableName, mapping as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, lifecycle as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, profile as unknown as Record<string, unknown> & { PK: string; SK: string }) },
+      { Put: buildVersionedCreate(this.tableName, globalUser as unknown as Record<string, unknown> & { PK: string; SK: string }) },
     ];
 
     try {

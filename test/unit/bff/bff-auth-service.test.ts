@@ -7,6 +7,7 @@ import { TenantBootstrapService } from "../../../src/modules/identity/applicatio
 import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { AuthenticationError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 
 function buildService(overrides: Partial<{ now: () => string }> = {}) {
   const sessionStore = new InMemorySessionStore();
@@ -118,6 +119,16 @@ describe("BffAuthService.handleCallback", () => {
     const session = await ctx.service.resolveSession(result.sessionToken);
     const profile = await ctx.users.getProfile(session.tenantId, session.userId);
     expect(profile?.emailNormalized).toBe("user@example.com");
+  });
+
+  it("also creates the additive global User row via the shared bootstrap (Wave B2B-2 follow-up) with the same verified email", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+
+    const globalUsers = new GlobalUserRepository(ctx.identityStore);
+    const globalUser = await globalUsers.get(session.userId);
+    expect(globalUser?.emailNormalized).toBe("user@example.com");
   });
 
   it("rejects a repeat login for a tenant whose TenantLifecycleRecord has moved to DELETING - capability this path never had before Wave B2B-2 (the old sequential findOrCreate/createProfileIfAbsent logic never checked lifecycle at all)", async () => {
