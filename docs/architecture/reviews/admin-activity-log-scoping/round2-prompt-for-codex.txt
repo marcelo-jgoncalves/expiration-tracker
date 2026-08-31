@@ -1,0 +1,26 @@
+Rodada 2 do protocolo Claude-Codex (AGENTS.md secao 4), mesmo tema (admin activity/audit log).
+Leia docs/architecture/reviews/admin-activity-log-scoping/round1-claude-proposal.md,
+docs/architecture/reviews/admin-activity-log-scoping/round1-codex-output.txt (sua propria
+rodada 1) e docs/architecture/reviews/admin-activity-log-scoping/round2-claude-response.md
+(treplica Claude que aceitou todos os 9 achados e revisou: cursor composto k-way merge por
+partition explicito, novo tipo-irmao TenantAuditEvent para o gap de export ao inves de forcar
+dentro do AuditEvent de ExpirationItem, matriz de cobertura, checklist E-014 retroativo, e
+mudou a decisao de escopo para DESIGN-ONLY nesta sessao (implementacao real fica para sessao
+futura, mesmo padrao usado em D-127 deste projeto para quarentena/retencao).
+
+Avalie a treplica:
+1. O cursor composto (objeto opaco com LEK por partition, k-way merge por occurredAt+
+   auditEventId, corte em limit, resto devolvido no cursor) resolve corretamente os problemas
+   que voce apontou na rodada 1, ou ainda ha um buraco?
+2. O novo TenantAuditEvent (4o agregado-irmao, resourceType ExpirationExport, sem itemId/
+   newVersion obrigatorios, escrito DEPOIS da serializacao do CSV, correlationId como dedupe
+   logica) e uma correcao real do erro que voce apontou (BuildAuditEventInput exigia itemId/
+   newVersion), ou ainda tem problema?
+3. Checklist E-014 retroativo esta adequado (5 criterios pesados, fontes citadas) ou insuficiente?
+4. Matriz de cobertura: aceitavel deixar organization:close como gap aberto nao-bloqueante, ou
+   isso e inconsistente com o pedido de Marcelo o suficiente para travar o design?
+5. Concorda que a rodada deve fechar como DESIGN-ONLY (documentar decisao completa, nenhum
+   codigo real nesta sessao) dado o volume de mecanismo que ainda precisa de spec/teste real?
+
+De nota 0-10 (duas casas, sem arredondar). Se >= 9.00, diga aprovado e pode fechar em rodada 3
+so para confirmacao final. Termine com "NOTA: X.XX".

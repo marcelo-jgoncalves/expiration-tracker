@@ -1,0 +1,17 @@
+/* IconButton — square footprint of Button's own control-height, so the target stays the same
+   min 32/36px WCAG-comfortable size as a text button instead of shrinking to icon size. */
+
+.ui-icon-button {
+  padding: 0;
+  gap: 0;
+  width: var(--control-height-md);
+}
+
+.ui-icon-button.ui-button--sm {
+  width: var(--control-height-sm);
+}
+
+.ui-icon-button svg {
+  width: 20px;
+  height: 20px;
+}

@@ -5,6 +5,8 @@ import { Button } from "../../src/components/ui/Button.js";
 import { StatusBadge } from "../../src/components/ui/StatusBadge.js";
 import { InlineNotice } from "../../src/components/ui/InlineNotice.js";
 import { DataTable, type DataTableColumn } from "../../src/components/ui/DataTable.js";
+import { Divider } from "../../src/components/ui/Divider.js";
+import { IconButton } from "../../src/components/ui/IconButton.js";
 
 /**
  * Design-system primitives - behaviour only. Appearance is covered by the Playwright visual
@@ -137,6 +139,41 @@ describe("DataTable", () => {
     const scroll = container.querySelector(".ui-table-scroll") as HTMLElement;
     expect(scroll).not.toHaveAttribute("tabindex");
     expect(scroll).not.toHaveAttribute("role");
+  });
+});
+
+describe("Divider", () => {
+  it("is decorative and never announced by assistive tech (mission §11 - a rule is never the only signal of structure)", () => {
+    const { container } = render(<Divider />);
+    const divider = container.querySelector(".ui-divider--horizontal");
+    expect(divider).not.toBeNull();
+    expect(divider).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("renders the vertical orientation class when asked", () => {
+    const { container } = render(<Divider orientation="vertical" />);
+    expect(container.querySelector(".ui-divider--vertical")).not.toBeNull();
+    expect(container.querySelector(".ui-divider--horizontal")).toBeNull();
+  });
+});
+
+describe("IconButton", () => {
+  it("requires a label and exposes it as the accessible name (mission §23 - icon-only needs a real name)", () => {
+    render(
+      <IconButton label="Fechar">
+        <svg aria-hidden="true" />
+      </IconButton>,
+    );
+    expect(screen.getByRole("button", { name: "Fechar" })).toBeInTheDocument();
+  });
+
+  it("defaults to type=button so it can never submit a surrounding form by accident", () => {
+    render(
+      <IconButton label="Menu">
+        <svg aria-hidden="true" />
+      </IconButton>,
+    );
+    expect(screen.getByRole("button", { name: "Menu" })).toHaveAttribute("type", "button");
   });
 });
 

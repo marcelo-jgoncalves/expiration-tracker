@@ -1,0 +1,14 @@
+/* Divider — a decorative rule, never load-bearing for structure (see Divider.tsx). */
+
+.ui-divider--horizontal {
+  border: none;
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  width: 100%;
+}
+
+.ui-divider--vertical {
+  border: none;
+  border-left: var(--border-width-thin) solid var(--color-border-subtle);
+  align-self: stretch;
+  width: 0;
+}

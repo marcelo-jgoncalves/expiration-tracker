@@ -1,0 +1,27 @@
+Voce e o revisor adversarial Codex no protocolo Claude-Codex deste repo (AGENTS.md secao 4).
+Leia docs/architecture/reviews/admin-activity-log-scoping/round1-claude-proposal.md (proposta
+Claude Rodada 1 para "tela de atividade/audit log admin/owner", pedido verbatim de Marcelo:
+ADMIN/OWNER ver renovacao/criacao/exportacao/qualquer acao relevante de outros membros da
+organizacao, visibilidade real nao logs crus).
+
+Antes de ler a nota do Claude (nota cega: ele nao viu a sua ainda), avalie criticamente e
+independentemente:
+1. Verifique voce mesmo se os 3 arquivos audit-event.ts (expiration/organization/subject,
+   caminhos completos em src/modules/<modulo>/domain/audit-event.ts) sao realmente shape-
+   compativeis o suficiente para um v1 sem reconciliacao de schema, ou se ha um risco real que
+   a proposta subestimou.
+2. RBAC: ADMIN_ROLES gate para um novo action activity:read - concorda, ou ha argumento para
+   tier diferente?
+3. Query pattern: 3 Query por PK-prefix por mes, merge em memoria - aceitavel, ou esconde
+   custo/complexidade real (paginacao cross-partition, ordenacao, N+1 de meses)?
+4. Retencao: reconciliacao com D-127/SECURITY_AUDIT esta correta ou ha contradicao?
+5. Gap de export: fechar no mesmo round (adicionar EXPORT a AuditAction, gravar no
+   exportItems()) e realmente pequeno/mecanico como alegado, ou tem uma pegadinha (ex.
+   TransactWriteItems de item unico sem condicional correta, redator de PII, teste de
+   contrato faltando)?
+6. Escopo v1: feed leve com frontend minimo - concorda com a decisao "UI e core escopo aqui",
+   ou ha argumento solido para backend-only nesta rodada?
+
+De uma nota 0-10 (duas casas decimais, sem arredondar para 9) e liste achados concretos
+acionaveis. Se a proposta tiver um erro real (nao estilistico), aponte o arquivo:linha exato
+quando aplicavel. Termine com "NOTA: X.XX".

@@ -1,0 +1,22 @@
+Rodada 3 (final, minimo 3 rodadas ja atingido) do protocolo Claude-Codex (AGENTS.md secao 4).
+Leia, nesta ordem: round1-claude-proposal.md, round1-codex-output.txt (sua rodada 1),
+round2-claude-response.md, round2-codex-output.txt (sua rodada 2, nota 8.25, 5 achados: cursor
+so cobria 3 streams devia cobrir 4 apos introduzir TenantAuditEvent; idempotencia do export via
+correlationId insuficiente; checklist E-014 precisa ser tratado como falha da Rodada 1 nao
+cumprimento retroativo, com ancoras objetivas e sem peso nos criterios internos; Linear nao e
+boa evidencia de trilha administrativa; organization:close nao pode ficar "nao verificado"),
+e agora docs/architecture/reviews/admin-activity-log-scoping/round3-claude-response.md
+(treplica final: cursor revisado para 4 streams com ExclusiveStartKey real por partition, sem
+buffer em memoria entre chamadas HTTP; idempotencia do export via exportRequestId deterministico
+(hash de tenantId+actorUserId+dia-UTC) + item de lock condicional na mesma transacao, falha-
+aberta para a entrega do CSV mas logada se a auditoria falhar; checklist E-014 reduzido a 2
+criterios pesados com ancoras objetivas e URLs, Linear removido como evidencia, 3 criterios
+antigos rebaixados a nota informativa sem peso; organization:close verificado via grep dos 7
+call sites de appendMembershipAuditToTransaction/buildMembershipAuditEvent -
+close-organization.ts confirmado ausente - classificado explicitamente "missing to implement,
+fora do escopo desta rodada" em vez de "resolvido indiretamente").
+
+Avalie se os 5 achados da rodada 2 foram corrigidos de verdade (nao so cosmeticamente). De nota
+0-10 (duas casas, sem arredondar). Se ainda houver erro real, aponte objetivamente. Se >= 9.00,
+declare aprovado e resuma em 3-5 linhas o que ficou fechado como decisao final desta rodada de
+protocolo. Termine com "NOTA: X.XX".
