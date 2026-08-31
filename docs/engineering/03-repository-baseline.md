@@ -26,7 +26,7 @@ Nota: `NEXT_SESSION_PROMPT.md` (escrito antes deste commit) descreve M0-M3 como 
 
 ## Stack identificada
 
-- Runtime: Node.js 20.x (`.nvmrc`, `package.json engines`), TypeScript 5.5 estrito (`noUncheckedIndexedAccess`).
+- Runtime: Node.js 24.x (`.nvmrc`, `package.json engines`), TypeScript 5.5 estrito (`noUncheckedIndexedAccess`).
 - Módulo: ESM (`"type": "module"`).
 - Package manager: npm, `package-lock.json` presente (lockfile real).
 - Test runner: Vitest 1.6 (`vitest run`), coverage via `@vitest/coverage-v8`.

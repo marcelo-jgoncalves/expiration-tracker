@@ -1,12 +1,12 @@
 # Expiration Tracker
 
-Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 20, DynamoDB single-table.
+Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 24, DynamoDB single-table.
 
 **Status**: pré-produção, recomendação **CONDITIONAL GO** para piloto controlado (`docs/engineering/pilot-readiness-assessment.md`). Design maturity aprovado; backend (M0-M11, mais M6/M7) e infraestrutura (Terraform/GitHub Actions, ADR-0009) implementados e deployados em `dev`; Full BFF + frontend de produção implementados; planejamento de interface com 8 de 9 etapas aprovadas. Este README é só o ponto de entrada — nunca a fonte de verdade: ver `docs/architecture/README.md` (mapa de arquitetura vigente) e `NEXT_SESSION_PROMPT.md` (estado atual + próxima ação, nunca normativo). `ARCHITECTURE.md`/`ENGINEERING.md` são os resumos executivos consolidados de arquitetura/engenharia, não histórico.
 
 ## Começando
 
-Pré-requisitos: Node 20.x (fixado em `.nvmrc`), npm. Docker é necessário só para `npm run test:dynamodb` (Testcontainers sobe DynamoDB Local) — não é pré-requisito dos demais comandos.
+Pré-requisitos: Node 24.x (fixado em `.nvmrc`), npm. Docker é necessário só para `npm run test:dynamodb` (Testcontainers sobe DynamoDB Local) — não é pré-requisito dos demais comandos.
 
 ```bash
 npm ci                  # install imutável (scripts de terceiros desabilitados via .npmrc)

@@ -30,12 +30,17 @@ variable "source_dir" {
 
 variable "runtime" {
   description = <<-EOT
-    Lambda runtime identifier. CDK's ScopedLambdaFunction currently targets Node 20
-    (bundleEntry's esbuild target is "node20"); nodejs20.x is what the bundled CJS artifact
-    is built for and is the value the aws_lambda_function.runtime attribute accepts today.
+    Lambda runtime identifier. Node 20 was AWS-deprecated 2026-04-30 (D-136 performance
+    review found the project still pinned to it past that date); build-lambdas.ts's esbuild
+    target is "node22" and nodejs22.x is what the bundled CJS artifact is built for.
+    Node 24 is the eventual target (AWS deprecation for Node 22 is 2027-04-30, so this is
+    not urgent) but requires hashicorp/aws >= 6.19.0 first - the ~> 5.0 constraint pinned
+    across this project's ~22 Terraform modules does not recognize "nodejs24.x" as a valid
+    runtime value (confirmed via `terraform test` against the pinned 5.100.0 provider). That
+    major-version provider upgrade is real, separate follow-up work, not a one-line bump.
   EOT
   type        = string
-  default     = "nodejs20.x"
+  default     = "nodejs22.x"
 }
 
 variable "timeout_seconds" {

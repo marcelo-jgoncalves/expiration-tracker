@@ -6,7 +6,7 @@
   "description": "Micro-SaaS de controle de vencimentos/renovacoes - guardrails e contratos (M0)",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
