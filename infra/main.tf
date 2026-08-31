@@ -922,6 +922,7 @@ module "security_audit_observability" {
     aws_cloudwatch_log_group.subjects_handler,
     aws_cloudwatch_log_group.imports_handler,
     aws_cloudwatch_log_group.memberships_handler,
+    aws_cloudwatch_log_group.export_handler,
   ]
 }
 
