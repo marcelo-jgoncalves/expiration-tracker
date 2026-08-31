@@ -353,7 +353,8 @@ describe("RequestContextResolver - Membership revocation and cross-org role isol
     expect(beforeCtx.tenant.tenantId).toBe(sharedOrg);
 
     const ownerCtx = await resolver.resolve({ claims: claims({ sub: "cognito-sub-owner" }), requestId: "r2", correlationId: "c2", organizationIdHint: sharedOrg });
-    const removeMembership = new RemoveMembershipService(organizations, "MainTable", ids);
+    const noAssignedItems = { findAssignedActiveItems: async () => ({ itemIds: [], totalKnown: 0, truncated: false }) };
+    const removeMembership = new RemoveMembershipService(organizations, "MainTable", ids, noAssignedItems);
     await removeMembership.remove(ownerCtx, memberUserId, 1);
 
     await expect(

@@ -135,3 +135,11 @@ export function isUnknownOutcome(err: unknown): err is ApiError {
 export function isLastOwnerError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.category === "BUSINESS_RULE" && err.code === "LAST_OWNER";
 }
+
+/** `ResponsibilityReassignmentRequiredError` (D-122/D-125) - `RemoveMembershipService`/
+ * `LeaveOrganizationService` refused because the target is still the assignee of at least one
+ * ACTIVE `ExpirationItem`. Same helper-parity pattern as `isLastOwnerError` (D-120) - minimal
+ * error-message mapping only, no reassignment UI here (out of scope, future work). */
+export function isResponsibilityReassignmentRequiredError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.category === "BUSINESS_RULE" && err.code === "RESPONSIBILITY_REASSIGNMENT_REQUIRED";
+}
