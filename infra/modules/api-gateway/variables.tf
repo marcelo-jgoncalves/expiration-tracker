@@ -48,6 +48,19 @@ variable "reminders_invoke_arn" {
   type        = string
 }
 
+# D-123/D-126 (CSV data export): dedicated Lambda/route, not folded into items_invoke_arn —
+# see src/runtime/aws/handlers/export-handler.ts for why (timeout_seconds=25 vs. items_handler's
+# 10s default, without changing every other /items* route's budget).
+variable "export_invoke_arn" {
+  description = "Invoke ARN of the ExportHandler Lambda — backs GET /items/export."
+  type        = string
+}
+
+variable "export_function_name" {
+  description = "Function name of the ExportHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "reminders_function_name" {
   description = "Function name of the RemindersHandler Lambda, for the API Gateway invoke permission."
   type        = string

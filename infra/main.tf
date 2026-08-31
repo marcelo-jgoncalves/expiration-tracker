@@ -74,6 +74,24 @@ module "items_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# D-123/D-126 (CSV data export): dedicated Lambda, not a route folded into items_handler
+# above — export-handler.ts's own comment explains why (timeout_seconds=25 vs. items_handler's
+# 10s default, needed because it can page GSI1 up to 3 times and serialize up to 2.000 rows,
+# without changing every other /items* route's budget). Same GSI1 read as items_handler's
+# dashboard route — no new policy beyond tenant_facing_read_write_policy_json.
+module "export_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-export-handler"
+  handler_name          = "export-handler"
+  source_dir            = "${local.dist_dir}/export-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  timeout_seconds       = 25
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 # M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
 # GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
 # faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
@@ -346,6 +364,8 @@ module "api" {
   test_ping_function_name       = module.test_ping_handler.function_name
   items_invoke_arn              = module.items_handler.live_alias_invoke_arn
   items_function_name           = module.items_handler.function_name
+  export_invoke_arn             = module.export_handler.live_alias_invoke_arn
+  export_function_name          = module.export_handler.function_name
   reminders_invoke_arn          = module.reminders_handler.live_alias_invoke_arn
   reminders_function_name       = module.reminders_handler.function_name
   notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
@@ -864,6 +884,14 @@ resource "aws_cloudwatch_log_group" "memberships_handler" {
   tags              = { Project = local.project_name, Environment = var.environment }
 }
 
+# D-123/D-126 (CSV data export): same log-group-race treatment as the other recently-added
+# Lambdas above (no real invocation yet to auto-create the log group).
+resource "aws_cloudwatch_log_group" "export_handler" {
+  name              = "/aws/lambda/${module.export_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
 module "security_audit_observability" {
   source = "./modules/security-audit-observability"
 
@@ -877,6 +905,7 @@ module "security_audit_observability" {
     module.subjects_handler.function_name,
     module.imports_handler.function_name,
     module.memberships_handler.function_name,
+    module.export_handler.function_name,
   ]
   global_index_function_names = [
     module.reminder_producer.function_name,

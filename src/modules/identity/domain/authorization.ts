@@ -80,6 +80,12 @@ export type Action =
   // that reads externally (invitation emails, guest-facing name) is consistently kept OWNER-only
   // in this codebase, not paritary with ADMIN like most other membership-management actions.
   | "organization:update-settings"
+  // D-123/D-126 (CSV data export): bulk export of ExpirationItem rows across the whole tenant.
+  // ADMIN_ROLES, NOT a bulk-action precedent — the justification is disclosure asymmetry:
+  // export READS every member's work (including items the caller never touched), while
+  // import only WRITES what the actor could already create individually. See
+  // docs/architecture/reviews/data-export-scoping/round-3-claude-proposal.md.
+  | "item:export"
   // W3-07 purge orchestrator (D-124, implementing D-121): closing the organization starts the
   // physical, irreversible tenant purge (`ACTIVE -> DELETING -> ... -> DELETED`). OWNER_ROLES,
   // the same tier as `tenant:configure-document-request-delivery`/`organization:update-settings`
@@ -124,6 +130,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "item:read": READ_ONLY_ROLES,
   "item:update": WRITE_ROLES,
   "item:delete": ADMIN_ROLES,
+  "item:export": ADMIN_ROLES,
   "item:watch": WRITE_ROLES,
   "reminder:manage": WRITE_ROLES,
   "document:reserve-upload": WRITE_ROLES,

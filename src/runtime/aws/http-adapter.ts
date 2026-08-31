@@ -38,3 +38,21 @@ export function toApiGatewayResult(response: { statusCode: number; body: Record<
     body: JSON.stringify(response.body),
   };
 }
+
+/**
+ * D-123/D-126 (CSV data export, round-3 Achado #3): additive twin of toApiGatewayResult() —
+ * that function always JSON-serializes `body` and fixes content-type to application/json,
+ * which every existing handler depends on and which this function must never change. The CSV
+ * export handler is the ONLY call site of this one; every other handler keeps using
+ * toApiGatewayResult() unchanged. `body` here is the raw CSV string, never JSON-encoded.
+ */
+export function toApiGatewayCsvResult(response: { statusCode: number; csv: string; filename: string }): APIGatewayProxyStructuredResultV2 {
+  return {
+    statusCode: response.statusCode,
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${response.filename}"`,
+    },
+    body: response.csv,
+  };
+}
