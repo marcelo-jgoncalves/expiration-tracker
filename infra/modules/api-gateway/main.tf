@@ -134,6 +134,36 @@ resource "aws_lambda_permission" "items" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items*"
 }
 
+# --- ExportHandler: GET /items/export (D-123/D-126, CSV data export) -------------------
+# Own integration/Lambda, not folded into aws_apigatewayv2_integration.items above — see
+# export-handler.ts's own comment for why (dedicated timeout_seconds=25). Same literal-vs-
+# parameterized-path precedent as "GET /items/dashboard" already living alongside
+# "GET /items/{itemId}" — API Gateway v2 prioritizes the literal segment.
+
+resource "aws_apigatewayv2_integration" "export" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.export_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "export" {
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /items/export"
+  target             = "integrations/${aws_apigatewayv2_integration.export.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "export" {
+  statement_id  = "AllowApiGatewayInvokeExport"
+  action        = "lambda:InvokeFunction"
+  function_name = var.export_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/export"
+}
+
 # --- RemindersHandler: /reminders/policies* (M3) ----------------------------------------
 
 resource "aws_apigatewayv2_integration" "reminders" {

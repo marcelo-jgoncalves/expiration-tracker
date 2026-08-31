@@ -14,7 +14,7 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, IneligibleAssigneeError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import type { MemberEligibilityChecker } from "../ports/member-eligibility.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
@@ -40,6 +40,11 @@ import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "
 import { createHash } from "node:crypto";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { TenantNotActiveError } from "../../../shared/errors/app-error.js";
+
+/** D-123/D-126 (CSV data export, round-3): fixed 2.000-item cap, tenant-wide across all 3
+ * exported statuses combined — not per-query. Independently guarded alongside the 4 MB byte
+ * cap enforced at CSV-serialization time (src/modules/expiration/http/export-handler.ts). */
+export const EXPORT_ITEM_CAP = 2000;
 
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
 /** BLOCKER-B (reminder-delivery-pipeline.md §4): fired for every terminal item transition
@@ -597,6 +602,37 @@ export class ExpirationService {
       ascending: query.ascending ?? true,
       limit: query.limit,
     });
+  }
+
+  /**
+   * D-123/D-126 (CSV data export, round-3 Achado #1, verbatim pseudocode): tenant-wide read
+   * of every "actively tracked" ExpirationItem across the 3 statuses that mean that,
+   * ACTIVE/ARCHIVED/RENEWED, in that fixed order for determinism. DELETED is deliberately
+   * NEVER queried (round-3 Achado #4, own decision, not inherited from the dashboard's
+   * requireDashboardStatus() which does accept DELETED) - a soft-deleted item is not
+   * "actively tracked". Budget decreases across the 3 queries so the 2.000-item cap is a
+   * TENANT-WIDE total, never per-call - `limit: budget + 1` asks queryGsi1() for one more
+   * row than the remaining budget so an exact-boundary overflow (the 2001st row landing
+   * exactly on a status boundary) is still detected without a separate count query.
+   */
+  async exportItems(ctx: RequestContext): Promise<ExpirationItem[]> {
+    authorize({ context: ctx, action: "item:export", resource: { tenantId: ctx.tenant.tenantId } });
+    const statuses: ExpirationItem["status"][] = ["ACTIVE", "ARCHIVED", "RENEWED"];
+    const rows: ExpirationItem[] = [];
+    let budget = EXPORT_ITEM_CAP;
+    for (const status of statuses) {
+      const page = await this.store.queryGsi1<ExpirationItem>({
+        gsi1pk: `TENANT#${ctx.tenant.tenantId}#ITEMSTATUS#${status}`,
+        ascending: true,
+        limit: budget + 1,
+      });
+      if (rows.length + page.length > EXPORT_ITEM_CAP) {
+        throw new ValidationError(`Export exceeds ${EXPORT_ITEM_CAP}-item cap.`, { statusWhereExceeded: status });
+      }
+      rows.push(...page);
+      budget = EXPORT_ITEM_CAP - rows.length;
+    }
+    return rows;
   }
 
   private async transitionStatus(

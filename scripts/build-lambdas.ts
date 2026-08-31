@@ -70,6 +70,8 @@ const HANDLERS = [
   "tenant-lifecycle-transition-handler",
   "tenant-purge-worker-handler",
   "tenant-purge-sweeper-handler",
+  // D-123/D-126 (CSV data export): dedicated handler, own timeout, see export-handler.ts.
+  "export-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

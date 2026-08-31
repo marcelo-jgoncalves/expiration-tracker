@@ -41,6 +41,8 @@ run "jwt_authorizer_attached_to_every_route" {
     guest_documents_function_name = "guest-documents"
     imports_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
     imports_function_name         = "imports"
+    export_invoke_arn             = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:export/invocations"
+    export_function_name          = "export"
   }
 
   assert {
@@ -92,6 +94,24 @@ run "jwt_authorizer_attached_to_every_route" {
       "GET /items/dashboard",
     )
     error_message = "GET /items/dashboard route must exist"
+  }
+
+  # D-123/D-126 (CSV data export): GET /items/export is wired as its own dedicated route,
+  # never merged into aws_apigatewayv2_route.items — the same class of bug D-117/D-120 fixed
+  # (a route never wired to API Gateway) would recur if this were forgotten.
+  assert {
+    condition     = aws_apigatewayv2_route.export.route_key == "GET /items/export"
+    error_message = "GET /items/export route must exist"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.export.authorization_type == "JWT" && aws_apigatewayv2_route.export.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    error_message = "GET /items/export must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.export.qualifier == "live"
+    error_message = "ExportHandler's invoke permission must target the live alias, not $LATEST"
   }
 
   # Every /reminders/policies* route exists and is JWT-authorized.
