@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Button } from "../../src/components/ui/Button.js";
 import { StatusBadge } from "../../src/components/ui/StatusBadge.js";
@@ -7,6 +7,9 @@ import { InlineNotice } from "../../src/components/ui/InlineNotice.js";
 import { DataTable, type DataTableColumn } from "../../src/components/ui/DataTable.js";
 import { Divider } from "../../src/components/ui/Divider.js";
 import { IconButton } from "../../src/components/ui/IconButton.js";
+import { Checkbox } from "../../src/components/ui/Checkbox.js";
+import { RadioGroup } from "../../src/components/ui/RadioGroup.js";
+import { Switch } from "../../src/components/ui/Switch.js";
 
 /**
  * Design-system primitives - behaviour only. Appearance is covered by the Playwright visual
@@ -177,6 +180,74 @@ describe("IconButton", () => {
   });
 });
 
+describe("Checkbox", () => {
+  it("reports the new checked state to the caller instead of managing it internally (controlled component)", () => {
+    const onChange = vi.fn();
+    render(<Checkbox label="Aceito os termos" checked={false} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Aceito os termos" }));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("sets the DOM indeterminate property imperatively - React has no prop for it", () => {
+    render(<Checkbox label="Selecionar todos" checked={false} indeterminate onChange={() => {}} />);
+    const input = screen.getByRole("checkbox", { name: "Selecionar todos" }) as HTMLInputElement;
+    expect(input.indeterminate).toBe(true);
+  });
+
+  it("associates the hint via aria-describedby so assistive tech reads it with the control", () => {
+    render(<Checkbox label="Notificar" checked hint="Aplica-se só a este item" onChange={() => {}} id="notify" />);
+    const input = screen.getByRole("checkbox", { name: "Notificar" });
+    expect(input).toHaveAttribute("aria-describedby", "notify-hint");
+    expect(screen.getByText("Aplica-se só a este item")).toHaveAttribute("id", "notify-hint");
+  });
+});
+
+describe("RadioGroup", () => {
+  const options = [
+    { value: "email", label: "E-mail" },
+    { value: "sms", label: "SMS" },
+  ];
+
+  it("names the whole set via a real fieldset/legend, not a bare aria-label", () => {
+    render(<RadioGroup legend="Canal de notificação" options={options} value="email" onChange={() => {}} />);
+    expect(screen.getByRole("group", { name: /Canal de notificação/ })).toBeInTheDocument();
+  });
+
+  it("is mutually exclusive - selecting one option reports only that value", () => {
+    const onChange = vi.fn();
+    render(<RadioGroup legend="Canal de notificação" options={options} value="email" onChange={onChange} />);
+    fireEvent.click(screen.getByRole("radio", { name: "SMS" }));
+    expect(onChange).toHaveBeenCalledWith("sms");
+    expect(screen.getByRole("radio", { name: "E-mail" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "SMS" })).not.toBeChecked();
+  });
+
+  it("surfaces a validation error as role=alert, same pattern as TextField", () => {
+    render(<RadioGroup legend="Canal de notificação" options={options} value={null} onChange={() => {}} error="Selecione um canal" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Selecione um canal");
+  });
+});
+
+describe("Switch", () => {
+  it("uses role=switch with aria-checked, not a checkbox role, since it takes effect immediately", () => {
+    render(<Switch label="Notificações por e-mail" checked={false} onChange={() => {}} />);
+    const control = screen.getByRole("switch", { name: "Notificações por e-mail" });
+    expect(control).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("reports the toggled state to the caller on click", () => {
+    const onChange = vi.fn();
+    render(<Switch label="Notificações por e-mail" checked={false} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Notificações por e-mail" }));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("defaults to type=button so it can never submit a surrounding form by accident", () => {
+    render(<Switch label="Notificações por e-mail" checked={false} onChange={() => {}} />);
+    expect(screen.getByRole("switch", { name: "Notificações por e-mail" })).toHaveAttribute("type", "button");
+  });
+});
+
 describe("router-bound primitives", () => {
   it("ButtonLink renders a real link, not a button, for navigation", async () => {
     const { ButtonLink } = await import("../../src/components/ui/Button.js");
@@ -189,5 +260,23 @@ describe("router-bound primitives", () => {
     );
     expect(screen.getByRole("link", { name: "Novo vencimento" })).toHaveAttribute("href", "/items/new");
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("Link renders a client-side route link for internal navigation", async () => {
+    const { Link } = await import("../../src/components/ui/Link.js");
+    render(
+      <MemoryRouter>
+        <Link to="/items">Ver vencimentos</Link>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Ver vencimentos" })).toHaveAttribute("href", "/items");
+  });
+
+  it("ExternalLink opens in a new tab with rel=noopener noreferrer, so the destination cannot reach window.opener", async () => {
+    const { ExternalLink } = await import("../../src/components/ui/Link.js");
+    render(<ExternalLink href="https://example.com">Documentação externa</ExternalLink>);
+    const link = screen.getByRole("link", { name: /Documentação externa/ });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

@@ -1,0 +1,74 @@
+/* Switch (design-system.md §29). A real <button role="switch">, styled as a track+thumb. */
+
+.ui-switch {
+  margin-bottom: var(--space-5);
+}
+
+.ui-switch__control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-size-min);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-300);
+  color: var(--color-text-primary);
+}
+
+.ui-switch__control:disabled {
+  cursor: not-allowed;
+  color: var(--color-text-disabled);
+}
+
+.ui-switch__track {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-400);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-switch__thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-surface-default);
+  box-shadow: var(--shadow-raised);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.ui-switch__control[aria-checked="true"] .ui-switch__track {
+  background: var(--color-action-primary);
+}
+
+.ui-switch__control[aria-checked="true"] .ui-switch__thumb {
+  transform: translateX(16px);
+}
+
+.ui-switch__control:disabled .ui-switch__track {
+  background: var(--color-surface-disabled);
+}
+
+.ui-switch__control:focus-visible .ui-switch__track {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.ui-switch__hint {
+  margin: var(--space-2) 0 0 calc(36px + var(--space-3));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+}
+
+@media (forced-colors: active) {
+  .ui-switch__track {
+    border: var(--border-width-thin) solid ButtonBorder;
+  }
+}

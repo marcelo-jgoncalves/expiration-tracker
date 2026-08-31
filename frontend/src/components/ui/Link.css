@@ -1,0 +1,12 @@
+/* Link (design-system.md §29). Colour/underline/hover already come from the global `a` rule in
+   base.css - this file only adds the external-link marker, which base.css has no concept of. */
+
+.ui-link--external {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.ui-link__external-marker {
+  font-size: 0.85em;
+}
