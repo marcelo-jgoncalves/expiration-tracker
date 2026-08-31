@@ -6,14 +6,21 @@
  * à pergunta 3 da Rodada 1/2 do debate de escopo, aceita pelo Codex). A proteção real contra
  * "o único OWNER sai" é o `LastOwnerError` transacional (mesmo builder de
  * `ChangeMembershipRoleService`/`RemoveMembershipService`), nunca uma permissão extra.
+ *
+ * D-122/D-125 (Responsibility Reassignment on Member Removal): same best-effort, non-atomic
+ * precondition as `RemoveMembershipService.remove()` - before the removal transaction, checks
+ * whether the leaving user is still `assigneeUserId` of any `ACTIVE` `ExpirationItem` and throws
+ * `ResponsibilityReassignmentRequiredError` instead of proceeding. Runs before the transaction's
+ * own atomic `LastOwnerError` guard, same ordering rationale as `remove-membership.ts`.
  */
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { LastOwnerError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { LastOwnerError, NotFoundError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
 import { membershipKey, type Membership } from "../domain/membership.js";
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
+import type { AssignedActiveItemsLookup } from "../ports/assigned-active-items-lookup.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
 
 export class LeaveOrganizationService {
@@ -21,6 +28,7 @@ export class LeaveOrganizationService {
     private readonly store: OrganizationStore,
     private readonly tableName: string,
     private readonly ids: OrganizationIdGenerator,
+    private readonly assignedItems: AssignedActiveItemsLookup,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -31,6 +39,11 @@ export class LeaveOrganizationService {
     const target = await this.store.get<Membership>(membershipKey(ctx.tenant.tenantId, ctx.principal.userId));
     if (!target || target.status !== "ACTIVE") {
       throw new NotFoundError("No active membership to leave.", {});
+    }
+
+    const assigned = await this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, ctx.principal.userId);
+    if (assigned.itemIds.length > 0) {
+      throw new ResponsibilityReassignmentRequiredError({ targetUserId: ctx.principal.userId, ...assigned });
     }
 
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);

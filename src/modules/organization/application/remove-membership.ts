@@ -4,15 +4,27 @@
  * achado de pesquisa Slack) + last-owner protection (mesmo builder de `ChangeMembershipRoleService`).
  * Remoção é soft (`status: REMOVED`, nunca hard-delete — mesmo padrão de retenção/auditoria de
  * `Membership`, `domain/membership.ts`).
+ *
+ * D-122/D-125 (Responsibility Reassignment on Member Removal): before the removal transaction, a
+ * best-effort (never atomic - Round-3 "Estado final consolidado") precondition checks whether
+ * `targetUserId` is still `assigneeUserId` of any `ACTIVE` `ExpirationItem` in the organization
+ * (`AssignedActiveItemsLookup`) and throws `ResponsibilityReassignmentRequiredError` instead of
+ * proceeding. Runs AFTER the owner-tier check (an authorization-shaped question - can THIS
+ * caller remove THIS target at all - is answered before a business-rule question about the
+ * target's own state) but BEFORE the transaction (which still separately enforces LastOwnerError
+ * atomically) - a target can legitimately trip both checks; responsibility reassignment surfaces
+ * first because it is resolvable by the caller without any role change, so it is the more
+ * actionable failure to see first.
  */
 import { authorize } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { LastOwnerError, NotFoundError, OwnerTierChangeRequiresOwnerError } from "../../../shared/errors/app-error.js";
+import { LastOwnerError, NotFoundError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
 import { membershipKey, type Membership } from "../domain/membership.js";
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
+import type { AssignedActiveItemsLookup } from "../ports/assigned-active-items-lookup.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
 
 export class RemoveMembershipService {
@@ -20,6 +32,7 @@ export class RemoveMembershipService {
     private readonly store: OrganizationStore,
     private readonly tableName: string,
     private readonly ids: OrganizationIdGenerator,
+    private readonly assignedItems: AssignedActiveItemsLookup,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -33,6 +46,11 @@ export class RemoveMembershipService {
 
     if (target.role === "OWNER" && !ctx.tenant.roles.includes("OWNER")) {
       throw new OwnerTierChangeRequiresOwnerError("Only an OWNER can remove another OWNER.");
+    }
+
+    const assigned = await this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, targetUserId);
+    if (assigned.itemIds.length > 0) {
+      throw new ResponsibilityReassignmentRequiredError({ targetUserId, ...assigned });
     }
 
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);

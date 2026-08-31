@@ -1,6 +1,7 @@
 /** Composition root for the organization module's membership-management surface (Wave B2B-8,
  * D-099) against real DynamoDB. */
-import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import type { AssignedActiveItemsLookup } from "../../../modules/organization/ports/assigned-active-items-lookup.js";
 import { DynamoDbOrganizationStore } from "../../../modules/organization/persistence/dynamodb-organization-store.js";
 import { CreateInvitationService } from "../../../modules/organization/application/create-invitation.js";
 import { RevokeInvitationService } from "../../../modules/organization/application/revoke-invitation.js";
@@ -29,6 +30,52 @@ import { SesEmailAdapter, createSesClient } from "../../../modules/notification/
  * pattern (D-049), same `SesEmailAdapter`, no new provider. The token itself never leaves this
  * process except via the e-mail this builds (`create-invitation.ts`'s HTTP handler still never
  * returns it in the response body - that boundary is unchanged by this wave). */
+/** D-122/D-125 (Responsibility Reassignment on Member Removal): a THIN adapter directly against
+ * the shared main table's GSI1 (`TENANT#t#ITEMSTATUS#ACTIVE`, `infra/modules/dynamo-table/
+ * main.tf`, `projection_type = ALL`) - the same structural pattern as `expiration.ts`'s
+ * `buildMemberEligibilityChecker`, but the reverse module direction: this is the FIRST time
+ * `organization` reads data owned by `expiration` (ExpirationItem), never a direct import of
+ * `expiration`'s domain/persistence internals, only this GSI1 read against the physical table
+ * both entities already share. GSI1 is NOT in `security-audit.ts`'s restricted-index taxonomy
+ * (only GSI3/GSI6 require the `security.global_index_access` audit event and IAM-scoped access -
+ * GSI1 is the general-purpose dashboard index, already broadly readable), so no new audit event
+ * is emitted here.
+ *
+ * Pagination contract (Round-3 Correção 2, `responsibility-reassignment-scoping/
+ * round-3-claude-proposal.md`): pages the ACTIVE partition to exhaustion (`LastEvaluatedKey`
+ * until `undefined`), applying `FilterExpression: assigneeUserId = :userId` to each page -
+ * NEVER a DynamoDB `Query` `Limit` as a truncation proxy (that bounds items evaluated BEFORE the
+ * filter, not items surviving it, and would produce false negatives). The 20-item cap applies
+ * only to the returned `itemIds`, computed AFTER the true total is counted. */
+export function buildAssignedActiveItemsLookup(client: DynamoDBDocumentClient, tableName: string): AssignedActiveItemsLookup {
+  const RETURN_CAP = 20;
+  return {
+    async findAssignedActiveItems(organizationId: string, userId: string) {
+      const itemIds: string[] = [];
+      let totalKnown = 0;
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const result = await client.send(
+          new QueryCommand({
+            TableName: tableName,
+            IndexName: "GSI1",
+            KeyConditionExpression: "GSI1PK = :pk",
+            FilterExpression: "assigneeUserId = :userId",
+            ExpressionAttributeValues: { ":pk": `TENANT#${organizationId}#ITEMSTATUS#ACTIVE`, ":userId": userId },
+            ExclusiveStartKey: exclusiveStartKey,
+          }),
+        );
+        for (const item of (result.Items ?? []) as Array<{ itemId: string }>) {
+          totalKnown += 1;
+          if (itemIds.length < RETURN_CAP) itemIds.push(item.itemId);
+        }
+        exclusiveStartKey = result.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+      return { itemIds, totalKnown, truncated: totalKnown > itemIds.length };
+    },
+  };
+}
+
 export function buildMembershipDeps(
   client: DynamoDBDocumentClient,
   tableName: string,
@@ -53,8 +100,9 @@ export function buildMembershipDeps(
   const listMembers = new ListMembersService(organizations);
   const listInvitations = new ListInvitationsService(organizations);
   const changeRole = new ChangeMembershipRoleService(organizations, tableName, ids);
-  const removeMembership = new RemoveMembershipService(organizations, tableName, ids);
-  const leaveOrganization = new LeaveOrganizationService(organizations, tableName, ids);
+  const assignedItems = buildAssignedActiveItemsLookup(client, tableName);
+  const removeMembership = new RemoveMembershipService(organizations, tableName, ids, assignedItems);
+  const leaveOrganization = new LeaveOrganizationService(organizations, tableName, ids, assignedItems);
   const updateSettings = new UpdateOrganizationSettingsService(organizations, tableName);
   const closeOrganization = tenantPurgeStateMachineArn
     ? new CloseOrganizationService(

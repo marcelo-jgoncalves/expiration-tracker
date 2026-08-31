@@ -10,7 +10,7 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useUpdateOrganizationSettings } from "../hooks/useUpdateOrganizationSettings.js";
 import { useLeaveOrganization } from "../hooks/useLeaveOrganization.js";
 import { useCloseOrganization } from "../hooks/useCloseOrganization.js";
-import { ApiError, isConflict, isLastOwnerError } from "../api/errors.js";
+import { ApiError, isConflict, isLastOwnerError, isResponsibilityReassignmentRequiredError } from "../api/errors.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
@@ -25,10 +25,14 @@ import { TextField } from "../components/forms/TextField.js";
 function LeaveOrganizationSection() {
   const leave = useLeaveOrganization();
 
+  // D-122/D-125: minimal error-message parity for ResponsibilityReassignmentRequiredError, same
+  // small polish D-120 did for LastOwnerError - no reassignment UI here (out of scope).
   const errorMessage = leave.isError
     ? isLastOwnerError(leave.error)
       ? "Você é o único Owner desta organização - promova outra pessoa a Owner antes de sair."
-      : "Não foi possível sair da organização. Tente novamente."
+      : isResponsibilityReassignmentRequiredError(leave.error)
+        ? "Você ainda é responsável por itens de vencimento ativos - reatribua-os antes de sair."
+        : "Não foi possível sair da organização. Tente novamente."
     : undefined;
 
   return (

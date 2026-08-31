@@ -424,6 +424,35 @@ export class OrganizationClosureUnavailableError extends AppError {
   }
 }
 
+/** D-122/D-125 (Responsibility Reassignment on Member Removal): thrown by
+ * `RemoveMembershipService.remove()`/`LeaveOrganizationService.leave()` when `targetUserId` is
+ * still `assigneeUserId` of at least one `ACTIVE` `ExpirationItem` in the organization
+ * (`AssignedActiveItemsLookup`, `organization/ports/assigned-active-items-lookup.ts`). Explicitly
+ * best-effort, NOT atomic (Round-3 "Estado final consolidado") - a synchronous read-then-decide
+ * precondition before the removal transaction, not part of it; a rare concurrent reassignment
+ * between the check and the transaction remains a residual, observed only via the existing
+ * `MEMBER_REMOVED`/`MEMBER_LEFT` audit trail and B2B-11's notification-cancellation log, never a
+ * new telemetry mechanism invented just for this case. `itemIds` is capped at 20 per
+ * `AssignedActiveItemsLookup`'s pagination contract; `totalKnown`/`truncated` always reflect the
+ * true count. `retryable: false`: the caller must reassign the flagged items first (via the
+ * existing `updateItem` mutation, already validated by `MemberEligibilityChecker`), not just
+ * retry the identical removal. */
+export class ResponsibilityReassignmentRequiredError extends AppError {
+  constructor(
+    input: { targetUserId: string; itemIds: string[]; totalKnown: number; truncated: boolean },
+    message = "Target user is still the assignee of active expiration items - reassign them before removing this member.",
+  ) {
+    super({
+      code: "RESPONSIBILITY_REASSIGNMENT_REQUIRED",
+      category: "BUSINESS_RULE",
+      message,
+      retryable: false,
+      details: { ...input },
+    });
+    this.name = "ResponsibilityReassignmentRequiredError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

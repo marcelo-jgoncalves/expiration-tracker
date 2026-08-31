@@ -6,9 +6,22 @@ import { ListMembersService, ListInvitationsService } from "../../../src/modules
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { membershipKey, type Membership, type MembershipRole } from "../../../src/modules/organization/domain/membership.js";
-import { LastOwnerError, OwnerTierChangeRequiresOwnerError } from "../../../src/shared/errors/app-error.js";
+import { LastOwnerError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassignmentRequiredError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import type { AssignedActiveItemsLookup } from "../../../src/modules/organization/ports/assigned-active-items-lookup.js";
+
+/** Test double for `AssignedActiveItemsLookup` - `assignments` maps `userId` to the ACTIVE
+ * `ExpirationItem` ids assigned to them, defaulting an unlisted user to "no active items" (the
+ * common case in most of these tests, which don't exercise the reassignment mechanism). */
+function fakeAssignedItems(assignments: Record<string, string[]> = {}): AssignedActiveItemsLookup {
+  return {
+    async findAssignedActiveItems(_organizationId: string, userId: string) {
+      const itemIds = assignments[userId] ?? [];
+      return { itemIds, totalKnown: itemIds.length, truncated: false };
+    },
+  };
+}
 
 const TABLE = "MainTable";
 let counter = 0;
@@ -140,7 +153,7 @@ describe("RemoveMembershipService", () => {
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-owner-2", "OWNER");
     seedMembership(store, "user-admin", "ADMIN");
-    const service = new RemoveMembershipService(store, TABLE, ids());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
 
     await expect(service.remove(ctx("user-admin", ["ADMIN"]), "user-owner-2", 1)).rejects.toBeInstanceOf(OwnerTierChangeRequiresOwnerError);
   });
@@ -151,7 +164,7 @@ describe("RemoveMembershipService", () => {
     const store = new InMemoryOrganizationStore();
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
-    const service = new RemoveMembershipService(store, TABLE, ids());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
 
     await expect(service.remove(ctx("user-owner", ["OWNER"]), "user-owner", 1)).rejects.toBeInstanceOf(LastOwnerError);
   });
@@ -163,11 +176,44 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
     const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
     expect(removed?.status).toBe("REMOVED");
+  });
+
+  // D-122/D-125 (Responsibility Reassignment on Member Removal). Mutação: remover a checagem
+  // `if (assigned.itemIds.length > 0) throw ...` (ou trocar por uma condição sempre-falsa) faria
+  // isto NÃO lançar ResponsibilityReassignmentRequiredError - o membro seria removido mesmo
+  // ainda sendo assignee de um item ACTIVE, perdendo rastreabilidade silenciosamente.
+  it("blocks removing a member who is still the assignee of an ACTIVE item", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1"] }));
+
+    const err = await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1).catch((e) => e);
+    expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
+    expect(err.details).toMatchObject({ targetUserId: "user-member", itemIds: ["item-1"], totalKnown: 1, truncated: false });
+    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(stillActive?.status).toBe("ACTIVE");
+  });
+
+  // Mutação: inverter a ordem (checar assigned items antes do tier OWNER) mudaria qual erro um
+  // ADMIN tentando remover um OWNER-com-itens-atribuídos veria primeiro - a checagem de
+  // autorização/tier deve vencer, porque ela decide SE o caller pode agir, antes de qualquer
+  // pergunta sobre o estado do alvo.
+  it("surfaces OwnerTierChangeRequiresOwnerError before the reassignment check when both apply", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 2);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-owner-2", "OWNER");
+    seedMembership(store, "user-admin", "ADMIN");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-owner-2": ["item-1"] }));
+
+    await expect(service.remove(ctx("user-admin", ["ADMIN"]), "user-owner-2", 1)).rejects.toBeInstanceOf(OwnerTierChangeRequiresOwnerError);
   });
 });
 
@@ -179,7 +225,7 @@ describe("LeaveOrganizationService", () => {
     const store = new InMemoryOrganizationStore();
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
-    const service = new LeaveOrganizationService(store, TABLE, ids());
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems());
 
     await expect(service.leave(ctx("user-owner", ["OWNER"]))).rejects.toBeInstanceOf(LastOwnerError);
   });
@@ -192,11 +238,27 @@ describe("LeaveOrganizationService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new LeaveOrganizationService(store, TABLE, ids());
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems());
 
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
     expect(membership?.status).toBe("REMOVED");
+  });
+
+  // D-122/D-125. Mutação: mesma classe do teste equivalente em RemoveMembershipService - remover
+  // a checagem de assigned items faria leave() suceder mesmo com itens ACTIVE ainda atribuídos.
+  it("blocks a member from leaving while still the assignee of an ACTIVE item", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1", "item-2"] }));
+
+    const err = await service.leave(ctx("user-member", ["MEMBER"])).catch((e) => e);
+    expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
+    expect(err.details).toMatchObject({ targetUserId: "user-member", totalKnown: 2, truncated: false });
+    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(stillActive?.status).toBe("ACTIVE");
   });
 });
 
