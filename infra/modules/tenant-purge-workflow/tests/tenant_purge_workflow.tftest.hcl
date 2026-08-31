@@ -57,18 +57,17 @@ run "definition_substitutes_both_lambda_arns_and_leaves_no_placeholder" {
   }
 }
 
-# G-V3 target for the Choice loop's retry bound (D-121 Rodada 3 Fix 8). The bound lives as a named
-# Terraform local, and the ASL references it only through the __PURGE_RETRY_LIMIT__ placeholder -
-# so the two can drift apart silently unless something asserts the substitution actually happened
-# and produced a real JSON NUMBER. A quoted "20" would make NumericLessThan an invalid ASL
-# condition that only fails at deploy/run time, never at plan time.
-run "purge_retry_limit_is_substituted_as_a_real_json_number_not_a_placeholder" {
+# G-V3 target for the Choice loop's retry bound (D-121 Rodada 3 Fix 8). The bound is hardcoded as a
+# literal `20` directly in tenant-purge.asl.json's Choice condition (NOT templatefile-substituted -
+# CI validates that checked-in file directly and requires a real JSON number there, a quoted
+# placeholder token would fail that check even though it would have substituted fine at plan time).
+# `local.purge_retry_limit` is the single documented declaration the ASL literal must be kept in
+# sync with; this test asserts the ASL actually rendered as a real JSON number (a quoted "20" would
+# make NumericLessThan an invalid ASL condition that only fails at deploy/run time, never at plan
+# time) and that the local matches the value the approved design named.
+run "purge_retry_limit_is_a_real_json_number_matching_the_documented_local" {
   command = apply
 
-  assert {
-    condition     = !strcontains(aws_sfn_state_machine.tenant_purge.definition, "__PURGE_RETRY_LIMIT__")
-    error_message = "definition must NOT retain the __PURGE_RETRY_LIMIT__ placeholder - the Choice bound would never evaluate"
-  }
   assert {
     condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"NumericLessThan\": 20")
     error_message = "The retry bound must render as an unquoted JSON number (\"NumericLessThan\": 20), never a quoted string"

@@ -128,7 +128,7 @@
 
     "EvaluatePurgeResult": {
       "Type": "Choice",
-      "Comment": "A Choice, deliberately NOT Retry/Catch (D-121 Rodada 2 Fix 2 - the finding that reopened Rodada 1): purgeTenant() returns SUCCESS/PARTIAL/FAILED as a normal resolved value and never throws for PARTIAL, so ASL Retry - which only fires on a Task raising an error - would never see it. The retryCount bound is what stops a permanently-stuck purge (e.g. a malformed S3 target) from looping until Step Functions' own 25,000-event history quota kills the execution as an unexplained failure instead of surfacing deliberately as an operator-visible BLOCKED tenant.",
+      "Comment": "A Choice, deliberately NOT Retry/Catch (D-121 Rodada 2 Fix 2 - the finding that reopened Rodada 1): purgeTenant() returns SUCCESS/PARTIAL/FAILED as a normal resolved value and never throws for PARTIAL, so ASL Retry - which only fires on a Task raising an error - would never see it. The retryCount bound (20, D-121 Rodada 3 Fix 8 - a deliberately conservative placeholder, no tenant has been purged for real yet to derive a measured number from) is what stops a permanently-stuck purge (e.g. a malformed S3 target) from looping until Step Functions' own 25,000-event history quota kills the execution as an unexplained failure instead of surfacing deliberately as an operator-visible BLOCKED tenant. Hardcoded here (not templatefile-substituted like the Lambda ARNs below) because it is an internal constant, not an environment-specific value - same convention as the Wait state's literal 1800 above - and the CI ASL validator checks this checked-in file directly, which requires a real JSON number, not a quoted placeholder token.",
       "Choices": [
         {
           "Variable": "$.purge.status",
@@ -138,7 +138,7 @@
         {
           "And": [
             { "Variable": "$.purge.status", "StringEquals": "PARTIAL" },
-            { "Variable": "$.retryCount", "NumericLessThan": "__PURGE_RETRY_LIMIT__" }
+            { "Variable": "$.retryCount", "NumericLessThan": 20 }
           ],
           "Next": "PreparePurgeRetry"
         },

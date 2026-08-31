@@ -7,12 +7,21 @@
 # "reusing extraction-workflow's alarm" was simply false and the alarm had to be built for real.
 
 locals {
-  # D-121 Rodada 3 Fix 8: named constant, never an inline magic number in the ASL. The VALUE is a
-  # deliberately conservative placeholder, not a measured one - no tenant has ever been purged for
-  # real, so there is no data to derive a bound from yet. It exists to stop a permanently-stuck
-  # PARTIAL loop from running until Step Functions' own 25,000-event execution-history quota kills
-  # the execution as an unexplained failure, instead of surfacing deliberately as a BLOCKED tenant.
-  # Same class of placeholder as enable_reserved_concurrency's account-quota-driven default.
+  # D-121 Rodada 3 Fix 8: named constant, never an inline magic number. The VALUE is a deliberately
+  # conservative placeholder, not a measured one - no tenant has ever been purged for real, so there
+  # is no data to derive a bound from yet. It exists to stop a permanently-stuck PARTIAL loop from
+  # running until Step Functions' own 25,000-event execution-history quota kills the execution as an
+  # unexplained failure, instead of surfacing deliberately as a BLOCKED tenant. Same class of
+  # placeholder as enable_reserved_concurrency's account-quota-driven default.
+  #
+  # NOT templatefile-substituted into the ASL (unlike the Lambda ARNs below): this is an internal
+  # constant, not an environment-specific value, and CI validates ../../state-machines/*.asl.json
+  # directly against the raw checked-in file (never the Terraform-substituted definition), which
+  # requires a real JSON number rather than a quoted placeholder token - substituting it here
+  # produced a raw file CI could never validate. Hardcoded as a literal `20` in
+  # tenant-purge.asl.json's EvaluatePurgeResult Choice instead, same convention as that file's
+  # literal Wait(1800). This local exists so the value has exactly one authoritative declaration to
+  # point to; if you change it, change both here and in the ASL file's Choice condition together.
   purge_retry_limit = 20
 }
 
@@ -44,15 +53,10 @@ resource "aws_sfn_state_machine" "tenant_purge" {
 
   definition = replace(
     replace(
-      replace(
-        file("${path.module}/../../state-machines/tenant-purge.asl.json"),
-        "\"tenant-lifecycle-transition:live\"", jsonencode(var.lifecycle_transition_function_arn)
-      ),
-      "\"tenant-purge-worker:live\"", jsonencode(var.purge_worker_function_arn)
+      file("${path.module}/../../state-machines/tenant-purge.asl.json"),
+      "\"tenant-lifecycle-transition:live\"", jsonencode(var.lifecycle_transition_function_arn)
     ),
-    # jsonencode() of a number emits it unquoted, so the ASL's Choice condition ends up with a real
-    # JSON number (NumericLessThan requires one) rather than the quoted placeholder token.
-    "\"__PURGE_RETRY_LIMIT__\"", jsonencode(local.purge_retry_limit)
+    "\"tenant-purge-worker:live\"", jsonencode(var.purge_worker_function_arn)
   )
 }
 
