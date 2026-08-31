@@ -42,11 +42,11 @@ export interface DocumentRequestServiceDeps {
    * então não precisa forçar essas deps em todo composition root/teste que não usa a feature. */
   emailProvider?: EmailProviderAdapter;
   guestUploadBaseUrl?: string;
-  /** W5-01/GTR-01 (D-060): resolves the caller's own `UserProfile.requesterDisplayName` for
-   * the initial-invite e-mail - same injected-resolver pattern as `resolveInternalUserEmail`
-   * in `document-chasing-dispatch`'s dispatch.ts. Only used when `emailProvider` is (kill
-   * switch on), so absent is harmless when the feature itself is off. */
-  resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
+  /** D-129 (GTR-01 supersession): resolves `Organization.displayName` for the initial-invite
+   * e-mail - same injected-resolver pattern as `resolveInternalUserEmail` in
+   * `document-chasing-dispatch`'s dispatch.ts. Only used when `emailProvider` is (kill switch
+   * on), so absent is harmless when the feature itself is off. */
+  resolveOrganizationDisplayName?: (input: { tenantId: string }) => Promise<string | undefined>;
   now?: () => string;
 }
 
@@ -68,7 +68,7 @@ export class DocumentRequestService {
   private readonly initialInviteEmailEnabled: boolean;
   private readonly emailProvider?: EmailProviderAdapter;
   private readonly guestUploadBaseUrl: string;
-  private readonly resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
+  private readonly resolveOrganizationDisplayName?: (input: { tenantId: string }) => Promise<string | undefined>;
   private readonly now: () => string;
   private readonly chasingMaterializer: DocumentChasingMaterializer;
   private readonly initialInviteRateLimiter: InitialInviteRateLimiter;
@@ -82,7 +82,7 @@ export class DocumentRequestService {
     this.initialInviteEmailEnabled = deps.initialInviteEmailEnabled;
     this.emailProvider = deps.emailProvider;
     this.guestUploadBaseUrl = deps.guestUploadBaseUrl ?? "https://app.example.invalid/guest/document-requests";
-    this.resolveRequesterDisplayName = deps.resolveRequesterDisplayName;
+    this.resolveOrganizationDisplayName = deps.resolveOrganizationDisplayName;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.chasingMaterializer = new DocumentChasingMaterializer(this.store, this.now);
     this.initialInviteRateLimiter = new InitialInviteRateLimiter(this.store, this.now);
@@ -211,10 +211,11 @@ export class DocumentRequestService {
     // request - o token continua disponível na resposta para fallback manual.
     await this.writeInitialInviteAudit(ctx, documentRequestId, "INITIAL_INVITE_EMAIL_REQUESTED", {});
     const guestLink = `${this.guestUploadBaseUrl}?token=${encodeURIComponent(issued.token)}`;
-    // W5-01/GTR-01 (D-060): the requester is the caller creating this request - resolved via
-    // ctx.principal.userId, never guessed. sanitizeTenantText's fallback applies identically
-    // to the guest-facing page (guest-submission-service.ts) if the tenant never set it.
-    const requesterName = await this.resolveRequesterDisplayName?.({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId });
+    // D-129 (GTR-01 supersession): requester identity is the Organization's displayName, never
+    // a per-user field. sanitizeTenantText's fallback applies identically to the guest-facing
+    // page (guest-submission-service.ts) if the Organization never set one (should not happen
+    // in practice - displayName is required at creation, see CreateOrganizationService).
+    const requesterName = await this.resolveOrganizationDisplayName?.({ tenantId: ctx.tenant.tenantId });
     try {
       await this.emailProvider!.send({
         to: input.recipientEmail,

@@ -110,8 +110,7 @@ describe("RequestContextResolver - working context once an Organization exists",
   });
 
   // Mutação: remover a chamada a `users.createProfileIfAbsent(...)` no resolver faria
-  // `users.getProfile()` retornar undefined aqui - exatamente o invariante que
-  // ProfileService.readOwnProfile() já documenta depender ("cannot actually happen").
+  // `users.getProfile()` retornar undefined aqui.
   it("lazily provisions a per-Organization UserProfile the first time it resolves", async () => {
     const { store, organizations, resolver, users } = makeResolver();
     const { organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");

@@ -35,7 +35,6 @@ const HANDLERS = [
   "items-handler",
   "reminders-handler",
   "notifications-handler",
-  "profile-handler",
   "reminder-producer-handler",
   "reminder-dispatch-handler",
   "reminder-reconciliation-handler",

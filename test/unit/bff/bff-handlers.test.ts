@@ -13,6 +13,7 @@ import {
   handleGetSession,
   handleLogout,
   handleProxy,
+  handleCreateOrganization,
   type BffHttpDeps,
 } from "../../../src/modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest } from "../../../src/modules/bff/http/http-types.js";
@@ -230,5 +231,45 @@ describe("handleProxy", () => {
     const res = await handleProxy(deps, authenticatedRequest({ sessionCookie, method: "GET", path: "/bff/api/items/dashboard" }), "/items/dashboard", undefined);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ items: [] });
+  });
+});
+
+describe("handleCreateOrganization", () => {
+  // D-129 (GTR-01 supersession): Organization.displayName is now the ONLY guest-facing
+  // requester identity, so a whitespace-only name must never reach CreateOrganizationService.
+  // Mutação: remover o `.trim()` de `displayName` no handler (ou a checagem `!displayName`
+  // após ele) faria isto passar em vez de rejeitar com 400.
+  it("D-129: rejects (400) a whitespace-only displayName", async () => {
+    const { deps } = buildDeps();
+    const { sessionCookie, csrfCookie } = await loginViaHttp(deps);
+    const res = await handleCreateOrganization(
+      deps,
+      authenticatedRequest({
+        sessionCookie,
+        csrfCookie,
+        method: "POST",
+        path: "/bff/organizations",
+        headers: { "sec-fetch-site": "same-origin", "x-csrf-token": csrfCookie },
+        body: JSON.stringify({ displayName: "   ", timezone: "UTC" }),
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("D-129: trims a padded valid displayName before creating the Organization", async () => {
+    const { deps } = buildDeps();
+    const { sessionCookie, csrfCookie } = await loginViaHttp(deps);
+    const res = await handleCreateOrganization(
+      deps,
+      authenticatedRequest({
+        sessionCookie,
+        csrfCookie,
+        method: "POST",
+        path: "/bff/organizations",
+        headers: { "sec-fetch-site": "same-origin", "x-csrf-token": csrfCookie },
+        body: JSON.stringify({ displayName: "  Empresa Alfa  ", timezone: "UTC" }),
+      }),
+    );
+    expect(res.statusCode).toBe(201);
   });
 });

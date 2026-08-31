@@ -1,0 +1,11 @@
+Round 2 of the Claude<->Codex blind-grading protocol (AGENTS.md section 4) for GTR-01 supersession scoping in this repo. Your Round 1 independent grade was 7.8/10 with 4 findings (blank-string displayName invariant not enforced; removal inventory incomplete - missing profile-handler.ts Lambda, composition/identity.ts, bff proxy-allowlist.ts, build-lambdas.ts, several Terraform files/tests; resolver ports still silently accept unused userId param; not safe to implement directly yet).
+
+Read docs/architecture/reviews/gtr-01-supersession-scoping/round-2-claude-proposal.md - it claims to address all 4 findings, including two items it now marks CONFIRMED by grep (scripts/build-lambdas.ts:38 has the literal "profile-handler" string; infra/main.tf wires the ProfileHandler Lambda's invoke ARN into the api-gateway module) plus a newly found infra/tests/stack.tftest.hcl reference.
+
+Independently re-verify:
+1. Is the blank-string fix (trim + ValidationError in CreateOrganizationService and bff-handlers.ts) actually sufficient and correctly scoped, or does it miss a call site?
+2. Is the removal inventory now genuinely complete? Grep for requesterDisplayName and profile-handler yourself across src/, infra/, scripts/, test/ and frontend/ again and diff against the proposal's list.
+3. Is the port rename (dropping userId, keeping only tenantId) safe given every real caller listed?
+4. Is this now safe to implement directly in the same session with full DoD (typecheck/lint/check-boundaries/test/validate-schemas/build:lambdas/terraform test)?
+
+Since your sandbox is read-only and file writes get rejected, don't attempt to write a file this round - just give your independent grade (0-10, one decimal, no rounding) and critique directly in your final response text, structured as: (1) grade + justification, (2) any remaining real gaps with exact file:line, (3) agree/disagree with REPLACE decision, (4) implementation safety verdict. Be genuinely critical, not just confirmatory - if 9.0+ is not truly earned, say so.

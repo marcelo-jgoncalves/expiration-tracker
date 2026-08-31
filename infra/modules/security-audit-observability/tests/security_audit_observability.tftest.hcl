@@ -4,18 +4,17 @@ run "three_alarms_wired_to_the_real_alert_topic" {
   command = apply
 
   variables {
-    # Mirrors the real 8 HTTP / 5 GSI wiring in infra/main.tf (Codex round 1, 2026-08-29 finding:
+    # Mirrors the real 7 HTTP / 5 GSI wiring in infra/main.tf (Codex round 1, 2026-08-29 finding:
     # this fixture used to encode a stale 4/3 view that masked a real root-wiring gap —
     # documents/subjects/imports handlers and document-purge/upload-slot-reconciliation workers
     # were missing from the real lists for weeks before this test's names were corrected to
     # match). See test/architecture/security-audit-observability-coverage.test.ts for the
     # regression-proof cross-check against real call sites, which this module-local fixture
-    # cannot provide on its own.
+    # cannot provide on its own. D-129 (GTR-01 supersession) removed profile-handler entirely.
     http_function_names = [
       "exptrk-test-items-handler",
       "exptrk-test-reminders-handler",
       "exptrk-test-notifications-handler",
-      "exptrk-test-profile-handler",
       "exptrk-test-test-ping-handler",
       "exptrk-test-documents-handler",
       "exptrk-test-subjects-handler",
@@ -33,13 +32,13 @@ run "three_alarms_wired_to_the_real_alert_topic" {
   }
 
   assert {
-    condition     = length(aws_cloudwatch_log_metric_filter.authorization_denied) == 8
-    error_message = "One authorization_denied metric filter per HTTP function (8 expected)"
+    condition     = length(aws_cloudwatch_log_metric_filter.authorization_denied) == 7
+    error_message = "One authorization_denied metric filter per HTTP function (7 expected)"
   }
 
   assert {
-    condition     = length(aws_cloudwatch_log_metric_filter.authorization_denied_tenant_mismatch) == 8
-    error_message = "One TENANT_MISMATCH metric filter per HTTP function (8 expected)"
+    condition     = length(aws_cloudwatch_log_metric_filter.authorization_denied_tenant_mismatch) == 7
+    error_message = "One TENANT_MISMATCH metric filter per HTTP function (7 expected)"
   }
 
   assert {

@@ -47,10 +47,10 @@ export interface ChasingDispatchDeps {
   /** Resolve o e-mail do usuário interno (tier EXPIRED) - mesmo padrão de
    * `resolveRecipientEmail` já usado por `email-delivery-workflow.ts` (composition root). */
   resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
-  /** W5-01/GTR-01 (D-060): resolve `UserProfile.requesterDisplayName` do `requestedByUserId` -
-   * usado nos tiers T7/T3 (destinatário externo), mesmo template que `guest-submission-
-   * service.ts`'s `getRequestInfo` já interpola. */
-  resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
+  /** D-129 (GTR-01 supersession): resolve `Organization.displayName` - usado nos tiers T7/T3
+   * (destinatário externo), mesmo template que `guest-submission-service.ts`'s
+   * `getRequestInfo` já interpola. Assinatura só `tenantId` (campo per-user removido). */
+  resolveOrganizationDisplayName: (input: { tenantId: string }) => Promise<string | undefined>;
   /** Base do link de guest upload - placeholder documentado (`https://app.example.invalid/...`)
    * até existir domínio real de frontend, mesma postura já aceita para `cors_allow_origins`. */
   guestUploadBaseUrl: string;
@@ -269,7 +269,7 @@ export async function dispatchChasingOccurrence(deps: ChasingDispatchDeps, comma
   }
 
   const guestLink = `${deps.guestUploadBaseUrl}?token=${encodeURIComponent(issued.token)}`;
-  const requesterName = await deps.resolveRequesterDisplayName({ tenantId, userId: request.requestedByUserId });
+  const requesterName = await deps.resolveOrganizationDisplayName({ tenantId });
   try {
     await deps.emailProvider.send({
       to: request.recipientEmail,

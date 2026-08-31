@@ -1,0 +1,268 @@
+2026-08-31T18:23:01.841671Z ERROR codex_models_manager::manager: failed to load models cache: missing field `supports_parallel_tool_calls` at line 97 column 5
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a0590f-7da7-78b0-be08-27f5d97b2ae6
+--------
+user
+Round 3 (final round) of the Claude<->Codex blind-grading protocol (AGENTS.md section 4) for GTR-01 supersession scoping. Round 2 grade was 8.8/10 with 5 concrete gaps (blank-string validation location should be CreateOrganizationService.buildCreateEntries not just createOrganization/handler; missing profile:read removal in authorization.ts lines 57/142/165; missing test updates in security-audit-observability-coverage.test.ts:35 and document-chasing-dispatch.test.ts:152; missing new tests in create-organization.test.ts:22 and bff-handlers.test.ts; imprecise description of infra/main.tf:164 as aws_lambda_function when it's actually a module call with dependents at 373-374, 861-862, 902, 921).
+
+Read docs/architecture/reviews/gtr-01-supersession-scoping/round-3-claude-proposal.md - it claims to close all 5 gaps with exact locations.
+
+Give your final independent grade (0-10, one decimal, no rounding) based on whether these 5 items are now genuinely closed at the design/scoping level (this is a scoping document, not the final code - so the bar is "is this a complete, actionable, correct checklist", not "is the code already written"). If genuinely >=9.0, say so plainly. If not, name exactly what's still missing. Keep your answer to under 400 words - this is the closing round, not a new investigation. Just answer directly in your response text (don't attempt to write a file, your sandbox is read-only).
+
+codex
+Vou conferir a proposta da Rodada 3 e apenas os pontos de código/documentação necessários para validar os cinco fechamentos, aplicando a régua de escopo acionável — não de implementação pronta.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw 'docs/architecture/reviews/gtr-01-supersession-scoping/round-3-claude-proposal.md'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 198ms:
+# GTR-01 Supersession Scoping â€” Round 3 (Claude Proposal, final)
+
+Addresses all 5 remaining Codex Round 2 gaps (grade 8.8/10).
+
+## Blank-string invariant â€” corrected location
+
+Validation moves into `CreateOrganizationService.buildCreateEntries()` itself (trim + throw
+`ValidationError` on blank, before entries are constructed) â€” not just at the `createOrganization()`
+public method or handler level. This covers `BffAuthService.createOrganization()`
+(`bff-auth-service.ts:631`), which calls the service directly and would otherwise bypass a
+handler-only check. `bff-handlers.ts:197-200` additionally trims before calling (defense in
+depth at the HTTP boundary, consistent with how every other BFF handler in this codebase
+normalizes input before calling the service), but the service itself is the authority.
+
+## Removal inventory â€” closing the 5 gaps
+
+1. `src/modules/identity/domain/authorization.ts:57` â€” remove `profile:read` action alongside
+   `profile:update` (both existed solely for this feature).
+2. `src/modules/identity/domain/authorization.ts:142` â€” remove/update the stale comment
+   referencing `profile:update`.
+3. `src/modules/identity/domain/authorization.ts:165` â€” remove the `profile:read` matrix entry.
+4. `test/architecture/security-audit-observability-coverage.test.ts:35` â€” remove
+   `profile-handlers.ts`/`profile_handler` from the architecture coverage inventory.
+5. `test/unit/subject/document-chasing-dispatch.test.ts:152` â€” rename resolver fixture from
+   `resolveRequesterDisplayName` to `resolveOrganizationDisplayName`, update its signature to
+   `{ tenantId }`.
+6. `test/unit/organization/create-organization.test.ts:22` â€” add mutation-resistant test:
+   whitespace-only `displayName` (e.g. `"   "`) throws `ValidationError` via
+   `buildCreateEntries()`; a padded valid name (`"  Empresa Alfa  "`) is trimmed before persist â€”
+   named mutation: flip trim to no-op, test must fail.
+7. `test/unit/bff/bff-handlers.test.ts` â€” add HTTP-boundary test: `POST /bff/organizations` with
+   whitespace-only `displayName` returns the mapped 400/`ValidationError`.
+8. `infra/main.tf:164` (Lambda module call, not a bare `aws_lambda_function` resource â€” correcting
+   the Round 2 proposal's imprecise description) + dependent references at lines 373-374, 861-862,
+   902, 921 â€” remove the module call and all four dependent references (invoke ARN into
+   `api-gateway` module, IAM/permissions, build-lambdas manifest wiring â€” verify each of the 4
+   line references individually during implementation, don't assume all 4 are the same kind of
+   reference).
+
+Full inventory is now the union of Round 1 + Round 2 + these 8 items â€” treated as the closing
+checklist for implementation, not re-derived from scratch.
+
+## REPLACE decision â€” final
+
+Unchanged, Codex agrees (Round 2 Â§3): `Organization.displayName`, with the blank-string
+invariant now enforced at the correct boundary, becomes the sole guest-facing requester
+identity. `UserProfile.requesterDisplayName` and its full call/infra/test graph removed. Future
+per-person attribution, if ever requested, is an immutable request-time snapshot on
+`DocumentRequest`/`RequirementAssignment`, never a resurrection of a standing per-user field.
+
+## Implementation
+
+Proceeding to implement this session per the full closing inventory (Round 1 + Round 2 + Round 3
+additions), with full DoD: typecheck, lint, check-boundaries, test (including the 2 new tests
+above), validate-schemas, build:lambdas, terraform test (infra/ genuinely touched this time).
+
+
+2026-08-31T18:23:24.190541Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$files = @('"'src/modules/organization/application/create-organization.ts','src/modules/identity/domain/authorization.ts','test/architecture/security-audit-observability-coverage.test.ts','test/unit/subject/document-chasing-dispatch.test.ts','test/unit/organization/create-organization.test.ts','test/unit/bff/bff-handlers.test.ts','infra/main.tf'); foreach ("'$f in $files) { Write-Output "FILE $f"; Select-String -Path $f -Pattern '"'buildCreateEntries|profile:read|profile:update|profile-handler|profile_handler|resolveRequesterDisplayName|displayName|module.*profile|profile_lambda|profile' -Context 2,2 | Select-Object -First 30 | ForEach-Object { \"{0}:{1}: {2}\" -f "'$_.Path,$_.LineNumber,$_.Line.Trim() } }'` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$files = @('"'src/modules/organization/application/create-organization.ts','src/modules/identity/domain/authorization.ts','test/architecture/security-audit-observability-coverage.test.ts','test/unit/subject/document-chasing-dispatch.test.ts','test/unit/organization/create-organization.test.ts','test/unit/bff/bff-handlers.test.ts','infra/main.tf'); foreach ("'$f in $files) { Write-Output "FILE $f"; Select-String -Path $f -Pattern '"'buildCreateEntries|profile:read|profile:update|profile-handler|profile_handler|resolveRequesterDisplayName|displayName|module.*profile|profile_lambda|profile' -Context 2,2 | Select-Object -First 30 | ForEach-Object { \"{0}:{1}: {2}\" -f "'$_.Path,$_.LineNumber,$_.Line.Trim() } }' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ declined in 0ms:
+`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$files = @('"'src/modules/organization/application/create-organization.ts','src/modules/identity/domain/authorization.ts','test/architecture/security-audit-observability-coverage.test.ts','test/unit/subject/document-chasing-dispatch.test.ts','test/unit/organization/create-organization.test.ts','test/unit/bff/bff-handlers.test.ts','infra/main.tf'); foreach ("'$f in $files) { Write-Output "FILE $f"; Select-String -Path $f -Pattern '"'buildCreateEntries|profile:read|profile:update|profile-handler|profile_handler|resolveRequesterDisplayName|displayName|module.*profile|profile_lambda|profile' -Context 2,2 | Select-Object -First 30 | ForEach-Object { \"{0}:{1}: {2}\" -f "'$_.Path,$_.LineNumber,$_.Line.Trim() } }'` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'rg -n -C 2 "buildCreateEntries|profile:read|profile:update|profile-handlers|profile_handler|resolveRequesterDisplayName|displayName" src/modules/organization/application/create-organization.ts src/modules/identity/domain/authorization.ts test/architecture/security-audit-observability-coverage.test.ts test/unit/subject/document-chasing-dispatch.test.ts test/unit/organization/create-organization.test.ts test/unit/bff/bff-handlers.test.ts infra/main.tf' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 180ms:
+infra/main.tf-162-}
+infra/main.tf-163-
+infra/main.tf:164:module "profile_handler" {
+infra/main.tf-165-  source = "./modules/lambda-function"
+infra/main.tf-166-
+--
+infra/main.tf-371-  notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
+infra/main.tf-372-  notifications_function_name   = module.notifications_handler.function_name
+infra/main.tf:373:  profile_invoke_arn            = module.profile_handler.live_alias_invoke_arn
+infra/main.tf:374:  profile_function_name         = module.profile_handler.function_name
+infra/main.tf-375-  documents_invoke_arn          = module.documents_handler.live_alias_invoke_arn
+infra/main.tf-376-  documents_function_name       = module.documents_handler.function_name
+--
+infra/main.tf-829-# autorização e acesso a GSI3/GSI6 não tinham trilha dedicada. Reusa o alert-topic real de M5.
+infra/main.tf-830-
+infra/main.tf:831:# Real deploy failure (2026-08-28, PR #78, CD run 33210539869): brand-new profile_handler's log
+infra/main.tf-832-# group didn't exist yet when this module's PutMetricFilter tried to reference
+infra/main.tf-833-# "/aws/lambda/exptrk-dev-profile-handler" in the SAME apply that created the function -
+--
+infra/main.tf-853-# logs describe-log-groups` against real `dev`, 2026-08-29): `subjects_handler`/
+infra/main.tf-854-# `imports_handler` had never been invoked in `dev` and need the same explicit-log-group
+infra/main.tf:855:# treatment as `profile_handler` above. `documents_handler` (real traffic already),
+infra/main.tf-856-# `document_purge_handler` (its EventBridge Scheduler already fired at least once), and
+infra/main.tf-857-# `upload_slot_reconciliation_handler` (already Terraform-managed by document-observability's
+--
+infra/main.tf-859-# managed resource for those would try to (re)create an existing one and fail with
+infra/main.tf-860-# ResourceAlreadyExistsException, same reasoning as the other 4 functions already noted above.
+infra/main.tf:861:resource "aws_cloudwatch_log_group" "profile_handler" {
+infra/main.tf:862:  name              = "/aws/lambda/${module.profile_handler.function_name}"
+infra/main.tf-863-  retention_in_days = 30
+infra/main.tf-864-  tags              = { Project = local.project_name, Environment = var.environment }
+--
+infra/main.tf-877-}
+infra/main.tf-878-
+infra/main.tf:879:# Wave B2B-8 (D-099): brand-new Lambda, same log-group-race treatment as profile_handler/
+infra/main.tf-880-# subjects_handler/imports_handler above (no real invocation yet to auto-create the log group).
+infra/main.tf-881-resource "aws_cloudwatch_log_group" "memberships_handler" {
+--
+infra/main.tf-900-    module.reminders_handler.function_name,
+infra/main.tf-901-    module.notifications_handler.function_name,
+infra/main.tf:902:    module.profile_handler.function_name,
+infra/main.tf-903-    module.test_ping_handler.function_name,
+infra/main.tf-904-    module.documents_handler.function_name,
+--
+infra/main.tf-919-
+infra/main.tf-920-  depends_on = [
+infra/main.tf:921:    aws_cloudwatch_log_group.profile_handler,
+infra/main.tf-922-    aws_cloudwatch_log_group.subjects_handler,
+infra/main.tf-923-    aws_cloudwatch_log_group.imports_handler,
+--
+test/unit/organization/create-organization.test.ts-29-    const { organization, membership } = await service.createOrganization({
+test/unit/organization/create-organization.test.ts-30-      creatorUserId: "user-1",
+test/unit/organization/create-organization.test.ts:31:      displayName: "Acme Inc",
+test/unit/organization/create-organization.test.ts-32-      timezone: "America/Sao_Paulo",
+test/unit/organization/create-organization.test.ts-33-    });
+--
+test/unit/organization/create-organization.test.ts-56-    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+test/unit/organization/create-organization.test.ts-57-
+test/unit/organization/create-organization.test.ts:58:    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "UTC" });
+test/unit/organization/create-organization.test.ts-59-    expect(organization.ownerCount).toBe(1);
+test/unit/organization/create-organization.test.ts-60-  });
+--
+test/unit/organization/create-organization.test.ts-67-    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+test/unit/organization/create-organization.test.ts-68-
+test/unit/organization/create-organization.test.ts:69:    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "UTC" });
+test/unit/organization/create-organization.test.ts-70-    expect(organization.organizationId).not.toBe("user-1");
+test/unit/organization/create-organization.test.ts-71-    expect(organization.PK.startsWith("TENANT#user-1#")).toBe(false);
+--
+test/unit/organization/create-organization.test.ts-80-    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+test/unit/organization/create-organization.test.ts-81-
+test/unit/organization/create-organization.test.ts:82:    const first = await service.createOrganization({ creatorUserId: "user-1", displayName: "Org A", timezone: "UTC" });
+test/unit/organization/create-organization.test.ts:83:    const second = await service.createOrganization({ creatorUserId: "user-1", displayName: "Org B", timezone: "UTC" });
+test/unit/organization/create-organization.test.ts-84-
+test/unit/organization/create-organization.test.ts-85-    expect(first.organization.organizationId).not.toBe(second.organization.organizationId);
+test/unit/organization/create-organization.test.ts-86-    const firstRow = await store.get<Organization>(organizationKey(first.organization.organizationId));
+test/unit/organization/create-organization.test.ts-87-    const secondRow = await store.get<Organization>(organizationKey(second.organization.organizationId));
+test/unit/organization/create-organization.test.ts:88:    expect(firstRow?.displayName).toBe("Org A");
+test/unit/organization/create-organization.test.ts:89:    expect(secondRow?.displayName).toBe("Org B");
+test/unit/organization/create-organization.test.ts-90-  });
+test/unit/organization/create-organization.test.ts-91-
+--
+test/unit/organization/create-organization.test.ts-97-    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+test/unit/organization/create-organization.test.ts-98-
+test/unit/organization/create-organization.test.ts:99:    const { organization, membership } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "UTC" });
+test/unit/organization/create-organization.test.ts-100-
+test/unit/organization/create-organization.test.ts-101-    expect(membership.GSI4PK).toBe("USER#user-1");
+--
+test/unit/subject/document-chasing-dispatch.test.ts-150-      emailProvider,
+test/unit/subject/document-chasing-dispatch.test.ts-151-      resolveInternalUserEmail: async () => "internal-user@tenant.example",
+test/unit/subject/document-chasing-dispatch.test.ts:152:      resolveRequesterDisplayName: async () => "Empresa Alfa Ltda.",
+test/unit/subject/document-chasing-dispatch.test.ts-153-      guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+test/unit/subject/document-chasing-dispatch.test.ts-154-    };
+--
+src/modules/organization/application/create-organization.ts-22- * docs/architecture/multi-user-b2b-wave-tracker.md B2B-3).
+src/modules/organization/application/create-organization.ts-23- *
+src/modules/organization/application/create-organization.ts:24: * `buildCreateEntries()` (Wave B2B-5, D-095) separa "montar as 4 entradas da transação" de
+src/modules/organization/application/create-organization.ts-25- * "executar" — refatoração aditiva, `createOrganization()` continua com o mesmo comportamento
+src/modules/organization/application/create-organization.ts-26- * de sempre para todo chamador existente (chama build + `transactWrite`). Existe para o fluxo
+--
+src/modules/organization/application/create-organization.ts-40-export interface CreateOrganizationInput {
+src/modules/organization/application/create-organization.ts-41-  creatorUserId: string;
+src/modules/organization/application/create-organization.ts:42:  displayName: string;
+src/modules/organization/application/create-organization.ts-43-  timezone: string;
+src/modules/organization/application/create-organization.ts-44-}
+--
+src/modules/organization/application/create-organization.ts-62-
+src/modules/organization/application/create-organization.ts-63-  async createOrganization(input: CreateOrganizationInput): Promise<CreateOrganizationResult> {
+src/modules/organization/application/create-organization.ts:64:    const { entries, organization, membership } = this.buildCreateEntries(input);
+src/modules/organization/application/create-organization.ts-65-    await this.store.transactWrite(entries);
+src/modules/organization/application/create-organization.ts-66-    return { organization, membership };
+src/modules/organization/application/create-organization.ts-67-  }
+src/modules/organization/application/create-organization.ts-68-
+src/modules/organization/application/create-organization.ts:69:  buildCreateEntries(input: CreateOrganizationInput): CreateOrganizationEntries {
+src/modules/organization/application/create-organization.ts-70-    const organizationId = this.ids.newOrganizationId();
+src/modules/organization/application/create-organization.ts-71-    const membershipId = this.ids.newMembershipId();
+--
+src/modules/organization/application/create-organization.ts-76-      entityType: "Organization",
+src/modules/organization/application/create-organization.ts-77-      organizationId,
+src/modules/organization/application/create-organization.ts:78:      displayName: input.displayName,
+src/modules/organization/application/create-organization.ts-79-      timezone: input.timezone,
+src/modules/organization/application/create-organization.ts-80-      ownerCount: 1,
+--
+test/architecture/security-audit-observability-coverage.test.ts-33-  { file: "src/modules/reminder/http/policy-handlers.ts", lambdaModule: "reminders_handler" },
+test/architecture/security-audit-observability-coverage.test.ts-34-  { file: "src/modules/notification/http/preferences-handlers.ts", lambdaModule: "notifications_handler" },
+test/architecture/security-audit-observability-coverage.test.ts:35:  { file: "src/modules/identity/http/profile-handlers.ts", lambdaModule: "profile_handler" },
+test/architecture/security-audit-observability-coverage.test.ts-36-  { file: "src/modules/identity/http/test-route-handler.ts", lambdaModule: "test_ping_handler" },
+test/architecture/security-audit-observability-coverage.test.ts-37-  { file: "src/modules/import/http/import-handlers.ts", lambdaModule: "imports_handler" },
+--
+src/modules/identity/domain/authorization.ts-55-  // this one is tied to the ability to ACT (create a RequirementAssignment), so VIEWER - who
+src/modules/identity/domain/authorization.ts-56-  // never can - is correctly excluded here, unlike notification:configure's "receive" framing.
+src/modules/identity/domain/authorization.ts:57:  | "profile:read"
+src/modules/identity/domain/authorization.ts:58:  | "profile:update"
+src/modules/identity/domain/authorization.ts-59-  // B2B-8 (D-099, docs/architecture/multi-user-b2b-wave-b2b8-scope.md): Invitations/Team.
+src/modules/identity/domain/authorization.ts-60-  // Pesquisa (GitHub/Slack/Linear/Notion, 2026-08-30) convergiu em ADMIN-tier-e-acima gerencia
+--
+src/modules/identity/domain/authorization.ts-76-  | "membership:remove"
+src/modules/identity/domain/authorization.ts-77-  | "membership:leave"
+src/modules/identity/domain/authorization.ts:78:  // Wave B2B-10 (Tenant-aware Frontend): Organization.displayName/timezone. OWNER_ROLES, same
+src/modules/identity/domain/authorization.ts-79-  // tier as "tenant:configure-document-request-delivery" above — workspace identity/settings
+src/modules/identity/domain/authorization.ts-80-  // that reads externally (invitation emails, guest-facing name) is consistently kept OWNER-only
+--
+src/modules/identity/domain/authorization.ts-140-  // B2B-7 bug fix (not an ADMIN-vs-OWNER call): this action gates both read and update of a
+src/modules/identity/domain/authorization.ts-141-  // per-user preference (ctx.principal.userId-keyed, notification-preferences-service.ts),
+src/modules/identity/domain/authorization.ts:142:  // never tenant-wide config. Unlike profile:update (WRITE_ROLES, D-060 - tied to the ability
+src/modules/identity/domain/authorization.ts-143-  // to ACT, since only a role that can create a RequirementAssignment needs a display name),
+src/modules/identity/domain/authorization.ts-144-  // this is tied to the ability to RECEIVE a reminder - assigneeUserId is never role-checked,
+--
+src/modules/identity/domain/authorization.ts-163-  "import:read": READ_ONLY_ROLES,
+src/modules/identity/domain/authorization.ts-164-  "import:commit": WRITE_ROLES,
+src/modules/identity/domain/authorization.ts:165:  "profile:read": READ_ONLY_ROLES,
+src/modules/identity/domain/authorization.ts:166:  "profile:update": WRITE_ROLES,
+src/modules/identity/domain/authorization.ts-167-  "membership:invite": ADMIN_ROLES,
+src/modules/identity/domain/authorization.ts-168-  "membership:revoke-invitation": ADMIN_ROLES,
+
+codex
+**Final grade: 9.8/10.0**
+
+All five Round 2 gaps are genuinely closed at the design/scoping level:
+
+- Validation authority is correctly placed in `CreateOrganizationService.buildCreateEntries()`.
+- All missing `profile:read` and stale authorization references are identified.
+- Both previously omitted test-file updates are included.
+- Both required new validation tests are concrete and mutation-resistant.
+- `infra/main.tf:164` is correctly identified as a module call, with each dependent reference explicitly inventoried.
+
+This is a complete, actionable, and technically correct implementation checklist. The proposal genuinely clears the **≥9.0** threshold.
+tokens used
+16.691
+**Final grade: 9.8/10.0**
+
+All five Round 2 gaps are genuinely closed at the design/scoping level:
+
+- Validation authority is correctly placed in `CreateOrganizationService.buildCreateEntries()`.
+- All missing `profile:read` and stale authorization references are identified.
+- Both previously omitted test-file updates are included.
+- Both required new validation tests are concrete and mutation-resistant.
+- `infra/main.tf:164` is correctly identified as a module call, with each dependent reference explicitly inventoried.
+
+This is a complete, actionable, and technically correct implementation checklist. The proposal genuinely clears the **≥9.0** threshold.

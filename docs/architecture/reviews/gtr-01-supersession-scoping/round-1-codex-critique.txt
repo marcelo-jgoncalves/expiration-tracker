@@ -1,0 +1,30 @@
+Codex independent grade (Round 1): 7.8/10 (sandbox read-only, could not write file directly — captured from stdout, see round-1-codex-output.txt for full transcript).
+
+Findings:
+1. `Organization.displayName` is not guaranteed non-blank at the type level in practice: creation
+   (`bff-handlers.ts:197-200`, `create-organization.ts:~78`) accepts whitespace-only strings —
+   no trim/non-empty normalization before persistence. Proposal's "always present/trustworthy"
+   claim is weaker than stated until this is fixed.
+2. Agrees with REPLACE (not coexist) for the *current* field. Suggests a *future* personal-name
+   addition (if ever wanted) should be additive to org name ("Ana, from Empresa Alfa"), not a
+   per-user override of it — and would likely be a request-time snapshot on DocumentRequest, not
+   a standing UserProfile field.
+3. Removal inventory incomplete. Additional real call sites/artifacts beyond Round 1 proposal's
+   list:
+   - `src/runtime/aws/handlers/profile-handler.ts` (Lambda handler)
+   - `src/runtime/aws/composition/identity.ts` (wires ProfileService)
+   - `src/modules/bff/domain/proxy-allowlist.ts` (GET/PUT /profile allowlist entries)
+   - `scripts/build-lambdas.ts` (likely bundles profile-handler)
+   - `infra/modules/api-gateway/{main.tf,variables.tf}` (ProfileHandler routes/invoke ARN)
+   - `infra/modules/api-gateway/tests/api_gateway.tftest.hcl` (asserts exactly 2 /profile routes)
+   - `infra/modules/security-audit-observability/tests/*.tftest.hcl` (references profile-handler)
+   - Unit tests: `test/unit/identity/profile-service.test.ts`, `profile-handlers.test.ts`,
+     `test/unit/subject/guest-upload-flow.test.ts`, `document-request-initial-invite.test.ts`
+   - `resolveRequesterDisplayName` ports (`subject.ts`, `dispatch.ts`, `document-request-service.ts`)
+     still take `userId` — should be renamed/reshaped to resolve by organization, not just have
+     the argument silently ignored.
+4. Does not consider it safe to implement directly yet: whitespace-invariant fix + full removal
+   inventory must be closed first.
+
+Round 1 blind grades: Claude 9.1 (self), Codex 7.8 (independent). Gap > 1.0 → reopen, does not
+average. Round 2 required.

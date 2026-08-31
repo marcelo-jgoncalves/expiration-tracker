@@ -38,10 +38,9 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
     1: {
       "pt-BR": (context) => {
         const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
-        // W5-01/GTR-01 (D-060): identidade de quem solicitou, exibida ao convidado - nunca
-        // inferida (ex. do domínio do e-mail), só o que o tenant capturou explicitamente em
-        // `UserProfile.requesterDisplayName` (fallback genérico quando ausente, ver
-        // resolveRequesterDisplayName em composition/identity.ts).
+        // D-129 (GTR-01 supersession): identidade de quem solicitou, exibida ao convidado -
+        // sempre `Organization.displayName` (fallback genérico só no caso não-esperado de
+        // ausência, ver resolveOrganizationDisplayName em composition/subject.ts).
         const requesterName = sanitizeTenantText(context["requesterName"] as string | undefined, "Solicitante não identificado");
         const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
         const guestLink = String(context["guestLink"] ?? "");

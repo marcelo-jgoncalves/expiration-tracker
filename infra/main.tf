@@ -161,19 +161,6 @@ module "notifications_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
-module "profile_handler" {
-  source = "./modules/lambda-function"
-
-  function_name         = "${local.name_prefix}-profile-handler"
-  handler_name          = "profile-handler"
-  source_dir            = "${local.dist_dir}/profile-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
-  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
-}
-
 module "memberships_handler" {
   source = "./modules/lambda-function"
 
@@ -370,8 +357,6 @@ module "api" {
   reminders_function_name       = module.reminders_handler.function_name
   notifications_invoke_arn      = module.notifications_handler.live_alias_invoke_arn
   notifications_function_name   = module.notifications_handler.function_name
-  profile_invoke_arn            = module.profile_handler.live_alias_invoke_arn
-  profile_function_name         = module.profile_handler.function_name
   documents_invoke_arn          = module.documents_handler.live_alias_invoke_arn
   documents_function_name       = module.documents_handler.function_name
   subjects_invoke_arn           = module.subjects_handler.live_alias_invoke_arn
@@ -858,12 +843,6 @@ module "deploy_manifests" {
 # own `aws_cloudwatch_log_group.reconciliation`) all already have a real log group - adding a
 # managed resource for those would try to (re)create an existing one and fail with
 # ResourceAlreadyExistsException, same reasoning as the other 4 functions already noted above.
-resource "aws_cloudwatch_log_group" "profile_handler" {
-  name              = "/aws/lambda/${module.profile_handler.function_name}"
-  retention_in_days = 30
-  tags              = { Project = local.project_name, Environment = var.environment }
-}
-
 resource "aws_cloudwatch_log_group" "subjects_handler" {
   name              = "/aws/lambda/${module.subjects_handler.function_name}"
   retention_in_days = 30
@@ -899,7 +878,6 @@ module "security_audit_observability" {
     module.items_handler.function_name,
     module.reminders_handler.function_name,
     module.notifications_handler.function_name,
-    module.profile_handler.function_name,
     module.test_ping_handler.function_name,
     module.documents_handler.function_name,
     module.subjects_handler.function_name,
@@ -918,7 +896,6 @@ module "security_audit_observability" {
   tags            = { Project = local.project_name, Environment = var.environment }
 
   depends_on = [
-    aws_cloudwatch_log_group.profile_handler,
     aws_cloudwatch_log_group.subjects_handler,
     aws_cloudwatch_log_group.imports_handler,
     aws_cloudwatch_log_group.memberships_handler,
