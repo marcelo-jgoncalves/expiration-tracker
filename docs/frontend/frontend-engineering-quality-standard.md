@@ -1,5 +1,5 @@
 ---
-status: PROPOSED
+status: APPROVED
 owner: Marcelo Gonçalves
 authority: frontend-engineering-standard
 scope:
@@ -8,10 +8,44 @@ scope:
   - browser-facing API/contracts
   - frontend delivery/security configuration
   - frontend design-system implementation
-last_reviewed: 2026-08-30
+last_reviewed: 2026-08-31
+approved_via: "Protocolo Claude↔Codex, 5 rodadas, Claude 9,2/Codex 9,5 — docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md"
+supersedes: docs/frontend/bff-frontend-quality-standard-proposal.md
 ---
 
 # Expiration Tracker — Frontend Engineering Quality Standard v1
+
+**Status:** `APPROVED` (2026-08-31, D-130). Ver `docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md` para o registro completo do protocolo. Coexiste com `docs/frontend/interface-quality-standard.md` (eixos de UX/IA) via o crosswalk de ownership da §4.3 abaixo — nunca duplica pontuação do mesmo achado.
+
+## 4.3 Crosswalk de ownership com `interface-quality-standard.md` (não duplicar pontuação)
+
+Regra: **um achado, um dono de pontuação**. Quando a mesma preocupação aparece nos dois padrões,
+um deles pontua e o outro cita como evidência/pré-condição, nunca repontua o mesmo defeito.
+
+| Achado / preocupação | Dono da pontuação | Outro documento trata como |
+|---|---|---|
+| Tarefa serve o domínio real (JTBD), Information Architecture | Interface Standard — Task Suitability/IA | N/A para Frontend Engineering |
+| Contrato de API/payload/OCC/idempotência correto | Frontend Engineering — Functional Correctness | Interface Standard cita como pré-condição de Data Operations |
+| Usuário entende o que está acontecendo (loading/error/unknown) | Interface Standard — System Feedback | Frontend Engineering — Reliability pontua só o mecanismo técnico |
+| Epistemic Integrity | Interface Standard — Data Operations/Content/Trust-Risk | Frontend Engineering cita via gate `FE-G4`, não repontua o princípio |
+| Erro recuperável, forms preservados (UX) | Interface Standard — Error Prevention/Recovery | Frontend Engineering pontua só a implementação técnica (race/estado) |
+| Forms como interação (label real, validação clara, erro↔campo) | Interface Standard — Forms | Frontend Engineering §85 cita como pré-condição, não repontua |
+| Forms como mecanismo técnico (schema, client vs. server validation, submit guard, idempotency) | Frontend Engineering — Reliability/Functional Correctness | Interface Standard cita como evidência de recuperação |
+| Segurança/BFF/sessão/CSRF/cross-tenant | Frontend Engineering — Security (gate `FE-G2`) | Interface Standard — Trust/Risk cita como pré-condição de confiança percebida |
+| Performance (Core Web Vitals, bundle) | Frontend Engineering — Performance | N/A para Interface Standard |
+| Acessibilidade — decisão de produto/jornada navegável | Interface Standard — Accessibility | Frontend Engineering pontua só a prova técnica automatizada |
+| Acessibilidade — implementação técnica (semântica HTML, ARIA, axe) | Frontend Engineering — Accessibility | Interface Standard cita como evidência |
+| Consistência de convenção de interação | Interface Standard — Consistency | Frontend Engineering — Design System pontua só conformidade de token |
+| Conformidade de token/hardcoded value | Frontend Engineering — Design System | N/A para Interface Standard |
+| Testes automatizados existem e provam comportamento | Frontend Engineering — Testing | Interface Standard cita como evidência |
+| Responsividade estrutural (nada escondido, tarefa possível) | Interface Standard — Responsiveness | Frontend Engineering pontua só cobertura de matriz de viewport testada |
+| Privacidade/minimização | Frontend Engineering — Privacy (gate `FE-G5`) | N/A para Interface Standard |
+| Observabilidade/correlação de erro | Frontend Engineering — Observability | N/A para Interface Standard |
+| Conteúdo/microcopy/jargão | Interface Standard — Content | N/A para Frontend Engineering |
+
+Gate de aprovação combinado, quando ambos aplicáveis: `FrontendOverall >= 9.0 AND
+InterfaceOverall >= 9.0`, calculados independentemente — nunca média, nunca um eixo copiado do
+outro documento.
 
 ## 1. Propósito
 

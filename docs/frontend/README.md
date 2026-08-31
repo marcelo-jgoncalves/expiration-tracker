@@ -57,12 +57,18 @@ rodadas sem prova real por trás dela. Registro de decisões, contrastes medidos
 gates `VL-G1..VL-G17`, as limitações declaradas e o registro de 15 adiamentos para User
 Validation estão no próprio documento.
 
-**Atualização trazida pelo Marcelo (2026-08-30) — `design-system-v1-proposal.md`** (mesma pasta,
-movido da raiz do repo): proposta normativa nova, ainda **não adotada** (não confundir com o
-documento `APPROVED` acima), amadurecendo a mesma linguagem visual "Operational Calm" já
-implementada. Esta é exatamente a atualização que `docs/engineering/pilot-readiness-program.md`'s
-Wave 1 (Design System Reconciliation) estava esperando para deixar de estar `DEFERRED` — ver esse
-documento antes de agir. Ainda não revisado/adotado por nenhum protocolo Claude↔Codex.
+**Atualização trazida pelo Marcelo (2026-08-30) — `design-system.md`** (mesma pasta, movida da
+raiz do repo em 2026-08-30 como `design-system-v1-proposal.md`, renomeada e emendada em
+2026-08-31 após reconciliação): `APPROVED COM EMENDA` via protocolo Claude↔Codex (5 rodadas,
+Claude 9,2/Codex 9,5, D-130) — amadurece a mesma linguagem visual "Operational Calm" já
+implementada com arquitetura formal de tokens, catálogo de componentes e patterns. Os valores
+primitivos concretos do texto original (paleta roxa, Plus Jakarta Sans, escala tipográfica,
+radius) foram substituídos, na §0 do próprio documento, pelos valores reais já `APPROVED` em
+`visual-language-and-design-system.md`/`tokens.css` — nenhum gate `VL-G` foi reaberto. Esta foi
+exatamente a atualização que `docs/engineering/pilot-readiness-program.md`'s Wave 1 (Design
+System Reconciliation) estava esperando; Wave 1 pode agora ser executada (reconciliar o frontend
+real contra este documento) — ver esse documento e
+`docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`.
 
 ## Índice por documento
 
@@ -110,21 +116,24 @@ Movidos da raiz do repo em 2026-08-29 (limpeza de contexto), mesmo tratamento de
 `docs/frontend/interface-quality-standard.md` — criado em `interface-validation-readiness.md`
 (Workstream G), consolidando os 12 eixos, modelo de severidade, quality gates e threshold
 (`Overall ≥ 9.0`) que já eram usados desde a primeira etapa, sem introduzir critério novo.
-`bff-frontend-quality-standard-proposal.md` (mesma pasta, movido da raiz em 2026-08-29) continua sendo um documento
-distinto e mais amplo (BFF, performance, testes de frontend de produção real), ainda não adotado —
-se/quando adotado, precisaria da mesma convergência Claude↔Codex que os 9 eixos de
-`docs/engineering/joint-review-criteria.md` já usaram.
+`bff-frontend-quality-standard-proposal.md` (mesma pasta, movido da raiz em 2026-08-29) é agora
+`status: SUPERSEDED` (2026-08-31, D-130) — ver
+`docs/frontend/frontend-engineering-quality-standard.md` e o mapa de destino §1-37 em
+`docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`.
+Arquivo preservado como evidência histórica, sem valor normativo residual.
 
-**`frontend-engineering-quality-standard-v1-proposal.md`** (mesma pasta, trazido pelo Marcelo em
-2026-08-30, movido da raiz do repo) — proposta nova e mais completa cobrindo o mesmo espaço que
-`bff-frontend-quality-standard-proposal.md` tentava cobrir (`frontend/**`, `src/modules/bff/**`,
-contratos consumidos pelo browser, Design System, acessibilidade, performance, observabilidade do
-browser, deploy do frontend) — frontmatter formal (`status: PROPOSED`, `owner`, `authority:
-frontend-engineering-standard`, `scope`, `last_reviewed`), explicitamente não substitui o
-Definition of Done global (`docs/engineering/definition-of-done.md`), só o especializa para
-mudanças de frontend. **Ainda não lido em profundidade nem submetido ao protocolo Claude↔Codex** —
-decidir nesta sessão se ele supersede o proposal de 2026-08-29 acima ou coexiste com ele é uma
-tarefa própria, não decidida ainda.
+**`docs/frontend/frontend-engineering-quality-standard.md`** (mesma pasta; trazido pelo Marcelo em
+2026-08-30 como `frontend-engineering-quality-standard-v1-proposal.md`, renomeado e `APPROVED` em
+2026-08-31 via protocolo Claude↔Codex, 5 rodadas, Claude 9,2/Codex 9,5, D-130) — cobre
+`frontend/**`, `src/modules/bff/**`, contratos consumidos pelo browser, Design System,
+acessibilidade, performance, observabilidade do browser, deploy do frontend, com 12 eixos de
+engenharia e gates `FE-G1..FE-G5`. Explicitamente não substitui o Definition of Done global
+(`docs/engineering/definition-of-done.md`), só o especializa para mudanças de frontend.
+**Coexiste** com `interface-quality-standard.md` (12 eixos de UX/IA, escopo diferente) via um
+crosswalk de ownership formal (§4.3 do documento) que garante que nenhum achado é pontuado duas
+vezes — gate combinado quando ambos aplicáveis é `FrontendOverall >= 9.0 AND InterfaceOverall >=
+9.0`, calculados independentemente. **Supersede** `bff-frontend-quality-standard-proposal.md`
+(ver acima).
 
 ## Próxima etapa
 

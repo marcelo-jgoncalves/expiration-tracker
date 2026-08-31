@@ -1,9 +1,48 @@
 # Expiration Tracker — Design System v1.0
 
-**Status:** Proposta normativa para adoção no frontend  
-**Data:** 2026-08-29  
-**Nome da linguagem visual:** **Operational Calm**  
+**Status:** `APPROVED COM EMENDA` (2026-08-31, D-130) — protocolo Claude↔Codex completo, 5 rodadas, Claude 9,2/Codex 9,5. Ver `docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`. Arquitetura de tokens, regras de processo, catálogo de componentes e patterns deste documento são normativos. Os **valores primitivos concretos** (paleta, fonte, escala tipográfica, radius, foco, cores semânticas, sombra, motion) citados abaixo foram **substituídos** pela §0 a seguir — onde os dois divergem, a §0 e `visual-language-and-design-system.md`/`frontend/src/components/ui/tokens.css` vencem, não os valores originais deste texto.
+**Data:** 2026-08-29 (texto original) · **Reconciliado:** 2026-08-31
+**Nome da linguagem visual:** **Operational Calm**
 **Objetivo:** transformar a identidade visual já existente no protótipo em um design system formal, acessível, responsivo, consistente e preparado para crescimento.
+
+---
+
+# 0. Reconciliação de valores (2026-08-31, D-130)
+
+Este documento foi escrito antes da Direção A ("Operational Calm — Remindax-inspired", accent
+blue-indigo) ter sido decidida e implementada com evidência real em
+`visual-language-and-design-system.md` (16 rodadas, `VL-G1..VL-G17`, Claude 9,2/Codex 9,04). Os
+valores primitivos concretos abaixo descrevem o protótipo anterior a essa direção — não a
+identidade real hoje `APPROVED`. Regra de reconciliação:
+
+> Onde este documento cita um **valor concreto** (hex, px, ms, nome de fonte) que tem equivalente
+> já implementado em `frontend/src/components/ui/tokens.css`, o valor implementado vence. Onde
+> este documento cita um **nome de token simbólico** (`radius.lg`, `action.primary.background`),
+> o nome permanece válido — o valor por trás dele é resolvido pela tabela abaixo ou por
+> `tokens.css`, não pelo número escrito neste texto. Onde o sistema implementado atribui um
+> **papel semântico/default** diferente do assumido implicitamente aqui, o papel implementado
+> vence mesmo que o valor numérico exista em algum token do sistema real (ex.: Button).
+
+| Categoria | Este documento | Implementado (`tokens.css`) | Vence |
+|---|---|---|---|
+| Accent/brand | `purple.600 #7C3AED` | `#2F4FD0` | Implementado |
+| Fonte | Plus Jakarta Sans | System UI stack | Implementado |
+| H1/Page title | 32/40 | 22px | Implementado |
+| H2/Section | 24/32 | 18px | Implementado |
+| Display/demais escalas nomeadas | 36/44 etc. | escala primitiva 12–28px | Implementado |
+| Radius | sm8/md12/lg16/xl20 | 4/6/8px | Implementado (nome simbólico, ex. `radius.lg`, permanece — valor é 8px) |
+| Foco (cor) | `#6D28D9` | `#2F4FD0` | Implementado |
+| Foco (largura) | 2px | 2px | Empate |
+| Cores semânticas (success/warning/danger/info) | valores próprios deste doc | `#067647`/`#B54708`/`#B42318`/`#175CD3` | Implementado |
+| Shadow.md alpha | `.08` | `rgba(27,35,51,.12)` | Implementado |
+| Motion | 120/180/240ms | 120/160ms (sem token `slow`) | Implementado — `slow` fica gap nomeado, não conflito |
+| Spacing | 4/8/12/16/20/24/32/40/48/64 | inclui `0/2/4/8...` | Compatível em valor; remapear nome, não substituir escala |
+| Botão altura default (§30) | "height: 44px" sem qualificar variante | `Button.tsx` implementa só `sm`/`md`; default `md` = `--control-height-md` (36px). `--control-height-lg` (44px) existe como token global, **não** como variante do Button hoje | Implementado vence como default; `44px` fica resíduo nomeado (adicionar variante `lg` ao Button, ou remover a menção, é decisão futura — não bloqueante) |
+
+Arquitetura de 3 camadas (primitive→semantic→component) prescrita neste documento: a camada de
+component-tokens não é retroativamente exigida dos ~9 primitivos já implementados (que usam
+deliberadamente 2 camadas, `VL-G8`) — aplica-se a componentes **novos** construídos a partir desta
+adoção.
 
 ---
 

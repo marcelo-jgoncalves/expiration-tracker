@@ -4,6 +4,14 @@
 > **Data:** 2026-08-26 · **Branch:** `feat/visual-language-design-system` · **Base:** `develop`
 > **Escopo de código:** `frontend/` (Core Expiration slice apenas)
 
+**Nota (2026-08-31, D-130):** este documento permanece a fonte de verdade dos **valores
+primitivos reais** (paleta, tipografia, radius, foco — ver §11-12) e do registro de
+protocolo/evidência (16 rounds, `VL-G1..VL-G17`). Para arquitetura de tokens em 3 camadas, regras
+de processo, catálogo de componentes e patterns daqui em diante, a fonte prospectiva normativa é
+`docs/frontend/design-system.md` — que referencia os valores deste documento onde os dois
+tratavam do mesmo primitivo. Ver
+`docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`.
+
 ---
 
 ## 1. Executive Summary
