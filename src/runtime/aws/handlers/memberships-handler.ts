@@ -16,6 +16,7 @@ import {
   type MembershipHttpDeps,
 } from "../../../modules/organization/http/membership-handlers.js";
 import { handleUpdateOrganizationSettings, type OrganizationSettingsHttpDeps } from "../../../modules/organization/http/organization-settings-handlers.js";
+import { handleCloseOrganization, type OrganizationLifecycleHttpDeps } from "../../../modules/organization/http/organization-lifecycle-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -36,11 +37,15 @@ const membershipInviteEmailEnabled = process.env["MEMBERSHIP_INVITE_EMAIL_ENABLE
 const sesFromAddress = process.env["SES_FROM_ADDRESS"];
 const sesConfigurationSet = process.env["SES_CONFIGURATION_SET"];
 const invitationBaseUrl = process.env["INVITATION_BASE_URL"];
+// W3-07 (D-124): required for POST /organizations/close. Absent means the closure route returns a
+// 500 rather than silently pretending to have started a purge - see the dispatch below.
+const tenantPurgeStateMachineArn = process.env["TENANT_PURGE_STATE_MACHINE_ARN"];
 
 const { resolver } = buildIdentityDeps(client, tableName);
-const membership = buildMembershipDeps(client, tableName, invitationTokenPepper, membershipInviteEmailEnabled, sesFromAddress, sesConfigurationSet, invitationBaseUrl);
+const membership = buildMembershipDeps(client, tableName, invitationTokenPepper, membershipInviteEmailEnabled, sesFromAddress, sesConfigurationSet, invitationBaseUrl, tenantPurgeStateMachineArn);
 const deps: MembershipHttpDeps = { resolver, ...membership };
 const settingsDeps: OrganizationSettingsHttpDeps = { resolver, updateSettings: membership.updateSettings };
+const lifecycleDeps: OrganizationLifecycleHttpDeps | undefined = membership.closeOrganization ? { resolver, closeOrganization: membership.closeOrganization } : undefined;
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleMembershipsRoute(event));
@@ -77,6 +82,9 @@ async function handleMembershipsRoute(event: APIGatewayProxyEventV2WithJWTAuthor
           return await handleLeaveOrganization(deps, base);
         case "PATCH /organizations/settings":
           return await handleUpdateOrganizationSettings(settingsDeps, { ...base, body: parseBody(event) });
+        case "POST /organizations/close":
+          if (!lifecycleDeps) throw new Error("TENANT_PURGE_STATE_MACHINE_ARN env var is required to close an organization.");
+          return await handleCloseOrganization(lifecycleDeps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

@@ -289,6 +289,13 @@ locals {
     leave             = { method = "POST", path = "/organizations/members/leave" }
     # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same handler/Lambda, new route.
     update_settings = { method = "PATCH", path = "/organizations/settings" }
+    # W3-07 (D-124): CloseOrganizationService's trigger - starts the real tenant purge. Same
+    # memberships Lambda, new route. Added in the SAME commit as the handler dispatch and the BFF
+    # proxy allowlist entry, deliberately: D-117 and D-120 were both real production bugs of
+    # exactly this shape (handler shipped, route never added, every call 404'd at the gateway
+    # without ever reaching the Lambda). The tftest below asserts this route exists for that
+    # reason.
+    close_organization = { method = "POST", path = "/organizations/close" }
   }
 }
 

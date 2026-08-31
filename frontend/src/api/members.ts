@@ -38,6 +38,13 @@ export function leaveOrganization(): Promise<void> {
   return apiClient.post("/organizations/members/leave", undefined);
 }
 
+/** W3-07 (D-124) - starts the real, irreversible tenant purge. `confirmOrganizationId` is
+ * re-validated server-side against the RESOLVED organization, so this is a genuine confirmation
+ * token rather than a UI-only formality. */
+export function closeOrganization(confirmOrganizationId: string): Promise<{ organizationId: string; status: string }> {
+  return apiClient.post("/organizations/close", { confirmOrganizationId }) as Promise<{ organizationId: string; status: string }>;
+}
+
 export function updateOrganizationSettings(input: { displayName?: string; timezone?: string }, expectedVersion: number): Promise<OrganizationSettingsResponse> {
   return apiClient.request<OrganizationSettingsResponse>("/organizations/settings", { method: "PATCH", body: input, expectedVersion });
 }

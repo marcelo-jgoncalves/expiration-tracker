@@ -124,6 +124,11 @@ output "extraction_state_machine_name" {
   value       = module.extraction_workflow.state_machine_name
 }
 
+output "tenant_purge_state_machine_name" {
+  description = "Plan-time-known name of the W3-07 tenant-purge state machine (D-124). Must match local.tenant_purge_state_machine_arn's name segment - that deterministic ARN is what the memberships handler (CloseOrganizationService) and the sweeper both receive as an env var and call StartExecution against."
+  value       = module.tenant_purge_workflow.state_machine_name
+}
+
 output "bff_api_endpoint" {
   description = "The BFF's own dedicated HTTP API endpoint (D-053/D-054) - in production this sits behind CloudFront at the same origin as the SPA under the /bff/* path, never called directly by the browser."
   value       = module.bff_api.api_endpoint

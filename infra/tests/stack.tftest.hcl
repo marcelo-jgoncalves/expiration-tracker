@@ -688,3 +688,77 @@ run "extraction_workflow_execution_role_is_scoped_not_wildcard" {
     error_message = "Expected exactly 3 statements: lambda:InvokeFunction (scoped to the 4 handler ARNs), CloudWatch Logs delivery, and X-Ray write"
   }
 }
+
+# --- W3-07 tenant purge orchestrator (D-124, implementing D-121) ---------------------------
+
+run "tenant_purge_state_machine_name_matches_the_arn_both_callers_target" {
+  command = plan
+
+  # CloseOrganizationService (inside the memberships Lambda) and the sweeper both receive
+  # local.tenant_purge_state_machine_arn as an env var and call StartExecution against it. That
+  # ARN is built from the name, not read back from the module, to avoid a dependency cycle - so
+  # nothing but this assertion keeps the two halves from silently drifting apart.
+  assert {
+    condition     = output.tenant_purge_state_machine_name == "exptrk-dev-tenant-purge"
+    error_message = "The real state machine name must match local.tenant_purge_state_machine_arn's name segment - a mismatch means every close-organization call would StartExecution against a state machine that does not exist"
+  }
+
+  assert {
+    condition     = strcontains(local.tenant_purge_state_machine_arn, output.tenant_purge_state_machine_name)
+    error_message = "local.tenant_purge_state_machine_arn must embed this exact state machine name"
+  }
+}
+
+run "tenant_purge_iam_surface_is_the_minimum_the_approved_design_named" {
+  command = plan
+
+  # D-121 Rodada 3 Fix 8 enumerated the minimum IAM surface per role explicitly so a future
+  # session would not have to re-derive it. These assertions hold that surface in place.
+  assert {
+    condition     = length(data.aws_iam_policy_document.tenant_purge_workflow_invoke_lambdas.statement) == 3
+    error_message = "Expected exactly 3 statements: lambda:InvokeFunction (scoped to the 2 task handler ARNs), CloudWatch Logs delivery, and X-Ray write - logging/tracing are enabled on this state machine and fail at APPLY time without them"
+  }
+
+  # Note: the invoke statement's `resources` (the two Lambda ALIAS ARNs) are computed attributes
+  # unknown until apply, so they cannot be asserted from a plan-only run - the same limitation the
+  # extraction_workflow assertions above work around. The module's own tftest covers the
+  # substitution end of this, and the statement count above covers the shape.
+
+  # states:StartExecution is scoped to this ONE state machine ARN - not states:*, not a wildcard
+  # resource. This policy is attached to both the memberships handler and the sweeper.
+  assert {
+    condition     = length(data.aws_iam_policy_document.tenant_purge_start_execution.statement[0].resources) == 1
+    error_message = "StartExecution must be scoped to exactly the tenant-purge state machine ARN"
+  }
+
+  assert {
+    condition     = contains(data.aws_iam_policy_document.tenant_purge_start_execution.statement[0].actions, "states:StartExecution")
+    error_message = "The trigger policy must grant states:StartExecution (and only that action)"
+  }
+
+  # A purge deletes; it never reads object content. s3:GetObject appearing here would be a real
+  # privilege expansion, same discipline as document_purge_object_access.
+  assert {
+    condition = alltrue([
+      for s in data.aws_iam_policy_document.tenant_purge_worker_s3.statement : !contains(s.actions, "s3:GetObject")
+    ])
+    error_message = "The purge worker must never be granted s3:GetObject - it deletes objects, it never reads their content"
+  }
+}
+
+run "tenant_purge_sweeper_schedule_exists_and_sends_no_detail_wrapper" {
+  command = plan
+
+  # EventBridge Scheduler hands the target whatever `input` says, with no `detail` envelope (the
+  # contract reminder-schedule/main.tf's header documents, learned from a real production bug).
+  # This handler reads nothing from its event at all, so the input is an empty object.
+  assert {
+    condition     = aws_scheduler_schedule.tenant_purge_sweeper.schedule_expression == "rate(1 day)"
+    error_message = "The sweeper must run on a rate expression (a regular cadence), not a fixed wall-clock cron"
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.tenant_purge_sweeper.target[0].input == "{}"
+    error_message = "The sweeper takes no input - it discovers its own work by scanning; a detail-wrapped or placeholder input would be a silent contract break"
+  }
+}

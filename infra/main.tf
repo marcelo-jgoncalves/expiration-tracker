@@ -177,6 +177,10 @@ module "memberships_handler" {
     SES_FROM_ADDRESS                = var.ses_from_address
     SES_CONFIGURATION_SET           = module.ses_notifications.configuration_set_name
     INVITATION_BASE_URL             = local.invitation_base_url
+    # W3-07 (D-124): POST /organizations/close. Without this env var the composition root never
+    # builds CloseOrganizationService and the route fails loudly, rather than appearing to work
+    # while starting no purge at all.
+    TENANT_PURGE_STATE_MACHINE_ARN = local.tenant_purge_state_machine_arn
   })
   # Wave B2B-14 (D-116/D-120): gsi4_read_policy_json - see test_ping_handler's comment above.
   # ses_send_email - same policy data.aws_iam_policy_document already used by
@@ -185,6 +189,8 @@ module "memberships_handler" {
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi4_read_policy_json,
     data.aws_iam_policy_document.ses_send_email.json,
+    # W3-07 (D-124): states:StartExecution on the tenant-purge state machine ARN only.
+    data.aws_iam_policy_document.tenant_purge_start_execution.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -2429,4 +2435,288 @@ module "extraction_workflow" {
   extraction_validation_task_function_arn = local.extraction_validation_task_handler_function_arn
   state_machine_role_arn                  = aws_iam_role.extraction_workflow_state_machine.arn
   tags                                    = { Project = local.project_name, Environment = var.environment }
+}
+
+# =========================================================================================
+# W3-07 tenant purge orchestrator (D-124, implementing the design APPROVED as D-121).
+#
+# Before this block, `transitionTenantLifecycle()` (D-068) and `purgeTenant()` (W3-07) were both
+# real, working, fully-tested code with NO real caller anywhere in production - the single open
+# question D-083 left explicitly unanswered. This wires the trigger, the state machine, the two
+# Task Lambdas and the recurring sweeper that finally drive them.
+#
+# The state machine ARN is derived deterministically from its own name (same idiom as
+# `local.extraction_state_machine_arn` above) rather than read back from the module output: the
+# memberships handler needs the ARN in an env var, and the state machine needs the handler ARNs,
+# so reading the real attribute in both directions would be a Terraform dependency cycle.
+# `tenant-purge-workflow`'s own tftest asserts the name convention these two must agree on.
+# =========================================================================================
+
+locals {
+  tenant_purge_state_machine_arn = "arn:aws:states:${var.aws_region}:${var.aws_account_id}:stateMachine:${local.name_prefix}-tenant-purge"
+
+  # Every Lambda that touches the purge pipeline needs the same four bucket names - the closed
+  # per-bucket prefix-root table lives in src/runtime/aws/composition/tenant-purge.ts, and these
+  # env vars are its only input.
+  tenant_purge_bucket_env = {
+    BFF_SESSION_TABLE_NAME           = module.bff_session_table.table_name
+    CLEAN_BUCKET_NAME                = module.document_buckets.clean_bucket_name
+    QUARANTINE_BUCKET_NAME           = module.document_buckets.quarantine_bucket_name
+    IMPORT_RAW_BUCKET_NAME           = module.import_bucket.bucket_name
+    EXTRACTION_TRANSIENT_BUCKET_NAME = aws_s3_bucket.extraction_transient.bucket
+  }
+}
+
+# --- Purge worker: the S3 and session-table surface purgeTenant() actually needs ------------
+# D-121 Rodada 3 Fix 8's minimum IAM surface, verified against the real adapters rather than
+# copied: S3TenantPurgeAdapter calls ListObjectVersions/DeleteObjects/ListMultipartUploads/
+# AbortMultipartUpload, so it needs s3:ListBucketVersions + s3:ListBucketMultipartUploads on the
+# BUCKET and s3:DeleteObject/s3:DeleteObjectVersion/s3:AbortMultipartUpload on its OBJECTS.
+# Deliberately no s3:GetObject anywhere - a purge deletes, it never reads content (same discipline
+# as document_purge_object_access above).
+data "aws_iam_policy_document" "tenant_purge_worker_s3" {
+  statement {
+    sid     = "ListTenantOwnedBuckets"
+    effect  = "Allow"
+    actions = ["s3:ListBucket", "s3:ListBucketVersions", "s3:ListBucketMultipartUploads"]
+    resources = [
+      module.document_buckets.clean_bucket_arn,
+      module.document_buckets.quarantine_bucket_arn,
+      module.import_bucket.bucket_arn,
+      aws_s3_bucket.extraction_transient.arn,
+    ]
+  }
+  statement {
+    sid     = "DeleteTenantOwnedObjects"
+    effect  = "Allow"
+    actions = ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:AbortMultipartUpload"]
+    resources = [
+      "${module.document_buckets.clean_bucket_arn}/*",
+      "${module.document_buckets.quarantine_bucket_arn}/*",
+      "${module.import_bucket.bucket_arn}/*",
+      "${aws_s3_bucket.extraction_transient.arn}/*",
+    ]
+  }
+}
+
+# The bff-session-table is a SEPARATE physical table with no GSI: the purge Scans it filtered by
+# the `tenantId` attribute and conditionally deletes matching Session rows. Deliberately narrow -
+# Scan/DeleteItem only, never Put/Update, and never the KMS key (the purge never decrypts a
+# refresh token, it only removes the row).
+data "aws_iam_policy_document" "tenant_purge_worker_session_table" {
+  statement {
+    sid       = "ScanAndDeleteTenantSessions"
+    effect    = "Allow"
+    actions   = ["dynamodb:Scan", "dynamodb:DeleteItem"]
+    resources = [module.bff_session_table.table_arn]
+  }
+}
+
+module "tenant_purge_worker_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-tenant-purge-worker-handler"
+  handler_name   = "tenant-purge-worker-handler"
+  source_dir     = "${local.dist_dir}/tenant-purge-worker-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # A purge attempt Scans the whole main table plus the session table and paginates every S3
+  # prefix. It is deliberately resumable (purgeTenant() returns a checkpoint and the ASL's Choice
+  # loop feeds it back), so this timeout does not need to cover a whole large tenant - it only
+  # needs to make real progress per attempt before the loop resumes it.
+  timeout_seconds       = 300
+  environment_variables = merge(local.common_env, local.tenant_purge_bucket_env)
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.tenant_purge_worker_s3.json,
+    data.aws_iam_policy_document.tenant_purge_worker_session_table.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# The transition handler needs NOTHING beyond the main table (D-121 Rodada 3 Fix 8, verified: D-068
+# already put TenantLifecycleRecord in the main table, so tenant_facing_read_write_policy_json
+# already covers it - no new policy).
+module "tenant_lifecycle_transition_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-tenant-lifecycle-transition-handler"
+  handler_name          = "tenant-lifecycle-transition-handler"
+  source_dir            = "${local.dist_dir}/tenant-lifecycle-transition-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- The state machine's own execution role ------------------------------------------------
+# Exactly two function ARNs, never a wildcard resource and never states:* (D-121 Rodada 3 Fix 8).
+data "aws_iam_policy_document" "tenant_purge_workflow_invoke_lambdas" {
+  statement {
+    sid       = "InvokeTenantPurgeTaskHandlers"
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [module.tenant_lifecycle_transition_handler.live_alias_arn, module.tenant_purge_worker_handler.live_alias_arn]
+  }
+
+  # Required by the module's logging_configuration. Found during implementation by comparing
+  # against extraction_workflow_invoke_lambdas rather than assumed: without these, a state machine
+  # that declares a log destination fails at APPLY time, not at runtime. AWS requires these exact
+  # actions on "*" - they operate on the account-level log-delivery subsystem, not on a specific
+  # log group ARN.
+  statement {
+    sid    = "StateMachineLogDelivery"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
+      "logs:PutResourcePolicy",
+      "logs:DescribeResourcePolicies",
+      "logs:DescribeLogGroups",
+    ]
+    resources = ["*"]
+  }
+
+  # Required by the module's tracing_configuration - same actions AWS's own X-Ray managed policy
+  # for Step Functions uses, and the same set extraction_workflow's role already carries.
+  statement {
+    sid    = "StateMachineXRayWrite"
+    effect = "Allow"
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+      "xray:GetSamplingRules",
+      "xray:GetSamplingTargets",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role" "tenant_purge_workflow_state_machine" {
+  name = "${local.name_prefix}-tenant-purge-workflow-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "StatesAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "states.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "tenant_purge_workflow_state_machine" {
+  name   = "${local.name_prefix}-tenant-purge-workflow-policy"
+  role   = aws_iam_role.tenant_purge_workflow_state_machine.id
+  policy = data.aws_iam_policy_document.tenant_purge_workflow_invoke_lambdas.json
+}
+
+module "tenant_purge_workflow" {
+  source = "./modules/tenant-purge-workflow"
+
+  name_prefix                       = local.name_prefix
+  lifecycle_transition_function_arn = module.tenant_lifecycle_transition_handler.live_alias_arn
+  purge_worker_function_arn         = module.tenant_purge_worker_handler.live_alias_arn
+  state_machine_role_arn            = aws_iam_role.tenant_purge_workflow_state_machine.arn
+  alert_topic_arn                   = module.alert_topic.topic_arn
+  tags                              = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- The trigger: CloseOrganizationService, inside the existing memberships Lambda ----------
+# states:StartExecution on THIS state machine's ARN only (D-121 Rodada 3 Fix 8).
+data "aws_iam_policy_document" "tenant_purge_start_execution" {
+  statement {
+    sid       = "StartTenantPurgeStateMachine"
+    effect    = "Allow"
+    actions   = ["states:StartExecution"]
+    resources = [local.tenant_purge_state_machine_arn]
+  }
+}
+
+# --- The sweeper: EventBridge Scheduler, daily ---------------------------------------------
+# `rate`, not `cron` (same choice reminder-schedule makes for its non-time-of-day schedules): the
+# sweeper only needs a regular cadence, never a specific wall-clock hour. Daily is proposed by the
+# approved design and is explicitly NOT load-bearing - the repair half is bounded by the 1-hour
+# staleness filter, not by how often this runs.
+module "tenant_purge_sweeper_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-tenant-purge-sweeper-handler"
+  handler_name    = "tenant-purge-sweeper-handler"
+  source_dir      = "${local.dist_dir}/tenant-purge-sweeper-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 300
+  environment_variables = merge(local.common_env, local.tenant_purge_bucket_env, {
+    TENANT_PURGE_STATE_MACHINE_ARN = local.tenant_purge_state_machine_arn
+  })
+  # The sweeper re-runs the SAME verifyTenant*Empty() passes the purge worker does, so it needs the
+  # same read surface - but it never deletes anything, which is why it reuses the worker's S3/
+  # session policies rather than getting a broader one of its own. (Both policies do include the
+  # delete actions; narrowing them further would mean a second near-duplicate policy pair for a
+  # worker whose code paths provably never call delete - a tradeoff recorded here rather than
+  # hidden, and revisitable if the sweeper ever grows a remediation half.)
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.tenant_purge_worker_s3.json,
+    data.aws_iam_policy_document.tenant_purge_worker_session_table.json,
+    data.aws_iam_policy_document.tenant_purge_start_execution.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "tenant_purge_sweeper_schedule" {
+  name = "${module.tenant_purge_sweeper_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "tenant_purge_sweeper_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.tenant_purge_sweeper_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeTenantPurgeSweeper"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.tenant_purge_sweeper_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "tenant_purge_sweeper" {
+  name                = "${local.name_prefix}-tenant-purge-sweeper"
+  schedule_expression = "rate(1 day)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 60
+  }
+
+  target {
+    arn      = module.tenant_purge_sweeper_handler.live_alias_arn
+    role_arn = aws_iam_role.tenant_purge_sweeper_schedule.arn
+    # The handler takes no input at all (it discovers its own work by scanning). An empty object,
+    # NOT jsonencode() - see reminder-schedule/main.tf's header for the real escaping bug that
+    # rule exists to prevent.
+    input = "{}"
+  }
 }

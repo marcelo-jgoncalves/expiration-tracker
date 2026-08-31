@@ -1,0 +1,318 @@
+{
+  "Comment": "W3-07 tenant purge orchestrator (D-124, implementing the design APPROVED as D-121, docs/architecture/reviews/w3-07-purge-orchestrator-scoping/). Drives the real ACTIVE->DELETING->QUIESCING->PURGING->VERIFIED->DELETED lifecycle for one tenant. Started by CloseOrganizationService (and repaired by the sweeper) with input {tenantId} and execution name = tenantId, which is the whole idempotency mechanism. Like ../modules/extraction-workflow/'s document-extraction.asl.json, this checked-in file is a TEMPLATE: infra/modules/tenant-purge-workflow/main.tf substitutes the two Lambda FunctionName placeholders and the retry-limit placeholder via replace() at plan/apply time, so the tokens below are never what actually reaches AWS - keeping the file human-readable for review is the same tradeoff that module already makes. The module's own tftest asserts every placeholder was substituted, which is why this comment deliberately does not quote them verbatim.",
+  "StartAt": "WaitForQuiescence",
+  "States": {
+    "WaitForQuiescence": {
+      "Type": "Wait",
+      "Comment": "The 1800s capability-extinction cutoff already APPROVED by D-066 Rodada H - a literal, deliberately NOT a variable or an execution-input field, so no caller can shorten the window that admitted capabilities need to expire in. Well inside a Standard Workflow's 1-year maximum duration (verified against AWS docs during D-121 Rodada 2, not assumed). Covers the DELETING -> QUIESCING segment; the write itself is the next state's job, since a Wait state cannot touch DynamoDB.",
+      "Seconds": 1800,
+      "Next": "AdvanceToQuiescing"
+    },
+
+    "AdvanceToQuiescing": {
+      "Type": "Task",
+      "Comment": "DELETING -> QUIESCING. All four forward transitions and all five BLOCKED transitions below invoke the SAME handler (D-121 Rodada 2 Fix 3), parameterized only by from/to in each state's own Parameters - one contract to review, test and grant IAM to, never one handler per edge. ResultPath: null discards the handler's {alreadyAdvanced} result so $ stays exactly {tenantId} for the next state.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "from": "DELETING",
+          "to": "QUIESCING"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "Comment": "Unlike purgeTenant()'s PARTIAL/SUCCESS/FAILED (a normal resolved value, routed by the Choice below), a transition failure IS a thrown error - so ASL's native Catch is the right mechanism here, exactly the distinction D-121 Rodada 2 Fix 2/Fix 3 drew. Each transition state catches to its OWN MarkBlocked state because transitionTenantLifecycle validates the `from` it is given: a single shared MarkBlocked could not know which state the tenant was actually stuck in.",
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.transitionError",
+          "Next": "MarkBlockedFromDeleting"
+        }
+      ],
+      "Next": "AdvanceToPurging"
+    },
+
+    "AdvanceToPurging": {
+      "Type": "Task",
+      "Comment": "QUIESCING -> PURGING.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "from": "QUIESCING",
+          "to": "PURGING"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.transitionError",
+          "Next": "MarkBlockedFromQuiescing"
+        }
+      ],
+      "Next": "InitPurgeLoop"
+    },
+
+    "InitPurgeLoop": {
+      "Type": "Pass",
+      "Comment": "Seeds the loop counter and an explicit null checkpoint. Both fields must EXIST from the first iteration: RunPurge's Payload and the Choice below reference them by JSONPath, and a reference to a missing path is a runtime States.Runtime failure, not a null.",
+      "Parameters": {
+        "tenantId.$": "$.tenantId",
+        "retryCount": 0,
+        "checkpoint": null
+      },
+      "Next": "RunPurge"
+    },
+
+    "RunPurge": {
+      "Type": "Task",
+      "Comment": "Invokes the thin wrapper around the already-existing purgeTenant() (src/workers/tenant-purge/purge-tenant.ts). ResultSelector projects the handler's compact envelope (D-121 Rodada 3 Fix 6) and ResultPath nests it under $.purge so $.tenantId/$.retryCount survive the call. The handler NEVER returns the raw TenantPurgeResult: its s3[].unresolvedErrors[] is unbounded and would breach Step Functions' 256 KiB task output quota on a large tenant; the full result still goes to structured logs via SecureLogger.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-purge-worker:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "checkpoint.$": "$.checkpoint"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status",
+        "checkpoint.$": "$.Payload.checkpoint",
+        "counters.$": "$.Payload.counters",
+        "failure.$": "$.Payload.failure"
+      },
+      "ResultPath": "$.purge",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "Comment": "A thrown error here is the handler itself crashing (OOM, timeout, a bug) - distinct from purgeTenant() RETURNING status FAILED, which is a resolved value the Choice handles.",
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.purgeError",
+          "Next": "MarkBlockedPurgeFailed"
+        }
+      ],
+      "Next": "EvaluatePurgeResult"
+    },
+
+    "EvaluatePurgeResult": {
+      "Type": "Choice",
+      "Comment": "A Choice, deliberately NOT Retry/Catch (D-121 Rodada 2 Fix 2 - the finding that reopened Rodada 1): purgeTenant() returns SUCCESS/PARTIAL/FAILED as a normal resolved value and never throws for PARTIAL, so ASL Retry - which only fires on a Task raising an error - would never see it. The retryCount bound is what stops a permanently-stuck purge (e.g. a malformed S3 target) from looping until Step Functions' own 25,000-event history quota kills the execution as an unexplained failure instead of surfacing deliberately as an operator-visible BLOCKED tenant.",
+      "Choices": [
+        {
+          "Variable": "$.purge.status",
+          "StringEquals": "SUCCESS",
+          "Next": "AdvanceToVerified"
+        },
+        {
+          "And": [
+            { "Variable": "$.purge.status", "StringEquals": "PARTIAL" },
+            { "Variable": "$.retryCount", "NumericLessThan": "__PURGE_RETRY_LIMIT__" }
+          ],
+          "Next": "PreparePurgeRetry"
+        },
+        {
+          "Comment": "PARTIAL with the retry budget exhausted - the purge ran cleanly every time but never converged.",
+          "Variable": "$.purge.status",
+          "StringEquals": "PARTIAL",
+          "Next": "MarkBlockedNotConverging"
+        }
+      ],
+      "Default": "MarkBlockedPurgeFailed"
+    },
+
+    "PreparePurgeRetry": {
+      "Type": "Pass",
+      "Comment": "Carries the checkpoint purgeTenant() returned into the next attempt (so a resumed run skips already-finished work) and increments the loop counter. States.MathAdd is an ASL intrinsic - no Lambda round-trip just to add one.",
+      "Parameters": {
+        "tenantId.$": "$.tenantId",
+        "checkpoint.$": "$.purge.checkpoint",
+        "retryCount.$": "States.MathAdd($.retryCount, 1)"
+      },
+      "Next": "RunPurge"
+    },
+
+    "AdvanceToVerified": {
+      "Type": "Task",
+      "Comment": "PURGING -> VERIFIED. Only ever reached from a SUCCESS result, which purgeTenant() returns only after an unconditional empty re-scan of every store proved convergence - the lifecycle never advances past PURGING on a PARTIAL.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "from": "PURGING",
+          "to": "VERIFIED"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.transitionError",
+          "Next": "MarkBlockedFromPurging"
+        }
+      ],
+      "Next": "AdvanceToDeleted"
+    },
+
+    "AdvanceToDeleted": {
+      "Type": "Task",
+      "Comment": "VERIFIED -> DELETED, the true terminal state (nothing transitions out of it - the sweeper repairs residue in place and never re-opens the record).",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "from": "VERIFIED",
+          "to": "DELETED"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.transitionError",
+          "Next": "MarkBlockedFromVerified"
+        }
+      ],
+      "Next": "PurgeComplete"
+    },
+
+    "PurgeComplete": {
+      "Type": "Succeed",
+      "Comment": "The only success exit. Every other exit is the Fail state below, which is what the ExecutionsFailed alarm watches."
+    },
+
+    "MarkBlockedFromDeleting": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "DELETING", "to": "BLOCKED", "blockedReason": "LIFECYCLE_TRANSITION_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "MarkBlockedFromQuiescing": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "QUIESCING", "to": "BLOCKED", "blockedReason": "LIFECYCLE_TRANSITION_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "MarkBlockedFromPurging": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "PURGING", "to": "BLOCKED", "blockedReason": "LIFECYCLE_TRANSITION_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "MarkBlockedFromVerified": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "VERIFIED", "to": "BLOCKED", "blockedReason": "LIFECYCLE_TRANSITION_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "MarkBlockedNotConverging": {
+      "Type": "Task",
+      "Comment": "PARTIAL, retry budget exhausted - the distinct, operator-actionable reason D-121 Rodada 2 named explicitly, never collapsed into the generic failure reason below.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "PURGING", "to": "BLOCKED", "blockedReason": "PURGE_NOT_CONVERGING" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "MarkBlockedPurgeFailed": {
+      "Type": "Task",
+      "Comment": "purgeTenant() returned FAILED, or the purge Lambda itself threw.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "PURGING", "to": "BLOCKED", "blockedReason": "PURGE_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
+    "PurgeBlocked": {
+      "Type": "Fail",
+      "Comment": "Deliberately a Fail, not a Succeed-with-a-flag: this is what raises the AWS/States ExecutionsFailed metric that the new CloudWatch alarm in this module watches, which is the only thing that gets a human's attention on a tenant stuck mid-purge. D-121 Rodada 3 Fix 7 established that no such alarm existed anywhere in infra/ before this wave - it had to be built, not reused.",
+      "Error": "TenantPurgeBlocked",
+      "Cause": "The tenant purge did not converge and the lifecycle record was moved to BLOCKED - operator remediation required."
+    }
+  }
+}

@@ -407,6 +407,23 @@ export class OrganizationSelectionRequiredError extends AppError {
   }
 }
 
+/** W3-07 purge orchestrator (D-124, implementing D-121). `CloseOrganizationService` refuses to
+ * act when the tenant's `TenantLifecycleRecord` already sits in VERIFIED/DELETED/BLOCKED/HELD —
+ * the purge is either past the point of no return or stuck awaiting an operator, and re-launching
+ * an execution for it would be nonsensical rather than merely redundant. `category:
+ * "CONFLICT"` (409), same as `TenantNotActiveError`: this is a state-of-the-resource refusal, not
+ * an authorization decision (the caller genuinely is an OWNER and genuinely may close the org —
+ * it just is not in a closable state). `retryable: false`: no amount of retrying moves the record
+ * back, only operator remediation of a BLOCKED/HELD tenant does. Deliberately does NOT cover
+ * DELETING/QUIESCING/PURGING — those fall through to the unconditional idempotent
+ * `StartExecution` retry (Rodada 3 Fix 8's corrected ordering). */
+export class OrganizationClosureUnavailableError extends AppError {
+  constructor(message = "This organization is already being closed, closed, or on hold - contact support.", details?: Record<string, unknown>) {
+    super({ code: "ORGANIZATION_CLOSURE_UNAVAILABLE", category: "CONFLICT", message, retryable: false, details });
+    this.name = "OrganizationClosureUnavailableError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

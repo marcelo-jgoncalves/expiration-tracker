@@ -9,6 +9,7 @@ import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useUpdateOrganizationSettings } from "../hooks/useUpdateOrganizationSettings.js";
 import { useLeaveOrganization } from "../hooks/useLeaveOrganization.js";
+import { useCloseOrganization } from "../hooks/useCloseOrganization.js";
 import { ApiError, isConflict, isLastOwnerError } from "../api/errors.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
@@ -40,6 +41,64 @@ function LeaveOrganizationSection() {
         {errorMessage ? (
           <InlineNotice tone="critical" announce="alert">
             {errorMessage}
+          </InlineNotice>
+        ) : null}
+      </Panel>
+    </Section>
+  );
+}
+
+/**
+ * W3-07 (D-124). Closing the organization starts a physical, irreversible purge of every piece of
+ * tenant data - by far the most destructive action in the product, and unlike "leave", nothing
+ * about it can be undone by an administrator afterwards.
+ *
+ * Confirmation shape (the one piece D-121 Rodada 1 explicitly left to UI judgment rather than the
+ * protocol): type-to-confirm the organization id, not a two-step dialog. A dialog's second click
+ * is muscle memory; typing the identifier requires the person to actually read WHICH organization
+ * they are destroying, which is the failure mode that matters most here now that a user can belong
+ * to several. The same token is re-validated server-side against the resolved organization
+ * (`organization-lifecycle-handlers.ts`), so this is a real precondition and not UI theatre.
+ *
+ * OWNER-only visibility is a convenience, never the control: `organization:close` is OWNER_ROLES
+ * in the authorization matrix and that check runs inside the service regardless of what the client
+ * chooses to render - same posture as the displayName form below.
+ */
+function CloseOrganizationSection({ organizationId }: { organizationId: string }) {
+  const close = useCloseOrganization();
+  const [confirmation, setConfirmation] = useState("");
+  const confirmed = confirmation.trim() === organizationId;
+
+  if (close.isSuccess) {
+    return (
+      <Section heading="Encerrar organização" headingId="close-organization">
+        <Panel>
+          <InlineNotice tone="success" announce="status">
+            Encerramento iniciado. Os dados desta organização serão apagados em definitivo; o acesso já foi encerrado.
+          </InlineNotice>
+        </Panel>
+      </Section>
+    );
+  }
+
+  return (
+    <Section heading="Encerrar organização" headingId="close-organization">
+      <Panel>
+        <p>
+          Esta ação apaga em definitivo todos os dados desta organização - vencimentos, documentos e histórico. Não há como desfazer nem recuperar depois.
+        </p>
+        <p>
+          Para confirmar, digite o identificador da organização: <code>{organizationId}</code>
+        </p>
+        <TextField label="Identificador da organização" value={confirmation} onChange={setConfirmation} />
+        <Button variant="danger" onClick={() => close.mutate(organizationId)} pending={close.isPending} disabled={!confirmed || close.isPending}>
+          {close.isPending ? "Encerrando…" : "Encerrar organização definitivamente"}
+        </Button>
+        {close.isError ? (
+          <InlineNotice tone="critical" announce="alert">
+            {isConflict(close.error)
+              ? "Esta organização já está sendo encerrada, já foi encerrada, ou está bloqueada - entre em contato com o suporte."
+              : "Não foi possível encerrar a organização. Tente novamente."}
           </InlineNotice>
         ) : null}
       </Panel>
@@ -136,6 +195,7 @@ export function Settings() {
         </form>
       </Panel>
       <LeaveOrganizationSection />
+      <CloseOrganizationSection organizationId={activeOrganization.organizationId} />
     </>
   );
 }

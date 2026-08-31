@@ -76,6 +76,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/organizations/members/leave" },
   // Wave B2B-10 (Tenant-aware Frontend, "settings" scope item).
   { method: "PATCH", pathTemplate: "/organizations/settings" },
+  // W3-07 (D-124): the organization-closure trigger. Must be allowlisted here AND routed in
+  // infra/modules/api-gateway/main.tf - D-117/D-120 were both real production bugs where a
+  // handler existed and one of the two wiring halves was silently missing.
+  { method: "POST", pathTemplate: "/organizations/close" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

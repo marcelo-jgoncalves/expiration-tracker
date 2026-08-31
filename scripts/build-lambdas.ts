@@ -65,6 +65,11 @@ const HANDLERS = [
   "bedrock-extraction-task-handler",
   "extraction-validation-task-handler",
   "document-purge-handler",
+  // W3-07 tenant purge orchestrator (D-124): the two Step Functions Task handlers and the
+  // EventBridge Scheduler sweeper.
+  "tenant-lifecycle-transition-handler",
+  "tenant-purge-worker-handler",
+  "tenant-purge-sweeper-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
