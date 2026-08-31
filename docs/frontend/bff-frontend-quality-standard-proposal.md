@@ -2,6 +2,21 @@
 
 **Data da análise:** 23 de agosto de 2026
 
+**Status: `SUPERSEDED`** (2026-08-31, D-130) para todo conteúdo normativo — protocolo
+Claude↔Codex completo, ver
+`docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`.
+Mapa de destino §1-37 completo naquele documento. Resumo: §4-11/§13-23/§24-30 superseded por
+`docs/frontend/frontend-engineering-quality-standard.md` (rubrica de 12 eixos mais completa que
+`FG1-FG4`); §2-3/§31-33 são histórico puro (análise que motivou o Full BFF real, já implementado
+em `frontend-production-foundation.md`, D-053/D-054 — fato consumado, sem valor normativo
+residual); §12/§37 (referências externas) **não** são superseded em bloco — reclassificadas por
+proveniência individual (OWASP/WCAG/Core-Web-Vitals cobertos por
+`frontend-engineering-quality-standard.md` §106; IETF OAuth Browser-Based Applications preservado
+como proveniência de decisões já em `frontend-production-foundation.md`; heurísticas de Nielsen
+apontadas para `interface-heuristic-accessibility-evaluation.md`, seu lar formal real;
+CloudFront/Next.js BFF histórico puro). Arquivo preservado como evidência histórica, mesmo
+tratamento de `docs/architecture/history/` — não deletado.
+
 ---
 
 ## 1. Objetivo
