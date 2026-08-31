@@ -15,6 +15,7 @@
 2. `AppError.retryable` (comportamento de retry/DLQ do SQS) — `docs/engineering/decisions-log.md` E-011.
 3. Supersessão de GTR-01 (`UserProfile.requesterDisplayName`→`Organization.displayName`) — `roadmap-evolution/17` §121 Q21.
 4. Wave 1 — Design System reconciliation (revisar/adotar as 2 propostas do Marcelo em `docs/frontend/`).
+5. **Novo item (Marcelo, 2026-08-31): tela de atividade/audit log para ADMIN/OWNER** — ver visão do responsável de renovação/criação de vencimento, exportação de dados, e demais ações relevantes de outros usuários da organização. Base já existe (`AuditAction`/taxonomia em `src/shared/observability/security-audit.ts`, eventos já emitidos por várias mutações) — provavelmente é majoritariamente expor dado já coletado, não uma pipeline nova. Rodada Claude↔Codex própria vai decidir: feed leve vs. audit log completo/pesquisável, retenção, RBAC (provavelmente `ADMIN_ROLES`, seguir o precedente já usado para `item:export`), e a relação com o item 1 (os mesmos eventos de auditoria já são citados como mecanismo residual de observabilidade no D-122). Roda depois do item 1 (mesma área conceitual, evita retrabalho).
 
 **Item 7 (execução destrutiva `reset-dev-data.ts --confirm`) explicitamente POSTERGADO pelo Marcelo — não tratar, não perguntar de novo até ele sinalizar.**
 
