@@ -149,7 +149,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
       guestTokenPepper: PEPPER,
       emailProvider,
       resolveInternalUserEmail: async () => "internal-user@tenant.example",
-      resolveRequesterDisplayName: async () => "Empresa Alfa Ltda.",
+      resolveOrganizationDisplayName: async () => "Empresa Alfa Ltda.",
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
     };
   });

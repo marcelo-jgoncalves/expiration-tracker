@@ -1,0 +1,24 @@
+Codex independent grade (Round 2): 8.8/10 (sandbox read-only again, captured from stdout — see round-2-codex-output.txt).
+
+1. Grade 8.8 — REPLACE design sound, resolver-port fix (tenantId-only) correct, but removal
+   inventory still not exhaustive, so 9.0 not earned.
+2. Blank-string fix location: validation must live in
+   `CreateOrganizationService.buildCreateEntries()` (the true invariant boundary), not only in
+   `createOrganization()`/handler-level checks — `BffAuthService.createOrganization()`
+   (bff-auth-service.ts:631) calls the service directly and would bypass a handler-only fix.
+3. Remaining gaps (exact locations):
+   - authorization.ts:57 — `profile:read` action also needs removal (proposal only named `profile:update`).
+   - authorization.ts:142 — stale comment referencing `profile:update`.
+   - authorization.ts:165 — authorization matrix entry for `profile:read`.
+   - test/architecture/security-audit-observability-coverage.test.ts:35 — inventory still lists `profile-handlers.ts`/`profile_handler`.
+   - test/unit/subject/document-chasing-dispatch.test.ts:152 — resolver fixture needs rename.
+   - test/unit/organization/create-organization.test.ts:22 — needs new mutation-resistant test (trim + blank→ValidationError) via `buildCreateEntries()`.
+   - test/unit/bff/bff-handlers.test.ts:1 — needs HTTP-boundary test for whitespace-only displayName.
+   - infra/main.tf:164 (not an `aws_lambda_function` resource directly — it's a Lambda module call) + dependent references at 373-374, 861-862, 902, 921.
+4. Agrees with REPLACE decision, agrees port-signature change (tenantId only) is safe given all
+   3 real callers use tenantId already.
+5. Implementation safety: safe to implement in-session AFTER incorporating the above (stale
+   authorization/test references would otherwise break typecheck/tests).
+
+Round 2 blind grades: Claude 9.4 (self), Codex 8.8 (independent). Still below 9.0 gate on
+Codex's side — reopen. Round 3 required.

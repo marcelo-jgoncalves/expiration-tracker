@@ -32,7 +32,6 @@ const AUTHORIZATION_DENIED_CALL_SITES: Array<{ file: string; lambdaModule: strin
   { file: "src/modules/expiration/http/item-watch-handlers.ts", lambdaModule: "items_handler" },
   { file: "src/modules/reminder/http/policy-handlers.ts", lambdaModule: "reminders_handler" },
   { file: "src/modules/notification/http/preferences-handlers.ts", lambdaModule: "notifications_handler" },
-  { file: "src/modules/identity/http/profile-handlers.ts", lambdaModule: "profile_handler" },
   { file: "src/modules/identity/http/test-route-handler.ts", lambdaModule: "test_ping_handler" },
   { file: "src/modules/import/http/import-handlers.ts", lambdaModule: "imports_handler" },
   { file: "src/modules/subject/http/subject-handlers.ts", lambdaModule: "subjects_handler" },

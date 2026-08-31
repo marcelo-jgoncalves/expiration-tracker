@@ -38,11 +38,11 @@ export interface GuestRequestInfo {
   deadline?: string;
   allowedMediaTypes: string[];
   maxUploadBytes: number;
-  /** W5-01/GTR-01 (`decisions-log.md` D-060): identity of whoever created the request, shown
-   * to the guest so an unauthenticated document upload no longer arrives from an anonymous
-   * source. Always present (never `undefined`) - falls back to a generic, honest placeholder
-   * when the tenant never captured `UserProfile.requesterDisplayName` (never inferred, e.g.
-   * from an e-mail domain). */
+  /** D-129 (GTR-01 supersession, `decisions-log.md`): identity of the requesting Organization,
+   * shown to the guest so an unauthenticated document upload no longer arrives from an
+   * anonymous source. Always present (never `undefined`) - falls back to a generic, honest
+   * placeholder only in the (should-not-happen) case `Organization.displayName` was never set
+   * (never inferred, e.g. from an e-mail domain). */
   requesterDisplayName: string;
 }
 
@@ -70,11 +70,11 @@ export interface GuestSubmissionServiceDeps {
   signer: UploadUrlSigner;
   rateLimiter: GuestRateLimiter;
   guestTokenPepper: string;
-  /** W5-01/GTR-01 (D-060): resolves `UserProfile.requesterDisplayName` for the request's
-   * creator (`DocumentRequest.requestedByUserId`) - same injected-resolver pattern as
-   * `resolveInternalUserEmail` in `document-chasing-dispatch`'s dispatch.ts, deliberately NOT a
-   * direct identity-module import (composition-root wiring, not a cross-module dependency). */
-  resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
+  /** D-129 (GTR-01 supersession): resolves `Organization.displayName` for the request's
+   * tenant - same injected-resolver pattern as `resolveInternalUserEmail` in
+   * `document-chasing-dispatch`'s dispatch.ts, deliberately NOT a direct
+   * organization-module import (composition-root wiring, not a cross-module dependency). */
+  resolveOrganizationDisplayName?: (input: { tenantId: string }) => Promise<string | undefined>;
   now?: () => string;
 }
 
@@ -91,7 +91,7 @@ export class GuestSubmissionService {
   private readonly signer: UploadUrlSigner;
   private readonly rateLimiter: GuestRateLimiter;
   private readonly pepper: string;
-  private readonly resolveRequesterDisplayName?: (input: { tenantId: string; userId: string }) => Promise<string | undefined>;
+  private readonly resolveOrganizationDisplayName?: (input: { tenantId: string }) => Promise<string | undefined>;
   private readonly now: () => string;
 
   constructor(deps: GuestSubmissionServiceDeps) {
@@ -102,7 +102,7 @@ export class GuestSubmissionService {
     this.signer = deps.signer;
     this.rateLimiter = deps.rateLimiter;
     this.pepper = deps.guestTokenPepper;
-    this.resolveRequesterDisplayName = deps.resolveRequesterDisplayName;
+    this.resolveOrganizationDisplayName = deps.resolveOrganizationDisplayName;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -117,10 +117,7 @@ export class GuestSubmissionService {
       await this.markOpened(resolved.request);
     }
 
-    const resolvedRequesterName = await this.resolveRequesterDisplayName?.({
-      tenantId: resolved.request.tenantId,
-      userId: resolved.request.requestedByUserId,
-    });
+    const resolvedRequesterName = await this.resolveOrganizationDisplayName?.({ tenantId: resolved.request.tenantId });
 
     return {
       requirementName: assignment.requirementName,

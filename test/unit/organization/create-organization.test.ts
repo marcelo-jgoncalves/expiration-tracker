@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ValidationError } from "../../../src/shared/errors/app-error.js";
 import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
@@ -104,5 +105,29 @@ describe("CreateOrganizationService", () => {
     const viaGsi4 = await store.queryGsi4({ gsi4pk: "USER#user-1" });
     expect(viaGsi4).toHaveLength(1);
     expect(viaGsi4[0]?.["organizationId"]).toBe(organization.organizationId);
+  });
+
+  // D-129 (GTR-01 supersession): Organization.displayName is now the ONLY guest-facing
+  // requester identity, so it must never silently persist as whitespace. Mutação: remover o
+  // `.trim()` em `buildCreateEntries()` faria este teste falhar (displayName ficaria com o
+  // padding original).
+  it("D-129: trims displayName before persisting", async () => {
+    const store = new InMemoryOrganizationStore();
+    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+
+    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "  Empresa Alfa  ", timezone: "UTC" });
+    expect(organization.displayName).toBe("Empresa Alfa");
+
+    const row = await store.get<Organization>(organizationKey(organization.organizationId));
+    expect(row?.displayName).toBe("Empresa Alfa");
+  });
+
+  // Mutação: remover a checagem `if (displayName.length === 0) throw ...` em
+  // `buildCreateEntries()` faria isto não lançar - a asserção de rejeição pegaria isso.
+  it("D-129: rejects a whitespace-only displayName with ValidationError", async () => {
+    const store = new InMemoryOrganizationStore();
+    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+
+    await expect(service.createOrganization({ creatorUserId: "user-1", displayName: "   ", timezone: "UTC" })).rejects.toBeInstanceOf(ValidationError);
   });
 });

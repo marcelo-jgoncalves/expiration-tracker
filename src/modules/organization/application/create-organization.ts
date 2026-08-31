@@ -30,6 +30,7 @@
  * cap/onboarding (que não é responsabilidade dele — decisão do chamador HTTP).
  */
 import { buildVersionedCreate, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { ValidationError } from "../../../shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { defaultEntitlement } from "../../subject/domain/entitlement.js";
 import { organizationKey, type Organization } from "../domain/organization.js";
@@ -67,6 +68,15 @@ export class CreateOrganizationService {
   }
 
   buildCreateEntries(input: CreateOrganizationInput): CreateOrganizationEntries {
+    // D-129 (GTR-01 supersession): displayName is now the ONLY guest-facing requester identity
+    // (UserProfile.requesterDisplayName was removed) - this is the true invariant boundary
+    // (BffAuthService.createOrganization() calls this service directly, bypassing any
+    // handler-level check), so trim/blank-reject has to live here, not just at the HTTP edge.
+    const displayName = input.displayName.trim();
+    if (displayName.length === 0) {
+      throw new ValidationError("displayName cannot be blank.");
+    }
+
     const organizationId = this.ids.newOrganizationId();
     const membershipId = this.ids.newMembershipId();
     const now = this.now();
@@ -75,7 +85,7 @@ export class CreateOrganizationService {
       ...organizationKey(organizationId),
       entityType: "Organization",
       organizationId,
-      displayName: input.displayName,
+      displayName,
       timezone: input.timezone,
       ownerCount: 1,
       createdAt: now,

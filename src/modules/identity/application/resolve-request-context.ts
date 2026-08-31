@@ -107,10 +107,10 @@ export class RequestContextResolver {
 
     const roles = this.resolveRoles(membership.role);
 
-    // ProfileService's invariant ("a UserProfile is guaranteed to already exist by the time any
-    // RequestContext resolves") must keep holding post-cutover, now per-Organization instead of
-    // per-legacy-tenant — provisioned lazily here, the first time this (organizationId, userId)
-    // pair resolves, instead of at bootstrap time (no Organization is known yet at bootstrap).
+    // Invariant: a UserProfile is guaranteed to already exist by the time any RequestContext
+    // resolves, now per-Organization instead of per-legacy-tenant — provisioned lazily here,
+    // the first time this (organizationId, userId) pair resolves, instead of at bootstrap time
+    // (no Organization is known yet at bootstrap).
     await this.users.createProfileIfAbsent({
       tenantId: membership.organizationId,
       userId: user.userId,

@@ -39,8 +39,6 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/imports/{jobId}/commit" },
   { method: "GET", pathTemplate: "/notifications/preferences" },
   { method: "PUT", pathTemplate: "/notifications/preferences" },
-  { method: "GET", pathTemplate: "/profile" },
-  { method: "PUT", pathTemplate: "/profile" },
   { method: "POST", pathTemplate: "/reminders/policies" },
   { method: "GET", pathTemplate: "/reminders/policies/{policyId}" },
   { method: "PUT", pathTemplate: "/reminders/policies/{policyId}" },

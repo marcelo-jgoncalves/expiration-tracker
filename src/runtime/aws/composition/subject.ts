@@ -22,6 +22,7 @@ import { defaultShardConfig } from "../../../modules/reminder/domain/shard-confi
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 import { DynamoDbNotificationRecipientResolver } from "../../../modules/notification/persistence/dynamodb-recipient-resolver.js";
+import { organizationKey, type Organization } from "../../../modules/organization/domain/organization.js";
 
 /** Adapter somente-leitura: subject nunca importa expiration-store.ts/expiration-service.ts
  * diretamente no código de produção - só aqui, no composition root, onde plugar módulos é
@@ -76,7 +77,7 @@ export function buildDocumentRequestDeps(
     initialInviteEmailEnabled,
     emailProvider,
     guestUploadBaseUrl,
-    resolveRequesterDisplayName: (input) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
+    resolveOrganizationDisplayName: (input) => resolveOrganizationDisplayName(client, tableName, input.tenantId),
   });
   return { store, requests };
 }
@@ -97,7 +98,7 @@ export function buildGuestSubmissionDeps(client: DynamoDBDocumentClient, tableNa
     signer,
     rateLimiter,
     guestTokenPepper,
-    resolveRequesterDisplayName: (input) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
+    resolveOrganizationDisplayName: (input) => resolveOrganizationDisplayName(client, tableName, input.tenantId),
   });
   return { store, guestSubmissions };
 }
@@ -128,15 +129,14 @@ async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableNam
   return result?.active ? result.email : undefined;
 }
 
-/** W5-01/GTR-01 (D-060): mesma consulta pontual de `User`/`PROFILE` de `resolveInternalUserEmail`
- * acima, lendo `requesterDisplayName` em vez de `emailNormalized` - mesma duplicação deliberada
- * (wiring de composition root, não lógica de negócio a compartilhar entre módulos). */
-async function resolveRequesterDisplayName(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
-  const result = await client.send(
-    new GetCommand({ TableName: tableName, Key: { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "PROFILE" }, ConsistentRead: true }),
-  );
-  const profile = result.Item as { requesterDisplayName?: string } | undefined;
-  return profile?.requesterDisplayName;
+/** D-129 (GTR-01 supersession): "quem está solicitando" guest-facing agora vem de
+ * `Organization.displayName`, nunca mais de `UserProfile.requesterDisplayName` (campo removido
+ * por completo, ver `docs/architecture/reviews/gtr-01-supersession-scoping/`). Assinatura só
+ * `tenantId` - nenhum call site real precisava do `userId` além de endereçar o mesmo tenant. */
+async function resolveOrganizationDisplayName(client: DynamoDBDocumentClient, tableName: string, tenantId: string): Promise<string | undefined> {
+  const result = await client.send(new GetCommand({ TableName: tableName, Key: organizationKey(tenantId), ConsistentRead: true }));
+  const organization = result.Item as Organization | undefined;
+  return organization?.displayName;
 }
 
 /** M10 cluster 4 (D-039/D-046/D-048): worker de dispatch+delivery fundido -
@@ -162,7 +162,7 @@ export function buildDocumentChasingDispatchDeps(
     guestTokenPepper,
     emailProvider,
     resolveInternalUserEmail: (input: { tenantId: string; userId: string }) => resolveInternalUserEmail(client, tableName, input.tenantId, input.userId),
-    resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => resolveRequesterDisplayName(client, tableName, input.tenantId, input.userId),
+    resolveOrganizationDisplayName: (input: { tenantId: string }) => resolveOrganizationDisplayName(client, tableName, input.tenantId),
     guestUploadBaseUrl,
   };
 }

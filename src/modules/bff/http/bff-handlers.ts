@@ -194,7 +194,10 @@ export async function handleCreateOrganization(deps: BffHttpDeps, req: BffHttpRe
     }
 
     const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
-    const displayName = typeof body["displayName"] === "string" ? body["displayName"] : undefined;
+    // D-129 (GTR-01 supersession): trimmed here too (defense in depth at the HTTP boundary,
+    // consistent with other BFF handlers) - CreateOrganizationService.buildCreateEntries() is
+    // still the real authority and independently rejects blank input.
+    const displayName = typeof body["displayName"] === "string" ? body["displayName"].trim() : undefined;
     const timezone = typeof body["timezone"] === "string" ? body["timezone"] : undefined;
     if (!displayName || !timezone) {
       throw new ValidationError("displayName and timezone are required.");

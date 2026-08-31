@@ -45,7 +45,7 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
   let subjectId: string;
   let assignmentId: string;
 
-  async function makeService(overrides: Partial<{ initialInviteEmailEnabled: boolean; resolveRequesterDisplayName: (input: { tenantId: string; userId: string }) => Promise<string | undefined> }> = {}): Promise<DocumentRequestService> {
+  async function makeService(overrides: Partial<{ initialInviteEmailEnabled: boolean; resolveOrganizationDisplayName: (input: { tenantId: string }) => Promise<string | undefined> }> = {}): Promise<DocumentRequestService> {
     return new DocumentRequestService({
       store,
       tableName: "MainTable",
@@ -55,7 +55,7 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
       initialInviteEmailEnabled: overrides.initialInviteEmailEnabled ?? true,
       emailProvider,
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
-      resolveRequesterDisplayName: overrides.resolveRequesterDisplayName,
+      resolveOrganizationDisplayName: overrides.resolveOrganizationDisplayName,
       now: () => NOW,
     });
   }
@@ -90,8 +90,8 @@ describe("DocumentRequestService - automated initial invite (D-049)", () => {
     expect(link).toContain(result.guestToken);
   });
 
-  it("W5-01/GTR-01: resolves the caller's own UserProfile.requesterDisplayName into the initial-invite email context", async () => {
-    const service = await makeService({ resolveRequesterDisplayName: async (input) => (input.userId === "user-1" ? "Empresa Alfa Ltda." : undefined) });
+  it("D-129 (GTR-01 supersession): resolves the caller's own Organization.displayName into the initial-invite email context", async () => {
+    const service = await makeService({ resolveOrganizationDisplayName: async (input) => (input.tenantId === TENANT ? "Empresa Alfa Ltda." : undefined) });
     await service.createDocumentRequest(ctx(), subjectId, assignmentId, { recipientEmail: "vendor@example.com", initialInviteDelivery: "EMAIL" });
     expect(emailProvider.sent[0]?.renderContext["requesterName"]).toBe("Empresa Alfa Ltda.");
   });

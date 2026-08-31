@@ -1,0 +1,11 @@
+You are the independent reviewer (Codex) in a Claude<->Codex blind-grading protocol for this repo (expiration-tracker, see AGENTS.md section 4). Read the proposal at docs/architecture/reviews/gtr-01-supersession-scoping/round-1-claude-proposal.md (Round 1 of a >=3-round protocol, minimum passing grade 9.0/10 without rounding, no averaging).
+
+Task: independently evaluate the proposal to REPLACE UserProfile.requesterDisplayName with Organization.displayName as the sole guest-facing "who is requesting this document" identity (GTR-01 supersession), removing the old field/endpoints entirely rather than deprecating or keeping them as a coexisting override.
+
+Do your own verification against the real code in this repo (do not just trust the proposal's claims) - in particular:
+- grep for requesterDisplayName across src/ and frontend/ to confirm the call-site inventory in the proposal is complete and accurate, and confirm there really is no frontend UI consuming GET/PUT /profile.
+- check infra/ for any Terraform-defined API Gateway route tied to /profile that would need removal alongside the code.
+- check whether Organization.displayName is genuinely always-present (required at creation) as claimed.
+- consider real counterarguments: is there a legitimate case for per-user override coexisting with org name (e.g. a specific staff member wants their name shown, not the company name) that the proposal dismisses too quickly? Is "REPLACE not coexist" actually the right trust/UX call for this product, or does it need a fallback/override path?
+
+Write your independent grade (0-10, one decimal place, no rounding to false precision) and detailed critique to a new file: docs/architecture/reviews/gtr-01-supersession-scoping/round-1-codex-critique.txt. Structure: (1) your own grade with justification, (2) any real bugs/gaps/bloquantes found (cite exact file:line), (3) whether you agree with REPLACE vs coexist and why, (4) whether the migration/removal plan (profile-handlers.ts, profile-service.ts, user-repository.ts field+method, authorization.ts action, any Terraform route) is complete and safe to execute directly in this session. Be genuinely critical - do not just validate. This is a real engineering decision that will be implemented this session if the protocol converges to >=9.0/10 from both sides.

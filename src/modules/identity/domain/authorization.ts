@@ -48,14 +48,6 @@ export type Action =
   | "import:create"
   | "import:read"
   | "import:commit"
-  // W5-01/GTR-01 (D-060): a user editing their own UserProfile.requesterDisplayName, the name
-  // shown to a guest as "who is requesting this document" - tenant-scoped WRITE, not ADMIN,
-  // since any member can be the one creating a RequirementAssignment/DocumentRequest and
-  // should be able to set it. Narrower than notification:configure (READ_ONLY_ROLES, B2B-7):
-  // this one is tied to the ability to ACT (create a RequirementAssignment), so VIEWER - who
-  // never can - is correctly excluded here, unlike notification:configure's "receive" framing.
-  | "profile:read"
-  | "profile:update"
   // B2B-8 (D-099, docs/architecture/multi-user-b2b-wave-b2b8-scope.md): Invitations/Team.
   // Pesquisa (GitHub/Slack/Linear/Notion, 2026-08-30) convergiu em ADMIN-tier-e-acima gerencia
   // membros (nunca MEMBER/VIEWER), e só OWNER promove/demove o próprio tier OWNER (Slack:
@@ -139,12 +131,10 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "extraction:confirm": WRITE_ROLES,
   // B2B-7 bug fix (not an ADMIN-vs-OWNER call): this action gates both read and update of a
   // per-user preference (ctx.principal.userId-keyed, notification-preferences-service.ts),
-  // never tenant-wide config. Unlike profile:update (WRITE_ROLES, D-060 - tied to the ability
-  // to ACT, since only a role that can create a RequirementAssignment needs a display name),
-  // this is tied to the ability to RECEIVE a reminder - assigneeUserId is never role-checked,
-  // so a VIEWER can legitimately be a notification recipient and must be able to configure it
-  // for themself. Reuses READ_ONLY_ROLES (already "any real Membership") rather than adding a
-  // 5th constant with the same 4 members.
+  // never tenant-wide config. This is tied to the ability to RECEIVE a reminder -
+  // assigneeUserId is never role-checked, so a VIEWER can legitimately be a notification
+  // recipient and must be able to configure it for themself. Reuses READ_ONLY_ROLES (already
+  // "any real Membership") rather than adding a 5th constant with the same 4 members.
   "notification:configure": READ_ONLY_ROLES,
   "audit:read": READ_ONLY_ROLES,
   "system:ping": READ_ONLY_ROLES,
@@ -162,8 +152,6 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "import:create": WRITE_ROLES,
   "import:read": READ_ONLY_ROLES,
   "import:commit": WRITE_ROLES,
-  "profile:read": READ_ONLY_ROLES,
-  "profile:update": WRITE_ROLES,
   "membership:invite": ADMIN_ROLES,
   "membership:revoke-invitation": ADMIN_ROLES,
   "membership:list-invitations": ADMIN_ROLES,

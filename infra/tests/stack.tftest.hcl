@@ -278,10 +278,6 @@ run "gsi4_access_granted_only_to_identity_context_lambdas" {
     error_message = "NotificationsHandler must have a policy referencing GSI4"
   }
   assert {
-    condition     = anytrue([for p in module.profile_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
-    error_message = "ProfileHandler must have a policy referencing GSI4"
-  }
-  assert {
     condition     = anytrue([for p in module.memberships_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
     error_message = "MembershipsHandler must have a policy referencing GSI4"
   }
