@@ -82,12 +82,12 @@ module "items_handler" {
 module "export_handler" {
   source = "./modules/lambda-function"
 
-  function_name          = "${local.name_prefix}-export-handler"
-  handler_name            = "export-handler"
-  source_dir              = "${local.dist_dir}/export-handler"
-  adot_layer_arn          = var.adot_layer_arn
-  environment_variables   = local.common_env
-  timeout_seconds         = 25
+  function_name         = "${local.name_prefix}-export-handler"
+  handler_name          = "export-handler"
+  source_dir            = "${local.dist_dir}/export-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  timeout_seconds       = 25
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
