@@ -1,0 +1,75 @@
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a05963-5343-74d3-a153-e9bb6939e8c7
+--------
+user
+Rodada 2 (nota cega), protocolo Claude↔Codex, AGENTS.md §4, gate >=9.0 sem arredondar. Você achou na Rodada 1 (nota 8,7) uma inconsistência real: "significado reutilizável exige segundo consumidor" (Decisão 1, Button lg) versus "implementar slow junto do primeiro consumidor" (Decisão 2, motion) mais um gatilho puramente numérico (">160ms") para motion. Abaixo a revisão do Claude corrigindo os dois pontos com um critério único. Avalie SÓ se a correção resolve seu achado (não reabra pontos novos fora do que você mesmo levantou, a menos que seja um erro factual nítido). Dê sua nota cega (você não viu a nota do Claude para esta rodada). Max 200 palavras.
+
+--- REVISÃO CLAUDE RODADA 2 ---
+# Wave 1b — Button `lg` / motion `slow` — Rodada 2 (revisão Claude)
+
+Achado real do Codex Rodada 1 (8,7/10): inconsistência entre "significado reutilizável exige
+segundo consumidor real" (Decisão 1) e "implementar `--duration-slow` junto do primeiro consumidor"
+(Decisão 2); gatilho de `slow` definido por número (">160ms") em vez de categoria semântica de
+movimento. Ambos corrigidos abaixo — mesma conclusão (não implementar agora), critério agora
+consistente e não-numérico.
+
+## Decisão 1 — Button `lg` (inalterada)
+
+**NÃO implementar agora.** Critério único, aplicado às duas decisões: implementar quando existir
+um caso de uso real e concreto (não hipotético) com semântica clara — nunca por antecipação
+especulativa, e nunca automaticamente no primeiro caso que apareça se esse caso não tiver
+semântica própria clara. Hoje não existe nenhum caso de uso real (nem primeiro, nem segundo) para
+`Button lg` — nenhuma tela nomeia um CTA mobile full-width/touch-primary. WCAG 2.5.8 (Target Size)
+é mencionado apenas como confirmação de que a ausência da variante não cria um problema de
+acessibilidade agora, nunca como razão suficiente por si só — a razão suficiente é a ausência de
+caso de uso real.
+
+## Decisão 2 — motion `--duration-slow` (critério corrigido)
+
+**NÃO adicionar agora**, com o critério corrigido: o gatilho não é "uma transição que precise de
+>160ms" (número sozinho não estabelece semântica — qualquer 161ms arbitrário satisfaria isso
+formalmente, achado correto do Codex). O gatilho real é a **primeira vez que o sistema implementar
+uma categoria de movimento genuinamente distinta das existentes** — entrada/saída de uma superfície
+sobreposta (modal, drawer, popover) que a própria arquitetura do catálogo (`design-system.md` §21,
+§76-77) já nomeia como merecedora de tratamento de duração mais deliberado que uma transição de
+hover/foco inline (`fast`/`default`). Como nenhum desses componentes existe ainda no código real
+(Modal/Dialog/Drawer/Popover não implementados — ver escopo desta mesma sessão), a categoria
+semântica não existe hoje, não apenas o número. O token nasce no mesmo commit que o primeiro desses
+componentes, com o valor validado contra `prefers-reduced-motion` (que já existe como requisito
+em `design-system.md` §21), não antes.
+
+codex
+**Nota cega: 9,7/10 — aprovado.**
+
+A correção resolve integralmente o achado da Rodada 1:
+
+- Substitui a exigência inconsistente de “segundo consumidor” por um critério único: caso de uso real, concreto e com semântica própria clara.
+- O token `slow` deixa de ser acionado por um limiar numérico arbitrário e passa a representar uma categoria semanticamente distinta de movimento.
+- A criação no primeiro componente sobreposto é coerente porque esse componente materializa a categoria; não é mera antecipação baseada na contagem de consumidores.
+- `Button lg` e motion agora recebem o mesmo tratamento: ausência de implementação enquanto não existir necessidade real semanticamente demonstrada.
+
+A formulação “primeiro desses componentes” permanece subordinada à existência da categoria genuinamente distinta, portanto não reintroduz automatismo indevido. O vínculo com `prefers-reduced-motion` também torna o critério de implementação verificável.
+
+Gate `>=9,0` atendido sem arredondamento.
+tokens used
+8.733
+**Nota cega: 9,7/10 — aprovado.**
+
+A correção resolve integralmente o achado da Rodada 1:
+
+- Substitui a exigência inconsistente de “segundo consumidor” por um critério único: caso de uso real, concreto e com semântica própria clara.
+- O token `slow` deixa de ser acionado por um limiar numérico arbitrário e passa a representar uma categoria semanticamente distinta de movimento.
+- A criação no primeiro componente sobreposto é coerente porque esse componente materializa a categoria; não é mera antecipação baseada na contagem de consumidores.
+- `Button lg` e motion agora recebem o mesmo tratamento: ausência de implementação enquanto não existir necessidade real semanticamente demonstrada.
+
+A formulação “primeiro desses componentes” permanece subordinada à existência da categoria genuinamente distinta, portanto não reintroduz automatismo indevido. O vínculo com `prefers-reduced-motion` também torna o critério de implementação verificável.
+
+Gate `>=9,0` atendido sem arredondamento.
