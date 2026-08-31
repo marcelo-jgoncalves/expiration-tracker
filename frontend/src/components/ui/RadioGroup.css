@@ -1,0 +1,110 @@
+/* RadioGroup (design-system.md §29). Same visual language as Checkbox.css (visually-hidden
+   native input + a drawn sibling) but round, and mutually exclusive within one `name` rather
+   than tri-state. */
+
+.ui-radio-group {
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--space-6);
+}
+
+.ui-radio-group__legend {
+  padding: 0;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-300);
+  margin-bottom: var(--space-3);
+  color: var(--color-text-primary);
+}
+
+.ui-radio-group__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ui-radio-group--invalid .ui-radio__dot {
+  border-color: var(--color-border-danger);
+}
+
+.ui-radio__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-size-min);
+  cursor: pointer;
+  font-size: var(--font-size-300);
+  color: var(--color-text-primary);
+}
+
+.ui-radio__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ui-radio__dot {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: var(--border-width-thin) solid var(--color-border-interactive);
+  background: var(--color-surface-default);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-radio__dot::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-action-primary);
+  transform: scale(0);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.ui-radio__input:checked + .ui-radio__dot {
+  border-color: var(--color-action-primary);
+}
+
+.ui-radio__input:checked + .ui-radio__dot::after {
+  transform: scale(1);
+}
+
+.ui-radio__input:focus-visible + .ui-radio__dot {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.ui-radio__input:disabled + .ui-radio__dot {
+  background: var(--color-surface-disabled);
+  border-color: var(--color-border-default);
+}
+
+.ui-radio__input:disabled ~ .ui-radio__text {
+  color: var(--color-text-disabled);
+}
+
+.ui-radio__label:has(.ui-radio__input:disabled) {
+  cursor: not-allowed;
+}
+
+.ui-radio__hint {
+  margin: var(--space-2) 0 0 calc(20px + var(--space-3));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+}
+
+@media (forced-colors: active) {
+  .ui-radio__dot {
+    border-color: ButtonBorder;
+  }
+}
