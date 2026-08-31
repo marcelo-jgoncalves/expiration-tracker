@@ -298,8 +298,21 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.memberships) == 8
-    error_message = "Expected exactly 8 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings)"
+    condition     = length(aws_apigatewayv2_route.memberships) == 9
+    error_message = "Expected exactly 9 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings, close_organization)"
+  }
+
+  # W3-07 (D-124): the organization-closure route. This assertion exists specifically because
+  # D-117 and D-120 were both REAL production bugs of exactly one shape - a handler shipped and
+  # its API Gateway route silently never added, so every call returned the gateway's own 404
+  # without ever reaching the Lambda, undetected until a human clicked the button months later.
+  # A dedicated assertion, not just the count above, so the failure message names the cause.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "POST /organizations/close",
+    )
+    error_message = "POST /organizations/close route must exist - CloseOrganizationService is unreachable without it (D-117/D-120 bug class)"
   }
 
   # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same Lambda, new route.

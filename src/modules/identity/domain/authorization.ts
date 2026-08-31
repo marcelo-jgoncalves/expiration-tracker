@@ -79,7 +79,13 @@ export type Action =
   // tier as "tenant:configure-document-request-delivery" above — workspace identity/settings
   // that reads externally (invitation emails, guest-facing name) is consistently kept OWNER-only
   // in this codebase, not paritary with ADMIN like most other membership-management actions.
-  | "organization:update-settings";
+  | "organization:update-settings"
+  // W3-07 purge orchestrator (D-124, implementing D-121): closing the organization starts the
+  // physical, irreversible tenant purge (`ACTIVE -> DELETING -> ... -> DELETED`). OWNER_ROLES,
+  // the same tier as `tenant:configure-document-request-delivery`/`organization:update-settings`
+  // above — this is the single most destructive tenant-wide action in the system, so it can never
+  // be paritary with ADMIN the way ordinary content administration is.
+  | "organization:close";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -109,7 +115,8 @@ const WRITE_ROLES: ReadonlySet<Role> = new Set(["OWNER", "ADMIN", "MEMBER"]);
 const ADMIN_ROLES: ReadonlySet<Role> = new Set(["OWNER", "ADMIN"]);
 /** Owner-exclusive tier (B2B-7) — reserved for actions with tenant-wide external/reputational
  * impact (research: the class GitHub/Linear/Slack/Notion keep apart from ordinary content
- * admin). Today only `tenant:configure-document-request-delivery` belongs here. */
+ * admin). Members: `tenant:configure-document-request-delivery` (B2B-7),
+ * `organization:update-settings` (B2B-10), `organization:close` (W3-07/D-124). */
 const OWNER_ROLES: ReadonlySet<Role> = new Set(["OWNER"]);
 
 const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
@@ -158,6 +165,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "membership:remove": ADMIN_ROLES,
   "membership:leave": READ_ONLY_ROLES,
   "organization:update-settings": OWNER_ROLES,
+  "organization:close": OWNER_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

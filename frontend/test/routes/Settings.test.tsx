@@ -91,4 +91,60 @@ describe("Settings", () => {
 
     await waitFor(() => expect(screen.getByText(/único Owner desta organização/)).toBeInTheDocument());
   });
+
+  // W3-07 (D-124): the organization-closure section. The most destructive action in the product,
+  // so the confirmation gate is what these tests are actually about.
+  it("never shows the close-organization section to a non-OWNER", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Encerrar organização definitivamente/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the close button disabled until the organization id is typed exactly", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Identificador da organização/)).toBeInTheDocument());
+    const button = screen.getByRole("button", { name: /Encerrar organização definitivamente/ });
+
+    // Mutation that must fail: dropping the `disabled={!confirmed}` guard (or comparing against
+    // displayName instead of organizationId) makes the button clickable with the wrong text, which
+    // is the entire point of type-to-confirm for an irreversible action.
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Identificador da organização/), { target: { value: "Acme" } });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Identificador da organização/), { target: { value: "org-1" } });
+    expect(button).not.toBeDisabled();
+  });
+
+  it("posts the confirmation token to the close endpoint and reports the closure as started", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    postMock.mockResolvedValue({ organizationId: "org-1", status: "DELETING" });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Identificador da organização/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Identificador da organização/), { target: { value: "org-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Encerrar organização definitivamente/ }));
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/organizations/close", { confirmOrganizationId: "org-1" }));
+    await waitFor(() => expect(screen.getByText(/Encerramento iniciado/)).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  it("explains a CONFLICT as already-closing/closed rather than a generic failure", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    postMock.mockRejectedValue(new ApiError({ code: "ORGANIZATION_CLOSURE_UNAVAILABLE", category: "CONFLICT", message: "already closing", retryable: false }, 409));
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Identificador da organização/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Identificador da organização/), { target: { value: "org-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Encerrar organização definitivamente/ }));
+
+    await waitFor(() => expect(screen.getByText(/já está sendo encerrada/)).toBeInTheDocument(), { timeout: 3000 });
+  });
 });

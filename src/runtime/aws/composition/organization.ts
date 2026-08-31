@@ -11,6 +11,9 @@ import { ChangeMembershipRoleService } from "../../../modules/organization/appli
 import { RemoveMembershipService } from "../../../modules/organization/application/remove-membership.js";
 import { LeaveOrganizationService } from "../../../modules/organization/application/leave-organization.js";
 import { UpdateOrganizationSettingsService } from "../../../modules/organization/application/update-organization-settings.js";
+import { CloseOrganizationService } from "../../../modules/organization/application/close-organization.js";
+import { DynamoDbSystemMutationStore, DynamoDbTenantLifecycleReader } from "../../../shared/dynamodb/tenant-purge-scan.js";
+import { buildTenantPurgeExecutionStarter, createSfnPurgeClient } from "./tenant-purge.js";
 import { UlidIdGenerator } from "../ids.js";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 
@@ -34,6 +37,10 @@ export function buildMembershipDeps(
   sesFromAddress?: string,
   sesConfigurationSet?: string,
   invitationBaseUrl?: string,
+  /** W3-07 (D-124): the tenant-purge state machine ARN. Optional so every existing caller and test
+   * keeps working unchanged; when absent, `closeOrganization` is simply not built and the route is
+   * unreachable rather than silently starting nothing. */
+  tenantPurgeStateMachineArn?: string,
 ) {
   const organizations = new DynamoDbOrganizationStore(client, tableName);
   const ids = new UlidIdGenerator();
@@ -49,5 +56,13 @@ export function buildMembershipDeps(
   const removeMembership = new RemoveMembershipService(organizations, tableName, ids);
   const leaveOrganization = new LeaveOrganizationService(organizations, tableName, ids);
   const updateSettings = new UpdateOrganizationSettingsService(organizations, tableName);
-  return { createInvitation, revokeInvitation, acceptInvitation, listMembers, listInvitations, changeRole, removeMembership, leaveOrganization, updateSettings };
+  const closeOrganization = tenantPurgeStateMachineArn
+    ? new CloseOrganizationService(
+        new DynamoDbSystemMutationStore(client),
+        new DynamoDbTenantLifecycleReader(client, tableName),
+        buildTenantPurgeExecutionStarter(createSfnPurgeClient(), tenantPurgeStateMachineArn),
+        tableName,
+      )
+    : undefined;
+  return { createInvitation, revokeInvitation, acceptInvitation, listMembers, listInvitations, changeRole, removeMembership, leaveOrganization, updateSettings, closeOrganization };
 }

@@ -10,11 +10,16 @@
  * acceptable here specifically because tenant deletion is rare and asynchronous (not a hot path),
  * unlike every other read in this codebase, which is Query-only by design.
  */
-import { ScanCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { ScanCommand, DeleteCommand, GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import type { TransactWriteEntry } from "./occ.js";
+import type { SystemMutationStore } from "../tenant-lifecycle/system-mutation.js";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { isConditionalCheckFailed } from "./occ.js";
 import type { TenantPurgeCandidateSource, TenantScanItem, TenantScanPage } from "../../workers/tenant-purge/dynamo-tenant-purge.js";
 import type { SessionTablePurgeSource, SessionTableScanItem, SessionTableScanPage } from "../../workers/tenant-purge/session-table-tenant-purge.js";
+import type { TenantLifecycleScanPage, TenantLifecycleScanSource } from "../../workers/tenant-purge/tenant-purge-sweep.js";
+import type { TenantLifecycleReader } from "../../workers/tenant-purge/lifecycle-transition.js";
+import { tenantLifecycleKey, type TenantLifecycleRecord } from "../tenant-lifecycle/tenant-lifecycle-record.js";
 
 /** Main table: every tenant-owned row's PK is `TENANT#<tenantId>#...` (universal convention,
  * confirmed by exhaustive grep across `src/modules/**\/domain` — see
@@ -115,5 +120,83 @@ export class DynamoDbSessionTablePurgeSource implements SessionTablePurgeSource 
       if (isConditionalCheckFailed(err)) return { deleted: false };
       throw err;
     }
+  }
+}
+
+/**
+ * W3-07 purge orchestrator (D-124): the `SystemMutationStore` the purge and the lifecycle
+ * transitions commit through.
+ *
+ * Deliberately the narrowest possible adapter — `transactWrite` and nothing else. It exists here,
+ * in `shared/dynamodb/` (one of the four directories `.dependency-cruiser.cjs`'s
+ * `no-raw-dynamodb-writes-outside-lanes` rule permits raw write-command imports from), rather than
+ * reusing some module's store, because a tenant purge is cross-module by nature and no single
+ * module's persistence adapter is the right owner of it.
+ *
+ * This is NOT an escape hatch around the fence: `SystemMutation` never accepts caller-supplied
+ * entries — `system-mutation.ts` is the only code that turns an allowlisted operation into the
+ * entries handed to this method (see that file's header for why that shape is load-bearing).
+ *
+ * `TransactionCanceledException` must reach the caller intact so `isTransactionCanceled()` can
+ * classify it — same discipline every module store already documents; it is never wrapped.
+ */
+export class DynamoDbSystemMutationStore implements SystemMutationStore {
+  constructor(private readonly client: DynamoDBDocumentClient) {}
+
+  async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
+    await this.client.send(new TransactWriteCommand({ TransactItems: entries }));
+  }
+}
+
+/**
+ * W3-07 purge orchestrator (D-124): consistent point read of one tenant's `TenantLifecycleRecord`.
+ *
+ * `ConsistentRead: true` is not optional here and is not this codebase's general house style (most
+ * reads are deliberately eventually consistent). This read produces the `expectedVersion` that the
+ * OCC-fenced `transitionTenantLifecycle` write is conditioned on: an eventually-consistent read
+ * could return a stale version and turn every ordinary transition into a spurious conflict, which
+ * for the state machine means a retry storm rather than progress.
+ */
+export class DynamoDbTenantLifecycleReader implements TenantLifecycleReader {
+  constructor(
+    private readonly client: DynamoDBDocumentClient,
+    private readonly tableName: string,
+  ) {}
+
+  async read(tenantId: string): Promise<TenantLifecycleRecord | undefined> {
+    const result = await this.client.send(new GetCommand({ TableName: this.tableName, Key: tenantLifecycleKey(tenantId), ConsistentRead: true }));
+    return result.Item as TenantLifecycleRecord | undefined;
+  }
+}
+
+/**
+ * W3-07 purge orchestrator (D-124): discovery source for the recurring sweeper — every
+ * `TenantLifecycleRecord` in the main table, found by `SK = "LIFECYCLE"`.
+ *
+ * Explicit, accepted cost tradeoff (D-121 Rodada 2 Fix 5, stated rather than hidden): DynamoDB
+ * bills a Scan for every item read BEFORE the FilterExpression applies, so this costs
+ * proportionally to total table size, not to the far smaller number of lifecycle records. Accepted
+ * at this project's scale on the same proportionality argument the purge's own Scan already makes,
+ * and explicitly NOT a permanent answer — a sparse GSI keyed by lifecycle status is the named
+ * upgrade path and is itself a separate level-5 decision, deferred rather than smuggled in here.
+ */
+export class DynamoDbTenantLifecycleScanSource implements TenantLifecycleScanSource {
+  constructor(
+    private readonly client: DynamoDBDocumentClient,
+    private readonly tableName: string,
+    private readonly pageLimit = 500,
+  ) {}
+
+  async scanLifecycleRecords(exclusiveStartKey?: Record<string, unknown>): Promise<TenantLifecycleScanPage> {
+    const result = await this.client.send(
+      new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: "SK = :lifecycleSk",
+        ExpressionAttributeValues: { ":lifecycleSk": "LIFECYCLE" },
+        ExclusiveStartKey: exclusiveStartKey,
+        Limit: this.pageLimit,
+      }),
+    );
+    return { items: (result.Items ?? []) as TenantLifecycleRecord[], lastEvaluatedKey: result.LastEvaluatedKey };
   }
 }
