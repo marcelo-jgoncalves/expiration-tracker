@@ -1,0 +1,19 @@
+Rodada 5 (final esperada) do protocolo Claude-Codex, tema admin activity/audit log. Leia
+docs/architecture/reviews/admin-activity-log-scoping/round4-codex-output.txt (sua rodada 4,
+nota 8.70, unico achado restante: LastEvaluatedKey bruto do fetch de "limit" itens por partition
+nao e o mesmo que a posicao do ultimo item efetivamente CONSUMIDO apos o corte do merge -
+itens buscados mas descartados no merge seriam perdidos permanentemente) e agora
+docs/architecture/reviews/admin-activity-log-scoping/round5-claude-response.md (correcao: cursor
+por partition agora e a chave {PK,SK} real do ultimo item daquela partition que efetivamente
+entrou na pagina final devolvida ao cliente, nao o LastEvaluatedKey do fetch bruto -
+ExclusiveStartKey do DynamoDB aceita qualquer chave primaria valida, nao precisa ser um LEK
+devolvido; particoes que contribuiram zero itens nesta pagina mantem o cursor de entrada sem
+avancar; aceita releitura ocasional de itens ja buscados mas nao consumidos como trade-off
+consciente, nunca perda deterministica; tambem confirma explicitamente que o item de lock do
+export usa somente exportRequestId na chave, nunca timestamp).
+
+Avalie se esse ultimo achado foi corrigido de verdade. Se restar erro real, aponte
+objetivamente. De nota final 0-10 (duas casas, sem arredondar). Se >= 9.00, declare aprovado e
+resuma em 4-6 linhas a decisao final consolidada (escopo, RBAC, query pattern/cursor, retencao,
+gap de export/idempotencia, gap organization:close, superficie frontend, checklist E-014) para
+eu escrever o estado-final-consolidado.md. Termine com "NOTA: X.XX".

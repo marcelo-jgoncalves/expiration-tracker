@@ -1,0 +1,24 @@
+Rodada 4 (protocolo ja passou do minimo de 3, continuando ate ambos atingirem 9.00 sem
+arredondar, AGENTS.md secao 4) do tema admin activity/audit log. Leia
+docs/architecture/reviews/admin-activity-log-scoping/round3-codex-output.txt (sua rodada 3,
+nota 8.10, 4 achados: cursor com semantica inventada em vez do contrato real de
+LastEvaluatedKey/ExclusiveStartKey do DynamoDB, e paginacao global instavel nao corrigida so
+aceita; idempotencia do export por hash ator+dia colapsa exports legitimos repetidos no mesmo
+dia; comportamento descrito como falha-fechado quando na verdade e falha-aberta, e sequencia
+"CSV ja entregue" estava errada; URLs do checklist E-014 abreviadas nao verificaveis) e agora
+docs/architecture/reviews/admin-activity-log-scoping/round4-claude-response.md (treplica: cursor
+agora e literalmente o LastEvaluatedKey bruto do DynamoDB por partition, sem semantica nova;
+paginacao global instavel entre paginas reconhecida explicitamente como trade-off aceito -
+mesma consistencia eventual que toda outra list view do produto ja tem, nao um bug a corrigir;
+idempotencia trocada para exportRequestId gerado por requisicao (UUID), com suporte a header
+Idempotency-Key opcional do cliente estilo Stripe para o caso estreito de retry de
+infraestrutura, sem colapsar exports legitimos por dia; comportamento renomeado corretamente
+para fail-open, sequencia corrigida (grava auditoria condicional ANTES de enviar a resposta,
+mas nao bloqueia a resposta se a gravacao falhar); URLs completas do GitHub e Notion fornecidas,
+Slack removido do checklist por falta de segunda verificacao).
+
+Avalie se os 4 achados foram corrigidos de verdade. De nota final 0-10 (duas casas, sem
+arredondar). Se restar erro real, aponte objetivamente e isso implica outra rodada. Se >= 9.00
+dos dois lados, declare aprovado e resuma em 4-6 linhas a decisao final consolidada (escopo,
+RBAC, query pattern, retencao, gap de export, superficie frontend) para eu escrever o
+estado-final-consolidado.md. Termine com "NOTA: X.XX".
