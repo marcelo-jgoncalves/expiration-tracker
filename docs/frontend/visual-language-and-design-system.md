@@ -211,6 +211,8 @@ justificar abandonar a direção estética que o product owner escolheu.
 - **Reversibility**: alta. A direção vive quase inteiramente na camada semântica de
   `tokens.css`; trocar accent, densidade de linha ou raio é editar tokens, não componentes.
 
+**Atualização (D-135, 2026-08-31):** o accent blue-indigo `#2F4FD0` descrito nesta seção foi **revertido para roxo** (`#7C3AED` família, `purple.50..800`) por decisão direta de produto de Marcelo, após comparar o azul implementado com o protótipo visual original. A mudança ficou inteiramente na camada de primitivos (`frontend/src/styles/tokens.css`), exatamente como a nota de Reversibilidade abaixo previu; novo contraste medido e o registro completo da decisão (incluindo por que o protocolo Claude↔Codex foi dispensado) estão em `docs/architecture/decisions-log.md` D-135. O restante desta seção — a metodologia de comparação A/B, a taxonomia de status, a evidência de densidade — permanece válido; só o valor do accent mudou.
+
 **Sobre a referência.** Remindax é benchmark de **atmosfera** — clareza, leveza, aparência de
 SaaS profissional, hierarquia calma, densidade moderada, ruído baixo. Nada foi copiado: paleta,
 logotipo, ícones, ilustrações, textos, componentes proprietários e estrutura de tela são
