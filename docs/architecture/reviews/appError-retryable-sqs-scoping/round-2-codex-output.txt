@@ -1,0 +1,252 @@
+2026-08-31T17:54:32.026427Z ERROR codex_models_manager::manager: failed to load models cache: missing field `supports_parallel_tool_calls` at line 97 column 5
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a058f5-65c8-7f60-9fb2-f2995405eb0a
+--------
+user
+Voce e o revisor Codex na Rodada 2 do protocolo Claude-Codex (AGENTS.md secao 4) sobre AppError.retryable e comportamento de consumidores SQS. Leia docs/architecture/reviews/appError-retryable-sqs-scoping/round-1-claude-proposal.md e docs/architecture/reviews/appError-retryable-sqs-scoping/round-2-claude-revision.md (a revisao que responde aos seus 3 achados da Rodada 1: normativo excessivo sobre a AWS, duracao "minutos nao horas" nao demonstrada, taxonomia caracterizada como base segura demais para politica de branching). De uma nota cega de 0 a 10 para a decisao final revisada (nao implementar branching sobre retryable em nenhum handler SQS; D-128 fecha a pendencia de E-011 com essa decisao) e diga explicitamente se os 3 achados foram corrigidos adequadamente ou se ainda faltam ajustes antes do gate 9.0. Nao repita o que ja concordou na rodada 1, va direto aos pontos novos. Responda em portugues, comece a resposta com a linha "Nota cega Rodada 2: X/10".
+
+codex
+Vou ler os dois registros e avaliar estritamente as três correções da Rodada 2, sem reabrir os pontos já assentados.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw 'docs/architecture/reviews/appError-retryable-sqs-scoping/round-1-claude-proposal.md'; Get-Content -Raw 'docs/architecture/reviews/appError-retryable-sqs-scoping/round-2-claude-revision.md'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 174ms:
+# AppError.retryable â€” SQS consumer behavior: Round 1 (Claude proposal)
+
+## Contexto herdado (E-011, `docs/engineering/decisions-log.md`)
+
+Auditoria 2026-08-29 achou `AppError.retryable`/`isRetryable()` documentados de forma enganosa
+("drives SQS consumer behavior") quando, na prÃ¡tica, nenhum handler SQS real ramifica sobre o
+valor â€” todos reportam `batchItemFailure` incondicionalmente, deixando `maxReceiveCount`+DLQ
+nativos do SQS serem o Ã¡rbitro real de retry-vs-terminal. Marcelo decidiu na Ã©poca: manter o
+comportamento, sÃ³ corrigir a documentaÃ§Ã£o para ser honesta sobre o escopo atual (diagnÃ³stico/log,
+nÃ£o roteamento). Ficou registrado como pendÃªncia explÃ­cita: **deveria um handler SQS real passar
+a ramificar sobre `retryable`?** Se sim, o que acontece com uma mensagem `retryable:false`
+(poison message) â€” dropar com log de auditoria, mandar direto pro DLQ via chamada SQS explÃ­cita,
+outra coisa? Quais os riscos de modo de falha (uma classificaÃ§Ã£o errada agora causaria perda real
+de dado/processamento pulado, nÃ£o sÃ³ retry desperdiÃ§ado)?
+
+Autoridade ampliada (`docs/engineering/ai-governance.md` Â§1, 2026-08-31): este resÃ­duo de produto
+estÃ¡ explicitamente dentro do escopo que Marcelo autorizou Claude+Codex a decidir via protocolo
+completo.
+
+## Ground truth verificado (nÃ£o assumido)
+
+- `src/shared/errors/app-error.ts`: taxonomia consistente na prÃ¡tica â€” todo erro de validaÃ§Ã£o/
+  regra de negÃ³cio/autorizaÃ§Ã£o Ã© `retryable:false` (determinÃ­stico, mesma entrada falha do mesmo
+  jeito); `DependencyUnavailableError` default `true` (falha de dependÃªncia externa, correto:
+  throttle/timeout/5xx valem retry); a Ãºnica exceÃ§Ã£o real Ã© `ExtractionCommitFailedError`
+  (`DEPENDENCY_UNAVALABLE`, `retryable:true`) â€” correta por documentaÃ§Ã£o prÃ³pria: falha de commit
+  no DynamoDB apÃ³s sucesso do Textract Ã© candidata legÃ­tima a retry, nÃ£o um erro de payload.
+  **Nenhuma inconsistÃªncia real encontrada** â€” a classificaÃ§Ã£o existente jÃ¡ Ã© uma base sÃ£ para
+  uma polÃ­tica de branching, ao contrÃ¡rio do que a pergunta do prompt sugeriu verificar.
+- 3 handlers SQS lidos (`reminder-dispatch-handler.ts`, `email-delivery-handler.ts`,
+  `textract-task-handler.ts` por grep) confirmam o padrÃ£o idÃªntico: schema-invÃ¡lido jÃ¡ Ã‰ tratado
+  como "poison message" NO COMENTÃRIO, mas ainda reporta `batchItemFailure` (retry incondicional
+  atÃ© o DLQ nativo agir).
+- `infra/modules/sqs-worker-queue/main.tf`: `redrive_policy` com `maxReceiveCount` fixo em 5
+  (provado por `infra/tests/stack.tftest.hcl:318` e `sqs_worker_queue.tftest.hcl:20`), uniforme
+  em todas as filas deste mÃ³dulo. DLQ real jÃ¡ wireado, sem mecanismo paralelo a inventar.
+
+## Pesquisa externa â€” declaraÃ§Ã£o (`research-protocol.md`, E-014)
+
+**SIM** â€” poison-message handling em Lambda+SQS Ã© um padrÃ£o bem estabelecido, documentado pela
+prÃ³pria AWS com exemplos de referÃªncia.
+
+Fonte 1: AWS Lambda Developer Guide, "Handling errors for an SQS event source in Lambda"
+(`docs.aws.amazon.com/lambda/latest/dg/services-sqs-errorhandling.md`, conteÃºdo obtido via
+WebFetch 2026-08-31). Achado central: **todos** os exemplos de referÃªncia oficiais da AWS (10
+linguagens, incluindo TypeScript) capturam `catch (error)` genÃ©rico e reportam
+`batchItemFailure` incondicionalmente â€” nenhum exemplo oficial ramifica por tipo/classe de erro.
+A doc nÃ£o menciona nenhum padrÃ£o de "enviar direto pro DLQ via API" como recomendaÃ§Ã£o central;
+todo o mecanismo de retry-vs-terminal descrito ali Ã© `maxReceiveCount`+redrive policy nativo.
+Trecho literal: "When an invocation fails, Lambda attempts to retry the invocation while
+implementing a backoff strategy... If your function code caused the error, Lambda stops
+processing and retrying the invocation [current batch]... After your queue's visibility timeout
+runs out, the message reappears in the queue" â€” quem decide releitura vs. DLQ Ã© a fila (SQS),
+nunca o handler.
+
+Fonte 2: mesma pÃ¡gina, seÃ§Ã£o "Implementing partial batch responses" â€” confirma que
+`ReportBatchItemFailures` existe para nÃ£o reprocessar itens BEM-SUCEDIDOS do mesmo batch, nÃ£o
+para dar ao handler um mecanismo de terminaÃ§Ã£o antecipada por classificaÃ§Ã£o de erro.
+
+**ConclusÃ£o da pesquisa**: o padrÃ£o canÃ´nico da prÃ³pria AWS Ã© exatamente o que este codebase jÃ¡
+faz (branching zero, redrive nativo). Um branching explÃ­cito no handler para mandar
+`retryable:false` direto ao DLQ seria um desvio do padrÃ£o de referÃªncia, nÃ£o uma correÃ§Ã£o de
+gap â€” precisa justificar-se por um ganho concreto (menos ruÃ­do/latÃªncia de retry inÃºtil) que supere
+o risco novo que introduz (uma chamada SQS direta ao DLQ, e o modo de falha de classificaÃ§Ã£o
+errada virar perda real em vez de desperdÃ­cio).
+
+## Checklist ponderado (derivado da pesquisa)
+
+1. **Alinhamento com o padrÃ£o de referÃªncia AWS** (30%) â€” manter o mecanismo nativo
+   (`maxReceiveCount`+redrive) como Ãºnica fonte de verdade de retry-vs-terminal pontua alto;
+   inventar um caminho paralelo pontua baixo a menos que o ganho justifique o desvio.
+2. **Blast radius de uma classificaÃ§Ã£o errada** (25%) â€” uma mensagem transitÃ³ria mal classificada
+   como `retryable:false` sob um mecanismo de branch-and-drop-early causa perda real; sob o
+   mecanismo atual (sempre retry atÃ© `maxReceiveCount`), o pior caso de mÃ¡ classificaÃ§Ã£o Ã©
+   inofensivo (mensagem que jÃ¡ teria ido pro DLQ de qualquer forma, sÃ³ via caminho nativo).
+3. **Ganho real mensurÃ¡vel** (20%) â€” quantas retentativas sÃ£o efetivamente desperdiÃ§adas hoje?
+   Com `maxReceiveCount=5` e backoff da prÃ³pria Lambda (nÃ£o configurÃ¡vel por mensagem), o custo Ã©
+   pequeno (minutos, nÃ£o horas) e nenhuma fila deste sistema Ã© sensÃ­vel a latÃªncia de poison
+   message (nenhuma Ã© sync-user-facing).
+4. **Simplicidade/reversibilidade** (15%) â€” zero cÃ³digo novo pontua alto; qualquer chamada SQS
+   direta (`SendMessage` ao DLQ + delete manual da fonte) introduz um segundo caminho de escrita
+   Ã  fila DLQ, exigindo IAM extra, coordenaÃ§Ã£o de exclusÃ£o dupla (a mensagem original ainda existe
+   atÃ© `batchItemFailure` decidir; mandar cÃ³pia ao DLQ sem tirar da fonte duplica).
+5. **ConsistÃªncia entre as 10+ filas do sistema** (10%) â€” qualquer polÃ­tica deve valer
+   uniformemente (mesmo mÃ³dulo Terraform, mesmo `maxReceiveCount=5`), nÃ£o caso a caso.
+
+## Proposta Round 1
+
+**NÃ£o implementar branching ativo sobre `retryable` em nenhum handler SQS.** Fechar a pendÃªncia de
+E-011 como decisÃ£o explÃ­cita (nÃ£o mais "pendente"), com o seguinte raciocÃ­nio registrado:
+
+1. O padrÃ£o de referÃªncia da prÃ³pria AWS confirma (Fonte 1/2 acima) que retry-vs-terminal deve
+   ser decidido pelo mecanismo nativo da fila, nÃ£o por um `if` no handler â€” o codebase jÃ¡ segue
+   esse padrÃ£o.
+2. `maxReceiveCount=5` jÃ¡ limita o blast radius de uma mensagem verdadeiramente poison a 5
+   tentativas (minutos, nÃ£o horas) antes do DLQ nativo assumir â€” o "desperdÃ­cio" que uma
+   ramificaÃ§Ã£o ativa eliminaria Ã© pequeno e nÃ£o observado como problema real hoje (nenhum
+   incidente de fila saturada por poison message neste projeto).
+3. O risco novo que o branching introduziria (uma classificaÃ§Ã£o `retryable:false` errada agora
+   causando perda real de mensagem, em vez de apenas retries desperdiÃ§ados) Ã© assimÃ©trico e pior
+   do que o problema que resolveria â€” especialmente porque a superfÃ­cie de erro `retryable:false`
+   inclui categorias amplas (`VALIDATION`, `BUSINESS_RULE`, `AUTHORIZATION`) cuja classificaÃ§Ã£o Ã©
+   feita para contexto HTTP sÃ­ncrono (M1), nunca auditada pensando em "Ã© seguro derrubar esta
+   mensagem de fila permanentemente".
+4. Nenhuma fila deste sistema hoje Ã© sensÃ­vel a latÃªncia de poison message a ponto de justificar a
+   complexidade/IAM extra de um roteamento explÃ­cito ao DLQ.
+
+**AÃ§Ã£o concreta**: fechar E-011 com uma entrada nova no decisions-log (`D-128`,
+`docs/architecture/decisions-log.md`, mesmo padrÃ£o de D-124/D-125/D-127), reescrever o comentÃ¡rio
+de `AppError`/`isRetryable()` em `app-error.ts` para declarar a decisÃ£o como fechada (nÃ£o mais
+"pendÃªncia", mas "decidido: nÃ£o branch, ver D-128"), sem nenhuma mudanÃ§a de comportamento de
+runtime. Nenhuma mudanÃ§a nos handlers SQS alÃ©m do comentÃ¡rio/doc.
+
+## Fora de escopo (explÃ­cito)
+
+- Qualquer mudanÃ§a em `maxReceiveCount`/redrive policy (permanece 5, decisÃ£o anterior nÃ£o
+  revisitada aqui).
+- Powertools for AWS Lambda batch processor (mencionado pela doc oficial como utilitÃ¡rio) â€” fora
+  de escopo, mudanÃ§a de dependÃªncia nÃ£o solicitada.
+- Revisitar a classificaÃ§Ã£o `retryable` de qualquer subclasse individual de `AppError` â€” auditada
+  e considerada consistente (ver Ground truth acima), nenhuma mudanÃ§a proposta.
+
+# AppError.retryable â€” SQS consumer behavior: Round 2 (Claude revision)
+
+EndereÃ§a os 3 achados reais do Codex Round 1 (rÃ©gua 8,5/design 8,7, ambos abaixo do gate).
+
+## Achado 1 â€” reformulaÃ§Ã£o normativa corrigida
+
+Aceito integralmente. Trocando a alegaÃ§Ã£o "AWS prescreve exclusividade do redrive nativo" por:
+**a AWS nÃ£o oferece, nos exemplos/documentaÃ§Ã£o consultados (`services-sqs-errorhandling.html`,
+`with-sqs.html`, WebFetch 2026-08-31), nenhum padrÃ£o de classificaÃ§Ã£o de erro por tipo que
+justifique adicionar um mecanismo de branching aqui â€” todo exemplo de referÃªncia oficial
+(10 linguagens) reporta qualquer exceÃ§Ã£o capturada como `batchItemFailure` incondicional, e a
+doc reconhece `DeleteMessage` explÃ­cito como a via alternativa quando um consumidor QUER
+terminar uma mensagem sem esperar redrive, mas nÃ£o a recomenda para classificaÃ§Ã£o de erro.**
+CritÃ©rio 1 do checklist renomeado: "AderÃªncia aos mecanismos documentados e ausÃªncia de
+necessidade comprovada para um caminho adicional" (peso mantido em 30%).
+
+## Achado 2 â€” duraÃ§Ã£o nÃ£o demonstrada, removida
+
+Aceito. `infra/modules/sqs-worker-queue/main.tf:20` (`visibility_timeout_seconds =
+consumer_timeout_seconds * 6`) varia por fila conforme o timeout do consumidor â€” nenhuma duraÃ§Ã£o
+fixa Ã© demonstrÃ¡vel a partir sÃ³ do `maxReceiveCount`. Frase revisada para D-128: "O nÃºmero de
+recepÃ§Ãµes Ã© limitado a 5 antes do redrive (`maxReceiveCount`, uniforme em todas as filas deste
+mÃ³dulo); o tempo real atÃ© o DLQ depende da visibilidade configurada por fila e do comportamento
+operacional (backoff) da Lambda, nÃ£o de uma duraÃ§Ã£o fixa." O argumento econÃ´mico (retries
+desperdiÃ§ados sÃ£o limitados e nÃ£o catastrÃ³ficos) permanece vÃ¡lido sem afirmar uma janela em
+minutos.
+
+## Achado 3 â€” taxonomia como metadado diagnÃ³stico, nÃ£o base seguraÃ§ para polÃ­tica de descarte
+
+Aceito, achado mais forte que o meu original. `toAppError()` (`app-error.ts`, funÃ§Ã£o exportada no
+fim do arquivo) converte QUALQUER exceÃ§Ã£o nÃ£o reconhecida como `AppError` em `InternalError`
+(`retryable:false`) â€” um timeout de rede inesperado, um erro do AWS SDK nÃ£o capturado
+explicitamente, ou um bug de integraÃ§Ã£o que escape de qualquer `catch` mais especÃ­fico, todos
+colapsam para "terminal". Isso significa que, sob um regime de branching ativo, o prÃ³prio
+mecanismo de normalizaÃ§Ã£o geral do codebase produziria falsos-terminais estruturalmente â€” nÃ£o Ã©
+um detalhe de uma subclasse mal calibrada, Ã© o comportamento do fallback central. Linguagem
+corrigida: `retryable` Ã© **metadado diagnÃ³stico contextual coerente**, nÃ£o uma polÃ­tica
+comprovadamente segura de acknowledgement/descarte de mensagem de fila. CritÃ©rio 2 do checklist
+passa a nomear os dois modos de erro de classificaÃ§Ã£o explicitamente:
+- falso-terminal (uma mensagem retryable classificada `false`): sob o regime atual, nenhum efeito
+  extra (ainda seria retentada 5x pelo SQS de qualquer forma, porque nÃ£o hÃ¡ branching); sob um
+  regime de branch-and-drop, perda real/pulo de processamento.
+- falso-retryable (uma mensagem terminal classificada `true`): atÃ© 5 tentativas inÃºteis e DLQ
+  normal â€” sempre limitado e recuperÃ¡vel, em qualquer regime.
+
+Essa assimetria (o pior caso de um regime SEM branching Ã© sempre limitado; o pior caso de um
+regime COM branching pode ser perda real) Ã© o argumento central da proposta â€” mais forte do que
+"nenhum incidente hoje", que era o argumento fraco do Round 1.
+
+## Escopo documental â€” inventÃ¡rio honesto
+
+Aceito. Existem mais consumidores SQS alÃ©m dos 3 lidos linha a linha (import, malware,
+extraÃ§Ã£o/Textract, upload, document chasing, confirmados por `grep -rl "SQSEvent"
+src/runtime/aws/handlers/`). D-128 nÃ£o afirma mais "10+ filas confirmadas por leitura" â€” afirma
+"o padrÃ£o (schema-validate â†’ `batchItemFailure` incondicional em erro) Ã© estrutural, decorrente de
+como `SQSBatchResponse`/`batchItemFailures` funciona no SDK (`aws-lambda` types) mais o costume
+jÃ¡ formalizado neste codebase (`reminder-dispatch-handler.ts`/`email-delivery-handler.ts` como
+referÃªncia), nÃ£o uma alegaÃ§Ã£o de ter lido cada handler individualmente."
+
+## ComentÃ¡rios existentes â€” correÃ§Ã£o de redaÃ§Ã£o
+
+Aceito a correÃ§Ã£o proposta. Os comentÃ¡rios em `reminder-dispatch-handler.ts` e
+`email-delivery-handler.ts` que dizem "poison message... not a retryable failure" enquanto ainda
+adicionam o item a `batchItemFailures` sÃ£o logicamente contraditÃ³rios lidos ao pÃ© da letra.
+Reescrita planejada (Round 3/implementaÃ§Ã£o): "deterministic poison message â€” will fail identically
+on redelivery, but still retried up to `maxReceiveCount` and redriven under the uniform native SQS
+policy (D-128: no branching on `retryable` in any SQS consumer)."
+
+## Proposta revisada (decisÃ£o inalterada, fundamentaÃ§Ã£o corrigida)
+
+MantÃ©m a conclusÃ£o do Round 1: **nenhum branching sobre `retryable` em nenhum handler SQS,
+nenhuma chamada direta a DLQ, nenhuma mudanÃ§a de runtime** â€” mas agora apoiada em:
+1. AusÃªncia de padrÃ£o de referÃªncia que justifique o mecanismo adicional (nÃ£o mais "AWS proÃ­be").
+2. Assimetria de blast radius (falso-terminal sob branching pode perder dado; sob o regime atual,
+   nunca) como argumento central, nÃ£o "sem incidente hoje".
+3. `retryable` explicitamente redocumentado como metadado diagnÃ³stico, nunca uma polÃ­tica de
+   descarte comprovadamente segura â€” a normalizaÃ§Ã£o de `toAppError()` Ã© evidÃªncia ativa CONTRA
+   uma polÃ­tica de descarte, nÃ£o apenas neutra.
+4. ReavaliaÃ§Ã£o futura condicionada a evidÃªncia operacional concreta (saturaÃ§Ã£o de fila, custo
+   material, atraso mensurÃ¡vel), nÃ£o a uma auditoria estÃ¡tica como esta.
+
+`D-128` (`docs/architecture/decisions-log.md`) registra isso; comentÃ¡rios em `app-error.ts` e nos
+2 handlers lidos diretamente sÃ£o corrigidos para a redaÃ§Ã£o nÃ£o-contraditÃ³ria acima.
+
+
+codex
+Nota cega Rodada 2: 9,6/10
+
+Os três achados foram corrigidos adequadamente:
+
+1. A afirmação normativa excessiva foi substituída por uma conclusão epistemicamente correta: a documentação consultada não demonstra um padrão de branching por tipo, sem alegar que a AWS proíbe caminhos alternativos.
+
+2. “Minutos, não horas” foi removido e substituído pelo limite efetivamente comprovado — cinco recebimentos — reconhecendo corretamente que o tempo depende de visibility timeout e backoff operacional.
+
+3. A taxonomia foi rebaixada corretamente de “base segura para branching” para metadado diagnóstico contextual. A análise de `toAppError()` torna a decisão substancialmente mais forte: o fallback `InternalError(retryable:false)` cria falsos-terminais estruturais e inviabiliza seu uso seguro como política de descarte/acknowledgement.
+
+Não faltam ajustes antes do gate 9,0. A decisão revisada está aprovada: D-128 pode fechar E-011 sem branching sobre `retryable` nos consumidores SQS. A única precisão futura recomendável é preferir “pulo do processamento normal e antecipação indevida da terminalidade” a “perda real” quando a alternativa considerada enviar explicitamente ao DLQ, pois nesse caso a mensagem ainda pode ser recuperável; isso não altera a decisão nem bloqueia o gate.
+tokens used
+14.171
+Nota cega Rodada 2: 9,6/10
+
+Os três achados foram corrigidos adequadamente:
+
+1. A afirmação normativa excessiva foi substituída por uma conclusão epistemicamente correta: a documentação consultada não demonstra um padrão de branching por tipo, sem alegar que a AWS proíbe caminhos alternativos.
+
+2. “Minutos, não horas” foi removido e substituído pelo limite efetivamente comprovado — cinco recebimentos — reconhecendo corretamente que o tempo depende de visibility timeout e backoff operacional.
+
+3. A taxonomia foi rebaixada corretamente de “base segura para branching” para metadado diagnóstico contextual. A análise de `toAppError()` torna a decisão substancialmente mais forte: o fallback `InternalError(retryable:false)` cria falsos-terminais estruturais e inviabiliza seu uso seguro como política de descarte/acknowledgement.
+
+Não faltam ajustes antes do gate 9,0. A decisão revisada está aprovada: D-128 pode fechar E-011 sem branching sobre `retryable` nos consumidores SQS. A única precisão futura recomendável é preferir “pulo do processamento normal e antecipação indevida da terminalidade” a “perda real” quando a alternativa considerada enviar explicitamente ao DLQ, pois nesse caso a mensagem ainda pode ser recuperável; isso não altera a decisão nem bloqueia o gate.
