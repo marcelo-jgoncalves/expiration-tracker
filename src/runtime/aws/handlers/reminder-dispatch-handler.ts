@@ -43,10 +43,10 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         const parsed: unknown = JSON.parse(record.body);
         const { valid, errors } = defaultSchemaRegistry.validate(DISPATCH_COMMAND_SCHEMA_ID, parsed);
         if (!valid) {
-          // Schema-invalid payload is treated as a poison message, not a retryable failure -
-          // it can never become valid on retry. Still reported as a batch item failure so
-          // SQS's own maxReceiveCount+DLQ (not this handler) is what stops the retries
-          // (m3.5-runtime-design.md §10 "Poison message").
+          // Deterministic poison message - will fail identically on redelivery - but still
+          // reported as a batch item failure and retried up to maxReceiveCount like any other
+          // failure, redriven under the uniform native SQS policy (D-128: no handler in this
+          // codebase branches on retryable/poison classification; m3.5-runtime-design.md §10).
           logger.error("reminder-dispatch schema-invalid payload", { messageId: record.messageId, errors });
           batchItemFailures.push({ itemIdentifier: record.messageId });
           return;
@@ -61,11 +61,8 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         });
       } catch (err) {
         // errorCode/retryable logged for consistency with every other handler's pattern (e.g.
-        // textract-task-handler.ts) - see app-error.ts's isRetryable() doc comment for the
-        // honest, current scope of what `retryable` actually drives today (this handler still
-        // always reports a batch item failure regardless of the value - SQS's own
-        // maxReceiveCount+DLQ is the real terminal decision, not this field; logged here for
-        // diagnosis, not branching).
+        // textract-task-handler.ts) - D-128 decided no handler branches on this value; it is
+        // diagnostic metadata only (see app-error.ts's isRetryable() doc comment).
         const appErr = toAppError(err);
         logger.error("reminder-dispatch failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
         batchItemFailures.push({ itemIdentifier: record.messageId });

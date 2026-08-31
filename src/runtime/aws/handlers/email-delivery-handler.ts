@@ -1,6 +1,7 @@
 /** Real handler for EmailDeliveryWorker (SQS EmailDeliverQueue), M4. Schema-validates
  * against notification-email-deliver.v1.json before processing - same discipline as
- * reminder-dispatch-handler.ts (schema-invalid payload is a poison message, not retryable). */
+ * reminder-dispatch-handler.ts (schema-invalid payload is a deterministic poison message, still
+ * retried/redriven under the uniform native SQS policy - D-128, no branching on retryable). */
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildEmailDeliveryDeps } from "../composition/notification.js";
@@ -87,12 +88,9 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
             }
           } catch (err) {
             // errorCode/retryable logged for consistency with every other handler's pattern
-            // (e.g. textract-task-handler.ts) - see app-error.ts's isRetryable() doc comment
-            // for the honest, current scope of what `retryable` actually drives today (this
-            // handler, like every other SQS consumer in this codebase, still always reports a
-            // batch item failure regardless of the value - SQS's own maxReceiveCount+DLQ is
-            // the real terminal decision, not this field; logged here for diagnosis, not
-            // branching).
+            // (e.g. textract-task-handler.ts) - D-128 decided no handler branches on this
+            // value; it is diagnostic metadata only (see app-error.ts's isRetryable() doc
+            // comment).
             const appErr = toAppError(err);
             logger.error("email-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
             batchItemFailures.push({ itemIdentifier: record.messageId });

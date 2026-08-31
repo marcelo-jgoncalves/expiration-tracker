@@ -49,13 +49,20 @@ export interface AppErrorOptions {
  * Step Functions ASL's `Retry`/`Catch` blocks (document-extraction.asl.json) do real
  * conditional retry/terminal routing, but keyed on `errorType` (the thrown class's name)
  * matched statically at deploy time - never on this runtime boolean either. Whether SQS
- * consumers SHOULD start branching on `retryable` (e.g. route a known-terminal error straight
- * to DLQ instead of spending `maxReceiveCount` retries on it first) is a real, undecided
- * product/architecture question - not implemented here, not this session's call to make
- * unilaterally (Type 1, `AGENTS.md` §4/§1). This field is not useless: it is real,
- * meaningful classification metadata surfaced consistently in structured logs today, and the
- * substrate a future decision would build on - just not, as of this comment, itself deciding
- * SQS behavior.
+ * consumers SHOULD start branching on `retryable` was E-011's open pending decision -
+ * now DECIDED and CLOSED (D-128, `docs/architecture/decisions-log.md`, protocol Claude<->Codex
+ * 3 rounds, Claude 9.3/Codex 9.6): NO SQS consumer branches on this field, deliberately.
+ * Reasoning (full detail in `docs/architecture/reviews/appError-retryable-sqs-scoping/`):
+ * (1) no reference pattern (AWS Lambda+SQS docs, every official example in every language)
+ * branches on error type - all report any caught exception as a batch item failure uniformly;
+ * (2) blast-radius asymmetry - a false-terminal under today's regime has no extra effect (the
+ * message is retried normally anyway), but under a branch-and-terminate regime it would skip
+ * due processing / terminate a genuinely retryable message early; (3) `toAppError()`'s own
+ * fallback (any unrecognized error -> `InternalError`, `retryable:false`) is active evidence
+ * this taxonomy was never audited as a safe discard/acknowledgement policy - it is diagnostic
+ * metadata, not that. This field is not useless: it is real, meaningful classification metadata
+ * surfaced consistently in structured logs, revisitable per-queue only on concrete operational
+ * evidence (saturation, measurable cost/delay) - not a static audit like this one.
  */
 export class AppError extends Error {
   readonly code: string;
@@ -466,10 +473,9 @@ export function toAppError(err: unknown): AppError {
 
 /** Classifies any thrown value's `retryable` flag (defaults to `false`/terminal for an
  * unclassified error, never `true`, to avoid treating an unknown failure as safe-to-retry
- * indefinitely per implementation-blueprint.md #6.2). See `AppError`'s own doc comment for the
- * honest current scope: this is NOT today's real SQS/DLQ routing decision (no real consumer
- * branches on it - see that comment for why), it is the classification itself, consulted for
- * logging/diagnosis and available for a future decision to actually drive routing on. */
+ * indefinitely per implementation-blueprint.md #6.2). See `AppError`'s own doc comment: D-128
+ * decided (closing E-011's pending question) that no SQS consumer branches on this value - it
+ * is diagnostic metadata only, consulted for logging, deliberately never routing. */
 export function isRetryable(err: unknown): boolean {
   return toAppError(err).retryable;
 }
