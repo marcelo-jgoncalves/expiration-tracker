@@ -6,4 +6,7 @@ export interface DocumentArchiveIdGenerator {
   newEventId(): string;
   /** D-143 Nucleus 2, Requirement (D-145). */
   newRequirementId(): string;
+  /** D-143 Nucleus 2, recurrence (D-147). */
+  newSeriesId(): string;
+  newDocumentRequestId(): string;
 }

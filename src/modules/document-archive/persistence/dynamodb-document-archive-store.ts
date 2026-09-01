@@ -143,4 +143,23 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
       throw mapDynamoError(err, "DocumentArchiveStore.scanSatisfiedRequirements");
     }
   }
+
+  /** Cross-tenant `Scan` for the recurrence materializer worker — see the port method's doc
+   * comment for the accepted cost tradeoff (same shape as `scanSatisfiedRequirements` above). */
+  async scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
+    try {
+      const result = await this.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: "#entityType = :entityType AND #status = :status",
+          ExpressionAttributeNames: { "#entityType": "entityType", "#status": "status" },
+          ExpressionAttributeValues: { ":entityType": "DocumentRequestSeries", ":status": "ACTIVE" },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "DocumentArchiveStore.scanActiveSeries");
+    }
+  }
 }

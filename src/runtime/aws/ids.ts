@@ -69,6 +69,13 @@ export class UlidIdGenerator
   newRequirementId(): string {
     return `req_${ulid()}`;
   }
+  /** D-143 Nucleus 2, recurrence (D-147). */
+  newSeriesId(): string {
+    return `series_${ulid()}`;
+  }
+  newDocumentRequestId(): string {
+    return `docreq_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }
