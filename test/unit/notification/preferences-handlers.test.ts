@@ -21,7 +21,6 @@ import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
-import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { NotificationPreferencesService } from "../../../src/modules/notification/application/notification-preferences-service.js";
@@ -36,7 +35,7 @@ async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMe
   // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
   // Organization+Membership for "cognito-sub-1" before any handler call can resolve.
   await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
-  const resolver = new RequestContextResolver(new UserRepository(identityStore), new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
+  const resolver = new RequestContextResolver(new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
   const preferences = new NotificationPreferencesService({
     store: new InMemoryNotificationStore(),

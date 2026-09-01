@@ -9,7 +9,6 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
 import { InMemoryDocumentArchiveStore } from "../unit/document-archive/in-memory-store.js";
-import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
@@ -59,8 +58,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   beforeEach(async () => {
     const identityStore = new InMemoryIdentityStore();
     const organizations = new InMemoryOrganizationStore();
-    const users = new UserRepository(identityStore);
-    const resolver = new RequestContextResolver(users, new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, "MainTable");
+    const resolver = new RequestContextResolver(new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, "MainTable");
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     const store = new InMemoryDocumentArchiveStore();

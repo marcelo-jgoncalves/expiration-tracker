@@ -18,7 +18,6 @@
  *  6. build the immutable RequestContext.
  */
 import { AuthenticationError, InternalError, OnboardingRequiredError, OrganizationSelectionRequiredError, OrganizationUnavailableError, UnsupportedMembershipRoleError } from "../../../shared/errors/app-error.js";
-import { UserRepository } from "../persistence/user-repository.js";
 import { GlobalUserRepository } from "../persistence/global-user-repository.js";
 import { IdentityBootstrapService } from "./bootstrap-identity.js";
 import { OnboardingStateResolver } from "../../organization/application/onboarding-state.js";
@@ -58,7 +57,6 @@ export class RequestContextResolver {
   private readonly onboarding: OnboardingStateResolver;
 
   constructor(
-    private readonly users: UserRepository,
     private readonly globalUsers: GlobalUserRepository,
     private readonly organizations: OrganizationStore,
     private readonly ids: IdGenerator,
@@ -106,19 +104,6 @@ export class RequestContextResolver {
     const membership = await this.resolveActiveMembership(user.userId, input.organizationIdHint);
 
     const roles = this.resolveRoles(membership.role);
-
-    // Invariant: a UserProfile is guaranteed to already exist by the time any RequestContext
-    // resolves, now per-Organization instead of per-legacy-tenant — provisioned lazily here,
-    // the first time this (organizationId, userId) pair resolves, instead of at bootstrap time
-    // (no Organization is known yet at bootstrap).
-    await this.users.createProfileIfAbsent({
-      tenantId: membership.organizationId,
-      userId: user.userId,
-      identitySubject: claims.sub,
-      emailNormalized: user.emailNormalized,
-      roles,
-      status: "ACTIVE",
-    });
 
     return {
       requestId: input.requestId,

@@ -14,7 +14,7 @@ Base: `docs/architecture/history/data-model/data-model-claude-round1.md`, `docs/
 ---
 
 ## 1. Princípios e agregados
-`tenantId` obrigatório em toda chave DynamoDB, idempotency key, objeto S3, evento e mensagem (SCALE-004). MVP: `tenantId=userId`; futuro: `tenantId=organizationId`. Identidade autenticável global no IdP (Cognito); `User` representa o perfil dentro do tenant, com `identitySubject` desacoplado do `sub` do Cognito (decisão §4 da arquitetura).
+`tenantId` obrigatório em toda chave DynamoDB, idempotency key, objeto S3, evento e mensagem tenant-scoped (SCALE-004) — com as exceções globais/tenantless já documentadas abaixo (`IdentityMapping`, GSI3, `GuestTokenPointer`/`GuestTokenRateLimit`, e pós-B2B `GlobalUser`). MVP: `tenantId=userId`; pós-B2B real: `tenantId=organizationId` (Multi-User B2B, `multi-user-b2b-physical-model.md`, `APPROVED` D-086). Identidade autenticável global no IdP (Cognito), resolvida via `IdentityMapping` (cognitoSub → userId, global) para um `GlobalUser` igualmente tenant-independente (D-087/D-095, emendado D-160 — supersede o `User`/`UserProfile` per-tenant original desta seção, que não sobreviveu ao corte B2B).
 
 Agregados: **Tenant/Access** (Organization, User, Membership) · **Expiration** (ExpirationItem raiz; ReminderPolicy, ReminderOccurrence, Document, ExtractedField referenciam item e sua versão) · **Notification** (NotificationIntent como efeito lógico único; NotificationAttempt por interação) · **Integration** (Channel, Provider, WebhookInbox, UploadSlot) · **Compliance** (AuditEvent, append-only).
 
@@ -25,7 +25,7 @@ Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<i
 ## 2. Entidades e armazenamento
 | Entidade | Atributos principais | PK / SK |
 |---|---|---|
-| User | userId, identitySubject, emailNormalized, name, timezone, locale, preferências de notificação, status | `TENANT#t#USER#u` / `PROFILE` |
+| User *(pós-B2B: `GlobalUser`, D-087/D-095, emendado D-160)* | userId, emailNormalized, identityStatus, globalLogoutAfter, hasCreatedOrganization | `USER#u` / `PROFILE` (tenant-independente — identidade global, não mais uma linha por Organization; `cognitoSub` mora em `IdentityMapping` separado) |
 | Organization *(futuro, FUT-001)* | organizationId, name, timezone, quiet hours padrão, status, plano/entitlements | `TENANT#t#ORG#o` / `META` |
 | Membership *(futuro, FUT-001)* | membershipId, userId, organizationId, role, permissões, status, joinedAt | `TENANT#t#ORG#o` / `MEMBER#u` |
 | ExpirationItem | itemId, nome, categoria, descrição, dueDate, issueDate, periodicidade, emissor, número, responsável, tags, prioridade, status (ACTIVE/ARCHIVED/RENEWED/DELETED), renewedFromId?, version | `TENANT#t#ITEM#i` / `META` |
@@ -40,7 +40,7 @@ Convenção física: `PK = TENANT#<tenantId>#<aggregate>`, `SK = <entityType>#<i
 | WebhookInbox | payload, hash, assinatura validada, timestamp/nonce, estado, TTL | `TENANT#t#WEBHOOK#<provider>#<account>` / `EVENT#<providerEventId>` |
 | UploadSlot | objectKey exato, limite, status (PENDING/CONFIRMED/REFUNDED), expiresAt | `TENANT#t#UPLOAD` / `SLOT#<id>` |
 | AuditEvent | auditEventId, tipo, ator, ação, recurso, itemId?, versões anterior/nova, mudanças redigidas, timestamp, correlation/causation IDs — **append-only, sem update/delete normal** | `TENANT#t#AUDIT#<yyyyMM>` / `EVT#<timestamp>#<id>` |
-| IdentityMapping | cognitoSub, userId, tenantId — criado atomicamente (`ConditionExpression attribute_not_exists`) no primeiro login | `IDENTITY#cognitoSub#<sub>` / `MAP` |
+| IdentityMapping *(pós-B2B: `tenantId` removido, D-095 — resolve só cognitoSub → userId, emendado D-160)* | cognitoSub, userId — criado atomicamente (`ConditionExpression attribute_not_exists`) no primeiro login | `IDENTITY#cognitoSub#<sub>` / `MAP` |
 | TrackedSubject *(M9, D-036, `roadmap-evolution/03-domain-model-tracked-subject-requirement.md`)* | subjectId, type (COMPANY/VENDOR/CLIENT/EMPLOYEE/ASSET/LOCATION/CUSTOM), displayName/displayNameNormalized, notes?, tags[], status (ACTIVE/ARCHIVED/DELETED), version | `TENANT#t#SUBJECT#s` / `META` |
 | RequirementAssignment *(M9, D-036)* | assignmentId, subjectId, requirementName, requirementDefinitionId? (escape hatch — `RequirementDefinition`/`RequirementTemplate` deferidos por completo), notes?, status (MISSING/REQUESTED/SUBMITTED/UNDER_REVIEW/REJECTED/SATISFIED — só MISSING⇄SATISFIED tem transição implementada em M9), linkedItemId?, version. Coleção sob a partição do subject, mesmo padrão já usado por `User`/sessão e `Document`/item — sem GSI novo | `TENANT#t#SUBJECT#s` / `REQASSIGN#a` |
 | TenantEntitlement *(M9, D-038)* | planId (default `"free"`), activeTrackedSubjectsLimit, activeTrackedSubjectsCount — incrementado/decrementado na MESMA transação que cria/arquiva um `TrackedSubject`, version | `TENANT#t#ENTITLEMENT` / `PLAN` |

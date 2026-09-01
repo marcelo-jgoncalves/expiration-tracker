@@ -3,9 +3,10 @@
  * §1/§10), `PK=USER#<userId>`, `SK=PROFILE`: the tenant-independent identity. Wave B2B-2/D-087
  * introduced this row additively (nothing read it yet); Wave B2B-5/D-095 makes it the ONLY
  * identity-level record `IdentityBootstrapService.bootstrapUser()` creates — the legacy
- * tenant-scoped `UserProfile` (`user-repository.ts`) is no longer auto-created at login, and
- * `entityType: "GlobalUser"` (not `"User"`, already used by `UserProfile`) still lets the two
- * coexist without ambiguity for any pre-cutover row still around in `dev`.
+ * tenant-scoped `UserProfile` was no longer auto-created at login from that wave on, and later
+ * removed entirely (D-160 — zero real reader, fields duplicated from this entity/`IdentityMapping`).
+ * `entityType: "GlobalUser"` (not `"User"`, historically used by the removed `UserProfile`) still
+ * lets the two coexist without ambiguity for any pre-cutover row still around in `dev`.
  *
  * `DeviceSession` and the two logout operations move here from `user-repository.ts` in the same
  * wave (physical model §10: "DeviceSession migra para o User global, logoutAll fica
