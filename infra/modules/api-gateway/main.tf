@@ -512,3 +512,42 @@ resource "aws_lambda_permission" "document_archive" {
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/document-archive*"
 }
+
+# --- DocumentArchiveGuestHandler: /document-archive/guest/document-requests/{token}* -------
+# (D-143 Decision 4, D-146) — SEPARATE Lambda from DocumentArchiveHandler, same isolation
+# posture as GuestDocumentsHandler above (authorization_type = NONE, no Cognito JWT
+# authorizer; validation happens entirely in GuestDocumentAccessService#resolveCredential/
+# resolveSession, never a Lambda authorizer, same reasoning as D-037's comment above).
+
+resource "aws_apigatewayv2_integration" "document_archive_guest" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.document_archive_guest_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  document_archive_guest_routes = {
+    get_request   = { method = "GET", path = "/document-archive/guest/document-requests/{token}" }
+    start_session = { method = "POST", path = "/document-archive/guest/document-requests/{token}/session" }
+    submit        = { method = "POST", path = "/document-archive/guest/document-requests/{token}/uploads" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "document_archive_guest" {
+  for_each = local.document_archive_guest_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.document_archive_guest.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "document_archive_guest" {
+  statement_id  = "AllowApiGatewayInvokeDocumentArchiveGuest"
+  action        = "lambda:InvokeFunction"
+  function_name = var.document_archive_guest_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/document-archive/guest*"
+}

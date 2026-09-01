@@ -68,6 +68,8 @@ import docarchiveRequirementUpdateRequestV1 from "../../../schemas/api/docarchiv
 import docarchiveRequirementLinkEvidenceRequestV1 from "../../../schemas/api/docarchive-requirement-link-evidence-request.v1.json";
 import docarchiveRequirementUnlinkEvidenceRequestV1 from "../../../schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
 import docarchiveRequirementDeleteRequestV1 from "../../../schemas/api/docarchive-requirement-delete-request.v1.json";
+// D-143 Decision 4, guest access (D-146).
+import docarchiveGuestSubmitEvidenceRequestV1 from "../../../schemas/api/docarchive-guest-submit-evidence-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -169,4 +171,5 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveRequirementLinkEvidenceRequestV1,
   docarchiveRequirementUnlinkEvidenceRequestV1,
   docarchiveRequirementDeleteRequestV1,
+  docarchiveGuestSubmitEvidenceRequestV1,
 ]);

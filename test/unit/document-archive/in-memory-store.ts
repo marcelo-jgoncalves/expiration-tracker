@@ -95,6 +95,16 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
     return true;
   }
 
+  /** D-146: mirrors `DynamoDbDocumentArchiveStore.updateConditional` — full-item overwrite
+   * gated on the counter still matching `expected`, used by `DocumentArchiveGuestRateLimiter`. */
+  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+    const key = this.k(item);
+    const existing = this.items.get(key) as { count?: unknown; resetAt?: unknown } | undefined;
+    if (!existing || existing.count !== expected.count || existing.resetAt !== expected.resetAt) return false;
+    this.items.set(key, item as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
     const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
     let anyFailed = false;

@@ -48,6 +48,26 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
     }
   }
 
+  /** D-146 (guest access): same lost-update guard as `DynamoDbSubjectStore.updateConditional` —
+   * `count` is a DynamoDB reserved word, requires `ExpressionAttributeNames`. */
+  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: item,
+          ConditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
+          ExpressionAttributeNames: { "#count": "count" },
+          ExpressionAttributeValues: { ":expectedCount": expected.count, ":expectedResetAt": expected.resetAt },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) return false;
+      throw mapDynamoError(err, "DocumentArchiveStore.updateConditional");
+    }
+  }
+
   // TransactionCanceledException must reach the caller as-is (isTransactionCanceled() is how
   // callers distinguish OCC/idempotency conflicts from other failures) - never wrapped by
   // mapDynamoError, so no try/catch here (same discipline as DynamoDbExpirationStore).

@@ -58,6 +58,12 @@ export interface DocumentArchiveStore {
    * this call created the item, false if it already existed (used for Document/DocumentVersion
    * creation and for idempotency-record writes outside a larger transaction). */
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
+  /** PutItem conditioned on a counter still matching `expected` at write time — same
+   * lost-update guard `IdentityStore.updateConditional`/`SubjectStore.updateConditional`
+   * already established (production bug precedent: `count` is a DynamoDB reserved word,
+   * requires `ExpressionAttributeNames`). D-146 (guest access): used by
+   * `DocumentArchiveGuestRateLimiter`'s fixed-window counter. */
+  updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean>;
   /** Commits every entry atomically; throws an error recognized by `isTransactionCanceled()`
    * if ANY entry's ConditionExpression fails — callers must never assume partial application.
    * This is how `acceptVersion`/`rejectVersion`/`materializeAttempt` (D-143 Decisions 1/2/8)

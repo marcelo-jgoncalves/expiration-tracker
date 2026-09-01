@@ -354,6 +354,30 @@ module "document_archive_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# --- DocumentArchiveGuestHandler: /document-archive/guest/document-requests/{token}* -------
+# (D-143 Decision 4, D-146) — SEPARATE Lambda from document_archive_handler above, no Cognito
+# authorizer, same isolation posture as guest_documents_handler (subject module's M10
+# precedent). Own pepper (never GUEST_TOKEN_PEPPER — a distinct credential/session shape in a
+# distinct module, no reason to share a secret whose blast radius would then span both).
+resource "random_password" "document_archive_guest_access_pepper" {
+  length  = 64
+  special = false
+}
+
+module "document_archive_guest_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-document-archive-guest-handler"
+  handler_name   = "document-archive-guest-handler"
+  source_dir     = "${local.dist_dir}/document-archive-guest-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    DOCARCHIVE_GUEST_ACCESS_PEPPER = random_password.document_archive_guest_access_pepper.result
+  })
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 # --- API Gateway ---------------------------------------------------------------------------
 
 module "api" {
@@ -365,29 +389,31 @@ module "api" {
   aws_region          = var.aws_region
   # Rollback design entrega 1: API Gateway integrates against the `live` alias (never
   # $LATEST) so an emergency alias repoint actually changes what a real request invokes.
-  test_ping_invoke_arn           = module.test_ping_handler.live_alias_invoke_arn
-  test_ping_function_name        = module.test_ping_handler.function_name
-  items_invoke_arn               = module.items_handler.live_alias_invoke_arn
-  items_function_name            = module.items_handler.function_name
-  export_invoke_arn              = module.export_handler.live_alias_invoke_arn
-  export_function_name           = module.export_handler.function_name
-  reminders_invoke_arn           = module.reminders_handler.live_alias_invoke_arn
-  reminders_function_name        = module.reminders_handler.function_name
-  notifications_invoke_arn       = module.notifications_handler.live_alias_invoke_arn
-  notifications_function_name    = module.notifications_handler.function_name
-  documents_invoke_arn           = module.documents_handler.live_alias_invoke_arn
-  documents_function_name        = module.documents_handler.function_name
-  subjects_invoke_arn            = module.subjects_handler.live_alias_invoke_arn
-  subjects_function_name         = module.subjects_handler.function_name
-  memberships_invoke_arn         = module.memberships_handler.live_alias_invoke_arn
-  memberships_function_name      = module.memberships_handler.function_name
-  guest_documents_invoke_arn     = module.guest_documents_handler.live_alias_invoke_arn
-  guest_documents_function_name  = module.guest_documents_handler.function_name
-  imports_invoke_arn             = module.imports_handler.live_alias_invoke_arn
-  imports_function_name          = module.imports_handler.function_name
-  document_archive_invoke_arn    = module.document_archive_handler.live_alias_invoke_arn
-  document_archive_function_name = module.document_archive_handler.function_name
-  tags                           = { Project = local.project_name, Environment = var.environment }
+  test_ping_invoke_arn                 = module.test_ping_handler.live_alias_invoke_arn
+  test_ping_function_name              = module.test_ping_handler.function_name
+  items_invoke_arn                     = module.items_handler.live_alias_invoke_arn
+  items_function_name                  = module.items_handler.function_name
+  export_invoke_arn                    = module.export_handler.live_alias_invoke_arn
+  export_function_name                 = module.export_handler.function_name
+  reminders_invoke_arn                 = module.reminders_handler.live_alias_invoke_arn
+  reminders_function_name              = module.reminders_handler.function_name
+  notifications_invoke_arn             = module.notifications_handler.live_alias_invoke_arn
+  notifications_function_name          = module.notifications_handler.function_name
+  documents_invoke_arn                 = module.documents_handler.live_alias_invoke_arn
+  documents_function_name              = module.documents_handler.function_name
+  subjects_invoke_arn                  = module.subjects_handler.live_alias_invoke_arn
+  subjects_function_name               = module.subjects_handler.function_name
+  memberships_invoke_arn               = module.memberships_handler.live_alias_invoke_arn
+  memberships_function_name            = module.memberships_handler.function_name
+  guest_documents_invoke_arn           = module.guest_documents_handler.live_alias_invoke_arn
+  guest_documents_function_name        = module.guest_documents_handler.function_name
+  imports_invoke_arn                   = module.imports_handler.live_alias_invoke_arn
+  imports_function_name                = module.imports_handler.function_name
+  document_archive_invoke_arn          = module.document_archive_handler.live_alias_invoke_arn
+  document_archive_function_name       = module.document_archive_handler.function_name
+  document_archive_guest_invoke_arn    = module.document_archive_guest_handler.live_alias_invoke_arn
+  document_archive_guest_function_name = module.document_archive_guest_handler.function_name
+  tags                                 = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Full BFF (D-053/D-054) ---------------------------------------------------------------
