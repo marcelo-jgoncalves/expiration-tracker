@@ -11,16 +11,17 @@
 import type { ReactNode } from "react";
 import { useActiveOrganization } from "./ActiveOrganizationContext.js";
 import { Onboarding } from "../routes/Onboarding.js";
+import { InitialLoading } from "../components/AsyncStates.js";
 
 export function OnboardingGate({ children }: { children: ReactNode }) {
   const { organizationId, isPending } = useActiveOrganization();
 
   if (isPending) {
-    return (
-      <div role="status" aria-live="polite">
-        Carregando sua organização…
-      </div>
-    );
+    // D-136/D-A: same neutral component as ProtectedRoute's own loading state - by the time
+    // this renders, ActiveOrganizationProvider's session query almost always already has a
+    // fresh cached result from AuthProvider's own fetch (same queryKey/staleTime), so this
+    // resolves near-instantly rather than triggering a second network round-trip.
+    return <InitialLoading />;
   }
 
   if (!organizationId) {

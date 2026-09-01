@@ -54,7 +54,11 @@ export function ActiveOrganizationProvider({ children }: { children: ReactNode }
   const sessionQuery = useQuery({
     queryKey: sessionQueryKey,
     queryFn: ({ signal }) => fetchSessionInfo({ signal }),
-    staleTime: 0,
+    // 30s, matching AuthContext's window (D-136/D-A) - this Provider mounts only once
+    // AuthProvider's own session query already resolved AUTHENTICATED, so as long as both
+    // share the same staleTime the cached result from that first fetch is still fresh here,
+    // and TanStack Query serves it without a second network round-trip to /bff/session.
+    staleTime: 30_000,
   });
 
   const selectMutation = useMutation({
