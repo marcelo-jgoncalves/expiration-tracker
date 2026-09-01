@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildConditionalDelete,
   buildVersionedCreate,
   buildVersionedUpdate,
   isConditionalCheckFailed,
@@ -106,6 +107,33 @@ describe("buildVersionedCreate", () => {
     });
     expect(cmd.ConditionExpression).toBe("attribute_not_exists(PK) AND attribute_not_exists(SK)");
     expect(cmd.Item.version).toBe(1);
+  });
+});
+
+describe("buildConditionalDelete", () => {
+  it("builds a plain conditioned DeleteItem input with no version field required (D-153: append-only entities have no version)", () => {
+    const cmd = buildConditionalDelete({
+      tableName: "MainTable",
+      key: { PK: "TENANT#t_01#AUDIT#202609", SK: "EVT#2026-01-01T00:00:00.000Z#audit_01" },
+      conditionExpression: "attribute_exists(PK) AND attribute_exists(SK) AND #occurredAt = :occurredAt",
+      names: { "#occurredAt": "occurredAt" },
+      values: { ":occurredAt": "2026-01-01T00:00:00.000Z" },
+    });
+    expect(cmd.TableName).toBe("MainTable");
+    expect(cmd.Key).toEqual({ PK: "TENANT#t_01#AUDIT#202609", SK: "EVT#2026-01-01T00:00:00.000Z#audit_01" });
+    expect(cmd.ConditionExpression).toBe("attribute_exists(PK) AND attribute_exists(SK) AND #occurredAt = :occurredAt");
+    expect(cmd.ExpressionAttributeNames).toEqual({ "#occurredAt": "occurredAt" });
+    expect(cmd.ExpressionAttributeValues).toEqual({ ":occurredAt": "2026-01-01T00:00:00.000Z" });
+  });
+
+  it("omits names/values entirely when the caller passes none", () => {
+    const cmd = buildConditionalDelete({
+      tableName: "MainTable",
+      key: { PK: "PK1", SK: "SK1" },
+      conditionExpression: "attribute_exists(PK)",
+    });
+    expect(cmd.ExpressionAttributeNames).toBeUndefined();
+    expect(cmd.ExpressionAttributeValues).toBeUndefined();
   });
 });
 

@@ -85,6 +85,9 @@ const HANDLERS = [
   // D-152 (DELIVERY_RECORD LGPD purge, Prioridade 2 of quarantine-retention-scoping's
   // estado-final-consolidado.md): daily EventBridge Scheduler physical-purge job.
   "delivery-record-purge-handler",
+  // D-153 (SECURITY_AUDIT LGPD purge, Prioridade 3 of quarantine-retention-scoping's
+  // estado-final-consolidado.md): daily EventBridge Scheduler physical-purge job.
+  "security-audit-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

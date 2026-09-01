@@ -251,6 +251,35 @@ export function buildVersionedDelete(input: {
   };
 }
 
+/**
+ * Sibling of `buildConditionalPut` for `DeleteItem` - symmetric reasoning: `buildVersionedDelete`
+ * above always ANDs `#version = :expectedVersion`, which only makes sense for a versioned
+ * (mutable) entity. An append-only entity that is NEVER updated after creation (e.g. the
+ * `AuditEvent` family - `expiration`/`organization`/`subject`/`activity` modules' audit rows,
+ * D-153) has no `version` counter to check at all, so forcing one through `buildVersionedDelete`
+ * would require faking a field that does not exist on the row. Callers instead supply their own
+ * equality condition over whatever field they observed at scan time (same
+ * "hasn't changed since scan" intent as `buildVersionedDelete`'s `extraConditions`, just without
+ * a version to anchor it to) - `names`/`values` follow the same collision-free-by-caller-control
+ * discipline as `buildConditionalPut` (no generated placeholders to collide with here, since this
+ * builder adds none of its own beyond `attribute_exists`).
+ */
+export function buildConditionalDelete(input: {
+  tableName: string;
+  key: EntityKey;
+  conditionExpression: string;
+  names?: Record<string, string>;
+  values?: Record<string, unknown>;
+}): DynamoDeleteCommandInput {
+  return {
+    TableName: input.tableName,
+    Key: input.key,
+    ConditionExpression: input.conditionExpression,
+    ExpressionAttributeNames: input.names,
+    ExpressionAttributeValues: input.values,
+  };
+}
+
 export type TransactWriteEntry = TransactPutEntry | TransactUpdateEntry | TransactConditionCheckEntry | TransactDeleteEntry;
 
 /**
