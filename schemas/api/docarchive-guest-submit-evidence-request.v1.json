@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json",
+  "title": "DocArchiveGuestSubmitEvidenceRequest v1",
+  "description": "POST /document-archive/guest/document-requests/{token}/uploads request body (SubmitEvidenceInput). D-143 Decision 4 / D-146.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fileName", "idempotencyKey"],
+  "properties": {
+    "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "documentType": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}
