@@ -57,6 +57,7 @@ const HANDLERS = [
   "imports-handler",
   "import-parse-handler",
   "import-commit-handler",
+  "document-archive-handler",
   "bff-handler",
   "extraction-starter-handler",
   "textract-task-handler",

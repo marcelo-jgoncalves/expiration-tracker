@@ -78,6 +78,17 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // infra/modules/api-gateway/main.tf - D-117/D-120 were both real production bugs where a
   // handler existed and one of the two wiring halves was silently missing.
   { method: "POST", pathTemplate: "/organizations/close" },
+  // D-143 Nucleus 1 (Document Archive domain) - routed in infra/modules/api-gateway/main.tf's
+  // `document_archive_routes` alongside the matching Lambda/IAM wiring in the same PR, so
+  // neither half is ever silently missing (the exact D-117/D-120 bug class named above).
+  { method: "POST", pathTemplate: "/document-archive/documents" },
+  { method: "GET", pathTemplate: "/document-archive/documents/{documentId}" },
+  { method: "GET", pathTemplate: "/document-archive/documents/{documentId}/versions" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/commit" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/claim" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/accept" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/reject" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

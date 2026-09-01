@@ -126,6 +126,16 @@ variable "imports_function_name" {
   type        = string
 }
 
+variable "document_archive_invoke_arn" {
+  description = "Invoke ARN of the DocumentArchiveHandler Lambda (D-143 Nucleus 1) — backs every /document-archive/* route."
+  type        = string
+}
+
+variable "document_archive_function_name" {
+  description = "Function name of the DocumentArchiveHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)
