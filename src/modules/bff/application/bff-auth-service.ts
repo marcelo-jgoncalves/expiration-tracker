@@ -29,7 +29,7 @@ import {
   type Session,
   type LoginAttempt,
 } from "../domain/session.js";
-import { SESSION_ABSOLUTE_TTL_SECONDS, SESSION_IDLE_TTL_SECONDS, LOGIN_ATTEMPT_TTL_SECONDS } from "../domain/cookies.js";
+import { SESSION_ABSOLUTE_TTL_SECONDS, SESSION_IDLE_TTL_SECONDS, SESSION_IDLE_RENEWAL_THRESHOLD_SECONDS, LOGIN_ATTEMPT_TTL_SECONDS } from "../domain/cookies.js";
 import type { RefreshOutcome } from "../domain/refresh-outcome.js";
 
 export interface BffAuthServiceDeps {
@@ -323,14 +323,19 @@ export class BffAuthService {
       }
     }
 
-    // Bumps idle TTL on every successful resolution, capped at the absolute expiry - activity
-    // extends idle timeout, never the absolute session lifetime (D-054). Conditional on
-    // `version` (not a plain update) - the same residual variant of the Item 11 bug found in
-    // review: an unconditional write here using this function's own (possibly slightly stale)
-    // `session` snapshot could silently overwrite a `revokedAt` a concurrent logout had just
-    // written, resurrecting a session the user explicitly logged out of.
+    // D-136/D-B (performance hot-path): sliding-expiration threshold, not a bump on every
+    // resolution. The pre-D-136 condition (`nextPurge !== session.purgeAfterTtl`) looked like a
+    // coalescing check but was not one in practice - `nextPurge` is derived from `epochSeconds
+    // (now)`, which differs from the previous bump's `now` on almost every real request, so the
+    // write fired nearly every time anyway (confirmed in the D-136 performance audit: "1 session
+    // write per request" was the actual production behavior). Only renew when the session has
+    // genuinely drifted close to idle expiry - never on every activity. `ConsistentRead` on the
+    // initial `get()` above is untouched (D-136 explicitly keeps it - revocation correctness
+    // matters more than the read cost); this only changes how often the WRITE happens.
     const nextPurge = Math.min(epochSeconds(now) + SESSION_IDLE_TTL_SECONDS, epochSeconds(session.absoluteExpiresAt));
-    if (nextPurge !== session.purgeAfterTtl) {
+    const remainingBeforeThisBump = session.purgeAfterTtl - epochSeconds(now);
+    const shouldRenew = remainingBeforeThisBump < SESSION_IDLE_RENEWAL_THRESHOLD_SECONDS && nextPurge !== session.purgeAfterTtl;
+    if (shouldRenew) {
       const bumped = await this.deps.sessionStore.updateConditional<Session>(
         { ...session, purgeAfterTtl: nextPurge, updatedAt: now, version: session.version + 1 },
         { version: session.version },
