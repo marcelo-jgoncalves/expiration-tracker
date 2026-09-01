@@ -155,6 +155,38 @@ describe("AcceptInvitationService", () => {
     await expect(service.accept({ token, userId: "user-owner", callerVerifiedEmail: "user-owner@example.com" })).rejects.toBeInstanceOf(ConflictError);
   });
 
+  // D-157: reingresso via convite (physical model §9) reativa uma Membership REMOVED - o registro
+  // não deve carregar um removedAt obsoleto de uma saída anterior depois disso. Mutação: remover
+  // `REMOVE removedAt` do UpdateExpression de aceite deixaria o timestamp velho parado ali,
+  // contradizendo o status ACTIVE que a mesma escrita acabou de setar.
+  it("clears removedAt when a REMOVED member rejoins via a new invitation", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    store.forceUpdate({
+      ...membershipKey("org-1", "user-returning"),
+      entityType: "Membership",
+      membershipId: "membership-returning",
+      organizationId: "org-1",
+      userId: "user-returning",
+      role: "MEMBER",
+      status: "REMOVED",
+      joinedAt: "2026-01-01T00:00:00.000Z",
+      removedAt: "2026-03-01T00:00:00.000Z",
+      createdBy: "user-owner",
+      version: 3,
+      GSI4PK: "USER#user-returning",
+      GSI4SK: "ORG#org-1#MEMBERSHIP#membership-returning",
+    } satisfies Membership);
+    const { token } = await issueInvite(store, "returning@example.com", "MEMBER");
+    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+
+    await service.accept({ token, userId: "user-returning", callerVerifiedEmail: "returning@example.com" });
+
+    const membership = await store.get<Membership>(membershipKey("org-1", "user-returning"));
+    expect(membership?.status).toBe("ACTIVE");
+    expect(membership?.removedAt).toBeUndefined();
+  });
+
   // Mutação: remover a verificação estrutural do formato do token (`parseInvitationToken`)
   // faria um token malformado lançar um erro de infraestrutura em vez do erro genérico
   // anti-enumeration esperado.

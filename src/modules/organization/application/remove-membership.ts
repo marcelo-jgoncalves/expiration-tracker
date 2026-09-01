@@ -61,10 +61,10 @@ export class RemoveMembershipService {
         Update: {
           TableName: this.tableName,
           Key: membershipKey(ctx.tenant.tenantId, targetUserId),
-          UpdateExpression: "SET #status = :removed, version = version + :one",
+          UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":removed": "REMOVED", ":active": "ACTIVE", ":one": 1, ":expectedVersion": expectedVersion },
+          ExpressionAttributeValues: { ":removed": "REMOVED", ":active": "ACTIVE", ":now": now, ":one": 1, ":expectedVersion": expectedVersion },
         },
       },
     ];

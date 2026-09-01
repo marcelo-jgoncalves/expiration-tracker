@@ -24,18 +24,19 @@
     "build:lambdas": "tsx scripts/build-lambdas.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/aws-lambda": "8.10.145",
     "@types/node": "^26.4.0",
-    "@typescript-eslint/eslint-plugin": "^7.16.0",
-    "@typescript-eslint/parser": "^7.16.0",
     "@vitest/coverage-v8": "^1.6.0",
     "aws-jwt-verify": "5.2.1",
     "dependency-cruiser": "17.4.3",
     "esbuild": "0.24.0",
-    "eslint": "^8.57.0",
+    "eslint": "^10.9.1",
+    "globals": "^17.12.0",
     "testcontainers": "10.13.2",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^1.6.0"
   },
   "dependencies": {

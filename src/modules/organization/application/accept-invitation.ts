@@ -82,7 +82,7 @@ export class AcceptInvitationService {
         TableName: this.tableName,
         Key: membershipKey(invitation.organizationId, input.userId),
         UpdateExpression:
-          "SET role = :role, #status = :active, membershipId = :membershipId, joinedAt = :now, GSI4PK = :gsi4pk, GSI4SK = :gsi4sk, version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now)",
+          "SET role = :role, #status = :active, membershipId = :membershipId, joinedAt = :now, GSI4PK = :gsi4pk, GSI4SK = :gsi4sk, version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now) REMOVE removedAt",
         ConditionExpression: "attribute_not_exists(PK) OR #status = :removed",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {

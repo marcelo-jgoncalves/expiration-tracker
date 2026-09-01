@@ -7,10 +7,8 @@ import { loadAllSchemasFromDisk } from "../src/shared/contracts/schema-registry-
 try {
   // Constructing eagerly loads+compiles all schemas under schemas/.
   loadAllSchemasFromDisk();
-  // eslint-disable-next-line no-console -- CLI script, not a Lambda handler.
   console.log("All schemas under schemas/ loaded successfully.");
 } catch (err) {
-  // eslint-disable-next-line no-console -- CLI script.
   console.error("Schema validation failed:", err);
   process.exit(1);
 }

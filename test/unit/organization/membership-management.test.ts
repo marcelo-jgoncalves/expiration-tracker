@@ -183,6 +183,37 @@ describe("RemoveMembershipService", () => {
     expect(removed?.status).toBe("REMOVED");
   });
 
+  // D-155/D-157: removedAt is the clock the ACCOUNT_ACTIVE LGPD purge worker (D-127 Prioridade 5)
+  // needs for "encerramento + 30 dias" - it was the missing blocker this field closes. Mutação:
+  // remover `removedAt = :now` do SET (voltar a só status+version) faria isto ficar undefined.
+  it("stamps removedAt when soft-removing a member", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+
+    await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
+    const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(removed?.removedAt).toBe("2026-06-15T10:00:00.000Z");
+  });
+
+  // Mutação: uma condição frouxa que ainda assim marca removedAt num write que não deveria ter
+  // acontecido (ex. ignorar expectedVersion) deixaria isto detectável só por este teste - uma
+  // remoção que falha por versão desatualizada não deve deixar nenhum rastro no registro.
+  it("leaves removedAt unset when the remove fails its version condition", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
+
+    await expect(service.remove(ctx("user-owner", ["OWNER"]), "user-member", 999)).rejects.toThrow();
+    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(stillActive?.status).toBe("ACTIVE");
+    expect(stillActive?.removedAt).toBeUndefined();
+  });
+
   // D-122/D-125 (Responsibility Reassignment on Member Removal). Mutação: remover a checagem
   // `if (assigned.itemIds.length > 0) throw ...` (ou trocar por uma condição sempre-falsa) faria
   // isto NÃO lançar ResponsibilityReassignmentRequiredError - o membro seria removido mesmo
@@ -243,6 +274,20 @@ describe("LeaveOrganizationService", () => {
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
     expect(membership?.status).toBe("REMOVED");
+  });
+
+  // D-155/D-157, same clock as RemoveMembershipService - a voluntary leave is just as much a
+  // ACCOUNT_ACTIVE (não-fechamento) termination as an admin removal.
+  it("stamps removedAt when a member leaves voluntarily", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+
+    await service.leave(ctx("user-member", ["MEMBER"]));
+    const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(membership?.removedAt).toBe("2026-06-15T10:00:00.000Z");
   });
 
   // D-122/D-125. Mutação: mesma classe do teste equivalente em RemoveMembershipService - remover

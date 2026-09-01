@@ -42,7 +42,7 @@ export type CompleteOcrOutcome =
 async function collectPages(textract: TextractClient, jobId: string): Promise<{ status: TextractJobStatusResult; blocks: unknown[]; warnings: string[] }> {
   const blocks: unknown[] = [];
   const warnings = new Set<string>();
-  let status: TextractJobStatusResult = "IN_PROGRESS";
+  let status: TextractJobStatusResult;
   let nextToken: string | undefined;
   do {
     const page = await textract.getDocumentTextDetectionPage(jobId, nextToken);

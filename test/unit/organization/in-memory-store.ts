@@ -12,8 +12,9 @@ import type { EntityKey, Gsi4QueryInput, OrganizationStore, TransactWriteEntry }
  *
  * Operadores de condição suportados: `attribute_not_exists(x)`, `attribute_exists(x)`,
  * `x = :v`, `x > :v`, combinados com `AND`/`OR` (sem parênteses aninhados — nenhum writer real
- * produz isso hoje). Operadores de update (`SET` apenas): `x = :v`, `x = if_not_exists(x, :v)`,
- * `x = x + :v`, `x = x - :v`.
+ * produz isso hoje). Operadores de update: `SET x = :v`, `SET x = if_not_exists(x, :v)`,
+ * `SET x = x + :v`, `SET x = x - :v`, e um `REMOVE x[, y...]` opcional após o `SET` (D-157,
+ * `accept-invitation.ts` limpa `removedAt` ao reativar uma Membership `REMOVED`).
  */
 export class InMemoryOrganizationStore implements OrganizationStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
@@ -83,7 +84,10 @@ export class InMemoryOrganizationStore implements OrganizationStore {
   }
 
   private applyUpdate(expression: string, existing: Record<string, unknown> | undefined, key: EntityKey, names?: Record<string, string>, values?: Record<string, unknown>): Record<string, unknown> & EntityKey {
-    const setMatch = /^SET (.+)$/.exec(expression.trim());
+    const removeSplit = /^(SET .+?)(?: REMOVE (.+))?$/.exec(expression.trim());
+    if (!removeSplit) throw new Error(`InMemoryOrganizationStore: unsupported UpdateExpression "${expression}" (only SET [, REMOVE] is supported).`);
+    const [, setExpression, removeExpression] = removeSplit;
+    const setMatch = /^SET (.+)$/.exec(setExpression!.trim());
     if (!setMatch) throw new Error(`InMemoryOrganizationStore: unsupported UpdateExpression "${expression}" (only SET is supported).`);
     const result: Record<string, unknown> = { ...key, ...existing };
 
@@ -125,6 +129,13 @@ export class InMemoryOrganizationStore implements OrganizationStore {
       }
       result[targetName] = this.resolveValue(rhs!.trim(), values);
     }
+
+    if (removeExpression) {
+      for (const token of removeExpression.split(",")) {
+        delete result[this.resolveName(token.trim(), names)];
+      }
+    }
+
     return result as Record<string, unknown> & EntityKey;
   }
 

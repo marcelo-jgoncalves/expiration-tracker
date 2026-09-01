@@ -59,7 +59,6 @@ async function acceptedVersion(service: DocumentArchiveService, validUntil?: str
     // against the fake store, same technique document-archive-service.test.ts already uses to
     // simulate a pending file scan.
     const { buildVersionedUpdate } = await import("../../../src/shared/dynamodb/occ.js");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const store = (service as any).store;
     await store.transactWrite([
       { Update: buildVersionedUpdate({ tableName: "test-table", key: { PK: accepted.PK, SK: accepted.SK }, tenantId: TENANT, expectedVersion: accepted.version, set: { validUntil } }) },

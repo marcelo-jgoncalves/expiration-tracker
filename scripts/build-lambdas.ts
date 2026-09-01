@@ -137,7 +137,6 @@ async function buildHandler(name: string): Promise<void> {
     footer: { js: "module.exports = { handler: module.exports.handler };" },
   });
 
-  // eslint-disable-next-line no-console -- CLI script, not a Lambda handler.
   console.log(`build-lambdas: bundled ${name} -> ${path.relative(REPO_ROOT, outFile)}`);
 }
 
@@ -149,7 +148,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  // eslint-disable-next-line no-console -- CLI script.
   console.error("build-lambdas: build failed:", err);
   process.exit(1);
 });

@@ -32,6 +32,11 @@ export interface Membership extends EntityKey {
   status: MembershipStatus;
   joinedAt: string;
   createdBy: string;
+  /** Set only when status transitions to REMOVED (remove-membership.ts/leave-organization.ts);
+   * cleared on reactivation (accept-invitation.ts). Absent for a Membership never removed.
+   * The clock the ACCOUNT_ACTIVE LGPD purge worker needs for "encerramento + 30 dias"
+   * (privacy-lgpd.md §4, D-127/D-155/D-157 — this field was the missing blocker). */
+  removedAt?: string;
   version: number;
   GSI4PK: string;
   GSI4SK: string;
