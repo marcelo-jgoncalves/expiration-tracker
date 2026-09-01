@@ -2971,6 +2971,78 @@ resource "aws_scheduler_schedule" "core_user_data_purge" {
   }
 }
 
+# DeliveryRecordPurgeWorker (D-152, docs/architecture/reviews/
+# quarantine-retention-scoping/estado-final-consolidado.md, DELIVERY_RECORD row, Prioridade 2) -
+# physically purges NotificationIntent/NotificationAttempt rows once createdAt+180d has passed,
+# within ACTIVE tenants only (a completely separate mechanism from tenant-purge's
+# full-tenant-closure pipeline) - see src/workers/delivery-record-purge/purge.ts's doc comment.
+# No dedicated IAM policy beyond the general tenant-facing grant, same reasoning as
+# core_user_data_purge_handler above: this worker's Scan is a base-table operation, and the
+# TenantLifecycleRecord GetItem it performs is a normal tenant-scoped row, not GSI3/GSI6.
+module "delivery_record_purge_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-delivery-record-purge-handler"
+  handler_name          = "delivery-record-purge-handler"
+  source_dir            = "${local.dist_dir}/delivery-record-purge-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "delivery_record_purge_schedule" {
+  name = "${module.delivery_record_purge_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "scheduler.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "delivery_record_purge_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.delivery_record_purge_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeDeliveryRecordPurge"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.delivery_record_purge_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "delivery_record_purge" {
+  name                         = "${local.name_prefix}-delivery-record-purge"
+  schedule_expression          = "cron(30 5 * * ? *)" # daily 05:30 UTC, after core-user-data-purge (05:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.delivery_record_purge_handler.live_alias_arn
+    role_arn = aws_iam_role.delivery_record_purge_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 resource "aws_iam_role" "document_request_recurrence_schedule" {
   name = "${module.document_request_recurrence_handler.function_name}-schedule-role"
   assume_role_policy = jsonencode({
