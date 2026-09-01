@@ -74,6 +74,8 @@ const HANDLERS = [
   "export-handler",
   // D-143 Nucleus 2, Requirement (Decision 5 / D-145): daily EventBridge Scheduler reindex job.
   "requirement-reindex-handler",
+  // D-143 Decision 4, guest access (D-146).
+  "document-archive-guest-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
