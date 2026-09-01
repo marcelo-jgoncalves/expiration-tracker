@@ -3116,6 +3116,78 @@ resource "aws_scheduler_schedule" "security_audit_purge" {
   }
 }
 
+# QuotaTelemetryPurgeWorker (D-154, docs/architecture/reviews/
+# quarantine-retention-scoping/estado-final-consolidado.md, QUOTA_TELEMETRY row, Prioridade 4) -
+# physically purges TenantQuotaRecord rows once resetAt+30d has passed, within ACTIVE tenants only
+# (a completely separate mechanism from tenant-purge's full-tenant-closure pipeline) - see
+# src/workers/quota-telemetry-purge/purge.ts's doc comment. The other 4 rate-limit entities in the
+# QUOTA_TELEMETRY class already carry native DynamoDB TTL (purgeAfterTtl) and need no worker -
+# see candidate-source.ts's doc comment for the full investigation. No dedicated IAM policy beyond
+# the general tenant-facing grant, same reasoning as security_audit_purge_handler above.
+module "quota_telemetry_purge_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-quota-telemetry-purge-handler"
+  handler_name          = "quota-telemetry-purge-handler"
+  source_dir            = "${local.dist_dir}/quota-telemetry-purge-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "quota_telemetry_purge_schedule" {
+  name = "${module.quota_telemetry_purge_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "scheduler.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "quota_telemetry_purge_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.quota_telemetry_purge_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeQuotaTelemetryPurge"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.quota_telemetry_purge_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "quota_telemetry_purge" {
+  name                         = "${local.name_prefix}-quota-telemetry-purge"
+  schedule_expression          = "cron(30 6 * * ? *)" # daily 06:30 UTC, after security-audit-purge (06:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.quota_telemetry_purge_handler.live_alias_arn
+    role_arn = aws_iam_role.quota_telemetry_purge_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 resource "aws_iam_role" "document_request_recurrence_schedule" {
   name = "${module.document_request_recurrence_handler.function_name}-schedule-role"
   assume_role_policy = jsonencode({
