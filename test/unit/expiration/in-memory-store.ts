@@ -1,7 +1,8 @@
 import type {
   EntityKey,
   ExpirationStore,
-  Gsi1QueryInput,
+  Gsi1PageInput,
+  Gsi1Page,
   TransactWriteEntry,
 } from "../../../src/modules/expiration/ports/expiration-store.js";
 import type { ExpirationIdGenerator } from "../../../src/modules/expiration/application/id-generator.js";
@@ -201,15 +202,29 @@ export class InMemoryExpirationStore implements ExpirationStore {
     return matches as unknown as T[];
   }
 
-  async queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]> {
+  /** D-136/D-E: one page per call, real cursor semantics (never an internal multi-call loop) -
+   * `exclusiveStartKey.GSI1SK` marks the resume boundary, same ordering discipline as the real
+   * DynamoDB adapter's `ExclusiveStartKey`. */
+  async queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>> {
+    const ascending = input.ascending ?? true;
     const matches = [...this.items.values()].filter((item) => item["GSI1PK"] === input.gsi1pk);
     matches.sort((a, b) => {
       const sa = String(a["GSI1SK"]);
       const sb = String(b["GSI1SK"]);
-      return input.ascending === false ? sb.localeCompare(sa) : sa.localeCompare(sb);
+      return ascending ? sa.localeCompare(sb) : sb.localeCompare(sa);
     });
-    const limited = input.limit ? matches.slice(0, input.limit) : matches;
-    return limited as unknown as T[];
+    const startAfter = input.exclusiveStartKey?.["GSI1SK"] as string | undefined;
+    const fromCursor = startAfter === undefined
+      ? matches
+      : matches.filter((item) => (ascending ? String(item["GSI1SK"]) > startAfter : String(item["GSI1SK"]) < startAfter));
+    const limit = input.limit ?? fromCursor.length;
+    const page = fromCursor.slice(0, limit);
+    const hasMore = fromCursor.length > page.length;
+    const last = page[page.length - 1];
+    return {
+      items: page as unknown as T[],
+      lastEvaluatedKey: hasMore && last ? { GSI1PK: last["GSI1PK"], GSI1SK: last["GSI1SK"] } : undefined,
+    };
   }
 
   /** Test-only helper mirroring InMemoryIdentityStore.allKeys(), for audit/outbox assertions. */

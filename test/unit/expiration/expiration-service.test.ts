@@ -132,7 +132,7 @@ describe("ExpirationService", () => {
       restrictedService.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z", assigneeUserId: "not-a-member" }),
     ).rejects.toBeInstanceOf(IneligibleAssigneeError);
     const dashboard = await restrictedService.listDashboard(ctx(), { status: "ACTIVE" });
-    expect(dashboard).toHaveLength(0);
+    expect(dashboard.items).toHaveLength(0);
   });
 
   it("createItem accepts an assigneeUserId that IS an eligible member of the Organization", async () => {
@@ -389,8 +389,8 @@ describe("ExpirationService", () => {
     await service.createItem(ctx(), { name: "later", category: "b", dueDate: "2026-12-01T00:00:00.000Z" });
     await service.createItem(ctx(), { name: "sooner", category: "b", dueDate: "2026-09-01T00:00:00.000Z" });
 
-    const items = await service.listDashboard(ctx(), { status: "ACTIVE" });
-    expect(items.map((i) => i.name)).toEqual(["sooner", "later"]);
+    const page = await service.listDashboard(ctx(), { status: "ACTIVE" });
+    expect(page.items.map((i) => i.name)).toEqual(["sooner", "later"]);
   });
 
   it("listDashboard for one tenant never returns another tenant's items", async () => {
@@ -405,9 +405,9 @@ describe("ExpirationService", () => {
       dueDate: "2026-09-01T00:00:00.000Z",
     });
 
-    const items = await service.listDashboard(ctx({ tenant: { tenantId: "tenant-1", roles: ["OWNER"] } }), { status: "ACTIVE" });
-    expect(items).toHaveLength(1);
-    expect(items[0]?.name).toBe("tenant-1-item");
+    const page = await service.listDashboard(ctx({ tenant: { tenantId: "tenant-1", roles: ["OWNER"] } }), { status: "ACTIVE" });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.name).toBe("tenant-1-item");
   });
 
   describe("W3-07 tenant lifecycle fence (D-070, chunk 9/N: ExpirationService.commit())", () => {
@@ -539,13 +539,14 @@ describe("ExpirationService", () => {
         async queryByPk() {
           return [];
         },
-        async queryGsi1(input: { gsi1pk: string; limit?: number }) {
-          // Simulates a tenant with exactly (limit) rows in ACTIVE alone - queryGsi1 is asked
-          // for budget+1 (2001) and returns exactly that many, which must trip the cap.
+        async queryGsi1Page(input: { gsi1pk: string; limit?: number }) {
+          // Simulates a tenant with exactly (limit) rows in ACTIVE alone, all in a single page -
+          // queryGsi1Page is asked for remaining+1 (2001) and returns exactly that many in one
+          // page (no lastEvaluatedKey), which must trip the cap via page.items.length > remaining.
           const status = input.gsi1pk.includes("ACTIVE") ? "ACTIVE" : input.gsi1pk.includes("ARCHIVED") ? "ARCHIVED" : "RENEWED";
-          if (status !== "ACTIVE") return [];
+          if (status !== "ACTIVE") return { items: [] };
           const n = input.limit ?? 0;
-          return Array.from({ length: n }, (_, i) => ({
+          const items = Array.from({ length: n }, (_, i) => ({
             PK: `TENANT#tenant-1#ITEM#i${i}`,
             SK: "META" as const,
             entityType: "ExpirationItem" as const,
@@ -563,6 +564,7 @@ describe("ExpirationService", () => {
             GSI1PK: input.gsi1pk,
             GSI1SK: `DUE#2026-09-10T00:00:00.000Z#ITEM#i${i}`,
           }));
+          return { items };
         },
       };
       const overflowService = new ExpirationService({
@@ -573,6 +575,71 @@ describe("ExpirationService", () => {
       });
 
       await expect(overflowService.exportItems(ctx())).rejects.toMatchObject({
+        name: "ValidationError",
+        details: { statusWhereExceeded: "ACTIVE" },
+      });
+    });
+
+    // D-136/D-E Rodada 3 finding: a page landing EXACTLY on the cap can still carry a
+    // `lastEvaluatedKey` pointing at a real next item of the SAME status - checking
+    // `rows.length < EXPORT_ITEM_CAP` instead of following the cursor itself would silently
+    // drop that item instead of throwing. Mutation: reverting the loop condition to
+    // `while (lastEvaluatedKey && rows.length < EXPORT_ITEM_CAP)` makes this test pass
+    // silently with 2000 rows instead of throwing (verified live).
+    it("detects the 2.001st item when it lands on a SECOND page of the same status, past a first page that landed exactly on the cap", async () => {
+      let firstPageServed = false;
+      const pagedOverflowStore = {
+        async get() {
+          return undefined;
+        },
+        async putIfAbsent() {
+          return true;
+        },
+        async update() {},
+        async transactWrite() {},
+        async queryByPk() {
+          return [];
+        },
+        async queryGsi1Page(input: { gsi1pk: string; limit?: number; exclusiveStartKey?: Record<string, unknown> }) {
+          const status = input.gsi1pk.includes("ACTIVE") ? "ACTIVE" : input.gsi1pk.includes("ARCHIVED") ? "ARCHIVED" : "RENEWED";
+          if (status !== "ACTIVE") return { items: [] };
+          const makeRow = (i: number) => ({
+            PK: `TENANT#tenant-1#ITEM#i${i}`,
+            SK: "META" as const,
+            entityType: "ExpirationItem" as const,
+            itemId: `i${i}`,
+            tenantId: "tenant-1",
+            name: `n${i}`,
+            category: "c",
+            categoryNormalized: "c",
+            dueDate: "2026-09-10T00:00:00.000Z",
+            tags: [],
+            status: "ACTIVE" as const,
+            createdAt: "2026-08-19T12:00:00.000Z",
+            updatedAt: "2026-08-19T12:00:00.000Z",
+            version: 1,
+            GSI1PK: input.gsi1pk,
+            GSI1SK: `DUE#2026-09-10T00:00:00.000Z#ITEM#i${i}`,
+          });
+          if (!firstPageServed) {
+            firstPageServed = true;
+            // First page: exactly 2.000 rows (the full cap), landing precisely on the
+            // boundary, WITH a lastEvaluatedKey pointing at a real next item.
+            return { items: Array.from({ length: 2000 }, (_, i) => makeRow(i)), lastEvaluatedKey: { GSI1PK: input.gsi1pk, GSI1SK: "cursor-after-2000" } };
+          }
+          // Second page (only reached if the loop correctly follows lastEvaluatedKey): the
+          // 2001st item of the SAME status.
+          return { items: [makeRow(2000)] };
+        },
+      };
+      const pagedOverflowService = new ExpirationService({
+        store: pagedOverflowStore as unknown as InMemoryExpirationStore,
+        tableName: "MainTable",
+        ids: makeExpirationIdGenerator(),
+        members: allowAllMemberEligibilityChecker(),
+      });
+
+      await expect(pagedOverflowService.exportItems(ctx())).rejects.toMatchObject({
         name: "ValidationError",
         details: { statusWhereExceeded: "ACTIVE" },
       });

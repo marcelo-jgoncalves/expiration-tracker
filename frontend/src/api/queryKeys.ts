@@ -14,10 +14,22 @@
  */
 export const queryKeys = {
   items: {
-    dashboard: (organizationId: string, status: string) => ["org", organizationId, "items", "dashboard", status] as const,
-    /** Prefix matching every status - for invalidating all dashboard views at once (e.g. after
-     * create/renew, mirrors the pre-B2B-10 invalidation scope of ["items","dashboard"]). */
+    /** Prefix matching every status AND both dashboard modalities below (D-136/D-E:
+     * `dashboardBounded`/`dashboardPage` extend this exact array, never a parallel/disconnected
+     * key) - for invalidating all dashboard views at once (e.g. after create/renew, mirrors the
+     * pre-B2B-10 invalidation scope of ["items","dashboard"]). */
     dashboardAll: (organizationId: string) => ["org", organizationId, "items", "dashboard"] as const,
+    /** D-136/D-E: Overview's single bounded page - `limit` is part of the key because a
+     * different limit is conceptually a different query, never sharing a cache entry with the
+     * paginated Collection view below (they used to share `dashboard(orgId, status)`, a real
+     * cache collision the D-136/D-E protocol found: a bounded Overview read could silently
+     * truncate what the Collection renders, or vice versa). */
+    dashboardBounded: (organizationId: string, status: string, limit: number) =>
+      [...queryKeys.items.dashboardAll(organizationId), "bounded", status, limit] as const,
+    /** D-136/D-E: ItemsCollection's paginated view - cursor state lives in TanStack Query's own
+     * `useInfiniteQuery` pageParam, not in this key. */
+    dashboardPage: (organizationId: string, status: string) =>
+      [...queryKeys.items.dashboardAll(organizationId), "page", status] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
   },

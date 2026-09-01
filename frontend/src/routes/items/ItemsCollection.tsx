@@ -19,7 +19,7 @@
  */
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useItemsDashboard } from "../../hooks/useItemsDashboard.js";
+import { useItemsDashboardPage } from "../../hooks/useItemsDashboard.js";
 import {
   presentItemStatus,
   presentItemUrgency,
@@ -111,7 +111,7 @@ export function ItemsCollection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
   const status: ExpirationItemStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
-  const query = useItemsDashboard(status);
+  const query = useItemsDashboardPage(status);
   // Computed once per render, not re-derived per row - a long-lived tab drifting a few
   // minutes stale between renders is an accepted trade-off (Overview.tsx's existing pattern).
   const now = useMemo(() => new Date(), []);
@@ -148,7 +148,7 @@ export function ItemsCollection() {
         ))}
       </div>
       <ToolbarSpacer />
-      {query.isFetching && !query.isPending ? <BackgroundRefreshIndicator /> : null}
+      {query.isFetching && !query.isPending && !query.isFetchingNextPage ? <BackgroundRefreshIndicator /> : null}
       <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
         Atualizar
       </Button>
@@ -187,7 +187,8 @@ export function ItemsCollection() {
     );
   }
 
-  const entries: RowEntry[] = sortByDueDateAscending(query.data.items).map((item) => ({ item, urgency: presentItemUrgency(item, now) }));
+  const allItems = query.data.pages.flatMap((page) => page.items);
+  const entries: RowEntry[] = sortByDueDateAscending(allItems).map((item) => ({ item, urgency: presentItemUrgency(item, now) }));
 
   if (entries.length === 0) {
     return (
@@ -232,6 +233,14 @@ export function ItemsCollection() {
           rows={groups ? undefined : entries}
           rowKey={(entry) => entry.item.itemId}
         />
+        {query.hasNextPage ? (
+          <Toolbar>
+            <ToolbarSpacer />
+            <Button variant="secondary" size="sm" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+              {query.isFetchingNextPage ? "Carregando…" : "Carregar mais"}
+            </Button>
+          </Toolbar>
+        ) : null}
       </Panel>
     </>
   );

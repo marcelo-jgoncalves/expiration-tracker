@@ -15,10 +15,24 @@ import type { EntityKey, TransactPutEntry, TransactUpdateEntry, TransactWriteEnt
 export type { EntityKey, TransactPutEntry, TransactUpdateEntry, TransactWriteEntry };
 export { TRANSACTION_CANCELED, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 
-export interface Gsi1QueryInput {
+/**
+ * D-136/D-E (performance hot-path): one real DynamoDB physical page per call, never an
+ * internal multi-call accumulate-then-slice loop (the pre-D-136 `queryGsi1` did that, and its
+ * own `LastEvaluatedKey` could point past items the accumulated+sliced result never returned -
+ * a real cursor-skip bug found in the D-136/D-E protocol). `exclusiveStartKey`/
+ * `lastEvaluatedKey` are raw DynamoDB key shapes - this port stays SDK-agnostic and
+ * HTTP-transport-agnostic; the opaque cursor string is encoded/decoded only at the HTTP edge
+ * (item-handlers.ts), never in this port or its callers.
+ */
+export interface Gsi1PageInput {
   gsi1pk: string;
   ascending?: boolean;
   limit?: number;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+export interface Gsi1Page<T> {
+  items: T[];
+  lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface ExpirationStore {
@@ -34,8 +48,8 @@ export interface ExpirationStore {
    * assume partial application.
    */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
-  /** Eventually consistent GSI1 query (data-model.md §3: vencimentos/dashboard). */
-  queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]>;
+  /** Eventually consistent GSI1 query, one physical page per call (data-model.md §3: vencimentos/dashboard). */
+  queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>>;
   /**
    * Query pela partição do item com prefixo opcional de SK — adição puramente aditiva
    * (07-domain-model-escalation-watchers-digest.md, D-040) para listar `ItemWatch` sob a

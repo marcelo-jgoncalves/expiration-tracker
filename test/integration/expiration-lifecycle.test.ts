@@ -174,4 +174,63 @@ describe("ExpirationItem end-to-end lifecycle (M2 exit criterion, no reminders)"
     const deleteAsA = await handleDeleteItem(deps, { ...reqA, pathParameters: { itemId: itemIdB }, headers: { "if-match": "1" } });
     expect(deleteAsA.statusCode).toBe(404);
   });
+
+  describe("dashboard pagination (D-136/D-E)", () => {
+    const req = { requestId: "r-page", correlationId: "c-page", claims: claims("sub-A") };
+
+    it("defaults to a bounded limit and paginates via a real cursor across all items with no gap or duplicate", async () => {
+      for (let i = 0; i < 5; i++) {
+        await handleCreateItem(deps, { ...req, body: { name: `item-${i}`, category: "c", dueDate: `2026-09-${10 + i}T00:00:00.000Z` } });
+      }
+
+      const firstPage = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", limit: "2" } });
+      expect(firstPage.statusCode).toBe(200);
+      expect((firstPage.body["items"] as unknown[]).length).toBe(2);
+      expect(firstPage.body["nextCursor"]).toBeTruthy();
+
+      const secondPage = await handleDashboard(deps, {
+        ...req,
+        queryStringParameters: { status: "ACTIVE", limit: "2", cursor: firstPage.body["nextCursor"] as string },
+      });
+      expect(secondPage.statusCode).toBe(200);
+      expect((secondPage.body["items"] as unknown[]).length).toBe(2);
+
+      const thirdPage = await handleDashboard(deps, {
+        ...req,
+        queryStringParameters: { status: "ACTIVE", limit: "2", cursor: secondPage.body["nextCursor"] as string },
+      });
+      expect(thirdPage.statusCode).toBe(200);
+      expect((thirdPage.body["items"] as unknown[]).length).toBe(1);
+      expect(thirdPage.body["nextCursor"]).toBeNull();
+
+      const allNames = [...(firstPage.body["items"] as { name: string }[]), ...(secondPage.body["items"] as { name: string }[]), ...(thirdPage.body["items"] as { name: string }[])].map((i) => i.name);
+      expect(new Set(allNames).size).toBe(5); // no duplicate, no gap across the 3 pages
+    });
+
+    it("rejects a cursor minted for a different status (fail-closed, never lets DynamoDB silently ignore the mismatch)", async () => {
+      await handleCreateItem(deps, { ...req, body: { name: "active-item", category: "c", dueDate: "2026-09-10T00:00:00.000Z" } });
+      const activePage = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", limit: "1" } });
+      // Force a cursor to exist by asking for a page smaller than the seeded set elsewhere in
+      // this describe's shared `deps` - if this specific run has no more ACTIVE items, mint a
+      // syntactically valid but wrong-status cursor by hand instead (still proves the check).
+      const wrongStatusCursor = Buffer.from(JSON.stringify({ GSI1PK: "TENANT#not-this-tenant#ITEMSTATUS#RENEWED", GSI1SK: "DUE#x" })).toString("base64url");
+      const rejected = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", cursor: wrongStatusCursor } });
+      expect(rejected.statusCode).toBe(400);
+      expect(activePage.statusCode).toBe(200); // sanity: the ACTIVE query itself works
+    });
+
+    it("rejects a malformed (non-base64/non-JSON) cursor with 400", async () => {
+      const rejected = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", cursor: "not-a-real-cursor!!" } });
+      expect(rejected.statusCode).toBe(400);
+    });
+
+    it("rejects limit=0, negative, and fractional as 400; caps an over-max limit at the server maximum instead of honoring the client's request", async () => {
+      for (const bad of ["0", "-1", "1.5", "abc"]) {
+        const rejected = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", limit: bad } });
+        expect(rejected.statusCode).toBe(400);
+      }
+      const overMax = await handleDashboard(deps, { ...req, queryStringParameters: { status: "ACTIVE", limit: "99999" } });
+      expect(overMax.statusCode).toBe(200); // capped server-side, never a 400 for "too high" - never an unbounded query either
+    });
+  });
 });
