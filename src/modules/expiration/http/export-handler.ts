@@ -13,6 +13,8 @@ import { serializeCsvRow } from "../../../shared/csv/csv-export-writer.js";
 import type { ExpirationItem } from "../domain/expiration-item.js";
 import type { HttpRequest, HttpResponse, ExpirationHttpDeps } from "./item-handlers.js";
 import { ValidationError } from "../../../shared/errors/app-error.js";
+import { randomUUID } from "node:crypto";
+import { logger } from "../../../shared/observability/logger.js";
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
   VALIDATION: 400,
@@ -96,6 +98,15 @@ function buildExportFilename(tenantId: string, now: () => string): string {
   return `items-export-${tenantId}-${timestamp}.csv`;
 }
 
+/** D-149 decisão 5: `exportRequestId` is either inherited from an optional client
+ * `Idempotency-Key` header (standard REST pattern, e.g. Stripe — narrow use case is an
+ * infra-level retry of the exact same request) or generated fresh per request via
+ * `crypto.randomUUID()`. API Gateway lower-cases header names, so only the lowercase key is
+ * checked — this handler's `req.headers` always comes from that source (never client-cased). */
+function resolveExportRequestId(headers: Record<string, string | undefined> | undefined): string {
+  return headers?.["idempotency-key"] || randomUUID();
+}
+
 export interface CsvHttpResponse {
   statusCode: number;
   csv: string;
@@ -128,6 +139,23 @@ export async function handleExportItems(
     const items = await deps.expiration.exportItems(context);
     const csv = buildExportCsv(items);
     const filename = buildExportFilename(context.tenant.tenantId, now);
+
+    // D-149 decisão 5: fail-open — the CSV response ships regardless of whether this audit
+    // write succeeds. Deliberately placed AFTER the CSV is fully serialized (so a slow/failed
+    // audit write can never delay or block the actual export the caller asked for) and BEFORE
+    // the response is returned below.
+    const exportRequestId = resolveExportRequestId(req.headers);
+    try {
+      await deps.expiration.recordExportAudit(context, { exportedCount: items.length, exportRequestId });
+    } catch (auditErr) {
+      logger.error("export-audit-write-failed", {
+        tenantId: context.tenant.tenantId,
+        correlationId: context.correlationId,
+        exportRequestId,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    }
+
     return { statusCode: 200, csv, filename };
   } catch (err) {
     if (err instanceof AuthorizationDeniedError) {
