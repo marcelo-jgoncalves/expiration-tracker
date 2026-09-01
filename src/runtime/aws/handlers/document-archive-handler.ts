@@ -1,7 +1,8 @@
 /** Real handler for /document-archive/* routes (D-143 Nucleus 1), same shape as
- * items-handler.ts. Terraform Lambda resource + API Gateway route registration + IAM policy
- * for GSI2/GSI5 access are separate, not-yet-done infra work (this file is application code
- * only, deployable once that infra exists) — named explicitly in NEXT_SESSION_PROMPT.md. */
+ * items-handler.ts. Wired to real infra (Lambda resource + API Gateway route + IAM policy)
+ * in `infra/main.tf`/`infra/modules/api-gateway/main.tf` and to `scripts/build-lambdas.ts`/
+ * `src/modules/bff/domain/proxy-allowlist.ts` — GSI2/GSI5 need no dedicated IAM policy beyond
+ * the general tenant-facing grant (see `infra/main.tf`'s `document_archive_handler` comment). */
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";

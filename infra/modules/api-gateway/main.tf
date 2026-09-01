@@ -462,3 +462,44 @@ resource "aws_lambda_permission" "imports" {
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/imports*"
 }
+
+# --- DocumentArchiveHandler: /document-archive/* (D-143 Nucleus 1) -------------------------
+
+resource "aws_apigatewayv2_integration" "document_archive" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.document_archive_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  document_archive_routes = {
+    create         = { method = "POST", path = "/document-archive/documents" }
+    get_by_id      = { method = "GET", path = "/document-archive/documents/{documentId}" }
+    list_versions  = { method = "GET", path = "/document-archive/documents/{documentId}/versions" }
+    reserve_upload = { method = "POST", path = "/document-archive/documents/{documentId}/versions" }
+    commit_upload  = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/commit" }
+    claim_review   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/claim" }
+    accept_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/accept" }
+    reject_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/reject" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "document_archive" {
+  for_each = local.document_archive_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.document_archive.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "document_archive" {
+  statement_id  = "AllowApiGatewayInvokeDocumentArchive"
+  action        = "lambda:InvokeFunction"
+  function_name = var.document_archive_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/document-archive*"
+}
