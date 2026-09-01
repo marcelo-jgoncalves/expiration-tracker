@@ -84,6 +84,17 @@ export type Action =
   // above — this is the single most destructive tenant-wide action in the system, so it can never
   // be paritary with ADMIN the way ordinary content administration is.
   | "organization:close"
+  // D-127 (quarantine/recovery window): cancels an in-progress closure while the tenant is
+  // `HELD_FOR_RECOVERY`. Same OWNER_ROLES tier as `organization:close` — reversing the most
+  // destructive tenant-wide action is at least as sensitive as triggering it. Registered here for
+  // the closed `Action` type (`AuthorizationDeniedError`/`auditAuthorizationDenied` typing) and
+  // for matrix completeness, but the actual authorization check for this action is
+  // `authorizeCancelClosure()` below, NOT the generic `authorize()` — the caller
+  // (`CancelOrganizationClosureService`) cannot build a `RequestContext` in the first place
+  // (`resolve-request-context.ts` requires `TenantLifecycleRecord.status === ACTIVE`, which a
+  // `HELD_FOR_RECOVERY` tenant is definitionally not), so `authorize()`'s own `AuthorizationInput`
+  // shape (needs `context: RequestContext`) is not constructible on this path at all.
+  | "organization:cancel-close"
   // D-143 (Document Archive domain, Nucleus 1): distinct namespace from the existing
   // `document:*` actions above, which belong to the low-level generic file-object storage
   // module (src/modules/document/ — S3/malware-scan primitives). `docarchive:*` is the
@@ -201,6 +212,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "membership:leave": READ_ONLY_ROLES,
   "organization:update-settings": OWNER_ROLES,
   "organization:close": OWNER_ROLES,
+  "organization:cancel-close": OWNER_ROLES,
   "docarchive:create": WRITE_ROLES,
   "docarchive:read": READ_ONLY_ROLES,
   "docarchive:upload": WRITE_ROLES,
@@ -278,5 +290,46 @@ export function authorize(input: AuthorizationInput): void {
     if (!roles.includes("OWNER") && !roles.includes("ADMIN") && !isOwnerOrAssignee) {
       throw new AuthorizationDeniedError("RESOURCE_OWNERSHIP_MISMATCH", action);
     }
+  }
+}
+
+export interface CancelClosureAuthorizationInput {
+  /** Read directly (`GlobalUser.identityStatus`) by `CancelOrganizationClosureService`'s own
+   * identity-mapping path — never derived from a `RequestContext`, which cannot be built for a
+   * `HELD_FOR_RECOVERY` tenant in the first place (see the `organization:cancel-close` doc
+   * comment above). */
+  identityStatus: "ACTIVE" | "SUSPENDED";
+  membershipStatus: "ACTIVE" | "SUSPENDED" | "REMOVED";
+  membershipRole: Role;
+}
+
+/**
+ * D-127: the dedicated authorization primitive for cancelling an in-progress tenant closure —
+ * deliberately NOT `authorize()`. Two reasons this cannot be the generic function:
+ *  1. `authorize()`'s signature requires a `RequestContext`, which requires
+ *     `resolveWorkingOrganization()`/`TenantLifecycleRecord.status === ACTIVE` to have already
+ *     succeeded (`resolve-request-context.ts`) — structurally uncomputable for a tenant that IS
+ *     `HELD_FOR_RECOVERY` by definition on this path.
+ *  2. Even granting a hypothetical relaxed `RequestContext`, the tenant's own RBAC state during
+ *     the recovery window is not necessarily the ordinary "one clean read" `authorize()` assumes
+ *     — this reads `GlobalUser`/`Membership` directly and fresh, with its own explicit
+ *     ACTIVE-on-both checks, rather than trusting a context object assembled by a different
+ *     resolution path built for a different (ACTIVE-tenant) precondition.
+ *
+ * Same fail-closed ordering discipline as `authorize()`: identity status checked before
+ * membership status before role — the first failing check wins, no partial/best-effort pass.
+ * Throws (never returns false), same convention as `authorize()`, so callers cannot forget to
+ * check a boolean result.
+ */
+export function authorizeCancelClosure(input: CancelClosureAuthorizationInput): void {
+  const action: Action = "organization:cancel-close";
+  if (input.identityStatus !== "ACTIVE") {
+    throw new AuthorizationDeniedError("NO_MEMBERSHIP", action);
+  }
+  if (input.membershipStatus !== "ACTIVE") {
+    throw new AuthorizationDeniedError("NO_MEMBERSHIP", action);
+  }
+  if (input.membershipRole !== "OWNER") {
+    throw new AuthorizationDeniedError("INSUFFICIENT_ROLE", action);
   }
 }

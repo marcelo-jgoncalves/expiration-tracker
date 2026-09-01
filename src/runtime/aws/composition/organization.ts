@@ -13,8 +13,10 @@ import { RemoveMembershipService } from "../../../modules/organization/applicati
 import { LeaveOrganizationService } from "../../../modules/organization/application/leave-organization.js";
 import { UpdateOrganizationSettingsService } from "../../../modules/organization/application/update-organization-settings.js";
 import { CloseOrganizationService } from "../../../modules/organization/application/close-organization.js";
+import { CancelOrganizationClosureService, type ConsistentKeyValueReader } from "../../../modules/organization/application/cancel-organization-closure.js";
 import { DynamoDbSystemMutationStore, DynamoDbTenantLifecycleReader } from "../../../shared/dynamodb/tenant-purge-scan.js";
-import { buildTenantPurgeExecutionStarter, createSfnPurgeClient } from "./tenant-purge.js";
+import { buildTenantPurgeExecutionStarter, buildTenantPurgeExecutionStopper, createSfnPurgeClient } from "./tenant-purge.js";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import { UlidIdGenerator } from "../ids.js";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 
@@ -112,5 +114,33 @@ export function buildMembershipDeps(
         tableName,
       )
     : undefined;
-  return { createInvitation, revokeInvitation, acceptInvitation, listMembers, listInvitations, changeRole, removeMembership, leaveOrganization, updateSettings, closeOrganization };
+  // D-127: only needs a plain ConsistentRead GetItem against the same main table — deliberately
+  // not the full OrganizationStore/IdentityStore surface (see cancel-organization-closure.ts's
+  // ConsistentKeyValueReader doc comment for why this is its own narrow port).
+  const consistentReader: ConsistentKeyValueReader = {
+    get: async (key) => {
+      const result = await client.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }));
+      return result.Item as never;
+    },
+  };
+  const cancelOrganizationClosure = new CancelOrganizationClosureService(
+    consistentReader,
+    new DynamoDbTenantLifecycleReader(client, tableName),
+    new DynamoDbSystemMutationStore(client),
+    buildTenantPurgeExecutionStopper(createSfnPurgeClient()),
+    tableName,
+  );
+  return {
+    createInvitation,
+    revokeInvitation,
+    acceptInvitation,
+    listMembers,
+    listInvitations,
+    changeRole,
+    removeMembership,
+    leaveOrganization,
+    updateSettings,
+    closeOrganization,
+    cancelOrganizationClosure,
+  };
 }

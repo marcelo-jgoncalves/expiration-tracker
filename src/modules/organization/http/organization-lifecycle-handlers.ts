@@ -16,6 +16,7 @@ import { AuthorizationError } from "../../../shared/errors/app-error.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { CloseOrganizationService } from "../application/close-organization.js";
+import type { CancelOrganizationClosureService } from "../application/cancel-organization-closure.js";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -33,10 +34,18 @@ export interface HttpResponse {
 export interface OrganizationLifecycleHttpDeps {
   resolver: RequestContextResolver;
   closeOrganization: CloseOrganizationService;
+  /** D-127. Optional so every existing call site of this interface keeps compiling; the cancel
+   * route is simply unreachable (like `closeOrganization` above) when absent. */
+  cancelOrganizationClosure?: CancelOrganizationClosureService;
 }
 
 export interface CloseOrganizationRequest {
   /** Must equal the organization's own id exactly — the type-to-confirm token. */
+  confirmOrganizationId?: string;
+}
+
+export interface CancelOrganizationClosureRequest {
+  /** Must equal the organization's own id exactly — same type-to-confirm convention as close. */
   confirmOrganizationId?: string;
 }
 
@@ -83,5 +92,31 @@ export async function handleCloseOrganization(deps: OrganizationLifecycleHttpDep
 
     const result = await deps.closeOrganization.close(context);
     return { statusCode: 202, body: { organizationId: result.tenantId, status: result.status } };
+  });
+}
+
+/**
+ * D-127: HTTP handler for cancelling an in-progress closure. Deliberately does NOT call
+ * `deps.resolver.resolve()` — that is the whole point of `CancelOrganizationClosureService`'s own
+ * identity-resolution path (see that file's header): a `HELD_FOR_RECOVERY` tenant cannot resolve
+ * through the normal ACTIVE-only pipeline. `tenantId` therefore comes from the same
+ * `X-Organization-Id` header every other BFF-derived hint uses (D-101), not from a resolved
+ * `RequestContext.tenant.tenantId` — there is no resolved context on this path.
+ */
+export async function handleCancelOrganizationClosure(deps: OrganizationLifecycleHttpDeps, req: HttpRequest<CancelOrganizationClosureRequest>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.cancelOrganizationClosure) {
+      throw new ValidationError("Organization closure cancellation is not available.");
+    }
+    const tenantId = req.headers?.["x-organization-id"];
+    if (!tenantId) {
+      throw new ValidationError("X-Organization-Id header is required.");
+    }
+    if (req.body?.confirmOrganizationId !== tenantId) {
+      throw new ValidationError("confirmOrganizationId must match the X-Organization-Id header to confirm cancellation.");
+    }
+
+    const result = await deps.cancelOrganizationClosure.cancel({ cognitoSub: req.claims.sub, tenantId });
+    return { statusCode: 200, body: { organizationId: result.tenantId, status: result.status } };
   });
 }

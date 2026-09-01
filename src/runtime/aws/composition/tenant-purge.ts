@@ -33,6 +33,8 @@ import {
 } from "../../../shared/dynamodb/tenant-purge-scan.js";
 import { S3TenantPurgeAdapter } from "../../../shared/s3/tenant-purge-s3-adapter.js";
 import { SfnTenantPurgeExecutionStarter } from "../../../shared/tenant-lifecycle/sfn-tenant-purge-execution-starter.js";
+import { SfnTenantPurgeExecutionStopper } from "../../../shared/tenant-lifecycle/sfn-tenant-purge-execution-stopper.js";
+import { SfnTenantPurgeExecutionDescriber } from "../../../shared/tenant-lifecycle/sfn-tenant-purge-execution-describer.js";
 import type { TenantS3Target } from "../../../workers/tenant-purge/purge-tenant.js";
 
 export interface TenantPurgeBuckets {
@@ -85,7 +87,8 @@ export function buildTenantLifecycleTransitionDeps(client: DynamoDBDocumentClien
   return { store: new DynamoDbSystemMutationStore(client), reader: new DynamoDbTenantLifecycleReader(client, tableName), tableName };
 }
 
-/** Deps for the recurring sweeper (repair + post-DELETED residual verification). */
+/** Deps for the recurring sweeper (repair + post-DELETED residual verification + D-127
+ * HELD_FOR_RECOVERY reconciliation). */
 export function buildTenantPurgeSweepDeps(
   client: DynamoDBDocumentClient,
   s3Client: S3Client,
@@ -98,10 +101,21 @@ export function buildTenantPurgeSweepDeps(
   return {
     lifecycle: new DynamoDbTenantLifecycleScanSource(client, tableName),
     executions: new SfnTenantPurgeExecutionStarter(sfnClient, stateMachineArn),
+    executionDescriber: new SfnTenantPurgeExecutionDescriber(sfnClient),
+    store: new DynamoDbSystemMutationStore(client),
+    tableName,
     ...buildTenantPurgeWorkerDeps(client, s3Client, tableName, sessionTableName, buckets),
   };
 }
 
 export function buildTenantPurgeExecutionStarter(sfnClient: SFNClient, stateMachineArn: string): SfnTenantPurgeExecutionStarter {
   return new SfnTenantPurgeExecutionStarter(sfnClient, stateMachineArn);
+}
+
+export function buildTenantPurgeExecutionStopper(sfnClient: SFNClient): SfnTenantPurgeExecutionStopper {
+  return new SfnTenantPurgeExecutionStopper(sfnClient);
+}
+
+export function buildTenantPurgeExecutionDescriber(sfnClient: SFNClient): SfnTenantPurgeExecutionDescriber {
+  return new SfnTenantPurgeExecutionDescriber(sfnClient);
 }

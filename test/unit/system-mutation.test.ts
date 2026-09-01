@@ -28,7 +28,7 @@ function seedLifecycle(store: InMemoryIdentityStore, tenantId: string, status: T
 }
 
 describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)", () => {
-  it("moves ACTIVE -> DELETING for real, via occ.ts's OCC-fenced Update", async () => {
+  it("moves ACTIVE -> HELD_FOR_RECOVERY for real, via occ.ts's OCC-fenced Update, stamping recoveryDeadline/closureAttemptId", async () => {
     const store = new InMemoryIdentityStore();
     await seedLifecycle(store, "tenant-1", "ACTIVE");
 
@@ -37,13 +37,103 @@ describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)"
       tableName: TABLE,
       tenantId: "tenant-1",
       from: "ACTIVE",
-      to: "DELETING",
+      to: "HELD_FOR_RECOVERY",
       expectedVersion: 1,
+      recoveryDeadline: "2026-09-28T00:00:00.000Z",
+      closureAttemptId: "attempt-1",
     });
 
-    const record = await store.get<EntityKey & { status: TenantLifecycleStatus; version: number }>(tenantLifecycleKey("tenant-1"));
-    expect(record?.status).toBe("DELETING");
+    const record = await store.get<EntityKey & { status: TenantLifecycleStatus; version: number; recoveryDeadline?: string; closureAttemptId?: string }>(
+      tenantLifecycleKey("tenant-1"),
+    );
+    expect(record?.status).toBe("HELD_FOR_RECOVERY");
     expect(record?.version).toBe(2); // buildVersionedUpdate increments version atomically
+    expect(record?.recoveryDeadline).toBe("2026-09-28T00:00:00.000Z");
+    expect(record?.closureAttemptId).toBe("attempt-1");
+  });
+
+  it("moves HELD_FOR_RECOVERY -> DELETING for real (30-day deadline firing)", async () => {
+    const store = new InMemoryIdentityStore();
+    await seedLifecycle(store, "tenant-1", "HELD_FOR_RECOVERY");
+
+    await transitionTenantLifecycle({ store, tableName: TABLE, tenantId: "tenant-1", from: "HELD_FOR_RECOVERY", to: "DELETING", expectedVersion: 1 });
+
+    const record = await store.get<EntityKey & { status: TenantLifecycleStatus }>(tenantLifecycleKey("tenant-1"));
+    expect(record?.status).toBe("DELETING");
+  });
+
+  it("moves HELD_FOR_RECOVERY -> ACTIVE (cancellation) for real, and clears recoveryDeadline/closureAttemptId/executionArn", async () => {
+    const store = new InMemoryIdentityStore();
+    await store.putIfAbsent({
+      ...tenantLifecycleKey("tenant-1"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-1",
+      status: "HELD_FOR_RECOVERY",
+      recoveryDeadline: "2026-09-28T00:00:00.000Z",
+      closureAttemptId: "attempt-1",
+      executionArn: "arn:aws:states:us-east-1:1:execution:x:tenant-1-attempt-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
+
+    await transitionTenantLifecycle({ store, tableName: TABLE, tenantId: "tenant-1", from: "HELD_FOR_RECOVERY", to: "ACTIVE", expectedVersion: 1 });
+
+    const record = await store.get<
+      EntityKey & { status: TenantLifecycleStatus; recoveryDeadline?: string; closureAttemptId?: string; executionArn?: string }
+    >(tenantLifecycleKey("tenant-1"));
+    expect(record?.status).toBe("ACTIVE");
+    expect(record?.recoveryDeadline).toBeUndefined();
+    expect(record?.closureAttemptId).toBeUndefined();
+    expect(record?.executionArn).toBeUndefined();
+  });
+
+  it("moves HELD_FOR_RECOVERY -> HELD (legal hold) WITHOUT clearing recoveryDeadline - preserves the original countdown", async () => {
+    const store = new InMemoryIdentityStore();
+    await store.putIfAbsent({
+      ...tenantLifecycleKey("tenant-1"),
+      entityType: "TenantLifecycleRecord",
+      tenantId: "tenant-1",
+      status: "HELD_FOR_RECOVERY",
+      recoveryDeadline: "2026-09-28T00:00:00.000Z",
+      closureAttemptId: "attempt-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      version: 1,
+    });
+
+    await transitionTenantLifecycle({
+      store,
+      tableName: TABLE,
+      tenantId: "tenant-1",
+      from: "HELD_FOR_RECOVERY",
+      to: "HELD",
+      expectedVersion: 1,
+      blockedReason: "LEGAL_HOLD",
+    });
+
+    const record = await store.get<
+      EntityKey & { status: TenantLifecycleStatus; recoveryDeadline?: string; closureAttemptId?: string; blockedFrom?: TenantLifecycleStatus; version: number }
+    >(tenantLifecycleKey("tenant-1"));
+    expect(record?.status).toBe("HELD");
+    expect(record?.blockedFrom).toBe("HELD_FOR_RECOVERY");
+    // The whole point of D-127's legal-hold decision: NOT reset to a fresh 30 days.
+    expect(record?.recoveryDeadline).toBe("2026-09-28T00:00:00.000Z");
+    expect(record?.closureAttemptId).toBe("attempt-1");
+
+    // And resuming from the lifted hold goes back to HELD_FOR_RECOVERY, still preserving it.
+    await transitionTenantLifecycle({
+      store,
+      tableName: TABLE,
+      tenantId: "tenant-1",
+      from: "HELD",
+      to: "HELD_FOR_RECOVERY",
+      expectedVersion: record!.version,
+      blockedFrom: "HELD_FOR_RECOVERY",
+    });
+    const resumed = await store.get<EntityKey & { status: TenantLifecycleStatus; recoveryDeadline?: string }>(tenantLifecycleKey("tenant-1"));
+    expect(resumed?.status).toBe("HELD_FOR_RECOVERY");
+    expect(resumed?.recoveryDeadline).toBe("2026-09-28T00:00:00.000Z");
   });
 
   it("rejects an illegal transition before touching the store at all (assertValidTransition, in-process)", async () => {
@@ -75,8 +165,10 @@ describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)"
         tableName: TABLE,
         tenantId: "tenant-1",
         from: "ACTIVE",
-        to: "DELETING",
+        to: "HELD_FOR_RECOVERY",
         expectedVersion: 1, // stale
+        recoveryDeadline: "2026-09-28T00:00:00.000Z",
+        closureAttemptId: "attempt-1",
       }),
     ).rejects.toBeInstanceOf(SystemMutationConflictError);
   });
@@ -172,7 +264,16 @@ describe("transitionTenantLifecycle (SystemMutation lane, LIFECYCLE_TRANSITION)"
     await seedLifecycle(store, "tenant-1", "ACTIVE");
     await seedLifecycle(store, "tenant-2", "ACTIVE");
 
-    await transitionTenantLifecycle({ store, tableName: TABLE, tenantId: "tenant-1", from: "ACTIVE", to: "DELETING", expectedVersion: 1 });
+    await transitionTenantLifecycle({
+      store,
+      tableName: TABLE,
+      tenantId: "tenant-1",
+      from: "ACTIVE",
+      to: "HELD_FOR_RECOVERY",
+      expectedVersion: 1,
+      recoveryDeadline: "2026-09-28T00:00:00.000Z",
+      closureAttemptId: "attempt-1",
+    });
 
     const other = await store.get<EntityKey & { status: TenantLifecycleStatus }>(tenantLifecycleKey("tenant-2"));
     expect(other?.status).toBe("ACTIVE");

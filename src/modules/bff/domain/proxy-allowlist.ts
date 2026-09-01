@@ -81,6 +81,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // infra/modules/api-gateway/main.tf - D-117/D-120 were both real production bugs where a
   // handler existed and one of the two wiring halves was silently missing.
   { method: "POST", pathTemplate: "/organizations/close" },
+  // D-127 (quarantine/recovery window): the cancellation trigger. Same dual-wiring discipline.
+  { method: "POST", pathTemplate: "/organizations/cancel-close" },
   // D-143 Nucleus 1 (Document Archive domain) - routed in infra/modules/api-gateway/main.tf's
   // `document_archive_routes` alongside the matching Lambda/IAM wiring in the same PR, so
   // neither half is ever silently missing (the exact D-117/D-120 bug class named above).

@@ -341,6 +341,10 @@ locals {
     # without ever reaching the Lambda). The tftest below asserts this route exists for that
     # reason.
     close_organization = { method = "POST", path = "/organizations/close" }
+    # D-127 (quarantine/recovery window): CancelOrganizationClosureService's trigger - same
+    # "route added in the same commit as the handler" discipline as close_organization above,
+    # for the same D-117/D-120 bug-class reason.
+    cancel_organization_closure = { method = "POST", path = "/organizations/cancel-close" }
   }
 }
 

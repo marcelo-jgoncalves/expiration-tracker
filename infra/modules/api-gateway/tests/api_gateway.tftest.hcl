@@ -292,8 +292,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.memberships) == 9
-    error_message = "Expected exactly 9 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings, close_organization)"
+    condition     = length(aws_apigatewayv2_route.memberships) == 10
+    error_message = "Expected exactly 10 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings, close_organization, cancel_organization_closure)"
   }
 
   # W3-07 (D-124): the organization-closure route. This assertion exists specifically because
@@ -307,6 +307,15 @@ run "jwt_authorizer_attached_to_every_route" {
       "POST /organizations/close",
     )
     error_message = "POST /organizations/close route must exist - CloseOrganizationService is unreachable without it (D-117/D-120 bug class)"
+  }
+
+  # D-127: same discipline for CancelOrganizationClosureService's route.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "POST /organizations/cancel-close",
+    )
+    error_message = "POST /organizations/cancel-close route must exist - CancelOrganizationClosureService is unreachable without it (D-117/D-120 bug class)"
   }
 
   # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same Lambda, new route.

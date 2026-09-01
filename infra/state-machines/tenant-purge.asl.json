@@ -1,7 +1,81 @@
 {
-  "Comment": "W3-07 tenant purge orchestrator (D-124, implementing the design APPROVED as D-121, docs/architecture/reviews/w3-07-purge-orchestrator-scoping/). Drives the real ACTIVE->DELETING->QUIESCING->PURGING->VERIFIED->DELETED lifecycle for one tenant. Started by CloseOrganizationService (and repaired by the sweeper) with input {tenantId} and execution name = tenantId, which is the whole idempotency mechanism. Like ../modules/extraction-workflow/'s document-extraction.asl.json, this checked-in file is a TEMPLATE: infra/modules/tenant-purge-workflow/main.tf substitutes the two Lambda FunctionName placeholders and the retry-limit placeholder via replace() at plan/apply time, so the tokens below are never what actually reaches AWS - keeping the file human-readable for review is the same tradeoff that module already makes. The module's own tftest asserts every placeholder was substituted, which is why this comment deliberately does not quote them verbatim.",
-  "StartAt": "WaitForQuiescence",
+  "Comment": "W3-07 tenant purge orchestrator (D-124, implementing the design APPROVED as D-121, docs/architecture/reviews/w3-07-purge-orchestrator-scoping/), extended by D-127 (quarantine/recovery window, docs/architecture/reviews/quarantine-retention-scoping/). Drives the real ACTIVE(via CloseOrganizationService)->HELD_FOR_RECOVERY->DELETING->QUIESCING->PURGING->VERIFIED->DELETED lifecycle for one tenant. Started by CloseOrganizationService (and repaired by the sweeper) with input {tenantId} and execution name = `${tenantId}-${closureAttemptId}` (D-127 changed this from the bare tenantId - see tenant-lifecycle-record.ts's closureAttemptId field doc - so a second close() after a real cancellation never collides with a prior, by-then-stopped execution's name). Like ../modules/extraction-workflow/'s document-extraction.asl.json, this checked-in file is a TEMPLATE: infra/modules/tenant-purge-workflow/main.tf substitutes the two Lambda FunctionName placeholders and the retry-limit placeholder via replace() at plan/apply time, so the tokens below are never what actually reaches AWS - keeping the file human-readable for review is the same tradeoff that module already makes. The module's own tftest asserts every placeholder was substituted, which is why this comment deliberately does not quote them verbatim.",
+  "StartAt": "WaitForRecovery",
   "States": {
+    "WaitForRecovery": {
+      "Type": "Wait",
+      "Comment": "D-127: the 30-day quarantine/recovery window (docs/architecture/reviews/quarantine-retention-scoping/estado-final-consolidado.md) - a literal, deliberately NOT a variable or execution-input field, same discipline as WaitForQuiescence's 1800 below (no caller can shorten the window an OWNER is given to cancel). 2592000 = 30 * 24 * 60 * 60. Well inside a Standard Workflow's 1-year maximum duration.",
+      "Seconds": 2592000,
+      "Next": "AdvanceToDeleting"
+    },
+
+    "AdvanceToDeleting": {
+      "Type": "Task",
+      "Comment": "D-127: HELD_FOR_RECOVERY -> DELETING, the first physically-irreversible step. ResultPath (NOT null, unlike every other transition Task below) because the handler's `cancelled` field is exactly the re-verification the approved design requires immediately before this first irreversible action: if CancelOrganizationClosureService already moved the record back to ACTIVE while this Wait was running, the handler reports {cancelled: true} instead of throwing, and the Choice right after this state ends the execution cleanly instead of ever reaching RunPurge.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": {
+          "tenantId.$": "$.tenantId",
+          "from": "HELD_FOR_RECOVERY",
+          "to": "DELETING"
+        }
+      },
+      "ResultSelector": {
+        "cancelled.$": "$.Payload.cancelled"
+      },
+      "ResultPath": "$.recoveryTransition",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "Comment": "A thrown error here means the record was at neither HELD_FOR_RECOVERY nor DELETING nor the one designed cancellation shape (ACTIVE) - a genuinely unexpected state, same MarkBlocked treatment as every other transition Task.",
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.transitionError",
+          "Next": "MarkBlockedFromHeldForRecovery"
+        }
+      ],
+      "Next": "CheckCancelled"
+    },
+
+    "CheckCancelled": {
+      "Type": "Choice",
+      "Comment": "D-127: the re-verification the approved design's minimal reusable contract requires (estado-final-consolidado.md: 'uma re-verificacao de estado imediatamente antes da PRIMEIRA acao fisica irreversivel'). A dedicated Choice, deliberately NOT a side effect of the generic Catch above - cancellation is an expected, designed outcome, not an error.",
+      "Choices": [
+        {
+          "Variable": "$.recoveryTransition.cancelled",
+          "BooleanEquals": true,
+          "Next": "RecoveryCancelled"
+        }
+      ],
+      "Default": "WaitForQuiescence"
+    },
+
+    "RecoveryCancelled": {
+      "Type": "Succeed",
+      "Comment": "D-127: the tenant was cancelled (CancelOrganizationClosureService) while this execution's 30-day Wait was running - a clean, explicit no-op success, never MarkBlocked for a transition that no longer applies."
+    },
+
+    "MarkBlockedFromHeldForRecovery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "tenant-lifecycle-transition:live",
+        "Payload": { "tenantId.$": "$.tenantId", "from": "HELD_FOR_RECOVERY", "to": "BLOCKED", "blockedReason": "LIFECYCLE_TRANSITION_FAILED" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.markBlockedError", "Next": "PurgeBlocked" }],
+      "Next": "PurgeBlocked"
+    },
+
     "WaitForQuiescence": {
       "Type": "Wait",
       "Comment": "The 1800s capability-extinction cutoff already APPROVED by D-066 Rodada H - a literal, deliberately NOT a variable or an execution-input field, so no caller can shorten the window that admitted capabilities need to expire in. Well inside a Standard Workflow's 1-year maximum duration (verified against AWS docs during D-121 Rodada 2, not assumed). Covers the DELETING -> QUIESCING segment; the write itself is the next state's job, since a Wait state cannot touch DynamoDB.",

@@ -40,7 +40,7 @@ import type { SystemMutationOperation } from "../../src/shared/tenant-lifecycle/
  * without updating this list (or vice versa), one of the two assertions below fails to compile,
  * turning `npm run typecheck` red - the same enforcement mechanism CI already runs on every PR.
  */
-type ApprovedSystemMutationKind = "LIFECYCLE_TRANSITION" | "PURGE_DELETE" | "OUTBOX_BOOKKEEPING";
+type ApprovedSystemMutationKind = "LIFECYCLE_TRANSITION" | "PURGE_DELETE" | "OUTBOX_BOOKKEEPING" | "ATTACH_LIFECYCLE_EXECUTION_ARN";
 type AssertUnionIsSubsetOfApproved = SystemMutationOperation["kind"] extends ApprovedSystemMutationKind
   ? true
   : ["FAIL: SystemMutationOperation has a kind NOT in the independently-maintained ApprovedSystemMutationKind allowlist - update system-mutation-allowlist.test.ts"];
@@ -175,6 +175,7 @@ describe("architecture: SystemMutationOperation allowlist is closed at compile t
           '  { kind: "LIFECYCLE_TRANSITION", tenantId: "t", from: "ACTIVE", to: "DELETING", expectedVersion: 1 },',
           '  { kind: "PURGE_DELETE", tenantId: "t", key: { PK: "TENANT#t#ITEM#i", SK: "ITEM" } },',
           '  { kind: "OUTBOX_BOOKKEEPING" },',
+          '  { kind: "ATTACH_LIFECYCLE_EXECUTION_ARN", tenantId: "t", closureAttemptId: "a", executionArn: "arn:aws:states:x" },',
           '];',
         ].join("\n"),
       );

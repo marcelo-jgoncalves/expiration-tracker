@@ -49,6 +49,17 @@ export interface LifecycleTransitionOutput {
   /** True when this invocation found the record already at `to` and committed nothing — the
    * idempotent no-op branch. The ASL treats it exactly like a fresh advance. */
   alreadyAdvanced: boolean;
+  /** D-127: true ONLY for the one legal backward edge (`from: "HELD_FOR_RECOVERY", to:
+   * "DELETING"` finding the record already back at `ACTIVE`) — the tenant was cancelled
+   * (`CancelOrganizationClosureService`) while this execution's 30-day `Wait` was still running.
+   * A dedicated ASL `Choice` (`estado-final-consolidado.md`'s "re-verificação de estado
+   * imediatamente antes da PRIMEIRA ação física irreversível") branches on this field to end the
+   * execution in an explicit no-op `Succeed`, never `MarkBlocked` — this is the expected,
+   * designed outcome of a successful cancellation, not an unexpected lifecycle state. Every other
+   * combination of `record.status` at neither `from` nor `to` is still the genuine, unexpected
+   * `UnexpectedTenantLifecycleStateError` below — this is a single, narrowly-scoped exception,
+   * not a general relaxation of that check. */
+  cancelled?: boolean;
 }
 
 /** Thrown when the lifecycle record is at neither `from` nor `to` — a genuine unexpected state
@@ -68,6 +79,10 @@ export async function advanceTenantLifecycle(deps: LifecycleTransitionDeps, inpu
   }
   if (record.status === input.to) {
     return { tenantId: input.tenantId, status: input.to, alreadyAdvanced: true };
+  }
+  if (input.from === "HELD_FOR_RECOVERY" && input.to === "DELETING" && record.status === "ACTIVE") {
+    // D-127: the one designed exception — see LifecycleTransitionOutput.cancelled's doc comment.
+    return { tenantId: input.tenantId, status: "ACTIVE", alreadyAdvanced: false, cancelled: true };
   }
   if (record.status !== input.from) {
     throw new UnexpectedTenantLifecycleStateError(input.tenantId, input.from, record.status);
