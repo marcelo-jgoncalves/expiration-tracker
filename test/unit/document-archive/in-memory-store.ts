@@ -217,6 +217,13 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
     return { items: matches as unknown as T[], lastEvaluatedKey: undefined };
   }
 
+  /** Fake for `scanActiveSeries` (D-147) — same one-page-returns-everything simplification as
+   * `scanSatisfiedRequirements` above. */
+  async scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(_exclusiveStartKey?: Record<string, unknown>): Promise<{ items: T[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    const matches = [...this.items.values()].filter((item) => item["entityType"] === "DocumentRequestSeries" && item["status"] === "ACTIVE");
+    return { items: matches as unknown as T[], lastEvaluatedKey: undefined };
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }
