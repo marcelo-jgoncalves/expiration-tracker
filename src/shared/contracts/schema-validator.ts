@@ -62,6 +62,12 @@ import docarchiveCommitUploadRequestV1 from "../../../schemas/api/docarchive-com
 import docarchiveClaimReviewRequestV1 from "../../../schemas/api/docarchive-claim-review-request.v1.json";
 import docarchiveAcceptVersionRequestV1 from "../../../schemas/api/docarchive-accept-version-request.v1.json";
 import docarchiveRejectVersionRequestV1 from "../../../schemas/api/docarchive-reject-version-request.v1.json";
+// D-143 Nucleus 2, Requirement (Decision 5 / D-145).
+import docarchiveRequirementCreateRequestV1 from "../../../schemas/api/docarchive-requirement-create-request.v1.json";
+import docarchiveRequirementUpdateRequestV1 from "../../../schemas/api/docarchive-requirement-update-request.v1.json";
+import docarchiveRequirementLinkEvidenceRequestV1 from "../../../schemas/api/docarchive-requirement-link-evidence-request.v1.json";
+import docarchiveRequirementUnlinkEvidenceRequestV1 from "../../../schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
+import docarchiveRequirementDeleteRequestV1 from "../../../schemas/api/docarchive-requirement-delete-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -158,4 +164,9 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveClaimReviewRequestV1,
   docarchiveAcceptVersionRequestV1,
   docarchiveRejectVersionRequestV1,
+  docarchiveRequirementCreateRequestV1,
+  docarchiveRequirementUpdateRequestV1,
+  docarchiveRequirementLinkEvidenceRequestV1,
+  docarchiveRequirementUnlinkEvidenceRequestV1,
+  docarchiveRequirementDeleteRequestV1,
 ]);

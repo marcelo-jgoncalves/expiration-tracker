@@ -89,6 +89,14 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/claim" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/accept" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/reject" },
+  // D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same pairing discipline as above.
+  { method: "POST", pathTemplate: "/document-archive/requirements" },
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}" },
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },
+  { method: "PATCH", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },
+  { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" },
+  { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" },
+  { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/delete" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

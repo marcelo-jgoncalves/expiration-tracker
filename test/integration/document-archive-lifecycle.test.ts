@@ -23,6 +23,10 @@ import {
   handleListVersions,
   handleRejectVersion,
   handleReserveUpload,
+  handleCreateRequirement,
+  handleGetRequirement,
+  handleLinkEvidence,
+  handleDeleteRequirement,
   type DocumentArchiveHttpDeps,
 } from "../../src/modules/document-archive/http/document-archive-handlers.js";
 
@@ -41,6 +45,7 @@ function makeIds() {
     newDocumentId: () => `doc-${++idCounter}`,
     newVersionId: () => `ver-${++idCounter}`,
     newEventId: () => `evt-${++idCounter}`,
+    newRequirementId: () => `req-${++idCounter}`,
   };
 }
 
@@ -165,5 +170,61 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
 
     const response = await handleCreateDocument(viewerDeps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
     expect(response.statusCode).toBe(403);
+  });
+
+  it("Requirement: create -> linkEvidence -> status derivation (PENDING then SATISFIED) -> delete, all via HTTP handlers (D-143 Decision 5 / D-145)", async () => {
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: false } });
+    const documentId = (created.body["document"] as { documentId: string }).documentId;
+
+    const createdReq = await handleCreateRequirement(deps, { ...req, body: { subjectId: "subject-1", name: "Alvará de funcionamento", applicability: "APPLICABLE" } });
+    expect(createdReq.statusCode).toBe(201);
+    const requirement = createdReq.body["requirement"] as { requirementId: string; version: number; status: string };
+    expect(requirement.status).toBe("MISSING");
+
+    const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
+    const version = draft.body["version"] as { seq: number; version: number; versionId: string };
+
+    // Evidence linked while the DocumentVersion is still DRAFT -> PENDING (not yet ACCEPTED).
+    const linkedPending = await handleLinkEvidence(deps, {
+      ...req,
+      pathParameters: { subjectId: "subject-1", requirementId: requirement.requirementId },
+      body: { expectedVersion: requirement.version, documentId, versionId: version.versionId },
+    });
+    expect(linkedPending.statusCode).toBe(200);
+    const pendingRequirement = linkedPending.body["requirement"] as { status: string; version: number };
+    expect(pendingRequirement.status).toBe("PENDING");
+
+    const received = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(version.seq) }, body: { expectedVersion: version.version } });
+    const receivedVersion = received.body["version"] as { version: number };
+    const underReview = await handleClaimReview(deps, { ...req, pathParameters: { documentId, seq: String(version.seq) }, body: { expectedVersion: receivedVersion.version } });
+    const underReviewVersion = underReview.body["version"] as { version: number };
+    await handleAcceptVersion(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: { expectedVersion: underReviewVersion.version, clientRequestToken: "req-token-requirement" },
+    });
+
+    // Re-link the now-ACCEPTED version -> SATISFIED (no validUntil supplied, so it never expires).
+    const linkedSatisfied = await handleLinkEvidence(deps, {
+      ...req,
+      pathParameters: { subjectId: "subject-1", requirementId: requirement.requirementId },
+      body: { expectedVersion: pendingRequirement.version, documentId, versionId: version.versionId },
+    });
+    expect(linkedSatisfied.statusCode).toBe(200);
+    const satisfiedRequirement = linkedSatisfied.body["requirement"] as { status: string; version: number };
+    expect(satisfiedRequirement.status).toBe("SATISFIED");
+
+    const getResponse = await handleGetRequirement(deps, { ...req, pathParameters: { subjectId: "subject-1", requirementId: requirement.requirementId } });
+    expect((getResponse.body["requirement"] as { status: string }).status).toBe("SATISFIED");
+
+    const deleted = await handleDeleteRequirement(deps, {
+      ...req,
+      pathParameters: { subjectId: "subject-1", requirementId: requirement.requirementId },
+      body: { expectedVersion: satisfiedRequirement.version },
+    });
+    expect(deleted.statusCode).toBe(204);
+
+    const getAfterDelete = await handleGetRequirement(deps, { ...req, pathParameters: { subjectId: "subject-1", requirementId: requirement.requirementId } });
+    expect(getAfterDelete.statusCode).toBe(404);
   });
 });

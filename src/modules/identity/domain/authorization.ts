@@ -95,7 +95,18 @@ export type Action =
   | "docarchive:create"
   | "docarchive:read"
   | "docarchive:upload"
-  | "docarchive:review";
+  | "docarchive:review"
+  // D-143 Nucleus 2, entity 1 (Decision 5, D-145): Requirement — "algo que um Subject precisa
+  // possuir, apresentar ou manter válido". Deliberately NOT reusing `requirement:*` above:
+  // those belong to the older, distinct `subject` module's `RequirementAssignment` concept
+  // (linked ExpirationItem, MISSING<->SATISFIED only). This Requirement is document-archive's
+  // own aggregate (linked DocumentVersion evidence, 5-state derived status) — a real naming
+  // collision resolved deliberately by namespacing under `docarchive:`, same prefix as this
+  // module's other actions, rather than overloading the older name silently.
+  | "docarchive:requirement-create"
+  | "docarchive:requirement-read"
+  | "docarchive:requirement-update"
+  | "docarchive:requirement-delete";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -177,6 +188,10 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:read": READ_ONLY_ROLES,
   "docarchive:upload": WRITE_ROLES,
   "docarchive:review": WRITE_ROLES,
+  "docarchive:requirement-create": WRITE_ROLES,
+  "docarchive:requirement-read": READ_ONLY_ROLES,
+  "docarchive:requirement-update": WRITE_ROLES,
+  "docarchive:requirement-delete": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

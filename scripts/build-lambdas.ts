@@ -72,6 +72,8 @@ const HANDLERS = [
   "tenant-purge-sweeper-handler",
   // D-123/D-126 (CSV data export): dedicated handler, own timeout, see export-handler.ts.
   "export-handler",
+  // D-143 Nucleus 2, Requirement (Decision 5 / D-145): daily EventBridge Scheduler reindex job.
+  "requirement-reindex-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

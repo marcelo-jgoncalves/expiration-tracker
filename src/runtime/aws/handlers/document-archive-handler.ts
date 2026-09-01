@@ -17,6 +17,13 @@ import {
   handleListVersions,
   handleRejectVersion,
   handleReserveUpload,
+  handleCreateRequirement,
+  handleGetRequirement,
+  handleListRequirements,
+  handleUpdateRequirement,
+  handleLinkEvidence,
+  handleUnlinkEvidence,
+  handleDeleteRequirement,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -58,6 +65,21 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleAcceptVersion(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/documents/{documentId}/versions/{seq}/reject":
           return await handleRejectVersion(deps, { ...base, body: parseBody(event) });
+        // D-143 Nucleus 2, Requirement (Decision 5 / D-145) — subject-scoped routes.
+        case "POST /document-archive/requirements":
+          return await handleCreateRequirement(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/requirements/{subjectId}":
+          return await handleListRequirements(deps, base);
+        case "GET /document-archive/requirements/{subjectId}/{requirementId}":
+          return await handleGetRequirement(deps, base);
+        case "PATCH /document-archive/requirements/{subjectId}/{requirementId}":
+          return await handleUpdateRequirement(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirements/{subjectId}/{requirementId}/link-evidence":
+          return await handleLinkEvidence(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence":
+          return await handleUnlinkEvidence(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirements/{subjectId}/{requirementId}/delete":
+          return await handleDeleteRequirement(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

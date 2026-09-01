@@ -65,6 +65,10 @@ export class UlidIdGenerator
   newUploadSlotId(): string {
     return `slot_${ulid()}`;
   }
+  /** D-143 Nucleus 2, Requirement (D-145). */
+  newRequirementId(): string {
+    return `req_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

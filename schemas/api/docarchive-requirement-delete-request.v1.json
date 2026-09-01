@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json",
+  "title": "DocArchiveRequirementDeleteRequest v1",
+  "description": "POST /document-archive/requirements/{subjectId}/{requirementId}/delete request body. D-143 Decision 5 / D-145.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

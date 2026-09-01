@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json",
+  "title": "DocArchiveRequirementLinkEvidenceRequest v1",
+  "description": "POST /document-archive/requirements/{subjectId}/{requirementId}/link-evidence request body. D-143 Decision 5 / D-145 — documentId is required explicitly (see requirement.ts's evidenceDocumentId doc comment for why this is not resolved from versionId alone).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion", "documentId", "versionId"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "documentId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "versionId": { "type": "string", "minLength": 1, "maxLength": 100 }
+  }
+}
