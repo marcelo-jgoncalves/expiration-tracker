@@ -83,7 +83,19 @@ export type Action =
   // the same tier as `tenant:configure-document-request-delivery`/`organization:update-settings`
   // above — this is the single most destructive tenant-wide action in the system, so it can never
   // be paritary with ADMIN the way ordinary content administration is.
-  | "organization:close";
+  | "organization:close"
+  // D-143 (Document Archive domain, Nucleus 1): distinct namespace from the existing
+  // `document:*` actions above, which belong to the low-level generic file-object storage
+  // module (src/modules/document/ — S3/malware-scan primitives). `docarchive:*` is the
+  // higher-level business domain (Document/DocumentVersion/state machine) — same tenant-wide
+  // RBAC tiers as every other business resource, no per-item ACL (D-143 Decision 1/9 explicitly
+  // rejected presuming an ACL `authorize()` doesn't implement). `docarchive:review` covers
+  // claim/accept/reject — the finer-grained "may THIS actor decide THIS version" check is a
+  // separate, named service-level gate (`assertReviewerOrAdmin`), not a distinct RBAC action.
+  | "docarchive:create"
+  | "docarchive:read"
+  | "docarchive:upload"
+  | "docarchive:review";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -161,6 +173,10 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "membership:leave": READ_ONLY_ROLES,
   "organization:update-settings": OWNER_ROLES,
   "organization:close": OWNER_ROLES,
+  "docarchive:create": WRITE_ROLES,
+  "docarchive:read": READ_ONLY_ROLES,
+  "docarchive:upload": WRITE_ROLES,
+  "docarchive:review": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

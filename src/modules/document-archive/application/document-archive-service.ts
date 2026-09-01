@@ -14,7 +14,9 @@ import {
   isTransactionCanceled,
   type EntityKey,
 } from "../../../shared/dynamodb/occ.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import { authorize } from "../../identity/domain/authorization.js";
+import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { type CreateDocumentInput, type Document, documentGsi1Keys, documentGsi2Keys, documentKey } from "../domain/document.js";
@@ -56,7 +58,9 @@ export class DocumentArchiveService {
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
-  async createDocument(tenantId: string, input: CreateDocumentInput): Promise<Document> {
+  async createDocument(ctx: RequestContext, input: CreateDocumentInput): Promise<Document> {
+    authorize({ context: ctx, action: "docarchive:create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
     const documentId = this.ids.newDocumentId();
     const now = this.now();
     const document: Document = {
@@ -80,13 +84,23 @@ export class DocumentArchiveService {
     return document;
   }
 
-  async getDocument(tenantId: string, documentId: string): Promise<Document> {
+  async getDocument(ctx: RequestContext, documentId: string): Promise<Document> {
+    authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.getDocumentUnchecked(ctx.tenant.tenantId, documentId);
+  }
+
+  private async getDocumentUnchecked(tenantId: string, documentId: string): Promise<Document> {
     const document = await this.store.get<Document>(documentKey(tenantId, documentId));
     if (!document) throw new NotFoundError("Document not found.", { documentId });
     return document;
   }
 
-  async listVersions(tenantId: string, documentId: string): Promise<DocumentVersion[]> {
+  async listVersions(ctx: RequestContext, documentId: string): Promise<DocumentVersion[]> {
+    authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.listVersionsUnchecked(ctx.tenant.tenantId, documentId);
+  }
+
+  private async listVersionsUnchecked(tenantId: string, documentId: string): Promise<DocumentVersion[]> {
     const items = await this.store.queryByPk<DocumentVersion>(`TENANT#${tenantId}#DOCUMENT#${documentId}`, "VERSION#");
     // DocumentVersionEvent rows share the "VERSION#" SK prefix (VERSION#<seq>#EVENT#...) —
     // filter to rows whose SK is exactly "VERSION#<seq>" (no further "#" segment).
@@ -94,9 +108,11 @@ export class DocumentArchiveService {
   }
 
   /** DRAFT creation (`reserveUpload`) — seq is 1 + the highest existing seq for this Document. */
-  async reserveUpload(tenantId: string, documentId: string, origin: DocumentVersionOrigin): Promise<DocumentVersion> {
-    await this.getDocument(tenantId, documentId); // 404s if the Document doesn't exist
-    const existingVersions = await this.listVersions(tenantId, documentId);
+  async reserveUpload(ctx: RequestContext, documentId: string, origin: DocumentVersionOrigin): Promise<DocumentVersion> {
+    authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    await this.getDocumentUnchecked(tenantId, documentId); // 404s if the Document doesn't exist
+    const existingVersions = await this.listVersionsUnchecked(tenantId, documentId);
     const seq = existingVersions.reduce((max, v) => Math.max(max, v.seq), 0) + 1;
     const now = this.now();
     const version: DocumentVersion = {
@@ -122,7 +138,9 @@ export class DocumentArchiveService {
   /** DRAFT -> RECEIVED. File presence/malware-scan-clean validation is the caller's
    * responsibility in this increment (DocumentFile persistence is a follow-up slice) — this
    * method only enforces the state-machine transition itself. */
-  async commitUpload(tenantId: string, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
+  async commitUpload(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
+    authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
@@ -149,7 +167,10 @@ export class DocumentArchiveService {
   /** RECEIVED -> UNDER_REVIEW. Serializes concurrent reviewers: a second claim attempt fails
    * the OCC condition and receives ConflictError, never silently overwrites the first
    * reviewer's claim (D-143 Decision 1). */
-  async claimReview(tenantId: string, documentId: string, seq: number, expectedVersion: number, reviewerId: string): Promise<DocumentVersion> {
+  async claimReview(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
+    authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const reviewerId = ctx.principal.userId;
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
@@ -182,7 +203,11 @@ export class DocumentArchiveService {
    * but does not yet re-derive/compare a `payloadHash` (no varying payload shape to hash yet
    * at Nucleus-1 scope beyond the identifiers already in the transaction's own conditions).
    */
-  async acceptVersion(tenantId: string, documentId: string, seq: number, expectedVersion: number, actor: string, clientRequestToken: string): Promise<AcceptVersionResult> {
+  async acceptVersion(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, clientRequestToken: string): Promise<AcceptVersionResult> {
+    authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const actor = ctx.principal.userId;
+
     // Idempotency check FIRST, before any state-transition validation: a legitimate replay of
     // an already-applied `acceptVersion` must return the original result even though the real
     // current state has since moved on (e.g. ACCEPTED -> SUPERSEDED by a later renewal) — D-143
@@ -191,10 +216,11 @@ export class DocumentArchiveService {
     const existingReplay = await this.store.get<IdempotencyRecord<AcceptVersionResult>>(idempotencyRecordKey(tenantId, documentId, seq, clientRequestToken));
     if (existingReplay) return existingReplay.resultSnapshot;
 
-    const document = await this.getDocument(tenantId, documentId);
+    const document = await this.getDocumentUnchecked(tenantId, documentId);
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
+    this.assertReviewerOrAdmin(ctx, current);
     try {
       assertValidDocumentVersionTransition(current.state, "ACCEPTED");
     } catch (err) {
@@ -304,10 +330,14 @@ export class DocumentArchiveService {
 
   /** RECEIVED | UNDER_REVIEW -> REJECTED. Terminal and never removable (D-143 Decision 7 — the
    * exact contradiction with J9 a Rodada 1 proposal introduced and this design corrects). */
-  async rejectVersion(tenantId: string, documentId: string, seq: number, expectedVersion: number, actor: string, reason: RejectionReason): Promise<DocumentVersion> {
+  async rejectVersion(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, reason: RejectionReason): Promise<DocumentVersion> {
+    authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const actor = ctx.principal.userId;
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
+    this.assertReviewerOrAdmin(ctx, current);
     this.assertTransitionOrConflict(current.state, "REJECTED", documentId, seq);
     const now = this.now();
     const update = buildVersionedUpdate({
@@ -346,8 +376,24 @@ export class DocumentArchiveService {
   }
 
   private async findVersionById(tenantId: string, documentId: string, versionId: string): Promise<DocumentVersion | undefined> {
-    const versions = await this.listVersions(tenantId, documentId);
+    const versions = await this.listVersionsUnchecked(tenantId, documentId);
     return versions.find((v) => v.versionId === versionId);
+  }
+
+  /** D-143 Decision 1/Bloqueador 6: a dedicated, named check distinct from `authorize()` —
+   * `AuthorizedResource`'s owner/assignee bypass only activates when BOTH fields are supplied
+   * together, which does not fit this shape (only `reviewerId` exists, and only sometimes).
+   * OWNER/ADMIN always bypass (content-admin parity already established by B2B-7/D-097); a
+   * MEMBER may decide only a version they claimed themselves, or one nobody has claimed yet. */
+  private assertReviewerOrAdmin(ctx: RequestContext, current: DocumentVersion): void {
+    const roles = ctx.tenant.roles;
+    if (roles.includes("OWNER") || roles.includes("ADMIN")) return;
+    if (current.reviewerId && current.reviewerId !== ctx.principal.userId) {
+      throw new AuthorizationError("Only the reviewer who claimed this DocumentVersion (or an Admin/Owner) may decide it.", {
+        documentId: current.documentId,
+        seq: current.seq,
+      });
+    }
   }
 
   private buildEvent(
