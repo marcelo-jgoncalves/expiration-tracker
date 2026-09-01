@@ -18,6 +18,9 @@ export interface AllowlistedRoute {
 }
 
 export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
+  // D-149 (admin-activity-log-scoping/estado-final-consolidado.md): tenant-facing read,
+  // activity:read RBAC (ADMIN/OWNER) enforced by ActivityService, not by this allowlist.
+  { method: "GET", pathTemplate: "/activity" },
   { method: "POST", pathTemplate: "/items" },
   { method: "GET", pathTemplate: "/items/dashboard" },
   { method: "GET", pathTemplate: "/items/{itemId}" },

@@ -110,4 +110,31 @@ describe("authorize()", () => {
       }),
     ).not.toThrow();
   });
+
+  // D-149 (Admin Activity/Audit Log view): activity:read is ADMIN_ROLES-gated, same tier as
+  // item:export - disclosure of what OTHER members did is sensitive equivalent to bulk export.
+  // Mutação: mudar "activity:read" para READ_ONLY_ROLES faria esta asserção não lançar.
+  it("denies MEMBER access to activity:read (admin-only visibility into other members' actions)", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["MEMBER"] }), action: "activity:read", resource: { tenantId: "tenant-a" } }),
+    ).toThrow(AuthorizationDeniedError);
+  });
+
+  it("denies VIEWER access to activity:read", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["VIEWER"] }), action: "activity:read", resource: { tenantId: "tenant-a" } }),
+    ).toThrow(AuthorizationDeniedError);
+  });
+
+  it("allows ADMIN access to activity:read, parity with OWNER", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["ADMIN"] }), action: "activity:read", resource: { tenantId: "tenant-a" } }),
+    ).not.toThrow();
+  });
+
+  it("allows OWNER access to activity:read", () => {
+    expect(() =>
+      authorize({ context: ctx({ roles: ["OWNER"] }), action: "activity:read", resource: { tenantId: "tenant-a" } }),
+    ).not.toThrow();
+  });
 });

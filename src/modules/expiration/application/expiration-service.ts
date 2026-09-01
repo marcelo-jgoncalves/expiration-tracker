@@ -29,6 +29,7 @@ import {
   type RenewItemInput,
 } from "../domain/expiration-item.js";
 import { buildAuditEvent, appendAuditToTransaction, type AuditAction } from "../domain/audit-event.js";
+import { buildTenantAuditEvent, appendTenantAuditToTransaction, buildExportLockItem, appendExportLockToTransaction } from "../../activity/domain/tenant-audit-event.js";
 import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
 import {
   isTransactionCanceled,
@@ -654,6 +655,39 @@ export class ExpirationService {
       } while (lastEvaluatedKey);
     }
     return rows;
+  }
+
+  /**
+   * D-149 (Admin Activity/Audit Log view, decisão 5): closes the gap confirmed by the design
+   * doc — exportItems() above never wrote an AuditEvent. Caller (export-handler.ts) invokes
+   * this AFTER the CSV is serialized, BEFORE the HTTP response is sent, and treats it as
+   * fail-open (any error here, including the idempotent-duplicate ConflictError below, must
+   * never block the CSV response — the caller wraps this whole call in try/catch and logs via
+   * SecureLogger). Idempotency: `exportRequestId` is the ONLY component of the lock key (never
+   * a timestamp) so a genuine infra-retry with the same key is deduped by the lock's
+   * `attribute_not_exists(PK)` condition, while two independently legitimate same-day exports
+   * (different exportRequestId) both succeed. `changes` carries only the aggregate count, never
+   * the exported rows themselves.
+   */
+  async recordExportAudit(ctx: RequestContext, params: { exportedCount: number; exportRequestId: string }): Promise<void> {
+    const now = this.now();
+    const entries: TransactWriteEntry[] = [];
+    appendExportLockToTransaction(entries, this.tableName, buildExportLockItem(ctx.tenant.tenantId, params.exportRequestId, now));
+    appendTenantAuditToTransaction(
+      entries,
+      this.tableName,
+      buildTenantAuditEvent({
+        auditEventId: this.ids.newAuditEventId(),
+        tenantId: ctx.tenant.tenantId,
+        resourceType: "ExpirationExport",
+        action: "EXPORT",
+        actor: { type: "USER", userId: ctx.principal.userId },
+        changes: { exportedCount: params.exportedCount },
+        occurredAt: now,
+        correlationId: ctx.correlationId,
+      }),
+    );
+    await this.commit(entries, ctx.tenant.tenantId);
   }
 
   private async transitionStatus(

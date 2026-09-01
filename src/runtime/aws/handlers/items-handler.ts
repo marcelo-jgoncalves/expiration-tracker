@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildExpirationDeps } from "../composition/expiration.js";
+import { buildActivityDeps } from "../composition/activity.js";
 import {
   handleArchiveItem,
   handleCreateItem,
@@ -20,6 +21,7 @@ import {
   handleListWatchers,
   type ItemWatchHttpDeps,
 } from "../../../modules/expiration/http/item-watch-handlers.js";
+import { handleListActivity, type ActivityHttpDeps } from "../../../modules/activity/http/activity-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -29,7 +31,8 @@ const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { expiration, watches } = buildExpirationDeps(client, tableName);
-const deps: ExpirationHttpDeps & ItemWatchHttpDeps = { resolver, expiration, watches, quota };
+const { activity } = buildActivityDeps(client, tableName);
+const deps: ExpirationHttpDeps & ItemWatchHttpDeps & ActivityHttpDeps = { resolver, expiration, watches, activity, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
@@ -66,6 +69,8 @@ async function handleItemsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer):
           return await handleRemoveWatcher(deps, base);
         case "GET /items/{itemId}/watchers":
           return await handleListWatchers(deps, base);
+        case "GET /activity":
+          return await handleListActivity(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

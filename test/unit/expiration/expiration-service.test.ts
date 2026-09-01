@@ -645,4 +645,45 @@ describe("ExpirationService", () => {
       });
     });
   });
+
+  // D-149 (Admin Activity/Audit Log view, decisão 5): closes the confirmed gap - exportItems()
+  // above never wrote an audit trail. recordExportAudit() is invoked separately (by
+  // export-handler.ts, fail-open, AFTER the CSV is built) rather than inside exportItems()
+  // itself - see http/export-handler.ts.
+  describe("recordExportAudit (D-149 export audit + idempotent lock)", () => {
+    it("writes a TenantAuditEvent with only the aggregate count, never the exported rows", async () => {
+      await service.recordExportAudit(ctx(), { exportedCount: 3, exportRequestId: "req-1" });
+
+      const events = await store.queryByPk("TENANT#tenant-1#TENANTAUDIT#202608");
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        resourceType: "ExpirationExport",
+        action: "EXPORT",
+        changes: { exportedCount: 3 },
+      });
+      expect(events[0]).not.toHaveProperty("items");
+    });
+
+    // Mutação: usar `Date.now()` (ou qualquer timestamp) na PK do lock em vez de só
+    // exportRequestId faria esta asserção não lançar ConflictError - exatamente o achado real
+    // que 3 das 5 rodadas do protocolo Claude<->Codex apontaram (idempotência colapsando/
+    // nunca colapsando exports legítimos).
+    it("a second call with the SAME exportRequestId conflicts (idempotent retry deduped by the lock)", async () => {
+      await service.recordExportAudit(ctx(), { exportedCount: 3, exportRequestId: "req-dup" });
+
+      await expect(service.recordExportAudit(ctx(), { exportedCount: 3, exportRequestId: "req-dup" })).rejects.toBeInstanceOf(ConflictError);
+
+      // Exactly one audit event was actually persisted - the retry did not duplicate it.
+      const events = await store.queryByPk("TENANT#tenant-1#TENANTAUDIT#202608");
+      expect(events).toHaveLength(1);
+    });
+
+    it("two independently legitimate exports the same day (different exportRequestId) both succeed", async () => {
+      await service.recordExportAudit(ctx(), { exportedCount: 1, exportRequestId: "req-a" });
+      await service.recordExportAudit(ctx(), { exportedCount: 2, exportRequestId: "req-b" });
+
+      const events = await store.queryByPk("TENANT#tenant-1#TENANTAUDIT#202608");
+      expect(events).toHaveLength(2);
+    });
+  });
 });

@@ -44,6 +44,13 @@ export const queryKeys = {
     members: (organizationId: string) => ["org", organizationId, "members"] as const,
     invitations: (organizationId: string) => ["org", organizationId, "invitations"] as const,
   },
+  activity: {
+    /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
+     * this key - `month`/`resourceType` ARE part of the key since a different filter is
+     * conceptually a different query (same discipline as items.dashboardBounded's `limit`). */
+    page: (organizationId: string, month: string | undefined, resourceType: string | undefined) =>
+      ["org", organizationId, "activity", "page", month ?? "current", resourceType ?? "all"] as const,
+  },
 } as const;
 
 /** Not tenant-scoped by design - identifies the session itself (which organization, if any,

@@ -105,6 +105,10 @@ locals {
     add_watcher    = { method = "POST", path = "/items/{itemId}/watchers/{userId}" }
     remove_watcher = { method = "DELETE", path = "/items/{itemId}/watchers/{userId}" }
     list_watchers  = { method = "GET", path = "/items/{itemId}/watchers" }
+    # D-149 (admin-activity-log-scoping/estado-final-consolidado.md): tenant-facing read,
+    # same ItemsHandler Lambda/integration (no new function) - activity:read RBAC gates it
+    # at the ActivityService layer, same as every other route sharing this integration.
+    list_activity = { method = "GET", path = "/activity" }
   }
 
   reminders_routes = {
@@ -132,6 +136,17 @@ resource "aws_lambda_permission" "items" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items*"
+}
+
+# D-149: GET /activity does not live under /items*, so it needs its own invoke permission
+# even though it shares the same ItemsHandler Lambda/integration as the routes above.
+resource "aws_lambda_permission" "items_activity" {
+  statement_id  = "AllowApiGatewayInvokeItemsActivity"
+  action        = "lambda:InvokeFunction"
+  function_name = var.items_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/activity"
 }
 
 # --- ExportHandler: GET /items/export (D-123/D-126, CSV data export) -------------------

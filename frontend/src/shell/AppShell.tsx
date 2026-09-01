@@ -73,6 +73,9 @@ export function AppShell() {
         <NavLink to="/settings" className={navLinkClassName}>
           Configurações
         </NavLink>
+        <NavLink to="/activity" className={navLinkClassName}>
+          Atividade
+        </NavLink>
         <span className="app-shell__nav-spacer" />
         <OrganizationSwitcher />
         <Button variant="tertiary" size="sm" onClick={() => void logout()}>
