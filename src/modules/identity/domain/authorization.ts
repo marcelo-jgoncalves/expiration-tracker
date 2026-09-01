@@ -118,7 +118,12 @@ export type Action =
   | "docarchive:series-read"
   | "docarchive:series-update"
   | "docarchive:series-cancel"
-  | "docarchive:series-materialize";
+  | "docarchive:series-materialize"
+  // D-149 (Admin Activity/Audit Log view, admin-activity-log-scoping/estado-final-consolidado.md
+  // decisão 3): visibility into what OTHER members did (renewal/creation/export/etc.) is
+  // disclosure-sensitive equivalent to bulk export (`item:export` above) - deliberately NOT the
+  // more permissive precedent of reading one's own resource. ADMIN_ROLES, same tier as `item:export`.
+  | "activity:read";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -209,6 +214,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:series-update": WRITE_ROLES,
   "docarchive:series-cancel": WRITE_ROLES,
   "docarchive:series-materialize": WRITE_ROLES,
+  "activity:read": ADMIN_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
