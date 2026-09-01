@@ -1,0 +1,514 @@
+## Avaliação da régua E-014
+
+A régua melhorou substancialmente em relação à Rodada 1, mas ainda não está válida como régua ≥9.
+
+Principais problemas:
+
+- As datas de consulta são `2026-09-01`, porém a data corrente da revisão é `2026-08-31` em `America/Sao_Paulo`. São datas futuras e, portanto, evidência inválida.
+- A referência “NIST SP 800-63B §5.1.9 — Look-up Secrets” está errada:
+  - na versão citada, Look-up Secrets estão em §5.1.2;
+  - §5.1.9 trata de Multi-Factor Cryptographic Devices;
+  - Look-up Secrets são códigos de recuperação usados uma vez, não o padrão `selector + secret` para magic links reutilizáveis.
+- A versão NIST apontada (`800-63-3`) já não é a publicação corrente; existe SP 800-63B-4. Mesmo que a versão antiga fosse deliberadamente mantida, seria necessário justificar a representatividade.
+- OWASP Forgot Password não sustenta diretamente uma credencial reutilizável por até 90 dias: o documento recomenda token de uso único e expiração apropriada. É uma analogia útil, não validação direta do contrato proposto. [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
+- O checklist da Decisão 4 não exige requisitos importantes presentes nas próprias fontes: entropia mínima, armazenamento resistente a ataque offline, host allowlist, HTTPS, política de `Referrer-Policy`, CSRF, rotação/invalidação e resposta uniforme.
+- “Path, nunca query string, evita vazamento por Referer/logs” é falso. O path também pode aparecer em access logs, analytics, histórico e `Referer`. É preciso sanitização explícita, `Referrer-Policy: no-referrer`, nenhuma subresource de terceiros e troca imediata.
+- O critério “selector+secret” não está rastreado às fontes citadas. É um desenho interno razoável, mas não uma prescrição do NIST indicado.
+- A Decisão 2 declara `SIM PARCIAL`, mas não possui checklist ponderado próprio. O protocolo exige checklist quando a declaração é `SIM` ou `SIM PARCIAL`.
+- A fonte AWS sobre índices esparsos sustenta corretamente que o item só aparece no índice quando os atributos de chave existem. [AWS Sparse Indexes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-indexes-general-sparse-indexes.html) Ela não sustenta, entretanto, reutilizar o GSI3 já reservado para outro access pattern.
+
+**Nota da régua E-014: 5,4/10.**
+
+---
+
+## Decisão 1 — State machines
+
+Houve avanço real: agora existem comandos, atores, condições e efeitos. A remoção da ACL presumida também está alinhada com o RBAC atual.
+
+Persistem problemas bloqueantes:
+
+1. **Idempotência incorreta.** A regra genérica para qualquer estado terminal retorna o estado atual sem provar que o `clientRequestToken` corresponde à operação original. Uma chamada diferente, com outro token, poderia ser tratada como replay bem-sucedido.
+
+2. **O token não protege a execução inteira.** Na transação de aceite ele aparece apenas como chave do evento. Depois de sucesso, um retry encontra a Version terminal e falha na condição antes de haver reconciliação determinística do resultado.
+
+3. **Fluxo C3 não é atômico.** Três transações sequenciais tornam `RECEIVED` e `UNDER_REVIEW` observáveis, mas introduzem falhas parciais. A proposta não define recuperação quando:
+   - `commitUpload` funciona e `claimReview` falha;
+   - `claimReview` funciona e `acceptVersion` falha;
+   - a Lambda perde a resposta entre os passos.
+
+4. **Claim não é uma trava real.** Qualquer `WRITE_ROLES` pode aceitar ou rejeitar uma versão em `UNDER_REVIEW`, mesmo que outro usuário seja o `reviewerId`. Logo, a claim é apenas decorativa. Se isso for intencional, o campo e o sweeper não oferecem serialização de revisor como o texto afirma.
+
+5. **Eventos incompletos.** O sweeper `UNDER_REVIEW → RECEIVED` não especifica evento; `SUPERSEDED` também não aparece na transação de aceite, apesar de a Decisão 3 prometer um evento por transição.
+
+6. A afirmação “mesmo padrão do sweeper de outbox já existente” é imprecisa: o sweeper existente recupera registros de entrega/outbox; não fornece automaticamente um lease de review de 24 horas.
+
+**Avaliação: 6,8/10.**
+
+---
+
+## Decisão 2 — Armazenamento e transação
+
+Esta é a maior regressão técnica da Rodada 2.
+
+### Colisão com os GSIs existentes
+
+O desenho ignora que os índices já têm contratos normativos:
+
+- **GSI2** já cobre responsável/categoria de `ExpirationItem`.
+- **GSI3** é o scheduler global de ocorrências, com PK global, IAM restrito exclusivamente ao producer.
+- **GSI4** é membership por usuário e também possui isolamento IAM.
+- A infraestrutura já materializa GSI1–GSI7.
+
+Portanto:
+
+- GSI3 não pode virar review queue tenant-wide.
+- GSI4 não pode virar requests por status.
+- A frase “GSI2/3/4 novos” é factualmente falsa.
+- A afirmação de conformidade com o isolamento do `AGENTS.md` é invertida: uma review queue tenant-facing no GSI3 violaria precisamente esse isolamento.
+
+### Access patterns ainda incompletos
+
+- AP8 diz “status/responsável”, mas a chave não contém responsável.
+- AP4 não oferece ordenação operacional útil; ordena por Subject/Document, não por vencimento, atualização ou urgência.
+- AP5 põe `RECEIVED` fixo na sort key mesmo para `UNDER_REVIEW`; não permite filtrar ou ordenar pelo estado real.
+- AP7 não dá `GSI1SK`, projeção nem mecanismo consistente para manter status temporal.
+- Não existe access pattern claro para localizar requests abertos de um Requirement, embora a derivação da Decisão 5 dependa disso.
+- Não existe lookup definido de Version por `versionId` isolado, necessário para validar `satisfiedByVersionId` e “mesmo Document”.
+
+### Transação
+
+O limite quantitativo não é problema: 6–7 itens ficam bem abaixo dos limites de 100 itens e 4 MB. Entretanto, a análise está incompleta. DynamoDB também exige itens distintos, máximo de 400 KB por item e mesma conta/região; não exige que todos tenham PK no mesmo tenant. [AWS TransactWriteItems](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html)
+
+Problemas concretos:
+
+- A contagem omite pelo menos o evento `SUPERSEDED` prometido pela Decisão 3.
+- Confunde `Requirement.applicability` com `applicabilityStatus=SATISFIED`, campo que contradiz o modelo da Decisão 5.
+- O item 6 só aceita Request em `SUBMITTED`, enquanto outros trechos introduzem `UNDER_REVIEW`.
+- Não há fence provando que Version, Requirement e Request pertencem ao mesmo tenant/Document/Requirement; OCC sozinho protege versão concorrente, não integridade referencial.
+- A idempotência por Put do evento não permite distinguir retry legítimo de token reutilizado com payload diferente.
+
+**Avaliação: 3,8/10.**
+
+---
+
+## Decisão 3 — DocumentVersionEvent
+
+Remover `DocumentReview` mutável resolve genuinamente a duplicidade de fonte de verdade. A direção é boa.
+
+Mas a implementação conceitual mistura dois mecanismos diferentes:
+
+- `DocumentVersionEvent`, consultável junto à Version por AP10;
+- `OutboxEvent`, gravado em `TENANT#...#OUTBOX#<shard>` e destinado a publicação assíncrona.
+
+`src/shared/outbox/outbox.ts` não cria um log de auditoria sob a partição do Document. Ele cria `entityType: OutboxEvent`, com status de publicação e chaves de outbox. Logo, “reaproveita o outbox” não implementa AP10.
+
+Se são necessários ambos, cada transição crítica precisa gravar:
+
+1. a mudança da Version;
+2. o evento histórico consultável;
+3. opcionalmente, um OutboxEvent para integração.
+
+Isso altera a contagem transacional da Decisão 2. Além disso, nem todas as transições prometidas possuem evento especificado.
+
+**Avaliação: 6,0/10.**
+
+---
+
+## Decisão 4 — Guest/magic link
+
+A separação entre credencial longa, sessão curta e submit é um avanço substancial. `selector + secret`, revogação e enforcement server-side corrigem boa parte do bloqueio da Rodada 1.
+
+Ainda não está segura o suficiente:
+
+- Secret no path continua sujeito a logs e `Referer`.
+- “Scanner normalmente não executa JS” não é uma garantia de segurança. A troca automática pela SPA ainda pode marcar `OPENED` falsamente. O interstitial com ação humana deve ser requisito, não mitigação futura condicionada a evidência.
+- Sessão em cookie implica necessidade explícita de CSRF para submit e outras mutações. Isso não foi tratado.
+- Não foram definidos hash/KDF, entropia, comparação constante, rotação ou invalidação da credencial após alteração de destinatário.
+- Rate limit exclusivamente por `requestId` permite negação direcionada contra uma solicitação. É preciso combinação defensiva, por exemplo selector/request + IP/risk signal, sem depender de e-mail.
+- O limitador citado existe em `src/modules/subject/application/initial-invite-rate-limiter.ts`, não no caminho implícito de Identity. Ele depende de `SubjectStore` e oferece três janelas específicas de convite; não é uma instância genericamente reutilizável sem extração/refatoração.
+- “Submit de uso único” conflita com correção após rejeição e com múltiplos arquivos/versionamentos. Deve ficar claro se o consumo é por Request, por Version reservada ou por tentativa idempotente.
+- Sessões já emitidas permanecem válidas após revogação por 30 minutos. Isso pode ser aceitável como risco explícito, mas a comparação com D-141 não prova equivalência: guest session é uma capability de upload externo, não uma sessão autenticada comum.
+
+**Avaliação: 7,1/10.**
+
+---
+
+## Decisão 5 — Requirement
+
+`NOT_APPLICABLE` como fato persistido e `EXPIRING` como apresentação calculada são correções corretas.
+
+Persistem inconsistências estruturais:
+
+- A função diz que vencimento torna o status `NOT_SATISFIED` apenas pela passagem do tempo, mas AP7 indexa o status persistido. Sem job, leitura derivada e GSI divergem.
+- O texto afirma que já existe “job de expiração para ExpirationItem”. O padrão real de `ExpirationItem` mantém lifecycle status e calcula urgência no frontend por `presentItemUrgency`; isso não prova um job que reindexa Requirements.
+- Logo, a frase “todos mudam apenas em evento discreto” contradiz a própria função `agora >= validUntil`.
+- Determinar PENDING exige “existe Request aberto”, mas o modelo não dá uma chave eficiente por Requirement nem uma state machine completa de Request.
+- `Document.hasValidity` está no Document, enquanto `validUntil` está na Version. Falta definir o comportamento quando isso muda entre versões.
+- Relink automático “se a Version anterior era do mesmo Document” requer ler/provar a relação na transação; isso não está modelado.
+- A singularidade foi explicitada, o que é melhor que escondê-la, mas não foi demonstrado que “criar outro Requirement” preserva a semântica funcional de um requisito composto.
+
+**Avaliação: 6,2/10.**
+
+---
+
+## Decisão 6 — Lifecycle de arquivos
+
+A imutabilidade pós-aceite e exatamente um principal são boas decisões.
+
+Problemas remanescentes:
+
+- Permitir adicionar ou substituir arquivos “livremente” em `RECEIVED`/`UNDER_REVIEW` cria corrida com o revisor e pode invalidar o conteúdo já inspecionado.
+- Cada novo complementar precisa passar quarentena e scan antes de integrar a versão. A state machine não mostra estado por arquivo nem bloqueio do aceite enquanto qualquer arquivo estiver pendente.
+- O código existente tem `quarantine-key.ts` e `clean-key.ts`, mas `parser-sandbox.ts` não existe em `src/modules/document/`; o parser está em `src/workers/parser-sandbox/parser.ts`.
+- O mecanismo existente foi construído para o modelo documental atual, não “literalmente” para múltiplos arquivos por Version. O reuso exige adaptação explícita.
+- `abandonUpload`/WITHDRAWN e a remoção física do S3 não foram reconciliados com arquivos já promovidos para clean.
+
+**Avaliação: 6,4/10.**
+
+---
+
+## Decisão 7 — Archive/remove/delete
+
+A contradição com J9 foi corrigida: REJECTED não é mais removível. Isso é uma resolução genuína.
+
+Ainda há problemas:
+
+- `WITHDRAWN` é terminal, mas a Decisão 1 diz que seu objeto pode ser removido; a Decisão 7 diz que somente `DRAFT` é removível. Há contradição de estado.
+- D-127 não contém um inventário no qual basta “adicionar linhas”. Ele define quarentena de fechamento de tenant e uma matriz de classes de retenção.
+- `HELD_FOR_RECOVERY` é estado de `TenantLifecycleRecord`, não estado genérico aplicável diretamente a Document/Version/File/Request.
+- Mapear todas essas entidades para `USER_DOCUMENT` é discutível: Request e eventos podem ser `CORE_USER_DATA`, `DELIVERY_RECORD`, `SECURITY_AUDIT` ou outra classe, conforme finalidade.
+- Não foram definidos prazos, gatilhos `deletedAt/closedAt`, legal hold, cascata ou ordem de purga.
+- Dizer que referências nunca quebram porque apenas DRAFT é removível não cobre purga por retenção futura.
+
+**Avaliação: 6,0/10.**
+
+---
+
+## Decisão 8 — Recorrência
+
+Preservar `seriesId`, `occurrenceIndex` e `parentRequestId` corrige o achado principal da Rodada 1.
+
+O formato ainda não é implementável sem ambiguidade:
+
+- A chave idempotente `seriesId#occurrenceIndex` já pertence à solicitação agendada original.
+- Uma correção mantém o mesmo par; portanto colide com a original.
+- Uma segunda correção após nova rejeição também colidiria.
+- Falta distinguir identidade da ocorrência da identidade de cada tentativa/request, por exemplo `occurrenceId` estável + `attemptIndex`/`correctionIndex` + `requestId`.
+- `parentRequestId` define uma cadeia, mas não esclarece se aponta sempre para a tentativa imediatamente anterior ou para a solicitação agendada raiz.
+- O modelo não descreve pausa, encerramento, mudança de regra, timezone, catch-up, concorrência entre scheduler e cancelamento, embora J21 exija pausa e encerramento.
+- D-124/purge scheduler não é evidência de que a idempotência de materialização recorrente já esteja resolvida.
+
+**Avaliação: 5,8/10.**
+
+---
+
+## Decisão 9 — Permissões
+
+Fatos confirmados:
+
+- `extraction:confirm` existe e usa `WRITE_ROLES`.
+- `document:read` existe e usa `READ_ONLY_ROLES`.
+- `WRITE_ROLES` e `READ_ONLY_ROLES` existem, embora sejam constantes privadas, não exports reutilizáveis.
+- O RBAC é tenant-wide por padrão; ACL owner/assignee só entra quando ambos os campos estão presentes.
+
+Problema remanescente:
+
+- `document:download` não existe hoje.
+- Adicioná-la com `WRITE_ROLES` decide concretamente que Viewer não baixa, ainda que temporariamente. Isso conflita com A1, deliberadamente aberta.
+- Uma decisão arquitetural segura poderia deixar o endpoint não exposto até a decisão de produto, mas não afirmar que a nova action já integra a matriz com determinado tier.
+- “Preview” e “download” precisam de capacidades separadas no backend/S3 presigning; apenas reutilizar `document:read` não demonstra essa separação.
+
+**Avaliação: 7,0/10.**
+
+---
+
+## Verificação factual consolidada
+
+- RBAC, `extraction:confirm`, `WRITE_ROLES`/`READ_ONLY_ROLES`: essencialmente corretos, com a ressalva de que os sets não são exportados.
+- Outbox: existe e anexa `OutboxEvent` atomicamente, mas não implementa o log consultável descrito.
+- `quarantine-key.ts` e `clean-key.ts`: existem.
+- `parser-sandbox.ts` em `src/modules/document/`: não existe; o parser está no worker.
+- Cursor D-142: existe, é opaco/base64url, validado contra a PK esperada e transportado como `LastEvaluatedKey`. O reuso conceitual é válido, mas não existe hoje o helper genérico anunciado.
+- Rate limiter D-099: existe no módulo Subject, não Identity; não é diretamente genérico.
+- D-127: existe e está aprovado, mas foi descrito incorretamente como inventário extensível de entidades.
+- GSI3/GSI4: a revisão contradiz diretamente os contratos atuais e o IAM da infraestrutura.
+- Limite de `TransactWriteItems`: quantidade cabe; a justificativa “mesmo tenant” não é requisito DynamoDB, e a contagem está incompleta.
+
+## Nota final
+
+**5,9/10 — REABRIR.**
+
+A Rodada 2 resolveu genuinamente vários problemas conceituais da Rodada 1, especialmente `NOT_APPLICABLE`, a preservação de REJECTED, a identidade de série e a separação credential/session. Porém introduziu colisões graves com o modelo físico vigente e ainda não fecha idempotência, auditoria, CSRF, retenção ou recorrência.
+
+## Bloqueadores exatos para ≥9
+
+1. Corrigir a régua E-014: datas reais, NIST vigente/seção correta, representatividade e checklist próprio da Decisão 2.
+2. Redesenhar APs sem reutilizar GSI3/GSI4 incompatíveis; mapear todos os índices atuais e IAM.
+3. Completar AP8 por responsável, lookup por Requirement e ordenações operacionais.
+4. Separar formalmente `DocumentVersionEvent` de `OutboxEvent` e recontar todas as transações.
+5. Definir idempotência por operação com token + hash do payload + resultado persistido/reconciliável.
+6. Resolver falhas parciais do fluxo C3 e tornar a semântica da claim coerente.
+7. Fechar guest security: interstitial explícito, CSRF, proteção de logs/Referer, entropia/hash, revogação e rate limiting multidimensional.
+8. Tornar Requirement/GSI temporalmente consistente: job real ou índice baseado apenas em fatos persistidos.
+9. Impedir mutação/aceite concorrente de arquivos e modelar scan por arquivo.
+10. Mapear cada entidade à política D-127 real, com classe, prazo, gatilho, legal hold e cascata.
+11. Separar ocorrência recorrente de tentativa de correção, permitindo múltiplas correções sem colisão.
+12. Manter A1 realmente aberta, sem fixar `document:download = WRITE_ROLES` antes da decisão de produto.
+tokens used
+88.424
+## Avaliação da régua E-014
+
+A régua melhorou substancialmente em relação à Rodada 1, mas ainda não está válida como régua ≥9.
+
+Principais problemas:
+
+- As datas de consulta são `2026-09-01`, porém a data corrente da revisão é `2026-08-31` em `America/Sao_Paulo`. São datas futuras e, portanto, evidência inválida.
+- A referência “NIST SP 800-63B §5.1.9 — Look-up Secrets” está errada:
+  - na versão citada, Look-up Secrets estão em §5.1.2;
+  - §5.1.9 trata de Multi-Factor Cryptographic Devices;
+  - Look-up Secrets são códigos de recuperação usados uma vez, não o padrão `selector + secret` para magic links reutilizáveis.
+- A versão NIST apontada (`800-63-3`) já não é a publicação corrente; existe SP 800-63B-4. Mesmo que a versão antiga fosse deliberadamente mantida, seria necessário justificar a representatividade.
+- OWASP Forgot Password não sustenta diretamente uma credencial reutilizável por até 90 dias: o documento recomenda token de uso único e expiração apropriada. É uma analogia útil, não validação direta do contrato proposto. [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
+- O checklist da Decisão 4 não exige requisitos importantes presentes nas próprias fontes: entropia mínima, armazenamento resistente a ataque offline, host allowlist, HTTPS, política de `Referrer-Policy`, CSRF, rotação/invalidação e resposta uniforme.
+- “Path, nunca query string, evita vazamento por Referer/logs” é falso. O path também pode aparecer em access logs, analytics, histórico e `Referer`. É preciso sanitização explícita, `Referrer-Policy: no-referrer`, nenhuma subresource de terceiros e troca imediata.
+- O critério “selector+secret” não está rastreado às fontes citadas. É um desenho interno razoável, mas não uma prescrição do NIST indicado.
+- A Decisão 2 declara `SIM PARCIAL`, mas não possui checklist ponderado próprio. O protocolo exige checklist quando a declaração é `SIM` ou `SIM PARCIAL`.
+- A fonte AWS sobre índices esparsos sustenta corretamente que o item só aparece no índice quando os atributos de chave existem. [AWS Sparse Indexes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-indexes-general-sparse-indexes.html) Ela não sustenta, entretanto, reutilizar o GSI3 já reservado para outro access pattern.
+
+**Nota da régua E-014: 5,4/10.**
+
+---
+
+## Decisão 1 — State machines
+
+Houve avanço real: agora existem comandos, atores, condições e efeitos. A remoção da ACL presumida também está alinhada com o RBAC atual.
+
+Persistem problemas bloqueantes:
+
+1. **Idempotência incorreta.** A regra genérica para qualquer estado terminal retorna o estado atual sem provar que o `clientRequestToken` corresponde à operação original. Uma chamada diferente, com outro token, poderia ser tratada como replay bem-sucedido.
+
+2. **O token não protege a execução inteira.** Na transação de aceite ele aparece apenas como chave do evento. Depois de sucesso, um retry encontra a Version terminal e falha na condição antes de haver reconciliação determinística do resultado.
+
+3. **Fluxo C3 não é atômico.** Três transações sequenciais tornam `RECEIVED` e `UNDER_REVIEW` observáveis, mas introduzem falhas parciais. A proposta não define recuperação quando:
+   - `commitUpload` funciona e `claimReview` falha;
+   - `claimReview` funciona e `acceptVersion` falha;
+   - a Lambda perde a resposta entre os passos.
+
+4. **Claim não é uma trava real.** Qualquer `WRITE_ROLES` pode aceitar ou rejeitar uma versão em `UNDER_REVIEW`, mesmo que outro usuário seja o `reviewerId`. Logo, a claim é apenas decorativa. Se isso for intencional, o campo e o sweeper não oferecem serialização de revisor como o texto afirma.
+
+5. **Eventos incompletos.** O sweeper `UNDER_REVIEW → RECEIVED` não especifica evento; `SUPERSEDED` também não aparece na transação de aceite, apesar de a Decisão 3 prometer um evento por transição.
+
+6. A afirmação “mesmo padrão do sweeper de outbox já existente” é imprecisa: o sweeper existente recupera registros de entrega/outbox; não fornece automaticamente um lease de review de 24 horas.
+
+**Avaliação: 6,8/10.**
+
+---
+
+## Decisão 2 — Armazenamento e transação
+
+Esta é a maior regressão técnica da Rodada 2.
+
+### Colisão com os GSIs existentes
+
+O desenho ignora que os índices já têm contratos normativos:
+
+- **GSI2** já cobre responsável/categoria de `ExpirationItem`.
+- **GSI3** é o scheduler global de ocorrências, com PK global, IAM restrito exclusivamente ao producer.
+- **GSI4** é membership por usuário e também possui isolamento IAM.
+- A infraestrutura já materializa GSI1–GSI7.
+
+Portanto:
+
+- GSI3 não pode virar review queue tenant-wide.
+- GSI4 não pode virar requests por status.
+- A frase “GSI2/3/4 novos” é factualmente falsa.
+- A afirmação de conformidade com o isolamento do `AGENTS.md` é invertida: uma review queue tenant-facing no GSI3 violaria precisamente esse isolamento.
+
+### Access patterns ainda incompletos
+
+- AP8 diz “status/responsável”, mas a chave não contém responsável.
+- AP4 não oferece ordenação operacional útil; ordena por Subject/Document, não por vencimento, atualização ou urgência.
+- AP5 põe `RECEIVED` fixo na sort key mesmo para `UNDER_REVIEW`; não permite filtrar ou ordenar pelo estado real.
+- AP7 não dá `GSI1SK`, projeção nem mecanismo consistente para manter status temporal.
+- Não existe access pattern claro para localizar requests abertos de um Requirement, embora a derivação da Decisão 5 dependa disso.
+- Não existe lookup definido de Version por `versionId` isolado, necessário para validar `satisfiedByVersionId` e “mesmo Document”.
+
+### Transação
+
+O limite quantitativo não é problema: 6–7 itens ficam bem abaixo dos limites de 100 itens e 4 MB. Entretanto, a análise está incompleta. DynamoDB também exige itens distintos, máximo de 400 KB por item e mesma conta/região; não exige que todos tenham PK no mesmo tenant. [AWS TransactWriteItems](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html)
+
+Problemas concretos:
+
+- A contagem omite pelo menos o evento `SUPERSEDED` prometido pela Decisão 3.
+- Confunde `Requirement.applicability` com `applicabilityStatus=SATISFIED`, campo que contradiz o modelo da Decisão 5.
+- O item 6 só aceita Request em `SUBMITTED`, enquanto outros trechos introduzem `UNDER_REVIEW`.
+- Não há fence provando que Version, Requirement e Request pertencem ao mesmo tenant/Document/Requirement; OCC sozinho protege versão concorrente, não integridade referencial.
+- A idempotência por Put do evento não permite distinguir retry legítimo de token reutilizado com payload diferente.
+
+**Avaliação: 3,8/10.**
+
+---
+
+## Decisão 3 — DocumentVersionEvent
+
+Remover `DocumentReview` mutável resolve genuinamente a duplicidade de fonte de verdade. A direção é boa.
+
+Mas a implementação conceitual mistura dois mecanismos diferentes:
+
+- `DocumentVersionEvent`, consultável junto à Version por AP10;
+- `OutboxEvent`, gravado em `TENANT#...#OUTBOX#<shard>` e destinado a publicação assíncrona.
+
+`src/shared/outbox/outbox.ts` não cria um log de auditoria sob a partição do Document. Ele cria `entityType: OutboxEvent`, com status de publicação e chaves de outbox. Logo, “reaproveita o outbox” não implementa AP10.
+
+Se são necessários ambos, cada transição crítica precisa gravar:
+
+1. a mudança da Version;
+2. o evento histórico consultável;
+3. opcionalmente, um OutboxEvent para integração.
+
+Isso altera a contagem transacional da Decisão 2. Além disso, nem todas as transições prometidas possuem evento especificado.
+
+**Avaliação: 6,0/10.**
+
+---
+
+## Decisão 4 — Guest/magic link
+
+A separação entre credencial longa, sessão curta e submit é um avanço substancial. `selector + secret`, revogação e enforcement server-side corrigem boa parte do bloqueio da Rodada 1.
+
+Ainda não está segura o suficiente:
+
+- Secret no path continua sujeito a logs e `Referer`.
+- “Scanner normalmente não executa JS” não é uma garantia de segurança. A troca automática pela SPA ainda pode marcar `OPENED` falsamente. O interstitial com ação humana deve ser requisito, não mitigação futura condicionada a evidência.
+- Sessão em cookie implica necessidade explícita de CSRF para submit e outras mutações. Isso não foi tratado.
+- Não foram definidos hash/KDF, entropia, comparação constante, rotação ou invalidação da credencial após alteração de destinatário.
+- Rate limit exclusivamente por `requestId` permite negação direcionada contra uma solicitação. É preciso combinação defensiva, por exemplo selector/request + IP/risk signal, sem depender de e-mail.
+- O limitador citado existe em `src/modules/subject/application/initial-invite-rate-limiter.ts`, não no caminho implícito de Identity. Ele depende de `SubjectStore` e oferece três janelas específicas de convite; não é uma instância genericamente reutilizável sem extração/refatoração.
+- “Submit de uso único” conflita com correção após rejeição e com múltiplos arquivos/versionamentos. Deve ficar claro se o consumo é por Request, por Version reservada ou por tentativa idempotente.
+- Sessões já emitidas permanecem válidas após revogação por 30 minutos. Isso pode ser aceitável como risco explícito, mas a comparação com D-141 não prova equivalência: guest session é uma capability de upload externo, não uma sessão autenticada comum.
+
+**Avaliação: 7,1/10.**
+
+---
+
+## Decisão 5 — Requirement
+
+`NOT_APPLICABLE` como fato persistido e `EXPIRING` como apresentação calculada são correções corretas.
+
+Persistem inconsistências estruturais:
+
+- A função diz que vencimento torna o status `NOT_SATISFIED` apenas pela passagem do tempo, mas AP7 indexa o status persistido. Sem job, leitura derivada e GSI divergem.
+- O texto afirma que já existe “job de expiração para ExpirationItem”. O padrão real de `ExpirationItem` mantém lifecycle status e calcula urgência no frontend por `presentItemUrgency`; isso não prova um job que reindexa Requirements.
+- Logo, a frase “todos mudam apenas em evento discreto” contradiz a própria função `agora >= validUntil`.
+- Determinar PENDING exige “existe Request aberto”, mas o modelo não dá uma chave eficiente por Requirement nem uma state machine completa de Request.
+- `Document.hasValidity` está no Document, enquanto `validUntil` está na Version. Falta definir o comportamento quando isso muda entre versões.
+- Relink automático “se a Version anterior era do mesmo Document” requer ler/provar a relação na transação; isso não está modelado.
+- A singularidade foi explicitada, o que é melhor que escondê-la, mas não foi demonstrado que “criar outro Requirement” preserva a semântica funcional de um requisito composto.
+
+**Avaliação: 6,2/10.**
+
+---
+
+## Decisão 6 — Lifecycle de arquivos
+
+A imutabilidade pós-aceite e exatamente um principal são boas decisões.
+
+Problemas remanescentes:
+
+- Permitir adicionar ou substituir arquivos “livremente” em `RECEIVED`/`UNDER_REVIEW` cria corrida com o revisor e pode invalidar o conteúdo já inspecionado.
+- Cada novo complementar precisa passar quarentena e scan antes de integrar a versão. A state machine não mostra estado por arquivo nem bloqueio do aceite enquanto qualquer arquivo estiver pendente.
+- O código existente tem `quarantine-key.ts` e `clean-key.ts`, mas `parser-sandbox.ts` não existe em `src/modules/document/`; o parser está em `src/workers/parser-sandbox/parser.ts`.
+- O mecanismo existente foi construído para o modelo documental atual, não “literalmente” para múltiplos arquivos por Version. O reuso exige adaptação explícita.
+- `abandonUpload`/WITHDRAWN e a remoção física do S3 não foram reconciliados com arquivos já promovidos para clean.
+
+**Avaliação: 6,4/10.**
+
+---
+
+## Decisão 7 — Archive/remove/delete
+
+A contradição com J9 foi corrigida: REJECTED não é mais removível. Isso é uma resolução genuína.
+
+Ainda há problemas:
+
+- `WITHDRAWN` é terminal, mas a Decisão 1 diz que seu objeto pode ser removido; a Decisão 7 diz que somente `DRAFT` é removível. Há contradição de estado.
+- D-127 não contém um inventário no qual basta “adicionar linhas”. Ele define quarentena de fechamento de tenant e uma matriz de classes de retenção.
+- `HELD_FOR_RECOVERY` é estado de `TenantLifecycleRecord`, não estado genérico aplicável diretamente a Document/Version/File/Request.
+- Mapear todas essas entidades para `USER_DOCUMENT` é discutível: Request e eventos podem ser `CORE_USER_DATA`, `DELIVERY_RECORD`, `SECURITY_AUDIT` ou outra classe, conforme finalidade.
+- Não foram definidos prazos, gatilhos `deletedAt/closedAt`, legal hold, cascata ou ordem de purga.
+- Dizer que referências nunca quebram porque apenas DRAFT é removível não cobre purga por retenção futura.
+
+**Avaliação: 6,0/10.**
+
+---
+
+## Decisão 8 — Recorrência
+
+Preservar `seriesId`, `occurrenceIndex` e `parentRequestId` corrige o achado principal da Rodada 1.
+
+O formato ainda não é implementável sem ambiguidade:
+
+- A chave idempotente `seriesId#occurrenceIndex` já pertence à solicitação agendada original.
+- Uma correção mantém o mesmo par; portanto colide com a original.
+- Uma segunda correção após nova rejeição também colidiria.
+- Falta distinguir identidade da ocorrência da identidade de cada tentativa/request, por exemplo `occurrenceId` estável + `attemptIndex`/`correctionIndex` + `requestId`.
+- `parentRequestId` define uma cadeia, mas não esclarece se aponta sempre para a tentativa imediatamente anterior ou para a solicitação agendada raiz.
+- O modelo não descreve pausa, encerramento, mudança de regra, timezone, catch-up, concorrência entre scheduler e cancelamento, embora J21 exija pausa e encerramento.
+- D-124/purge scheduler não é evidência de que a idempotência de materialização recorrente já esteja resolvida.
+
+**Avaliação: 5,8/10.**
+
+---
+
+## Decisão 9 — Permissões
+
+Fatos confirmados:
+
+- `extraction:confirm` existe e usa `WRITE_ROLES`.
+- `document:read` existe e usa `READ_ONLY_ROLES`.
+- `WRITE_ROLES` e `READ_ONLY_ROLES` existem, embora sejam constantes privadas, não exports reutilizáveis.
+- O RBAC é tenant-wide por padrão; ACL owner/assignee só entra quando ambos os campos estão presentes.
+
+Problema remanescente:
+
+- `document:download` não existe hoje.
+- Adicioná-la com `WRITE_ROLES` decide concretamente que Viewer não baixa, ainda que temporariamente. Isso conflita com A1, deliberadamente aberta.
+- Uma decisão arquitetural segura poderia deixar o endpoint não exposto até a decisão de produto, mas não afirmar que a nova action já integra a matriz com determinado tier.
+- “Preview” e “download” precisam de capacidades separadas no backend/S3 presigning; apenas reutilizar `document:read` não demonstra essa separação.
+
+**Avaliação: 7,0/10.**
+
+---
+
+## Verificação factual consolidada
+
+- RBAC, `extraction:confirm`, `WRITE_ROLES`/`READ_ONLY_ROLES`: essencialmente corretos, com a ressalva de que os sets não são exportados.
+- Outbox: existe e anexa `OutboxEvent` atomicamente, mas não implementa o log consultável descrito.
+- `quarantine-key.ts` e `clean-key.ts`: existem.
+- `parser-sandbox.ts` em `src/modules/document/`: não existe; o parser está no worker.
+- Cursor D-142: existe, é opaco/base64url, validado contra a PK esperada e transportado como `LastEvaluatedKey`. O reuso conceitual é válido, mas não existe hoje o helper genérico anunciado.
+- Rate limiter D-099: existe no módulo Subject, não Identity; não é diretamente genérico.
+- D-127: existe e está aprovado, mas foi descrito incorretamente como inventário extensível de entidades.
+- GSI3/GSI4: a revisão contradiz diretamente os contratos atuais e o IAM da infraestrutura.
+- Limite de `TransactWriteItems`: quantidade cabe; a justificativa “mesmo tenant” não é requisito DynamoDB, e a contagem está incompleta.
+
+## Nota final
+
+**5,9/10 — REABRIR.**
+
+A Rodada 2 resolveu genuinamente vários problemas conceituais da Rodada 1, especialmente `NOT_APPLICABLE`, a preservação de REJECTED, a identidade de série e a separação credential/session. Porém introduziu colisões graves com o modelo físico vigente e ainda não fecha idempotência, auditoria, CSRF, retenção ou recorrência.
+
+## Bloqueadores exatos para ≥9
+
+1. Corrigir a régua E-014: datas reais, NIST vigente/seção correta, representatividade e checklist próprio da Decisão 2.
+2. Redesenhar APs sem reutilizar GSI3/GSI4 incompatíveis; mapear todos os índices atuais e IAM.
+3. Completar AP8 por responsável, lookup por Requirement e ordenações operacionais.
+4. Separar formalmente `DocumentVersionEvent` de `OutboxEvent` e recontar todas as transações.
+5. Definir idempotência por operação com token + hash do payload + resultado persistido/reconciliável.
+6. Resolver falhas parciais do fluxo C3 e tornar a semântica da claim coerente.
+7. Fechar guest security: interstitial explícito, CSRF, proteção de logs/Referer, entropia/hash, revogação e rate limiting multidimensional.
+8. Tornar Requirement/GSI temporalmente consistente: job real ou índice baseado apenas em fatos persistidos.
+9. Impedir mutação/aceite concorrente de arquivos e modelar scan por arquivo.
+10. Mapear cada entidade à política D-127 real, com classe, prazo, gatilho, legal hold e cascata.
+11. Separar ocorrência recorrente de tentativa de correção, permitindo múltiplas correções sem colisão.
+12. Manter A1 realmente aberta, sem fixar `document:download = WRITE_ROLES` antes da decisão de produto.

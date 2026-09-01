@@ -1,0 +1,186 @@
+## Verificações factuais solicitadas
+
+- **GSI2/GSI5:** a Rodada 3 está correta. Ambos já estão provisionados, aparecem em `tenant_facing_index_names` e têm política IAM geral. A busca por `GSI2PK/GSI2SK/GSI5PK/GSI5SK` em `src/` não encontrou writer real. Minha afirmação da Rodada 2 de que GSI2 já estava ocupado por `ExpirationItem` estava errada. GSI3/GSI4 continuam ocupados e restritos como apontado anteriormente.
+- **Parser sandbox:** correção factual confirmada. O parser está em `src/workers/parser-sandbox/parser.ts`; `quarantine-key.ts` e `clean-key.ts` estão no módulo Document.
+- **Ownership em `authorize()`:** o branch existe, incluindo bypass para `OWNER`/`ADMIN`, mas a descrição da Rodada 3 é apenas parcialmente precisa. Ele só é ativado quando **ambos** `ownerUserId` e `assigneeUserId` estão presentes. `AuthorizedResource` não possui `reviewerId`. A política pode ser implementada por extensão/adaptação desse mecanismo, mas não basta passar `resource.reviewerId` como o texto sugere.
+
+## Avaliação dos 12 bloqueadores
+
+| # | Resultado | Avaliação |
+|---|---|---|
+| 1 | **Resolvido** | Datas, NIST vigente, escopo das fontes e checklist da Decisão 2 foram corrigidos. A régua agora é adequada, embora sua aplicação revele falhas no design. |
+| 2 | **Parcialmente resolvido** | GSI2/GSI5 não colidem, mas AP8 é inválido e os fences entre entidades são incompletos. |
+| 3 | **Parcialmente resolvido** | AP4 e AP7b melhoraram; consulta por status sem responsável em AP8 continua impossível como descrita. |
+| 4 | **Resolvido** | `DocumentVersionEvent` foi corretamente separado de `OutboxEvent`, com outbox adicional quando houver efeito assíncrono. |
+| 5 | **Parcialmente resolvido** | Token+hash é implementável, mas o resultado original ainda não está persistido/reconciliado de forma estável. |
+| 6 | **Parcialmente resolvido** | A transação única elimina a janela de falha parcial de C3. A trava de claim e a composição exata da transação ainda precisam ser formalizadas. |
+| 7 | **Parcialmente resolvido** | Interstitial, CSRF, Argon2id, entropia, Referrer-Policy e rate limit foram fechados; falta invalidação/rotação concreta quando destinatário ou escopo muda. |
+| 8 | **Parcialmente resolvido** | O job resolve a divergência temporal básica da GSI, mas o relink transacional descrito não é executável como escrito. |
+| 9 | **Parcialmente resolvido** | Estado por arquivo e contador atacam a corrida, mas `pendingFileScans=0` não equivale a “todos CLEAN”: arquivos `INFECTED` também podem deixar o contador em zero. |
+| 10 | **Não resolvido** | Classes, prazos, legal hold e cascata continuam indefinidos ou descritos como “equivalente/a definir”. |
+| 11 | **Parcialmente resolvido** | A separação conceitual está correta, mas faltam geração idempotente do ciclo e serialização de tentativas concorrentes. |
+| 12 | **Resolvido** | A1 permanece realmente aberta; nenhuma action ou endpoint de download é criado. |
+
+## Bloqueios concretos restantes
+
+1. **AP8 não funciona em DynamoDB.**  
+   `Query` exige igualdade na partition key. Não é possível usar `begins_with(GSI2PK, ...)` para consultar todos os responsáveis. É necessário:
+
+   - bucket por status em um access pattern adicional; ou
+   - duplicar um item/projeção sob `REQUESTSTATUS#<status>`; ou
+   - outro índice/chave explicitamente desenhado para status global.
+
+2. **Os “fences” não provam todas as relações alegadas.**  
+   `documentId=:sameDoc` é uma condição DynamoDB real sobre o atributo da própria Version — portanto não é fictícia. Ela prova que aquela Version declara pertencer ao Document esperado. Porém:
+
+   - não compara atributos entre itens;
+   - `requirementId=:sameReq` só confirma a identidade do próprio Requirement;
+   - não prova que o Requirement está vinculado à Version/Document esperados;
+   - não prova que o Request pertence ao Requirement esperado.
+
+   As condições precisam incluir os vínculos efetivos, por exemplo `evidenceVersionId`, `documentId`, `requirementId` e `requestId` esperados nos respectivos itens.
+
+3. **Uma `TransactWriteItems` não pode ler a GSI5.**  
+   O trecho dizendo que “a transação lê a Version anterior via GSI5” não é executável. A consulta deve ocorrer antes; a transação precisa então condicionar os itens-base aos IDs/versões observados. Como GSI é eventualmente consistente, o fence nos itens-base é indispensável.
+
+4. **Idempotência precisa persistir o resultado original.**  
+   Token+`payloadHash` distingue replay de reutilização indevida, mas “ler o estado atual” ainda não reconcilia necessariamente o resultado original: uma Version aceita pode posteriormente estar `SUPERSEDED`. O registro idempotente deve guardar ao menos:
+
+   - operação;
+   - `payloadHash`;
+   - identidade do agregado/resultante;
+   - resultado lógico original ou snapshot mínimo da resposta.
+
+   Também deve ser reconciliada a divergência entre AP10 (`EVENT#<ULID>`) e eventos idempotentes (`EVENT#<clientRequestToken>`).
+
+5. **Formalizar C3 como uma única lista transacional.**  
+   A atomicidade agora é correta e elimina a falha parcial. Falta apresentar uma lista única, sem referências cruzadas como “itens 1–2/6–8”, incluindo:
+
+   - condição `pendingFileScans=0` e ausência de infectados;
+   - evento idempotente com resultado;
+   - `SUPERSEDED`;
+   - eventual outbox;
+   - todos os mirrors afetados.
+
+6. **Claim precisa de contrato próprio ou extensão explícita de `authorize()`.**  
+   O bypass existente pode ser reaproveitado conceitualmente, mas `reviewerId` não é aceito pelo contrato atual e o branch exige owner+assignee. Deve-se especificar a extensão de `AuthorizedResource` ou uma checagem de serviço nomeada.
+
+7. **Scan precisa distinguir CLEAN de INFECTED.**  
+   `pendingFileScans=0` sozinho permite o caso “nenhum pendente, um infectado”. Adicionar `infectedFileScans=0`, um estado agregado fechado ou outra condição transacional equivalente.
+
+8. **Retenção precisa realmente fechar o Bloqueador 10.**  
+   “`DELIVERY_RECORD`-equivalente”, “`SECURITY_AUDIT`-equivalente ou nova classe” e “prazo a definir” não são mapeamentos decididos. Para cada entidade faltam:
+
+   - classe exata;
+   - prazo ou referência normativa exata;
+   - gatilho;
+   - comportamento sob legal hold;
+   - cascata/ordem de purga;
+   - tratamento de referências sobreviventes.
+
+9. **Recorrência precisa de fences contra duplicidade e concorrência.**  
+   A separação `occurrenceId/requestId/attemptIndex` é correta e remove a colisão anterior, mas precisa definir:
+
+   - `occurrenceId` determinístico ou recuperável em retry do scheduler;
+   - unicidade de `(seriesId, occurrenceId)`;
+   - unicidade de `(occurrenceId, attemptIndex)`;
+   - avanço condicional de um `latestAttemptIndex/latestRequestId`, para duas correções concorrentes não criarem duas “tentativas 2”.
+
+Com esses ajustes, a proposta fica próxima de fechamento; não é necessário reabrir os pontos já resolvidos, especialmente GSI2/GSI5, separação Event/Outbox, correções das fontes, parser sandbox e A1.
+tokens used
+65.851
+## Veredito
+
+**Nota final: 7,6/10 — REABRIR.**
+
+A Rodada 3 é uma melhora substancial e corrige honestamente vários erros factuais. Porém, ainda existem falhas de implementabilidade no modelo DynamoDB e lacunas explícitas em retenção, idempotência e recorrência. Portanto, não posso registrar `APPROVED`.
+
+## Verificações factuais solicitadas
+
+- **GSI2/GSI5:** a Rodada 3 está correta. Ambos já estão provisionados, aparecem em `tenant_facing_index_names` e têm política IAM geral. A busca por `GSI2PK/GSI2SK/GSI5PK/GSI5SK` em `src/` não encontrou writer real. Minha afirmação da Rodada 2 de que GSI2 já estava ocupado por `ExpirationItem` estava errada. GSI3/GSI4 continuam ocupados e restritos como apontado anteriormente.
+- **Parser sandbox:** correção factual confirmada. O parser está em `src/workers/parser-sandbox/parser.ts`; `quarantine-key.ts` e `clean-key.ts` estão no módulo Document.
+- **Ownership em `authorize()`:** o branch existe, incluindo bypass para `OWNER`/`ADMIN`, mas a descrição da Rodada 3 é apenas parcialmente precisa. Ele só é ativado quando **ambos** `ownerUserId` e `assigneeUserId` estão presentes. `AuthorizedResource` não possui `reviewerId`. A política pode ser implementada por extensão/adaptação desse mecanismo, mas não basta passar `resource.reviewerId` como o texto sugere.
+
+## Avaliação dos 12 bloqueadores
+
+| # | Resultado | Avaliação |
+|---|---|---|
+| 1 | **Resolvido** | Datas, NIST vigente, escopo das fontes e checklist da Decisão 2 foram corrigidos. A régua agora é adequada, embora sua aplicação revele falhas no design. |
+| 2 | **Parcialmente resolvido** | GSI2/GSI5 não colidem, mas AP8 é inválido e os fences entre entidades são incompletos. |
+| 3 | **Parcialmente resolvido** | AP4 e AP7b melhoraram; consulta por status sem responsável em AP8 continua impossível como descrita. |
+| 4 | **Resolvido** | `DocumentVersionEvent` foi corretamente separado de `OutboxEvent`, com outbox adicional quando houver efeito assíncrono. |
+| 5 | **Parcialmente resolvido** | Token+hash é implementável, mas o resultado original ainda não está persistido/reconciliado de forma estável. |
+| 6 | **Parcialmente resolvido** | A transação única elimina a janela de falha parcial de C3. A trava de claim e a composição exata da transação ainda precisam ser formalizadas. |
+| 7 | **Parcialmente resolvido** | Interstitial, CSRF, Argon2id, entropia, Referrer-Policy e rate limit foram fechados; falta invalidação/rotação concreta quando destinatário ou escopo muda. |
+| 8 | **Parcialmente resolvido** | O job resolve a divergência temporal básica da GSI, mas o relink transacional descrito não é executável como escrito. |
+| 9 | **Parcialmente resolvido** | Estado por arquivo e contador atacam a corrida, mas `pendingFileScans=0` não equivale a “todos CLEAN”: arquivos `INFECTED` também podem deixar o contador em zero. |
+| 10 | **Não resolvido** | Classes, prazos, legal hold e cascata continuam indefinidos ou descritos como “equivalente/a definir”. |
+| 11 | **Parcialmente resolvido** | A separação conceitual está correta, mas faltam geração idempotente do ciclo e serialização de tentativas concorrentes. |
+| 12 | **Resolvido** | A1 permanece realmente aberta; nenhuma action ou endpoint de download é criado. |
+
+## Bloqueios concretos restantes
+
+1. **AP8 não funciona em DynamoDB.**  
+   `Query` exige igualdade na partition key. Não é possível usar `begins_with(GSI2PK, ...)` para consultar todos os responsáveis. É necessário:
+
+   - bucket por status em um access pattern adicional; ou
+   - duplicar um item/projeção sob `REQUESTSTATUS#<status>`; ou
+   - outro índice/chave explicitamente desenhado para status global.
+
+2. **Os “fences” não provam todas as relações alegadas.**  
+   `documentId=:sameDoc` é uma condição DynamoDB real sobre o atributo da própria Version — portanto não é fictícia. Ela prova que aquela Version declara pertencer ao Document esperado. Porém:
+
+   - não compara atributos entre itens;
+   - `requirementId=:sameReq` só confirma a identidade do próprio Requirement;
+   - não prova que o Requirement está vinculado à Version/Document esperados;
+   - não prova que o Request pertence ao Requirement esperado.
+
+   As condições precisam incluir os vínculos efetivos, por exemplo `evidenceVersionId`, `documentId`, `requirementId` e `requestId` esperados nos respectivos itens.
+
+3. **Uma `TransactWriteItems` não pode ler a GSI5.**  
+   O trecho dizendo que “a transação lê a Version anterior via GSI5” não é executável. A consulta deve ocorrer antes; a transação precisa então condicionar os itens-base aos IDs/versões observados. Como GSI é eventualmente consistente, o fence nos itens-base é indispensável.
+
+4. **Idempotência precisa persistir o resultado original.**  
+   Token+`payloadHash` distingue replay de reutilização indevida, mas “ler o estado atual” ainda não reconcilia necessariamente o resultado original: uma Version aceita pode posteriormente estar `SUPERSEDED`. O registro idempotente deve guardar ao menos:
+
+   - operação;
+   - `payloadHash`;
+   - identidade do agregado/resultante;
+   - resultado lógico original ou snapshot mínimo da resposta.
+
+   Também deve ser reconciliada a divergência entre AP10 (`EVENT#<ULID>`) e eventos idempotentes (`EVENT#<clientRequestToken>`).
+
+5. **Formalizar C3 como uma única lista transacional.**  
+   A atomicidade agora é correta e elimina a falha parcial. Falta apresentar uma lista única, sem referências cruzadas como “itens 1–2/6–8”, incluindo:
+
+   - condição `pendingFileScans=0` e ausência de infectados;
+   - evento idempotente com resultado;
+   - `SUPERSEDED`;
+   - eventual outbox;
+   - todos os mirrors afetados.
+
+6. **Claim precisa de contrato próprio ou extensão explícita de `authorize()`.**  
+   O bypass existente pode ser reaproveitado conceitualmente, mas `reviewerId` não é aceito pelo contrato atual e o branch exige owner+assignee. Deve-se especificar a extensão de `AuthorizedResource` ou uma checagem de serviço nomeada.
+
+7. **Scan precisa distinguir CLEAN de INFECTED.**  
+   `pendingFileScans=0` sozinho permite o caso “nenhum pendente, um infectado”. Adicionar `infectedFileScans=0`, um estado agregado fechado ou outra condição transacional equivalente.
+
+8. **Retenção precisa realmente fechar o Bloqueador 10.**  
+   “`DELIVERY_RECORD`-equivalente”, “`SECURITY_AUDIT`-equivalente ou nova classe” e “prazo a definir” não são mapeamentos decididos. Para cada entidade faltam:
+
+   - classe exata;
+   - prazo ou referência normativa exata;
+   - gatilho;
+   - comportamento sob legal hold;
+   - cascata/ordem de purga;
+   - tratamento de referências sobreviventes.
+
+9. **Recorrência precisa de fences contra duplicidade e concorrência.**  
+   A separação `occurrenceId/requestId/attemptIndex` é correta e remove a colisão anterior, mas precisa definir:
+
+   - `occurrenceId` determinístico ou recuperável em retry do scheduler;
+   - unicidade de `(seriesId, occurrenceId)`;
+   - unicidade de `(occurrenceId, attemptIndex)`;
+   - avanço condicional de um `latestAttemptIndex/latestRequestId`, para duas correções concorrentes não criarem duas “tentativas 2”.
+
+Com esses ajustes, a proposta fica próxima de fechamento; não é necessário reabrir os pontos já resolvidos, especialmente GSI2/GSI5, separação Event/Outbox, correções das fontes, parser sandbox e A1.

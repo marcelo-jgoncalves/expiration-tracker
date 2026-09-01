@@ -1,0 +1,150 @@
+## Resultado dos 9 pontos
+
+1. **AP8 — FIXED.**  
+   A separação entre GSI2 por status e item espelhado por responsável é válida em DynamoDB. Ambas as consultas usam igualdade da partition key.
+
+2. **Fences entre itens — FIXED, com correção editorial necessária.**  
+   O padrão `read-before-write` seguido por condições no commit é correto. Quando o `Requirement` será atualizado, incorporar a verificação de vínculo na `ConditionExpression` do próprio `Update` é exatamente o raciocínio correto: não deve haver `ConditionCheck` e `Update` separados para a mesma chave na mesma transação.
+
+3. **Leitura de GSI dentro da transação — FIXED.**  
+   A leitura prévia por GSI/Get e a reverificação por versão/vínculo no `TransactWriteItems` são executáveis.
+
+4. **Idempotência com resultado original — PARTIALLY FIXED.**  
+   `resultSnapshot` resolve corretamente o replay temporal. Mas a condição escrita como:
+
+   ```text
+   attribute_not_exists(PK_SK)
+   ```
+
+   só protege a unicidade se `PK_SK` for um atributo real persistido no item. Não encontrei essa convenção no repositório. Em uma tabela com chaves `PK` e `SK`, a condição deve ser, por exemplo, `attribute_not_exists(PK)` — aplicada ao `Put` da chave completa. Se `PK_SK` não existir nos itens, a condição permanece verdadeira até quando o item idempotente já existe.
+
+5. **Lista transacional literal — PARTIALLY FIXED.**  
+   A semântica principal está clara, mas a lista ainda não é literalmente uma lista de ações da API:
+
+   - Os passos 7 e 8 descrevem primeiro um `ConditionCheck` e depois dizem que ele é fundido. Na lista final deve aparecer somente o `Update Requirement`.
+   - O passo 10, `Put/Delete dos mirrors`, representa duas ações reais.
+   - Se houver Request de origem, a mudança envolve `Update Request` + `Delete mirror antigo` + `Put mirror novo`.
+
+   Assim, o caso máximo descrito tem **10 ações**, não “8–9”:
+
+   1. Update Document  
+   2. Update Version anterior  
+   3. Put evento SUPERSEDED  
+   4. Update Version nova  
+   5. Put idempotency record  
+   6. Put evento ACCEPTED  
+   7. Update Requirement com a condição de vínculo fundida  
+   8. Update DocumentRequest  
+   9. Delete mirror antigo  
+   10. Put mirror novo
+
+   Essas dez ações são válidas desde que todas as chaves sejam distintas, exceto pelo `Requirement`, que aparece uma única vez. Não há violação do limite de 100.
+
+6. **Claim/reviewer — FIXED.**  
+   `assertReviewerOrAdmin()` separado de `authorize()` é um contrato coerente e não força `reviewerId` para dentro de `AuthorizedResource`.
+
+7. **Scan de malware — FIXED.**  
+   Exigir simultaneamente `pendingFileScans=0` e `infectedFileScans=0` elimina a ambiguidade anterior.
+
+8. **Retenção — NOT FIXED.**  
+   O mapeamento não é coerente com a fonte canônica real em `privacy-lgpd.md`:
+
+   - `USER_DOCUMENT` cobre explicitamente “Document/S3, campos e runs”. Portanto, `Document`, `DocumentVersion` e `DocumentFile` pertencem naturalmente a `USER_DOCUMENT`, não a `CORE_USER_DATA`.
+   - `CORE_USER_DATA` está definido para “itens, políticas, ocorrências”.
+   - `DELIVERY_RECORD` está definido para “intents/attempts”, isto é, registros de entrega. Uma versão documental `REJECTED` ou `WITHDRAWN` não se transforma em registro de entrega por causa do estado.
+   - Para `DELIVERY_RECORD`, a regra aprovada é `createdAt+180d`; a tabela alterna entre gatilho `rejectedAt`/`withdrawnAt` e prazo `createdAt+180d`.
+   - `TRANSIENT` tem política normativa de 7 dias, slot incompleto de 24 horas e token de convite de 14 dias. “Sem purga por idade dentro de tenant ACTIVE” é o estado de implementação específico de `WebhookInbox`/`UploadSlot`, não uma regra que possa ser herdada automaticamente por `RequestAccessCredential` e `GuestSession`.
+
+   O fechamento precisa mapear por natureza do dado:
+
+   - artefatos documentais → `USER_DOCUMENT`;
+   - eventos realmente usados como auditoria → `SECURITY_AUDIT`;
+   - credencial/sessão → `TRANSIENT`, com expiração e purga física explícitas;
+   - `DELIVERY_RECORD` somente para entidades que realmente representem entrega/tentativa.
+
+9. **Recorrência — PARTIALLY FIXED / bloqueante.**  
+   O `Update` condicional de `latestAttemptIndex` serializa a alocação do índice: duas chamadas não conseguem obter simultaneamente `attemptIndex=2`. Porém, ele **não fecha atomicamente a criação da tentativa**, porque o novo Request é criado depois, fora da mesma transação.
+
+   Sequência problemática:
+
+   1. chamada A avança `latestAttemptIndex` de 1 para 2;
+   2. A falha antes de criar o Request 2;
+   3. retry relê 2 e avança para 3;
+   4. Request 2 nunca existe.
+
+   Não surgem duas “tentativas 2”, mas surge uma lacuna e o ciclo afirma que a tentativa 2 existe quando ela não existe. A solução direta é um único `TransactWriteItems` contendo:
+
+   - `Update` condicional do item de ciclo `latestAttemptIndex=:expectedPrev → :next`;
+   - `Put` condicional do `DocumentRequest` determinístico de `(occurrenceId,nextAttemptIndex)`;
+   - mirrors/outbox necessários à criação.
+
+   Assim, ponteiro e Request são confirmados ou abortados juntos.
+
+## Bloqueios mínimos para fechamento
+
+1. Tornar a condição idempotente real: `attribute_not_exists(PK)` ou documentar e persistir de fato `PK_SK`.
+2. Reescrever `acceptVersion` como lista literal de até 10 ações, já com o `Update Requirement` fundido e os dois mirrors separados.
+3. Corrigir o mapeamento de retenção conforme as definições normativas de `USER_DOCUMENT`, `TRANSIENT`, `DELIVERY_RECORD` e `SECURITY_AUDIT`.
+4. Colocar o avanço de `latestAttemptIndex` e o `Put DocumentRequest` na mesma transação.
+
+**SCORE: 8,4/10 — REABRIR**
+tokens used
+48.099
+**Nota: 8,4/10 — REABRIR.**
+
+A Rodada 4 resolve de forma substantiva os pontos 1, 2–3, 4, 6 e 7. Porém, ainda restam três bloqueios técnicos concretos. Portanto, não posso declarar `APPROVED`.
+
+## Resultado dos 9 pontos
+
+1. **AP8 — FIXED.**  
+   A separação entre GSI2 por status e item espelhado por responsável é válida em DynamoDB. Ambas as consultas usam igualdade da partition key.
+
+2. **Fences entre itens — FIXED, com correção editorial necessária.**  
+   O padrão `read-before-write` seguido por condições no commit é correto. Quando o `Requirement` será atualizado, incorporar a verificação de vínculo na `ConditionExpression` do próprio `Update` é exatamente o raciocínio correto: não deve haver `ConditionCheck` e `Update` separados para a mesma chave na mesma transação.
+
+3. **Leitura de GSI dentro da transação — FIXED.**  
+   A leitura prévia por GSI/Get e a reverificação por versão/vínculo no `TransactWriteItems` são executáveis.
+
+4. **Idempotência com resultado original — PARTIALLY FIXED.**  
+   `resultSnapshot` resolve corretamente o replay temporal. Mas a condição escrita como:
+
+   ```text
+   attribute_not_exists(PK_SK)
+   ```
+
+   só protege a unicidade se `PK_SK` for um atributo real persistido no item. Não encontrei essa convenção no repositório. Em uma tabela com chaves `PK` e `SK`, a condição deve ser, por exemplo, `attribute_not_exists(PK)` — aplicada ao `Put` da chave completa. Se `PK_SK` não existir nos itens, a condição permanece verdadeira até quando o item idempotente já existe.
+
+5. **Lista transacional literal — PARTIALLY FIXED.**  
+   A semântica principal está clara, mas a lista ainda não é literalmente uma lista de ações da API:
+
+   - Os passos 7 e 8 descrevem primeiro um `ConditionCheck` e depois dizem que ele é fundido. Na lista final deve aparecer somente o `Update Requirement`.
+   - O passo 10, `Put/Delete dos mirrors`, representa duas ações reais.
+   - Se houver Request de origem, a mudança envolve `Update Request` + `Delete mirror antigo` + `Put mirror novo`.
+
+   Assim, o caso máximo descrito tem **10 ações**, não “8–9”:
+
+   1. Update Document  
+   2. Update Version anterior  
+   3. Put evento SUPERSEDED  
+   4. Update Version nova  
+   5. Put idempotency record  
+   6. Put evento ACCEPTED  
+   7. Update Requirement com a condição de vínculo fundida  
+   8. Update DocumentRequest  
+   9. Delete mirror antigo  
+   10. Put mirror novo
+
+   Essas dez ações são válidas desde que todas as chaves sejam distintas, exceto pelo `Requirement`, que aparece uma única vez. Não há violação do limite de 100.
+
+6. **Claim/reviewer — FIXED.**  
+   `assertReviewerOrAdmin()` separado de `authorize()` é um contrato coerente e não força `reviewerId` para dentro de `AuthorizedResource`.
+
+7. **Scan de malware — FIXED.**  
+   Exigir simultaneamente `pendingFileScans=0` e `infectedFileScans=0` elimina a ambiguidade anterior.
+
+8. **Retenção — NOT FIXED.**  
+   O mapeamento não é coerente com a fonte canônica real em `privacy-lgpd.md`:
+
+   - `USER_DOCUMENT` cobre explicitamente “Document/S3, campos e runs”. Portanto, `Document`, `DocumentVersion` e `DocumentFile` pertencem naturalmente a `USER_DOCUMENT`, não a `CORE_USER_DATA`.
+   - `CORE_USER_DATA` está definido para “itens, políticas, ocorrências”.
+   - `DELIVERY_RECORD` está definido para “intents/attempts”, isto é, registros de entrega. Uma versão documental `REJECTED` ou `WITHDRAWN` não se transforma em registro de entrega por causa do estado.

@@ -1,0 +1,344 @@
+
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\application\advance-after-evidence.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\application\document-deletion-service.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\application\document-service.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\application\id-generator.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\application\upload-validation.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\clean-key.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\document-object-reference.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\document-purge-receipt.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\document-state-machine.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\document.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\malware-scan-result.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\quarantine-key.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\retention.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\domain\upload-slot.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\http\document-handlers.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\persistence\dynamodb-document-candidate-source.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\persistence\dynamodb-document-store.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\persistence\lambda-pdf-parser.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\persistence\s3-document-object-store.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\persistence\s3-upload-url-signer.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\ports\document-object-store.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\ports\document-store.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\ports\pdf-parser.ts
+C:\Users\Usuario\Desktop\projects\expiration-tracker\src\modules\document\ports\upload-url-signer.ts
+
+2026-09-01T02:37:47.087542Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_parallel_tool_calls` at line 97 column 5
+codex
+A checagem interna já confirma uma incompatibilidade objetiva: a proposta diz “reaproveitar `security-audit.ts`” para abertura/envio do guest, mas a taxonomia fechada existente só admite negações de autorização e acessos GSI3/GSI6; esses eventos não cabem nela. Também vou validar as fontes E-014 diretamente, pois a declaração traz apenas domínios/nomes genéricos, não URLs verificáveis.
+web search: 
+web search: site:mongodb.com/docs manual data model versioning pattern current historical documents ...
+2026-09-01T02:37:59.961651Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_parallel_tool_calls` at line 97 column 5
+web search: 
+web search: OWASP magic link authentication token single use expiration security ...
+2026-09-01T02:38:08.104123Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_parallel_tool_calls` at line 97 column 5
+codex
+## Avaliação da declaração E-014
+
+**Nota da régua: 2,5/10 — contestada.**
+
+A declaração não atende ao protocolo E-014 e, portanto, a proposta não pode ser aprovada contra a régua atual.
+
+Problemas bloqueantes:
+
+- Não há URLs concretas. Foram registrados apenas nomes de sites/domínios como `mongodb.com`, `v-comply.com` e `guptadeepak.com`. Isso não satisfaz “fonte real (nome/URL) + data”.
+- Não há justificativa de representatividade das fontes.
+- As decisões 1, 3, 5, 7 e 8 foram declaradas `SIM PARCIAL`, mas não identificam quais subdecisões são externas e quais são internas.
+- Há checklist somente sob a Decisão 1, embora o texto inicial diga que haveria checklists para as decisões 1 e 4.
+- O checklist sob a Decisão 1 mistura requisitos das decisões 1 e 2: ponteiro `current` e histórico append-only são critérios de armazenamento/versionamento, não da state machine.
+- A Decisão 4, justamente a de maior risco de segurança, não possui checklist.
+- Decisões 2, 3, 5, 7 e 8 declaradas `SIM`/`SIM PARCIAL` também não possuem sub-rubricas.
+- Os pesos não são derivados de forma rastreável das fontes. Por exemplo, “upload interno nunca pula `RECEIVED`” recebe 20%, mas nenhuma fonte citada sustenta essa regra.
+- A amostra de segurança usa predominantemente material de vendors/blogs e não normas ou guias primários. O protocolo exige preferência por OWASP/RFCs para identidade e revogação.
+- Parte da pesquisa é irrelevante à decisão associada: folderless DMS não fundamenta recorrência de requests, review como entidade ou política de remoção.
+- A alegação de faixa “15–30 min” é tratada como regra para magic links, mas a fonte OWASP pertinente fala de timeout de sessão conforme risco, não estabelece essa faixa como padrão universal para links de coleta documental. A própria OWASP alerta também para vazamento de tokens em URL, histórico e `Referer`, risco ausente da proposta. [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+- A pesquisa de versionamento sustenta separar acesso corrente de histórico, mas não prova a estrutura física proposta nem seu checklist. MongoDB e Cosmos descrevem current/history em coleções distintas e explicitam pressupostos e trade-offs que a proposta não avalia. [MongoDB Document Versioning Pattern](https://www.mongodb.com/company/blog/building-with-patterns-the-document-versioning-pattern), [Azure Cosmos DB Document Versioning](https://devblogs.microsoft.com/cosmosdb/azure-cosmos-db-design-patterns-part-5-document-versioning/)
+
+Para a próxima rodada, é necessário apresentar uma versão reconciliada da régua, com checklist separado por decisão `SIM`/`SIM PARCIAL`, escopo parcial explícito, fontes primárias, URLs, datas, representatividade e âncoras verificáveis de atende/não atende.
+
+## Decisão 1 — State machines e J1×J8
+
+**Avaliação: insuficiente.**
+
+Achados:
+
+1. A proposta afirma adotar “exatamente” os estados funcionais, mas não define uma state machine: faltam grafo de transições, comandos autorizados, precondições, estados terminais e comportamento concorrente. Uma enumeração de estados não fecha a decisão Type 1.
+
+2. A passagem `RECEIVED → UNDER_REVIEW → ACCEPTED` “na mesma chamada/transação” não materializa os estados intermediários. No DynamoDB, a entidade termina apenas em `ACCEPTED`; portanto:
+
+   - `RECEIVED` e `UNDER_REVIEW` não foram estados observáveis;
+   - não há como provar que “o dado percorreu” ambos;
+   - o requisito do próprio checklist de auditar toda transição não é atendido sem eventos separados e ordenados.
+
+3. C3 aprovou que upload interno pode ser aceito diretamente. A proposta transforma uma possibilidade de UX em obrigação estrutural de passar por revisão, sem demonstrar necessidade. Isso é arquitetura prematura.
+
+4. O papel “Member responsável pelo Document” introduz uma restrição funcional não aprovada. O RBAC atual é tenant-wide; `authorize()` só aplica ownership quando `ownerUserId` e `assigneeUserId` são simultaneamente fornecidos, situação hoje documentada como não exercida pelos call sites. A proposta não pode presumir ACL por responsável.
+
+5. Faltam transições importantes: `DRAFT`, correção/reenvio, remoção, cancelamento de review, concorrência entre dois revisores, repetição idempotente de aceite e recuperação de resultado desconhecido de WF18.
+
+**Necessário:** tabela completa estado × comando × ator × precondição × próximo estado × efeito transacional, distinguindo estado persistido de evento de auditoria.
+
+## Decisão 2 — Current vs. superseded no DynamoDB
+
+**Avaliação: direção plausível, desenho físico incompleto.**
+
+Achados:
+
+1. `PK=TENANT#...#DOCUMENT#...` é compatível com histórico por documento, mas não fecha os access patterns aprovados:
+
+   - coleção tenant-wide;
+   - documentos por Subject;
+   - review queue;
+   - Requirements por Subject;
+   - Requests por status/responsável;
+   - versões por Document;
+   - busca/filtros combinados;
+   - dashboard.
+
+2. “GSI1 ganha um análogo” é ambíguo. Não define `GSI1SK`, projeção, discriminação de tipo, ordenação, filtros, cardinalidade nem comportamento para múltiplas dimensões independentes — validade, review, estado do Document e responsável.
+
+3. `DOCSTATUS#<validity>` mistura validade derivada do relógio com índice persistido. `VALID → EXPIRING → EXPIRED` muda com o tempo mesmo sem mutação do Document. Faltam mecanismo de materialização/reindexação, consistência esperada e reconciliação.
+
+4. “Reaproveitar D-142” não é suficiente. D-142 exige uma página física por query, cursor opaco somente na borda HTTP e binding fail-closed ao tenant/filtro. Nada disso é especificado para a nova consulta.
+
+5. A transação de aceite não define fences OCC concretos:
+
+   - versão esperada do `Document`;
+   - estado esperado da versão anterior;
+   - estado esperado da nova versão;
+   - garantia de que `currentVersionId` ainda é o lido;
+   - tratamento de cancelamento por entrada específica da transação.
+
+6. O checklist promete histórico append-only, mas a Decisão 7 permite remoção física de versões `REJECTED`, contradizendo essa garantia.
+
+7. Não foi discutido o limite de 100 itens de `TransactWriteItems` diante de Document, versões, review, Requirement, Renewal, audit/outbox e arquivos. Não é obrigatório colocar tudo numa transação, mas a fronteira atômica precisa ser explícita.
+
+**Necessário:** tabela completa de itens/chaves/access patterns e pseudotransação OCC do aceite.
+
+## Decisão 3 — Document Review como entidade
+
+**Avaliação: entidade própria é defensável, mas a justificativa e as invariantes não fecham o modelo.**
+
+Achados:
+
+1. O exemplo apresentado não prova múltiplas reviews da mesma versão: “revisão inicial rejeitada, nova versão aceita depois” são reviews de versões diferentes.
+
+2. J9 determina que, após rejeição, ocorre nova solicitação e o arquivo rejeitado permanece no histórico. Nada aprovado exige reabrir e revisar novamente a mesma versão.
+
+3. Ficam indefinidos:
+
+   - uma ou várias decisões por review;
+   - se uma `Version=REJECTED` pode voltar a `UNDER_REVIEW`;
+   - se decisões são imutáveis;
+   - como dois revisores concorrentes são serializados;
+   - qual review determina o estado da Version;
+   - vínculo com `DocumentRequest`;
+   - auditoria de confirmação/correção dos campos de IA.
+
+4. Existe duplicação potencial de verdade: `DocumentVersion.state` contém o resultado da revisão enquanto `DocumentReview.decision` também o contém. A proposta não declara qual é fonte de verdade nem como evita divergência.
+
+**Necessário:** cardinalidade e invariantes formais. Se houver no máximo uma decisão terminal por Version, um AuditEvent imutável pode ser suficiente; entidade própria precisa de justificativa adicional.
+
+## Decisão 4 — Guest/magic link
+
+**Avaliação: bloqueio crítico de segurança e de jornada.**
+
+Achados:
+
+1. “Token de uso único” não define em que momento é consumido. Se for no `GET` de abertura, scanners de e-mail e prefetch podem invalidá-lo antes do Guest. Se for apenas no submit, o Guest precisa reutilizá-lo para abrir página, reservar upload e concluir o envio.
+
+2. Um token que expira em 20 minutos contradiz Requests com prazo de dias/semanas. Separar `dueDate` do TTL não resolve o problema: o destinatário que abre o e-mail horas depois não consegue iniciar a jornada.
+
+3. O desenho correto provavelmente precisa separar:
+
+   - credencial de convite/request, revogável e válida pela janela de negócio;
+   - troca atômica por sessão/capability curta;
+   - capability de upload escopada;
+   - consumo idempotente no commit do submit.
+
+   A proposta comprime tudo em um único token.
+
+4. Hash armazenado não basta para lookup eficiente. É necessário selector público + secret hash, ou outra chave direta não secreta; consultar apenas pelo hash exigiria scan ou exposição inadequada de índice.
+
+5. Faltam rotação/revogação em reenviar, cancelar, expirar e “solicitar novamente”.
+
+6. Faltam garantias contra replay concorrente e TOCTOU. “Uso único” precisa de consumo condicional atômico, não somente flag verificada antes do upload.
+
+7. Rate limit “por e-mail e IP” não define endpoint, chave, janela, limite, resposta anti-enumeração nem comportamento de NAT. Para submit, e-mail nem necessariamente é uma identidade comprovada pelo portador do link.
+
+8. Faltam controles de vazamento do token em logs, analytics, histórico, `Referer`, redirects e páginas de erro. Tokens em URL exigem cuidados explícitos. [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+
+9. `OPENED` não deveria ser atualizado ingenuamente no GET: scanners podem produzir falsa evidência operacional de que o destinatário abriu o pedido.
+
+10. “Reaproveitar `security-audit.ts`” é factualmente incompatível com o código atual. Sua taxonomia fechada só aceita:
+
+    - `security.authorization_denied`;
+    - acesso/negação a GSI3/GSI6.
+
+    `link opened` e `arquivo enviado` não cabem nesse contrato. Além disso, são eventos de negócio do Request, não necessariamente eventos de segurança.
+
+11. O desenho não integra reserva de upload, validação/malware scanning, idempotência de submit nem confirmação pública pós-envio já exigida pela jornada.
+
+12. Não há checklist E-014 desta decisão.
+
+**Necessário:** redesenhar o ciclo completo da credencial e criar checklist de segurança fundamentado principalmente em OWASP/normas, incluindo emissão, entrega, troca, sessão, upload, consumo atômico, replay, revogação, scanner/prefetch e redaction.
+
+## Decisão 5 — Requirement e evidência
+
+**Avaliação: apontar para Version é uma boa base, mas a derivação não está definida.**
+
+Achados:
+
+1. Um único `satisfiedByVersionId` presume cardinalidade 1:1. Os documentos funcionais deixam `Requirement → Document / Document Version` mais aberto; alguns requisitos podem exigir múltiplas evidências.
+
+2. A proposta não explica como o vínculo muda quando uma nova Version é aceita:
+
+   - relink automático;
+   - confirmação humana;
+   - permanência na versão anterior;
+   - validação de compatibilidade de tipo/Subject.
+
+3. A função de derivação dos seis estados não está especificada. Permanecem ambíguos:
+
+   - request aberta sem versão;
+   - versão `RECEIVED` ou `UNDER_REVIEW`;
+   - versão rejeitada enquanto uma evidência antiga ainda é válida;
+   - evidência aceita já vencida;
+   - Renewal aberta;
+   - `NOT_APPLICABLE`, que é exceção explícita e não derivável de evidência.
+
+4. `NOT_APPLICABLE` necessariamente exige um fato persistido de aplicabilidade. Portanto, dizer que todo status é puramente derivado é incorreto.
+
+5. `EXPIRING` depende de uma janela configurável e do relógio; faltam fonte da janela, timezone, materialização e consistência das contagens/dashboard.
+
+6. A referência a V-Comply/Drata não possui URL nem demonstra que esses produtos usam exatamente essa função de derivação.
+
+**Necessário:** função de derivação completa e determinística, cardinalidade explícita e política de relink/reconciliação.
+
+## Decisão 6 — Arquivos por Version
+
+**Avaliação: fecha C4 parcialmente.**
+
+Achados:
+
+1. `N arquivos, exatamente um PRINCIPAL` é razoável, mas faltam invariantes de ciclo:
+
+   - quando o principal passa a existir;
+   - se uma Version incompleta pode estar em `DRAFT/RECEIVED`;
+   - troca de principal;
+   - remoção do principal;
+   - concorrência ao adicionar complemento.
+
+2. Adicionar complemento depois de uma Version aceita muta evidência histórica que a proposta chama de append-only. É preciso decidir se arquivos podem ser acrescentados a uma Version aceita, se isso reabre review ou se cria nova Version.
+
+3. Um “aditivo” pode ser complemento ou novo fato documental. A arquitetura fixa não deve decidir isso só pelo campo `role`; o comando e a semântica funcional continuam necessários.
+
+4. Não há integração com o modelo físico/S3 existente, malware scanning, reserva, estado do arquivo ou remoção em quarentena.
+
+**Necessário:** lifecycle de `DocumentFile` e regra de imutabilidade após aceite.
+
+## Decisão 7 — Archive, remove e delete
+
+**Avaliação: contradição funcional direta.**
+
+Achados:
+
+1. Permitir remoção de Version `REJECTED` contradiz J9, que exige: “O arquivo rejeitado continua no histórico.”
+
+2. Também conflita com a proposta da Decisão 3, que usa rejeições como justificativa para histórico de reviews.
+
+3. “Nunca foi ACCEPTED” é condição insuficiente. Uma versão rejeitada pode constituir evidência de:
+
+   - resposta do Guest;
+   - motivo de recusa;
+   - Request anterior;
+   - tentativa operacional;
+   - possível abuso/malware.
+
+4. A proposta não distingue ocultação operacional, soft-delete, quarentena do objeto S3 e purga física.
+
+5. Invocar D-127 genericamente não fecha a decisão. D-127 define um padrão de quarentena/recuperação e classes de retenção; a proposta precisa mapear `Document`, `Version`, `File`, `Review` e `Request` para esse mecanismo, não apenas declarar “reaproveitado”.
+
+6. Remover uma Version que participa de Request, Review ou Requirement pode quebrar referências. Não há precondição ou política de tombstone.
+
+7. Fica indefinido o que ocorre ao arquivar Document que satisfaz Requirement crítico — cenário adversarial A10 do plano aprovado.
+
+**Necessário:** preservar versões rejeitadas, definir tombstone/quarentena/recovery e mapear todas as referências e classes de retenção.
+
+## Decisão 8 — Recorrência e rejeição
+
+**Avaliação: `RequestSeries` é plausível, mas a separação proposta é injustificada e prejudicial.**
+
+Achados:
+
+1. A nova solicitação de correção com `seriesId=null` perde justamente a relação com o ciclo recorrente. `parentRequestId` preserva causalidade, mas não permite responder diretamente a qual série/ciclo aquela correção pertence.
+
+2. Nada em J21 exige que a re-solicitação fique fora da série. A regra é somente que cada ocorrência seja nova e uma falha não apague as demais.
+
+3. Uma modelagem mais consistente seria manter:
+
+   - `seriesId`;
+   - `occurrenceId`/cycle;
+   - `parentRequestId`;
+   - tipo `SCHEDULED` ou `CORRECTION`.
+
+4. Faltam idempotência de materialização, unicidade por ciclo, timezone/cadência, catch-up, pausa, encerramento e concorrência do scheduler.
+
+5. Não se define se rejeitar cancela, completa ou mantém em revisão a ocorrência original.
+
+6. Recorrência está no quarto núcleo/Premium futuro. Fixar agora a entidade e regras completas sem necessidade imediata pode ser arquitetura prematura. Se a decisão precisa ser tomada agora, deve existir justificativa de irreversibilidade.
+
+**Necessário:** manter identidade de série/ciclo nas correções ou justificar formalmente sua perda; separar o mínimo necessário agora do design futuro.
+
+## Decisão 9 — Permissão para IA e Viewer
+
+**Avaliação: parcialmente correta, mas invade questão funcional aberta.**
+
+Achados:
+
+1. `Member` ou superior para confirmar IA é compatível com a action existente `extraction:confirm`, que usa `WRITE_ROLES`. Essa parte não exige nova decisão arquitetural profunda; é continuação do RBAC aprovado.
+
+2. A proposta volta a introduzir “Member responsável pelo Document” na Decisão 1, mas aqui diz apenas “ao menos Member”. É necessário escolher entre autorização tenant-wide existente e ACL por responsável. Hoje o padrão real é tenant-wide.
+
+3. Viewer download foi deliberadamente deixado aberto em A1. A proposta não o deixa aberto: ela decide que será flag booleana configurável por Organization. Isso é uma nova decisão de produto/modelo não aprovada.
+
+4. Uma flag booleana não define:
+
+   - valor padrão;
+   - quem configura;
+   - se vale para preview e download;
+   - se vale para versões históricas;
+   - se afeta dossiês/exportações;
+   - tratamento de cache/URLs pré-assinadas após revogação.
+
+5. O RBAC atual já dá `document:read` a Viewer. A proposta precisa declarar se download faz parte dessa action ou requer nova action; não pode apenas chamar a questão de “parâmetro configurável”.
+
+6. Confirmar sugestão individual, aceitar Version e alterar validade podem ser ações distintas. Usar uma única permissão genérica pode conceder mais do que o necessário.
+
+**Necessário:** limitar esta decisão à confirmação de IA ou obter decisão funcional explícita para download; mapear comandos para actions RBAC concretas.
+
+## Nota final
+
+**Nota do design: 4,8/10.**  
+**Nota final da rodada: 4,6/10.**  
+**Resultado: REABRIR.**
+
+A direção geral — Document duradouro, Version histórica, ponteiro corrente transacional, review explícito, evidência por Version e série de requests — é aproveitável. Entretanto, a proposta ainda não fecha as nove decisões Type 1 no nível necessário.
+
+## O que bloqueia nota ≥9
+
+Para a próxima rodada, são indispensáveis:
+
+1. Reconciliar integralmente a E-014, com régua separada e verificável para toda decisão `SIM`/`SIM PARCIAL`.
+2. Especificar as state machines como grafos reais, com comandos, atores, precondições, idempotência, concorrência e auditabilidade.
+3. Entregar modelo single-table completo por access pattern, incluindo paginação D-142 e derivação temporal de validade.
+4. Redesenhar o guest flow separando credencial duradoura do Request, sessão/capability curta e consumo atômico, cobrindo scanner/prefetch, replay, revogação e redaction.
+5. Formalizar a função de status do Requirement e a política de troca de evidência.
+6. Eliminar a remoção física de versões rejeitadas e integrar concretamente D-127.
+7. Preservar série/ciclo nas re-solicitações ou justificar a alternativa.
+8. Não resolver A1 por meio de uma flag sem decisão funcional; alinhar todas as permissões às actions RBAC reais.
+9. Corrigir a alegação incompatível de reaproveitamento de `security-audit.ts`.
+tokens used
+117.327
+## Avaliação da declaração E-014
