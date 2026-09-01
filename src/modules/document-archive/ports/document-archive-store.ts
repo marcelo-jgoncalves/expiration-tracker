@@ -89,4 +89,14 @@ export interface DocumentArchiveStore {
    * call, paginated by the caller via `lastEvaluatedKey` (same discipline as `queryIndexPage`).
    */
   scanSatisfiedRequirements<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
+  /**
+   * Cross-tenant `Scan` filtered to `entityType = "DocumentRequestSeries" AND status = "ACTIVE"`
+   * — the recurrence materializer worker's "what's due" source (D-143 Decision 8/D-147). Same
+   * accepted cost tradeoff as `scanSatisfiedRequirements` (this module still has no
+   * tenant-enumeration port method, so a GSI1 query keyed by a specific `TENANT#<t>#...`
+   * partition can't answer "every ACTIVE series across every tenant" without one) — a `Scan`
+   * filtered at the storage layer, not a full-index accumulate-then-filter in application code.
+   * One physical `ScanCommand` per call, paginated by the caller.
+   */
+  scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
 }

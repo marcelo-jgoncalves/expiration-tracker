@@ -70,6 +70,10 @@ import docarchiveRequirementUnlinkEvidenceRequestV1 from "../../../schemas/api/d
 import docarchiveRequirementDeleteRequestV1 from "../../../schemas/api/docarchive-requirement-delete-request.v1.json";
 // D-143 Decision 4, guest access (D-146).
 import docarchiveGuestSubmitEvidenceRequestV1 from "../../../schemas/api/docarchive-guest-submit-evidence-request.v1.json";
+// D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147).
+import docarchiveSeriesCreateRequestV1 from "../../../schemas/api/docarchive-series-create-request.v1.json";
+import docarchiveSeriesCancelRequestV1 from "../../../schemas/api/docarchive-series-cancel-request.v1.json";
+import docarchiveSeriesMaterializeRequestV1 from "../../../schemas/api/docarchive-series-materialize-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -172,4 +176,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveRequirementUnlinkEvidenceRequestV1,
   docarchiveRequirementDeleteRequestV1,
   docarchiveGuestSubmitEvidenceRequestV1,
+  docarchiveSeriesCreateRequestV1,
+  docarchiveSeriesCancelRequestV1,
+  docarchiveSeriesMaterializeRequestV1,
 ]);

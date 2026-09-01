@@ -14,6 +14,7 @@ import { GlobalUserRepository } from "../../src/modules/identity/persistence/glo
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
 import { DocumentArchiveService } from "../../src/modules/document-archive/application/document-archive-service.js";
+import { DocumentRequestRecurrenceService } from "../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import {
   handleAcceptVersion,
   handleClaimReview,
@@ -46,6 +47,8 @@ function makeIds() {
     newVersionId: () => `ver-${++idCounter}`,
     newEventId: () => `evt-${++idCounter}`,
     newRequirementId: () => `req-${++idCounter}`,
+    newSeriesId: () => `series-${++idCounter}`,
+    newDocumentRequestId: () => `docreq-${++idCounter}`,
   };
 }
 
@@ -62,7 +65,8 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
 
     const store = new InMemoryDocumentArchiveStore();
     const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds() });
-    deps = { resolver, documentArchive, quota };
+    const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
+    deps = { resolver, documentArchive, recurrence, quota };
 
     await bootstrapWithOrganization(identityStore, organizations, "MainTable", "sub-A");
     req = { requestId: "r1", correlationId: "c1", claims: claims("sub-A") };

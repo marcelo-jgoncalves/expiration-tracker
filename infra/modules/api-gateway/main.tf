@@ -491,6 +491,15 @@ locals {
     link_evidence      = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
     unlink_evidence    = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
     delete_requirement = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
+
+    # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
+    # series routes. Tenant-facing only - the guest-facing surface stays on the separate
+    # document_archive_guest routes below, unchanged by this task.
+    create_series      = { method = "POST", path = "/document-archive/series" }
+    list_series        = { method = "GET", path = "/document-archive/series/{subjectId}" }
+    get_series         = { method = "GET", path = "/document-archive/series/{subjectId}/{seriesId}" }
+    cancel_series      = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/cancel" }
+    materialize_series = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/materialize" }
   }
 }
 

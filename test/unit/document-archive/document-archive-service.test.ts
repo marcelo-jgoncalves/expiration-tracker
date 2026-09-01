@@ -29,6 +29,8 @@ function makeIds(): DocumentArchiveIdGenerator {
     newVersionId: () => `ver-${++n}`,
     newEventId: () => `evt-${++n}`,
     newRequirementId: () => `req-${++n}`,
+    newSeriesId: () => `series-${++n}`,
+    newDocumentRequestId: () => `docreq-${++n}`,
   };
 }
 

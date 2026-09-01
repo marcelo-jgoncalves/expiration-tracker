@@ -76,6 +76,9 @@ const HANDLERS = [
   "requirement-reindex-handler",
   // D-143 Decision 4, guest access (D-146).
   "document-archive-guest-handler",
+  // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147): daily EventBridge Scheduler
+  // materializer job.
+  "document-request-recurrence-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

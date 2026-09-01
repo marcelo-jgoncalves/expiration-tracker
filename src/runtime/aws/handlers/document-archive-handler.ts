@@ -24,6 +24,11 @@ import {
   handleLinkEvidence,
   handleUnlinkEvidence,
   handleDeleteRequirement,
+  handleCreateSeries,
+  handleGetSeries,
+  handleListSeries,
+  handleCancelSeries,
+  handleMaterializeSeriesAttempt,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -34,8 +39,8 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { documentArchive } = buildDocumentArchiveDeps(client, tableName);
-const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, quota };
+const { documentArchive, recurrence } = buildDocumentArchiveDeps(client, tableName);
+const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentArchiveRoute(event));
@@ -80,6 +85,19 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleUnlinkEvidence(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/requirements/{subjectId}/{requirementId}/delete":
           return await handleDeleteRequirement(deps, { ...base, body: parseBody(event) });
+        // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147) — subject-scoped series
+        // routes. Tenant-facing only — the guest-facing surface stays on
+        // document-archive-guest-handlers.ts, unchanged by this task.
+        case "POST /document-archive/series":
+          return await handleCreateSeries(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/series/{subjectId}":
+          return await handleListSeries(deps, base);
+        case "GET /document-archive/series/{subjectId}/{seriesId}":
+          return await handleGetSeries(deps, base);
+        case "POST /document-archive/series/{subjectId}/{seriesId}/cancel":
+          return await handleCancelSeries(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/series/{subjectId}/{seriesId}/materialize":
+          return await handleMaterializeSeriesAttempt(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

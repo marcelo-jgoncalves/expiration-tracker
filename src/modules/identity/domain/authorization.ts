@@ -106,7 +106,19 @@ export type Action =
   | "docarchive:requirement-create"
   | "docarchive:requirement-read"
   | "docarchive:requirement-update"
-  | "docarchive:requirement-delete";
+  | "docarchive:requirement-delete"
+  // D-143 Nucleus 2, entity 3/3 (Decision 8, D-147): recurrence. Series management (create/
+  // read/list/cancel, materializeAttempt) is a tenant-facing operation, same WRITE/READ_ONLY
+  // tiers as Requirement above — no per-item ACL here either, same D-143 Decision 9 rationale.
+  // `docarchive:series-materialize` is distinct from `-update` because it is invoked by the
+  // periodic producer/materializer worker on the series' own schedule, not by a direct caller
+  // edit — kept as its own action so a future service-role-scoped policy could grant it
+  // separately from interactive series editing without reshaping the matrix again.
+  | "docarchive:series-create"
+  | "docarchive:series-read"
+  | "docarchive:series-update"
+  | "docarchive:series-cancel"
+  | "docarchive:series-materialize";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -192,6 +204,11 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:requirement-read": READ_ONLY_ROLES,
   "docarchive:requirement-update": WRITE_ROLES,
   "docarchive:requirement-delete": WRITE_ROLES,
+  "docarchive:series-create": WRITE_ROLES,
+  "docarchive:series-read": READ_ONLY_ROLES,
+  "docarchive:series-update": WRITE_ROLES,
+  "docarchive:series-cancel": WRITE_ROLES,
+  "docarchive:series-materialize": WRITE_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

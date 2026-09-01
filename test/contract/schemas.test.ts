@@ -1079,4 +1079,46 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147).
+  it("accepts a valid docarchive-series-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json", {
+      subjectId: "subject-1",
+      requirementId: "req-1",
+      cadence: { intervalDays: 90 },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-series-create-request.v1 with a non-integer intervalDays", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json", {
+      subjectId: "subject-1",
+      requirementId: "req-1",
+      cadence: { intervalDays: 90.5 },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-series-cancel-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-series-cancel-request.v1 missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-series-materialize-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-series-materialize-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json", { expectedVersion: 1, force: true });
+    expect(valid).toBe(false);
+  });
 });

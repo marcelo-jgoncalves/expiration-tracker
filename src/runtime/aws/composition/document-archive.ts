@@ -4,13 +4,19 @@ import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/
 import { DocumentArchiveService } from "../../../modules/document-archive/application/document-archive-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import { GuestDocumentAccessService } from "../../../modules/document-archive/application/guest-document-access-service.js";
+import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
 import { UlidIdGenerator } from "../ids.js";
 
 export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
   const documentArchive = new DocumentArchiveService({ store, tableName, ids });
-  return { store, documentArchive };
+  // D-143 Nucleus 2, entity 3/3 (Decision 8, D-147). Shares the same store/ids as
+  // `documentArchive` above — recurrence is not a separate module, just a separate service
+  // class within document-archive (same rationale `document-archive-service.ts`'s doc comment
+  // gives for hosting Requirement in the same class rather than a new one).
+  const recurrence = new DocumentRequestRecurrenceService({ store, tableName, ids });
+  return { store, documentArchive, recurrence };
 }
 
 /** D-143 Decision 4 / D-146 (guest access). Separate from `buildDocumentArchiveDeps` — the
