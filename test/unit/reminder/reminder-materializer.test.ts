@@ -4,6 +4,7 @@ import { ReminderMaterializer } from "../../../src/modules/reminder/application/
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import { policyKey, type ReminderPolicy } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
+import { computeOccurrencePurgeAfterTtl } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 
 function policy(overrides: Partial<ReminderPolicy> = {}): ReminderPolicy {
   const tenantId = overrides.tenantId ?? "t1";
@@ -54,6 +55,22 @@ describe("ReminderMaterializer (implementation-blueprint.md §9.2)", () => {
     expect(occ.scheduledAt).toBe("2026-09-03T12:00:00.000Z"); // 7 days before 09-10, 09:00 -03:00
     expect(occ.GSI3PK).toBe("DUE#202609031200#" + occ.shard);
     expect(occ.GSI3SK).toBe("TENANT#t1#OCCURRENCE#" + occ.occurrenceId);
+  });
+
+  it("D-151: sets purgeAfterTtl from the occurrence's OWN scheduledAt + 30 days, independent of the parent item/policy", async () => {
+    const result = await materializer.materialize({
+      tenantId: "t1",
+      itemId: "item1",
+      itemVersion: 1,
+      itemDueDate: "2026-09-10",
+      policy: policy(),
+      shardConfig: defaultShardConfig(),
+    });
+
+    const occ = result.created[0]!;
+    expect(occ.purgeAfterTtl).toBe(computeOccurrencePurgeAfterTtl(occ.scheduledAt));
+    // Epoch seconds, DynamoDB TTL's required unit (not epoch millis, not an ISO string).
+    expect(occ.purgeAfterTtl).toBe(Math.floor(Date.parse("2026-09-03T12:00:00.000Z") / 1000) + 30 * 24 * 60 * 60);
   });
 
   it("is idempotent: calling materialize twice for the same (itemVersion, policyVersion) creates nothing new", async () => {

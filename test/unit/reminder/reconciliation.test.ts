@@ -12,7 +12,7 @@ import { ReminderPolicyService } from "../../../src/modules/reminder/application
 import { ReminderMaterializer } from "../../../src/modules/reminder/application/reminder-materializer.js";
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
-import { occurrenceKey, gsi3Keys, type ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
+import { occurrenceKey, gsi3Keys, computeOccurrencePurgeAfterTtl, type ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -82,6 +82,7 @@ describe("reconciliation.ts", () => {
         version: 1,
         createdAt: "2026-09-10T08:00:00.000Z",
         updatedAt: "2026-09-10T08:00:00.000Z",
+        purgeAfterTtl: computeOccurrencePurgeAfterTtl("2026-09-10T08:00:00.000Z"),
       };
       await store.putIfAbsent(occurrence);
       clock.current = "2026-09-10T08:02:00.000Z"; // before claimExpiresAt
@@ -115,6 +116,7 @@ describe("reconciliation.ts", () => {
         version: 1,
         createdAt: "2026-09-10T08:00:00.000Z",
         updatedAt: "2026-09-10T08:00:00.000Z",
+        purgeAfterTtl: computeOccurrencePurgeAfterTtl("2026-09-10T08:00:00.000Z"),
       };
       await store.putIfAbsent(occurrence);
       clock.current = "2026-09-10T09:00:00.000Z";
@@ -172,6 +174,7 @@ describe("reconciliation.ts", () => {
         updatedAt: "2026-08-01T00:00:00.000Z",
         GSI3PK: gsi3.GSI3PK,
         GSI3SK: gsi3.GSI3SK,
+        purgeAfterTtl: computeOccurrencePurgeAfterTtl(staleScheduledAt),
       };
       await store.putIfAbsent(stale);
 

@@ -79,6 +79,9 @@ const HANDLERS = [
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147): daily EventBridge Scheduler
   // materializer job.
   "document-request-recurrence-handler",
+  // D-151 (CORE_USER_DATA LGPD purge, Prioridade 1 of quarantine-retention-scoping's
+  // estado-final-consolidado.md): daily EventBridge Scheduler physical-purge job.
+  "core-user-data-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
