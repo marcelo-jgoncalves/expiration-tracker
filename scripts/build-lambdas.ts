@@ -95,6 +95,10 @@ const HANDLERS = [
   // scoping's estado-final-consolidado.md — Invitation only, see decisions-log): daily
   // EventBridge Scheduler physical-purge job.
   "invitation-purge-handler",
+  // D-156 (TRANSIENT LGPD purge remainder, Prioridade 6 of quarantine-retention-scoping's
+  // estado-final-consolidado.md — WebhookInbox + UploadSlot; InvitationTokenPointer already
+  // resolved via native TTL): daily EventBridge Scheduler physical-purge job.
+  "transient-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
