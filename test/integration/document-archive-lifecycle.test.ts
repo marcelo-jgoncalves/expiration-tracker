@@ -41,6 +41,7 @@ function makeIds() {
     newDocumentId: () => `doc-${++idCounter}`,
     newVersionId: () => `ver-${++idCounter}`,
     newEventId: () => `evt-${++idCounter}`,
+    newRequirementId: () => `req-${++idCounter}`,
   };
 }
 

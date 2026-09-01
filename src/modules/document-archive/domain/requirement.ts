@@ -47,6 +47,29 @@ export interface Requirement extends EntityKey {
   /** Singular by design (Decision 5 explicitly corrects an earlier draft that modeled this as
    * a list) — a Requirement links to at most one CURRENT evidence DocumentVersion at a time. */
   evidenceVersionId?: string;
+  /** The owning Document of `evidenceVersionId` — stored alongside it (not resolved via a GSI
+   * lookup) because D-143 Decision 2's `versionLookupGsi5Keys` (AP11, reserved for exactly
+   * this "resolve a versionId to its Document" need) shares its GSI5PK/GSI5SK attributes with
+   * the sparse review-queue index (`document-version.ts`'s `reviewQueueGsi5Keys`), which
+   * REMOVES them the moment a version leaves RECEIVED/UNDER_REVIEW — permanently occupying
+   * that same attribute pair for version-lookup would make it disappear right when a version
+   * becomes ACCEPTED, the only state a Requirement actually needs to look it up in. Denormalizing
+   * `evidenceDocumentId` here avoids that conflict entirely without touching GSI5's existing
+   * contract. Always present together with `evidenceVersionId` (both set/cleared atomically). */
+  evidenceDocumentId?: string;
+  /** The `seq` of the evidence DocumentVersion within its Document — combined with
+   * `evidenceDocumentId`, lets a caller navigate straight to `documentVersionKey()` without a
+   * second lookup. Always present together with `evidenceVersionId`/`evidenceDocumentId`. */
+  evidenceSeq?: number;
+  /** `state`/`validUntil` of the evidence DocumentVersion AT LINK TIME — the exact inputs
+   * `deriveRequirementStatus` needs, cached here (not re-read live) so the daily reindex worker
+   * (module doc comment) only ever compares `evidenceValidUntil` against "now", never re-fetches
+   * the DocumentVersion row. Refreshed together with `evidenceVersionId` on every `linkEvidence`
+   * call; a DocumentVersion whose state changes AFTER the link (e.g. accepted evidence later
+   * superseded elsewhere) is caught the next time something re-links or re-derives this
+   * Requirement, not instantly — the same bounded-staleness window Decision 5 accepts. */
+  evidenceState?: DocumentVersionState;
+  evidenceValidUntil?: string;
   status: RequirementStatus;
   createdAt: string;
   updatedAt: string;
