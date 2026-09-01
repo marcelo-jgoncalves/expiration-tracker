@@ -47,7 +47,6 @@ function mergeDefined(...sources: object[]): Record<string, unknown> {
 }
 
 const defaultSink = (level: LogLevel, line: string): void => {
-  // eslint-disable-next-line no-console -- this IS the sink; central logger is the sanctioned exception.
   const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
   fn(line);
 };

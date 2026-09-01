@@ -144,7 +144,7 @@ export async function runDeterministicParser(deps: RunDeterministicParserDeps, i
   const decisionInput: BedrockDecisionInput = { fields: assessments, ocrAvailable, thresholdVersion: THRESHOLD_VERSION_V1 };
   const bedrockNeeded = needsBedrock(decisionInput);
 
-  let aiExtractionEnabled = false;
+  let aiExtractionEnabled: boolean;
   try {
     const flags = await deps.featureFlags.getFlags();
     aiExtractionEnabled = flags.AI_EXTRACTION;

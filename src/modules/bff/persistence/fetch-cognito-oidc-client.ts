@@ -54,7 +54,7 @@ export class FetchCognitoOidcClient implements CognitoOidcClient {
       return { kind: "TRANSIENT_FAILURE", cause: undefined };
     }
     if (res.status === 400) {
-      let payload: { error?: string } = {};
+      let payload: { error?: string };
       try {
         payload = (await res.json()) as { error?: string };
       } catch {

@@ -173,16 +173,13 @@ function main(): void {
   checkSizeGuardrail("NEXT_SESSION_PROMPT.md", nextSessionPromptLines, NEXT_SESSION_PROMPT_MAX_LINES, violations);
 
   if (violations.length > 0) {
-    // eslint-disable-next-line no-console -- CLI script, not a Lambda handler.
     console.error(`Doc drift check found ${violations.length} issue(s):\n`);
     for (const v of violations) {
-      // eslint-disable-next-line no-console -- CLI script.
       console.error(`  ${v.file}:${v.line} — ${v.message}`);
     }
     process.exit(1);
   }
 
-  // eslint-disable-next-line no-console -- CLI script.
   console.log(`Doc drift check: ${files.length} markdown files scanned, root allowlist and size guardrails clean, no broken links or stale AGENTS.md §N references found.`);
 }
 
