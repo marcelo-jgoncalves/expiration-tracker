@@ -31,6 +31,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# D-148 / dependency-freshness-standard.md #4 (terraform-cli): single source of truth for
+# the pinned Terraform CLI version, mirrored by cd.yml's own top-level env block - before
+# this fix each workflow hardcoded "1.15.8" independently, and scripts/check-dependency-
+# freshness.ts has no way to prove two independently-hardcoded strings are the same value
+# instead of two values that happen to currently match. Bump this AND cd.yml's together.
+env:
+  TERRAFORM_VERSION: "1.15.8"
+
 jobs:
   guardrails:
     runs-on: ubuntu-latest
@@ -218,7 +226,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
-          terraform_version: "1.15.8"
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
       - name: Terraform fmt check
