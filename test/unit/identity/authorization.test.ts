@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authorize, AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { authorize, authorizeCancelClosure, AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
 function ctx(overrides: Partial<RequestContext["tenant"]> = {}, userId = "user-a"): RequestContext {
@@ -136,5 +136,48 @@ describe("authorize()", () => {
     expect(() =>
       authorize({ context: ctx({ roles: ["OWNER"] }), action: "activity:read", resource: { tenantId: "tenant-a" } }),
     ).not.toThrow();
+  });
+});
+
+// D-127: authorizeCancelClosure() is DELIBERATELY not exercised via authorize() above - it takes
+// its own input shape (identityStatus/membershipStatus/membershipRole), never a RequestContext,
+// because a HELD_FOR_RECOVERY tenant cannot resolve one (see authorization.ts's doc comment).
+describe("authorizeCancelClosure() (D-127 - dedicated primitive, not authorize())", () => {
+  const ALLOWED = { identityStatus: "ACTIVE", membershipStatus: "ACTIVE", membershipRole: "OWNER" } as const;
+
+  it("allows an ACTIVE identity + ACTIVE membership + OWNER role", () => {
+    expect(() => authorizeCancelClosure(ALLOWED)).not.toThrow();
+  });
+
+  // Mutação: remover esta checagem (ou trocar !== por ===) faria esta asserção não lançar.
+  it("denies a SUSPENDED GlobalUser identity, even with OWNER role", () => {
+    expect(() => authorizeCancelClosure({ ...ALLOWED, identityStatus: "SUSPENDED" })).toThrow(AuthorizationDeniedError);
+  });
+
+  it.each(["SUSPENDED", "REMOVED"] as const)("denies a %s Membership, even with OWNER role", (membershipStatus) => {
+    expect(() => authorizeCancelClosure({ ...ALLOWED, membershipStatus })).toThrow(AuthorizationDeniedError);
+  });
+
+  it.each(["ADMIN", "MEMBER", "VIEWER"] as const)("denies %s - OWNER-only, same tier as organization:close", (membershipRole) => {
+    expect(() => authorizeCancelClosure({ ...ALLOWED, membershipRole })).toThrow(AuthorizationDeniedError);
+  });
+
+  it("throws AuthorizationDeniedError carrying action \"organization:cancel-close\", for the security-audit taxonomy", () => {
+    try {
+      authorizeCancelClosure({ ...ALLOWED, membershipRole: "MEMBER" });
+      throw new Error("expected authorizeCancelClosure to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AuthorizationDeniedError);
+      expect((err as AuthorizationDeniedError).action).toBe("organization:cancel-close");
+    }
+  });
+
+  it("checks identity status BEFORE membership status BEFORE role (fail-closed ordering, first failing check wins)", () => {
+    try {
+      authorizeCancelClosure({ identityStatus: "SUSPENDED", membershipStatus: "REMOVED", membershipRole: "MEMBER" });
+      throw new Error("expected authorizeCancelClosure to throw");
+    } catch (err) {
+      expect((err as AuthorizationDeniedError).reason).toBe("NO_MEMBERSHIP"); // identity check, not role
+    }
   });
 });

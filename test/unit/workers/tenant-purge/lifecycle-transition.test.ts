@@ -120,4 +120,50 @@ describe("advanceTenantLifecycle (D-121 Rodada 2 Fix 3 - the one transition hand
     expect(record?.blockedReason).toBe("PURGE_NOT_CONVERGING");
     expect(record?.blockedFrom).toBe("PURGING");
   });
+
+  // D-127: the one designed exception to "neither from nor to throws" - the ASL's
+  // CheckCancelled Choice depends on this returning a clean {cancelled: true} result instead of
+  // throwing, so cancellation ends the execution in a Succeed state, never MarkBlocked.
+  describe("D-127: HELD_FOR_RECOVERY -> DELETING finding the record already back at ACTIVE (cancelled)", () => {
+    it("returns {cancelled: true} instead of throwing, and commits NOTHING", async () => {
+      const store = new InMemoryIdentityStore();
+      await seed(store, "tenant-1", "ACTIVE", 9); // CancelOrganizationClosureService already restored it
+
+      const out = await advanceTenantLifecycle(
+        { store, reader: readerFor(store), tableName: TABLE },
+        { tenantId: "tenant-1", from: "HELD_FOR_RECOVERY", to: "DELETING" },
+      );
+
+      expect(out).toEqual({ tenantId: "tenant-1", status: "ACTIVE", alreadyAdvanced: false, cancelled: true });
+      const record = await store.get<TenantLifecycleRecord>(tenantLifecycleKey("tenant-1"));
+      expect(record?.version).toBe(9); // untouched - no write happened
+      expect(record?.status).toBe("ACTIVE");
+    });
+
+    // G-V3 target: the narrow scoping of the cancellation exception. Mutation that must fail:
+    // widening the `record.status === "ACTIVE"` check (or dropping the `from`/`to` match) to
+    // apply more broadly would let a GENUINELY unexpected state (e.g. a bug that left the record
+    // BLOCKED) silently report {cancelled: true} instead of throwing - exactly the "never open a
+    // new hole while adding a state" risk this task was warned about.
+    it("still throws UnexpectedTenantLifecycleStateError for every OTHER unexpected status at this same from/to pair", async () => {
+      const store = new InMemoryIdentityStore();
+      await seed(store, "tenant-1", "BLOCKED");
+
+      await expect(
+        advanceTenantLifecycle({ store, reader: readerFor(store), tableName: TABLE }, { tenantId: "tenant-1", from: "HELD_FOR_RECOVERY", to: "DELETING" }),
+      ).rejects.toBeInstanceOf(UnexpectedTenantLifecycleStateError);
+    });
+
+    // G-V3 target: the cancellation exception must be scoped to exactly this from/to pair, never
+    // leak into other transitions that happen to find ACTIVE unexpectedly (which would always be
+    // a genuine bug elsewhere, never a designed outcome).
+    it("does NOT apply the cancellation exception to any other from/to pair finding ACTIVE unexpectedly", async () => {
+      const store = new InMemoryIdentityStore();
+      await seed(store, "tenant-1", "ACTIVE");
+
+      await expect(
+        advanceTenantLifecycle({ store, reader: readerFor(store), tableName: TABLE }, { tenantId: "tenant-1", from: "QUIESCING", to: "PURGING" }),
+      ).rejects.toBeInstanceOf(UnexpectedTenantLifecycleStateError);
+    });
+  });
 });
