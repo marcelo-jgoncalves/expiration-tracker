@@ -23,7 +23,7 @@ import {
   parseLocalTime,
   timeZoneObservesDst,
 } from "../domain/recurrence.js";
-import { gsi3Keys, occurrenceKey, stableHash, type ReminderOccurrence } from "../domain/reminder-occurrence.js";
+import { computeOccurrencePurgeAfterTtl, gsi3Keys, occurrenceKey, stableHash, type ReminderOccurrence } from "../domain/reminder-occurrence.js";
 import { policyKey, type ReminderPolicy, type QuietHours } from "../domain/reminder-policy.js";
 import type { ShardConfig } from "../domain/shard-config.js";
 import { activeGenerations } from "../domain/shard-config.js";
@@ -197,6 +197,9 @@ export class ReminderMaterializer {
         updatedAt: now,
         GSI3PK: gsi3.GSI3PK,
         GSI3SK: gsi3.GSI3SK,
+        // D-151: native DynamoDB TTL, independent of the parent item/policy's own deletion
+        // state — see reminder-occurrence.ts's `purgeAfterTtl` field doc.
+        purgeAfterTtl: computeOccurrencePurgeAfterTtl(schedule.scheduledAtUtc),
         ...dstPending,
       };
 

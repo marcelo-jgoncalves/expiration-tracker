@@ -38,6 +38,29 @@ export interface ReminderOccurrence extends EntityKey {
    * docs/architecture/m3.5-runtime-design.md §"Reconciliação". */
   GSI6PK?: string;
   GSI6SK?: string;
+  /** D-151 (quarantine-retention-scoping's estado-final-consolidado.md, `CORE_USER_DATA` row:
+   * "ReminderOccurrence via TTL nativo independente do pai") — the table's real DynamoDB TTL
+   * attribute (`infra/modules/dynamo-table/main.tf`), same convention as
+   * `InvitationTokenPointer.purgeAfterTtl` (`organization/domain/invitation-token.ts`). Set
+   * ONCE at materialization (`reminder-materializer.ts`) from the occurrence's OWN
+   * `scheduledAt` + 30 days (`privacy-lgpd.md` §4's CORE_USER_DATA window) — deliberately never
+   * recomputed from the parent ExpirationItem/ReminderPolicy's `deletedAt`: an occurrence is
+   * naturally bounded by its own schedule regardless of what later happens to its parent, so
+   * this needs no worker (unlike the parent entities' Lambda-driven purge, `core-user-data-
+   * purge/purge.ts`) — DynamoDB physically deletes the row itself once past this epoch-seconds
+   * value. Epoch SECONDS (not an ISO string) per DynamoDB TTL's own requirement, mirroring
+   * `epochSecondsFromIso()` in `invitation-token.ts`. */
+  purgeAfterTtl: number;
+}
+
+/** D-151: `privacy-lgpd.md` §4 CORE_USER_DATA window (30 days), measured from the occurrence's
+ * OWN `scheduledAt` — see the `purgeAfterTtl` field doc above for why this is independent of
+ * the parent's `deletedAt`. Epoch seconds, DynamoDB TTL's required unit. */
+export const REMINDER_OCCURRENCE_TTL_DAYS = 30;
+
+export function computeOccurrencePurgeAfterTtl(scheduledAtIso: string): number {
+  const scheduledAtMs = Date.parse(scheduledAtIso);
+  return Math.floor(scheduledAtMs / 1000) + REMINDER_OCCURRENCE_TTL_DAYS * 24 * 60 * 60;
 }
 
 export function occurrenceKey(tenantId: string, itemId: string, scheduledAt: string, occurrenceId: string): { PK: string; SK: string } {
