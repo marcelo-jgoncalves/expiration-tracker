@@ -136,6 +136,16 @@ variable "document_archive_function_name" {
   type        = string
 }
 
+variable "document_archive_guest_invoke_arn" {
+  description = "Invoke ARN of the DocumentArchiveGuestHandler Lambda (D-143 Decision 4, D-146) — backs /document-archive/guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route, same posture as GuestDocumentsHandler."
+  type        = string
+}
+
+variable "document_archive_guest_function_name" {
+  description = "Function name of the DocumentArchiveGuestHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)
