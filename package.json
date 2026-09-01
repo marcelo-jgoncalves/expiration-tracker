@@ -56,7 +56,7 @@
     "@aws-sdk/s3-request-presigner": "3.1114.0",
     "@aws-sdk/util-dynamodb": "3.996.9",
     "ajv": "^8.16.0",
-    "ajv-formats": "^2.1.1",
+    "ajv-formats": "^3.0.1",
     "pdf-lib": "1.17.1",
     "ulid": "^3.0.2"
   }
