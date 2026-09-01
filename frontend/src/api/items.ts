@@ -7,8 +7,17 @@
 import { apiClient } from "./apiClient.js";
 import type { CreateItemInput, DashboardResponse, ExpirationItemStatus, ItemResponse, RenewItemInput, RenewItemResponse } from "./types.js";
 
-export function fetchDashboard(status: ExpirationItemStatus, options?: { signal?: AbortSignal }): Promise<DashboardResponse> {
-  return apiClient.get<DashboardResponse>(`/items/dashboard?status=${encodeURIComponent(status)}`, { signal: options?.signal });
+/** D-136/D-E: `limit`/`cursor` are optional - omitting both preserves the exact request shape
+ * every existing call site already sends (server applies its own default limit either way,
+ * never an unbounded query regardless of what the caller passes). */
+export function fetchDashboard(
+  status: ExpirationItemStatus,
+  options?: { signal?: AbortSignal; limit?: number; cursor?: string },
+): Promise<DashboardResponse> {
+  const params = new URLSearchParams({ status });
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.cursor) params.set("cursor", options.cursor);
+  return apiClient.get<DashboardResponse>(`/items/dashboard?${params.toString()}`, { signal: options?.signal });
 }
 
 export function fetchItem(itemId: string, options?: { signal?: AbortSignal }): Promise<ItemResponse> {

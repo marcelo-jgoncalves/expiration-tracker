@@ -137,6 +137,45 @@ function requireDashboardStatus(req: HttpRequest): "ACTIVE" | "ARCHIVED" | "RENE
   return raw as "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
 }
 
+// D-136/D-E: server always decides the effective limit - the client can request less than the
+// default (never less than 1) or up to the max, but never an unbounded query. Absent -> DEFAULT;
+// present but zero/negative/fractional/non-numeric -> 400, never silently normalized.
+const DASHBOARD_DEFAULT_LIMIT = 30;
+const DASHBOARD_MAX_LIMIT = 100;
+
+function requireDashboardLimit(req: HttpRequest): number {
+  const raw = req.queryStringParameters?.["limit"];
+  if (raw === undefined) return DASHBOARD_DEFAULT_LIMIT;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new ValidationError("Invalid limit query parameter - must be a positive integer.");
+  }
+  return Math.min(n, DASHBOARD_MAX_LIMIT);
+}
+
+/** D-136/D-E: the opaque cursor is a transport concern only - this HTTP layer is the ONLY place
+ * that knows its encoding (base64url of the raw GSI1 key JSON). The application/store layers
+ * beneath this never see or produce the string form, only the raw key shape. Binding the cursor
+ * to `expectedGsi1pk` (fail-closed, before ever touching DynamoDB) closes reuse of a cursor
+ * minted for a different `status`/tenant - GSI1PK already embeds both, so a mismatch here is a
+ * cursor that could never legitimately continue this exact query. */
+function decodeDashboardCursor(cursor: string, expectedGsi1pk: string): Record<string, unknown> | undefined {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new ValidationError("Invalid cursor.");
+  }
+  if (typeof decoded !== "object" || decoded === null || (decoded as Record<string, unknown>)["GSI1PK"] !== expectedGsi1pk) {
+    throw new ValidationError("Cursor does not match this query.");
+  }
+  return decoded as Record<string, unknown>;
+}
+
+function encodeDashboardCursor(lastEvaluatedKey: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString("base64url");
+}
+
 export async function handleCreateItem(deps: ExpirationHttpDeps, req: HttpRequest<CreateItemInput>): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
@@ -215,9 +254,19 @@ export async function handleRenewItem(deps: ExpirationHttpDeps, req: HttpRequest
 export async function handleDashboard(deps: ExpirationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const status = requireDashboardStatus(req);
+    const limit = requireDashboardLimit(req);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await consumeApiRequestQuota(deps.quota, context);
-    const items = await deps.expiration.listDashboard(context, { status });
-    return { statusCode: 200, body: { items } };
+    // Same GSI1PK format expiration-service.ts builds internally for this query - duplicated
+    // as a literal (not a shared export) only to bind an inbound cursor to the query it was
+    // minted for, matching the pattern already used elsewhere in this file.
+    const gsi1pk = `TENANT#${context.tenant.tenantId}#ITEMSTATUS#${status}`;
+    const rawCursor = req.queryStringParameters?.["cursor"];
+    const exclusiveStartKey = rawCursor ? decodeDashboardCursor(rawCursor, gsi1pk) : undefined;
+    const page = await deps.expiration.listDashboard(context, { status, limit, exclusiveStartKey });
+    return {
+      statusCode: 200,
+      body: { items: page.items, nextCursor: page.lastEvaluatedKey ? encodeDashboardCursor(page.lastEvaluatedKey) : null },
+    };
   });
 }

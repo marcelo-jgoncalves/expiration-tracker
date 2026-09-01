@@ -19,14 +19,15 @@ import { PageHeader, Panel } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
-import { useItemsDashboard } from "../hooks/useItemsDashboard.js";
+import { useItemsDashboardBounded } from "../hooks/useItemsDashboard.js";
 
 export function Overview() {
   // Wave B2B-10: previously duplicated apiClient.get() call inline with an unscoped queryKey
   // (["items","dashboard","ACTIVE"]) - the one org-scoping gap the Round 2 inventory found that
-  // wasn't already covered by a shared hook. Now goes through the same org-scoped hook as the
-  // Items Collection screen, closing the duplication and the cache-isolation gap in one edit.
-  const query = useItemsDashboard("ACTIVE");
+  // wasn't already covered by a shared hook. Now goes through the same org-scoped hook family
+  // as the Items Collection screen (D-136/D-E split the hook in two - this screen wants a
+  // single bounded read, never the paginated "load more" the Collection needs).
+  const query = useItemsDashboardBounded("ACTIVE");
   const now = useMemo(() => new Date(), []);
 
   const columns: DataTableColumn<ExpirationItem>[] = [

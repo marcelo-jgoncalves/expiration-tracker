@@ -64,6 +64,14 @@ export interface DashboardQuery {
   status: ExpirationItem["status"];
   ascending?: boolean;
   limit?: number;
+  /** D-136/D-E: raw DynamoDB key (already decoded from the opaque HTTP cursor by the caller -
+   * this service layer stays transport-agnostic, same as the store port). */
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface DashboardPage {
+  items: ExpirationItem[];
+  lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export class ExpirationService {
@@ -594,13 +602,17 @@ export class ExpirationService {
     return { item: newItem, copiedReminderPolicyIds };
   }
 
-  /** Dashboard listing via GSI1 (implementation-blueprint.md §8.2). Eventually consistent - never used for authorization/pre-mutation decisions (data-model.md §5). */
-  async listDashboard(ctx: RequestContext, query: DashboardQuery): Promise<ExpirationItem[]> {
+  /** Dashboard listing via GSI1 (implementation-blueprint.md §8.2). Eventually consistent -
+   * never used for authorization/pre-mutation decisions (data-model.md §5). D-136/D-E: one
+   * physical page per call - the HTTP handler is what enforces a default/max `limit` and
+   * decodes/encodes the opaque cursor; this method just passes through to the store port. */
+  async listDashboard(ctx: RequestContext, query: DashboardQuery): Promise<DashboardPage> {
     authorize({ context: ctx, action: "item:read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.store.queryGsi1<ExpirationItem>({
+    return this.store.queryGsi1Page<ExpirationItem>({
       gsi1pk: `TENANT#${ctx.tenant.tenantId}#ITEMSTATUS#${query.status}`,
       ascending: query.ascending ?? true,
       limit: query.limit,
+      exclusiveStartKey: query.exclusiveStartKey,
     });
   }
 
@@ -610,27 +622,36 @@ export class ExpirationService {
    * ACTIVE/ARCHIVED/RENEWED, in that fixed order for determinism. DELETED is deliberately
    * NEVER queried (round-3 Achado #4, own decision, not inherited from the dashboard's
    * requireDashboardStatus() which does accept DELETED) - a soft-deleted item is not
-   * "actively tracked". Budget decreases across the 3 queries so the 2.000-item cap is a
-   * TENANT-WIDE total, never per-call - `limit: budget + 1` asks queryGsi1() for one more
-   * row than the remaining budget so an exact-boundary overflow (the 2001st row landing
-   * exactly on a status boundary) is still detected without a separate count query.
+   * "actively tracked". Budget decreases across every physical page fetched (D-136/D-E:
+   * queryGsi1Page returns one real DynamoDB page, so a status with more than one page's worth
+   * of items is paginated internally here) so the 2.000-item cap is a TENANT-WIDE total, never
+   * per-page. `limit: remaining + 1` asks for one more row than the remaining budget so an
+   * exact-boundary overflow is detected without a separate count query. The loop continues
+   * strictly on `lastEvaluatedKey` presence, never on `rows.length < EXPORT_ITEM_CAP` - a page
+   * that lands EXACTLY on the cap can still carry a `lastEvaluatedKey` pointing at a real next
+   * item of the SAME status (D-136/D-E Rodada 3 finding: checking remaining budget instead of
+   * the cursor itself would silently drop that item from the overflow check).
    */
   async exportItems(ctx: RequestContext): Promise<ExpirationItem[]> {
     authorize({ context: ctx, action: "item:export", resource: { tenantId: ctx.tenant.tenantId } });
     const statuses: ExpirationItem["status"][] = ["ACTIVE", "ARCHIVED", "RENEWED"];
     const rows: ExpirationItem[] = [];
-    let budget = EXPORT_ITEM_CAP;
     for (const status of statuses) {
-      const page = await this.store.queryGsi1<ExpirationItem>({
-        gsi1pk: `TENANT#${ctx.tenant.tenantId}#ITEMSTATUS#${status}`,
-        ascending: true,
-        limit: budget + 1,
-      });
-      if (rows.length + page.length > EXPORT_ITEM_CAP) {
-        throw new ValidationError(`Export exceeds ${EXPORT_ITEM_CAP}-item cap.`, { statusWhereExceeded: status });
-      }
-      rows.push(...page);
-      budget = EXPORT_ITEM_CAP - rows.length;
+      let lastEvaluatedKey: Record<string, unknown> | undefined;
+      do {
+        const remaining = EXPORT_ITEM_CAP - rows.length;
+        const page = await this.store.queryGsi1Page<ExpirationItem>({
+          gsi1pk: `TENANT#${ctx.tenant.tenantId}#ITEMSTATUS#${status}`,
+          ascending: true,
+          limit: remaining + 1,
+          exclusiveStartKey: lastEvaluatedKey,
+        });
+        if (page.items.length > remaining) {
+          throw new ValidationError(`Export exceeds ${EXPORT_ITEM_CAP}-item cap.`, { statusWhereExceeded: status });
+        }
+        rows.push(...page.items);
+        lastEvaluatedKey = page.lastEvaluatedKey;
+      } while (lastEvaluatedKey);
     }
     return rows;
   }

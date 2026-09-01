@@ -7,7 +7,7 @@
  */
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, ExpirationStore, Gsi1QueryInput, TransactWriteEntry } from "../ports/expiration-store.js";
+import type { EntityKey, ExpirationStore, Gsi1PageInput, Gsi1Page, TransactWriteEntry } from "../ports/expiration-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 export class DynamoDbExpirationStore implements ExpirationStore {
@@ -84,29 +84,29 @@ export class DynamoDbExpirationStore implements ExpirationStore {
     }
   }
 
-  async queryGsi1<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1QueryInput): Promise<T[]> {
+  /** D-136/D-E: one real QueryCommand per call - never an internal accumulate-across-pages
+   * loop (the pre-D-136 version did that and then `slice(0, limit)`'d the result, so its
+   * returned `LastEvaluatedKey` could point past items the sliced-off result never actually
+   * returned to the caller - a real cursor-skip bug found in the D-136/D-E protocol). A
+   * DynamoDB `Query` can stop on `Limit` OR the 1 MB response-size ceiling, whichever comes
+   * first; `LastEvaluatedKey` always reflects the actual stopping point of THIS call, so a
+   * page's own cursor is always correct to resume from, regardless of which limit stopped it. */
+  async queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>> {
     try {
-      const items: T[] = [];
-      let exclusiveStartKey: Record<string, unknown> | undefined;
-      do {
-        const result = await this.client.send(
-          new QueryCommand({
-            TableName: this.tableName,
-            IndexName: "GSI1",
-            KeyConditionExpression: "GSI1PK = :pk",
-            ExpressionAttributeValues: { ":pk": input.gsi1pk },
-            ScanIndexForward: input.ascending ?? true,
-            Limit: input.limit,
-            ExclusiveStartKey: exclusiveStartKey,
-          }),
-        );
-        items.push(...((result.Items ?? []) as T[]));
-        exclusiveStartKey = result.LastEvaluatedKey;
-        if (input.limit && items.length >= input.limit) break;
-      } while (exclusiveStartKey);
-      return input.limit ? items.slice(0, input.limit) : items;
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :pk",
+          ExpressionAttributeValues: { ":pk": input.gsi1pk },
+          ScanIndexForward: input.ascending ?? true,
+          Limit: input.limit,
+          ExclusiveStartKey: input.exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
     } catch (err) {
-      throw mapDynamoError(err, "ExpirationStore.queryGsi1");
+      throw mapDynamoError(err, "ExpirationStore.queryGsi1Page");
     }
   }
 }

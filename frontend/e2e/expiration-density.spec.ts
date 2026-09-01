@@ -50,16 +50,42 @@ async function freezeClock(page: Page) {
   }`);
 }
 
-async function setup(page: Page, count: number) {
+/**
+ * D-136/D-E: the real backend paginates via opaque `nextCursor` (base64url-encoded DynamoDB
+ * key at the HTTP edge - see item-handlers.ts). The mock here does not need to reproduce that
+ * encoding - it only needs to exercise the SAME client contract (`nextCursor: string | null`,
+ * `?cursor=` round-tripped verbatim) so ItemsCollection's real `useItemsDashboardPage` /
+ * "Carregar mais" pagination is what is under test, not a single unbounded response.
+ */
+async function setup(page: Page, count: number, options?: { pageSize?: number }) {
   await freezeClock(page);
+  const items = stressItems(count);
+  const pageSize = options?.pageSize ?? count;
   await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
-  await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items: stressItems(count) } }));
+  await page.route("**/bff/api/items/dashboard**", (route) => {
+    const url = new URL(route.request().url());
+    const cursor = url.searchParams.get("cursor");
+    const startIndex = cursor ? Number(cursor) : 0;
+    const pageItems = items.slice(startIndex, startIndex + pageSize);
+    const nextIndex = startIndex + pageSize;
+    const nextCursor = nextIndex < items.length ? String(nextIndex) : null;
+    void route.fulfill({ json: { items: pageItems, nextCursor } });
+  });
 }
 
 test("DENSITY-01: 140 items render as one semantic table, grouped by urgency, most urgent first", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await setup(page, 140);
+  // 3 pages (47/47/46) - the real pagination path, not a single unbounded fetch (mission §24/
+  // D-136/D-E: the whole point of the redesign is that no screen ever requests all 140 at once).
+  await setup(page, 140, { pageSize: 47 });
   await page.goto("/items");
+
+  const loadMore = page.getByRole("button", { name: "Carregar mais" });
+  await expect(loadMore).toBeVisible();
+  await loadMore.click();
+  await expect(loadMore).toBeVisible();
+  await loadMore.click();
+  await expect(loadMore).toBeHidden();
 
   await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(140);
   // Group order is the operational priority order, not insertion order.
@@ -96,10 +122,31 @@ test("DENSITY-02: at 375px nothing is hidden - the stacked layout keeps every fi
 test("DENSITY-03: at 200% zoom the dense collection still reflows without horizontal page scroll", async ({ page }) => {
   // WCAG 2.2 SC 1.4.10 Reflow: 1280px content at 200% zoom == a 640px CSS viewport.
   await page.setViewportSize({ width: 640, height: 800 });
-  await setup(page, 60);
+  // 2 pages of 30 - load the second before asserting reflow, so the assertion covers the
+  // layout as it actually exists after "Carregar mais", not just the first page in isolation.
+  await setup(page, 60, { pageSize: 30 });
   await page.goto("/items");
 
+  await page.getByRole("button", { name: "Carregar mais" }).click();
   await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(60);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("DENSITY-04: pagination concatenates pages, never replaces them, and hides the button once exhausted", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await setup(page, 65, { pageSize: 30 });
+  await page.goto("/items");
+
+  const loadMore = page.getByRole("button", { name: "Carregar mais" });
+  await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(30);
+  await expect(loadMore).toBeVisible();
+
+  await loadMore.click();
+  await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(60);
+  await expect(loadMore).toBeVisible();
+
+  await loadMore.click();
+  await expect(page.locator("td.ui-table__cell--primary")).toHaveCount(65);
+  await expect(loadMore).toBeHidden();
 });

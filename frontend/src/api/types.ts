@@ -72,6 +72,9 @@ export interface RenewItemResponse extends ItemResponse {
 
 export interface DashboardResponse {
   items: ExpirationItem[];
+  /** D-136/D-E: opaque cursor for the next page, `null` when there are no more pages. Never
+   * interpreted client-side - only echoed back verbatim as the `cursor` query param. */
+  nextCursor: string | null;
 }
 
 /**
