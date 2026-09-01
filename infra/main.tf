@@ -2747,3 +2747,75 @@ resource "aws_scheduler_schedule" "tenant_purge_sweeper" {
     input = "{}"
   }
 }
+
+# --- RequirementReindexHandler: daily EventBridge Scheduler job (D-143 Nucleus 2, Decision 5) -
+# Keeps GSI1's REQSTATUS index coherent with pure time-based drift (SATISFIED -> NOT_SATISFIED as
+# evidenceValidUntil passes with no other write ever touching the Requirement) - see
+# src/workers/requirement-reindex/reindex.ts's doc comment. No dedicated IAM policy beyond the
+# general tenant-facing grant (same reasoning as document_archive_handler above: GSI1 is already
+# covered, and this worker's Scan is a base-table operation, not a new index).
+module "requirement_reindex_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-requirement-reindex-handler"
+  handler_name          = "requirement-reindex-handler"
+  source_dir            = "${local.dist_dir}/requirement-reindex-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "requirement_reindex_schedule" {
+  name = "${module.requirement_reindex_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "requirement_reindex_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.requirement_reindex_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeRequirementReindex"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.requirement_reindex_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "requirement_reindex" {
+  name                         = "${local.name_prefix}-requirement-reindex"
+  schedule_expression          = "cron(0 4 * * ? *)" # daily 04:00 UTC, after reminder-dst-reconciliation (03:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.requirement_reindex_handler.live_alias_arn
+    role_arn = aws_iam_role.requirement_reindex_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent (jsonencode() would HTML-escape
+    # "<aws.scheduler.scheduled-time>" and the placeholder would never be substituted).
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}

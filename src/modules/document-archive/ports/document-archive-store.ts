@@ -42,6 +42,12 @@ export interface IndexPage<T> {
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
+/** One page of a cross-tenant `Scan` (see `scanSatisfiedRequirements`'s doc comment). */
+export interface ScanPage<T> {
+  items: T[];
+  lastEvaluatedKey?: Record<string, unknown>;
+}
+
 export interface DocumentArchiveStore {
   /** Strongly consistent single-item read — every read this module does gates a mutation
    * (review decisions, accept/reject) or serves an authenticated detail view, never a
@@ -63,4 +69,18 @@ export interface DocumentArchiveStore {
   queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;
   /** Eventually consistent GSI query, one physical page per call. */
   queryIndexPage<T extends EntityKey = Record<string, unknown> & EntityKey>(input: IndexPageInput): Promise<IndexPage<T>>;
+  /**
+   * Cross-tenant `Scan` filtered to `entityType = "Requirement" AND status = "SATISFIED"` — for
+   * the daily reindex worker only (module doc comment on `requirement.ts`: pure time-based
+   * SATISFIED -> NOT_SATISFIED drift as `evidenceValidUntil` passes). GSI1's REQSTATUS namespace
+   * is tenant-scoped by partition key (`TENANT#<t>#REQSTATUS#<status>`), so it cannot answer
+   * "every SATISFIED Requirement across every tenant" without first enumerating tenants — this
+   * module has no tenant-enumeration port method, and inventing a new global index for a job
+   * that runs once a day is not justified. Same accepted cost tradeoff as
+   * `src/workers/tenant-purge/tenant-purge-sweep.ts`'s `scanLifecycleRecords` (DynamoDB bills a
+   * Scan for every item read before the filter applies) — explicit here for the same reason it
+   * is explicit there, not hidden behind a generic method name. One physical `ScanCommand` per
+   * call, paginated by the caller via `lastEvaluatedKey` (same discipline as `queryIndexPage`).
+   */
+  scanSatisfiedRequirements<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
 }

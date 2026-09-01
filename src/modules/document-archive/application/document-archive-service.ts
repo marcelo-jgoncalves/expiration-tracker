@@ -15,6 +15,7 @@
  */
 import {
   buildVersionedCreate,
+  buildVersionedDelete,
   buildVersionedUpdate,
   isTransactionCanceled,
   type EntityKey,
@@ -545,7 +546,6 @@ export class DocumentArchiveService {
     const tenantId = ctx.tenant.tenantId;
     await this.getRequirementUnchecked(tenantId, subjectId, requirementId); // 404s if absent
     const key = requirementKey(tenantId, subjectId, requirementId);
-    const { buildVersionedDelete } = await import("../../../shared/dynamodb/occ.js");
     const del = buildVersionedDelete({ tableName: this.tableName, key, tenantId, expectedVersion });
     try {
       await this.store.transactWrite([{ Delete: del }]);

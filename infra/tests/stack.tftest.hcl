@@ -758,3 +758,23 @@ run "tenant_purge_sweeper_schedule_exists_and_sends_no_detail_wrapper" {
     error_message = "The sweeper takes no input - it discovers its own work by scanning; a detail-wrapped or placeholder input would be a silent contract break"
   }
 }
+
+run "requirement_reindex_schedule_exists_daily_with_correct_placeholder_escaping" {
+  command = plan
+
+  # D-143 Nucleus 2, Requirement (Decision 5/D9, D-145): daily reindex job. Fixed UTC cron (not a
+  # rolling rate) is deliberate here - staggered after reminder-dst-reconciliation (03:00 UTC),
+  # see requirement_reindex_handler's inline comment in main.tf.
+  assert {
+    condition     = aws_scheduler_schedule.requirement_reindex.schedule_expression == "cron(0 4 * * ? *)"
+    error_message = "The reindex job must run once a day on a fixed UTC cron, staggered after the reminder DST reconciliation pass"
+  }
+
+  # reminder-schedule/main.tf's header documents a real production bug: jsonencode() HTML-escapes
+  # the angle brackets in the EventBridge Scheduler placeholder, silently breaking substitution.
+  # The literal string form (not jsonencode()) must be used here too.
+  assert {
+    condition     = aws_scheduler_schedule.requirement_reindex.target[0].input == "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "The reindex job's scheduledTime placeholder must be a literal string, never jsonencode()'d (would HTML-escape the angle brackets and break substitution)"
+  }
+}

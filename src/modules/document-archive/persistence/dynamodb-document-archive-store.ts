@@ -5,9 +5,9 @@
  * executes the SDK command (same division of responsibility as
  * `DynamoDbExpirationStore.transactWrite`).
  */
-import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, TransactWriteEntry } from "../ports/document-archive-store.js";
+import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, ScanPage, TransactWriteEntry } from "../ports/document-archive-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 /** D-143 Decision 2: the partition-key attribute for each index this module uses — derived
@@ -100,6 +100,27 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
       return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
     } catch (err) {
       throw mapDynamoError(err, "DocumentArchiveStore.queryIndexPage");
+    }
+  }
+
+  /** Cross-tenant `Scan` for the daily Requirement reindex worker — see the port method's doc
+   * comment for the accepted cost tradeoff (same as `tenant-purge-sweep.ts`'s
+   * `scanLifecycleRecords`). One physical `ScanCommand` per call; the caller drives pagination
+   * via `lastEvaluatedKey`, never an internal accumulate-across-pages loop. */
+  async scanSatisfiedRequirements<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
+    try {
+      const result = await this.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: "#entityType = :entityType AND #status = :status",
+          ExpressionAttributeNames: { "#entityType": "entityType", "#status": "status" },
+          ExpressionAttributeValues: { ":entityType": "Requirement", ":status": "SATISFIED" },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "DocumentArchiveStore.scanSatisfiedRequirements");
     }
   }
 }
