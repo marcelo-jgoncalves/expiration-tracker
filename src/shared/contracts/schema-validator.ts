@@ -74,6 +74,8 @@ import docarchiveGuestSubmitEvidenceRequestV1 from "../../../schemas/api/docarch
 import docarchiveSeriesCreateRequestV1 from "../../../schemas/api/docarchive-series-create-request.v1.json";
 import docarchiveSeriesCancelRequestV1 from "../../../schemas/api/docarchive-series-cancel-request.v1.json";
 import docarchiveSeriesMaterializeRequestV1 from "../../../schemas/api/docarchive-series-materialize-request.v1.json";
+// D-149 (Admin Activity/Audit Log view).
+import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -179,4 +181,5 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveSeriesCreateRequestV1,
   docarchiveSeriesCancelRequestV1,
   docarchiveSeriesMaterializeRequestV1,
+  listActivityRequestV1,
 ]);

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/list-activity-request.v1.json",
+  "title": "ListActivityRequest v1",
+  "description": "GET /activity query parameters (D-149, src/modules/activity/application/activity-service.ts ListActivityQuery). All fields optional/string since they arrive as HTTP query-string values.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "month": { "type": "string", "pattern": "^\\d{6}$" },
+    "resourceType": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "limit": { "type": "string", "pattern": "^[0-9]+$" },
+    "cursor": { "type": "string", "minLength": 1 }
+  }
+}

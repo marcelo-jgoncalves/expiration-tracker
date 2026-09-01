@@ -187,3 +187,36 @@ export interface OrganizationSettingsResponse {
   timezone: string;
   version: number;
 }
+
+/**
+ * D-149 (admin-activity-log-scoping/estado-final-consolidado.md) - GET /activity. Mirrors
+ * src/modules/activity/application/activity-service.ts's ActivityEntry/ActivityPage: one
+ * merged, chronological feed across the 4 audit-event partitions (expiration/organization/
+ * subject/tenant). Rendered as short prose, never raw JSON (decisão 8) - `changes` exists on
+ * the type only because the backend sends it, it is never displayed directly.
+ */
+export type ActivityPartition = "expiration" | "organization" | "subject" | "tenant";
+
+export interface ActivityActor {
+  type: "USER" | "SYSTEM";
+  userId?: string;
+}
+
+export interface ActivityEntry {
+  auditEventId: string;
+  partition: ActivityPartition;
+  occurredAt: string;
+  actor: ActivityActor;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  changes: Record<string, unknown>;
+}
+
+export interface ActivityPageResponse {
+  entries: ActivityEntry[];
+  /** Opaque composite cursor, `null` when there are no more pages - same "never interpreted
+   * client-side" convention as DashboardResponse.nextCursor above. */
+  cursor: string | null;
+  hasMore: boolean;
+}

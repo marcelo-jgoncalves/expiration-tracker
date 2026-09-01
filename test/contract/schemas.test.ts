@@ -1121,4 +1121,37 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json", { expectedVersion: 1, force: true });
     expect(valid).toBe(false);
   });
+
+  // D-149 (Admin Activity/Audit Log view) - GET /activity's query-parameter schema.
+  it("accepts an empty list-activity-request.v1 (every field optional)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", {});
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a fully-populated list-activity-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", {
+      month: "202609",
+      resourceType: "ExpirationItem",
+      limit: "25",
+      cursor: "abc123",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a list-activity-request.v1 month that isn't 6 digits", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", { month: "2026-09" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a list-activity-request.v1 non-numeric limit", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", { limit: "abc" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a list-activity-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", { bogus: "x" });
+    expect(valid).toBe(false);
+  });
 });
