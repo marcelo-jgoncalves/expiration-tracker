@@ -91,6 +91,10 @@ const HANDLERS = [
   // D-154 (QUOTA_TELEMETRY LGPD purge, Prioridade 4 of quarantine-retention-scoping's
   // estado-final-consolidado.md): daily EventBridge Scheduler physical-purge job.
   "quota-telemetry-purge-handler",
+  // D-155 (ACCOUNT_ACTIVE (não-fechamento) LGPD purge, Prioridade 5 of quarantine-retention-
+  // scoping's estado-final-consolidado.md — Invitation only, see decisions-log): daily
+  // EventBridge Scheduler physical-purge job.
+  "invitation-purge-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
