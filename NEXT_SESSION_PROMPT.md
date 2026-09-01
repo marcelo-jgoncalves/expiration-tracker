@@ -154,13 +154,12 @@ Ver `docs/architecture/README.md` (linha `Design maturity`/bloco de status no to
 
 ## Próxima ação, em ordem de valor esperado
 
-**Estado no início da próxima sessão: nenhuma frente de trabalho "óbvia e segura" está pendente.** Domínio Documental (Núcleo 1+2) e os 6 workers LGPD tratáveis de D-127 estão 100% implementados e deployados. O que resta na tabela de gates abaixo depende de decisão de Marcelo ou é nomeadamente de maior risco. **Não invente trabalho novo por conta própria** — comece perguntando a ele qual destes (ou algo novo que ele traga) é a prioridade:
+**Estado no início da próxima sessão**: ESLint (D-157), `Membership.removedAt` (D-158) e D-C do hot path (D-160, `UserProfile` removido) foram todos fechados numa mesma sessão (2026-09-01), incluindo merge em `main`. Nesta MESMA sessão, Marcelo trouxe um roadmap competitivo novo (`docs/project/roadmap-competitivo-2026-09-01.md`) e pediu reconciliação + macro-ordem via protocolo — **fechado como D-161** (`docs/architecture/reviews/competitive-roadmap-reconciliation/estado-final-consolidado.md`, Codex 9,6/10). Isso muda a prioridade #1 da lista abaixo — não é mais "pergunte a Marcelo o que priorizar entre itens desconexos", é "comece pelo roadmap competitivo, seguindo a ordem já decidida":
 
-1. **PRs #152/#156 (ESLint 8→10)** — decidir se vale migrar para flat config agora ou adiar; CI falhou de verdade nesses dois, não é flake.
-2. **`Membership.removedAt`** — decisão sobre adicionar o campo (destrava a purga LGPD de `Membership`/`Channel`, itens genuinamente bloqueados de D-155).
-3. **Wave 1b (Design System)** — quais componentes com overlay/focus-trap abordar primeiro, se for a hora.
-4. **D-C/D-D da otimização de hot path** — ambos nomeados como precisando de decisão/rodada dedicada antes de qualquer código. **D-C teve uma Rodada 1 real nesta sessão (D-159, rejeitada, nota 5,5/10)** — achado importante: `UserProfile` (tenant-scoped, `identity/persistence/user-repository.ts`) não tem nenhum leitor em todo o código (`getProfile()` só é chamado de dentro de `createProfileIfAbsent()`, cujo retorno o único caller descarta) — a pergunta certa é se essa entidade write-only ainda precisa existir, não como tornar a leitura mais barata. Começar a próxima rodada por aí, não por mudar `IdentityStore.get()`. D-D segue sem nenhuma investigação nova.
-5. Ou uma nova frente que Marcelo trouxer.
+1. **Roadmap Competitivo (D-161)** — próximo passo real: spike de auditoria delimitado dos itens 4/9/10 (mapear ponta a ponta `arquivo → scan → DocumentVersion → OCR → review → acceptance → Requirement → renewal`, sem cristalizar contrato nenhum), depois abrir a Rodada 1 da decisão fundacional #1 (`DocumentFile`/storage/scan/download) — ver a tabela completa de decisões fundacionais e a macro-ordem dos 10 itens P0 no documento D-161. Cada item recebe scoping + classificação de risco real antes de decidir se precisa de protocolo completo (nível 5-6) ou implementação direta (nível 3-4) — não assumir protocolo completo para tudo a priori.
+2. **Wave 1b (Design System)** — quais componentes com overlay/focus-trap abordar primeiro, se for a hora. **Deliberadamente por último**, por pedido explícito de Marcelo (2026-09-01).
+3. **D-D da otimização de hot path** — nomeado como precisando de sessão dedicada com teste adversarial obrigatório no DoD; sem nenhuma investigação nova ainda (D-C já fechou como D-160).
+4. Ou uma nova frente que Marcelo trouxer.
 
 Itens abaixo são de sessões anteriores, todos já resolvidos ou explicitamente adiados por Marcelo — não são trabalho pendente, mantidos só como referência rápida caso o assunto volte: Wave B2B-14 (roteiro manual convite/2ª conta, adiado), execução destrutiva de `scripts/reset-dev-data.ts --confirm` (aguarda sinal dele), `AppError.retryable` (já fechado, D-128).
 
@@ -191,7 +190,7 @@ Itens abaixo são de sessões anteriores, todos já resolvidos ou explicitamente
 
 - **Domínio Documental** (6 documentos de planejamento funcional/wireframes) — movidos para `docs/frontend/`, ver a nova seção "Domínio Documental — proposta trazida pelo Marcelo" em `docs/frontend/README.md`. Não avaliado ainda, não passou pelo protocolo Claude↔Codex.
 - **Estratégia de aquisição dos primeiros clientes** — `docs/project/first-customers-acquisition-strategy.md` (movido da raiz). Plano comercial, fora do escopo técnico deste arquivo — não avaliado por Claude.
-- **Roadmap competitivo de funcionalidades (2026-09-01)** — `docs/project/roadmap-competitivo-2026-09-01.md` (movido da raiz, achado pelo `check-docs` durante esta sessão — apareceu como arquivo solto, fora do allowlist). Define ordem de evolução funcional para competir em mercado. Plano de produto, fora do escopo técnico deste arquivo — não avaliado por Claude.
+- ~~Roadmap competitivo de funcionalidades (2026-09-01)~~ — **RECONCILIADO E ORDEM DEFINIDA, D-161, 2026-09-01** (protocolo Claude↔Codex completo, 3 rodadas, Codex 9,6/10). `docs/project/roadmap-competitivo-2026-09-01.md` continua o documento-fonte (preço/limites das seções 12-13 seguem não avaliados, decisão comercial pura); a reconciliação técnica + macro-ordem + escalonamento de 4 decisões fundacionais está em `docs/architecture/reviews/competitive-roadmap-reconciliation/estado-final-consolidado.md`. Ver item 1 de "Próxima ação" acima.
 
 ## Links para histórico (não reler por padrão — só sob demanda)
 
