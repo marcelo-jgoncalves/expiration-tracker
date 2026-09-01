@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-accept-version-request.v1.json",
+  "title": "DocArchiveAcceptVersionRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/accept request body. `clientRequestToken` is the idempotency key checked BEFORE any state-transition validation (D-143 Decision 2/Bloqueador 4-5), never optional — a caller that omits it gets no idempotency guarantee at all for the single most destructive operation in this module.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion", "clientRequestToken"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "clientRequestToken": { "type": "string", "minLength": 1, "maxLength": 200 }
+  }
+}

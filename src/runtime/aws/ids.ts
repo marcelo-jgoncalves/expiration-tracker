@@ -13,9 +13,18 @@ import type { DocumentIdGenerator } from "../../modules/document/application/id-
 import type { SubjectIdGenerator } from "../../modules/subject/application/id-generator.js";
 import type { ImportIdGenerator } from "../../modules/import/application/id-generator.js";
 import type { OrganizationIdGenerator } from "../../modules/organization/application/id-generator.js";
+import type { DocumentArchiveIdGenerator } from "../../modules/document-archive/application/id-generator.js";
 
 export class UlidIdGenerator
-  implements ExpirationIdGenerator, ReminderIdGenerator, IdentityIdGenerator, DocumentIdGenerator, SubjectIdGenerator, ImportIdGenerator, OrganizationIdGenerator
+  implements
+    ExpirationIdGenerator,
+    ReminderIdGenerator,
+    IdentityIdGenerator,
+    DocumentIdGenerator,
+    SubjectIdGenerator,
+    ImportIdGenerator,
+    OrganizationIdGenerator,
+    DocumentArchiveIdGenerator
 {
   newItemId(): string {
     return `item_${ulid()}`;
@@ -46,6 +55,12 @@ export class UlidIdGenerator
   }
   newDocumentId(): string {
     return `doc_${ulid()}`;
+  }
+  /** D-143 Nucleus 1 (Document Archive domain) - shares `newDocumentId()`/`newEventId()` above
+   * (same prefix, structurally satisfies DocumentArchiveIdGenerator too - no meaningful
+   * distinction between "a document id" across the two modules), only `newVersionId()` is new. */
+  newVersionId(): string {
+    return `docver_${ulid()}`;
   }
   newUploadSlotId(): string {
     return `slot_${ulid()}`;

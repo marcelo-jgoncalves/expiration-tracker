@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-reject-version-request.v1.json",
+  "title": "DocArchiveRejectVersionRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/reject request body. `reason` is the closed taxonomy from document-domain-functional-specification-v0.1.md §12 (src/modules/document-archive/domain/document-version.ts RejectionReason) — never free text alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion", "reason"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "reason": { "type": "string", "enum": ["EXPIRED", "ILLEGIBLE", "INCORRECT", "WRONG_SUBJECT", "OUTDATED_VERSION", "INCOMPLETE", "OTHER"] }
+  }
+}
