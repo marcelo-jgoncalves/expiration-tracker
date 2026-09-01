@@ -14,6 +14,12 @@ export const CSRF_COOKIE_NAME = "__Host-et_csrf";
 export const LOGIN_ATTEMPT_TTL_SECONDS = 10 * 60; // D-054: LoginAttempt is short-lived, single-use.
 export const SESSION_ABSOLUTE_TTL_SECONDS = 30 * 24 * 60 * 60; // D-054: absoluteExpiresAt = createdAt + 30d, never extended by refresh.
 export const SESSION_IDLE_TTL_SECONDS = 7 * 24 * 60 * 60; // D-054: idle timeout via purgeAfterTtl.
+// D-136/D-B: only renew (write) the idle TTL once less than this much time remains before it
+// would expire - turns "1 session write per request" into "zero writes for the vast majority
+// of a session's active life, one write per ~day of continuous use". A day is a small fraction
+// of the 7-day idle window, so a session under real, regular use never actually reaches
+// SESSION_IDLE_TTL_SECONDS from the user's perspective - it renews well before that.
+export const SESSION_IDLE_RENEWAL_THRESHOLD_SECONDS = 24 * 60 * 60;
 
 export interface CookieAttributes {
   httpOnly: boolean;

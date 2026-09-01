@@ -379,6 +379,47 @@ describe("BffAuthService.resolveSession", () => {
     await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
   });
 
+  // D-136/D-B: real production behavior before this change was "1 session write per request"
+  // (D-136 performance audit) - the idle-TTL bump now only writes once the session has drifted
+  // within SESSION_IDLE_RENEWAL_THRESHOLD_SECONDS of expiry, not on every resolution. Mutation:
+  // reverting the `shouldRenew` condition back to `nextPurge !== session.purgeAfterTtl` alone
+  // makes `version` increment on the second call too, failing this assertion (verified live).
+  /** resolveSession() never reassigns its local `session` snapshot after a successful idle-TTL
+   * bump write (a pre-existing, unrelated detail - the RETURNED Session always reflects the
+   * pre-bump read), so these two tests read the stored record directly via the raw store
+   * rather than trusting resolveSession's own return value. */
+  async function readStoredSession(ctx: ReturnType<typeof buildService>, sessionToken: string) {
+    const [selectorPart] = sessionToken.split(".");
+    const selectorHash = (await import("node:crypto")).createHmac("sha256", "test-pepper").update(selectorPart!).digest("hex");
+    return ctx.sessionStore.get<import("../../../src/modules/bff/domain/session.js").Session>({ PK: `SESSION#${selectorHash}`, SK: "POINTER" });
+  }
+
+  it("resolving the same session twice in quick succession, well inside the idle renewal threshold, does not write a second idle-TTL bump (stored version stays the same)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    await ctx.service.resolveSession(result.sessionToken);
+    const beforeSecondCall = await readStoredSession(ctx, result.sessionToken);
+    ctx.setClock("2026-08-24T12:05:00.000Z"); // 5 minutes later - real activity, nowhere near the 7-day idle window's last day
+    await ctx.service.resolveSession(result.sessionToken);
+    const afterSecondCall = await readStoredSession(ctx, result.sessionToken);
+    expect(afterSecondCall!.version).toBe(beforeSecondCall!.version);
+    expect(afterSecondCall!.purgeAfterTtl).toBe(beforeSecondCall!.purgeAfterTtl);
+  });
+
+  it("resolving a session that has drifted inside the idle renewal threshold DOES write a fresh bump (stored version increments)", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    await ctx.service.resolveSession(result.sessionToken);
+    const beforeSecondCall = await readStoredSession(ctx, result.sessionToken);
+    // 6.5 days later: access token was already refreshed transparently by resolveSession along
+    // the way, so by the time resolveSession returns, less than the 1-day renewal threshold
+    // remains of the idle window and the bump write fires.
+    ctx.setClock("2026-08-31T00:00:00.000Z");
+    await ctx.service.resolveSession(result.sessionToken);
+    const afterSecondCall = await readStoredSession(ctx, result.sessionToken);
+    expect(afterSecondCall!.version).toBeGreaterThan(beforeSecondCall!.version);
+  });
+
   it("logoutAll with the CORRECT token but an idle-expired session never triggers a global logout", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);
@@ -504,9 +545,24 @@ describe("BffAuthService.resolveSession", () => {
     const state = new URL(started.redirectUrl).searchParams.get("state")!;
     const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
 
-    // 5 minutes later: access token (900s TTL) is still valid, but enough idle time passed
-    // that resolveSession's idle-TTL bump will actually attempt a write.
+    // 5 minutes later: access token (900s TTL) is still valid, so resolveSession takes the
+    // no-refresh path straight to the idle-TTL bump.
     clock = "2026-08-24T12:05:00.000Z";
+
+    // D-136/D-B: the bump write now only fires once less than SESSION_IDLE_RENEWAL_THRESHOLD_SECONDS
+    // remains of the idle window - real elapsed wall-clock time can't put a session inside that
+    // renewal window without also expiring its 900s access token (which would route resolveSession
+    // through refresh() instead, a different code path than this test targets). Directly age the
+    // stored session's own `purgeAfterTtl` into the renewal window instead, isolating the exact
+    // step under test (same "read, then `update()` a field directly" pattern already used
+    // elsewhere in this file, e.g. the refresh-lease test above).
+    const [selectorPart] = sessionToken.split(".");
+    const selectorHash = (await import("node:crypto")).createHmac("sha256", "test-pepper").update(selectorPart!).digest("hex");
+    const preAged = await rawStore.get<import("../../../src/modules/bff/domain/session.js").Session>({ PK: `SESSION#${selectorHash}`, SK: "POINTER" });
+    await rawStore.update<import("../../../src/modules/bff/domain/session.js").Session>({
+      ...preAged!,
+      purgeAfterTtl: Math.floor(Date.parse(clock) / 1000) + 60,
+    });
 
     const hookableStore = new HookableSessionStore(rawStore, async () => {
       await setupService.logout(sessionToken);
