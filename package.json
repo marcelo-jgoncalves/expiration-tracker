@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/aws-lambda": "8.10.145",
+    "@types/aws-lambda": "8.10.162",
     "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "^1.6.0",
     "aws-jwt-verify": "5.2.1",
