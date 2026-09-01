@@ -66,8 +66,8 @@ run "grants_exactly_the_capabilities_passed_in" {
   }
 
   assert {
-    condition     = aws_lambda_function.this.runtime == "nodejs22.x"
-    error_message = "Default runtime must be nodejs22.x"
+    condition     = aws_lambda_function.this.runtime == "nodejs24.x"
+    error_message = "Default runtime must be nodejs24.x"
   }
 
   assert {

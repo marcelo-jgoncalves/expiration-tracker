@@ -30,17 +30,14 @@ variable "source_dir" {
 
 variable "runtime" {
   description = <<-EOT
-    Lambda runtime identifier. Node 20 was AWS-deprecated 2026-04-30 (D-136 performance
-    review found the project still pinned to it past that date); build-lambdas.ts's esbuild
-    target is "node22" and nodejs22.x is what the bundled CJS artifact is built for.
-    Node 24 is the eventual target (AWS deprecation for Node 22 is 2027-04-30, so this is
-    not urgent) but requires hashicorp/aws >= 6.19.0 first - the ~> 5.0 constraint pinned
-    across this project's ~22 Terraform modules does not recognize "nodejs24.x" as a valid
-    runtime value (confirmed via `terraform test` against the pinned 5.100.0 provider). That
-    major-version provider upgrade is real, separate follow-up work, not a one-line bump.
+    Lambda runtime identifier. Node 20 was AWS-deprecated 2026-04-30 (D-136/D-137 found the
+    project still pinned to it past that date, then Node 22 as an interim step once D-137
+    found nodejs24.x required hashicorp/aws >= 6.19.0). The provider was bumped project-wide
+    to "~> 6.19" (D-138) specifically to unblock this: build-lambdas.ts's esbuild target is
+    "node24" and nodejs24.x is what the bundled CJS artifact is built for.
   EOT
   type        = string
-  default     = "nodejs22.x"
+  default     = "nodejs24.x"
 }
 
 variable "timeout_seconds" {
