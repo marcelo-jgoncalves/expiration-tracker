@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "./in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
-import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver } from "../../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
@@ -12,7 +11,6 @@ function makeDeps() {
   const store = new InMemoryIdentityStore();
   const organizations = new InMemoryOrganizationStore();
   const resolver = new RequestContextResolver(
-    new UserRepository(store),
     new GlobalUserRepository(store),
     organizations,
     makeIdGenerator(),
@@ -56,7 +54,7 @@ describe("handleTestRoute", () => {
     const organizations = new InMemoryOrganizationStore();
     const globalUsers = new GlobalUserRepository(store);
     const { userId } = await bootstrapWithOrganization(store, organizations, "MainTable", "sub-3");
-    const resolver = new RequestContextResolver(new UserRepository(store), globalUsers, organizations, makeIdGenerator(), store, "MainTable");
+    const resolver = new RequestContextResolver(globalUsers, organizations, makeIdGenerator(), store, "MainTable");
     const quota = new TenantQuotaService(store, "MainTable");
     const claims = {
       sub: "sub-3",

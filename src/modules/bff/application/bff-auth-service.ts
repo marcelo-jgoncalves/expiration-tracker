@@ -42,8 +42,8 @@ export interface BffAuthServiceDeps {
    * still bootstrap through this single atomic service (D-087/B2B-2). */
   bootstrap: IdentityBootstrapService;
   /** Wave B2B-5 (D-095): device sessions and global-logout revocation moved here from
-   * `UserRepository` (now `UserProfile`-only, per-Organization) — both are properties of the
-   * tenant-independent identity (physical model §10). */
+   * `UserRepository`/`UserProfile` (removed entirely, D-160 — zero real reader) — both are
+   * properties of the tenant-independent identity (physical model §10). */
   globalUsers: GlobalUserRepository;
   organizations: OrganizationStore;
   mainTableName: string;

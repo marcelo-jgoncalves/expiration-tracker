@@ -72,8 +72,10 @@ apaga INCONDICIONALMENTE todo dado tenant-scoped da Organization (`ExpirationIte
 membros, não só quem aciona. Único caminho que remove dado de negócio real.
 
 **User-level erasure** (titular individual, DSR — regra formalizada aqui, endpoint real fora de
-escopo): removeria/anonimizaria só identidade/sessão/perfil do PRÓPRIO titular — `GlobalUser`, todo
-`DeviceSession`, `Session` (BFF, pós-autenticação), `IdentityMapping`, cada `UserProfile` e
+escopo; emendado D-160, 2026-09-01 — `UserProfile` per-Organization removido do inventário, entidade
+vestigial sem leitor real, campos duplicados de `GlobalUser`/`IdentityMapping`): removeria/anonimizaria
+só identidade/sessão/perfil do PRÓPRIO titular — `GlobalUser`, todo
+`DeviceSession`, `Session` (BFF, pós-autenticação), `IdentityMapping`, cada
 `NotificationPreferences` que o titular tem em CADA Organization de que é membro, e as próprias
 `Membership`s do titular — **nunca cascateia para dado de negócio organization-owned** que outros
 membros ainda usam. `LoginAttempt` (artefato pré-autenticação, sem `userId`/`cognitoSub`) fica de

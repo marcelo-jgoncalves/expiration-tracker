@@ -8,7 +8,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
-import { UserRepository } from "../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
@@ -38,7 +37,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
     store = new InMemoryIdentityStore();
     organizations = new InMemoryOrganizationStore();
     globalUsers = new GlobalUserRepository(store);
-    resolver = new RequestContextResolver(new UserRepository(store), globalUsers, organizations, makeIdGenerator(), store, "MainTable");
+    resolver = new RequestContextResolver(globalUsers, organizations, makeIdGenerator(), store, "MainTable");
     quota = new TenantQuotaService(store, "MainTable");
     bootstrappedSubs.clear();
   });

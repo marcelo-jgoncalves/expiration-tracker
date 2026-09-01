@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "./in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
-import { UserRepository } from "../../../src/modules/identity/persistence/user-repository.js";
 import { GlobalUserRepository, deviceSessionKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../../src/modules/identity/application/resolve-request-context.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
@@ -14,9 +13,8 @@ function makeResolver() {
   const store = new InMemoryIdentityStore();
   const organizations = new InMemoryOrganizationStore();
   const globalUsers = new GlobalUserRepository(store);
-  const users = new UserRepository(store);
-  const resolver = new RequestContextResolver(users, globalUsers, organizations, makeIdGenerator(), store, "MainTable");
-  return { store, organizations, users, globalUsers, resolver };
+  const resolver = new RequestContextResolver(globalUsers, organizations, makeIdGenerator(), store, "MainTable");
+  return { store, organizations, globalUsers, resolver };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -109,16 +107,20 @@ describe("RequestContextResolver - working context once an Organization exists",
     expect(ctx.tenant.roles).toEqual(["OWNER"]);
   });
 
-  // Mutação: remover a chamada a `users.createProfileIfAbsent(...)` no resolver faria
-  // `users.getProfile()` retornar undefined aqui.
-  it("lazily provisions a per-Organization UserProfile the first time it resolves", async () => {
-    const { store, organizations, resolver, users } = makeResolver();
+  // D-160: RequestContextResolver não provisiona mais nenhuma linha tenant-scoped de perfil -
+  // UserProfile foi removido (D-159 achou zero leitor real; D-160 formalizou a remoção, protocolo
+  // completo 4 rodadas, Codex 9,2/10). Mutação: reintroduzir `await this.users.createProfileIfAbsent(...)`
+  // no resolver faria este teste falhar (a linha tenant-scoped voltaria a existir).
+  it("does not write any tenant-scoped user-profile row when resolving a context", async () => {
+    const { store, organizations, resolver } = makeResolver();
     const { organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+    const keysBefore = store.allKeys();
 
-    const profile = await users.getProfile(organizationId, ctx.principal.userId);
-    expect(profile).toBeDefined();
-    expect(profile?.status).toBe("ACTIVE");
+    await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
+
+    const keysAfter = store.allKeys();
+    expect(keysAfter).toEqual(keysBefore);
+    expect(keysAfter.some((k) => k.includes(`TENANT#${organizationId}#USER#`))).toBe(false);
   });
 
   it("returns the same userId/tenantId on repeat login (idempotent)", async () => {

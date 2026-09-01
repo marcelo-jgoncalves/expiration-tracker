@@ -191,6 +191,7 @@ Itens abaixo são de sessões anteriores, todos já resolvidos ou explicitamente
 
 - **Domínio Documental** (6 documentos de planejamento funcional/wireframes) — movidos para `docs/frontend/`, ver a nova seção "Domínio Documental — proposta trazida pelo Marcelo" em `docs/frontend/README.md`. Não avaliado ainda, não passou pelo protocolo Claude↔Codex.
 - **Estratégia de aquisição dos primeiros clientes** — `docs/project/first-customers-acquisition-strategy.md` (movido da raiz). Plano comercial, fora do escopo técnico deste arquivo — não avaliado por Claude.
+- **Roadmap competitivo de funcionalidades (2026-09-01)** — `docs/project/roadmap-competitivo-2026-09-01.md` (movido da raiz, achado pelo `check-docs` durante esta sessão — apareceu como arquivo solto, fora do allowlist). Define ordem de evolução funcional para competir em mercado. Plano de produto, fora do escopo técnico deste arquivo — não avaliado por Claude.
 
 ## Links para histórico (não reler por padrão — só sob demanda)
 
