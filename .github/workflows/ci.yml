@@ -82,6 +82,13 @@ jobs:
         # not relying on a 4th human pass to catch the next one.
         run: npm run check-docs
 
+      - name: Check dependency freshness (D-139/D-148)
+        # docs/engineering/dependency-freshness-standard.md - closes the exact gap that let
+        # D-137 pass unnoticed (Lambda runtime pinned past AWS's own deprecation date, found
+        # only by an unrelated ad-hoc audit). Runs on every PR/push, not just when an audit
+        # happens to be touching this code.
+        run: npm run check-dependency-freshness
+
       - name: Unit + contract tests
         run: npm test
 
