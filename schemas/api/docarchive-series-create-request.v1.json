@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json",
+  "title": "DocArchiveSeriesCreateRequest v1",
+  "description": "POST /document-archive/series request body (src/modules/document-archive/domain/document-request-series.ts CreateDocumentRequestSeriesInput). D-143 Decision 8 / D-147.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["subjectId", "requirementId", "cadence"],
+  "properties": {
+    "subjectId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "requirementId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intervalDays"],
+      "properties": {
+        "intervalDays": { "type": "integer", "minimum": 1, "maximum": 3650 }
+      }
+    },
+    "firstDueAt": { "type": "string", "format": "date-time" }
+  }
+}

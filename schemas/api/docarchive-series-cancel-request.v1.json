@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json",
+  "title": "DocArchiveSeriesCancelRequest v1",
+  "description": "POST /document-archive/series/{subjectId}/{seriesId}/cancel request body. D-143 Decision 8 / D-147.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

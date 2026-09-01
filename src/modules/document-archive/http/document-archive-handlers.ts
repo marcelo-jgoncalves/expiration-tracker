@@ -12,9 +12,11 @@ import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validato
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { DocumentArchiveService } from "../application/document-archive-service.js";
+import type { DocumentRequestRecurrenceService } from "../application/document-request-recurrence-service.js";
 import type { CreateDocumentInput } from "../domain/document.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
 import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
+import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -34,6 +36,9 @@ const REQUIREMENT_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/doc
 const REQUIREMENT_LINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json";
 const REQUIREMENT_UNLINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
 const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json";
+const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
+const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
+const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -53,6 +58,7 @@ export interface HttpResponse {
 export interface DocumentArchiveHttpDeps {
   resolver: RequestContextResolver;
   documentArchive: DocumentArchiveService;
+  recurrence: DocumentRequestRecurrenceService;
   quota: TenantQuotaService;
 }
 
@@ -118,6 +124,12 @@ function requireRequirementId(req: HttpRequest): string {
   const requirementId = req.pathParameters?.["requirementId"];
   if (!requirementId) throw new ValidationError("Missing requirementId path parameter.");
   return requirementId;
+}
+
+function requireSeriesId(req: HttpRequest): string {
+  const seriesId = req.pathParameters?.["seriesId"];
+  if (!seriesId) throw new ValidationError("Missing seriesId path parameter.");
+  return seriesId;
 }
 
 async function resolve(deps: DocumentArchiveHttpDeps, req: HttpRequest) {
@@ -298,6 +310,63 @@ export async function handleDeleteRequirement(deps: DocumentArchiveHttpDeps, req
     const context = await resolve(deps, req);
     await deps.documentArchive.deleteRequirement(context, subjectId, requirementId, req.body.expectedVersion);
     return { statusCode: 204, body: {} };
+  });
+}
+
+// --- Recurrence / DocumentRequestSeries (D-143 Decision 8, D-147) --------------------------
+// Tenant-facing series management only — the resulting guest link/DocumentRequest surfaces
+// through the EXISTING guest-facing handlers (document-archive-guest-handlers.ts), never here.
+
+export async function handleCreateSeries(deps: DocumentArchiveHttpDeps, req: HttpRequest<CreateDocumentRequestSeriesInput>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SERIES_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const series = await deps.recurrence.createSeries(context, req.body);
+    return { statusCode: 201, body: { series } };
+  });
+}
+
+export async function handleGetSeries(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const seriesId = requireSeriesId(req);
+    const context = await resolve(deps, req);
+    const series = await deps.recurrence.getSeries(context, subjectId, seriesId);
+    return { statusCode: 200, body: { series } };
+  });
+}
+
+export async function handleListSeries(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const series = await deps.recurrence.listSeries(context, subjectId);
+    return { statusCode: 200, body: { series } };
+  });
+}
+
+export async function handleCancelSeries(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const seriesId = requireSeriesId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SERIES_CANCEL_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const series = await deps.recurrence.cancelSeries(context, subjectId, seriesId, req.body.expectedVersion);
+    return { statusCode: 200, body: { series } };
+  });
+}
+
+export async function handleMaterializeSeriesAttempt(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const seriesId = requireSeriesId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SERIES_MATERIALIZE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const result = await deps.recurrence.materializeAttempt(context, subjectId, seriesId, req.body.expectedVersion);
+    return { statusCode: 200, body: { ...result } };
   });
 }
 
