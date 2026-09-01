@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirement-create-request.v1.json",
+  "title": "DocArchiveRequirementCreateRequest v1",
+  "description": "POST /document-archive/requirements request body (src/modules/document-archive/domain/requirement.ts CreateRequirementInput). D-143 Decision 5 / D-145.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["subjectId", "name", "applicability"],
+  "properties": {
+    "subjectId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "notes": { "type": "string", "maxLength": 2000 },
+    "applicability": { "type": "string", "enum": ["APPLICABLE", "NOT_APPLICABLE"] }
+  }
+}

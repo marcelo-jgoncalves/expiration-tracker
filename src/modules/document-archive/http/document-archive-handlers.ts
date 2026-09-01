@@ -14,6 +14,7 @@ import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { DocumentArchiveService } from "../application/document-archive-service.js";
 import type { CreateDocumentInput } from "../domain/document.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
+import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -28,6 +29,11 @@ const COMMIT_UPLOAD_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchi
 const CLAIM_REVIEW_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-claim-review-request.v1.json";
 const ACCEPT_VERSION_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-accept-version-request.v1.json";
 const REJECT_VERSION_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-reject-version-request.v1.json";
+const REQUIREMENT_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-create-request.v1.json";
+const REQUIREMENT_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-update-request.v1.json";
+const REQUIREMENT_LINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json";
+const REQUIREMENT_UNLINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
+const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -100,6 +106,18 @@ function requireSeq(req: HttpRequest): number {
     throw new ValidationError("Missing or invalid seq path parameter.");
   }
   return seq;
+}
+
+function requireSubjectId(req: HttpRequest): string {
+  const subjectId = req.pathParameters?.["subjectId"];
+  if (!subjectId) throw new ValidationError("Missing subjectId path parameter.");
+  return subjectId;
+}
+
+function requireRequirementId(req: HttpRequest): string {
+  const requirementId = req.pathParameters?.["requirementId"];
+  if (!requirementId) throw new ValidationError("Missing requirementId path parameter.");
+  return requirementId;
 }
 
 async function resolve(deps: DocumentArchiveHttpDeps, req: HttpRequest) {
@@ -199,3 +217,87 @@ export async function handleRejectVersion(deps: DocumentArchiveHttpDeps, req: Ht
     return { statusCode: 200, body: { version } };
   });
 }
+
+// --- Requirement (D-143 Decision 5 / D9, D-145) ---------------------------------------------
+
+export async function handleCreateRequirement(deps: DocumentArchiveHttpDeps, req: HttpRequest<CreateRequirementInput>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUIREMENT_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const requirement = await deps.documentArchive.createRequirement(context, req.body);
+    return { statusCode: 201, body: { requirement } };
+  });
+}
+
+export async function handleGetRequirement(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    const context = await resolve(deps, req);
+    const requirement = await deps.documentArchive.getRequirement(context, subjectId, requirementId);
+    return { statusCode: 200, body: { requirement } };
+  });
+}
+
+export async function handleListRequirements(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const requirements = await deps.documentArchive.listRequirements(context, subjectId);
+    return { statusCode: 200, body: { requirements } };
+  });
+}
+
+export async function handleUpdateRequirement(deps: DocumentArchiveHttpDeps, req: HttpRequest<UpdateRequirementInput & { expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUIREMENT_UPDATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const { expectedVersion, ...input } = req.body;
+    const requirement = await deps.documentArchive.updateRequirement(context, subjectId, requirementId, expectedVersion, input);
+    return { statusCode: 200, body: { requirement } };
+  });
+}
+
+export async function handleLinkEvidence(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ expectedVersion: number; documentId: string; versionId: string }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUIREMENT_LINK_EVIDENCE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const requirement = await deps.documentArchive.linkEvidence(context, subjectId, requirementId, req.body.expectedVersion, req.body.documentId, req.body.versionId);
+    return { statusCode: 200, body: { requirement } };
+  });
+}
+
+export async function handleUnlinkEvidence(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUIREMENT_UNLINK_EVIDENCE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const requirement = await deps.documentArchive.unlinkEvidence(context, subjectId, requirementId, req.body.expectedVersion);
+    return { statusCode: 200, body: { requirement } };
+  });
+}
+
+export async function handleDeleteRequirement(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUIREMENT_DELETE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await deps.documentArchive.deleteRequirement(context, subjectId, requirementId, req.body.expectedVersion);
+    return { statusCode: 204, body: {} };
+  });
+}
+

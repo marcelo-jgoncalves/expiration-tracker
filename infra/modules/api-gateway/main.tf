@@ -482,6 +482,15 @@ locals {
     claim_review   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/claim" }
     accept_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/accept" }
     reject_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/reject" }
+
+    # D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same Lambda, subject-scoped routes.
+    create_requirement = { method = "POST", path = "/document-archive/requirements" }
+    list_requirements  = { method = "GET", path = "/document-archive/requirements/{subjectId}" }
+    get_requirement    = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    update_requirement = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    link_evidence      = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
+    unlink_evidence    = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
+    delete_requirement = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
   }
 }
 

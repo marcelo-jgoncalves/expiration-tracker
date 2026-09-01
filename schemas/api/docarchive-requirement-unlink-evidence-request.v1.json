@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json",
+  "title": "DocArchiveRequirementUnlinkEvidenceRequest v1",
+  "description": "POST /document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence request body. D-143 Decision 5 / D-145.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

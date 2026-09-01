@@ -980,4 +980,78 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // D-143 Nucleus 2, Requirement (Decision 5 / D-145).
+  it("accepts a valid docarchive-requirement-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-create-request.v1.json", {
+      subjectId: "subject-1",
+      name: "Alvará de funcionamento",
+      applicability: "APPLICABLE",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-create-request.v1 with an applicability outside the closed enum", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-create-request.v1.json", {
+      subjectId: "subject-1",
+      name: "Alvará",
+      applicability: "MAYBE",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-requirement-update-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-update-request.v1.json", {
+      expectedVersion: 1,
+      applicability: "NOT_APPLICABLE",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-update-request.v1 missing expectedVersion (no OCC guard otherwise)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-update-request.v1.json", { name: "renamed" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-requirement-link-evidence-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json", {
+      expectedVersion: 1,
+      documentId: "doc-1",
+      versionId: "ver-1",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-link-evidence-request.v1 missing documentId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json", {
+      expectedVersion: 1,
+      versionId: "ver-1",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-requirement-unlink-evidence-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json", { expectedVersion: 2 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-unlink-evidence-request.v1 with a non-integer expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json", { expectedVersion: 2.5 });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-requirement-delete-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-delete-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json", { expectedVersion: 1, force: true });
+    expect(valid).toBe(false);
+  });
 });
