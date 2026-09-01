@@ -1,0 +1,3 @@
+# Document Domain — Rodada 5 (Crítica Codex)
+
+**Nota: 8,8/10 — REABRIR.** 3 dos 4 bloqueios da Rodada 4 fechados (idempotência, lista de 10 ações, `materializeAttempt` atômico). Restava 1: os sub-prazos de retenção para `REJECTED`/`WITHDRAWN` (7 dias) e para `RequestAccessCredential`/`GuestSession` (14 dias) foram apresentados como "já existentes"/herdados quando na verdade são extensões novas não presentes no texto real de `privacy-lgpd.md` §4 (que atribui "runs falhos/descartados: 7 dias" só a `ExtractionRun`, e não tem texto normativo específico para credencial de guest além do padrão genérico de `TRANSIENT`). Também apontou erro editorial: "5 classes normativas" — o documento real tem 9, a proposta usa 3.
