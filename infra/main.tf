@@ -3188,6 +3188,79 @@ resource "aws_scheduler_schedule" "quota_telemetry_purge" {
   }
 }
 
+# InvitationPurgeWorker (D-155, docs/architecture/reviews/
+# quarantine-retention-scoping/estado-final-consolidado.md, "ACCOUNT_ACTIVE (não-fechamento)" row,
+# Prioridade 5) - physically purges Invitation rows once terminal (REVOKED/expired-PENDING) + 30d
+# has passed, within ACTIVE tenants only (a completely separate mechanism from tenant-purge's
+# full-tenant-closure pipeline) - see src/workers/invitation-purge/purge.ts's doc comment.
+# Membership and Channel (the other 2 entities named by the design doc's Prioridade 5 row) are NOT
+# implemented here - both blocked on a missing eligibility timestamp, see decisions-log D-155 and
+# candidate-source.ts's doc comment for the full investigation. No dedicated IAM policy beyond the
+# general tenant-facing grant, same reasoning as quota_telemetry_purge_handler above.
+module "invitation_purge_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-invitation-purge-handler"
+  handler_name          = "invitation-purge-handler"
+  source_dir            = "${local.dist_dir}/invitation-purge-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "invitation_purge_schedule" {
+  name = "${module.invitation_purge_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "scheduler.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "invitation_purge_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.invitation_purge_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeInvitationPurge"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.invitation_purge_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "invitation_purge" {
+  name                         = "${local.name_prefix}-invitation-purge"
+  schedule_expression          = "cron(0 7 * * ? *)" # daily 07:00 UTC, after quota-telemetry-purge (06:30)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.invitation_purge_handler.live_alias_arn
+    role_arn = aws_iam_role.invitation_purge_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 resource "aws_iam_role" "document_request_recurrence_schedule" {
   name = "${module.document_request_recurrence_handler.function_name}-schedule-role"
   assume_role_policy = jsonencode({
