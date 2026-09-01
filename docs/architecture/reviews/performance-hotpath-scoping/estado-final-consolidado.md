@@ -2,6 +2,8 @@
 
 **Status: `APPROVED` (design) via protocolo Claude↔Codex, 3 rodadas, Claude 9,3/Codex 9,3 (sem arredondamento).** Gatilho: Marcelo reportou dois problemas de UX usando o app (tela demora a mostrar conteúdo; mensagem "validando sessão"-like desnecessária). Duas sessões anteriores produziram `expiration-tracker-performance-audit-2026-08-31.md` e `expiration-tracker-performance-strategies-research-2026-08-31.md` (raiz do repo) com achados mais amplos (P0-P3); esta rodada focou nos itens Type 1 (arquitetura/segurança) que explicam diretamente a queixa do Marcelo.
 
+Documentos-fonte que motivaram esta rodada (movidos da raiz do repo em 2026-08-31, organização de contexto): `source-performance-audit.md`, `source-performance-strategies-research.md`.
+
 Histórico completo: `round1-claude-proposal.md` → `round1-codex-critique.md` (6,4/10 régua, 7,6/10 design — NÃO APROVADO) → `round2-claude-revision.md` → `round2-codex-critique.md` (8,7/10 — NÃO APROVADO) → `round3-claude-final.md` → `round3-codex-critique.md` (9,3/10 — **APPROVED**).
 
 **Achado real mais significativo do protocolo**: a proposta original (D-D, Rodada 1) recomendava trocar o mecanismo `Get+TransactWriteItems` da quota `API_REQUEST` por um `UpdateItem` atômico simples, tratando isso como puramente uma otimização. O Codex achou que essa troca removeria silenciosamente o *fence* do W3-07 (o `ConditionCheck` que impede um tenant em `DELETING` de gerar dado novo pós-purga) — a transação atual protege DUAS garantias (limite de contador E lifecycle fence), não uma. Levou 2 rodadas adicionais para reconciliar isso como uma emenda formal e explícita ao W3-07 (`EphemeralTelemetryMutation`) em vez de uma exceção implícita.

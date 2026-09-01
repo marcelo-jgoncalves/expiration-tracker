@@ -135,6 +135,17 @@ vezes — gate combinado quando ambos aplicáveis é `FrontendOverall >= 9.0 AND
 9.0`, calculados independentemente. **Supersede** `bff-frontend-quality-standard-proposal.md`
 (ver acima).
 
+## Domínio Documental — proposta trazida pelo Marcelo (2026-08-31, ainda não avaliada)
+
+6 documentos movidos da raiz do repo para `docs/frontend/` em 2026-08-31 (organização de contexto, mesmo tratamento dos demais documentos desta pasta) — planejamento de uma evolução do produto para "vencimentos + arquivo documental operacional + ciclo de renovação", em sequência própria (planejamento → especificação → decisões D1-D10 → jornadas/critérios de aceitação v0.2 → wireframes de baixa fidelidade → plano de validação). **Nenhum destes passou ainda pelo protocolo Claude↔Codex nem foi avaliado a fundo por Claude** — são proposta de produto do Marcelo, análoga ao tratamento inicial de `design-system-v1-proposal.md` antes da reconciliação de D-130. Não tratar como `APPROVED` até uma rodada de avaliação real acontecer.
+
+- `document-domain-functional-planning.md` — visão: evoluir o Expiration Tracker para "gestão de vencimentos + arquivo documental operacional + ciclo de renovação"; escopo produto/UX, sem decisão de engenharia.
+- `document-domain-functional-specification-v0.1.md` — especificação formal de objetos, estados, relações, jornadas e superfícies do domínio documental (`PROPOSTA FUNCIONAL v0.1`).
+- `document-domain-functional-decisions.md` — fecha as 10 decisões (D1-D10) propostas na especificação v0.1 (`APROVADO COMO DIREÇÃO FUNCIONAL INICIAL` — aprovação do próprio Marcelo, não via protocolo).
+- `document-domain-journeys-and-acceptance-criteria-v0.2.md` — jornadas detalhadas e critérios de aceitação funcionais (`ESPECIFICAÇÃO FUNCIONAL v0.2`).
+- `document-domain-wireframes.md` — wireframes de baixa fidelidade das telas/jornadas críticas (`WIREFRAMES FUNCIONAIS v0.1`), explicitamente sem identidade visual final.
+- `document-domain-wireframes-validation-plan.md` — plano para validar os wireframes antes de virarem protótipo de alta fidelidade, baseado em `interface-quality-standard.md` + `frontend-engineering-quality-standard.md`.
+
 ## Próxima etapa
 
 **User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
