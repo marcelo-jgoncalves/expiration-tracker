@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-claim-review-request.v1.json",
+  "title": "DocArchiveClaimReviewRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/claim request body — OCC guard (RECEIVED -> UNDER_REVIEW). D-143 Nucleus 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

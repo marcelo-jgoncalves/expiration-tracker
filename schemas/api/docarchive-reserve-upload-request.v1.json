@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-reserve-upload-request.v1.json",
+  "title": "DocArchiveReserveUploadRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions request body (src/modules/document-archive/domain/document-version.ts DocumentVersionOrigin). D-143 Nucleus 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["origin"],
+  "properties": {
+    "origin": { "type": "string", "enum": ["MANUAL_UPLOAD", "GUEST_UPLOAD", "REQUEST_RESPONSE", "IMPORT", "AUTOMATED_CAPTURE"] }
+  }
+}

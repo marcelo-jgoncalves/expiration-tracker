@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-commit-upload-request.v1.json",
+  "title": "DocArchiveCommitUploadRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/commit request body — OCC guard (DRAFT -> RECEIVED). D-143 Nucleus 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

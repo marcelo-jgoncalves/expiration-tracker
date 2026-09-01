@@ -897,4 +897,87 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/accept-invitation-request.v1.json", { token: "" });
     expect(valid).toBe(false);
   });
+
+  // D-143 Nucleus 1 (Document Archive domain).
+  it("accepts a valid docarchive-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-create-request.v1.json", {
+      subjectId: "subject-1",
+      documentType: "ALVARA",
+      hasValidity: true,
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-create-request.v1 missing hasValidity", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-create-request.v1.json", {
+      subjectId: "subject-1",
+      documentType: "ALVARA",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-reserve-upload-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reserve-upload-request.v1.json", { origin: "MANUAL_UPLOAD" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-reserve-upload-request.v1 with an unknown origin", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reserve-upload-request.v1.json", { origin: "TELEPATHY" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-commit-upload-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-commit-upload-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-commit-upload-request.v1 with a non-integer expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-commit-upload-request.v1.json", { expectedVersion: 1.5 });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-claim-review-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-claim-review-request.v1.json", { expectedVersion: 2 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-claim-review-request.v1 missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-claim-review-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-accept-version-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-accept-version-request.v1.json", {
+      expectedVersion: 3,
+      clientRequestToken: "req-token-1",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-accept-version-request.v1 missing clientRequestToken (no idempotency guarantee otherwise)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-accept-version-request.v1.json", { expectedVersion: 3 });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-reject-version-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reject-version-request.v1.json", {
+      expectedVersion: 1,
+      reason: "ILLEGIBLE",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-reject-version-request.v1 with a reason outside the closed taxonomy", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reject-version-request.v1.json", {
+      expectedVersion: 1,
+      reason: "I_DONT_LIKE_IT",
+    });
+    expect(valid).toBe(false);
+  });
 });
