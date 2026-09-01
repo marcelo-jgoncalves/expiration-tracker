@@ -196,6 +196,8 @@ module "memberships_handler" {
     data.aws_iam_policy_document.ses_send_email.json,
     # W3-07 (D-124): states:StartExecution on the tenant-purge state machine ARN only.
     data.aws_iam_policy_document.tenant_purge_start_execution.json,
+    # D-127: states:StopExecution for CancelOrganizationClosureService, same Lambda.
+    data.aws_iam_policy_document.tenant_purge_stop_execution.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -2507,6 +2509,11 @@ module "extraction_workflow" {
 
 locals {
   tenant_purge_state_machine_arn = "arn:aws:states:${var.aws_region}:${var.aws_account_id}:stateMachine:${local.name_prefix}-tenant-purge"
+  # D-127: every real execution ARN of this state machine, regardless of closureAttemptId suffix -
+  # StopExecution/DescribeExecution operate on EXECUTION arns, not the state machine arn itself
+  # (see `deriveExecutionArn` in sfn-tenant-purge-execution-starter.ts for the exact format this
+  # mirrors). Scoped to executions of THIS state machine only, never a wildcard across machines.
+  tenant_purge_execution_arn_pattern = "arn:aws:states:${var.aws_region}:${var.aws_account_id}:execution:${local.name_prefix}-tenant-purge:*"
 
   # Every Lambda that touches the purge pipeline needs the same four bucket names - the closed
   # per-bucket prefix-root table lives in src/runtime/aws/composition/tenant-purge.ts, and these
@@ -2691,6 +2698,28 @@ data "aws_iam_policy_document" "tenant_purge_start_execution" {
   }
 }
 
+# D-127: CancelOrganizationClosureService, inside the SAME memberships Lambda - states:StopExecution
+# on THIS state machine's executions only, never states:* and never another machine's executions.
+data "aws_iam_policy_document" "tenant_purge_stop_execution" {
+  statement {
+    sid       = "StopTenantPurgeStateMachineExecution"
+    effect    = "Allow"
+    actions   = ["states:StopExecution"]
+    resources = [local.tenant_purge_execution_arn_pattern]
+  }
+}
+
+# D-127: the sweeper's HELD_FOR_RECOVERY reconciliation - read-only, never StopExecution/
+# StartExecution added here (it already has StartExecution via tenant_purge_start_execution below).
+data "aws_iam_policy_document" "tenant_purge_describe_execution" {
+  statement {
+    sid       = "DescribeTenantPurgeStateMachineExecution"
+    effect    = "Allow"
+    actions   = ["states:DescribeExecution"]
+    resources = [local.tenant_purge_execution_arn_pattern]
+  }
+}
+
 # --- The sweeper: EventBridge Scheduler, daily ---------------------------------------------
 # `rate`, not `cron` (same choice reminder-schedule makes for its non-time-of-day schedules): the
 # sweeper only needs a regular cadence, never a specific wall-clock hour. Daily is proposed by the
@@ -2718,6 +2747,8 @@ module "tenant_purge_sweeper_handler" {
     data.aws_iam_policy_document.tenant_purge_worker_s3.json,
     data.aws_iam_policy_document.tenant_purge_worker_session_table.json,
     data.aws_iam_policy_document.tenant_purge_start_execution.json,
+    # D-127: states:DescribeExecution for the HELD_FOR_RECOVERY reconciliation branch.
+    data.aws_iam_policy_document.tenant_purge_describe_execution.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

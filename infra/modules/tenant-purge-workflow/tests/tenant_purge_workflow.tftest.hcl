@@ -122,6 +122,41 @@ run "every_lifecycle_state_is_actually_driven_by_the_workflow" {
   }
 }
 
+# D-127 (quarantine/recovery window): the 30-day Wait is the new StartAt, before anything else -
+# same hardcoded-literal discipline as the 1800s quiescence cutoff above, for the same reason (no
+# caller can shorten the window an OWNER is given to cancel).
+run "recovery_wait_is_the_approved_30_day_window_and_is_the_start_state" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"Seconds\": 2592000")
+    error_message = "The recovery Wait state must use D-127's approved 30-day (2592000s) window verbatim"
+  }
+  assert {
+    condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"StartAt\": \"WaitForRecovery\"")
+    error_message = "WaitForRecovery must be the state machine's StartAt - the recovery window must be the FIRST thing that happens, before any physical action"
+  }
+}
+
+# D-127: HELD_FOR_RECOVERY -> DELETING must exist, AND the re-verification Choice that can end the
+# execution cleanly on cancellation (never MarkBlocked for an expected, designed outcome).
+run "held_for_recovery_transition_and_cancellation_choice_exist" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"from\": \"HELD_FOR_RECOVERY\"")
+    error_message = "Workflow must drive HELD_FOR_RECOVERY -> DELETING"
+  }
+  assert {
+    condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"CheckCancelled\"")
+    error_message = "The re-verification Choice (CheckCancelled) must exist - re-checking lifecycle state immediately before the first irreversible action is the whole point of a real quarantine, not just a delay"
+  }
+  assert {
+    condition     = strcontains(aws_sfn_state_machine.tenant_purge.definition, "\"RecoveryCancelled\"")
+    error_message = "The clean no-op Succeed state for a cancelled closure must exist, distinct from PurgeBlocked"
+  }
+}
+
 run "standard_workflow_required_for_the_1800s_wait" {
   command = apply
 

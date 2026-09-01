@@ -87,6 +87,28 @@ export type SystemMutationOperation =
        * ignored otherwise. */
       blockedReason?: string;
       blockedFrom?: TenantLifecycleStatus;
+      /** D-127: only meaningful (and required by the caller, `CloseOrganizationService`) on
+       * `ACTIVE -> HELD_FOR_RECOVERY` — stamps the two identifiers a closure attempt needs.
+       * Ignored for every other transition. */
+      recoveryDeadline?: string;
+      closureAttemptId?: string;
+    }
+  | {
+      /** D-127: the ONE narrow follow-up write `CloseOrganizationService` makes after
+       * `StartExecution` returns — attaches the execution's ARN to the SAME closure attempt
+       * that is still `HELD_FOR_RECOVERY`, so `CancelOrganizationClosureService` can later call
+       * `StopExecution` deterministically by ARN. Deliberately its own allowlist member (not a
+       * generic "patch any field" escape hatch, same discipline as every other member here):
+       * conditioned on the record still being `HELD_FOR_RECOVERY` for this exact
+       * `closureAttemptId` — if that condition fails (the attempt already moved on, or a later
+       * attempt started), the write is a harmless no-op skip, never a stale overwrite of a newer
+       * attempt's `executionArn`. No `expectedVersion`/OCC needed for the same reason
+       * `PURGE_DELETE` needs none: this is a repair/attach write, not a business mutation
+       * fenced against a specific version the caller freshly read. */
+      kind: "ATTACH_LIFECYCLE_EXECUTION_ARN";
+      tenantId: string;
+      closureAttemptId: string;
+      executionArn: string;
     }
   | {
       /** W3-07 purge pipeline (this session): physically removes ONE tenant-owned row from the
@@ -174,6 +196,26 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
       if (op.to === "BLOCKED" || op.to === "HELD") {
         set["blockedReason"] = op.blockedReason ?? "UNSPECIFIED";
         set["blockedFrom"] = op.from;
+        // D-127: entering HELD from HELD_FOR_RECOVERY (legal hold during the recovery window)
+        // must NOT touch recoveryDeadline/closureAttemptId/executionArn — they are deliberately
+        // absent from `set`/`remove` on this branch, so they pass through untouched and the
+        // original 30-day countdown survives the detour, per the approved design.
+      } else if (op.to === "HELD_FOR_RECOVERY" && op.from === "ACTIVE") {
+        // D-127: ACTIVE -> HELD_FOR_RECOVERY (CloseOrganizationService) is the only transition
+        // that stamps these two fields — the fresh-attempt case, distinguished from a resume out
+        // of HELD (op.from === "HELD", handled by the generic branch below, which correctly
+        // leaves recoveryDeadline/closureAttemptId untouched so the original countdown survives).
+        if (!op.recoveryDeadline || !op.closureAttemptId) {
+          throw new Error("SystemMutation \"LIFECYCLE_TRANSITION\" ACTIVE -> HELD_FOR_RECOVERY requires recoveryDeadline and closureAttemptId.");
+        }
+        set["recoveryDeadline"] = op.recoveryDeadline;
+        set["closureAttemptId"] = op.closureAttemptId;
+        remove.push("blockedReason", "blockedFrom");
+      } else if (op.to === "ACTIVE") {
+        // D-127: HELD_FOR_RECOVERY -> ACTIVE (CancelOrganizationClosureService) — the closure
+        // attempt is over. Clear all three attempt-scoped fields so a later close() starts a
+        // genuinely fresh attempt rather than inheriting a stale closureAttemptId/executionArn.
+        remove.push("blockedReason", "blockedFrom", "recoveryDeadline", "closureAttemptId", "executionArn");
       } else {
         // Leaving BLOCKED/HELD (remediation resume) or any normal forward move: clear any
         // stale blocked-state bookkeeping rather than leaving it to rot on the record.
@@ -209,6 +251,39 @@ function buildEntries(op: SystemMutationOperation, tableName: string, now: strin
             now,
             extraConditions,
           }),
+        },
+      ];
+    }
+    case "ATTACH_LIFECYCLE_EXECUTION_ARN": {
+      const key = tenantLifecycleKey(op.tenantId);
+      return [
+        {
+          Update: {
+            TableName: tableName,
+            Key: key,
+            // `#set0`/`:set0` naming deliberately mirrors what `buildVersionedUpdate` generates
+            // for its own dynamic SET clauses elsewhere in this file — same convention, applied
+            // by hand here since this write intentionally skips that builder (no version fence).
+            UpdateExpression: "SET #set0 = :set0, #updatedAt = :now",
+            // Deliberately conditioned on status + closureAttemptId, NOT version: this write
+            // races the record's own possible progress (deadline firing and moving it to
+            // DELETING) or a cancellation, and either of those winning first must make this
+            // attach a silent no-op skip, never a stale write onto a newer attempt or a
+            // resurrection of attempt-scoped fields the ACTIVE transition just cleared.
+            ConditionExpression: "#lifecycleStatus = :held AND #closureAttemptId = :attemptId",
+            ExpressionAttributeNames: {
+              "#set0": "executionArn",
+              "#updatedAt": "updatedAt",
+              "#lifecycleStatus": "status",
+              "#closureAttemptId": "closureAttemptId",
+            },
+            ExpressionAttributeValues: {
+              ":set0": op.executionArn,
+              ":now": now,
+              ":held": "HELD_FOR_RECOVERY",
+              ":attemptId": op.closureAttemptId,
+            },
+          },
         },
       ];
     }
@@ -318,6 +393,8 @@ export async function transitionTenantLifecycle(input: {
   expectedVersion: number;
   blockedReason?: string;
   blockedFrom?: TenantLifecycleStatus;
+  recoveryDeadline?: string;
+  closureAttemptId?: string;
   now?: () => string;
 }): Promise<void> {
   await executeSystemMutation({
@@ -332,6 +409,37 @@ export async function transitionTenantLifecycle(input: {
       expectedVersion: input.expectedVersion,
       blockedReason: input.blockedReason,
       blockedFrom: input.blockedFrom,
+      recoveryDeadline: input.recoveryDeadline,
+      closureAttemptId: input.closureAttemptId,
+    },
+  });
+}
+
+/**
+ * D-127: attaches `executionArn` to the CURRENT `HELD_FOR_RECOVERY` attempt, after
+ * `StartExecution` returns. See the `ATTACH_LIFECYCLE_EXECUTION_ARN` union member's doc comment
+ * for why this is a conditioned, idempotent, version-less write rather than an OCC-fenced one —
+ * a `SystemMutationConflictError` here means the attempt already moved on (cancelled, or the
+ * deadline already fired), which is a benign skip for the caller (`CloseOrganizationService`),
+ * never a fatal error worth surfacing to the HTTP caller of `close()`.
+ */
+export async function attachTenantPurgeExecutionArn(input: {
+  store: SystemMutationStore;
+  tableName: string;
+  tenantId: string;
+  closureAttemptId: string;
+  executionArn: string;
+  now?: () => string;
+}): Promise<void> {
+  await executeSystemMutation({
+    store: input.store,
+    tableName: input.tableName,
+    now: input.now,
+    operation: {
+      kind: "ATTACH_LIFECYCLE_EXECUTION_ARN",
+      tenantId: input.tenantId,
+      closureAttemptId: input.closureAttemptId,
+      executionArn: input.executionArn,
     },
   });
 }

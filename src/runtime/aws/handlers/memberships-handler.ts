@@ -16,7 +16,7 @@ import {
   type MembershipHttpDeps,
 } from "../../../modules/organization/http/membership-handlers.js";
 import { handleUpdateOrganizationSettings, type OrganizationSettingsHttpDeps } from "../../../modules/organization/http/organization-settings-handlers.js";
-import { handleCloseOrganization, type OrganizationLifecycleHttpDeps } from "../../../modules/organization/http/organization-lifecycle-handlers.js";
+import { handleCloseOrganization, handleCancelOrganizationClosure, type OrganizationLifecycleHttpDeps } from "../../../modules/organization/http/organization-lifecycle-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -45,7 +45,9 @@ const { resolver } = buildIdentityDeps(client, tableName);
 const membership = buildMembershipDeps(client, tableName, invitationTokenPepper, membershipInviteEmailEnabled, sesFromAddress, sesConfigurationSet, invitationBaseUrl, tenantPurgeStateMachineArn);
 const deps: MembershipHttpDeps = { resolver, ...membership };
 const settingsDeps: OrganizationSettingsHttpDeps = { resolver, updateSettings: membership.updateSettings };
-const lifecycleDeps: OrganizationLifecycleHttpDeps | undefined = membership.closeOrganization ? { resolver, closeOrganization: membership.closeOrganization } : undefined;
+const lifecycleDeps: OrganizationLifecycleHttpDeps | undefined = membership.closeOrganization
+  ? { resolver, closeOrganization: membership.closeOrganization, cancelOrganizationClosure: membership.cancelOrganizationClosure }
+  : undefined;
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleMembershipsRoute(event));
@@ -85,6 +87,9 @@ async function handleMembershipsRoute(event: APIGatewayProxyEventV2WithJWTAuthor
         case "POST /organizations/close":
           if (!lifecycleDeps) throw new Error("TENANT_PURGE_STATE_MACHINE_ARN env var is required to close an organization.");
           return await handleCloseOrganization(lifecycleDeps, { ...base, body: parseBody(event) });
+        case "POST /organizations/cancel-close":
+          if (!lifecycleDeps) throw new Error("TENANT_PURGE_STATE_MACHINE_ARN env var is required to cancel an organization closure.");
+          return await handleCancelOrganizationClosure(lifecycleDeps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

@@ -45,5 +45,14 @@ export async function handler(): Promise<void> {
       // summary line above.
       logger.error("tenant purge sweep found residue after DELETED", { tenantsWithResidue: result.tenantsWithResidue });
     }
+    if (result.tenantsAmbiguous.length > 0) {
+      // D-127: HELD_FOR_RECOVERY execution/record state disagreement outside the one safe-to-repair
+      // shape - same "operator-visible error log" idiom as tenantsWithResidue above, never
+      // auto-restored.
+      logger.error("tenant purge sweep found ambiguous HELD_FOR_RECOVERY state - never auto-restored", { tenantsAmbiguous: result.tenantsAmbiguous });
+    }
+    if (result.cancellationsRepaired.length > 0) {
+      logger.info("tenant purge sweep completed stalled cancellation(s)", { cancellationsRepaired: result.cancellationsRepaired });
+    }
   });
 }

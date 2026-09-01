@@ -30,6 +30,8 @@
  * itself a separate level-5 decision, deliberately not smuggled in here.
  */
 import type { TenantPurgeExecutionStarter } from "../../shared/tenant-lifecycle/tenant-purge-execution-starter.js";
+import type { TenantPurgeExecutionDescriber } from "../../shared/tenant-lifecycle/tenant-purge-execution-describer.js";
+import { transitionTenantLifecycle, SystemMutationConflictError, type SystemMutationStore } from "../../shared/tenant-lifecycle/system-mutation.js";
 import type { TenantLifecycleRecord, TenantLifecycleStatus } from "../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { verifyTenantDynamoPurgeEmpty, type DynamoTenantPurgeDeps } from "./dynamo-tenant-purge.js";
 import { verifyTenantSessionsEmpty, type SessionTableTenantPurgeDeps } from "./session-table-tenant-purge.js";
@@ -61,6 +63,10 @@ export interface TenantLifecycleScanSource {
 export interface TenantPurgeSweepDeps {
   lifecycle: TenantLifecycleScanSource;
   executions: TenantPurgeExecutionStarter;
+  /** D-127: only needed for the `HELD_FOR_RECOVERY` reconciliation branch below. */
+  executionDescriber: TenantPurgeExecutionDescriber;
+  store: SystemMutationStore;
+  tableName: string;
   dynamo: Omit<DynamoTenantPurgeDeps, "onCheckpoint">;
   sessionTable: Omit<SessionTableTenantPurgeDeps, "onCheckpoint">;
   s3Source: S3TenantPurgeDeps["source"];
@@ -80,11 +86,27 @@ export interface TenantPurgeSweepResult {
   /** Tenants whose residual verification found something still physically present — an
    * operator-visible signal, never auto-remediated here. */
   tenantsWithResidue: Array<{ tenantId: string; remainingDynamoItems: number; remainingSessions: number; remainingS3Objects: number }>;
+  /** D-127: `HELD_FOR_RECOVERY` tenants for which this sweep pass completed a stalled
+   * cancellation (StopExecution had already succeeded — execution is `ABORTED` for the exact
+   * current `closureAttemptId` — but the `HELD_FOR_RECOVERY -> ACTIVE` write never committed,
+   * e.g. `CancelOrganizationClosureService` crashed between the two steps). */
+  cancellationsRepaired: string[];
+  /** D-127: `HELD_FOR_RECOVERY` tenants whose execution state and lifecycle record disagree in a
+   * way that is NOT the one safe-to-repair shape above — strict fail-closed: never restored,
+   * always surfaced for an operator (`reason` names exactly what was ambiguous). */
+  tenantsAmbiguous: Array<{ tenantId: string; reason: string }>;
 }
 
 export async function runTenantPurgeSweep(deps: TenantPurgeSweepDeps): Promise<TenantPurgeSweepResult> {
   const now = deps.now?.() ?? new Date();
-  const result: TenantPurgeSweepResult = { lifecycleRecordsScanned: 0, executionsRepaired: 0, tenantsVerified: 0, tenantsWithResidue: [] };
+  const result: TenantPurgeSweepResult = {
+    lifecycleRecordsScanned: 0,
+    executionsRepaired: 0,
+    tenantsVerified: 0,
+    tenantsWithResidue: [],
+    cancellationsRepaired: [],
+    tenantsAmbiguous: [],
+  };
 
   let exclusiveStartKey: Record<string, unknown> | undefined;
   do {
@@ -93,9 +115,27 @@ export async function runTenantPurgeSweep(deps: TenantPurgeSweepDeps): Promise<T
       result.lifecycleRecordsScanned += 1;
       const ageMs = now.getTime() - Date.parse(record.updatedAt);
 
+      if (record.status === "HELD_FOR_RECOVERY") {
+        // D-127: deliberately NOT folded into the generic age-based orphan repair below — a
+        // blind unconditional re-`StartExecution` here could race a cancellation that already
+        // called `StopExecution` (that name becomes launchable again the instant Step Functions
+        // finishes tearing the stopped execution down), silently restarting the 30-day clock
+        // right as an OWNER is trying to cancel it. See `reconcileHeldForRecovery` for the
+        // strict, execution-status-aware reconciliation this state gets instead.
+        await reconcileHeldForRecovery(deps, record, result);
+        continue;
+      }
+
       if (IN_FLIGHT_STATUSES.has(record.status)) {
         if (ageMs > ORPHAN_REPAIR_THRESHOLD_MS) {
-          await deps.executions.startExecution({ name: record.tenantId, input: { tenantId: record.tenantId } });
+          // D-127: execution names are `${tenantId}-${closureAttemptId}` (not the bare tenantId)
+          // since the quarantine mechanism introduced repeatable close/cancel/close cycles — a
+          // record reaching DELETING+ always has a closureAttemptId (stamped when it entered
+          // HELD_FOR_RECOVERY and never cleared on forward progress). The bare-tenantId fallback
+          // is defensive only, for a hypothetical record that reached an in-flight state through
+          // some path that never set it.
+          const name = record.closureAttemptId ? `${record.tenantId}-${record.closureAttemptId}` : record.tenantId;
+          await deps.executions.startExecution({ name, input: { tenantId: record.tenantId } });
           result.executionsRepaired += 1;
         }
         continue;
@@ -124,4 +164,80 @@ export async function runTenantPurgeSweep(deps: TenantPurgeSweepDeps): Promise<T
   } while (exclusiveStartKey);
 
   return result;
+}
+
+/**
+ * D-127 sweeper reconciliation for `HELD_FOR_RECOVERY` (round-7 of the approved design's
+ * Claude<->Codex protocol, `docs/architecture/reviews/quarantine-retention-scoping/
+ * round-7-claude-proposal.md` Fix 1 — the final, most conservative version, replacing an earlier
+ * round's broader "FAILED/TIMED_OUT are also safe" claim that Codex correctly rejected).
+ *
+ * Restoration (completing a cancellation `CancelOrganizationClosureService` started but never
+ * finished) requires ALL THREE, as a strict conjunction:
+ *   1. The execution is `ABORTED` — the one status that is the DIRECT, DETERMINISTIC result of
+ *      `StopExecution` succeeding before any purge `Task` ran to completion. No other terminal
+ *      status has that property (`purgeTenant()` already models a `PARTIAL` outcome precisely
+ *      because a workflow CAN do real, possibly-irreversible work before failing/timing out).
+ *   2. The execution's own name embeds the CURRENT `record.closureAttemptId` — never restores
+ *      against a stale attempt a later close/cancel/close cycle has already superseded.
+ *   3. `record.status` is (re-)confirmed `HELD_FOR_RECOVERY` — nothing else already resolved it.
+ *
+ * Every other combination — `RUNNING` (the healthy, expected steady state during the 30-day
+ * window: skipped, not ambiguous, no alarm) is NOT alarmed; but `FAILED`/`TIMED_OUT`/`SUCCEEDED`/
+ * `NOT_FOUND`, or an `ABORTED` execution whose name does NOT match the current
+ * `closureAttemptId` — alarms and NEVER restores. This is deliberately the more expensive branch:
+ * given `HELD_FOR_RECOVERY` means nothing physical has purged yet in the overwhelmingly common
+ * case, any non-`ABORTED` terminal status here is a genuinely unusual race that needs a human
+ * with full information, not a sweeper guessing.
+ */
+async function reconcileHeldForRecovery(deps: TenantPurgeSweepDeps, record: TenantLifecycleRecord, result: TenantPurgeSweepResult): Promise<void> {
+  if (!record.executionArn || !record.closureAttemptId) {
+    // No execution was ever attached (e.g. CloseOrganizationService crashed before
+    // attachTenantPurgeExecutionArn ran) — there is nothing to describe/reconcile yet. The
+    // orphan-repair idiom (re-`StartExecution`, safe here because the name is unambiguous and
+    // idempotent) is the right recovery, not an alarm: this is the ordinary "in-flight, needs its
+    // execution (re)launched" case, just without an ARN recorded yet.
+    const name = record.closureAttemptId ? `${record.tenantId}-${record.closureAttemptId}` : record.tenantId;
+    await deps.executions.startExecution({ name, input: { tenantId: record.tenantId } });
+    result.executionsRepaired += 1;
+    return;
+  }
+
+  const execution = await deps.executionDescriber.describeExecution({ executionArn: record.executionArn });
+  const expectedName = `${record.tenantId}-${record.closureAttemptId}`;
+
+  if (execution.status === "RUNNING") {
+    return; // healthy steady state, nothing to reconcile
+  }
+
+  const nameMatches = execution.name === expectedName;
+  if (execution.status === "ABORTED" && nameMatches) {
+    // Condition 3 of the conjunction (record.status still HELD_FOR_RECOVERY) is enforced by
+    // transitionTenantLifecycle's own OCC + status-equality condition below, atomically, against
+    // whatever is CURRENTLY stored — not by a separate read-then-check here, which would leave a
+    // TOCTOU gap between re-reading and writing.
+    try {
+      await transitionTenantLifecycle({
+        store: deps.store,
+        tableName: deps.tableName,
+        tenantId: record.tenantId,
+        from: "HELD_FOR_RECOVERY",
+        to: "ACTIVE",
+        expectedVersion: record.version,
+      });
+      result.cancellationsRepaired.push(record.tenantId);
+    } catch (err) {
+      if (!(err instanceof SystemMutationConflictError)) throw err;
+      // Something else already moved the record (e.g. the deadline fired and it is now
+      // DELETING, or a concurrent sweeper/cancel call already completed this) — a benign race,
+      // not an ambiguity worth alarming: the record's CURRENT state is authoritative and this
+      // sweep pass simply lost the race to something else that resolved it correctly.
+    }
+    return;
+  }
+
+  result.tenantsAmbiguous.push({
+    tenantId: record.tenantId,
+    reason: `execution status "${execution.status}"${nameMatches ? "" : ` (name mismatch: expected "${expectedName}", got "${execution.name}")`} for closureAttemptId "${record.closureAttemptId}" — never auto-restoring, operator remediation required`,
+  });
 }

@@ -11,21 +11,24 @@ import { buildVersionedCreate, buildVersionedUpdate, buildVersionedDelete, type 
 import { InternalError, TenantNotActiveError } from "../../src/shared/errors/app-error.js";
 import { InMemoryIdentityStore } from "./identity/in-memory-store.js";
 
-const ALL_STATUSES: TenantLifecycleStatus[] = ["ACTIVE", "DELETING", "QUIESCING", "PURGING", "VERIFIED", "DELETED", "BLOCKED", "HELD"];
+const ALL_STATUSES: TenantLifecycleStatus[] = ["ACTIVE", "HELD_FOR_RECOVERY", "DELETING", "QUIESCING", "PURGING", "VERIFIED", "DELETED", "BLOCKED", "HELD"];
 
 describe("TenantLifecycleRecord state machine", () => {
-  it("allows every forward transition on the approved happy path", () => {
-    expect(canTransition("ACTIVE", "DELETING")).toBe(true);
+  it("allows every forward transition on the approved happy path (D-127: ACTIVE now goes through HELD_FOR_RECOVERY first)", () => {
+    expect(canTransition("ACTIVE", "HELD_FOR_RECOVERY")).toBe(true);
+    expect(canTransition("HELD_FOR_RECOVERY", "DELETING")).toBe(true);
     expect(canTransition("DELETING", "QUIESCING")).toBe(true);
     expect(canTransition("QUIESCING", "PURGING")).toBe(true);
     expect(canTransition("PURGING", "VERIFIED")).toBe(true);
     expect(canTransition("VERIFIED", "DELETED")).toBe(true);
   });
 
-  it("never allows reverting to ACTIVE from any state", () => {
+  it("D-127: never allows reverting to ACTIVE from any state EXCEPT the one named exception, HELD_FOR_RECOVERY", () => {
     for (const from of ALL_STATUSES) {
+      if (from === "HELD_FOR_RECOVERY") continue;
       expect(canTransition(from, "ACTIVE"), `${from} -> ACTIVE must be false`).toBe(false);
     }
+    expect(canTransition("HELD_FOR_RECOVERY", "ACTIVE")).toBe(true);
   });
 
   it("never allows leaving DELETED (true terminal state)", () => {
@@ -35,14 +38,17 @@ describe("TenantLifecycleRecord state machine", () => {
     }
   });
 
-  it("rejects skipping stages (e.g. DELETING straight to VERIFIED, ACTIVE straight to PURGING)", () => {
+  it("rejects skipping stages (e.g. DELETING straight to VERIFIED, ACTIVE straight to PURGING/DELETING, HELD_FOR_RECOVERY straight to QUIESCING)", () => {
     expect(canTransition("DELETING", "VERIFIED")).toBe(false);
     expect(canTransition("ACTIVE", "PURGING")).toBe(false);
     expect(canTransition("ACTIVE", "QUIESCING")).toBe(false);
+    expect(canTransition("ACTIVE", "DELETING")).toBe(false); // D-127: no longer a direct edge
+    expect(canTransition("HELD_FOR_RECOVERY", "QUIESCING")).toBe(false);
+    expect(canTransition("HELD_FOR_RECOVERY", "PURGING")).toBe(false);
   });
 
-  it("allows entering BLOCKED/HELD from any of the mid-cascade states", () => {
-    for (const from of ["DELETING", "QUIESCING", "PURGING", "VERIFIED"] as const) {
+  it("allows entering BLOCKED/HELD from any of the mid-cascade states, including HELD_FOR_RECOVERY (D-127)", () => {
+    for (const from of ["HELD_FOR_RECOVERY", "DELETING", "QUIESCING", "PURGING", "VERIFIED"] as const) {
       expect(canTransition(from, "BLOCKED")).toBe(true);
       expect(canTransition(from, "HELD")).toBe(true);
     }
@@ -53,16 +59,23 @@ describe("TenantLifecycleRecord state machine", () => {
     expect(canTransition("ACTIVE", "HELD")).toBe(false);
   });
 
-  it("allows resuming from BLOCKED/HELD back to exactly the state it was blocked from, never elsewhere", () => {
+  it("allows resuming from BLOCKED/HELD back to exactly the state it was blocked from, never elsewhere, including the new HELD_FOR_RECOVERY case (D-127)", () => {
     expect(canTransition("BLOCKED", "QUIESCING", "QUIESCING")).toBe(true);
     expect(canTransition("BLOCKED", "PURGING", "QUIESCING")).toBe(false);
     expect(canTransition("HELD", "PURGING", "PURGING")).toBe(true);
     expect(canTransition("HELD", "DELETED", "PURGING")).toBe(false);
+    expect(canTransition("HELD", "HELD_FOR_RECOVERY", "HELD_FOR_RECOVERY")).toBe(true);
+    // Resuming from a HELD_FOR_RECOVERY-originated hold must land on HELD_FOR_RECOVERY, never
+    // skip straight to ACTIVE (that would bypass CancelOrganizationClosureService's own checks -
+    // StopExecution, OCC re-verification - entirely) or to any further-along state.
+    expect(canTransition("HELD", "ACTIVE", "HELD_FOR_RECOVERY")).toBe(false);
+    expect(canTransition("HELD", "DELETING", "HELD_FOR_RECOVERY")).toBe(false);
   });
 
   it("assertValidTransition throws InvalidTenantLifecycleTransitionError for an illegal move, and is silent for a legal one", () => {
     expect(() => assertValidTransition("DELETING", "ACTIVE")).toThrow(InvalidTenantLifecycleTransitionError);
-    expect(() => assertValidTransition("ACTIVE", "DELETING")).not.toThrow();
+    expect(() => assertValidTransition("ACTIVE", "HELD_FOR_RECOVERY")).not.toThrow();
+    expect(() => assertValidTransition("HELD_FOR_RECOVERY", "ACTIVE")).not.toThrow();
   });
 
   it("tenantLifecycleKey is deterministic and tenant-scoped", () => {
