@@ -2845,3 +2845,75 @@ resource "aws_scheduler_schedule" "requirement_reindex" {
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
 }
+
+# --- DocumentRequestRecurrenceMaterializerHandler: daily EventBridge Scheduler job (D-143
+# Nucleus 2, entity 3/3, Decision 8 / D-147) - materializes attempt 1 of any DocumentRequestSeries
+# cycle that has come due, via the SAME buildMaterializeAttemptEntries transaction the interactive
+# route uses - see src/workers/document-request-recurrence/materializer.ts's doc comment. No
+# dedicated IAM policy beyond the general tenant-facing grant (same reasoning as
+# requirement_reindex_handler above: this worker's Scan is a base-table operation, not a new
+# index).
+module "document_request_recurrence_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-document-request-recurrence-handler"
+  handler_name          = "document-request-recurrence-handler"
+  source_dir            = "${local.dist_dir}/document-request-recurrence-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "document_request_recurrence_schedule" {
+  name = "${module.document_request_recurrence_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "document_request_recurrence_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.document_request_recurrence_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeDocumentRequestRecurrenceMaterializer"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.document_request_recurrence_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "document_request_recurrence" {
+  name                         = "${local.name_prefix}-document-request-recurrence"
+  schedule_expression          = "cron(30 4 * * ? *)" # daily 04:30 UTC, after requirement-reindex (04:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.document_request_recurrence_handler.live_alias_arn
+    role_arn = aws_iam_role.document_request_recurrence_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}

@@ -97,6 +97,12 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" },
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" },
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/delete" },
+  // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same pairing discipline as above.
+  { method: "POST", pathTemplate: "/document-archive/series" },
+  { method: "GET", pathTemplate: "/document-archive/series/{subjectId}" },
+  { method: "GET", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}" },
+  { method: "POST", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}/cancel" },
+  { method: "POST", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}/materialize" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {
