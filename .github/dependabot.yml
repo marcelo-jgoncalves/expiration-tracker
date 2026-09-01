@@ -17,11 +17,24 @@ updates:
   # npm project (own package.json/package-lock.json, see .github/workflows/ci.yml's `frontend`
   # job) — two independent lockfiles, so both need their own directory entry.
   - package-ecosystem: "npm"
-    directories:
-      - "/"
-      - "/frontend"
+    directory: "/"
     schedule:
       interval: "weekly"
+
+  # frontend/ gets its own entry (rather than sharing the "/" one above via `directories`)
+  # specifically so the `ignore` rule below scopes to it alone — root already migrated to
+  # ESLint 10 (D-157) and must keep receiving its own 10.x updates.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # D-157 (2026-09-01): frontend can't take ESLint 10 yet — eslint-plugin-jsx-a11y@6.10.2
+      # (the only 6.x published) peers at eslint ^3..^9, no ^10 support upstream. Re-enable
+      # this override once jsx-a11y (or its replacement) publishes ESLint 10 support — see
+      # decisions-log.md D-157 before removing.
+      - dependency-name: "eslint"
+        versions: ["10.x", ">=10"]
 
   # Terraform root wiring (infra/) plus every module directory (infra/modules/<name>/) — each
   # has its own versions.tf + .terraform.lock.hcl (ADR-0009), so each is a distinct Dependabot
