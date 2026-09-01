@@ -1,0 +1,44 @@
+# Dependabot version updates — D-139/D-148 (docs/engineering/dependency-freshness-standard.md
+# #6). This is discovery only ("a new version was published"), never security triage (that's
+# GitHub's separate security-updates/dependency-graph mechanism, always-on regardless of this
+# file) and never a substitute for scripts/check-dependency-freshness.ts's lifecycle/EOL gate
+# (Dependabot has no idea a Node.js LTS line or a Lambda managed runtime is approaching EOL —
+# see the standard's #1 "Limite real e nomeado do Dependabot"). No auto-merge anywhere: every
+# PR this opens gets human review, matching AGENTS.md's engineering-quality posture.
+#
+# Operational reminder (standard #6): GitHub can pause version updates on a directory/
+# ecosystem pair when opened PRs go without interaction for too long — periodic review of
+# this file's effectiveness must check that, not just assume "file present = updates firing".
+
+version: 2
+
+updates:
+  # Root npm project (src/, scripts/, infra Lambda build tooling) and the separate frontend/
+  # npm project (own package.json/package-lock.json, see .github/workflows/ci.yml's `frontend`
+  # job) — two independent lockfiles, so both need their own directory entry.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Terraform root wiring (infra/) plus every module directory (infra/modules/<name>/) — each
+  # has its own versions.tf + .terraform.lock.hcl (ADR-0009), so each is a distinct Dependabot
+  # target. The terraform ecosystem does not accept a directory containing further
+  # subdirectories as one unit; "directories" (plural, glob-capable per GitHub's own docs —
+  # distinct from the non-globbing singular "directory" key) covers every current and future
+  # infra/modules/* directory without hand-enumerating all 23 of them here.
+  - package-ecosystem: "terraform"
+    directories:
+      - "/infra"
+      - "/infra/modules/*"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions workflows (.github/workflows/*.yml), pinned by commit SHA — see ci.yml's
+  # own header comment on why SHA pins need a scheduled re-pin mechanism instead of manual review.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

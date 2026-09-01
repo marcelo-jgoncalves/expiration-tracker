@@ -1,0 +1,87 @@
+{
+  "_comment": "Curated CriticalDependencyEntry[] — docs/engineering/dependency-freshness-standard.md §3/§4 (D-139 design, D-148 implementation). Loaded and enforced by scripts/check-dependency-freshness.ts. Never hand-edit a version/line into this file — every field here is either metadata (owner, source, review dates) or the SUPPORTED line asserted by governance; the DETECTED line always comes from re-reading the real manifest/lockfile/tfvars/workflow file listed in detectedFrom, at check time, never duplicated here.",
+  "entries": [
+    {
+      "id": "node",
+      "detectedFrom": [".nvmrc", "package.json#engines.node", "package-lock.json#packages.\"\".engines.node"],
+      "owner": "marcelo",
+      "officialSource": "https://endoflife.date/nodejs",
+      "discoveryMechanism": "manual-release-review",
+      "reviewedAt": "2026-09-01",
+      "lifecycle": {
+        "supportedLine": "24",
+        "supportEndsAt": "2028-04-30",
+        "verifiedAt": "2026-09-01"
+      }
+    },
+    {
+      "id": "lambda-runtime",
+      "detectedFrom": ["infra/modules/lambda-function/variables.tf#variable.runtime.default"],
+      "owner": "marcelo",
+      "officialSource": "https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html",
+      "discoveryMechanism": "manual-release-review",
+      "reviewedAt": "2026-09-01",
+      "lifecycle": {
+        "supportedLine": "nodejs24.x",
+        "supportEndsAt": "2028-04-30",
+        "verifiedAt": "2026-09-01"
+      }
+    },
+    {
+      "id": "hashicorp-aws",
+      "detectedFrom": ["infra/providers.tf", "infra/modules/*/versions.tf", "infra/.terraform.lock.hcl", "infra/modules/*/.terraform.lock.hcl"],
+      "owner": "marcelo",
+      "officialSource": "https://registry.terraform.io/providers/hashicorp/aws/latest",
+      "discoveryMechanism": "dependabot-version-updates",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "terraform-cli",
+      "detectedFrom": [".github/workflows/cd.yml#env.TERRAFORM_VERSION", ".github/workflows/ci.yml#env.TERRAFORM_VERSION"],
+      "owner": "marcelo",
+      "officialSource": "https://developer.hashicorp.com/terraform/language/v1.15.x/upgrade-guides",
+      "discoveryMechanism": "manual-release-review",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "adot-layer",
+      "detectedFrom": ["infra/env/*.tfvars#adot_layer_arn"],
+      "owner": "marcelo",
+      "officialSource": "https://aws-otel.github.io/docs/getting-started/lambda",
+      "discoveryMechanism": "manual-release-review",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "github-actions",
+      "detectedFrom": [".github/workflows/*.yml"],
+      "owner": "marcelo",
+      "officialSource": "https://github.com/features/actions",
+      "discoveryMechanism": "dependabot-version-updates",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "aws-sdk-v3",
+      "detectedFrom": ["package.json#dependencies", "package-lock.json"],
+      "owner": "marcelo",
+      "officialSource": "https://github.com/aws/aws-sdk-js-v3",
+      "discoveryMechanism": "dependabot-version-updates",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "ajv",
+      "detectedFrom": ["package.json#dependencies.ajv", "package-lock.json"],
+      "owner": "marcelo",
+      "officialSource": "https://github.com/ajv-validator/ajv",
+      "discoveryMechanism": "dependabot-version-updates",
+      "reviewedAt": "2026-09-01"
+    },
+    {
+      "id": "esbuild",
+      "detectedFrom": ["package.json#devDependencies.esbuild"],
+      "owner": "marcelo",
+      "officialSource": "https://github.com/evanw/esbuild",
+      "discoveryMechanism": "dependabot-version-updates",
+      "reviewedAt": "2026-09-01"
+    }
+  ]
+}
