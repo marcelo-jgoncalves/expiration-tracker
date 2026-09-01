@@ -1,6 +1,6 @@
 /**
  * Real Cognito OAuth2/OIDC adapter - plain `fetch` against the Hosted UI's `/oauth2/token`
- * and `/oauth2/revoke` endpoints (Node 20 has native fetch, no HTTP client dependency
+ * and `/oauth2/revoke` endpoints (Node has native fetch since v18, no HTTP client dependency
  * needed). client_secret is passed as an env var (Terraform `sensitive = true`), same
  * pattern as GUEST_TOKEN_PEPPER - never Secrets Manager, no precedent for it in this project.
  */

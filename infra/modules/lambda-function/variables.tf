@@ -30,12 +30,14 @@ variable "source_dir" {
 
 variable "runtime" {
   description = <<-EOT
-    Lambda runtime identifier. CDK's ScopedLambdaFunction currently targets Node 20
-    (bundleEntry's esbuild target is "node20"); nodejs20.x is what the bundled CJS artifact
-    is built for and is the value the aws_lambda_function.runtime attribute accepts today.
+    Lambda runtime identifier. Node 20 was AWS-deprecated 2026-04-30 (D-136/D-137 found the
+    project still pinned to it past that date, then Node 22 as an interim step once D-137
+    found nodejs24.x required hashicorp/aws >= 6.19.0). The provider was bumped project-wide
+    to "~> 6.19" (D-138) specifically to unblock this: build-lambdas.ts's esbuild target is
+    "node24" and nodejs24.x is what the bundled CJS artifact is built for.
   EOT
   type        = string
-  default     = "nodejs20.x"
+  default     = "nodejs24.x"
 }
 
 variable "timeout_seconds" {

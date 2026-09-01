@@ -8,7 +8,7 @@
  *
  * Bundles each handler in src/runtime/aws/handlers/*.ts to
  * dist/lambda/<handler-name>/index.js, replicating bundleEntry's exact esbuild options
- * (bundle:true, platform:"node", target:"node20", format:"cjs", sourcemap:"external",
+ * (bundle:true, platform:"node", target:"node24", format:"cjs", sourcemap:"external",
  * minify:false - AWS SDK v3 bundled IN, stack traces stay auditable, per
  * docs/architecture/m3.5-runtime-design.md). CJS output (not ESM, despite the project being
  * "type": "module") so the bundle needs no package.json/extension gymnastics inside the
@@ -89,7 +89,7 @@ async function buildHandler(name: string): Promise<void> {
     outfile: outFile,
     bundle: true,
     platform: "node",
-    target: "node20",
+    target: "node24",
     format: "cjs",
     sourcemap: "external",
     minify: false,

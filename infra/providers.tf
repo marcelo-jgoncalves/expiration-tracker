@@ -11,7 +11,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.19"
     }
     # M10 (D-037): gera o pepper de hash do guest token (random_password) - nunca hardcoded
     # em código nem em texto claro versionado. Trade-off consciente registrado (achado de

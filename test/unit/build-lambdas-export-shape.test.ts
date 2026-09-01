@@ -42,7 +42,7 @@ describe("build-lambdas.ts's esbuild footer - handler export shape", () => {
         outfile: outFile,
         bundle: true,
         platform: "node",
-        target: "node20",
+        target: "node24",
         format: "cjs",
         sourcemap: "external",
         minify: false,

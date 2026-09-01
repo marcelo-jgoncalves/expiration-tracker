@@ -25,7 +25,7 @@ identidade real hoje `APPROVED`. Regra de reconciliação:
 
 | Categoria | Este documento | Implementado (`tokens.css`) | Vence |
 |---|---|---|---|
-| Accent/brand | `purple.600 #7C3AED` | `#2F4FD0` | Implementado |
+| Accent/brand | `purple.600 #7C3AED` | `#7C3AED` (revertido de `#2F4FD0` por decisão direta de produto, D-135, 2026-08-31) | Este documento (coincide com o valor original — a reconciliação de D-130 apontava para `#2F4FD0`, depois revertida) |
 | Fonte | Plus Jakarta Sans | System UI stack | Implementado |
 | H1/Page title | 32/40 | 22px | Implementado |
 | H2/Section | 24/32 | 18px | Implementado |

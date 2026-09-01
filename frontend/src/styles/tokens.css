@@ -28,15 +28,18 @@
   --color-neutral-800: #344054;
   --color-neutral-900: #1b2333;
 
-  /* Accent — blue-indigo. Chosen after contrast verification, not by "SaaS uses blue"
-     (mission §12): 6.67:1 both as text on white and as white text on it, which lets ONE hue
-     serve links, the primary button fill, and the focus ring without a second value. */
-  --color-accent-50: #eff3fe;
-  --color-accent-100: #dee6fc;
-  --color-accent-200: #c9d5f8;
-  --color-accent-600: #2f4fd0;
-  --color-accent-700: #2743b0;
-  --color-accent-800: #1f369a;
+  /* Accent — purple, adopted from the original product prototype (D-135, direct product
+     decision, AGENTS.md §1). Verified against WCAG AA before adoption (docs/architecture/
+     decisions-log.md D-135): 5.70:1 both as text on white and as white text on it — the
+     blue-indigo it replaces measured 6.67:1, both clear the 4.5:1 text minimum by a comfortable
+     margin, so ONE hue still serves links, the primary button fill, and the focus ring without
+     a second value. */
+  --color-accent-50: #f5f3ff;
+  --color-accent-100: #ede9fe;
+  --color-accent-200: #ddd6fe;
+  --color-accent-600: #7c3aed;
+  --color-accent-700: #6d28d9;
+  --color-accent-800: #5b21b6;
 
   /* Semantic status hues. Independent of the accent (course correction: status colors stay
      semantic and never inherit the brand hue). */
@@ -137,7 +140,7 @@
   --color-text-primary: var(--color-neutral-900); /* 15.73:1 on surface-default */
   --color-text-secondary: var(--color-neutral-700); /*  5.95:1 on surface-default */
   --color-text-tertiary: var(--color-neutral-600); /*  4.97:1 on surface-default */
-  --color-text-on-accent: var(--color-neutral-0); /*  6.67:1 on action-primary */
+  --color-text-on-accent: var(--color-neutral-0); /*  5.70:1 on action-primary */
   --color-text-disabled: var(--color-neutral-500);
   --color-text-link: var(--color-accent-700);
   --color-text-danger: var(--color-red-700);
