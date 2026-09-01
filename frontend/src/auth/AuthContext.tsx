@@ -9,10 +9,20 @@
  * component state/form values - "não armazenar informações sensíveis indevidamente"),
  * round-tripped through the BFF's own server-side LoginAttempt record
  * (BffAuthService.startLogin's `returnTo`), never client-side storage.
+ *
+ * D-136/D-A (performance hot-path): derives its state from the SAME `sessionQueryKey` TanStack
+ * Query that `ActiveOrganizationContext` reads, instead of an imperative `fetchSessionInfo()`
+ * call of its own - the pre-D-136 shape had both contexts independently probing
+ * `/bff/session` on every load, a real waterfall (Marcelo's "tela demora" + "validando
+ * sessão" report). `staleTime` on the shared query means a normal reload does not repeat the
+ * request; a UI cache window this short has no bearing on server-side authorization, which the
+ * BFF re-validates on every real operation regardless of what the client believes.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSessionInfo, logout as bffLogout, logoutAll as bffLogoutAll, startLogin, SessionProbeError } from "../api/session.js";
 import { apiClient } from "../api/apiClient.js";
+import { sessionQueryKey } from "../api/queryKeys.js";
 
 export type AuthState =
   /** Initial session probe in flight (also re-entered on an explicit re-check). */
@@ -59,55 +69,83 @@ function currentPath(): string {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({ status: "SESSION_REFRESHING" });
+  const queryClient = useQueryClient();
 
-  const probe = useCallback(async () => {
-    setState({ status: "SESSION_REFRESHING" });
-    try {
-      const info = await fetchSessionInfo();
-      if (info.authenticated) {
-        setState({ status: "AUTHENTICATED" });
-      } else {
-        setState({ status: "SESSION_MISSING" });
-      }
-    } catch (err) {
-      if (err instanceof SessionProbeError) {
-        setState({ status: "REFRESH_FAILED", returnTo: currentPath() });
-        return;
-      }
-      setState({ status: "SESSION_MISSING" });
+  const sessionQuery = useQuery({
+    queryKey: sessionQueryKey,
+    queryFn: ({ signal }) => fetchSessionInfo({ signal }),
+    // 30s: short enough that a real revocation/expiry is caught on the next natural
+    // navigation, long enough that AuthProvider and ActiveOrganizationProvider mounting a few
+    // hundred ms apart (the common case, since the latter mounts only once the former resolves
+    // AUTHENTICATED) share one network call instead of two. Never a substitute for
+    // authorization - every real mutation still round-trips through the BFF, which re-checks
+    // the session server-side regardless of what this cache believes.
+    staleTime: 30_000,
+  });
+
+  // Latches SESSION_EXPIRED once a real 401 arrives, so a subsequent stale-cache read of the
+  // now-removed query never renders a moment of "still AUTHENTICATED" — the only way out of
+  // this state is `reauthenticate()`'s full-page navigation, which remounts this provider
+  // fresh, so this never needs to be reset from within the same tree lifetime. Real React
+  // state (not a ref) — setting it must trigger the re-render that flips `state` below.
+  const [reportedUnauthorized, setReportedUnauthorized] = useState(false);
+
+  const state: AuthState = useMemo(() => {
+    if (reportedUnauthorized) {
+      return { status: "SESSION_EXPIRED", returnTo: currentPath() };
     }
-  }, []);
-
-  useEffect(() => {
-    void probe();
-  }, [probe]);
+    if (sessionQuery.isPending) return { status: "SESSION_REFRESHING" };
+    if (sessionQuery.isError) {
+      const err = sessionQuery.error;
+      if (err instanceof SessionProbeError) {
+        return { status: "REFRESH_FAILED", returnTo: currentPath() };
+      }
+      return { status: "SESSION_MISSING" };
+    }
+    return sessionQuery.data.authenticated ? { status: "AUTHENTICATED" } : { status: "SESSION_MISSING" };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentPath() is intentionally read fresh only at the moment of transition, not tracked as a reactive dependency.
+  }, [reportedUnauthorized, sessionQuery.isPending, sessionQuery.isError, sessionQuery.error, sessionQuery.data]);
 
   const reportUnauthorized = useCallback(() => {
-    setState((prev) => (prev.status === "AUTHENTICATED" ? { status: "SESSION_EXPIRED", returnTo: currentPath() } : prev));
-  }, []);
+    if (state.status !== "AUTHENTICATED") return;
+    setReportedUnauthorized(true);
+    // Pin the terminal value directly via setQueryData - deliberately NOT removeQueries()
+    // followed by a fresh fetch: removing the cache entry out from under a still-mounted,
+    // still-enabled observer makes TanStack Query refetch immediately to satisfy it, racing
+    // this call. If that refetch resolves after this line (a real race, not hypothetical - it
+    // reproduced as a hung logout E2E test locally), it would silently overwrite the correct
+    // "logged out" value with a stale "still authenticated" read.
+    queryClient.setQueryData(sessionQueryKey, { authenticated: false });
+  }, [state.status, queryClient]);
 
   useEffect(() => {
     apiClient.setOnUnauthorized(reportUnauthorized);
   }, [reportUnauthorized]);
 
   const reauthenticate = useCallback(() => {
-    setState((prev) => {
-      const returnTo = "returnTo" in prev ? prev.returnTo : currentPath();
-      startLogin(returnTo); // full-page navigation - nothing after this line runs
-      return { status: "REAUTH_REQUIRED", returnTo };
-    });
-  }, []);
+    const returnTo = "returnTo" in state ? state.returnTo : currentPath();
+    startLogin(returnTo); // full-page navigation - nothing after this line runs
+  }, [state]);
 
   const logout = useCallback(async () => {
     await bffLogout();
-    setState({ status: "SESSION_MISSING" });
-  }, []);
+    setReportedUnauthorized(false);
+    // setQueryData alone for the session key itself (see reportUnauthorized's comment for why
+    // removeQueries() on an actively-observed key would race). Tenant-scoped cache (everything
+    // under the "org" key prefix - items, subjects, members...) is safe to actually remove:
+    // nothing should still be actively observing it once the redirect to login fires, and a
+    // subsequent login must never render another tenant's - or this tenant's stale pre-logout -
+    // data for a moment.
+    queryClient.removeQueries({ queryKey: ["org"], exact: false });
+    queryClient.setQueryData(sessionQueryKey, { authenticated: false });
+  }, [queryClient]);
 
   const logoutEverywhere = useCallback(async () => {
     await bffLogoutAll();
-    setState({ status: "SESSION_MISSING" });
-  }, []);
+    setReportedUnauthorized(false);
+    queryClient.removeQueries({ queryKey: ["org"], exact: false });
+    queryClient.setQueryData(sessionQueryKey, { authenticated: false });
+  }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ state, reportUnauthorized, reauthenticate, logout, logoutEverywhere }),

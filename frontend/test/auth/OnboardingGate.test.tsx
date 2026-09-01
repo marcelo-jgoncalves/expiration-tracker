@@ -23,7 +23,9 @@ describe("OnboardingGate", () => {
       { organizationId: undefined, isPending: true },
     );
 
-    expect(screen.getByText("Carregando sua organização…")).toBeInTheDocument();
+    // D-136/D-A: neutral shared loading component - no technical wording ("session",
+    // "organization") exposed to the user.
+    expect(screen.getByText("Carregando…")).toBeInTheDocument();
     expect(screen.queryByText("Crie sua organização")).not.toBeInTheDocument();
     expect(screen.queryByText("REAL SHELL CONTENT")).not.toBeInTheDocument();
   });

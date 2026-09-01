@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "../../src/auth/AuthContext.js";
 import { SessionProbeError } from "../../src/api/session.js";
 
@@ -30,6 +31,15 @@ function Probe() {
   return <div data-testid="state">{state.status}</div>;
 }
 
+/** D-136/D-A: AuthProvider now reads a real TanStack Query (the shared `sessionQueryKey`),
+ * so every render needs a real QueryClientProvider ancestor - a fresh, retry-disabled client
+ * per test (mirrors `test/testUtils.tsx`'s `renderAtRoute` pattern) so no test's timing depends
+ * on another's cache. */
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return { ...render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>), queryClient };
+}
+
 beforeEach(() => {
   fetchSessionInfoMock.mockReset();
   startLoginMock.mockReset();
@@ -44,7 +54,7 @@ describe("AuthProvider", () => {
   // SESSION_REFRESHING/fail the AUTHENTICATED assertion, since neither field exists here.
   it("starts at SESSION_REFRESHING, then resolves to AUTHENTICATED when the BFF confirms a session", async () => {
     fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
-    render(
+    renderWithClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -55,7 +65,7 @@ describe("AuthProvider", () => {
 
   it("resolves to SESSION_MISSING when the BFF plainly says not authenticated", async () => {
     fetchSessionInfoMock.mockResolvedValue({ authenticated: false });
-    render(
+    renderWithClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -65,7 +75,7 @@ describe("AuthProvider", () => {
 
   it("resolves to REFRESH_FAILED (not SESSION_MISSING) when the probe itself could not be completed - uncertainty is not the same as a definitive logout", async () => {
     fetchSessionInfoMock.mockRejectedValue(new SessionProbeError("network down"));
-    render(
+    renderWithClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -86,7 +96,7 @@ describe("AuthProvider", () => {
 
   it("reportUnauthorized transitions AUTHENTICATED -> SESSION_EXPIRED, carrying a returnTo", async () => {
     fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
-    render(
+    renderWithClient(
       <AuthProvider>
         <ProbeWithControls />
       </AuthProvider>,
@@ -101,7 +111,7 @@ describe("AuthProvider", () => {
 
   it("reportUnauthorized is a no-op when the state is not AUTHENTICATED (never downgrades SESSION_MISSING into a fabricated expiry)", async () => {
     fetchSessionInfoMock.mockResolvedValue({ authenticated: false });
-    render(
+    renderWithClient(
       <AuthProvider>
         <ProbeWithControls />
       </AuthProvider>,
@@ -117,7 +127,7 @@ describe("AuthProvider", () => {
   it("logout() calls the BFF's logout endpoint and returns to SESSION_MISSING", async () => {
     fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
     logoutMock.mockResolvedValue(undefined);
-    render(
+    renderWithClient(
       <AuthProvider>
         <ProbeWithControls />
       </AuthProvider>,

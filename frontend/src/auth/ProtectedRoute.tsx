@@ -7,6 +7,7 @@
  */
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "./AuthContext.js";
+import { InitialLoading } from "../components/AsyncStates.js";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { state, reauthenticate } = useAuth();
@@ -21,11 +22,11 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     case "AUTHENTICATED":
       return <>{children}</>;
     case "SESSION_REFRESHING":
-      return (
-        <div role="status" aria-live="polite">
-          Verificando sua sessão…
-        </div>
-      );
+      // D-136/D-A: neutral, structural loading state - never technical wording ("validating
+      // session") exposed to the user (Marcelo's real report). Shares the exact component
+      // OnboardingGate uses for its own pending state, so the two stages of the startup
+      // sequence read as one continuous load, not two distinct messages.
+      return <InitialLoading />;
     case "SESSION_MISSING":
     case "SESSION_EXPIRED":
     case "REFRESH_FAILED":
@@ -33,10 +34,6 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       // A full-page redirect is already in flight (or about to be, via the effect above) -
       // this is the brief structural placeholder shown in the instant before navigation
       // actually happens, never a dead end the user could get stuck on.
-      return (
-        <div role="status" aria-live="polite">
-          Redirecionando para o login…
-        </div>
-      );
+      return <InitialLoading label="Redirecionando…" />;
   }
 }
