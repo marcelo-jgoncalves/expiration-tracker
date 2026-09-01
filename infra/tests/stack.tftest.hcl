@@ -732,6 +732,31 @@ run "tenant_purge_iam_surface_is_the_minimum_the_approved_design_named" {
     error_message = "The trigger policy must grant states:StartExecution (and only that action)"
   }
 
+  # D-127: states:StopExecution (CancelOrganizationClosureService) and states:DescribeExecution
+  # (the sweeper's HELD_FOR_RECOVERY reconciliation) are each scoped to EXECUTION arns of this one
+  # state machine only - never the bare state machine ARN, never states:*, never a cross-machine
+  # wildcard.
+  assert {
+    condition     = length(data.aws_iam_policy_document.tenant_purge_stop_execution.statement[0].resources) == 1
+    error_message = "StopExecution must be scoped to exactly one resource pattern (this state machine's executions)"
+  }
+  assert {
+    condition     = contains(data.aws_iam_policy_document.tenant_purge_stop_execution.statement[0].actions, "states:StopExecution") && length(data.aws_iam_policy_document.tenant_purge_stop_execution.statement[0].actions) == 1
+    error_message = "The cancellation policy must grant states:StopExecution and ONLY that action"
+  }
+  assert {
+    condition     = strcontains(tolist(data.aws_iam_policy_document.tenant_purge_stop_execution.statement[0].resources)[0], ":execution:")
+    error_message = "StopExecution must target an EXECUTION arn pattern, not the state machine arn itself"
+  }
+  assert {
+    condition     = length(data.aws_iam_policy_document.tenant_purge_describe_execution.statement[0].resources) == 1
+    error_message = "DescribeExecution must be scoped to exactly one resource pattern (this state machine's executions)"
+  }
+  assert {
+    condition     = contains(data.aws_iam_policy_document.tenant_purge_describe_execution.statement[0].actions, "states:DescribeExecution") && length(data.aws_iam_policy_document.tenant_purge_describe_execution.statement[0].actions) == 1
+    error_message = "The sweeper's reconciliation policy must grant states:DescribeExecution and ONLY that action - read-only, never Start/StopExecution added here"
+  }
+
   # A purge deletes; it never reads object content. s3:GetObject appearing here would be a real
   # privilege expansion, same discipline as document_purge_object_access.
   assert {
