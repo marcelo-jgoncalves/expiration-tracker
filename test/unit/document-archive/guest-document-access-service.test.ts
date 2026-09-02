@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import { GuestDocumentAccessService, GuestAccessInvalidError } from "../../../src/modules/document-archive/application/guest-document-access-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType } from "./in-memory-store.js";
+import type { Document } from "../../../src/modules/document-archive/domain/document.js";
+import { documentTypeKey } from "../../../src/modules/document-archive/domain/document-type.js";
 import { documentRequestKey, type DocumentRequest } from "../../../src/modules/document-archive/domain/document-request.js";
 import { epochSecondsFromIso, issueRequestAccessCredential, requestAccessCredentialKey, type RequestAccessCredential } from "../../../src/modules/document-archive/domain/request-access-credential.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 
 const PEPPER = "test-pepper-value";
@@ -252,5 +255,108 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     await expect(
       service.submitEvidence(session.session.token, { ip: "1.1.1.1", csrfCookieValue: undefined, csrfHeaderValue: undefined }, { fileName: "certidao.pdf", idempotencyKey: "idem-3" }),
     ).rejects.toThrow(GuestAccessInvalidError);
+  });
+
+  /** D-184 (resolves D-175's option (b)): the guard is on PRESENCE of `input.documentType`, never
+   * on the post-fallback value — proves the majority-today path (no documentType supplied) is
+   * byte-identical to before this change: no ConditionCheck runs, requirementId is never
+   * validated against the DocumentType catalog. Mutation check: making the guard unconditional
+   * (always add the ConditionCheck) makes this test fail, since requirementId never names a real
+   * DocumentType. */
+  describe("submitEvidence: D-184 DocumentType validation only when explicitly supplied", () => {
+    it("t1: documentType absent falls back to requirementId, no catalog validation, succeeds exactly as before", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-t1" });
+      const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
+      expect(document?.documentTypeId).toBe(REQUIREMENT);
+    });
+
+    /** Mutation check: removing the `documentTypeSupplied` guard's ConditionCheck entirely (or
+     * always applying it) makes this test fail — proves the check genuinely runs and blocks. */
+    it("t2: documentType explicitly supplied and ACTIVE in the catalog succeeds, Document records that id", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "ALVARA", idempotencyKey: "idem-t2" });
+      const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
+      expect(document?.documentTypeId).toBe("ALVARA");
+    });
+
+    /** Anti-enumeration: a nonexistent DocumentType must reject with the SAME generic error as
+     * every other failure mode on this surface, never a distinct "DocumentType not found". */
+    it("t3: documentType explicitly supplied but nonexistent in the catalog rejects with the generic guest error", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      await expect(
+        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "NAO_EXISTE", idempotencyKey: "idem-t3" }),
+      ).rejects.toThrow(GuestAccessInvalidError);
+    });
+
+    /** Same anti-enumeration collapse for a real-but-inactive DocumentType, TOCTOU-safe (the
+     * ConditionCheck runs inside the same TransactWriteItems as the Document Put, never a
+     * separate read-before-write) — mirrors createDocument()'s D-175 DEPRECATED case. */
+    it("t4: documentType explicitly supplied but DEPRECATED rejects with the generic guest error", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      await store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: "test-table",
+            key: documentTypeKey(TENANT, "ALVARA"),
+            tenantId: TENANT,
+            expectedVersion: 1,
+            set: { status: "DEPRECATED" },
+          }),
+        },
+      ]);
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      await expect(
+        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "ALVARA", idempotencyKey: "idem-t4" }),
+      ).rejects.toThrow(GuestAccessInvalidError);
+    });
+
+    /** D-184 explicit decision: idempotencyKey replay is payload-agnostic (pre-existing property
+     * of the `existingReplay` short-circuit, D-143 Decision 4 — `fileName` was never re-validated
+     * on replay either) — a second call reusing the same key returns the FIRST call's snapshot
+     * even when its own `documentType` would have failed the new guard. Not a gap this change
+     * introduces; documented here so it is not silently rediscovered later. */
+    it("t_replay: replaying an idempotencyKey returns the original snapshot, ignoring a differing (even invalid) documentType on the retry", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-replay-2" });
+      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "NAO_EXISTE", idempotencyKey: "idem-replay-2" });
+      expect(second).toEqual(first);
+    });
   });
 });
