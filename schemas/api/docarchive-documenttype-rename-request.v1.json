@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json",
+  "title": "DocArchiveDocumentTypeRenameRequest v1",
+  "description": "PATCH /document-archive/document-types/{documentTypeId} request body — OCC guard + new displayName. D-173/item 5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion", "displayName"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 200 }
+  }
+}

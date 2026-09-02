@@ -852,6 +852,19 @@ export class DocumentArchiveService {
   }
 
   /**
+   * listDocumentTypes — D-173/item 5. GSI1's DOCTYPESTATUS namespace (`documentTypeGsi1Keys`)
+   * already orders entries by normalized name, so this is a single `queryIndexPage` call, same
+   * one-physical-page-per-call discipline as every other GSI read in this module — the caller
+   * drives pagination via `exclusiveStartKey`/the returned `lastEvaluatedKey`, no internal
+   * accumulate-across-pages loop (the D-142 cursor-skip lesson `queryByPk`'s doc comment cites).
+   */
+  async listDocumentTypes(ctx: RequestContext, status: DocumentType["status"], exclusiveStartKey?: Record<string, unknown>): Promise<{ items: DocumentType[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    authorize({ context: ctx, action: "docarchive:documenttype-read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    return this.store.queryIndexPage<DocumentType>({ indexName: "GSI1", partitionKeyValue: `TENANT#${tenantId}#DOCTYPESTATUS#${status}`, exclusiveStartKey });
+  }
+
+  /**
    * renameDocumentType — D-173 §3, two branches (DynamoDB rejects a Delete+Put on the SAME
    * item within one TransactWriteItems, which is why "normalized name unchanged" and
    * "normalized name changed" cannot share one transaction shape). `oldNormalizedName` is

@@ -30,6 +30,12 @@ import {
   handleListSeries,
   handleCancelSeries,
   handleMaterializeSeriesAttempt,
+  handleCreateDocumentType,
+  handleGetDocumentType,
+  handleListDocumentTypes,
+  handleRenameDocumentType,
+  handleDeprecateDocumentType,
+  handleReactivateDocumentType,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -103,6 +109,19 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleCancelSeries(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/series/{subjectId}/{seriesId}/materialize":
           return await handleMaterializeSeriesAttempt(deps, { ...base, body: parseBody(event) });
+        // D-173 (DocumentType catalog), item 5 — tenant-facing catalog CRUD routes.
+        case "POST /document-archive/document-types":
+          return await handleCreateDocumentType(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/document-types":
+          return await handleListDocumentTypes(deps, base);
+        case "GET /document-archive/document-types/{documentTypeId}":
+          return await handleGetDocumentType(deps, base);
+        case "PATCH /document-archive/document-types/{documentTypeId}":
+          return await handleRenameDocumentType(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/document-types/{documentTypeId}/deprecate":
+          return await handleDeprecateDocumentType(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/document-types/{documentTypeId}/reactivate":
+          return await handleReactivateDocumentType(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

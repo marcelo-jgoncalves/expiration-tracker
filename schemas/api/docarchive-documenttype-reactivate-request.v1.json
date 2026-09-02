@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-documenttype-reactivate-request.v1.json",
+  "title": "DocArchiveDocumentTypeReactivateRequest v1",
+  "description": "POST /document-archive/document-types/{documentTypeId}/reactivate request body — OCC guard (DEPRECATED -> ACTIVE). D-173/item 5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

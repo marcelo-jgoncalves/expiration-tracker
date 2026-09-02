@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json",
+  "title": "DocArchiveDocumentTypeCreateRequest v1",
+  "description": "POST /document-archive/document-types request body (src/modules/document-archive/domain/document-type.ts CreateDocumentTypeInput). D-173/item 5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["displayName"],
+  "properties": {
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 200 }
+  }
+}

@@ -1144,6 +1144,61 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // D-173 (DocumentType catalog), item 5.
+  it("accepts a valid docarchive-documenttype-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json", { displayName: "Alvará Sanitário" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-create-request.v1 with an empty displayName", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json", { displayName: "" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-documenttype-create-request.v1 missing displayName", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-documenttype-rename-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json", { expectedVersion: 1, displayName: "Alvará Renovado" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-rename-request.v1 missing expectedVersion (no OCC guard otherwise)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json", { displayName: "Alvará Renovado" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-documenttype-rename-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json", { expectedVersion: 1, displayName: "X", bogus: true });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-documenttype-deprecate-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-deprecate-request.v1 with a non-integer expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json", { expectedVersion: 1.5 });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-documenttype-reactivate-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-reactivate-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-reactivate-request.v1 missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-reactivate-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
   // D-149 (Admin Activity/Audit Log view) - GET /activity's query-parameter schema.
   it("accepts an empty list-activity-request.v1 (every field optional)", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", {});

@@ -520,6 +520,14 @@ locals {
     get_series         = { method = "GET", path = "/document-archive/series/{subjectId}/{seriesId}" }
     cancel_series      = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/cancel" }
     materialize_series = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/materialize" }
+
+    # D-173 (DocumentType catalog), item 5 - same Lambda, tenant-facing catalog CRUD routes.
+    create_document_type     = { method = "POST", path = "/document-archive/document-types" }
+    list_document_types      = { method = "GET", path = "/document-archive/document-types" }
+    get_document_type        = { method = "GET", path = "/document-archive/document-types/{documentTypeId}" }
+    rename_document_type     = { method = "PATCH", path = "/document-archive/document-types/{documentTypeId}" }
+    deprecate_document_type  = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/deprecate" }
+    reactivate_document_type = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/reactivate" }
   }
 }
 
