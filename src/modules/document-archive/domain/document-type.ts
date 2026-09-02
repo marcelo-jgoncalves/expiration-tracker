@@ -1,11 +1,11 @@
 /**
  * DocumentType — D-173 (`docs/architecture/reviews/document-type-scoping/
  * estado-final-consolidado.md` §1). Tenant-scoped catalog entry closing item 8 of D-161's
- * macro-order: `Document.documentType` today is a free string, this gives it a stable,
- * renamable-but-identity-stable identity a future `Requirement` can reference (item 1,
- * Requirement Templates). This slice (items 1-2 of the design doc's "Próximo passo real") is
- * domain + application-layer CRUD only — `Document.documentType` itself is not migrated yet
- * (item 4, a separate future slice).
+ * macro-order: gives DocumentType a stable, renamable-but-identity-stable identity a future
+ * `Requirement` can reference (item 1, Requirement Templates). `Document.documentTypeId`
+ * (item 4 of the design doc's "Próximo passo real") stores this id, not the renamable
+ * `displayName` — GSI2 partitions by it so renaming a DocumentType never moves an existing
+ * Document.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 

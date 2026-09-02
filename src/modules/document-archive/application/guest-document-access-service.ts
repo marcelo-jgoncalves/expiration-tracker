@@ -293,6 +293,10 @@ export class GuestDocumentAccessService {
     const now = this.now();
     const documentId = this.ids.newDocumentId();
     const versionId = this.ids.newVersionId();
+    // D-173 §5/item 4: `Document.documentTypeId` is the physical row attribute name (renamed
+    // end-to-end from `documentType`) — this does NOT change what value the guest flow writes
+    // into it. The guest's own free-string `documentType ?? requirementId` fallback is
+    // deliberately untouched here (D-175's open decision, guest schema migration is item 6).
     const documentType = input.documentType ?? requirementId;
 
     const document: Document = {
@@ -301,7 +305,7 @@ export class GuestDocumentAccessService {
       documentId,
       tenantId,
       subjectId,
-      documentType,
+      documentTypeId: documentType,
       status: "ACTIVE",
       hasValidity: false,
       createdAt: now,

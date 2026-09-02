@@ -54,7 +54,7 @@ const SUBJECT = "subject-1";
 /** Drives a Document/DocumentVersion all the way to ACCEPTED, so tests can link real evidence
  * without duplicating the full lifecycle inline every time. */
 async function acceptedVersion(service: DocumentArchiveService, validUntil?: string) {
-  const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentType: "ALVARA", hasValidity: !!validUntil });
+  const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentTypeId: "ALVARA", hasValidity: !!validUntil });
   const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
   const reserved = await service.reserveFiles(ctx(), doc.documentId, draft.seq, draft.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }]);
   const principal = reserved[0]!.file;
@@ -143,7 +143,7 @@ describe("RequirementService (D-143 Nucleus 2, Decision 5/D9)", () => {
   it("linkEvidence to a RECEIVED (not yet ACCEPTED) version -> PENDING", async () => {
     const { service } = makeService();
     const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
-    const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentType: "ALVARA", hasValidity: false });
+    const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentTypeId: "ALVARA", hasValidity: false });
     const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
     await service.reserveFiles(ctx(), doc.documentId, draft.seq, draft.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }]);
     const sealed = await (service as any).store.get({ PK: draft.PK, SK: draft.SK });
@@ -165,7 +165,7 @@ describe("RequirementService (D-143 Nucleus 2, Decision 5/D9)", () => {
   it("linkEvidence 404s when the DocumentVersion doesn't exist", async () => {
     const { service } = makeService();
     const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
-    const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentType: "ALVARA", hasValidity: false });
+    const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentTypeId: "ALVARA", hasValidity: false });
     await expect(service.linkEvidence(ctx(), SUBJECT, req.requirementId, req.version, doc.documentId, "ghost-version")).rejects.toThrow(NotFoundError);
   });
 

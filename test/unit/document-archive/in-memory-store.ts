@@ -19,11 +19,10 @@ export function seedActiveTenantLifecycle(tenantId: string): Record<string, unkn
   return record as unknown as Record<string, unknown> & EntityKey;
 }
 
-/** D-173 item 3: `createDocument()`'s new transactional `ConditionCheck` requires a real
- * `DocumentType` row (status ACTIVE) to exist at the id the caller's `documentType` field
- * names. Fixtures across this suite pass a literal like "ALVARA" as that id (the rename to a
- * real opaque `documentTypeId` is item 4, a separate slice) — this seeds one ACTIVE row per
- * literal so existing `createDocument()` fixtures keep working unchanged. */
+/** D-173 item 3: `createDocument()`'s transactional `ConditionCheck` requires a real
+ * `DocumentType` row (status ACTIVE) to exist at the id `input.documentTypeId` names.
+ * Fixtures across this suite pass a literal like "ALVARA" as that id — this seeds one ACTIVE
+ * row per literal so existing `createDocument()` fixtures keep working unchanged. */
 export function seedActiveDocumentType(tenantId: string, documentTypeId: string): Record<string, unknown> & EntityKey {
   const documentType: DocumentType = {
     ...documentTypeKey(tenantId, documentTypeId),
