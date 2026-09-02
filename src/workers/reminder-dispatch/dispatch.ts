@@ -22,7 +22,7 @@ import { buildIdempotencyKey } from "../../shared/idempotency/idempotency.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
 import { itemKey } from "../../modules/expiration/domain/expiration-item.js";
 import { policyKey, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
-import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
+import { occurrenceKey, type ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
 import { intentKey, type NotificationIntent } from "../../modules/reminder/domain/notification-intent.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../../modules/reminder/ports/reminder-store.js";
 import type { DispatchCommand } from "../reminder-producer/producer.js";
@@ -47,17 +47,25 @@ export type DispatchOutcome =
   | { kind: "SKIPPED_NOT_CLAIMED" }
   | { kind: "ABORTED_FRESHNESS_RACE" };
 
-/** Looks up the occurrence by (itemId, occurrenceId) - occurrences are co-located under the item's own partition (data-model.md §2), but the command doesn't carry the SK's scheduledAt segment, so the worker queries the item's occurrences and finds the match by occurrenceId. Kept here rather than in ReminderStore to avoid growing the port for a single caller. */
-async function findOccurrence(store: ReminderStore, tenantId: string, itemId: string, occurrenceId: string): Promise<ReminderOccurrence | undefined> {
-  const rows = await store.queryByItem<ReminderOccurrence>(tenantId, itemId);
-  return rows.find((r) => r.occurrenceId === occurrenceId);
+/** Looks up the occurrence by its exact key - the command carries `scheduledAt` (the SK's
+ * own segment, see DispatchCommand.data in producer.ts), so this is a direct GetItem, not
+ * the N+1 `queryByItem` + in-memory `find()` over every occurrence under the item's
+ * partition that used to run here (perf audit D-170: level 1-4 mechanical fix). */
+async function findOccurrence(
+  store: ReminderStore,
+  tenantId: string,
+  itemId: string,
+  occurrenceId: string,
+  scheduledAt: string,
+): Promise<ReminderOccurrence | undefined> {
+  return store.get<ReminderOccurrence>(occurrenceKey(tenantId, itemId, scheduledAt, occurrenceId));
 }
 
 export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCommand): Promise<DispatchOutcome> {
   const { tenantId } = command;
-  const { itemId, occurrenceId, itemVersion, policyVersion } = command.data;
+  const { itemId, occurrenceId, itemVersion, policyVersion, scheduledAt } = command.data;
 
-  const occurrence = await findOccurrence(deps.store, tenantId, itemId, occurrenceId);
+  const occurrence = await findOccurrence(deps.store, tenantId, itemId, occurrenceId, scheduledAt);
   if (!occurrence) {
     return { kind: "SKIPPED_NOT_CLAIMED" };
   }
@@ -68,8 +76,11 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     return { kind: "SKIPPED_NOT_CLAIMED" };
   }
 
-  const item = await deps.store.get<{ PK: string; SK: string; status: string; version: number }>(itemKey(tenantId, itemId));
-  const policy = await deps.store.get<ReminderPolicy>(policyKey(tenantId, occurrence.policyId));
+  // D-170: independent reads (item, policy), fetched concurrently rather than sequentially.
+  const [item, policy] = await Promise.all([
+    deps.store.get<{ PK: string; SK: string; status: string; version: number }>(itemKey(tenantId, itemId)),
+    deps.store.get<ReminderPolicy>(policyKey(tenantId, occurrence.policyId)),
+  ]);
 
   const toleranceMs = deps.toleranceMs ?? 30 * 60_000;
   const withinTolerance = Math.abs(Date.parse(deps.now()) - Date.parse(occurrence.scheduledAt)) <= toleranceMs;

@@ -36,12 +36,13 @@ function contextFor(tenantId: string): RequestContext {
 }
 
 /** Wraps a real InMemoryReminderStore so a caller-supplied mutation runs right after
- * dispatchOccurrence's SECOND `get()` call resolves - dispatch's own sequence is exactly
- * `get(item)` then `get(policy)` before it ever calls `transactWrite` (findOccurrence uses
- * `queryByItem`, not `get`, so it doesn't count here) - simulating a concurrent writer
- * landing in the real window between dispatch's reads and its commit, not before the reads
- * (which would just make dispatch's own `stale` pre-check take the early-exit branch
- * instead of ever reaching the fence this test targets). */
+ * dispatchOccurrence's THIRD `get()` call resolves - dispatch's own sequence is
+ * `get(occurrence)` (D-170: direct GetItem, replacing the old `queryByItem` + in-memory
+ * `find()`) then `get(item)` + `get(policy)` concurrently (D-170: `Promise.all`) before it
+ * ever calls `transactWrite` - simulating a concurrent writer landing in the real window
+ * between dispatch's reads and its commit, not before the reads (which would just make
+ * dispatch's own `stale` pre-check take the early-exit branch instead of ever reaching the
+ * fence this test targets). */
 class RacingStore extends InMemoryReminderStore {
   private getCalls = 0;
   constructor(private readonly raceIn: () => Promise<void>) {
@@ -50,7 +51,7 @@ class RacingStore extends InMemoryReminderStore {
   override async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
     const result = await super.get<T>(key);
     this.getCalls += 1;
-    if (this.getCalls === 2) {
+    if (this.getCalls === 3) {
       await this.raceIn();
     }
     return result;
@@ -185,5 +186,68 @@ describe("dispatchOccurrence — freshness fence under a genuine read/commit rac
     expect(outcome.kind).toBe("TRIGGERED");
     const allRows = store.allItems();
     expect(allRows.some((r) => r["entityType"] === "NotificationIntent")).toBe(true);
+  });
+});
+
+/** Counts calls per method so the two D-170 mechanisms can be asserted directly rather than
+ * inferred from timing alone. */
+class CountingStore extends InMemoryReminderStore {
+  queryByItemCalls = 0;
+  getCalls: EntityKey[] = [];
+  override async queryByItem<T extends EntityKey = Record<string, unknown> & EntityKey>(
+    tenantId: string,
+    itemId: string,
+    skPrefix?: string,
+  ): Promise<T[]> {
+    this.queryByItemCalls += 1;
+    return super.queryByItem<T>(tenantId, itemId, skPrefix);
+  }
+  override async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
+    this.getCalls.push(key);
+    return super.get<T>(key);
+  }
+}
+
+describe("dispatchOccurrence — D-170 perf fixes", () => {
+  it("looks up the occurrence via a direct GetItem, never the N+1 queryByItem+find over every occurrence under the item", async () => {
+    const store = new CountingStore();
+    const { command, dispatchDeps } = await setupScheduled(store);
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    expect(store.queryByItemCalls).toBe(0);
+    // Exactly 3 get() calls: occurrence, item, policy - never scanning every OCC# row.
+    expect(store.getCalls.length).toBe(3);
+  });
+
+  it("fetches ExpirationItem and ReminderPolicy concurrently, not sequentially", async () => {
+    // Delays whichever `get()` call is in flight, recording how many other `get()` calls
+    // were ALSO in flight at that moment - a sequential implementation would never have two
+    // in flight at once, so `maxConcurrentGets` would stay at 1.
+    let inFlight = 0;
+    let maxConcurrentGets = 0;
+    class DelayingStore extends InMemoryReminderStore {
+      override async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
+        inFlight += 1;
+        maxConcurrentGets = Math.max(maxConcurrentGets, inFlight);
+        // Yield to the microtask queue so a concurrent second `get()` call has a chance to
+        // start and increment `inFlight` before this one resolves - proves both promises
+        // were genuinely in flight together (Promise.all), not just called back-to-back.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const result = await super.get<T>(key);
+        inFlight -= 1;
+        return result;
+      }
+    }
+    const delayingStore = new DelayingStore();
+    const { command, dispatchDeps } = await setupScheduled(delayingStore);
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    // occurrence's own get() runs alone first (its key is needed before item/policy are
+    // known), then item+policy run together - so at least 2 must overlap.
+    expect(maxConcurrentGets).toBeGreaterThanOrEqual(2);
   });
 });
