@@ -133,7 +133,7 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
       return { outcome: "READY_TO_PROMOTE", sourceObject };
     }
 
-    // decision.action === "REJECT": terminal transition - counters + GSI5 removal happen in the
+    // decision.action === "REJECT": terminal transition - counters + GSI8 removal happen in the
     // SAME transaction as the file's own write (Decision 6/Bloqueador 9: a crash between the two
     // would leave pendingFileScans stuck above zero forever, permanently blocking acceptVersion).
     const version = await deps.store.get<DocumentVersion>(documentVersionKey(input.tenantId, input.documentId, input.seq));
@@ -149,9 +149,9 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
           tenantId: input.tenantId,
           expectedVersion: file.version,
           set: { scanStatus: decision.status, ...quarantineObjectSet, ...evidenceSet },
-          // D-163 §5/§6: any transaction reaching a terminal scanStatus removes the sparse GSI5
+          // D-163 §5/§6: any transaction reaching a terminal scanStatus removes the sparse GSI8
           // reconciliation pointer in the same write - never a separate cleanup step.
-          remove: ["GSI5PK", "GSI5SK"],
+          remove: ["GSI8PK", "GSI8SK"],
           now: nowTs,
         }),
       },
@@ -229,7 +229,7 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
           tenantId: input.tenantId,
           expectedVersion: file.version,
           set: { scanStatus: "CLEAN", cleanObject: input.cleanObject },
-          remove: ["GSI5PK", "GSI5SK"],
+          remove: ["GSI8PK", "GSI8SK"],
           now: nowTs,
         }),
       },
@@ -263,19 +263,19 @@ export interface ApplyFileScanTimeoutInput {
   documentId: string;
   seq: number;
   fileId: string;
-  /** The exact GSI5 pointer the reconciliation scan observed (D-163 round4 §3) - the
+  /** The exact GSI8 pointer the reconciliation scan observed (D-163 round4 §3) - the
    * transaction below conditions on it verbatim, so a candidate whose deadline changed or
    * that already reached a terminal state between the scan and this write is naturally
    * skipped (ConditionalCheckFailed -> IGNORED_STALE) rather than double-processed. */
-  observedGsi5Pointer: { GSI5PK: string; GSI5SK: string };
+  observedGsi8Pointer: { GSI8PK: string; GSI8SK: string };
 }
 
 /**
  * applyFileScanTimeout - the reconciliation worker's terminal transition
  * (PENDING_UPLOAD/SCANNING -> TIMEOUT), symmetric to applyFileScanResult's REJECT branch but
  * reached by deadline rather than by a physical S3/GuardDuty event. Deliberately reuses the
- * exact same counter/GSI5-removal mechanism (buildVersionedUpdate, no new pattern) - the only
- * new ingredient is conditioning on the observed GSI5 pointer itself, which a physical-event
+ * exact same counter/GSI8-removal mechanism (buildVersionedUpdate, no new pattern) - the only
+ * new ingredient is conditioning on the observed GSI8 pointer itself, which a physical-event
  * caller never needs (it always re-reads the file fresh and checks scanStatus, never a stale
  * discovery pointer).
  */
@@ -300,15 +300,15 @@ export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input:
           tenantId: input.tenantId,
           expectedVersion: file.version,
           set: { scanStatus: "TIMEOUT" },
-          remove: ["GSI5PK", "GSI5SK"],
+          remove: ["GSI8PK", "GSI8SK"],
           // Exact-pointer fence (round4-claude-final.md §3): closes the race where the
           // candidate this scan observed already advanced (new deadline, or terminal) by the
           // time this write lands - never conditioned on `file.version` alone, since a
           // concurrent SCANNING->TIMEOUT-eligible re-write could bump version without changing
           // eligibility in a way the scan already accounted for.
           extraConditions: [
-            { expression: "#gsi5pk = :gsi5pk", names: { "#gsi5pk": "GSI5PK" }, values: { ":gsi5pk": input.observedGsi5Pointer.GSI5PK } },
-            { expression: "#gsi5sk = :gsi5sk", names: { "#gsi5sk": "GSI5SK" }, values: { ":gsi5sk": input.observedGsi5Pointer.GSI5SK } },
+            { expression: "#gsi8pk = :gsi8pk", names: { "#gsi8pk": "GSI8PK" }, values: { ":gsi8pk": input.observedGsi8Pointer.GSI8PK } },
+            { expression: "#gsi8sk = :gsi8sk", names: { "#gsi8sk": "GSI8SK" }, values: { ":gsi8sk": input.observedGsi8Pointer.GSI8SK } },
           ],
           now: nowTs,
         }),

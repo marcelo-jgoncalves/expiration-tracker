@@ -39,8 +39,9 @@ export type GlobalIndexOperation = "Query";
  * "document-purge" (W3-06/D-061 — the fourth GSI6 consumer, acknowledged explicitly in
  * `docs/architecture/reviews/w3-06-user-document-purge-design/`), "membership-purge" (D-179/D-180
  * — the first of the 9 GSI8/MaintenanceDueIndex consumers named by the approved design), and
- * "invitation-purge" (D-179/D-181, slice 2 of 9); each future worker that migrates joins this
- * list explicitly, never a silent widening. */
+ * "invitation-purge" (D-179/D-181, slice 2 of 9), and "document-file-reconciliation" (D-179
+ * slice 3, 3rd of 9); each future worker that migrates joins this list explicitly, never a
+ * silent widening. */
 export type GlobalIndexComponent =
   | "reminder-producer"
   | "reminder-reconciliation"
@@ -48,7 +49,8 @@ export type GlobalIndexComponent =
   | "upload-slot-reconciliation"
   | "document-purge"
   | "membership-purge"
-  | "invitation-purge";
+  | "invitation-purge"
+  | "document-file-reconciliation";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

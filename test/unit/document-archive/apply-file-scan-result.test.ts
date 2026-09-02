@@ -110,9 +110,9 @@ describe("applyFileScanResult — D-163 §1/§5 symmetric evidence correlation +
     expect(outcome).toEqual({ outcome: "IGNORED_WRONG_VERSION" });
   });
 
-  it("REJECT on THREATS_FOUND: decrements pendingFileScans, increments infectedFileScans, removes GSI5 pointer, emits FILE_REJECTED_INFECTED", async () => {
+  it("REJECT on THREATS_FOUND: decrements pendingFileScans, increments infectedFileScans, removes GSI8 pointer, emits FILE_REJECTED_INFECTED", async () => {
     const observed = { ...PLACEHOLDER, versionId: "real-v1" };
-    const store = seededStore([baseFile({ scanStatus: "SCANNING", quarantineObject: observed, GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "x#FILE#file1" }), baseVersion()]);
+    const store = seededStore([baseFile({ scanStatus: "SCANNING", quarantineObject: observed, GSI8PK: "WORK#DOCUMENT_FILE_RECONCILIATION", GSI8SK: "2026-09-01T00:00:00.000Z#TENANT#t1#file1" }), baseVersion()]);
     const outcome = await applyFileScanResult(
       { store, tableName: TABLE, ids: ids() },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedObject: observed, malwareEvidence: { object: observed, status: "THREATS_FOUND", scanResultId: "s1", observedAt: "2026-09-01T00:02:00.000Z" } },
@@ -120,8 +120,8 @@ describe("applyFileScanResult — D-163 §1/§5 symmetric evidence correlation +
     expect(outcome).toEqual({ outcome: "REJECTED", status: "REJECTED" });
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("REJECTED");
-    expect(file.GSI5PK).toBeUndefined();
-    expect(file.GSI5SK).toBeUndefined();
+    expect(file.GSI8PK).toBeUndefined();
+    expect(file.GSI8SK).toBeUndefined();
     const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
     expect(version.pendingFileScans).toBe(0);
     expect(version.infectedFileScans).toBe(1);
@@ -177,9 +177,9 @@ describe("applyFileScanResult — D-163 §1/§5 symmetric evidence correlation +
 });
 
 describe("confirmFileScanClean — PROMOTE confirmation step, called only after the caller's own copy+verify", () => {
-  it("confirms CLEAN, sets cleanObject, removes GSI5 pointer, decrements pendingFileScans", async () => {
+  it("confirms CLEAN, sets cleanObject, removes GSI8 pointer, decrements pendingFileScans", async () => {
     const observed = { ...PLACEHOLDER, versionId: "real-v1" };
-    const store = seededStore([baseFile({ scanStatus: "SCANNING", quarantineObject: observed, GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "x#FILE#file1" }), baseVersion()]);
+    const store = seededStore([baseFile({ scanStatus: "SCANNING", quarantineObject: observed, GSI8PK: "WORK#DOCUMENT_FILE_RECONCILIATION", GSI8SK: "2026-09-01T00:00:00.000Z#TENANT#t1#file1" }), baseVersion()]);
     const outcome = await confirmFileScanClean(
       { store, tableName: TABLE, ids: ids() },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, cleanObject: { bucket: "clean-bucket", key: "clean/file1", versionId: "c1" } },
@@ -188,8 +188,8 @@ describe("confirmFileScanClean — PROMOTE confirmation step, called only after 
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("CLEAN");
     expect(file.cleanObject).toEqual({ bucket: "clean-bucket", key: "clean/file1", versionId: "c1" });
-    expect(file.GSI5PK).toBeUndefined();
-    expect(file.GSI5SK).toBeUndefined();
+    expect(file.GSI8PK).toBeUndefined();
+    expect(file.GSI8SK).toBeUndefined();
     const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
     expect(version.pendingFileScans).toBe(0);
   });
@@ -209,57 +209,57 @@ describe("confirmFileScanClean — PROMOTE confirmation step, called only after 
 });
 
 describe("applyFileScanTimeout — D-163 §6/round4-claude-final.md §3, reconciliation worker's terminal transition", () => {
-  const GSI5_PTR = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-09-01T00:10:00.000Z#FILE#file1" };
+  const GSI8_PTR = { GSI8PK: "WORK#DOCUMENT_FILE_RECONCILIATION", GSI8SK: "2026-09-01T00:10:00.000Z#TENANT#t1#file1" };
 
-  it("times out an overdue file: sets scanStatus=TIMEOUT, removes the GSI5 pointer, decrements pendingFileScans", async () => {
-    const store = seededStore([baseFile({ scanStatus: "SCANNING", ...GSI5_PTR }), baseVersion()]);
+  it("times out an overdue file: sets scanStatus=TIMEOUT, removes the GSI8 pointer, decrements pendingFileScans", async () => {
+    const store = seededStore([baseFile({ scanStatus: "SCANNING", ...GSI8_PTR }), baseVersion()]);
     const outcome = await applyFileScanTimeout(
       { store, tableName: TABLE, ids: ids() },
-      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi8Pointer: GSI8_PTR },
     );
     expect(outcome).toBe("TIMED_OUT");
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("TIMEOUT");
-    expect(file.GSI5PK).toBeUndefined();
-    expect(file.GSI5SK).toBeUndefined();
+    expect(file.GSI8PK).toBeUndefined();
+    expect(file.GSI8SK).toBeUndefined();
     const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
     expect(version.pendingFileScans).toBe(0);
   });
 
-  it("skips a candidate whose GSI5 pointer no longer matches what the scan observed (deadline changed, or already terminal) - never double-processed", async () => {
-    // File already moved to CLEAN (with GSI5 pointer removed) between the scan and this call -
+  it("skips a candidate whose GSI8 pointer no longer matches what the scan observed (deadline changed, or already terminal) - never double-processed", async () => {
+    // File already moved to CLEAN (with GSI8 pointer removed) between the scan and this call -
     // same mutation the exact-pointer condition is supposed to catch even if the caller had
     // observed the STALE candidate's old pointer value.
     const store = seededStore([baseFile({ scanStatus: "CLEAN", cleanObject: { bucket: "clean-bucket", key: "clean/file1", versionId: "c1" } }), baseVersion({ pendingFileScans: 0 })]);
     const outcome = await applyFileScanTimeout(
       { store, tableName: TABLE, ids: ids() },
-      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi8Pointer: GSI8_PTR },
     );
     expect(outcome).toBe("IGNORED_STALE");
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("CLEAN"); // never reopened toward TIMEOUT.
   });
 
-  it("skips a candidate whose GSI5 pointer changed (new deadline written concurrently) even though scanStatus is still non-terminal - the exact-pointer condition, not just scanStatus, closes this race", async () => {
-    const currentPointer = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-09-01T00:20:00.000Z#FILE#file1" };
+  it("skips a candidate whose GSI8 pointer changed (new deadline written concurrently) even though scanStatus is still non-terminal - the exact-pointer condition, not just scanStatus, closes this race", async () => {
+    const currentPointer = { GSI8PK: "WORK#DOCUMENT_FILE_RECONCILIATION", GSI8SK: "2026-09-01T00:20:00.000Z#TENANT#t1#file1" };
     const store = seededStore([baseFile({ scanStatus: "SCANNING", ...currentPointer }), baseVersion()]);
     // The scan observed the OLD pointer (a stale candidate from a previous page/attempt) - the
     // transaction's extraConditions must fail even though scanStatus alone would still allow it.
     const outcome = await applyFileScanTimeout(
       { store, tableName: TABLE, ids: ids() },
-      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi8Pointer: GSI8_PTR },
     );
     expect(outcome).toBe("IGNORED_STALE");
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("SCANNING"); // untouched - the concurrent pointer update wins.
-    expect(file.GSI5SK).toBe(currentPointer.GSI5SK);
+    expect(file.GSI8SK).toBe(currentPointer.GSI8SK);
   });
 
-  it("is idempotent against a file already terminal by the time it's processed (no GSI5 pointer at all)", async () => {
+  it("is idempotent against a file already terminal by the time it's processed (no GSI8 pointer at all)", async () => {
     const store = seededStore([baseFile({ scanStatus: "REJECTED" }), baseVersion({ pendingFileScans: 0, infectedFileScans: 1 })]);
     const outcome = await applyFileScanTimeout(
       { store, tableName: TABLE, ids: ids() },
-      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi8Pointer: GSI8_PTR },
     );
     expect(outcome).toBe("IGNORED_STALE");
   });

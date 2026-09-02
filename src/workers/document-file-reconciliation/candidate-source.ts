@@ -1,45 +1,48 @@
 /**
- * Narrow port for the DocumentFileReconciliationWorker (D-163/D-166, generalizing M6's
- * `UploadSlotReconciliationWorker` — `upload-slot-reconciliation/reconciliation.ts` — from a
- * single-file GSI6 sweep to DocumentFile's sparse GSI5 namespace,
- * `TENANT#<t>#DOCFILE-RECON#{PENDING_UPLOAD,SCANNING}`, D-163 §6/round4-claude-final.md §3).
+ * Narrow port for the DocumentFileReconciliationWorker (D-163/D-166, migrated to GSI8 by D-179
+ * slice 3 — 3rd of 9 workers, mirroring `membership-purge`/`invitation-purge`'s own migrations).
  *
- * Deliberately a base-table `Scan` filtered by `entityType`/`scanStatus`/`attribute_exists(
- * GSI5PK)`, NOT a `Query` against GSI5 directly — same accepted cost tradeoff already
- * documented by `core-user-data-purge`/`security-audit-purge`/`quota-telemetry-purge`'s
- * candidate sources: unlike GSI6 (whose reconciliation/purge namespaces are deliberately
- * GLOBAL, not tenant-prefixed, so `UploadSlotReconciliationWorker` can `Query` them directly),
- * `DocumentFile`'s GSI5 pointer is tenant-scoped (`TENANT#<t>#DOCFILE-RECON#<status>`, matching
- * every other GSI5 namespace this module already owns — review queue, version lookup). A single
- * cross-tenant `Query` is therefore not possible without a tenant-enumeration port this module
- * has never needed (`document-archive-store.ts`'s `scanSatisfiedRequirements`/`scanActiveSeries`
- * accept the exact same tradeoff for the same structural reason). The exact GSI5PK/GSI5SK pair
- * observed here is still what closes the real race (see `apply-file-scan-result.ts`'s
- * `applyFileScanTimeout`) — this Scan is only ever a discovery mechanism, never itself a source
- * of truth for eligibility.
+ * Replaces the base-table `Scan` filtered by `attribute_exists(GSI5PK)` this worker used through
+ * D-166 with a `Query` against GSI8 (`GSI8PK=WORK#DOCUMENT_FILE_RECONCILIATION`,
+ * `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<fileId>`, `KEYS_ONLY`). That Scan was discovered, on
+ * re-reading the write path before this migration, to have never had a real writer
+ * (`reserveFiles()` never called `fileReconciliationGsi5Keys()`) — this worker could never find a
+ * real candidate in production. GSI8 is a clean replacement, not a second mechanism.
+ *
+ * Unlike `membership-purge`/`invitation-purge`, this worker has no tenant-ACTIVE fence and no
+ * poison-record/backoff/DLQ mechanism (D-166's own file header: "a stuck upload is not a
+ * retention decision, it never depended on tenant ACTIVE status") — every non-terminal
+ * `DocumentFile` is either promoted/rejected by a real physical event or eventually times out,
+ * unconditionally, once its deadline passes. GSI8 is discovery-only here too, but the actual
+ * claim/revalidation already lives inside `applyFileScanTimeout()` (its own fresh `store.get()` +
+ * OCC retry loop + exact-pointer `ConditionCheck`) — this port therefore only needs `queryDue()`,
+ * never a separate `getFile()`/`transactWrite()` pair: composing with that existing transactional
+ * fence, not duplicating it, is the whole point of this slice.
+ *
+ * GSI8 has no per-status partition (unlike the old per-status GSI5 namespace), so the two
+ * independent bounded scans D-166 ran (one per `PENDING_UPLOAD`/`SCANNING`) collapse into a
+ * single due-ordered `Query` covering both statuses at once — a real simplification GSI8 enables,
+ * not just a mechanical swap.
  */
 import type { EntityKey } from "../../shared/dynamodb/occ.js";
-import type { DocumentFileScanStatus } from "../../modules/document-archive/domain/document-file.js";
 
-export interface DocumentFileReconciliationCandidate extends EntityKey {
-  entityType: "DocumentFile";
+export interface DocumentFileGsi8Candidate extends EntityKey {
+  dueAtIso: string;
   tenantId: string;
   documentId: string;
   seq: number;
   fileId: string;
-  scanStatus: Extract<DocumentFileScanStatus, "PENDING_UPLOAD" | "SCANNING">;
-  GSI5PK: string;
-  GSI5SK: string;
 }
 
-export interface DocumentFileReconciliationScanPage {
-  items: DocumentFileReconciliationCandidate[];
+export interface DocumentFileGsi8Page {
+  items: DocumentFileGsi8Candidate[];
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface DocumentFileReconciliationCandidateSource {
-  /** `Scan` with `FilterExpression: entityType = :documentFile AND scanStatus = :status AND
-   * attribute_exists(GSI5PK)` — one independent bounded scan per non-terminal status, per D-163
-   * §6/round4 §3 ("two independent bounded scans, one per status" — never merged into one). */
-  scanCandidates(status: Extract<DocumentFileScanStatus, "PENDING_UPLOAD" | "SCANNING">, exclusiveStartKey?: Record<string, unknown>): Promise<DocumentFileReconciliationScanPage>;
+  /** `Query GSI8PK = "WORK#DOCUMENT_FILE_RECONCILIATION" AND GSI8SK < :before`, ordered by due
+   * date. `documentId`/`seq`/`fileId` are parsed from the base table's own `PK`/`SK`
+   * (`documentFileKey()`'s shape), never re-derived from `GSI8SK` — `KEYS_ONLY` already returns
+   * them for free. */
+  queryDue(input: { before: string; exclusiveStartKey?: Record<string, unknown> }): Promise<DocumentFileGsi8Page>;
 }

@@ -41,7 +41,10 @@ import {
 } from "../domain/document-type.js";
 import {
   assertExactlyOnePrincipal,
+  documentFileGsi8Keys,
   documentFileKey,
+  deriveDocumentFileMaintenanceDue,
+  FILE_SCAN_TIMEOUT_SECONDS,
   MAX_FILES_PER_VERSION,
   type DocumentFile,
   type FileUploadSpec,
@@ -106,7 +109,11 @@ export interface ReservedFile {
   requiredHeaders: Record<string, string>;
 }
 
-const PRESIGN_TTL_SECONDS = 600; // 10 minutes — same TTL M6's document-service.ts uses.
+// 10 minutes — same TTL M6's document-service.ts uses. Reuses domain's FILE_SCAN_TIMEOUT_SECONDS
+// rather than a second constant (D-179 slice 3): the presign window and the scan-timeout deadline
+// are deliberately the same window, so reserveFiles()'s GSI8 pointer and the presign expiry never
+// drift apart.
+const PRESIGN_TTL_SECONDS = FILE_SCAN_TIMEOUT_SECONDS;
 
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
@@ -283,6 +290,12 @@ export class DocumentArchiveService {
     if (!principalSpec) throw new ValidationError("Exactly one PRINCIPAL is required.", { documentId, seq });
     const documentFiles: DocumentFile[] = files.map((spec) => {
       const fileId = this.ids.newFileId();
+      // D-179 slice 3: the scan-timeout deadline is fully known right here (createdAt=now, the
+      // file starts PENDING_UPLOAD), so the GSI8 MaintenanceDueIndex pointer is stamped in this
+      // same Put — same "write the pointer at the real transition, and creation IS that
+      // transition when the due date needs no later event" reasoning invitationGsi8Keys() uses
+      // for a PENDING Invitation.
+      const due = deriveDocumentFileMaintenanceDue({ scanStatus: "PENDING_UPLOAD", createdAt: now })!;
       return {
         ...documentFileKey(tenantId, documentId, seq, fileId),
         entityType: "DocumentFile",
@@ -303,6 +316,7 @@ export class DocumentArchiveService {
         createdAt: now,
         updatedAt: now,
         version: 1,
+        ...documentFileGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, fileId }),
       };
     });
     const principalFileId = documentFiles.find((f) => f.role === "PRINCIPAL")!.fileId;

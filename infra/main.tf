@@ -964,6 +964,7 @@ module "security_audit_observability" {
     module.upload_slot_reconciliation_handler.function_name,
     module.membership_purge_handler.function_name,
     module.invitation_purge_handler.function_name,
+    module.document_file_reconciliation_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -1428,13 +1429,16 @@ resource "aws_scheduler_schedule" "upload_slot_reconciliation" {
   }
 }
 
-# --- DocumentFileReconciliationWorker: EventBridge Scheduler, every 15 minutes (D-163 §6/D-166) --
-# Generalizes UploadSlotReconciliationWorker above from a single-file GSI6 sweep to DocumentFile's
-# sparse GSI5 namespace (TENANT#<t>#DOCFILE-RECON#{PENDING_UPLOAD,SCANNING}) - a base-table `Scan`
-# filtered by entityType/scanStatus, never a GSI6/GSI3 consumer (candidate-source.ts's doc
-# comment explains why this can't be a Query the way GSI6's global namespace allows), so it only
-# needs the same tenant-facing read/write policy requirement-reindex-handler already uses for its
-# own cross-tenant Scan - no new IAM boundary, no new gsi*_read_policy_json grant.
+# --- DocumentFileReconciliationWorker: EventBridge Scheduler, every 15 minutes (D-163 §6, GSI8- --
+# migrated by D-179 slice 3, 3rd of 9). Previously a base-table `Scan` filtered by
+# entityType/scanStatus/attribute_exists(GSI5PK) - discovered, on re-reading the write path
+# before this migration, to have never had a real writer (reserveFiles() never called
+# fileReconciliationGsi5Keys()), so that Scan could never find a real candidate in production.
+# Now a real `Query` against GSI8 (`GSI8PK=WORK#DOCUMENT_FILE_RECONCILIATION`), scoped via
+# `dynamodb:LeadingKeys` same as membership_purge/invitation_purge. Also gains
+# dynamodb:TransactWriteItems - applyFileScanTimeout() (apply-file-scan-result.ts) already issued
+# a real TransactWriteCommand today, an action gap the general tenant-facing policy never covered
+# (same gap D-179/D-180 found and closed for membership_purge_handler).
 module "document_file_reconciliation_handler" {
   source = "./modules/lambda-function"
 
@@ -1443,8 +1447,12 @@ module "document_file_reconciliation_handler" {
   source_dir            = "${local.dist_dir}/document-file-reconciliation-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["document_file_reconciliation"],
+    module.table.worker_transact_write_policy_json["document_file_reconciliation"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "document_file_reconciliation_schedule" {
