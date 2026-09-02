@@ -37,16 +37,32 @@ output "gsi6_read_policy_json" {
   value = data.aws_iam_policy_document.gsi6_read.json
 }
 
+# GSI8 (MaintenanceDueIndex, D-179/D-180) - one policy per worker key in `local.gsi8_worker_types`
+# (`main.tf`). Attach `gsi8_read_policy_json[<key>]` AND `worker_transact_write_policy_json[<key>]`
+# together - the claim/revalidation transaction needs both the Query to discover candidates and
+# TransactWriteItems to act on them atomically. No other caller may attach these.
+output "gsi8_read_policy_json" {
+  value = { for k, v in data.aws_iam_policy_document.gsi8_read : k => v.json }
+}
+
+output "worker_transact_write_policy_json" {
+  value = { for k, v in data.aws_iam_policy_document.worker_transact_write : k => v.json }
+}
+
 # Passthrough for root-level acceptance-test assertions (module internals aren't
 # addressable from a caller's .tftest.hcl). Literal values, not read off
 # aws_dynamodb_table.this.global_secondary_index - that computed attribute is only known
 # after apply for a not-yet-created table, which would make plan-mode `terraform test`
-# assertions on it fail with "Unknown condition value". The GSI set (GSI1-GSI7, GSI3
+# assertions on it fail with "Unknown condition value". The GSI set (GSI1-GSI8, GSI3/GSI8
 # KEYS_ONLY) is hardcoded in main.tf, not variable-driven, so literals here are exact.
 output "gsi_count" {
-  value = 7
+  value = 8
 }
 
 output "gsi3_projection_type" {
+  value = "KEYS_ONLY"
+}
+
+output "gsi8_projection_type" {
   value = "KEYS_ONLY"
 }

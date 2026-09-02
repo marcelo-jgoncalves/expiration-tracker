@@ -962,6 +962,7 @@ module "security_audit_observability" {
     module.outbox_sweeper.function_name,
     module.document_purge_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
+    module.membership_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3433,8 +3434,11 @@ resource "aws_scheduler_schedule" "transient_purge" {
 # comment. D-155 implemented Invitation only; D-158 added Membership.removedAt, unblocking this
 # worker. Channel (the 3rd entity named by the design doc's Prioridade 5 row) remains NOT
 # implemented - no persisted Channel entity exists, see decisions-log D-155/D-158 for the full
-# investigation. No dedicated IAM policy beyond the general tenant-facing grant, same reasoning as
-# invitation_purge_handler above.
+# investigation. D-179/D-180 (MaintenanceDueIndex pilot slice): this is the FIRST of the 9 workers
+# named by the approved design to migrate off Scan+Limit onto GSI8 - gsi8_read_policy_json and
+# worker_transact_write_policy_json are both keyed "membership_purge" (main.tf's
+# gsi8_worker_types), scoped via dynamodb:LeadingKeys to exactly WORK#MEMBERSHIP_PURGE/
+# DLQ#MEMBERSHIP_PURGE, never a general GSI8 grant.
 module "membership_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3444,8 +3448,12 @@ module "membership_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["membership_purge"],
+    module.table.worker_transact_write_policy_json["membership_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "membership_purge_schedule" {

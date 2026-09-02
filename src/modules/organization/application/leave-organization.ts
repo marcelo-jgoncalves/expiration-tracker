@@ -16,7 +16,7 @@
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { LastOwnerError, NotFoundError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
-import { membershipKey, type Membership } from "../domain/membership.js";
+import { deriveMembershipMaintenanceDue, membershipGsi8Keys, membershipKey, type Membership } from "../domain/membership.js";
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
@@ -49,15 +49,27 @@ export class LeaveOrganizationService {
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);
 
     const now = this.now();
+    // D-179/D-180: same atomic-pointer-at-transition discipline as remove-membership.ts — see
+    // that file's comment for the full rationale.
+    const due = deriveMembershipMaintenanceDue({ status: "REMOVED", removedAt: now })!;
+    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: ctx.tenant.tenantId, membershipId: target.membershipId });
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
           Key: membershipKey(ctx.tenant.tenantId, ctx.principal.userId),
-          UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one",
+          UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":removed": "REMOVED", ":active": "ACTIVE", ":now": now, ":one": 1, ":expectedVersion": target.version },
+          ExpressionAttributeValues: {
+            ":removed": "REMOVED",
+            ":active": "ACTIVE",
+            ":now": now,
+            ":one": 1,
+            ":expectedVersion": target.version,
+            ":gsi8pk": gsi8Keys.GSI8PK,
+            ":gsi8sk": gsi8Keys.GSI8SK,
+          },
         },
       },
     ];

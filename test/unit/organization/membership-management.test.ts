@@ -198,6 +198,24 @@ describe("RemoveMembershipService", () => {
     expect(removed?.removedAt).toBe("2026-06-15T10:00:00.000Z");
   });
 
+  // D-179/D-180: the GSI8 (MaintenanceDueIndex) pointer must land ATOMICALLY in the same
+  // transaction as the REMOVED transition, never a separate write - this is what lets
+  // membership-purge's worker discover the candidate via Query instead of a full Scan. Mutação:
+  // dropping the GSI8PK/GSI8SK SET clause (or computing it from the wrong removedAt) would leave
+  // this undetected/mismatched.
+  it("writes the GSI8 MaintenanceDueIndex pointer atomically when soft-removing a member", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+
+    await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
+    const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(removed?.GSI8PK).toBe("WORK#MEMBERSHIP_PURGE");
+    expect(removed?.GSI8SK).toBe(`2026-07-15T10:00:00.000Z#TENANT#org-1#membership-user-member`);
+  });
+
   // Mutação: uma condição frouxa que ainda assim marca removedAt num write que não deveria ter
   // acontecido (ex. ignorar expectedVersion) deixaria isto detectável só por este teste - uma
   // remoção que falha por versão desatualizada não deve deixar nenhum rastro no registro.
@@ -288,6 +306,20 @@ describe("LeaveOrganizationService", () => {
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
     expect(membership?.removedAt).toBe("2026-06-15T10:00:00.000Z");
+  });
+
+  // D-179/D-180 - same atomic-pointer invariant as RemoveMembershipService's own test above.
+  it("writes the GSI8 MaintenanceDueIndex pointer atomically when a member leaves voluntarily", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+
+    await service.leave(ctx("user-member", ["MEMBER"]));
+    const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(membership?.GSI8PK).toBe("WORK#MEMBERSHIP_PURGE");
+    expect(membership?.GSI8SK).toBe(`2026-07-15T10:00:00.000Z#TENANT#org-1#membership-user-member`);
   });
 
   // D-122/D-125. Mutação: mesma classe do teste equivalente em RemoveMembershipService - remover

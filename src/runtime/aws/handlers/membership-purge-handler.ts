@@ -4,7 +4,7 @@
  * `event.detail`" contract as the other purge handlers. Wired to real infra (Lambda resource +
  * EventBridge Scheduler schedule + IAM) in `infra/main.tf`. */
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
-import { DynamoDbMembershipPurgeCandidateSource, DynamoDbTenantLifecycleStatusSource } from "../../../workers/membership-purge/dynamodb-candidate-source.js";
+import { DynamoDbMembershipPurgeCandidateSource } from "../../../workers/membership-purge/dynamodb-candidate-source.js";
 import { runMembershipPurge } from "../../../workers/membership-purge/purge.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
@@ -13,7 +13,6 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const candidates = new DynamoDbMembershipPurgeCandidateSource(client, tableName);
-const lifecycle = new DynamoDbTenantLifecycleStatusSource(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "membership-purge" } });
 
 export interface MembershipPurgeEvent {
@@ -28,6 +27,6 @@ export async function handler(event: MembershipPurgeEvent): Promise<void> {
 }
 
 async function handlePurge(event: MembershipPurgeEvent): Promise<void> {
-  const result = await runMembershipPurge({ candidates, lifecycle, tableName: tableName as string, now: () => new Date().toISOString() });
+  const result = await runMembershipPurge({ candidates, tableName: tableName as string, now: () => new Date().toISOString() });
   logger.info("membership-purge complete", { scheduledTime: event.scheduledTime, ...result });
 }

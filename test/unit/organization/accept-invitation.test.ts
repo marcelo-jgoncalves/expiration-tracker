@@ -176,6 +176,10 @@ describe("AcceptInvitationService", () => {
       version: 3,
       GSI4PK: "USER#user-returning",
       GSI4SK: "ORG#org-1#MEMBERSHIP#membership-returning",
+      // D-179/D-180: a stale MaintenanceDueIndex pointer from the earlier removal - must be
+      // cleared atomically alongside removedAt, never left to reappear as a false candidate.
+      GSI8PK: "WORK#MEMBERSHIP_PURGE",
+      GSI8SK: "2026-03-31T00:00:00.000Z#TENANT#org-1#membership-returning",
     } satisfies Membership);
     const { token } = await issueInvite(store, "returning@example.com", "MEMBER");
     const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
@@ -185,6 +189,8 @@ describe("AcceptInvitationService", () => {
     const membership = await store.get<Membership>(membershipKey("org-1", "user-returning"));
     expect(membership?.status).toBe("ACTIVE");
     expect(membership?.removedAt).toBeUndefined();
+    expect(membership?.GSI8PK).toBeUndefined();
+    expect(membership?.GSI8SK).toBeUndefined();
   });
 
   // Mutação: remover a verificação estrutural do formato do token (`parseInvitationToken`)

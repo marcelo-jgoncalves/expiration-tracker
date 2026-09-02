@@ -20,7 +20,7 @@ import { authorize } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { LastOwnerError, NotFoundError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
-import { membershipKey, type Membership } from "../domain/membership.js";
+import { deriveMembershipMaintenanceDue, membershipGsi8Keys, membershipKey, type Membership } from "../domain/membership.js";
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
@@ -56,15 +56,30 @@ export class RemoveMembershipService {
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);
 
     const now = this.now();
+    // D-179/D-180: the GSI8 pointer is written in the SAME Update as the REMOVED transition
+    // itself (same item, same TransactWriteItems) — never a separate write, so there is no
+    // window where a Membership is REMOVED without a discoverable maintenance-due pointer.
+    // `deriveMembershipMaintenanceDue()` always returns a value here (status is REMOVED, removedAt
+    // is `now`) — the `undefined` branch only applies to a Membership NOT being removed.
+    const due = deriveMembershipMaintenanceDue({ status: "REMOVED", removedAt: now })!;
+    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: ctx.tenant.tenantId, membershipId: target.membershipId });
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
           Key: membershipKey(ctx.tenant.tenantId, targetUserId),
-          UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one",
+          UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":removed": "REMOVED", ":active": "ACTIVE", ":now": now, ":one": 1, ":expectedVersion": expectedVersion },
+          ExpressionAttributeValues: {
+            ":removed": "REMOVED",
+            ":active": "ACTIVE",
+            ":now": now,
+            ":one": 1,
+            ":expectedVersion": expectedVersion,
+            ":gsi8pk": gsi8Keys.GSI8PK,
+            ":gsi8sk": gsi8Keys.GSI8SK,
+          },
         },
       },
     ];

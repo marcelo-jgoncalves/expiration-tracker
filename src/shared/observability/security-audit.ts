@@ -28,22 +28,25 @@ import { logger } from "./logger.js";
 // have the closed-union values (AuthorizationDeniedError#reason/#action) and pass them through
 // unchanged - the type safety lives at the call site, not by this module importing domain types.
 
-export type GlobalIndexName = "GSI3" | "GSI6";
+export type GlobalIndexName = "GSI3" | "GSI6" | "GSI8";
 
 export type GlobalIndexOperation = "Query";
 
-/** Closed set of components that legitimately query GSI3/GSI6 - the original 3 privileged
+/** Closed set of components that legitimately query GSI3/GSI6/GSI8 - the original 3 privileged
  * roles proven IAM-isolated (docs/architecture/reviews/camada3-iam-negative-test-2026-08-21.md)
  * plus "upload-slot-reconciliation" (M6 design — a real structural change to what used to be a
- * closed set of exactly 2 GSI6 consumers, acknowledged explicitly, not silently expanded) and
+ * closed set of exactly 2 GSI6 consumers, acknowledged explicitly, not silently expanded),
  * "document-purge" (W3-06/D-061 — the fourth GSI6 consumer, acknowledged explicitly in
- * `docs/architecture/reviews/w3-06-user-document-purge-design/`). */
+ * `docs/architecture/reviews/w3-06-user-document-purge-design/`), and "membership-purge"
+ * (D-179/D-180 — the first of the 9 GSI8/MaintenanceDueIndex consumers named by the approved
+ * design; each future worker that migrates joins this list explicitly, never a silent widening). */
 export type GlobalIndexComponent =
   | "reminder-producer"
   | "reminder-reconciliation"
   | "outbox-sweeper-reminder-dispatch"
   | "upload-slot-reconciliation"
-  | "document-purge";
+  | "document-purge"
+  | "membership-purge";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

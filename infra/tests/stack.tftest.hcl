@@ -460,8 +460,68 @@ run "gsi3_has_keys_only_projection" {
   }
 
   assert {
-    condition     = module.table.gsi_count == 7
-    error_message = "Table must have exactly 7 GSIs"
+    condition     = module.table.gsi_count == 8
+    error_message = "Table must have exactly 8 GSIs"
+  }
+
+  assert {
+    condition     = module.table.gsi8_projection_type == "KEYS_ONLY"
+    error_message = "GSI8 (MaintenanceDueIndex) must exist with KEYS_ONLY projection"
+  }
+}
+
+run "gsi8_worker_isolation" {
+  command = plan
+
+  # D-179/D-180 pilot slice - membership_purge_handler must be able to Query GSI8, scoped via
+  # dynamodb:LeadingKeys to exactly its own WORK#/DLQ# namespace pair, plus TransactWriteItems on
+  # the base table only. No other function's role may reference GSI8 at all (round-1 finding of
+  # the approved design, corrected: "por índice não é por worker" - isolation is per-worker, not
+  # a single blanket "read GSI8" grant every consumer shares).
+  assert {
+    condition     = anytrue([for p in module.membership_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "MembershipPurgeWorker must have a policy referencing GSI8"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.membership_purge_handler.capability_policy_documents : strcontains(p, "WORK#MEMBERSHIP_PURGE") && strcontains(p, "DLQ#MEMBERSHIP_PURGE")])
+    error_message = "MembershipPurgeWorker's GSI8 policy must condition dynamodb:LeadingKeys on exactly its own WORK#/DLQ# namespace pair"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.membership_purge_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "MembershipPurgeWorker must have dynamodb:TransactWriteItems - the atomic claim/revalidation action the approved design added as a real gap in the general policy"
+  }
+
+  # TransactWriteItems is granted on the base table only, never on any GSI resource - it always
+  # targets base-table items (ConditionCheck/Update/Delete), never a GSI directly.
+  assert {
+    condition = !anytrue([
+      for p in module.membership_purge_handler.capability_policy_documents :
+      strcontains(p, "dynamodb:TransactWriteItems") && (strcontains(p, "/index/GSI3") || strcontains(p, "/index/GSI4") || strcontains(p, "/index/GSI6") || strcontains(p, "/index/GSI8"))
+    ])
+    error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
+  }
+
+  # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
+  assert {
+    condition     = !anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "InvitationPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179/D-180 pilot is membership-purge only)"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.transient_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179/D-180 pilot is membership-purge only)"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "TestPingHandler must NOT reference GSI8"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "TestPingHandler must NOT have dynamodb:TransactWriteItems"
   }
 }
 

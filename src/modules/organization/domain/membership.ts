@@ -40,6 +40,20 @@ export interface Membership extends EntityKey {
   version: number;
   GSI4PK: string;
   GSI4SK: string;
+  /** MaintenanceDueIndex pointer (D-179/D-180) — written atomically in the SAME transaction
+   * that sets status=REMOVED (never a separate write), cleared atomically on reactivation
+   * (accept-invitation.ts). Sparse: absent for any Membership that was never removed, so it
+   * never appears in a GSI8 query until there is a real due date. GSI8 is discovery-only
+   * (never a source of eligibility) — membership-purge-worker.ts revalidates the base item
+   * via deriveMembershipMaintenanceDue() before acting on any candidate this produces. */
+  GSI8PK?: string;
+  GSI8SK?: string;
+  /** Observed-on-revalidation retry counter for the GSI8 claim/revalidation transaction (D-179
+   * §8 poison-record handling) — incremented only when the atomic tenant-ACTIVE ConditionCheck
+   * fails (never recomputed speculatively), drives the capped exponential backoff of GSI8SK and
+   * the move to the DLQ#MEMBERSHIP_PURGE namespace above MAX_ATTEMPTS. Absent until the first
+   * failed claim attempt. */
+  maintenanceAttemptCount?: number;
 }
 
 export function membershipKey(organizationId: string, userId: string): { PK: string; SK: string } {
@@ -52,5 +66,49 @@ export function membershipGsi4Keys(userId: string, organizationId: string, membe
   return {
     GSI4PK: `USER#${userId}`,
     GSI4SK: `ORG#${organizationId}#MEMBERSHIP#${membershipId}`,
+  };
+}
+
+/** D-127 Prioridade 5's "encerramento + 30 dias" retention window for a REMOVED Membership row
+ * — the same clock D-155/D-158 established, now also the source of `deriveMembershipMaintenanceDue()`'s
+ * due date (D-179/D-180). */
+export const MEMBERSHIP_RETENTION_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** GSI8 (MaintenanceDueIndex, D-179) namespace this worker owns — the ONLY value any
+ * membership-purge-scoped IAM policy's `dynamodb:LeadingKeys` condition may reference
+ * (`infra/modules/dynamo-table/main.tf`), alongside the DLQ counterpart below. */
+export const MEMBERSHIP_PURGE_WORK_TYPE = "MEMBERSHIP_PURGE";
+
+export interface MaintenanceDue {
+  dueAtIso: string;
+}
+
+/**
+ * Pure `deriveMaintenanceDue()` for `Membership` (D-179 §2) — the single source of truth for
+ * "when does this row become a membership-purge candidate", reused by all 3 consumers the
+ * design names: the writer of the GSI8 pointer at the real REMOVED transition
+ * (`remove-membership.ts`/`leave-organization.ts`), the backfill script
+ * (`scripts/backfill-gsi8-membership-purge.ts`), and the worker's own revalidation step
+ * (`membership-purge/purge.ts` — GSI8 is discovery-only, NEVER a source of eligibility, so
+ * every candidate the index returns is re-derived from the base item before being acted on).
+ * `undefined` means "this row can never be a candidate in its current state" (still ACTIVE/
+ * SUSPENDED, or a pre-D-158 REMOVED row with no `removedAt`) — never "not yet due", which is
+ * instead a `dueAtIso` in the future.
+ */
+export function deriveMembershipMaintenanceDue(membership: Pick<Membership, "status" | "removedAt">): MaintenanceDue | undefined {
+  if (membership.status !== "REMOVED" || !membership.removedAt) return undefined;
+  const dueAtMs = Date.parse(membership.removedAt) + MEMBERSHIP_RETENTION_DAYS * MS_PER_DAY;
+  return { dueAtIso: new Date(dueAtMs).toISOString() };
+}
+
+/** `GSI8PK=WORK#MEMBERSHIP_PURGE` / `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<membershipId>`
+ * (D-179's exact key spec) — `tenantId` embedded in the sort key lets the worker revalidate
+ * the atomic tenant-ACTIVE `ConditionCheck` straight off a `KEYS_ONLY` Query result, without a
+ * second read just to learn which tenant a candidate belongs to. */
+export function membershipGsi8Keys(input: { dueAtIso: string; tenantId: string; membershipId: string }): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${MEMBERSHIP_PURGE_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.membershipId}`,
   };
 }
