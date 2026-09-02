@@ -472,6 +472,22 @@ export class DocumentTypeNameConflictError extends AppError {
   }
 }
 
+/** D-173 §4 (`docs/architecture/reviews/document-type-scoping/estado-final-consolidado.md`):
+ * thrown when `createDocument()`'s transactional `ConditionCheck` against
+ * `DocumentType.status = ACTIVE` fails — the referenced catalog entry is `DEPRECATED` (or does
+ * not exist). TOCTOU-safe by construction (the check runs inside the same `TransactWriteItems`
+ * as the `Document` `Put`, never a read-before-write). `retryable: false`: retrying the
+ * identical request will fail identically until the DocumentType is reactivated or a different
+ * one is referenced. Deliberately exclusive to the authenticated internal path — the guest
+ * flow's `submitEvidence()` collapses ANY transaction cancellation into a generic
+ * `GuestAccessInvalidError` and must never let this class (or any other) leak through. */
+export class DocumentTypeNotActiveError extends AppError {
+  constructor(message = "This DocumentType is not ACTIVE.", details?: Record<string, unknown>) {
+    super({ code: "DOCUMENT_TYPE_NOT_ACTIVE", category: "CONFLICT", message, retryable: false, details });
+    this.name = "DocumentTypeNotActiveError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

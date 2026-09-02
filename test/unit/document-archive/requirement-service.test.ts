@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -39,7 +39,7 @@ function makeIds(): DocumentArchiveIdGenerator {
 
 const NOW = "2026-09-01T00:00:00.000Z";
 
-function makeService(store = new InMemoryDocumentArchiveStore()) {
+function makeService(store = new InMemoryDocumentArchiveStore([seedActiveDocumentType("tenant-1", "ALVARA"), seedActiveTenantLifecycle("tenant-1")])) {
   // Requirement-focused suite doesn't assert anything about presign itself, but `acceptedVersion()`
   // now has to seal the file set via `reserveFiles()` before `commitUpload()` (fileSetSealed gate,
   // D-163 §4) — a working fake stands in, not a throwing one.

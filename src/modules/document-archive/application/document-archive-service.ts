@@ -23,7 +23,7 @@ import {
   isTransactionCanceled,
   type EntityKey,
 } from "../../../shared/dynamodb/occ.js";
-import { AuthorizationError, ConflictError, DocumentTypeNameConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AuthorizationError, ConflictError, DocumentTypeNameConflictError, DocumentTypeNotActiveError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { authorize } from "../../identity/domain/authorization.js";
@@ -144,6 +144,16 @@ export class DocumentArchiveService {
     return confirmFileScanClean({ store: this.store, tableName: this.tableName, ids: this.ids, now: this.now }, input);
   }
 
+  /**
+   * createDocument — D-173 §4: migrated off the loose `putIfAbsent` onto
+   * `executeTenantBusinessMutation` to close a TOCTOU window where the referenced DocumentType
+   * could flip to DEPRECATED between a read-before-write check and the actual `Put` — the
+   * `ConditionCheck` runs inside the SAME `TransactWriteItems`, never a separate read.
+   * `input.documentType` is not yet renamed to `documentTypeId` (that rename, plus
+   * `documentGsi2Keys()`'s key-format change, is item 4 of the design doc's "Próximo passo
+   * real", a separate slice) — it already carries the DocumentType's stable id at this call
+   * site (the HTTP schema requires it), so no new field is introduced.
+   */
   async createDocument(ctx: RequestContext, input: CreateDocumentInput): Promise<Document> {
     authorize({ context: ctx, action: "docarchive:create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
@@ -166,8 +176,26 @@ export class DocumentArchiveService {
       // both index memberships live on one physical row, no mirror item needed for this pattern.
       ...documentGsi2Keys(tenantId, input.subjectId, input.documentType, documentId),
     };
-    const created = await this.store.putIfAbsent(document);
-    if (!created) throw new ConflictError("Document already exists.", { documentId });
+
+    const entries = [
+      buildExistenceConditionCheck({
+        tableName: this.tableName,
+        key: documentTypeKey(tenantId, input.documentType),
+        extra: { status: "ACTIVE" },
+      }),
+      { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
+    ];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[0] === "ConditionalCheckFailed") throw new DocumentTypeNotActiveError("This DocumentType is not ACTIVE.", { documentType: input.documentType });
+        if (codes?.[1] === "ConditionalCheckFailed") throw new ConflictError("Document already exists.", { documentId });
+        throw new ConflictError("createDocument transaction was rejected.", { documentId });
+      }
+      throw err;
+    }
     return document;
   }
 

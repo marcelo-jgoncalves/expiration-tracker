@@ -1,4 +1,45 @@
 import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, TransactWriteEntry } from "../../../src/modules/document-archive/ports/document-archive-store.js";
+import { documentTypeKey, type DocumentType } from "../../../src/modules/document-archive/domain/document-type.js";
+import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** D-173 item 3: `createDocument()` now runs through `executeTenantBusinessMutation`, which
+ * fences on `TenantLifecycleRecord.status = ACTIVE` in the SAME store — fixtures that build
+ * their own `InMemoryDocumentArchiveStore` (rather than sharing the identity module's) need
+ * this row too, mirroring `document-type-service.test.ts`'s existing `seedTenant` pattern. */
+export function seedActiveTenantLifecycle(tenantId: string): Record<string, unknown> & EntityKey {
+  const record: TenantLifecycleRecord = {
+    ...(tenantLifecycleKey(tenantId) as { PK: string; SK: "LIFECYCLE" }),
+    entityType: "TenantLifecycleRecord",
+    tenantId,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 1,
+  };
+  return record as unknown as Record<string, unknown> & EntityKey;
+}
+
+/** D-173 item 3: `createDocument()`'s new transactional `ConditionCheck` requires a real
+ * `DocumentType` row (status ACTIVE) to exist at the id the caller's `documentType` field
+ * names. Fixtures across this suite pass a literal like "ALVARA" as that id (the rename to a
+ * real opaque `documentTypeId` is item 4, a separate slice) — this seeds one ACTIVE row per
+ * literal so existing `createDocument()` fixtures keep working unchanged. */
+export function seedActiveDocumentType(tenantId: string, documentTypeId: string): Record<string, unknown> & EntityKey {
+  const documentType: DocumentType = {
+    ...documentTypeKey(tenantId, documentTypeId),
+    entityType: "DocumentType",
+    documentTypeId,
+    tenantId,
+    displayName: documentTypeId,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 1,
+    GSI1PK: `TENANT#${tenantId}#DOCTYPESTATUS#ACTIVE`,
+    GSI1SK: `NAME#${documentTypeId.toLowerCase()}#DOCTYPE#${documentTypeId}`,
+  };
+  return documentType as unknown as Record<string, unknown> & EntityKey;
+}
 
 /**
  * In-memory fake of DocumentArchiveStore, mirroring test/unit/expiration/in-memory-store.ts's

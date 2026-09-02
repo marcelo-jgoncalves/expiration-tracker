@@ -8,7 +8,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
-import { InMemoryDocumentArchiveStore } from "../unit/document-archive/in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle } from "../unit/document-archive/in-memory-store.js";
 import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
@@ -113,6 +113,14 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const bootstrap = await bootstrapWithOrganization(identityStore, organizations, "MainTable", "sub-A");
     tenantId = bootstrap.organizationId;
     req = { requestId: "r1", correlationId: "c1", claims: claims("sub-A") };
+
+    // D-173 item 3: createDocument() now runs through executeTenantBusinessMutation, which
+    // fences on TenantLifecycleRecord.status=ACTIVE AND the ConditionCheck against a real
+    // ACTIVE DocumentType — this store is separate from identityStore's own lifecycle record
+    // (same as document-type-service.test.ts's seedTenant precedent), and every fixture below
+    // references documentType "ALVARA" as if it already names a real catalog entry.
+    await store.putIfAbsent(seedActiveTenantLifecycle(tenantId));
+    await store.putIfAbsent(seedActiveDocumentType(tenantId, "ALVARA"));
   });
 
   it("create -> reserveUpload -> commitUpload -> claimReview -> acceptVersion, all via HTTP handlers", async () => {
