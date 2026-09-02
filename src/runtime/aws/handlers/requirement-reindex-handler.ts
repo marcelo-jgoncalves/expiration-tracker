@@ -12,7 +12,9 @@ import { SecureLogger } from "../../../shared/observability/logger.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
-const { store } = buildDocumentArchiveDeps(client, tableName);
+// This handler only uses `store` (the reindex job never calls `documentArchive.reserveFiles()`)
+// — the quarantine bucket parameter is unused here.
+const { store } = buildDocumentArchiveDeps(client, tableName, "");
 const logger = new SecureLogger({ baseContext: { service: "requirement-reindex" } });
 
 export interface RequirementReindexEvent {

@@ -338,20 +338,24 @@ module "outbox_sweeper" {
   tags = { Project = local.project_name, Environment = var.environment }
 }
 
-# --- DocumentArchiveHandler: /document-archive/* (D-143 Nucleus 1) -------------------------
+# --- DocumentArchiveHandler: /document-archive/* (D-143 Nucleus 1, DocumentFile D-163) -----
 # GSI2/GSI5 access needs no dedicated policy beyond the general tenant-facing grant — both are
 # already part of `tenant_facing_read_write_policy_json` (dynamo-table module's
-# `tenant_facing_index_names`), unlike the isolated GSI3/GSI4/GSI6 family. No DocumentFile
-# persistence/malware-scan bucket access yet (Nucleus 1 scope), so this Lambda needs nothing
-# beyond the table policy — same simple shape as items_handler/subjects_handler.
+# `tenant_facing_index_names`), unlike the isolated GSI3/GSI4/GSI6 family. D-163: reuses the
+# SAME quarantine bucket M6 already provisions (`module.document_buckets`, no new bucket) —
+# `QUARANTINE_BUCKET_NAME` env var only, no S3 IAM policy yet (`reserveFiles()` only builds the
+# key string this increment; actual presign/S3 calls are deferred to the slice that wires the
+# reused `UploadUrlSigner` adapter).
 module "document_archive_handler" {
   source = "./modules/lambda-function"
 
-  function_name         = "${local.name_prefix}-document-archive-handler"
-  handler_name          = "document-archive-handler"
-  source_dir            = "${local.dist_dir}/document-archive-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
+  function_name  = "${local.name_prefix}-document-archive-handler"
+  handler_name   = "document-archive-handler"
+  source_dir     = "${local.dist_dir}/document-archive-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
+  })
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }

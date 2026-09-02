@@ -38,8 +38,10 @@ import { runWithContext } from "../../../shared/observability/context.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
+const quarantineBucket = process.env["QUARANTINE_BUCKET_NAME"];
+if (!quarantineBucket) throw new Error("QUARANTINE_BUCKET_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { documentArchive, recurrence } = buildDocumentArchiveDeps(client, tableName);
+const { documentArchive, recurrence } = buildDocumentArchiveDeps(client, tableName, quarantineBucket);
 const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {

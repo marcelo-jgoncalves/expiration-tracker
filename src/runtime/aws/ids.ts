@@ -76,6 +76,10 @@ export class UlidIdGenerator
   newDocumentRequestId(): string {
     return `docreq_${ulid()}`;
   }
+  /** D-163 (`DocumentFile`). */
+  newFileId(): string {
+    return `docfile_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

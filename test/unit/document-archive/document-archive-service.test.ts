@@ -31,11 +31,12 @@ function makeIds(): DocumentArchiveIdGenerator {
     newRequirementId: () => `req-${++n}`,
     newSeriesId: () => `series-${++n}`,
     newDocumentRequestId: () => `docreq-${++n}`,
+    newFileId: () => `file-${++n}`,
   };
 }
 
 function makeService(store = new InMemoryDocumentArchiveStore()) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
+  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", now: () => "2026-09-01T00:00:00.000Z" });
   return { service, store };
 }
 
@@ -183,5 +184,99 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   it("getDocument throws NotFoundError for an unknown document", async () => {
     const { service } = makeService();
     await expect(service.getDocument(ctx(), "missing")).rejects.toThrow(NotFoundError);
+  });
+
+  describe("reserveFiles (D-163)", () => {
+    const spec = (role: "PRINCIPAL" | "ATTACHMENT") => ({ role, mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) });
+
+    it("seals the file set and persists DocumentFile rows, exactly one PRINCIPAL", async () => {
+      const { service, store } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+
+      const files = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("ATTACHMENT")]);
+
+      expect(files).toHaveLength(2);
+      expect(files.filter((f) => f.role === "PRINCIPAL")).toHaveLength(1);
+      expect(files.every((f) => f.scanStatus === "PENDING_UPLOAD")).toBe(true);
+      const sealed = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
+      expect(sealed!.fileSetSealed).toBe(true);
+      expect(sealed!.pendingFileScans).toBe(2);
+      expect(sealed!.principalFileId).toBe(files.find((f) => f.role === "PRINCIPAL")!.fileId);
+    });
+
+    it("rejects a batch with zero or more than one PRINCIPAL", async () => {
+      const { service } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+      await expect(service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("ATTACHMENT")])).rejects.toThrow();
+      await expect(service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("PRINCIPAL")])).rejects.toThrow();
+    });
+
+    it("a second reserveFiles call with a fresh, correct expectedVersion is still rejected once the set is sealed (D-163 §2, Rodada 1 finding: input validation alone cannot close this)", async () => {
+      const { service, store } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+
+      await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL")]);
+      // Re-read the Version to get the real, up-to-date `version` after the first reservation —
+      // the ordinary OCC `version` condition alone would happily accept a second call using
+      // this fresh value (it's not stale). Only the `fileSetSealed` fence (not mere input
+      // validation of "exactly one PRINCIPAL per batch", which a second distinct-fileId batch
+      // would also satisfy) can reject a second, well-formed, up-to-date reservation attempt.
+      const sealed = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
+      await expect(service.reserveFiles(ctx(), doc.documentId, v1.seq, sealed!.version, [spec("PRINCIPAL")])).rejects.toThrow(ConflictError);
+    });
+
+    it("rejects reserving files once the Version has left DRAFT", async () => {
+      const { service } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+      const received = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+      await expect(service.reserveFiles(ctx(), doc.documentId, v1.seq, received.version, [spec("PRINCIPAL")])).rejects.toThrow(ConflictError);
+    });
+  });
+
+  describe("acceptVersion's transactional PRINCIPAL fence (D-163 §5)", () => {
+    it("rejects acceptVersion when the PRINCIPAL DocumentFile is not CLEAN, even though pendingFileScans/infectedFileScans both read zero", async () => {
+      const { service, store } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+      const files = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1, checksumSha256: "a".repeat(64) }]);
+      const sealed = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
+      const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, sealed!.version);
+      await service.claimReview(ctx(), doc.documentId, v1.seq, v1r.version);
+
+      // Simulate the PRINCIPAL having been rejected as infected and the Version's own
+      // counters already reconciled back to zero (as a real terminal-transition transaction
+      // would do) — this is exactly the gap D-163's Rodada 2/3 found: hasCleanFileScans()
+      // alone (reading only the Version's counters) cannot catch a rejected PRINCIPAL once
+      // its counter has been reconciled away; only a direct check against the file itself can.
+      const principal = files[0]!;
+      const versionAfterReserve = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
+      await store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: "test-table",
+            key: { PK: principal.PK, SK: principal.SK },
+            tenantId: TENANT,
+            expectedVersion: principal.version,
+            set: { scanStatus: "REJECTED" },
+          }),
+        },
+        {
+          Update: buildVersionedUpdate({
+            tableName: "test-table",
+            key: { PK: v1.PK, SK: v1.SK },
+            tenantId: TENANT,
+            expectedVersion: versionAfterReserve!.version,
+            set: { pendingFileScans: 0 },
+          }),
+        },
+      ]);
+
+      const versionAfterReconcile = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
+      await expect(service.acceptVersion(ctx(), doc.documentId, v1.seq, versionAfterReconcile!.version, "tok")).rejects.toThrow(ConflictError);
+    });
   });
 });

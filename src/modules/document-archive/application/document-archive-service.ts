@@ -14,6 +14,7 @@
  * extra composition-root wire for no real separation of concerns at this module's current size.
  */
 import {
+  buildExistenceConditionCheck,
   buildVersionedCreate,
   buildVersionedDelete,
   buildVersionedUpdate,
@@ -26,6 +27,13 @@ import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { type CreateDocumentInput, type Document, documentGsi1Keys, documentGsi2Keys, documentKey } from "../domain/document.js";
+import {
+  assertExactlyOnePrincipal,
+  documentFileKey,
+  MAX_FILES_PER_VERSION,
+  type DocumentFile,
+  type FileUploadSpec,
+} from "../domain/document-file.js";
 import {
   assertValidDocumentVersionTransition,
   documentVersionKey,
@@ -52,6 +60,13 @@ export interface DocumentArchiveServiceDeps {
   store: DocumentArchiveStore;
   tableName: string;
   ids: DocumentArchiveIdGenerator;
+  /** D-163 §7: same quarantine bucket M6 already provisions (`infra/modules/document-buckets`)
+   * — no new bucket for this module, only a new key namespace within it (see
+   * `buildQuarantineKey` below). Presigning the actual upload URL against this bucket
+   * (`UploadUrlSigner`, also reused from M6) is HTTP/composition-layer wiring deferred to the
+   * implementation slice that adds the S3/GuardDuty event handlers — `reserveFiles()` here
+   * only persists the `DocumentFile` rows and returns the keys a caller will presign against. */
+  quarantineBucket: string;
   now?: () => string;
 }
 
@@ -64,12 +79,14 @@ export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
   private readonly ids: DocumentArchiveIdGenerator;
+  private readonly quarantineBucket: string;
   private readonly now: () => string;
 
   constructor(deps: DocumentArchiveServiceDeps) {
     this.store = deps.store;
     this.tableName = deps.tableName;
     this.ids = deps.ids;
+    this.quarantineBucket = deps.quarantineBucket;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -151,9 +168,103 @@ export class DocumentArchiveService {
     return version;
   }
 
+  /**
+   * reserveFiles — D-163 §2. Persists the `DocumentFile` set for a `DRAFT` Version in a
+   * single `TransactWriteItems`: the Update on `DocumentVersion` (`fileSetSealed`/
+   * `principalFileId`/`totalFiles`/`pendingFileScans`) is what actually closes the race
+   * between two concurrent calls each supplying a single PRINCIPAL with distinct `fileId`s
+   * (input validation alone — `assertExactlyOnePrincipal` — cannot close that race, only the
+   * transaction's own condition on `fileSetSealed` can, since it's the one write both callers
+   * necessarily contend on). Only permitted while the Version is `DRAFT` and not yet sealed.
+   * Presigning the actual upload URLs against `quarantineObject` is left to the HTTP/
+   * composition layer (deferred, see `DocumentArchiveServiceDeps.quarantineBucket`'s comment).
+   */
+  async reserveFiles(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, files: readonly FileUploadSpec[]): Promise<DocumentFile[]> {
+    authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
+    assertExactlyOnePrincipal(files);
+    if (files.length > MAX_FILES_PER_VERSION) {
+      throw new ValidationError(`At most ${MAX_FILES_PER_VERSION} files per DocumentVersion.`, { documentId, seq, count: files.length });
+    }
+    const tenantId = ctx.tenant.tenantId;
+    const key = documentVersionKey(tenantId, documentId, seq);
+    const current = await this.store.get<DocumentVersion>(key);
+    if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
+    if (current.state !== "DRAFT") throw new ConflictError("Files can only be reserved while the DocumentVersion is DRAFT.", { documentId, seq, state: current.state });
+    if (current.fileSetSealed) throw new ConflictError("This DocumentVersion's file set is already sealed.", { documentId, seq });
+
+    const now = this.now();
+    const principalSpec = files.find((f) => f.role === "PRINCIPAL");
+    if (!principalSpec) throw new ValidationError("Exactly one PRINCIPAL is required.", { documentId, seq });
+    const documentFiles: DocumentFile[] = files.map((spec) => {
+      const fileId = this.ids.newFileId();
+      return {
+        ...documentFileKey(tenantId, documentId, seq, fileId),
+        entityType: "DocumentFile",
+        tenantId,
+        documentId,
+        versionId: current.versionId,
+        seq,
+        fileId,
+        role: spec.role,
+        scanStatus: "PENDING_UPLOAD",
+        mediaType: spec.mediaType,
+        contentLength: spec.contentLength,
+        checksumSha256: spec.checksumSha256,
+        // D-163 §1: versionId consolidated later, atomically, by whichever physical event
+        // (S3 Object Created / GuardDuty finding) observes the real object first — never
+        // fabricated here (same placeholder discipline M6's Document.quarantineObject uses).
+        quarantineObject: { bucket: this.quarantineBucket, key: this.buildQuarantineKey(tenantId, documentId, seq, fileId), versionId: "" },
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+      };
+    });
+    const principalFileId = documentFiles.find((f) => f.role === "PRINCIPAL")!.fileId;
+
+    const entries = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key,
+          tenantId,
+          expectedVersion,
+          set: { fileSetSealed: true, principalFileId, totalFiles: documentFiles.length, pendingFileScans: documentFiles.length },
+          now,
+          extraConditions: [
+            { expression: "#st = :draft", names: { "#st": "state" }, values: { ":draft": "DRAFT" } },
+            { expression: "attribute_not_exists(#sealed) OR #sealed = :false", names: { "#sealed": "fileSetSealed" }, values: { ":false": false } },
+          ],
+        }),
+      },
+      ...documentFiles.map((file) => ({ Put: buildVersionedCreate(this.tableName, file as unknown as Record<string, unknown> & EntityKey) })),
+    ];
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion's file set was concurrently reserved or the Version is no longer DRAFT.", { documentId, seq });
+      throw err;
+    }
+    return documentFiles;
+  }
+
+  /** D-163 §7: mirrors M6's quarantine key convention (`document-service.ts`'s
+   * `tenant/<t>/item/<i>/document/<d>/slot/<s>/<random>`), namespaced under `document-archive/`
+   * so the two key formats coexist in the same physical bucket without ever colliding — the S3
+   * event handler routes on this prefix to pick the right parser (D-163 §7, deferred). Never
+   * encodes the original file name (PII) — only internal identifiers. */
+  private buildQuarantineKey(tenantId: string, documentId: string, seq: number, fileId: string): string {
+    return `document-archive/tenant/${tenantId}/document/${documentId}/version/${seq}/file/${fileId}`;
+  }
+
   /** DRAFT -> RECEIVED. File presence/malware-scan-clean validation is the caller's
    * responsibility in this increment (DocumentFile persistence is a follow-up slice) — this
-   * method only enforces the state-machine transition itself. */
+   * method only enforces the state-machine transition itself.
+   *
+   * D-163 §4 designed a `fileSetSealed === true` gate here once `reserveFiles()` becomes the
+   * mandatory HTTP-level precondition for every commit — deliberately NOT deployed yet: no HTTP
+   * route calls `reserveFiles()` today (only the service method exists, added this session), so
+   * enforcing the gate now would make every existing `commitUpload()` call fail with no way to
+   * satisfy it end-to-end. Land the gate in the same slice that wires the HTTP route. */
   async commitUpload(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
@@ -313,6 +424,21 @@ export class DocumentArchiveService {
         ],
       }),
     });
+
+    // D-163 §5: transactional (not merely in-memory) fence that the PRINCIPAL file is CLEAN —
+    // if it was rejected as infected between this read and the transaction, the whole
+    // TransactWriteItems cancels (TOCTOU-safe), same as any other ConditionCheck here. Only
+    // added when the Version actually has a PRINCIPAL (D-163's `reserveFiles()` is additive —
+    // a Version accepted before this slice existed never sets `principalFileId`).
+    if (current.principalFileId) {
+      entries.push(
+        buildExistenceConditionCheck({
+          tableName: this.tableName,
+          key: documentFileKey(tenantId, documentId, seq, current.principalFileId),
+          extra: { scanStatus: "CLEAN" },
+        }),
+      );
+    }
 
     // 5. Put idempotency record
     const idempotencyRecord: IdempotencyRecord<AcceptVersionResult> & EntityKey = {
