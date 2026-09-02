@@ -18,6 +18,7 @@ import type { FileUploadSpec } from "../domain/document-file.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
 import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
+import type { CreateDocumentTypeInput, DocumentType } from "../domain/document-type.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -41,6 +42,10 @@ const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/doc
 const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
 const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
 const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
+const DOCUMENTTYPE_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json";
+const DOCUMENTTYPE_RENAME_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json";
+const DOCUMENTTYPE_DEPRECATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json";
+const DOCUMENTTYPE_REACTIVATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-reactivate-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -132,6 +137,21 @@ function requireSeriesId(req: HttpRequest): string {
   const seriesId = req.pathParameters?.["seriesId"];
   if (!seriesId) throw new ValidationError("Missing seriesId path parameter.");
   return seriesId;
+}
+
+function requireDocumentTypeId(req: HttpRequest): string {
+  const documentTypeId = req.pathParameters?.["documentTypeId"];
+  if (!documentTypeId) throw new ValidationError("Missing documentTypeId path parameter.");
+  return documentTypeId;
+}
+
+/** Defaults to ACTIVE (the catalog a document-create flow actually needs) rather than requiring
+ * every caller to pass `?status=ACTIVE` explicitly — DEPRECATED is opt-in via the query param. */
+function requireDocumentTypeStatus(req: HttpRequest): DocumentType["status"] {
+  const raw = req.queryStringParameters?.["status"];
+  if (!raw) return "ACTIVE";
+  if (raw !== "ACTIVE" && raw !== "DEPRECATED") throw new ValidationError("Invalid status query parameter.", { status: raw });
+  return raw;
 }
 
 async function resolve(deps: DocumentArchiveHttpDeps, req: HttpRequest) {
@@ -384,6 +404,69 @@ export async function handleMaterializeSeriesAttempt(deps: DocumentArchiveHttpDe
     const context = await resolve(deps, req);
     const result = await deps.recurrence.materializeAttempt(context, subjectId, seriesId, req.body.expectedVersion);
     return { statusCode: 200, body: { ...result } };
+  });
+}
+
+// --- DocumentType catalog (D-173, item 5) ---------------------------------------------------
+
+export async function handleCreateDocumentType(deps: DocumentArchiveHttpDeps, req: HttpRequest<CreateDocumentTypeInput>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const documentType = await deps.documentArchive.createDocumentType(context, req.body);
+    return { statusCode: 201, body: { documentType } };
+  });
+}
+
+export async function handleGetDocumentType(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    const context = await resolve(deps, req);
+    const documentType = await deps.documentArchive.getDocumentType(context, documentTypeId);
+    return { statusCode: 200, body: { documentType } };
+  });
+}
+
+export async function handleListDocumentTypes(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const status = requireDocumentTypeStatus(req);
+    const context = await resolve(deps, req);
+    const { items, lastEvaluatedKey } = await deps.documentArchive.listDocumentTypes(context, status);
+    return { statusCode: 200, body: { documentTypes: items, ...(lastEvaluatedKey ? { lastEvaluatedKey } : {}) } };
+  });
+}
+
+export async function handleRenameDocumentType(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number; displayName: string }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_RENAME_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const documentType = await deps.documentArchive.renameDocumentType(context, documentTypeId, req.body.expectedVersion, req.body.displayName);
+    return { statusCode: 200, body: { documentType } };
+  });
+}
+
+export async function handleDeprecateDocumentType(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_DEPRECATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const documentType = await deps.documentArchive.deprecateDocumentType(context, documentTypeId, req.body.expectedVersion);
+    return { statusCode: 200, body: { documentType } };
+  });
+}
+
+export async function handleReactivateDocumentType(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_REACTIVATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const documentType = await deps.documentArchive.reactivateDocumentType(context, documentTypeId, req.body.expectedVersion);
+    return { statusCode: 200, body: { documentType } };
   });
 }
 
