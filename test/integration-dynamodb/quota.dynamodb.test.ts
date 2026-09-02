@@ -103,8 +103,9 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
       await quota.consume(input);
       await quota.consume(input);
       await quota.consume(input);
-      await expect(quota.consume(input)).resolves.toBeUndefined();
-      await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError);
+      await quota.consume(input);
+      await expect(quota.consume(input)).resolves.toBeUndefined(); // 5th call - count reaches the limit exactly, still admitted.
+      await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError); // 6th call - now over the limit.
     });
 
     it("never touches TenantQuotaRecord's putIfAbsent/updateConditional path for API_REQUEST (no residual TransactWriteItems call against real DynamoDB)", async () => {
@@ -124,7 +125,7 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
 
       const nowSeconds = Math.floor(Date.now() / 1000);
       const windowId = Math.floor(nowSeconds / input.windowSeconds);
-      const record = await store.get<{ count: number; entityType: string }>({
+      const record = await store.get<{ PK: string; SK: string; count: number; entityType: string }>({
         PK: `TENANT#${input.tenantId}#QUOTA`,
         SK: `TYPE#API_REQUEST#${windowId}`,
       });
