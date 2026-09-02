@@ -1,0 +1,8 @@
+Nota: 5,2/10. Ver saída completa arquivada — achados principais:
+1. Generalização do M6 incompleta: falta modelo de evidência dupla (uploadEvidence real via HeadObject + malwareEvidence correlacionados pela tripla bucket+key+versionId), falta tratamento de UNSUPPORTED/ACCESS_DENIED/FAILED, reconciliação não distingue "nunca uploadado" de "uploadado, scan pendente".
+2. Corrida de PRINCIPAL real: validação só no input não impede duas chamadas concorrentes de reserveUpload cada uma com exatamente 1 PRINCIPAL colidirem — precisa de invariante persistida (`principalFileId`/estado de selo) na mesma transação dos arquivos, condicionada a DRAFT+versão OCC.
+3. Invariantes transacionais faltando: criação de arquivos + atualização de contadores/identidade do principal na mesma transação; limite de itens por TransactWriteItems; transição terminal por arquivo atômica com os contadores; remoção de arquivo infectado decrementando contador + DocumentVersionEvent; selagem do conjunto de arquivos impedindo novas reservas.
+4. Gate de commitUpload errado: `pendingFileScans > 0` falha para uma versão com todos os scans já resolvidos antes do commit, e não prova que uploads reais ocorreram — precisa contadores/estado distintos para reservado/uploadado/escaneado.
+5. Erro factual: buckets S3 (`infra/modules/document-buckets`), GuardDuty (`infra/modules/document-malware-protection`) e o reconciliador (`src/workers/upload-slot-reconciliation`) já existem — a proposta afirmou erroneamente que nada disso existe.
+6. `documentVersionFileKeyPrefix()`'s pipe-format precisa reconciliar com `documentVersionEventKeyPrefix()` (mesmo formato) antes de declarar "erro isolado".
+7. Classificação de risco (nível 5, fechar só como design) confirmada correta.

@@ -31,6 +31,8 @@ export interface Document extends EntityKey {
   version: number;
   GSI1PK: string;
   GSI1SK: string;
+  GSI2PK: string;
+  GSI2SK: string;
 }
 
 export function documentKey(tenantId: string, documentId: string): { PK: string; SK: "METADATA" } {

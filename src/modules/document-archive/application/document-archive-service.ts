@@ -91,11 +91,12 @@ export class DocumentArchiveService {
       updatedAt: now,
       version: 1,
       ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
+      // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
+      // both index memberships live on one physical row, no mirror item needed for this pattern.
+      ...documentGsi2Keys(tenantId, input.subjectId, input.documentType, documentId),
     };
     const created = await this.store.putIfAbsent(document);
     if (!created) throw new ConflictError("Document already exists.", { documentId });
-    // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
-    // both index memberships live on one physical row, no mirror item needed for this pattern.
     return document;
   }
 
