@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
-import { applyFileScanResult, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
+import { applyFileScanResult, applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
 import { documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
@@ -204,5 +204,62 @@ describe("confirmFileScanClean — PROMOTE confirmation step, called only after 
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("REJECTED");
     expect(file.cleanObject).toBeUndefined();
+  });
+});
+
+describe("applyFileScanTimeout — D-163 §6/round4-claude-final.md §3, reconciliation worker's terminal transition", () => {
+  const GSI5_PTR = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-09-01T00:10:00.000Z#FILE#file1" };
+
+  it("times out an overdue file: sets scanStatus=TIMEOUT, removes the GSI5 pointer, decrements pendingFileScans", async () => {
+    const store = seededStore([baseFile({ scanStatus: "SCANNING", ...GSI5_PTR }), baseVersion()]);
+    const outcome = await applyFileScanTimeout(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+    );
+    expect(outcome).toBe("TIMED_OUT");
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("TIMEOUT");
+    expect(file.GSI5PK).toBeUndefined();
+    expect(file.GSI5SK).toBeUndefined();
+    const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
+    expect(version.pendingFileScans).toBe(0);
+  });
+
+  it("skips a candidate whose GSI5 pointer no longer matches what the scan observed (deadline changed, or already terminal) - never double-processed", async () => {
+    // File already moved to CLEAN (with GSI5 pointer removed) between the scan and this call -
+    // same mutation the exact-pointer condition is supposed to catch even if the caller had
+    // observed the STALE candidate's old pointer value.
+    const store = seededStore([baseFile({ scanStatus: "CLEAN", cleanObject: { bucket: "clean-bucket", key: "clean/file1", versionId: "c1" } }), baseVersion({ pendingFileScans: 0 })]);
+    const outcome = await applyFileScanTimeout(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+    );
+    expect(outcome).toBe("IGNORED_STALE");
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("CLEAN"); // never reopened toward TIMEOUT.
+  });
+
+  it("skips a candidate whose GSI5 pointer changed (new deadline written concurrently) even though scanStatus is still non-terminal - the exact-pointer condition, not just scanStatus, closes this race", async () => {
+    const currentPointer = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-09-01T00:20:00.000Z#FILE#file1" };
+    const store = seededStore([baseFile({ scanStatus: "SCANNING", ...currentPointer }), baseVersion()]);
+    // The scan observed the OLD pointer (a stale candidate from a previous page/attempt) - the
+    // transaction's extraConditions must fail even though scanStatus alone would still allow it.
+    const outcome = await applyFileScanTimeout(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+    );
+    expect(outcome).toBe("IGNORED_STALE");
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("SCANNING"); // untouched - the concurrent pointer update wins.
+    expect(file.GSI5SK).toBe(currentPointer.GSI5SK);
+  });
+
+  it("is idempotent against a file already terminal by the time it's processed (no GSI5 pointer at all)", async () => {
+    const store = seededStore([baseFile({ scanStatus: "REJECTED" }), baseVersion({ pendingFileScans: 0, infectedFileScans: 1 })]);
+    const outcome = await applyFileScanTimeout(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedGsi5Pointer: GSI5_PTR },
+    );
+    expect(outcome).toBe("IGNORED_STALE");
   });
 });

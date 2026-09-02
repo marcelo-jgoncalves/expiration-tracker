@@ -19,7 +19,11 @@ export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableNa
   // class within document-archive (same rationale `document-archive-service.ts`'s doc comment
   // gives for hosting Requirement in the same class rather than a new one).
   const recurrence = new DocumentRequestRecurrenceService({ store, tableName, ids });
-  return { store, documentArchive, recurrence };
+  // `ids` is also returned directly (not just embedded in the services above) - D-166's
+  // DocumentFileReconciliationWorker needs it for `apply-file-scan-result.ts`'s
+  // `ApplyFileScanResultDeps` shape (unused by `applyFileScanTimeout` itself, but the type is
+  // shared with `applyFileScanResult`/`confirmFileScanClean`, which do use it).
+  return { store, ids, documentArchive, recurrence };
 }
 
 /** D-143 Decision 4 / D-146 (guest access). Separate from `buildDocumentArchiveDeps` — the
