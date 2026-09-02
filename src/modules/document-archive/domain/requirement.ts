@@ -76,6 +76,12 @@ export interface Requirement extends EntityKey {
   version: number;
   GSI1PK: string;
   GSI1SK: string;
+  /** MaintenanceDueIndex pointer (D-179/D-185, 4th of 9 workers migrated) — present only while
+   * `status === "SATISFIED"` AND `evidenceValidUntil` is set (see `deriveRequirementMaintenanceDue`
+   * below); absent otherwise (MISSING/PENDING/NOT_SATISFIED/NOT_APPLICABLE, or a SATISFIED
+   * evidence with no expiration, never drifts on its own). */
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
 /**
@@ -175,4 +181,32 @@ export function isRequirementExpiringSoon(status: RequirementStatus, validUntil:
   if (status !== "SATISFIED" || !validUntil) return false;
   const daysUntil = Math.ceil((new Date(validUntil).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   return daysUntil >= 0 && daysUntil <= EXPIRING_SOON_THRESHOLD_DAYS;
+}
+
+/** GSI8 namespace for `requirement-reindex` (D-179/D-185, 4th of 9 MaintenanceDueIndex
+ * migrations) — see the module doc comment / `requirement-reindex/reindex.ts` for why this is
+ * `evidenceValidUntil`, not a second "reindex schedule" concept: the daily worker's ONLY job is
+ * the pure time-based SATISFIED -> NOT_SATISFIED drift, and `evidenceValidUntil` compared against
+ * `now` is exactly that `dueAt` (D-179 Round 3's correction). */
+export const REQUIREMENT_REINDEX_WORK_TYPE = "REQUIREMENT_REINDEX";
+
+/** Due only while `status === "SATISFIED"` AND an `evidenceValidUntil` exists — a SATISFIED
+ * requirement whose evidence never expires (no `validUntil`) is SATISFIED forever, by
+ * construction, and never needs a reindex. Every other status is never a candidate (MISSING/
+ * PENDING/NOT_SATISFIED/NOT_APPLICABLE do not drift on their own — some other explicit mutation
+ * is always the trigger for those). */
+export function deriveRequirementMaintenanceDue(status: RequirementStatus, evidenceValidUntil: string | undefined): { dueAtIso: string } | undefined {
+  if (status !== "SATISFIED" || !evidenceValidUntil) return undefined;
+  return { dueAtIso: evidenceValidUntil };
+}
+
+/** `GSI8SK` embeds `requirementId` (not `subjectId`) for uniqueness — the candidate source
+ * recovers `tenantId`/`subjectId`/`requirementId` from the base table's own `PK`/`SK`
+ * (`requirementKey()`'s shape), same "KEYS_ONLY already returns them for free" posture as
+ * `documentFileGsi8Keys()`. */
+export function requirementGsi8Keys(input: { dueAtIso: string; tenantId: string; requirementId: string }): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${REQUIREMENT_REINDEX_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#REQUIREMENT#${input.requirementId}`,
+  };
 }

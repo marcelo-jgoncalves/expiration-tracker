@@ -965,6 +965,7 @@ module "security_audit_observability" {
     module.membership_purge_handler.function_name,
     module.invitation_purge_handler.function_name,
     module.document_file_reconciliation_handler.function_name,
+    module.requirement_reindex_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -2908,9 +2909,10 @@ resource "aws_scheduler_schedule" "tenant_purge_sweeper" {
 # --- RequirementReindexHandler: daily EventBridge Scheduler job (D-143 Nucleus 2, Decision 5) -
 # Keeps GSI1's REQSTATUS index coherent with pure time-based drift (SATISFIED -> NOT_SATISFIED as
 # evidenceValidUntil passes with no other write ever touching the Requirement) - see
-# src/workers/requirement-reindex/reindex.ts's doc comment. No dedicated IAM policy beyond the
-# general tenant-facing grant (same reasoning as document_archive_handler above: GSI1 is already
-# covered, and this worker's Scan is a base-table operation, not a new index).
+# src/workers/requirement-reindex/reindex.ts's doc comment. Migrated off the base-table Scan onto
+# GSI8 by D-179/D-185 (4th of 9 workers) - gsi8_read_policy_json/worker_transact_write_policy_json
+# scoped to WORK#REQUIREMENT_REINDEX/DLQ#REQUIREMENT_REINDEX, same pattern as
+# document_file_reconciliation_handler above.
 module "requirement_reindex_handler" {
   source = "./modules/lambda-function"
 
@@ -2920,8 +2922,12 @@ module "requirement_reindex_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["requirement_reindex"],
+    module.table.worker_transact_write_policy_json["requirement_reindex"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "requirement_reindex_schedule" {

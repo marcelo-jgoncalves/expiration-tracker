@@ -282,17 +282,13 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
     };
   }
 
-  /** Fake for `scanSatisfiedRequirements` — no pagination needed for this fake's test sizes
+  /** Fake for `scanActiveSeries` (D-147) — no pagination needed for this fake's test sizes
    * (unlike `queryIndexPage`/`queryByPk`, whose real callers depend on real paging behavior),
    * so `exclusiveStartKey` is accepted for interface parity but every call returns everything
-   * matching in one page. */
-  async scanSatisfiedRequirements<T extends EntityKey = Record<string, unknown> & EntityKey>(_exclusiveStartKey?: Record<string, unknown>): Promise<{ items: T[]; lastEvaluatedKey?: Record<string, unknown> }> {
-    const matches = [...this.items.values()].filter((item) => item["entityType"] === "Requirement" && item["status"] === "SATISFIED");
-    return { items: matches as unknown as T[], lastEvaluatedKey: undefined };
-  }
-
-  /** Fake for `scanActiveSeries` (D-147) — same one-page-returns-everything simplification as
-   * `scanSatisfiedRequirements` above. */
+   * matching in one page. `requirement-reindex` used to have a sibling fake here
+   * (`scanSatisfiedRequirements`) — removed together with the port method by D-179/D-185's GSI8
+   * migration (its test now builds a `queryDue()` fake, same shape as `document-file-
+   * reconciliation.test.ts`'s). */
   async scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(_exclusiveStartKey?: Record<string, unknown>): Promise<{ items: T[]; lastEvaluatedKey?: Record<string, unknown> }> {
     const matches = [...this.items.values()].filter((item) => item["entityType"] === "DocumentRequestSeries" && item["status"] === "ACTIVE");
     return { items: matches as unknown as T[], lastEvaluatedKey: undefined };

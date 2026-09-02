@@ -71,12 +71,15 @@ import {
   type ConfirmFileScanCleanOutcome,
 } from "./apply-file-scan-result.js";
 import {
+  deriveRequirementMaintenanceDue,
   deriveRequirementStatus,
   requirementGsi1Keys,
+  requirementGsi8Keys,
   requirementKey,
   REQUIREMENT_SK_PREFIX,
   type CreateRequirementInput,
   type Requirement,
+  type RequirementStatus,
   type UpdateRequirementInput,
 } from "../domain/requirement.js";
 
@@ -649,10 +652,23 @@ export class DocumentArchiveService {
       updatedAt: now,
       version: 1,
       ...requirementGsi1Keys(tenantId, status, now, requirementId),
+      // Never due at creation (status is always MISSING/NOT_APPLICABLE here, `deriveRequirementStatus`
+      // with no evidence linked) — included anyway for the same uniform-write-site discipline the
+      // other 3 mutation sites below need, since a future caller shape could change that invariant.
+      ...this.requirementGsi8Fields(status, undefined, tenantId, requirementId),
     };
     const created = await this.store.putIfAbsent(requirement);
     if (!created) throw new ConflictError("Requirement already exists.", { requirementId });
     return requirement;
+  }
+
+  /** Shared by all 4 Requirement mutation sites (D-179/D-185) — computes the GSI8 pointer fields
+   * to `set` (SATISFIED + `evidenceValidUntil`) or the sentinel meaning "remove instead" (every
+   * other case), keeping `deriveRequirementMaintenanceDue` the single source of truth for
+   * eligibility rather than re-deriving it at each call site. */
+  private requirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: string, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
+    const due = deriveRequirementMaintenanceDue(status, evidenceValidUntil);
+    return due ? requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, requirementId }) : {};
   }
 
   async getRequirement(ctx: RequestContext, subjectId: string, requirementId: string): Promise<Requirement> {
@@ -685,7 +701,11 @@ export class DocumentArchiveService {
       const evidence = this.cachedEvidenceForDerivation(current);
       status = deriveRequirementStatus(nextApplicability, evidence, new Date(now));
     }
-    const set: Record<string, unknown> = { applicability: nextApplicability, status, ...requirementGsi1Keys(tenantId, status, now, requirementId) };
+    // Applicability is the only field here that can change `status` (name/notes never do), and
+    // `evidenceValidUntil` itself never changes in this call — only whether the GSI8 pointer
+    // built from it should exist follows `status`.
+    const gsi8Fields = this.requirementGsi8Fields(status, current.evidenceValidUntil, tenantId, requirementId);
+    const set: Record<string, unknown> = { applicability: nextApplicability, status, ...requirementGsi1Keys(tenantId, status, now, requirementId), ...gsi8Fields };
     if (input.name !== undefined) set["name"] = input.name;
     if (input.notes !== undefined) set["notes"] = input.notes;
     const update = buildVersionedUpdate({
@@ -694,6 +714,7 @@ export class DocumentArchiveService {
       tenantId,
       expectedVersion,
       set,
+      remove: Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : undefined,
     });
     try {
       await this.store.transactWrite([{ Update: update }]);
@@ -736,14 +757,19 @@ export class DocumentArchiveService {
     // evidenceValidUntil when the evidence version actually carries one (D3: a document without
     // an expiration date is a legitimate first-class case).
     if (evidenceVersion.validUntil !== undefined) set["evidenceValidUntil"] = evidenceVersion.validUntil;
-    const remove = evidenceVersion.validUntil === undefined ? ["evidenceValidUntil"] : undefined;
+    const gsi8Fields = this.requirementGsi8Fields(status, evidenceVersion.validUntil, tenantId, requirementId);
+    Object.assign(set, gsi8Fields);
+    const remove = [
+      ...(evidenceVersion.validUntil === undefined ? ["evidenceValidUntil"] : []),
+      ...(Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : []),
+    ];
     const update = buildVersionedUpdate({
       tableName: this.tableName,
       key: requirementKey(tenantId, subjectId, requirementId),
       tenantId,
       expectedVersion,
       set,
-      remove,
+      remove: remove.length > 0 ? remove : undefined,
     });
     try {
       await this.store.transactWrite([{ Update: update }]);
@@ -766,7 +792,10 @@ export class DocumentArchiveService {
     const now = this.now();
     const status = deriveRequirementStatus(current.applicability, undefined, new Date(now));
     const set = { status, ...requirementGsi1Keys(tenantId, status, now, requirementId) };
-    const removedFields = ["evidenceVersionId", "evidenceDocumentId", "evidenceSeq", "evidenceState", "evidenceValidUntil"] as const;
+    // Never SATISFIED here (deriveRequirementStatus with no evidence only ever returns
+    // MISSING/NOT_APPLICABLE) — the GSI8 pointer is always cleared unconditionally, no
+    // requirementGsi8Fields() branch needed.
+    const removedFields = ["evidenceVersionId", "evidenceDocumentId", "evidenceSeq", "evidenceState", "evidenceValidUntil", "GSI8PK", "GSI8SK"] as const;
     const update = buildVersionedUpdate({
       tableName: this.tableName,
       key: requirementKey(tenantId, subjectId, requirementId),

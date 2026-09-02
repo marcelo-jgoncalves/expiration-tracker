@@ -123,29 +123,10 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
     }
   }
 
-  /** Cross-tenant `Scan` for the daily Requirement reindex worker — see the port method's doc
-   * comment for the accepted cost tradeoff (same as `tenant-purge-sweep.ts`'s
-   * `scanLifecycleRecords`). One physical `ScanCommand` per call; the caller drives pagination
-   * via `lastEvaluatedKey`, never an internal accumulate-across-pages loop. */
-  async scanSatisfiedRequirements<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
-    try {
-      const result = await this.client.send(
-        new ScanCommand({
-          TableName: this.tableName,
-          FilterExpression: "#entityType = :entityType AND #status = :status",
-          ExpressionAttributeNames: { "#entityType": "entityType", "#status": "status" },
-          ExpressionAttributeValues: { ":entityType": "Requirement", ":status": "SATISFIED" },
-          ExclusiveStartKey: exclusiveStartKey,
-        }),
-      );
-      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
-    } catch (err) {
-      throw mapDynamoError(err, "DocumentArchiveStore.scanSatisfiedRequirements");
-    }
-  }
-
   /** Cross-tenant `Scan` for the recurrence materializer worker — see the port method's doc
-   * comment for the accepted cost tradeoff (same shape as `scanSatisfiedRequirements` above). */
+   * comment for the accepted cost tradeoff. `requirement-reindex` used to have a sibling method
+   * here (`scanSatisfiedRequirements`) — removed by D-179/D-185's GSI8 migration, same "delete
+   * the dead mechanism, don't leave it beside the new one" discipline D-183 established. */
   async scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
     try {
       const result = await this.client.send(
