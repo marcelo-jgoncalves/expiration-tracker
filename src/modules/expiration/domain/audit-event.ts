@@ -9,6 +9,7 @@
 import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
 
 export type AuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "RENEW" | "DELETE";
 
@@ -28,6 +29,10 @@ export interface AuditEvent extends EntityKey {
   occurredAt: string;
   correlationId: string;
   causationId?: string;
+  /** MaintenanceDueIndex pointer (D-179/D-187) — written once here, at creation, never refreshed
+   * (append-only entity, see `shared/security-audit-gsi8.ts`). */
+  GSI8PK: string;
+  GSI8SK: string;
 }
 
 function monthShard(isoTimestamp: string): string {
@@ -58,6 +63,13 @@ export interface BuildAuditEventInput {
 
 export function buildAuditEvent(input: BuildAuditEventInput): AuditEvent {
   const key = auditKey(input.tenantId, input.occurredAt, input.auditEventId);
+  const due = deriveSecurityAuditMaintenanceDue({ occurredAt: input.occurredAt });
+  const gsi8 = securityAuditGsi8Keys({
+    dueAtIso: due.dueAtIso,
+    tenantId: input.tenantId,
+    entityType: "AuditEvent",
+    sk: key.SK,
+  });
   return {
     ...key,
     entityType: "AuditEvent",
@@ -74,6 +86,7 @@ export function buildAuditEvent(input: BuildAuditEventInput): AuditEvent {
     occurredAt: input.occurredAt,
     correlationId: input.correlationId,
     causationId: input.causationId,
+    ...gsi8,
   };
 }
 

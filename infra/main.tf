@@ -967,6 +967,7 @@ module "security_audit_observability" {
     module.document_file_reconciliation_handler.function_name,
     module.requirement_reindex_handler.function_name,
     module.quota_telemetry_purge_handler.function_name,
+    module.security_audit_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3155,10 +3156,10 @@ resource "aws_scheduler_schedule" "delivery_record_purge" {
 # physically purges the 4 AuditEvent-family rows (AuditEvent/MembershipAuditEvent/
 # SubjectAuditEvent/TenantAuditEvent) once occurredAt+365d has passed, within ACTIVE tenants only
 # (a completely separate mechanism from tenant-purge's full-tenant-closure pipeline) - see
-# src/workers/security-audit-purge/purge.ts's doc comment. No dedicated IAM policy beyond the
-# general tenant-facing grant, same reasoning as delivery_record_purge_handler above: this
-# worker's Scan is a base-table operation, and the TenantLifecycleRecord GetItem it performs is a
-# normal tenant-scoped row, not GSI3/GSI6.
+# src/workers/security-audit-purge/purge.ts's doc comment. Migrated off the base-table Scan onto
+# GSI8 by D-179/D-187 (6th of 9 workers) - gsi8_read_policy_json/worker_transact_write_policy_json
+# scoped to WORK#SECURITY_AUDIT/DLQ#SECURITY_AUDIT, same pattern as quota_telemetry_purge_handler
+# above (this worker also has a tenant-ACTIVE fence, so it gets the same poison-record/DLQ shape).
 module "security_audit_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3168,8 +3169,12 @@ module "security_audit_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["security_audit_purge"],
+    module.table.worker_transact_write_policy_json["security_audit_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "security_audit_purge_schedule" {
