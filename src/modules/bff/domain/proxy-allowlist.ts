@@ -90,6 +90,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/document-archive/documents/{documentId}" },
   { method: "GET", pathTemplate: "/document-archive/documents/{documentId}/versions" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions" },
+  // D-163/D-167: reserveFiles() - found missing during D-177's allowlist read (D-178), the same
+  // D-117/D-120 gap class where the resource Lambda route existed but the BFF never proxied it.
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/files" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/commit" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/claim" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/accept" },

@@ -54,4 +54,10 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions")).toBeDefined();
     expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions/sub-1")).toBeDefined();
   });
+
+  // D-178: reserveFiles() (D-163/D-167) existed as a resource-Lambda route but was never
+  // allowlisted here - found during D-177's allowlist read. Same gap class as BLOCKER-A above.
+  it("matches the DocumentVersion reserveFiles route closed for D-178", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/documents/doc-1/versions/1/files")).toBeDefined();
+  });
 });
