@@ -1,58 +1,66 @@
 /**
- * InvitationPurgeWorker — D-155, implementing D-127's approved scoping design
- * (`docs/architecture/reviews/quarantine-retention-scoping/estado-final-consolidado.md`,
- * `ACCOUNT_ACTIVE (não-fechamento)` row, Prioridade 5). Physically purges `Invitation` rows
- * (`src/modules/organization/domain/invitation.ts`) once terminal + 30 days
- * (`privacy-lgpd.md` §4: "encerramento + 30 dias", read here as the row's OWN non-closure
- * termination, not the tenant's — see `candidate-source.ts`'s doc comment for the full
- * investigation) has passed, for a tenant that is itself still `ACTIVE`.
+ * InvitationPurgeWorker — D-155's approved Prioridade 5, `Invitation` leg. Physically purges
+ * `Invitation` rows (`src/modules/organization/domain/invitation.ts`) once terminal (`REVOKED` or
+ * expired-`PENDING`) + 30 days has passed, for a tenant that is itself still `ACTIVE`.
  *
- * **Scope note (crux of D-155, do not re-litigate without re-reading the investigation)**: the
- * design doc names this priority `Invitation`→`Membership`→`Channel`. Only `Invitation` is
- * implemented here. `Membership`'s `REMOVED` state has NO timestamp field at all (`remove-
- * membership.ts`/`leave-organization.ts` set `status = REMOVED` and bump `version`, never a
- * `removedAt`/`updatedAt`) — there is no eligibility clock to check
- * "30 days since termination" against, so no purge logic can be written for it without first
- * adding a new field to two existing write paths, which is a design decision beyond "implement
- * the already-approved worker" and is left to the orchestrating session. `Channel` does not exist
- * as a named persisted entity anywhere in the codebase; the closest real candidate,
- * `NotificationPreferences` (`src/modules/notification/domain/notification-preferences.ts`,
- * one-per-user-per-tenant), has no terminal state either — it is never touched when its owning
- * `Membership` is removed (orphaned, not marked), so it inherits the exact same missing-timestamp
- * blocker as `Membership` and additionally has no direct signal of its own that it should be
- * purged (it would need to join against `Membership.status`, which itself lacks the clock). Both
- * are genuine "investigation says this doesn't map cleanly yet" findings, not scope creep.
+ * D-179/D-181 (MaintenanceDueIndex, slice 2 — mirrors the D-180 membership-purge pilot exactly):
+ * candidates now come from a `Query` against GSI8 (`candidate-source.ts`), replacing the
+ * `Scan`+`Limit`+bounded-pages this worker used through D-181. GSI8 is discovery-only (D-179 §4):
+ * every candidate is revalidated against the base item before any write, and the actual
+ * claim/delete uses a `TransactWriteItems` `ConditionCheck` on the owning tenant's
+ * `TenantLifecycleRecord.status = ACTIVE` in the SAME transaction as the delete.
  *
- * Pure logic, clock-injected, same layout as `quota-telemetry-purge/purge.ts` — candidates come
- * from one `Scan` (see `candidate-source.ts`), this module never touches DynamoDB directly.
+ * Poison-record handling (D-179 §8, same shape as membership-purge): when the tenant-ACTIVE
+ * `ConditionCheck` specifically fails, this worker increments `maintenanceAttemptCount` and pushes
+ * `GSI8SK` forward by a capped exponential backoff; past `MAX_ATTEMPTS` it moves the pointer to
+ * `GSI8PK = "DLQ#INVITATION_PURGE"` instead.
  *
- * Two independent eligibility fences, both required (same shape as D-151/D-152/D-153/D-154):
- *   1. Age — the row's own terminal timestamp (`revokedAt` for REVOKED, `expiresAt` for a PENDING
- *      row past its own deadline — see `candidate-source.ts`) must be at least `RETENTION_DAYS`
- *      (30) in the past.
- *   2. Tenant ACTIVE — the owning tenant's (`organizationId`) `TenantLifecycleRecord.status` must
- *      be `ACTIVE`.
- *
- * **Delete re-asserts `version`** (unlike D-153/D-154, which had no `version` field to check):
- * `Invitation` DOES carry a real `version` counter (bumped nowhere today — no writer currently
- * increments it on `REVOKED`/`ACCEPTED`, but the field exists and is asserted unchanged as the
- * "hasn't moved since scan" fence, same intent as `buildVersionedDelete` without its `tenantId`
- * attribute requirement, since `Invitation` stores `organizationId`, not `tenantId`, as its
- * tenant-scoping field name).
+ * **No obsolete-pointer reactivation case for Invitation** (unlike Membership, which can be
+ * reactivated REMOVED->ACTIVE via accept-invitation.ts): once an `Invitation` reaches `REVOKED` or
+ * `ACCEPTED` it is terminal — there is no code path that transitions a row back to `PENDING` or out
+ * of `REVOKED`/`ACCEPTED`. `ACCEPTED` clears its own GSI8 pointer atomically at the transition
+ * (`accept-invitation.ts`), so it never appears in a GSI8 query at all. The stale-pointer self-heal
+ * branch below is still implemented (same defensive posture as membership-purge, and it is the
+ * only way a malformed/pre-migration row could ever be repaired), but there is no real write path
+ * in this codebase that would ever produce a stale INVITATION_PURGE pointer today.
  */
-import { buildConditionalDelete, isConditionalCheckFailed } from "../../shared/dynamodb/occ.js";
-import type { InvitationPurgeCandidateSource, TenantLifecycleStatusSource } from "./candidate-source.js";
+import { isTransactionCanceled, getCancellationReasonCodes, type TransactWriteEntry } from "../../shared/dynamodb/occ.js";
+import { tenantLifecycleKey } from "../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import {
+  INVITATION_RETENTION_DAYS,
+  deriveInvitationMaintenanceDue,
+  invitationGsi8Keys,
+} from "../../modules/organization/domain/invitation.js";
+import type { InvitationPurgeCandidateSource } from "./candidate-source.js";
 
-export const INVITATION_RETENTION_DAYS = 30;
+export { INVITATION_RETENTION_DAYS };
+
+const TENANT_ACTIVE_STATUS = "ACTIVE";
+const DLQ_GSI8PK = "DLQ#INVITATION_PURGE";
+
+/** Same rationale as membership-purge's own `MAX_PAGES`. */
+const MAX_PAGES = 25;
+
+/** Same rationale as membership-purge's own `MAX_ATTEMPTS`. */
+const MAX_ATTEMPTS = 5;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** ACTIVE-only fence (see file header) — same bare-string rationale as the other purge workers'
- * own constant. */
-const TENANT_ACTIVE_STATUS = "ACTIVE";
+/** Capped exponential backoff (1, 2, 4, 8, 16 days, then quarantined) — identical shape to
+ * membership-purge's `backoffDueAtIso()`. */
+function backoffDueAtIso(attemptNumber: number, nowIso: string): string {
+  const days = Math.min(2 ** (attemptNumber - 1), 16);
+  return new Date(Date.parse(nowIso) + days * MS_PER_DAY).toISOString();
+}
+
+/** Preserved for the existing eligibility-boundary tests — now a thin wrapper over
+ * `deriveInvitationMaintenanceDue()`, the single pure source of truth (D-179 §2). */
+export function isPurgeEligibleByTermination(candidate: { status: "REVOKED" | "PENDING"; revokedAt?: string; expiresAt: string }, nowIso: string): boolean {
+  const due = deriveInvitationMaintenanceDue(candidate);
+  return due !== undefined && Date.parse(due.dueAtIso) <= Date.parse(nowIso);
+}
 
 export interface InvitationPurgeDeps {
   candidates: InvitationPurgeCandidateSource;
-  lifecycle: TenantLifecycleStatusSource;
   tableName: string;
   now: () => string;
 }
@@ -63,27 +71,15 @@ export interface InvitationPurgeResult {
   skippedTooRecent: number;
   skippedTenantNotActive: number;
   skippedConcurrentlyModified: number;
-}
-
-/** Hard cap on pages drained per invocation — same rationale as the other purge workers'
- * `MAX_PAGES`: bounds a single invocation against a pathological backlog; anything beyond this is
- * picked up by the next scheduled run. */
-const MAX_PAGES = 25;
-
-/** The row's own terminal timestamp — `revokedAt` for `REVOKED`, `expiresAt` for a `PENDING` row
- * that never got resolved (see `candidate-source.ts` for why `expiresAt` stands in for a never-
- * written `expiredAt`). Returns `undefined` for any other status, which callers treat as
- * ineligible rather than crashing — defensive against a scan somehow returning an `ACCEPTED` row
- * despite the filter expression (belt-and-suspenders, not an expected path). */
-export function terminalTimestamp(candidate: { status: string; expiresAt: string; revokedAt?: string }): string | undefined {
-  if (candidate.status === "REVOKED") return candidate.revokedAt;
-  if (candidate.status === "PENDING") return candidate.expiresAt;
-  return undefined;
-}
-
-export function isPurgeEligibleByTermination(terminatedAt: string, nowIso: string): boolean {
-  const cutoffMs = Date.parse(terminatedAt) + INVITATION_RETENTION_DAYS * MS_PER_DAY;
-  return cutoffMs <= Date.parse(nowIso);
+  /** A stale GSI8 pointer (no real path produces this today for Invitation, see file header)
+   * self-healed by removing GSI8PK/GSI8SK, never counted as a purge. */
+  skippedStalePointer: number;
+  /** Candidates moved to the DLQ#INVITATION_PURGE namespace this run, having exceeded
+   * MAX_ATTEMPTS of a failing tenant-ACTIVE revalidation. */
+  quarantinedCount: number;
+  /** Age in seconds of the oldest due candidate this run's GSI8 query returned. `undefined` when
+   * no candidate was returned at all. */
+  oldestCandidateAgeSeconds: number | undefined;
 }
 
 export async function runInvitationPurge(deps: InvitationPurgeDeps): Promise<InvitationPurgeResult> {
@@ -93,59 +89,141 @@ export async function runInvitationPurge(deps: InvitationPurgeDeps): Promise<Inv
     skippedTooRecent: 0,
     skippedTenantNotActive: 0,
     skippedConcurrentlyModified: 0,
+    skippedStalePointer: 0,
+    quarantinedCount: 0,
+    oldestCandidateAgeSeconds: undefined,
   };
   const nowIso = deps.now();
-
-  // Cache lifecycle status per tenant within this run — same reasoning as the other purge
-  // workers: a single scan page can carry many candidates for the same tenant, and the delete's
-  // own conditional expression (not this cache) is the real fence against any concurrent
-  // mutation of the CANDIDATE itself.
-  const tenantStatusCache = new Map<string, string | undefined>();
-  async function tenantIsActive(tenantId: string): Promise<boolean> {
-    if (!tenantStatusCache.has(tenantId)) {
-      tenantStatusCache.set(tenantId, await deps.lifecycle.getStatus(tenantId));
-    }
-    return tenantStatusCache.get(tenantId) === TENANT_ACTIVE_STATUS;
-  }
+  const nowMs = Date.parse(nowIso);
 
   let exclusiveStartKey: Record<string, unknown> | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const scanPage = await deps.candidates.scanCandidates(exclusiveStartKey);
-    for (const candidate of scanPage.items) {
+    const gsi8Page = await deps.candidates.queryDue({ before: nowIso, exclusiveStartKey });
+
+    if (page === 0 && gsi8Page.items.length > 0) {
+      const oldest = gsi8Page.items[0]!;
+      result.oldestCandidateAgeSeconds = Math.max(0, Math.floor((nowMs - Date.parse(oldest.dueAtIso)) / 1000));
+    }
+
+    for (const candidate of gsi8Page.items) {
       result.scanned += 1;
 
-      const terminatedAt = terminalTimestamp(candidate);
-      if (!terminatedAt || !isPurgeEligibleByTermination(terminatedAt, nowIso)) {
+      const invitation = await deps.candidates.getInvitation({ PK: candidate.PK, SK: candidate.SK });
+      if (!invitation) continue; // already purged by a prior/concurrent run - idempotent no-op
+
+      const due = deriveInvitationMaintenanceDue(invitation);
+      if (!due) {
+        // Row is no longer a real candidate (see file header - no real path produces this for
+        // Invitation today, but the self-heal is defensive against a malformed/pre-migration
+        // row). Conditioned on the exact version observed here; a lost race is a no-op.
+        try {
+          await deps.candidates.transactWrite([
+            {
+              Update: {
+                TableName: deps.tableName,
+                Key: { PK: candidate.PK, SK: candidate.SK },
+                UpdateExpression: "REMOVE GSI8PK, GSI8SK",
+                ConditionExpression: "version = :v",
+                ExpressionAttributeValues: { ":v": invitation.version },
+              },
+            },
+          ]);
+        } catch (err) {
+          if (!isTransactionCanceled(err)) throw err;
+        }
+        result.skippedStalePointer += 1;
+        continue;
+      }
+      if (Date.parse(due.dueAtIso) > nowMs) {
+        // Defensive only - queryDue()'s own `GSI8SK < :before` filter means this should never be
+        // reachable in practice, but eligibility is always re-derived here, never assumed.
         result.skippedTooRecent += 1;
         continue;
       }
 
-      if (!(await tenantIsActive(candidate.organizationId))) {
-        result.skippedTenantNotActive += 1;
-        continue;
-      }
-
-      const del = buildConditionalDelete({
-        tableName: deps.tableName,
-        key: { PK: candidate.PK, SK: candidate.SK },
-        conditionExpression: "attribute_exists(PK) AND attribute_exists(SK) AND #version = :version",
-        names: { "#version": "version" },
-        values: { ":version": candidate.version },
-      });
+      const claimEntries: TransactWriteEntry[] = [
+        {
+          ConditionCheck: {
+            TableName: deps.tableName,
+            Key: tenantLifecycleKey(candidate.tenantId),
+            ConditionExpression: "#status = :active",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: { ":active": TENANT_ACTIVE_STATUS },
+          },
+        },
+        {
+          Delete: {
+            TableName: deps.tableName,
+            Key: { PK: candidate.PK, SK: candidate.SK },
+            ConditionExpression: "attribute_exists(PK) AND attribute_exists(SK) AND #version = :version",
+            ExpressionAttributeNames: { "#version": "version" },
+            ExpressionAttributeValues: { ":version": invitation.version },
+          },
+        },
+      ];
 
       try {
-        await deps.candidates.deleteCandidate(del);
+        await deps.candidates.transactWrite(claimEntries);
         result.purged += 1;
+        continue;
       } catch (err) {
-        if (isConditionalCheckFailed(err)) {
+        if (!isTransactionCanceled(err)) throw err;
+        const reasons = getCancellationReasonCodes(err);
+        const tenantCheckFailed = reasons?.[0] === "ConditionalCheckFailed";
+        const deleteCheckFailed = reasons?.[1] === "ConditionalCheckFailed";
+
+        if (deleteCheckFailed && !tenantCheckFailed) {
+          // Invitation row itself changed concurrently - transient, self-resolves next run.
           result.skippedConcurrentlyModified += 1;
           continue;
         }
-        throw err;
+
+        if (!tenantCheckFailed) throw err; // unrecognized cancellation shape - never swallowed
+
+        result.skippedTenantNotActive += 1;
+        const nextAttempt = (invitation.maintenanceAttemptCount ?? 0) + 1;
+        const quarantine = nextAttempt > MAX_ATTEMPTS;
+        const backoffUpdate: TransactWriteEntry = quarantine
+          ? {
+              Update: {
+                TableName: deps.tableName,
+                Key: { PK: candidate.PK, SK: candidate.SK },
+                UpdateExpression: "SET GSI8PK = :dlq, maintenanceAttemptCount = :attempt",
+                ConditionExpression: "version = :v AND GSI8PK = :work",
+                ExpressionAttributeValues: {
+                  ":dlq": DLQ_GSI8PK,
+                  ":attempt": nextAttempt,
+                  ":v": invitation.version,
+                  ":work": invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: candidate.tenantId, invitationId: invitation.invitationId }).GSI8PK,
+                },
+              },
+            }
+          : {
+              Update: {
+                TableName: deps.tableName,
+                Key: { PK: candidate.PK, SK: candidate.SK },
+                UpdateExpression: "SET GSI8SK = :sk, maintenanceAttemptCount = :attempt",
+                ConditionExpression: "version = :v",
+                ExpressionAttributeValues: {
+                  ":sk": invitationGsi8Keys({ dueAtIso: backoffDueAtIso(nextAttempt, nowIso), tenantId: candidate.tenantId, invitationId: invitation.invitationId }).GSI8SK,
+                  ":attempt": nextAttempt,
+                  ":v": invitation.version,
+                },
+              },
+            };
+
+        try {
+          await deps.candidates.transactWrite([backoffUpdate]);
+          if (quarantine) result.quarantinedCount += 1;
+        } catch (backoffErr) {
+          // Idempotent, same discipline as membership-purge's own poison-record handling.
+          if (!isTransactionCanceled(backoffErr)) throw backoffErr;
+        }
       }
     }
-    if (!scanPage.lastEvaluatedKey) break;
-    exclusiveStartKey = scanPage.lastEvaluatedKey;
+
+    if (!gsi8Page.lastEvaluatedKey) break;
+    exclusiveStartKey = gsi8Page.lastEvaluatedKey;
   }
 
   return result;

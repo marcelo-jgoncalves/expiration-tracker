@@ -50,6 +50,7 @@ const GLOBAL_INDEX_ACCESS_CALL_SITES: Array<{ file: string; component: string; l
   { file: "src/modules/document/persistence/dynamodb-document-candidate-source.ts", component: "upload-slot-reconciliation", lambdaModule: "upload_slot_reconciliation_handler" },
   { file: "src/workers/document-purge/dynamodb-document-purge-candidate-source.ts", component: "document-purge", lambdaModule: "document_purge_handler" },
   { file: "src/workers/membership-purge/dynamodb-candidate-source.ts", component: "membership-purge", lambdaModule: "membership_purge_handler" },
+  { file: "src/workers/invitation-purge/dynamodb-candidate-source.ts", component: "invitation-purge", lambdaModule: "invitation_purge_handler" },
 ];
 
 function read(relativePath: string): string {

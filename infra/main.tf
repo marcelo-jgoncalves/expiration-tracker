@@ -963,6 +963,7 @@ module "security_audit_observability" {
     module.document_purge_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
     module.membership_purge_handler.function_name,
+    module.invitation_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3286,8 +3287,11 @@ resource "aws_scheduler_schedule" "quota_telemetry_purge" {
 # full-tenant-closure pipeline) - see src/workers/invitation-purge/purge.ts's doc comment.
 # Membership and Channel (the other 2 entities named by the design doc's Prioridade 5 row) are NOT
 # implemented here - both blocked on a missing eligibility timestamp, see decisions-log D-155 and
-# candidate-source.ts's doc comment for the full investigation. No dedicated IAM policy beyond the
-# general tenant-facing grant, same reasoning as quota_telemetry_purge_handler above.
+# candidate-source.ts's doc comment for the full investigation. D-179/D-181 (MaintenanceDueIndex,
+# slice 2 of 9 - mirrors the D-180 membership_purge pilot exactly): gsi8_read_policy_json and
+# worker_transact_write_policy_json are both keyed "invitation_purge" (main.tf's
+# gsi8_worker_types), scoped via dynamodb:LeadingKeys to exactly WORK#INVITATION_PURGE/
+# DLQ#INVITATION_PURGE, never a general GSI8 grant.
 module "invitation_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3297,8 +3301,12 @@ module "invitation_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["invitation_purge"],
+    module.table.worker_transact_write_policy_json["invitation_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "invitation_purge_schedule" {
