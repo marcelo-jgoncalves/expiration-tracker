@@ -70,4 +70,9 @@ export interface TelemetryIncrementInput {
    * deletion latency); the real guarantee is the QuotaTelemetryPurgeWorker's explicit
    * resetAt+30d sweep (D-154), widened to this entity type alongside this change. */
   purgeAfterTtl: number;
+  /** MaintenanceDueIndex pointer (D-179/D-186) - caller-computed (`quota.ts`'s
+   * `quotaTelemetryGsi8Keys()`), deterministic from the same window bucket as `resetAt`/
+   * `purgeAfterTtl` above, so this adapter can write it via `if_not_exists` alongside them
+   * without importing any application-layer logic itself. */
+  gsi8: { GSI8PK: string; GSI8SK: string };
 }
