@@ -68,6 +68,19 @@ describe("runQuotaTelemetryPurge (D-154: resetAt+30d physical purge, ACTIVE tena
     },
   );
 
+  it("also purges an EphemeralTelemetryMutation row (D-136 D-D: the API_REQUEST lane's entityType, widened into this worker's scan alongside TenantQuota) whose window closed more than 30 days ago in an ACTIVE tenant", async () => {
+    const candidates = new FakeQuotaTelemetryPurgeCandidateSource();
+    const lifecycle = new FakeTenantLifecycleStatusSource();
+    const candidate = makeCandidate({ entityType: "EphemeralTelemetryMutation" });
+    candidates.seed(candidate);
+    lifecycle.setStatus(candidate.tenantId, "ACTIVE");
+
+    const result = await runQuotaTelemetryPurge({ candidates, lifecycle, tableName: TABLE, now: () => NOW });
+
+    expect(result).toEqual({ scanned: 1, purged: 1, skippedTooRecent: 0, skippedTenantNotActive: 0, skippedConcurrentlyModified: 0 });
+    expect(candidates.get({ PK: candidate.PK, SK: candidate.SK })).toBeUndefined();
+  });
+
   it("never purges a record whose tenant has NO lifecycle record at all (fail-closed, never assumed ACTIVE)", async () => {
     const candidates = new FakeQuotaTelemetryPurgeCandidateSource();
     const lifecycle = new FakeTenantLifecycleStatusSource(); // no setStatus call - tenant genuinely missing

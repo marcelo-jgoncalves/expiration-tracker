@@ -30,9 +30,9 @@ export class DynamoDbQuotaTelemetryPurgeCandidateSource implements QuotaTelemetr
       const result = await this.client.send(
         new ScanCommand({
           TableName: this.tableName,
-          FilterExpression: "#entityType = :tenantQuota AND attribute_exists(#resetAt)",
+          FilterExpression: "#entityType IN (:tenantQuota, :ephemeralTelemetry) AND attribute_exists(#resetAt)",
           ExpressionAttributeNames: { "#entityType": "entityType", "#resetAt": "resetAt" },
-          ExpressionAttributeValues: { ":tenantQuota": "TenantQuota" },
+          ExpressionAttributeValues: { ":tenantQuota": "TenantQuota", ":ephemeralTelemetry": "EphemeralTelemetryMutation" },
           Limit: PER_INVOCATION_LIMIT,
           ExclusiveStartKey: exclusiveStartKey,
         }),

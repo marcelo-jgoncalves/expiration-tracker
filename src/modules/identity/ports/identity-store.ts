@@ -40,4 +40,34 @@ export interface IdentityStore {
    * ConditionExpression fails - callers must not assume partial application.
    */
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
+  /**
+   * Atomic `ADD`-only `UpdateItem` for the `EphemeralTelemetryMutation` lane (D-136 D-D,
+   * `docs/architecture/reviews/performance-hotpath-scoping/estado-final-consolidado.md`) — the
+   * cheap counterpart to `transactWrite` for `API_REQUEST` quota telemetry. Deliberately NOT a
+   * `Get` + conditional write: no `ConditionExpression` at all, so it never repeats the W3-07
+   * lifecycle `ConditionCheck` `transactWrite` pays on every call — the design's approved trade
+   * is that the caller has already read `ACTIVE` (stale) upstream and this lane only records
+   * telemetry, never a business admission. `ADD` on a key with no existing item creates it
+   * (real DynamoDB `UpdateItem` semantics), so this also replaces the old `Get`-then-`Put`
+   * bootstrap for the counter's first write in a window. Returns the post-increment count so
+   * the caller can compare it against its own limit without a second round trip.
+   */
+  incrementTelemetryCounter(input: TelemetryIncrementInput): Promise<{ count: number }>;
+}
+
+export interface TelemetryIncrementInput {
+  key: EntityKey;
+  tenantId: string;
+  quotaType: string;
+  windowSeconds: number;
+  /** ISO timestamp the current fixed window closes at - a pure function of the window bucket
+   * the caller already derived, written on every increment (idempotent: identical value every
+   * time within the same window, since the window bucket determines it deterministically). */
+  resetAt: string;
+  /** Epoch SECONDS - the main table's native TTL attribute (`infra/modules/dynamo-table/main.tf`,
+   * always `purgeAfterTtl`, confirmed against the Terraform test asserting that exact attribute
+   * name) - best-effort early cleanup only, never the removal guarantee (AWS does not bound TTL
+   * deletion latency); the real guarantee is the QuotaTelemetryPurgeWorker's explicit
+   * resetAt+30d sweep (D-154), widened to this entity type alongside this change. */
+  purgeAfterTtl: number;
 }
