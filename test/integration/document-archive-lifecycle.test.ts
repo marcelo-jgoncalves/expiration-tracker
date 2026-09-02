@@ -118,13 +118,13 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     // fences on TenantLifecycleRecord.status=ACTIVE AND the ConditionCheck against a real
     // ACTIVE DocumentType — this store is separate from identityStore's own lifecycle record
     // (same as document-type-service.test.ts's seedTenant precedent), and every fixture below
-    // references documentType "ALVARA" as if it already names a real catalog entry.
+    // references documentTypeId "ALVARA" as if it already names a real catalog entry.
     await store.putIfAbsent(seedActiveTenantLifecycle(tenantId));
     await store.putIfAbsent(seedActiveDocumentType(tenantId, "ALVARA"));
   });
 
   it("create -> reserveUpload -> commitUpload -> claimReview -> acceptVersion, all via HTTP handlers", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     expect(created.statusCode).toBe(201);
     const documentId = (created.body["document"] as { documentId: string }).documentId;
 
@@ -177,7 +177,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   });
 
   it("item 4 (2026-09-02): POST .../versions/{seq}/files reserves DocumentFile rows and returns real presigned upload URLs via the HTTP route", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     const documentId = (created.body["document"] as { documentId: string }).documentId;
     const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
     const version = draft.body["version"] as { seq: number; version: number };
@@ -202,7 +202,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   });
 
   it("item 4 (2026-09-02): a body failing schema validation (files array empty) is rejected with 400 before reaching the service", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     const documentId = (created.body["document"] as { documentId: string }).documentId;
     const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
     const version = draft.body["version"] as { seq: number; version: number };
@@ -217,7 +217,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   });
 
   it("item 4 (2026-09-02): a VIEWER is denied (403) reserving files, same docarchive:upload RBAC tier as reserveUpload/commitUpload", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     const documentId = (created.body["document"] as { documentId: string }).documentId;
     const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
     const version = draft.body["version"] as { seq: number; version: number };
@@ -237,7 +237,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   });
 
   it("a rejected version stays in history (never removable) and a corrected re-upload becomes the accepted current version", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     const documentId = (created.body["document"] as { documentId: string }).documentId;
 
     const draft1 = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
@@ -304,12 +304,12 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const fakeResolver = { resolve: async () => viewerContext };
     const viewerDeps = { resolver: fakeResolver, documentArchive: deps.documentArchive, quota: deps.quota } as unknown as DocumentArchiveHttpDeps;
 
-    const response = await handleCreateDocument(viewerDeps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const response = await handleCreateDocument(viewerDeps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: true } });
     expect(response.statusCode).toBe(403);
   });
 
   it("Requirement: create -> linkEvidence -> status derivation (PENDING then SATISFIED) -> delete, all via HTTP handlers (D-143 Decision 5 / D-145)", async () => {
-    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: false } });
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentTypeId: "ALVARA", hasValidity: false } });
     const documentId = (created.body["document"] as { documentId: string }).documentId;
 
     const createdReq = await handleCreateRequirement(deps, { ...req, body: { subjectId: "subject-1", name: "Alvará de funcionamento", applicability: "APPLICABLE" } });

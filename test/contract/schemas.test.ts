@@ -902,7 +902,7 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
   it("accepts a valid docarchive-create-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-create-request.v1.json", {
       subjectId: "subject-1",
-      documentType: "ALVARA",
+      documentTypeId: "ALVARA",
       hasValidity: true,
     });
     expect(errors).toEqual([]);
@@ -912,7 +912,7 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
   it("rejects a docarchive-create-request.v1 missing hasValidity", () => {
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-create-request.v1.json", {
       subjectId: "subject-1",
-      documentType: "ALVARA",
+      documentTypeId: "ALVARA",
     });
     expect(valid).toBe(false);
   });

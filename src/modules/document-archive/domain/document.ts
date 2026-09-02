@@ -17,7 +17,7 @@ export interface Document extends EntityKey {
   documentId: string;
   tenantId: string;
   subjectId: string;
-  documentType: string;
+  documentTypeId: string;
   status: DocumentStatus;
   /** D3: documents without an expiration date are a legitimate first-class case, never
    * forced to carry a fabricated validity. */
@@ -52,16 +52,18 @@ export function documentGsi1Keys(tenantId: string, status: DocumentStatus, updat
 
 /** GSI2 (new index, AP3 — verified free of any existing writer in the codebase before this
  * module claimed it, see D-143 Decision 2/round2-codex-critique.md's corrected finding):
- * Documents by Subject, grouped by documentType. */
-export function documentGsi2Keys(tenantId: string, subjectId: string, documentType: string, documentId: string): { GSI2PK: string; GSI2SK: string } {
+ * Documents by Subject, grouped by DocumentType (D-173 §5: keyed by the stable
+ * documentTypeId, not the renamable displayName — renaming a DocumentType must never move
+ * where an existing Document sits in this index). */
+export function documentGsi2Keys(tenantId: string, subjectId: string, documentTypeId: string, documentId: string): { GSI2PK: string; GSI2SK: string } {
   return {
     GSI2PK: `TENANT#${tenantId}#SUBJECT#${subjectId}#DOC`,
-    GSI2SK: `DOCTYPE#${documentType}#DOCUMENT#${documentId}`,
+    GSI2SK: `DOCTYPE#${documentTypeId}#DOCUMENT#${documentId}`,
   };
 }
 
 export interface CreateDocumentInput {
   subjectId: string;
-  documentType: string;
+  documentTypeId: string;
   hasValidity: boolean;
 }

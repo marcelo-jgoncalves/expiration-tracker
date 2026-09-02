@@ -5,10 +5,10 @@
   "description": "POST /document-archive/documents request body (src/modules/document-archive/domain/document.ts CreateDocumentInput). D-143 Nucleus 1.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["subjectId", "documentType", "hasValidity"],
+  "required": ["subjectId", "documentTypeId", "hasValidity"],
   "properties": {
     "subjectId": { "type": "string", "minLength": 1, "maxLength": 100 },
-    "documentType": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "documentTypeId": { "type": "string", "minLength": 1, "maxLength": 100 },
     "hasValidity": { "type": "boolean" }
   }
 }

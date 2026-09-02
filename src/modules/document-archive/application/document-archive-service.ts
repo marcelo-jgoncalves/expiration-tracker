@@ -149,10 +149,9 @@ export class DocumentArchiveService {
    * `executeTenantBusinessMutation` to close a TOCTOU window where the referenced DocumentType
    * could flip to DEPRECATED between a read-before-write check and the actual `Put` — the
    * `ConditionCheck` runs inside the SAME `TransactWriteItems`, never a separate read.
-   * `input.documentType` is not yet renamed to `documentTypeId` (that rename, plus
-   * `documentGsi2Keys()`'s key-format change, is item 4 of the design doc's "Próximo passo
-   * real", a separate slice) — it already carries the DocumentType's stable id at this call
-   * site (the HTTP schema requires it), so no new field is introduced.
+   * `input.documentTypeId` (D-173 §5, item 4 of the design doc's "Próximo passo real") carries
+   * the DocumentType's stable id — the field/GSI2SK format rename is atomic with no hybrid
+   * state, since this project has no production data to migrate (D-093).
    */
   async createDocument(ctx: RequestContext, input: CreateDocumentInput): Promise<Document> {
     authorize({ context: ctx, action: "docarchive:create", resource: { tenantId: ctx.tenant.tenantId } });
@@ -165,7 +164,7 @@ export class DocumentArchiveService {
       documentId,
       tenantId,
       subjectId: input.subjectId,
-      documentType: input.documentType,
+      documentTypeId: input.documentTypeId,
       status: "ACTIVE",
       hasValidity: input.hasValidity,
       createdAt: now,
@@ -174,13 +173,13 @@ export class DocumentArchiveService {
       ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
       // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
       // both index memberships live on one physical row, no mirror item needed for this pattern.
-      ...documentGsi2Keys(tenantId, input.subjectId, input.documentType, documentId),
+      ...documentGsi2Keys(tenantId, input.subjectId, input.documentTypeId, documentId),
     };
 
     const entries = [
       buildExistenceConditionCheck({
         tableName: this.tableName,
-        key: documentTypeKey(tenantId, input.documentType),
+        key: documentTypeKey(tenantId, input.documentTypeId),
         extra: { status: "ACTIVE" },
       }),
       { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
@@ -190,7 +189,7 @@ export class DocumentArchiveService {
     } catch (err) {
       if (isTransactionCanceled(err)) {
         const codes = getCancellationReasonCodes(err);
-        if (codes?.[0] === "ConditionalCheckFailed") throw new DocumentTypeNotActiveError("This DocumentType is not ACTIVE.", { documentType: input.documentType });
+        if (codes?.[0] === "ConditionalCheckFailed") throw new DocumentTypeNotActiveError("This DocumentType is not ACTIVE.", { documentTypeId: input.documentTypeId });
         if (codes?.[1] === "ConditionalCheckFailed") throw new ConflictError("Document already exists.", { documentId });
         throw new ConflictError("createDocument transaction was rejected.", { documentId });
       }
