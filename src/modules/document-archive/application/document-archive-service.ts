@@ -47,6 +47,14 @@ import {
 } from "../domain/document-version.js";
 import { documentVersionEventKey, idempotencyRecordKey, type DocumentVersionEvent, type IdempotencyRecord } from "../domain/document-version-event.js";
 import {
+  applyFileScanResult,
+  confirmFileScanClean,
+  type ApplyFileScanResultInput,
+  type ApplyFileScanResultOutcome,
+  type ConfirmFileScanCleanInput,
+  type ConfirmFileScanCleanOutcome,
+} from "./apply-file-scan-result.js";
+import {
   deriveRequirementStatus,
   requirementGsi1Keys,
   requirementKey,
@@ -88,6 +96,25 @@ export class DocumentArchiveService {
     this.ids = deps.ids;
     this.quarantineBucket = deps.quarantineBucket;
     this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  /**
+   * applyFileScanResult / confirmFileScanClean — D-163 §1/§5. Event-driven (S3 Object Created /
+   * GuardDuty finding), never a user action - deliberately take no `RequestContext` and call no
+   * `authorize()`, same posture as M6's `advanceAfterEvidence()` (only a human-initiated command
+   * needs RBAC; a physical storage/scan event is trusted infrastructure input, verified by the
+   * transactional evidence-correlation fence itself, not by a role check). Thin wiring only -
+   * all real logic lives in `apply-file-scan-result.ts`, independently unit-testable without
+   * this class. The actual S3 copy-to-clean between these two calls (`READY_TO_PROMOTE`'s
+   * `sourceObject` -> `confirmFileScanClean`'s `cleanObject`) is owned by the future S3/
+   * GuardDuty event worker, not this service (no `DocumentObjectStore` wired here yet).
+   */
+  async applyFileScanResult(input: ApplyFileScanResultInput): Promise<ApplyFileScanResultOutcome> {
+    return applyFileScanResult({ store: this.store, tableName: this.tableName, ids: this.ids, now: this.now }, input);
+  }
+
+  async confirmFileScanClean(input: ConfirmFileScanCleanInput): Promise<ConfirmFileScanCleanOutcome> {
+    return confirmFileScanClean({ store: this.store, tableName: this.tableName, ids: this.ids, now: this.now }, input);
   }
 
   async createDocument(ctx: RequestContext, input: CreateDocumentInput): Promise<Document> {
