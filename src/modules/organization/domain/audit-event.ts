@@ -8,6 +8,7 @@
 import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
 
 export type MembershipAuditAction =
   | "INVITATION_CREATED"
@@ -31,6 +32,10 @@ export interface MembershipAuditEvent extends EntityKey {
   changes: Record<string, unknown>;
   occurredAt: string;
   correlationId: string;
+  /** MaintenanceDueIndex pointer (D-179/D-187) — written once here, at creation, never refreshed
+   * (append-only entity, see `shared/security-audit-gsi8.ts`). */
+  GSI8PK: string;
+  GSI8SK: string;
 }
 
 function monthShard(isoTimestamp: string): string {
@@ -61,6 +66,15 @@ export interface BuildMembershipAuditEventInput {
 
 export function buildMembershipAuditEvent(input: BuildMembershipAuditEventInput): MembershipAuditEvent {
   const key = membershipAuditKey(input.organizationId, input.occurredAt, input.auditEventId);
+  const due = deriveSecurityAuditMaintenanceDue({ occurredAt: input.occurredAt });
+  // organizationId IS the tenant id here (see file header) - same value the GSI8 pointer and
+  // purge.ts's tenant-ACTIVE fence both key off, normalized under the "tenantId" name.
+  const gsi8 = securityAuditGsi8Keys({
+    dueAtIso: due.dueAtIso,
+    tenantId: input.organizationId,
+    entityType: "MembershipAuditEvent",
+    sk: key.SK,
+  });
   return {
     ...key,
     entityType: "MembershipAuditEvent",
@@ -75,6 +89,7 @@ export function buildMembershipAuditEvent(input: BuildMembershipAuditEventInput)
     changes: defaultRedactor.redact(input.changes) as Record<string, unknown>,
     occurredAt: input.occurredAt,
     correlationId: input.correlationId,
+    ...gsi8,
   };
 }
 

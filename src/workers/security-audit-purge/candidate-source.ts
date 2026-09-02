@@ -1,46 +1,39 @@
 /**
- * Narrow port for the SecurityAuditPurgeWorker (D-153, `docs/architecture/reviews/
- * quarantine-retention-scoping/estado-final-consolidado.md` Prioridade 3 — `SECURITY_AUDIT` =
- * "AuditEvent/logs redigidos, MembershipAuditEvent" per `privacy-lgpd.md` §4 line 43, verified by
- * reading the actual code to be exactly the 4 `AuditEvent`-family entities:
- * `AuditEvent` (`src/modules/expiration/domain/audit-event.ts`),
- * `MembershipAuditEvent` (`src/modules/organization/domain/audit-event.ts`),
- * `SubjectAuditEvent` (`src/modules/subject/domain/audit-event.ts`), and
- * `TenantAuditEvent` (`src/modules/activity/domain/tenant-audit-event.ts`, the 4th sibling added
- * by D-149 to close the export-audit gap) — the SAME 4 partitions `GET /activity`'s
- * `ActivityService` k-way-merges (`src/modules/activity/domain/merge.ts`'s `AUDIT_PARTITIONS`).
+ * Narrow port for the SecurityAuditPurgeWorker (D-153, migrated to GSI8 by D-179/D-187 — 6th of 9
+ * workers, mirrors the D-186 quota-telemetry-purge slice exactly for the poison-record/DLQ shape,
+ * D-183's "no self-heal branch" reasoning for append-only rows). Replaces the base-table `Scan`
+ * this worker used through D-186 with a `Query` against GSI8 (`GSI8PK=WORK#SECURITY_AUDIT`,
+ * `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>`, `KEYS_ONLY`) — closes the same
+ * structural starvation D-170 confirmed for `Scan`+`Limit`.
  *
- * **No `version` field** (unlike `DELIVERY_RECORD`/`CORE_USER_DATA`'s candidates): every
- * `AuditEvent`-family row is append-only by construction — each domain file's own header says so
- * explicitly ("There is deliberately no update()/delete() exported anywhere for this entity") —
- * so there is no OCC counter to re-assert at delete time. `occurredAt` is re-asserted instead
- * (`purge.ts`'s `buildConditionalDelete` call) as the sole "hasn't changed since scan" fence —
- * sufficient here specifically because these rows are never mutated in place, so there is no
- * "did some OTHER field change" case a version check would additionally catch.
+ * Covers the 4 `AuditEvent`-family entities (`AuditEvent`, `MembershipAuditEvent`,
+ * `SubjectAuditEvent`, `TenantAuditEvent` — see `shared/security-audit-gsi8.ts`), the SAME 4
+ * partitions `GET /activity`'s `ActivityService` k-way-merges. All 4 are append-only by
+ * construction: the GSI8 pointer is written exactly once, at creation (each domain module's own
+ * `build*Event()`), never refreshed — no terminal-state transition exists for an immutable row,
+ * so unlike invitation-purge there is no obsolete-pointer self-heal branch needed here either
+ * (same absence, same reasoning as D-186 quota-telemetry-purge, different underlying cause:
+ * append-only vs. "every resetAt-changing write also refreshes the pointer").
  *
- * **`occurredAt` IS the age clock for all 4**, never a separate `createdAt` — confirmed by
- * reading every domain file: none of the 4 declares a `createdAt` field at all.
- * `TenantAuditEvent`'s own header makes this explicit for the record: "para esta entidade
- * imutável, occurredAt É o relógio canônico equivalente a createdAt".
+ * GSI8 is discovery-only, never a source of eligibility (D-179 §2/§4) — every candidate the Query
+ * returns is revalidated with a consistent `getCandidate()` read before any write, and the write
+ * itself (`transactWrite`) always re-asserts the facts it depends on atomically:
+ *   - the row's own `occurredAt` (this entity family's OCC fence — no `version` counter exists,
+ *     none of the 4 is ever updated after creation).
+ *   - the owning tenant's `TenantLifecycleRecord.status = ACTIVE`, checked IN THE SAME
+ *     `TransactWriteItems` as the delete.
  *
- * **Tenant scoping**: 3 of the 4 (`AuditEvent`/`SubjectAuditEvent`/`TenantAuditEvent`) declare
- * `tenantId` directly; `MembershipAuditEvent` declares `organizationId` instead (never
- * `tenantId`) — but `organizationId` IS the tenant id in this codebase (its own partition key,
- * `membershipAuditKey()`, uses the exact same `TENANT#<organizationId>#...` prefix as every other
- * tenant-scoped partition). The candidate shape below normalizes both into one `tenantId` field
- * so `purge.ts`'s ACTIVE-tenant fence stays entity-agnostic; `dynamodb-candidate-source.ts` is
- * the one place that performs the `organizationId` -> `tenantId` mapping for this specific type.
- *
- * Same deliberate full-table `Scan` tradeoff as `core-user-data-purge`/`delivery-record-purge`'s
- * candidate sources (see their doc comments) — filtered by `entityType`/`attribute_exists
- * (occurredAt)`, not a GSI6 worklist: none of the 4 entities has an external side-effect (S3
- * object, lease) to protect with a claim state, and adding a consumer to GSI6's closed isolation
- * boundary (`data-model.md` §3, `infra/tests/stack.tftest.hcl`) for a class with no such need
- * would widen it for no reason.
+ * **`MembershipAuditEvent` normalization**: it declares `organizationId`, not `tenantId` — the
+ * SAME value (its own `PK` uses the identical `TENANT#<organizationId>#...` prefix as every other
+ * tenant-scoped partition) but a different field name. `GSI8SK` already embeds the normalized
+ * `tenantId` (`securityAuditGsi8Keys()`'s caller passes `organizationId` under the `tenantId` key
+ * at build time), so the GSI8 adapter never needs to special-case this entity when parsing a raw
+ * `KEYS_ONLY` result row.
  */
-import type { DynamoDeleteCommandInput, EntityKey } from "../../shared/dynamodb/occ.js";
+import type { EntityKey, TransactWriteEntry } from "../../shared/dynamodb/occ.js";
+import type { SecurityAuditGsi8EntityType } from "../../shared/security-audit-gsi8.js";
 
-export type SecurityAuditEntityType = "AuditEvent" | "MembershipAuditEvent" | "SubjectAuditEvent" | "TenantAuditEvent";
+export type SecurityAuditEntityType = SecurityAuditGsi8EntityType;
 
 export interface SecurityAuditPurgeCandidate extends EntityKey {
   entityType: SecurityAuditEntityType;
@@ -49,29 +42,40 @@ export interface SecurityAuditPurgeCandidate extends EntityKey {
    * PK, never re-derived. */
   tenantId: string;
   occurredAt: string;
+  maintenanceAttemptCount?: number;
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
-export interface SecurityAuditScanPage {
-  items: SecurityAuditPurgeCandidate[];
+/** One `KEYS_ONLY` GSI8 result row — `tenantId`/`entityType` are parsed out of `GSI8SK` (embedded
+ * in the sort key by `securityAuditGsi8Keys()` precisely so a `KEYS_ONLY` projection is enough to
+ * build the tenant-ACTIVE `ConditionCheck` without a second read). */
+export interface SecurityAuditGsi8Candidate extends EntityKey {
+  dueAtIso: string;
+  tenantId: string;
+  entityType: SecurityAuditEntityType;
+}
+
+export interface SecurityAuditGsi8Page {
+  items: SecurityAuditGsi8Candidate[];
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface SecurityAuditPurgeCandidateSource {
-  /** `Scan` with `FilterExpression: (entityType IN the 4 AuditEvent-family values) AND
-   * attribute_exists(occurredAt)` — see file header for the cost tradeoff this accepts. */
-  scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<SecurityAuditScanPage>;
-  /** Single conditioned `DeleteItem` (`buildConditionalDelete`, not `buildVersionedDelete` — see
-   * file header on why there is no `version` to check). Throws the SDK's real
-   * `ConditionalCheckFailedException` (recognized via `occ.ts#isConditionalCheckFailed`) when the
-   * condition doesn't hold. */
-  deleteCandidate(input: DynamoDeleteCommandInput): Promise<void>;
+  /** `Query GSI8PK = "WORK#SECURITY_AUDIT" AND GSI8SK < :before`, ordered by due date. */
+  queryDue(input: { before: string; exclusiveStartKey?: Record<string, unknown> }): Promise<SecurityAuditGsi8Page>;
+  /** Strongly-consistent read of the base row - the revalidation `getCandidate()` D-179 §4
+   * requires before acting on any GSI8 candidate. `undefined` when the row is already gone
+   * (idempotent no-op). */
+  getCandidate(key: EntityKey): Promise<SecurityAuditPurgeCandidate | undefined>;
+  /** Real `TransactWriteItems` — used both for the claim/delete (ConditionCheck + Delete) and for
+   * the poison-record backoff/DLQ move (a single conditioned Update). */
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }
 
 /**
- * Same ACTIVE-tenant fence as `core-user-data-purge`/`delivery-record-purge`'s
- * `TenantLifecycleStatusSource` — a tenant mid-closure is the tenant-purge pipeline's job, never
- * this worker's. Deliberately the same narrow shape (not re-exported/shared), mirroring the
- * precedents' own choice to keep each purge worker's port surface independently readable.
+ * Same ACTIVE-tenant fence as every other purge worker's `TenantLifecycleStatusSource` — a tenant
+ * mid-closure is the tenant-purge pipeline's job, never this worker's.
  */
 export interface TenantLifecycleStatusSource {
   getStatus(tenantId: string): Promise<string | undefined>;

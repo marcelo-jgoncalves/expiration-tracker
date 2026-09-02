@@ -227,6 +227,7 @@ locals {
     document_file_reconciliation = "DOCUMENT_FILE_RECONCILIATION"
     requirement_reindex          = "REQUIREMENT_REINDEX"
     quota_telemetry_purge        = "QUOTA_TELEMETRY"
+    security_audit_purge         = "SECURITY_AUDIT"
   }
 }
 
