@@ -46,6 +46,18 @@ export interface TenantQuotaRecord {
   count: number;
   resetAt: string;
   killSwitchOverride?: boolean;
+  /** MaintenanceDueIndex pointer (D-179/D-186, quota-telemetry-purge's slice 5) — written/
+   * refreshed atomically on every write that sets `resetAt` (`consume()`'s create and
+   * window-rollover branches). No later "became terminal" transition exists for this entity the
+   * way Membership/Invitation have — the due date is a pure function of `resetAt`, so the pointer
+   * is simply kept in sync with it on every write, never a separate step. Never sparse/absent:
+   * every `TenantQuotaRecord` is a real future purge candidate as soon as it exists. */
+  GSI8PK: string;
+  GSI8SK: string;
+  /** Same D-179 §8 poison-record retry counter as `Membership.maintenanceAttemptCount` —
+   * observed on revalidation, drives capped exponential backoff / DLQ#QUOTA_TELEMETRY
+   * quarantine. */
+  maintenanceAttemptCount?: number;
 }
 
 export function tenantQuotaKey(tenantId: string, quotaType: QuotaType, window: string): EntityKey {
@@ -71,10 +83,65 @@ export interface EphemeralTelemetryRecord extends EntityKey {
   resetAt: string;
   /** Epoch seconds - native DynamoDB TTL attribute, best-effort only (see identity-store.ts). */
   purgeAfterTtl: number;
+  /** Same MaintenanceDueIndex pointer as `TenantQuotaRecord.GSI8PK`/`GSI8SK` (D-179/D-186) —
+   * `purgeAfterTtl` is best-effort only (AWS does not bound TTL deletion latency), so this lane
+   * needs the same explicit GSI8 sweep as the resetAt+30d guarantee, not TTL alone. Set via
+   * `if_not_exists` at the same moment `resetAt`/`purgeAfterTtl` are (`identity-store.ts`'s
+   * `incrementTelemetryCounter`) - deterministic from the window bucket, so every concurrent
+   * writer for the same window computes the identical value. */
+  GSI8PK: string;
+  GSI8SK: string;
+  maintenanceAttemptCount?: number;
 }
 
 function ephemeralTelemetryKey(tenantId: string, quotaType: QuotaType, windowId: number): EntityKey {
   return { PK: `TENANT#${tenantId}#QUOTA`, SK: `TYPE#${quotaType}#${windowId}` };
+}
+
+/** D-154's "fim da janela + 30 dias" retention window, now also the source of
+ * `deriveQuotaTelemetryMaintenanceDue()`'s due date (D-179/D-186, slice 5) — same constant shape
+ * as `INVITATION_RETENTION_DAYS`/`MEMBERSHIP_RETENTION_DAYS`. */
+export const QUOTA_TELEMETRY_RETENTION_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** GSI8 (MaintenanceDueIndex, D-179) namespace this worker owns — the ONLY value any
+ * quota-telemetry-purge-scoped IAM policy's `dynamodb:LeadingKeys` condition may reference
+ * (`infra/modules/dynamo-table/main.tf`), alongside the DLQ counterpart. */
+export const QUOTA_TELEMETRY_PURGE_WORK_TYPE = "QUOTA_TELEMETRY";
+
+export interface QuotaTelemetryMaintenanceDue {
+  dueAtIso: string;
+}
+
+/**
+ * Pure `deriveMaintenanceDue()` for both `TenantQuota`/`EphemeralTelemetryMutation` (D-179 §2,
+ * slice 5) — single source of truth for "when does this row become a quota-telemetry-purge
+ * candidate", reused by the 3 usual consumers: the writers of the GSI8 pointer (`consume()`
+ * below, `identity-store.ts`'s `incrementTelemetryCounter`), the backfill script
+ * (`scripts/backfill-gsi8-quota-telemetry-purge.ts`), and the worker's own revalidation step
+ * (`quota-telemetry-purge/purge.ts`). Unlike Membership/Invitation, there is no terminal-state
+ * branch here — `resetAt` alone determines eligibility, always computable, so this never returns
+ * `undefined`.
+ */
+export function deriveQuotaTelemetryMaintenanceDue(record: { resetAt: string }): QuotaTelemetryMaintenanceDue {
+  return { dueAtIso: new Date(Date.parse(record.resetAt) + QUOTA_TELEMETRY_RETENTION_DAYS * MS_PER_DAY).toISOString() };
+}
+
+/** `GSI8PK=WORK#QUOTA_TELEMETRY` / `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>` — `sk`
+ * is the record's own natural `SK` (`TYPE#<quotaType>#<window>` for TenantQuota,
+ * `TYPE#<quotaType>#<windowId>` for EphemeralTelemetryMutation), already unique within
+ * `PK=TENANT#<tenantId>#QUOTA`, so no separate entity id is needed - `entityType` is embedded
+ * only to keep the two entity types' candidates visually distinguishable in the index. */
+export function quotaTelemetryGsi8Keys(input: {
+  dueAtIso: string;
+  tenantId: string;
+  entityType: "TenantQuota" | "EphemeralTelemetryMutation";
+  sk: string;
+}): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${QUOTA_TELEMETRY_PURGE_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.entityType}#${input.sk}`,
+  };
 }
 
 export interface QuotaCheckInput {
@@ -147,6 +214,12 @@ export class TenantQuotaService {
               windowSeconds: input.windowSeconds,
               count: 1,
               resetAt,
+              ...quotaTelemetryGsi8Keys({
+                dueAtIso: deriveQuotaTelemetryMaintenanceDue({ resetAt }).dueAtIso,
+                tenantId: input.tenantId,
+                entityType: "TenantQuota",
+                sk: key.SK,
+              }),
             }),
           },
         ];
@@ -172,11 +245,20 @@ export class TenantQuotaService {
       }
 
       const nextResetAt = windowExpired ? resetAt : existing.resetAt;
+      // GSI8 pointer recomputed on EVERY write, not only when the window rolls forward — cheap,
+      // and keeps the "written/refreshed atomically on every write that sets resetAt" invariant
+      // (see TenantQuotaRecord.GSI8PK's docstring) true without a conditional branch here.
+      const gsi8 = quotaTelemetryGsi8Keys({
+        dueAtIso: deriveQuotaTelemetryMaintenanceDue({ resetAt: nextResetAt }).dueAtIso,
+        tenantId: input.tenantId,
+        entityType: "TenantQuota",
+        sk: key.SK,
+      });
       const entries: TransactWriteEntry[] = [
         {
           Put: buildConditionalPut({
             tableName: this.tableName,
-            item: { ...existing, count: effectiveCount + 1, resetAt: nextResetAt },
+            item: { ...existing, count: effectiveCount + 1, resetAt: nextResetAt, ...gsi8 },
             conditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
             names: { "#count": "count" },
             values: { ":expectedCount": existing.count, ":expectedResetAt": existing.resetAt },
@@ -241,6 +323,15 @@ export class TenantQuotaService {
     const resetAt = new Date(windowEndSeconds * 1000).toISOString();
     const purgeAfterTtl = windowEndSeconds + EPHEMERAL_TELEMETRY_RETENTION_DAYS * 24 * 60 * 60;
     const key = ephemeralTelemetryKey(input.tenantId, input.quotaType, windowId);
+    // Deterministic from the window bucket (same as resetAt/purgeAfterTtl above) - every
+    // concurrent writer for the same window computes the identical GSI8 pointer, so the
+    // if_not_exists write in incrementTelemetryCounter() is safe regardless of arrival order.
+    const gsi8 = quotaTelemetryGsi8Keys({
+      dueAtIso: deriveQuotaTelemetryMaintenanceDue({ resetAt }).dueAtIso,
+      tenantId: input.tenantId,
+      entityType: "EphemeralTelemetryMutation",
+      sk: key.SK,
+    });
 
     let result: { count: number };
     try {
@@ -251,6 +342,7 @@ export class TenantQuotaService {
         windowSeconds: input.windowSeconds,
         resetAt,
         purgeAfterTtl,
+        gsi8,
       });
     } catch (err) {
       if (err instanceof DependencyUnavailableError) return; // fail-open, see docstring above.

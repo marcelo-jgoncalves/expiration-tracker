@@ -1,73 +1,53 @@
 /**
- * Narrow port for the QuotaTelemetryPurgeWorker (D-154, `docs/architecture/reviews/
- * quarantine-retention-scoping/estado-final-consolidado.md` Prioridade 4 — `QUOTA_TELEMETRY` =
- * "quotas/métricas identificáveis, MembershipInviteRateLimitRecord" per `privacy-lgpd.md` §4 line
- * 44). Investigated (task brief) every rate-limit/quota-tracking entity in the codebase — 5
- * candidates: `MembershipInviteRateLimitRecord` (organization), `GuestRateLimitRecord`/
- * `InitialInviteRateLimitRecord` (subject), `DocumentArchiveGuestRateLimitRecord`
- * (document-archive), and `TenantQuotaRecord` (identity). 4 of the 5 — including the ONE named
- * explicitly in `privacy-lgpd.md` — already carry a `purgeAfterTtl` field wired to the main
- * table's native DynamoDB TTL (`infra/modules/dynamo-table/main.tf`), so their physical purge is
- * already resolved, same "already resolved" status as `TRANSIENT`'s `InvitationTokenPointer`
- * (`privacy-lgpd.md` line 42) — building a new worker for them would duplicate an existing
- * mechanism, not close a gap.
+ * Narrow port for the QuotaTelemetryPurgeWorker (D-154, widened to `EphemeralTelemetryMutation`
+ * by D-136 D-D, migrated to GSI8 by D-179/D-186 — 5th of 9 workers, mirrors the D-180
+ * membership-purge pilot / D-182 invitation-purge slice exactly). Replaces the base-table `Scan`
+ * this worker used through D-185 with a `Query` against GSI8 (`GSI8PK=WORK#QUOTA_TELEMETRY`,
+ * `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>`, `KEYS_ONLY`) — closes the same
+ * structural starvation D-170 confirmed for `Scan`+`Limit`.
  *
- * `TenantQuotaRecord` (`src/modules/identity/application/quota.ts`) is the ONE candidate with NO
- * expiry mechanism at all: no `purgeAfterTtl` field, no TTL wiring, no other purge path — the only
- * genuinely-unresolved entity inside "quotas/métricas identificáveis" (the generic half of the
- * design doc's definition, distinct from the one named example which turned out already-resolved
- * per above). This worker's whole scope is this ONE entity.
- *
- * **Window-end field**: `resetAt` — the fixed-window token bucket's own field for when its
- * current window closes (`TenantQuotaService.consume()`'s `resetAt = now + windowSeconds`),
- * exactly the concept `privacy-lgpd.md`'s "fim da janela + 30 dias" names. No separate
- * `createdAt`/`windowStart` field exists or is needed — `resetAt` alone determines eligibility.
- *
- * **No `version` field** (same situation as `SECURITY_AUDIT`'s 4 entities, different reason):
- * `TenantQuotaRecord` uses direct `count`/`resetAt` optimistic fields re-asserted via
- * `ConditionExpression` on every write (`quota.ts`'s own `updateConditional`/`buildConditionalPut`
- * calls), never a `version` counter — so this worker's delete re-asserts `resetAt` itself (the
- * exact field its own eligibility check depends on) as the "unchanged since scan" fence, same
- * pattern as `SECURITY_AUDIT` re-asserting `occurredAt`.
- *
- * Same deliberate full-table `Scan` tradeoff as the other 3 purge workers' candidate sources
- * (filtered by `entityType = "TenantQuota"`, not a GSI6 worklist): this entity has no external
- * side-effect to protect with a claim state.
+ * GSI8 is discovery-only, never a source of eligibility (D-179 §2/§4) — every candidate the
+ * Query returns is revalidated with a consistent `getCandidate()` read before any write, and the
+ * write itself (`transactWrite`) always re-asserts the facts it depends on atomically:
+ *   - the row's own `resetAt` (this entity's OCC fence — no `version` counter exists, see
+ *     `quota.ts`'s `TenantQuotaRecord`/`EphemeralTelemetryRecord` docstrings)
+ *   - the owning tenant's `TenantLifecycleRecord.status = ACTIVE`, checked IN THE SAME
+ *     `TransactWriteItems` as the delete.
  */
-import type { DynamoDeleteCommandInput, EntityKey } from "../../shared/dynamodb/occ.js";
+import type { EntityKey, TransactWriteEntry } from "../../shared/dynamodb/occ.js";
+
+export type QuotaTelemetryEntityType = "TenantQuota" | "EphemeralTelemetryMutation";
 
 export interface QuotaTelemetryPurgeCandidate extends EntityKey {
-  entityType: "TenantQuota" | "EphemeralTelemetryMutation";
+  entityType: QuotaTelemetryEntityType;
   tenantId: string;
   resetAt: string;
+  maintenanceAttemptCount?: number;
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
-export interface QuotaTelemetryScanPage {
-  items: QuotaTelemetryPurgeCandidate[];
+/** One `KEYS_ONLY` GSI8 result row — `tenantId` is parsed out of `GSI8SK` (embedded in the sort
+ * key by `quotaTelemetryGsi8Keys()` precisely so a `KEYS_ONLY` projection is enough to build the
+ * tenant-ACTIVE `ConditionCheck` without a second read). */
+export interface QuotaTelemetryGsi8Candidate extends EntityKey {
+  dueAtIso: string;
+  tenantId: string;
+}
+
+export interface QuotaTelemetryGsi8Page {
+  items: QuotaTelemetryGsi8Candidate[];
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface QuotaTelemetryPurgeCandidateSource {
-  /** `Scan` with `FilterExpression: entityType IN (:tenantQuota, :ephemeralTelemetry) AND
-   * attribute_exists(resetAt)` — widened (D-136 D-D, same session as `EphemeralTelemetryMutation`'s
-   * introduction) to also sweep the new lane's rows: they share this worker's exact eligibility
-   * shape (a `resetAt` window-end field, ACTIVE-tenant fence) and MUST NOT rely on native DynamoDB
-   * TTL alone as their removal guarantee (TTL deletion latency is unbounded/best-effort per AWS's
-   * own docs) — see file header for the cost tradeoff this accepts. */
-  scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<QuotaTelemetryScanPage>;
-  /** Single conditioned `DeleteItem` (`buildConditionalDelete`, not `buildVersionedDelete` — see
-   * file header on why there is no `version` to check). Throws the SDK's real
-   * `ConditionalCheckFailedException` (recognized via `occ.ts#isConditionalCheckFailed`) when the
-   * condition doesn't hold. */
-  deleteCandidate(input: DynamoDeleteCommandInput): Promise<void>;
-}
-
-/**
- * Same ACTIVE-tenant fence as the other 3 purge workers' `TenantLifecycleStatusSource` — a tenant
- * mid-closure is the tenant-purge pipeline's job, never this worker's. Deliberately the same
- * narrow shape (not re-exported/shared), mirroring the precedents' own choice to keep each purge
- * worker's port surface independently readable.
- */
-export interface TenantLifecycleStatusSource {
-  getStatus(tenantId: string): Promise<string | undefined>;
+  /** `Query GSI8PK = "WORK#QUOTA_TELEMETRY" AND GSI8SK < :before`, ordered by due date. */
+  queryDue(input: { before: string; exclusiveStartKey?: Record<string, unknown> }): Promise<QuotaTelemetryGsi8Page>;
+  /** Strongly-consistent read of the base row - the revalidation `getCandidate()` D-179 §4
+   * requires before acting on any GSI8 candidate. `undefined` when the row is already gone
+   * (idempotent no-op). */
+  getCandidate(key: EntityKey): Promise<QuotaTelemetryPurgeCandidate | undefined>;
+  /** Real `TransactWriteItems` — used both for the claim/delete (ConditionCheck + Delete) and for
+   * the poison-record backoff/DLQ move (a single conditioned Update). */
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }

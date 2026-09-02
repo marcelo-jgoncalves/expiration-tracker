@@ -633,10 +633,58 @@ run "gsi8_worker_isolation" {
     error_message = "No previously migrated worker may reference REQUIREMENT_REINDEX's namespace"
   }
 
+  # D-179/D-186 slice 5 - quota_telemetry_purge_handler joins the same pattern, its own WORK#/
+  # DLQ# namespace pair, isolated from the other four.
+  assert {
+    condition     = anytrue([for p in module.quota_telemetry_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "QuotaTelemetryPurgeWorker must have a policy referencing GSI8"
+  }
+
+  assert {
+    condition = anytrue([
+      for p in module.quota_telemetry_purge_handler.capability_policy_documents :
+      strcontains(p, "WORK#QUOTA_TELEMETRY") && strcontains(p, "DLQ#QUOTA_TELEMETRY")
+    ])
+    error_message = "QuotaTelemetryPurgeWorker's GSI8 policy must condition dynamodb:LeadingKeys on exactly its own WORK#/DLQ# namespace pair"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.quota_telemetry_purge_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "QuotaTelemetryPurgeWorker must have dynamodb:TransactWriteItems - the atomic claim/revalidation action the approved design added as a real gap in the general policy"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.quota_telemetry_purge_handler.capability_policy_documents :
+      strcontains(p, "dynamodb:TransactWriteItems") && (strcontains(p, "/index/GSI3") || strcontains(p, "/index/GSI4") || strcontains(p, "/index/GSI6") || strcontains(p, "/index/GSI8"))
+    ])
+    error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.quota_telemetry_purge_handler.capability_policy_documents :
+      strcontains(p, "MEMBERSHIP_PURGE") || strcontains(p, "INVITATION_PURGE") || strcontains(p, "DOCUMENT_FILE_RECONCILIATION") || strcontains(p, "REQUIREMENT_REINDEX")
+    ])
+    error_message = "QuotaTelemetryPurgeWorker must NOT reference MEMBERSHIP_PURGE's, INVITATION_PURGE's, DOCUMENT_FILE_RECONCILIATION's, or REQUIREMENT_REINDEX's namespace"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in flatten([
+        module.membership_purge_handler.capability_policy_documents,
+        module.invitation_purge_handler.capability_policy_documents,
+        module.document_file_reconciliation_handler.capability_policy_documents,
+        module.requirement_reindex_handler.capability_policy_documents,
+      ]) : strcontains(p, "QUOTA_TELEMETRY")
+    ])
+    error_message = "No previously migrated worker may reference QUOTA_TELEMETRY's namespace"
+  }
+
   # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
   assert {
     condition     = !anytrue([for p in module.transient_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
-    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179 slices 1-4 are membership-purge/invitation-purge/document-file-reconciliation/requirement-reindex only)"
+    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179 slices 1-5 are membership-purge/invitation-purge/document-file-reconciliation/requirement-reindex/quota-telemetry-purge only)"
   }
 
   assert {

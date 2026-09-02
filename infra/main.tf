@@ -966,6 +966,7 @@ module "security_audit_observability" {
     module.invitation_purge_handler.function_name,
     module.document_file_reconciliation_handler.function_name,
     module.requirement_reindex_handler.function_name,
+    module.quota_telemetry_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3224,12 +3225,14 @@ resource "aws_scheduler_schedule" "security_audit_purge" {
 
 # QuotaTelemetryPurgeWorker (D-154, docs/architecture/reviews/
 # quarantine-retention-scoping/estado-final-consolidado.md, QUOTA_TELEMETRY row, Prioridade 4) -
-# physically purges TenantQuotaRecord rows once resetAt+30d has passed, within ACTIVE tenants only
-# (a completely separate mechanism from tenant-purge's full-tenant-closure pipeline) - see
-# src/workers/quota-telemetry-purge/purge.ts's doc comment. The other 4 rate-limit entities in the
-# QUOTA_TELEMETRY class already carry native DynamoDB TTL (purgeAfterTtl) and need no worker -
-# see candidate-source.ts's doc comment for the full investigation. No dedicated IAM policy beyond
-# the general tenant-facing grant, same reasoning as security_audit_purge_handler above.
+# physically purges TenantQuotaRecord/EphemeralTelemetryMutation rows once resetAt+30d has passed,
+# within ACTIVE tenants only (a completely separate mechanism from tenant-purge's
+# full-tenant-closure pipeline) - see src/workers/quota-telemetry-purge/purge.ts's doc comment.
+# The other 4 rate-limit entities in the QUOTA_TELEMETRY class already carry native DynamoDB TTL
+# (purgeAfterTtl) and need no worker - see candidate-source.ts's doc comment for the full
+# investigation. Migrated off the base-table Scan onto GSI8 by D-179/D-186 (5th of 9 workers) -
+# gsi8_read_policy_json/worker_transact_write_policy_json scoped to WORK#QUOTA_TELEMETRY/
+# DLQ#QUOTA_TELEMETRY, same pattern as requirement_reindex_handler above.
 module "quota_telemetry_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3239,8 +3242,12 @@ module "quota_telemetry_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["quota_telemetry_purge"],
+    module.table.worker_transact_write_policy_json["quota_telemetry_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "quota_telemetry_purge_schedule" {

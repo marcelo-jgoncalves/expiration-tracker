@@ -80,6 +80,8 @@ describe("TenantQuotaService", () => {
       count: 0,
       resetAt: new Date(Date.now() + 60_000).toISOString(),
       killSwitchOverride: true,
+      GSI8PK: "WORK#QUOTA_TELEMETRY",
+      GSI8SK: "2026-01-01T00:00:00.000Z#TENANT#tenant-a#TenantQuota#TYPE#AI_CALL#w1",
     });
 
     await expect(

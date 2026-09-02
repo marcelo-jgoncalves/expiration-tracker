@@ -240,6 +240,8 @@ export class InMemoryIdentityStore implements IdentityStore {
       count,
       resetAt: existing?.["resetAt"] ?? input.resetAt,
       purgeAfterTtl: existing?.["purgeAfterTtl"] ?? input.purgeAfterTtl,
+      GSI8PK: existing?.["GSI8PK"] ?? input.gsi8.GSI8PK,
+      GSI8SK: existing?.["GSI8SK"] ?? input.gsi8.GSI8SK,
     });
     return { count };
   }

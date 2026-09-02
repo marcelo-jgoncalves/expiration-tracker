@@ -98,7 +98,7 @@ export class DynamoDbIdentityStore implements IdentityStore {
           TableName: this.tableName,
           Key: input.key,
           UpdateExpression:
-            "ADD #count :incr SET entityType = :entityType, tenantId = :tenantId, quotaType = :quotaType, windowSeconds = :windowSeconds, resetAt = if_not_exists(resetAt, :resetAt), purgeAfterTtl = if_not_exists(purgeAfterTtl, :purgeAfterTtl)",
+            "ADD #count :incr SET entityType = :entityType, tenantId = :tenantId, quotaType = :quotaType, windowSeconds = :windowSeconds, resetAt = if_not_exists(resetAt, :resetAt), purgeAfterTtl = if_not_exists(purgeAfterTtl, :purgeAfterTtl), GSI8PK = if_not_exists(GSI8PK, :gsi8pk), GSI8SK = if_not_exists(GSI8SK, :gsi8sk)",
           ExpressionAttributeNames: { "#count": "count" },
           ExpressionAttributeValues: {
             ":incr": 1,
@@ -108,6 +108,8 @@ export class DynamoDbIdentityStore implements IdentityStore {
             ":windowSeconds": input.windowSeconds,
             ":resetAt": input.resetAt,
             ":purgeAfterTtl": input.purgeAfterTtl,
+            ":gsi8pk": input.gsi8.GSI8PK,
+            ":gsi8sk": input.gsi8.GSI8SK,
           },
           ReturnValues: "UPDATED_NEW",
         }),
