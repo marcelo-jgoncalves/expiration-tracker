@@ -50,6 +50,13 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     expect(doc.version).toBe(1);
   });
 
+  it("creates a Document with GSI2 keys reflecting subject+documentType (AP3, Documents-by-Subject — D-161 regression: was never written)", async () => {
+    const { service } = makeService();
+    const doc = await service.createDocument(ctx(), { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true });
+    expect(doc.GSI2PK).toBe(`TENANT#${TENANT}#SUBJECT#subject-1#DOC`);
+    expect(doc.GSI2SK).toBe(`DOCTYPE#ALVARA#DOCUMENT#${doc.documentId}`);
+  });
+
   it("VIEWER cannot create a Document or upload a version (RBAC: docarchive:create/upload require WRITE_ROLES)", async () => {
     const { service } = makeService();
     const viewer = ctxAs("viewer-1", ["VIEWER"]);
