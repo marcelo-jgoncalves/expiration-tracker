@@ -3425,6 +3425,80 @@ resource "aws_scheduler_schedule" "transient_purge" {
   }
 }
 
+# MembershipPurgeWorker (D-127, docs/architecture/reviews/
+# quarantine-retention-scoping/estado-final-consolidado.md, "ACCOUNT_ACTIVE (não-fechamento)" row,
+# Prioridade 5, Membership leg) - physically purges Membership rows once status=REMOVED and
+# removedAt+30d has passed, within ACTIVE tenants only (a completely separate mechanism from
+# tenant-purge's full-tenant-closure pipeline) - see src/workers/membership-purge/purge.ts's doc
+# comment. D-155 implemented Invitation only; D-158 added Membership.removedAt, unblocking this
+# worker. Channel (the 3rd entity named by the design doc's Prioridade 5 row) remains NOT
+# implemented - no persisted Channel entity exists, see decisions-log D-155/D-158 for the full
+# investigation. No dedicated IAM policy beyond the general tenant-facing grant, same reasoning as
+# invitation_purge_handler above.
+module "membership_purge_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-membership-purge-handler"
+  handler_name          = "membership-purge-handler"
+  source_dir            = "${local.dist_dir}/membership-purge-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "membership_purge_schedule" {
+  name = "${module.membership_purge_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "scheduler.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "membership_purge_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.membership_purge_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeMembershipPurge"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.membership_purge_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "membership_purge" {
+  name                         = "${local.name_prefix}-membership-purge"
+  schedule_expression          = "cron(0 8 * * ? *)" # daily 08:00 UTC, after transient-purge (07:30)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.membership_purge_handler.live_alias_arn
+    role_arn = aws_iam_role.membership_purge_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 resource "aws_iam_role" "document_request_recurrence_schedule" {
   name = "${module.document_request_recurrence_handler.function_name}-schedule-role"
   assume_role_policy = jsonencode({

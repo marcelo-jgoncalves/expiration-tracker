@@ -99,6 +99,7 @@ const HANDLERS = [
   // estado-final-consolidado.md — WebhookInbox + UploadSlot; InvitationTokenPointer already
   // resolved via native TTL): daily EventBridge Scheduler physical-purge job.
   "transient-purge-handler",
+  "membership-purge-handler",
   // D-166 (DocumentFile GSI5 reconciliation, generalizing UploadSlotReconciliationWorker for
   // D-163's N-files-per-Version pipeline): 15-min EventBridge Scheduler timeout sweep.
   "document-file-reconciliation-handler",
