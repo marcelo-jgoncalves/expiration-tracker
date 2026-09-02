@@ -5,9 +5,9 @@
  * executes the commands those builders produce (for `update`) and issues plain
  * Get/Put for the rest.
  */
-import { GetCommand, PutCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, IdentityStore, TransactWriteEntry } from "../ports/identity-store.js";
+import type { EntityKey, IdentityStore, TelemetryIncrementInput, TransactWriteEntry } from "../ports/identity-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 export class DynamoDbIdentityStore implements IdentityStore {
@@ -82,6 +82,43 @@ export class DynamoDbIdentityStore implements IdentityStore {
     } catch (err) {
       if (isConditionalCheckFailed(err)) return false;
       throw mapDynamoError(err, "IdentityStore.updateConditional");
+    }
+  }
+
+  /**
+   * `EphemeralTelemetryMutation` lane (D-136 D-D) — single `ADD`-only `UpdateItem`, no
+   * `ConditionExpression`, no prior `Get`. `resetAt`/`purgeAfterTtl` are set via `if_not_exists`
+   * so a losing concurrent writer in the same window never rewinds them once the first writer in
+   * that bucket establishes the window's true end - only `count` is unconditionally additive.
+   */
+  async incrementTelemetryCounter(input: TelemetryIncrementInput): Promise<{ count: number }> {
+    try {
+      const result = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: input.key,
+          UpdateExpression:
+            "ADD #count :incr SET entityType = :entityType, tenantId = :tenantId, quotaType = :quotaType, windowSeconds = :windowSeconds, resetAt = if_not_exists(resetAt, :resetAt), purgeAfterTtl = if_not_exists(purgeAfterTtl, :purgeAfterTtl)",
+          ExpressionAttributeNames: { "#count": "count" },
+          ExpressionAttributeValues: {
+            ":incr": 1,
+            ":entityType": "EphemeralTelemetryMutation",
+            ":tenantId": input.tenantId,
+            ":quotaType": input.quotaType,
+            ":windowSeconds": input.windowSeconds,
+            ":resetAt": input.resetAt,
+            ":purgeAfterTtl": input.purgeAfterTtl,
+          },
+          ReturnValues: "UPDATED_NEW",
+        }),
+      );
+      const count = (result.Attributes as { count?: number } | undefined)?.count;
+      if (typeof count !== "number") {
+        throw new Error("incrementTelemetryCounter: DynamoDB did not return the updated count.");
+      }
+      return { count };
+    } catch (err) {
+      throw mapDynamoError(err, "IdentityStore.incrementTelemetryCounter");
     }
   }
 

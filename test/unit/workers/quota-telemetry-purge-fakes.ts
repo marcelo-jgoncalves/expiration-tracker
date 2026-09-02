@@ -54,7 +54,7 @@ export class FakeQuotaTelemetryPurgeCandidateSource implements QuotaTelemetryPur
 
   scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<QuotaTelemetryScanPage> {
     const all = [...this.items.values()].filter(
-      (i) => i["entityType"] === "TenantQuota" && i["resetAt"] !== undefined,
+      (i) => (i["entityType"] === "TenantQuota" || i["entityType"] === "EphemeralTelemetryMutation") && i["resetAt"] !== undefined,
     ) as unknown as QuotaTelemetryPurgeCandidate[];
     const startIndex = exclusiveStartKey ? all.findIndex((i) => this.k(i) === this.k(exclusiveStartKey as unknown as EntityKey)) + 1 : 0;
     const page = all.slice(startIndex, startIndex + this.pageSize);

@@ -1,4 +1,4 @@
-import type { EntityKey, IdentityStore, TransactWriteEntry } from "../../../src/modules/identity/ports/identity-store.js";
+import type { EntityKey, IdentityStore, TelemetryIncrementInput, TransactWriteEntry } from "../../../src/modules/identity/ports/identity-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -222,6 +222,26 @@ export class InMemoryIdentityStore implements IdentityStore {
         this.items.delete(this.k(entry.Delete.Key));
       }
     }
+  }
+
+  /** Mirrors the real adapter's `ADD`-only, no-`ConditionExpression`, `if_not_exists`-guarded
+   * `resetAt`/`purgeAfterTtl` semantics (see `dynamodb-identity-store.ts`) — same "known shapes
+   * only" convention as `transactWrite` above, just for the EphemeralTelemetryMutation lane. */
+  async incrementTelemetryCounter(input: TelemetryIncrementInput): Promise<{ count: number }> {
+    const k = this.k(input.key);
+    const existing = this.items.get(k) as (Record<string, unknown> & EntityKey) | undefined;
+    const count = ((existing?.["count"] as number | undefined) ?? 0) + 1;
+    this.items.set(k, {
+      ...input.key,
+      entityType: "EphemeralTelemetryMutation",
+      tenantId: input.tenantId,
+      quotaType: input.quotaType,
+      windowSeconds: input.windowSeconds,
+      count,
+      resetAt: existing?.["resetAt"] ?? input.resetAt,
+      purgeAfterTtl: existing?.["purgeAfterTtl"] ?? input.purgeAfterTtl,
+    });
+    return { count };
   }
 
   /** Test-only helper for purge tests: seed an arbitrary raw item (not just via putIfAbsent's

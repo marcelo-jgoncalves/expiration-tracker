@@ -37,7 +37,7 @@
 import type { DynamoDeleteCommandInput, EntityKey } from "../../shared/dynamodb/occ.js";
 
 export interface QuotaTelemetryPurgeCandidate extends EntityKey {
-  entityType: "TenantQuota";
+  entityType: "TenantQuota" | "EphemeralTelemetryMutation";
   tenantId: string;
   resetAt: string;
 }
@@ -48,8 +48,12 @@ export interface QuotaTelemetryScanPage {
 }
 
 export interface QuotaTelemetryPurgeCandidateSource {
-  /** `Scan` with `FilterExpression: entityType = :tenantQuota AND attribute_exists(resetAt)` —
-   * see file header for the cost tradeoff this accepts. */
+  /** `Scan` with `FilterExpression: entityType IN (:tenantQuota, :ephemeralTelemetry) AND
+   * attribute_exists(resetAt)` — widened (D-136 D-D, same session as `EphemeralTelemetryMutation`'s
+   * introduction) to also sweep the new lane's rows: they share this worker's exact eligibility
+   * shape (a `resetAt` window-end field, ACTIVE-tenant fence) and MUST NOT rely on native DynamoDB
+   * TTL alone as their removal guarantee (TTL deletion latency is unbounded/best-effort per AWS's
+   * own docs) — see file header for the cost tradeoff this accepts. */
   scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<QuotaTelemetryScanPage>;
   /** Single conditioned `DeleteItem` (`buildConditionalDelete`, not `buildVersionedDelete` — see
    * file header on why there is no `version` to check). Throws the SDK's real
