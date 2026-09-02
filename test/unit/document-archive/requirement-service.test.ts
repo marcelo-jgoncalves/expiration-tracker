@@ -5,6 +5,8 @@ import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
+import { documentFileKey } from "../../../src/modules/document-archive/domain/document-file.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -37,9 +39,10 @@ function makeIds(): DocumentArchiveIdGenerator {
 const NOW = "2026-09-01T00:00:00.000Z";
 
 function makeService(store = new InMemoryDocumentArchiveStore()) {
-  // Requirement-focused suite - never exercises reserveFiles(), so a signer that always throws
-  // if called is a stronger guard than a silent stub (would fail loudly if scope ever drifts).
-  const signer = { presignUpload: () => Promise.reject(new Error("presignUpload should not be called in requirement-service.test.ts")) };
+  // Requirement-focused suite doesn't assert anything about presign itself, but `acceptedVersion()`
+  // now has to seal the file set via `reserveFiles()` before `commitUpload()` (fileSetSealed gate,
+  // D-163 §4) — a working fake stands in, not a throwing one.
+  const signer = { presignUpload: async () => ({ uploadUrl: "https://s3.example/fake?sig=fake", requiredHeaders: {} }) };
   const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => NOW });
   return { service, store };
 }
@@ -52,7 +55,19 @@ const SUBJECT = "subject-1";
 async function acceptedVersion(service: DocumentArchiveService, validUntil?: string) {
   const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentType: "ALVARA", hasValidity: !!validUntil });
   const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-  const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, draft.version);
+  const reserved = await service.reserveFiles(ctx(), doc.documentId, draft.seq, draft.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }]);
+  const principal = reserved[0]!.file;
+  const store = (service as any).store;
+  const sealed = await store.get({ PK: draft.PK, SK: draft.SK });
+  // acceptVersion()'s PRINCIPAL fence (D-163 §5) requires scanStatus === "CLEAN" on the reserved
+  // PRINCIPAL, not just a sealed file set — mark it CLEAN and reconcile pendingFileScans back to
+  // zero, standing in for the real terminal scan transition (applyFileScanResult, D-165).
+  await store.transactWrite([
+    { Update: buildVersionedUpdate({ tableName: "test-table", key: documentFileKey(TENANT, doc.documentId, draft.seq, principal.fileId), tenantId: TENANT, expectedVersion: principal.version, set: { scanStatus: "CLEAN" } }) },
+    { Update: buildVersionedUpdate({ tableName: "test-table", key: { PK: sealed.PK, SK: sealed.SK }, tenantId: TENANT, expectedVersion: sealed.version, set: { pendingFileScans: 0 } }) },
+  ]);
+  const reconciled = await store.get({ PK: draft.PK, SK: draft.SK });
+  const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, reconciled.version);
   const underReview = await service.claimReview(ctx(), doc.documentId, draft.seq, received.version);
   await service.acceptVersion(ctx(), doc.documentId, draft.seq, underReview.version, `tok-${draft.versionId}`);
   const versions = await service.listVersions(ctx(), doc.documentId);
@@ -129,7 +144,9 @@ describe("RequirementService (D-143 Nucleus 2, Decision 5/D9)", () => {
     const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
     const doc = await service.createDocument(ctx(), { subjectId: SUBJECT, documentType: "ALVARA", hasValidity: false });
     const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, draft.version);
+    await service.reserveFiles(ctx(), doc.documentId, draft.seq, draft.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }]);
+    const sealed = await (service as any).store.get({ PK: draft.PK, SK: draft.SK });
+    const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, sealed.version);
 
     const linked = await service.linkEvidence(ctx(), SUBJECT, req.requirementId, req.version, doc.documentId, received.versionId);
     expect(linked.status).toBe("PENDING");

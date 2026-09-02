@@ -31,6 +31,7 @@ import {
   type DocumentArchiveHttpDeps,
 } from "../../src/modules/document-archive/http/document-archive-handlers.js";
 import type { UploadUrlSigner, PresignUploadInput, PresignUploadResult } from "../../src/modules/document/ports/upload-url-signer.js";
+import { buildVersionedUpdate } from "../../src/shared/dynamodb/occ.js";
 
 /** Fake signer that returns a real-shaped presign result and records every call - used to
  * prove the HTTP route actually reaches a real presign mechanism (G-V3), not a stub that
@@ -68,10 +69,33 @@ function makeIds() {
   };
 }
 
+/** acceptVersion()'s PRINCIPAL fence (D-163 §5) requires scanStatus === "CLEAN" on the reserved
+ * PRINCIPAL, not just a sealed file set (fileSetSealed gate, D-163 §4) — this HTTP-level suite
+ * has no route yet for the real scan pipeline (applyFileScanResult/confirmFileScanClean, D-165
+ * is event-driven from S3/GuardDuty, out of scope here), so it stands in for that transition by
+ * writing directly against the same in-memory store the handlers use, using the PK/SK the
+ * handlers' own JSON responses already carry (no key-construction helper needed). Returns the
+ * DocumentVersion's fresh `version` for the caller to pass to `handleCommitUpload()`. */
+async function markPrincipalCleanAndReconcile(
+  store: InMemoryDocumentArchiveStore,
+  tenantId: string,
+  principalFile: { PK: string; SK: string; version: number },
+  version: { PK: string; SK: string; version: number },
+): Promise<number> {
+  await store.transactWrite([
+    { Update: buildVersionedUpdate({ tableName: "MainTable", key: { PK: principalFile.PK, SK: principalFile.SK }, tenantId, expectedVersion: principalFile.version, set: { scanStatus: "CLEAN" } }) },
+    { Update: buildVersionedUpdate({ tableName: "MainTable", key: { PK: version.PK, SK: version.SK }, tenantId, expectedVersion: version.version, set: { pendingFileScans: 0 } }) },
+  ]);
+  const reconciled = await store.get<{ PK: string; SK: string; version: number }>({ PK: version.PK, SK: version.SK });
+  return reconciled!.version;
+}
+
 describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   let deps: DocumentArchiveHttpDeps;
   let req: { requestId: string; correlationId: string; claims: ValidatedClaims };
   let signer: ReturnType<typeof makeSigner>;
+  let store: InMemoryDocumentArchiveStore;
+  let tenantId: string;
 
   beforeEach(async () => {
     const identityStore = new InMemoryIdentityStore();
@@ -79,13 +103,14 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const resolver = new RequestContextResolver(new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, "MainTable");
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
-    const store = new InMemoryDocumentArchiveStore();
+    store = new InMemoryDocumentArchiveStore();
     signer = makeSigner();
     const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer });
     const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
     deps = { resolver, documentArchive, recurrence, quota };
 
-    await bootstrapWithOrganization(identityStore, organizations, "MainTable", "sub-A");
+    const bootstrap = await bootstrapWithOrganization(identityStore, organizations, "MainTable", "sub-A");
+    tenantId = bootstrap.organizationId;
     req = { requestId: "r1", correlationId: "c1", claims: claims("sub-A") };
   });
 
@@ -96,13 +121,22 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
 
     const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
     expect(draft.statusCode).toBe(201);
-    const version = draft.body["version"] as { seq: number; version: number; versionId: string };
+    const version = draft.body["version"] as { seq: number; version: number; versionId: string; PK: string; SK: string };
     expect(version.seq).toBe(1);
+
+    const filesReserved = await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: { expectedVersion: version.version, files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }] },
+    });
+    expect(filesReserved.statusCode).toBe(201);
+    const principalFile = (filesReserved.body["files"] as Array<{ file: { PK: string; SK: string; version: number } }>)[0]!.file;
+    const sealedVersion = await markPrincipalCleanAndReconcile(store, tenantId, principalFile, { PK: version.PK, SK: version.SK, version: version.version + 1 });
 
     const received = await handleCommitUpload(deps, {
       ...req,
       pathParameters: { documentId, seq: String(version.seq) },
-      body: { expectedVersion: version.version },
+      body: { expectedVersion: sealedVersion },
     });
     expect(received.statusCode).toBe(200);
     const receivedVersion = received.body["version"] as { version: number; state: string };
@@ -199,7 +233,12 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
 
     const draft1 = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
     const v1 = draft1.body["version"] as { seq: number; version: number };
-    const received1 = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(v1.seq) }, body: { expectedVersion: v1.version } });
+    await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(v1.seq) },
+      body: { expectedVersion: v1.version, files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }] },
+    });
+    const received1 = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(v1.seq) }, body: { expectedVersion: v1.version + 1 } });
     const receivedVersion1 = received1.body["version"] as { version: number };
 
     const rejected = await handleRejectVersion(deps, {
@@ -211,9 +250,16 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     expect((rejected.body["version"] as { state: string }).state).toBe("REJECTED");
 
     const draft2 = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
-    const v2 = draft2.body["version"] as { seq: number; version: number; versionId: string };
+    const v2 = draft2.body["version"] as { seq: number; version: number; versionId: string; PK: string; SK: string };
     expect(v2.seq).toBe(2);
-    const received2 = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(v2.seq) }, body: { expectedVersion: v2.version } });
+    const filesReserved2 = await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(v2.seq) },
+      body: { expectedVersion: v2.version, files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }] },
+    });
+    const principalFile2 = (filesReserved2.body["files"] as Array<{ file: { PK: string; SK: string; version: number } }>)[0]!.file;
+    const sealedVersion2 = await markPrincipalCleanAndReconcile(store, tenantId, principalFile2, { PK: v2.PK, SK: v2.SK, version: v2.version + 1 });
+    const received2 = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(v2.seq) }, body: { expectedVersion: sealedVersion2 } });
     const receivedVersion2 = received2.body["version"] as { version: number };
     const underReview2 = await handleClaimReview(deps, {
       ...req,
@@ -263,7 +309,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     expect(requirement.status).toBe("MISSING");
 
     const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
-    const version = draft.body["version"] as { seq: number; version: number; versionId: string };
+    const version = draft.body["version"] as { seq: number; version: number; versionId: string; PK: string; SK: string };
 
     // Evidence linked while the DocumentVersion is still DRAFT -> PENDING (not yet ACCEPTED).
     const linkedPending = await handleLinkEvidence(deps, {
@@ -275,7 +321,14 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const pendingRequirement = linkedPending.body["requirement"] as { status: string; version: number };
     expect(pendingRequirement.status).toBe("PENDING");
 
-    const received = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(version.seq) }, body: { expectedVersion: version.version } });
+    const filesReservedReq = await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: { expectedVersion: version.version, files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }] },
+    });
+    const principalFileReq = (filesReservedReq.body["files"] as Array<{ file: { PK: string; SK: string; version: number } }>)[0]!.file;
+    const sealedVersionReq = await markPrincipalCleanAndReconcile(store, tenantId, principalFileReq, { PK: version.PK, SK: version.SK, version: version.version + 1 });
+    const received = await handleCommitUpload(deps, { ...req, pathParameters: { documentId, seq: String(version.seq) }, body: { expectedVersion: sealedVersionReq } });
     const receivedVersion = received.body["version"] as { version: number };
     const underReview = await handleClaimReview(deps, { ...req, pathParameters: { documentId, seq: String(version.seq) }, body: { expectedVersion: receivedVersion.version } });
     const underReviewVersion = underReview.body["version"] as { version: number };
