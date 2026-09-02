@@ -25,7 +25,8 @@
  * populated (`AppError.toJSON()` serializes `details` into the HTTP response).
  */
 import { AppError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
-import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
+import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
+import { documentTypeKey } from "../domain/document-type.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import {
   epochSecondsFromIso,
@@ -296,8 +297,20 @@ export class GuestDocumentAccessService {
     // D-173 §5/item 4: `Document.documentTypeId` is the physical row attribute name (renamed
     // end-to-end from `documentType`) — this does NOT change what value the guest flow writes
     // into it. The guest's own free-string `documentType ?? requirementId` fallback is
-    // deliberately untouched here (D-175's open decision, guest schema migration is item 6).
+    // deliberately untouched here (D-175's open decision, guest schema migration remains item 6).
     const documentType = input.documentType ?? requirementId;
+    // D-184 (resolves D-175's open decision, option (b)): guard is on PRESENCE of the raw input
+    // field (`!== undefined`, not truthy — an explicit empty string is still "supplied", the HTTP
+    // schema already rejects it with minLength:1 before this is reached, but the service itself
+    // must not silently treat it as absent), never on the post-fallback `documentType` value.
+    // Fallback-to-requirementId submissions (the majority today) are byte-identical to before —
+    // requirementId is never validated against the DocumentType catalog, since it never was one.
+    // Only a caller who explicitly names a DocumentType pays the cost of that value being real and
+    // ACTIVE. Idempotency replay (`existingReplay`, above) still short-circuits BEFORE this guard —
+    // a deliberate, pre-existing property of `idempotencyKey` (D-143 Decision 4: the key identifies
+    // one logical operation, not a payload re-checked on every retry — `fileName` was never
+    // re-validated on replay either), not a gap introduced here. See D-184 for the full analysis.
+    const documentTypeSupplied = input.documentType !== undefined;
 
     const document: Document = {
       ...documentKey(tenantId, documentId),
@@ -362,6 +375,13 @@ export class GuestDocumentAccessService {
     };
 
     const entries = [
+      // D-184: present only when the guest explicitly supplied a documentType — the entry's
+      // index shifts the rest of this array's positions, but the anti-enumeration `catch` below
+      // never inspects a specific index for this reason (unlike createDocument()'s D-175
+      // codes?.[0] check), so no index-tracking is needed here.
+      ...(documentTypeSupplied
+        ? [buildExistenceConditionCheck({ tableName: this.tableName, key: documentTypeKey(tenantId, documentType), extra: { status: "ACTIVE" } })]
+        : []),
       { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
       { Put: buildVersionedCreate(this.tableName, version as unknown as Record<string, unknown> & EntityKey) },
       { Put: buildVersionedCreate(this.tableName, event as unknown as Record<string, unknown> & EntityKey) },

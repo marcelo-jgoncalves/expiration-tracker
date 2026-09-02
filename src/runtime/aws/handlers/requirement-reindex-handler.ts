@@ -5,6 +5,7 @@
  * real infra (Lambda resource + EventBridge Scheduler schedule + IAM) in `infra/main.tf`. */
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildDocumentArchiveDeps } from "../composition/document-archive.js";
+import { DynamoDbRequirementReindexCandidateSource } from "../../../workers/requirement-reindex/dynamodb-candidate-source.js";
 import { runRequirementReindex } from "../../../workers/requirement-reindex/reindex.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
@@ -15,6 +16,7 @@ if (!tableName) throw new Error("TABLE_NAME env var is required.");
 // This handler only uses `store` (the reindex job never calls `documentArchive.reserveFiles()`)
 // — the quarantine bucket parameter is unused here.
 const { store } = buildDocumentArchiveDeps(client, tableName, "");
+const candidates = new DynamoDbRequirementReindexCandidateSource(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "requirement-reindex" } });
 
 export interface RequirementReindexEvent {
@@ -29,6 +31,6 @@ export async function handler(event: RequirementReindexEvent): Promise<void> {
 }
 
 async function handleReindex(event: RequirementReindexEvent): Promise<void> {
-  const result = await runRequirementReindex({ store, tableName: tableName as string, now: () => new Date().toISOString() });
+  const result = await runRequirementReindex({ store, candidates, tableName: tableName as string, now: () => new Date().toISOString() });
   logger.info("requirement-reindex complete", { scheduledTime: event.scheduledTime, ...result });
 }
