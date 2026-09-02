@@ -28,6 +28,7 @@
  * --dry-run reports what WOULD be backfilled without writing any pointer.
  */
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { fileURLToPath } from "node:url";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { deriveQuotaTelemetryMaintenanceDue, quotaTelemetryGsi8Keys } from "../src/modules/identity/application/quota.js";
 
@@ -167,7 +168,13 @@ async function main(): Promise<void> {
 
 // Only run when executed directly - not when imported for its pure helpers (parseArgs/
 // decodeKey/encodeKey/processPage), which a unit test can exercise without a real table.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `fileURLToPath` (not a raw `file://${argv[1]}` string comparison) - the string-comparison
+// form used by this script's siblings never matches on Windows, where `import.meta.url` uses
+// forward slashes (`file:///C:/...`) but `process.argv[1]` uses backslashes (`C:\...`); their
+// `main()` silently never runs under this repo's own Windows/Git-Bash environment (AGENTS.md
+// §4's shell notes). Real bug found while running this script for D-186 backfill; fixed here,
+// same bug still present in the 6 sibling scripts (not fixed in this slice, see decisions-log).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error("[backfill-gsi8-quota-telemetry-purge] FAILED:", err);
     process.exitCode = 1;
