@@ -16,12 +16,14 @@ import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, Transa
  * each clause either `attribute_exists(PK|SK)`, `attribute_not_exists(PK|SK)`, a bare
  * `#name = :value` equality, or a parenthesized group of `OR`-joined equalities.
  */
+type OrTerm = { kind: "equality"; field: string; value: unknown } | { kind: "exists"; field: string } | { kind: "notExists"; field: string };
+
 interface ParsedCondition {
   requireExists?: boolean;
   requireAbsent?: boolean;
   /** Each inner array is OR'd together internally; the outer array is AND'd (one entry per
    * top-level clause that resolved to an equality/OR-of-equalities). */
-  equalityGroups: Array<Array<{ field: string; value: unknown }>>;
+  equalityGroups: Array<OrTerm[]>;
 }
 
 function parseCondition(expression: string, names: Record<string, string> | undefined, values: Record<string, unknown> | undefined): ParsedCondition {
@@ -29,13 +31,29 @@ function parseCondition(expression: string, names: Record<string, string> | unde
   const nameMap = names ?? {};
   const valueMap = values ?? {};
 
-  const resolveEquality = (clause: string): { field: string; value: unknown } | undefined => {
-    const match = /^\s*(#\w+)\s*=\s*(:\w+)\s*$/.exec(clause);
-    if (!match) return undefined;
-    const [, nameKey, valueKey] = match;
-    const field = nameMap[nameKey as string];
-    if (!field || !(valueKey! in valueMap)) return undefined;
-    return { field, value: valueMap[valueKey as string] };
+  const resolveTerm = (clause: string): OrTerm | undefined => {
+    const eq = /^\s*(#\w+)\s*=\s*(:\w+)\s*$/.exec(clause);
+    if (eq) {
+      const [, nameKey, valueKey] = eq;
+      const field = nameMap[nameKey as string];
+      if (!field || !(valueKey! in valueMap)) return undefined;
+      return { kind: "equality", field, value: valueMap[valueKey as string] };
+    }
+    // Named-attribute attribute_exists/attribute_not_exists — distinct from the bare
+    // PK/SK-only top-level checks below, which this module's builders never wrap in an OR
+    // group (only D-163's `reserveFiles()` fence does: "attribute_not_exists(#sealed) OR
+    // #sealed = :false", real, valid DynamoDB syntax this fake didn't parse before).
+    const notExists = /^\s*attribute_not_exists\((#\w+)\)\s*$/.exec(clause);
+    if (notExists) {
+      const field = nameMap[notExists[1] as string];
+      return field ? { kind: "notExists", field } : undefined;
+    }
+    const exists = /^\s*attribute_exists\((#\w+)\)\s*$/.exec(clause);
+    if (exists) {
+      const field = nameMap[exists[1] as string];
+      return field ? { kind: "exists", field } : undefined;
+    }
+    return undefined;
   };
 
   for (const rawClause of expression.split(" AND ")) {
@@ -49,12 +67,12 @@ function parseCondition(expression: string, names: Record<string, string> | unde
       continue;
     }
     const unwrapped = clause.startsWith("(") && clause.endsWith(")") ? clause.slice(1, -1) : clause;
-    const orEqualities = unwrapped
+    const orTerms = unwrapped
       .split(" OR ")
-      .map((part) => resolveEquality(part))
-      .filter((eq): eq is { field: string; value: unknown } => eq !== undefined);
-    if (orEqualities.length > 0) {
-      result.equalityGroups.push(orEqualities);
+      .map((part) => resolveTerm(part))
+      .filter((term): term is OrTerm => term !== undefined);
+    if (orTerms.length > 0) {
+      result.equalityGroups.push(orTerms);
     }
     // A clause this parser cannot recognize (should not occur for this module's builders) is
     // silently skipped rather than thrown — same "documented limitation" posture as
@@ -63,12 +81,28 @@ function parseCondition(expression: string, names: Record<string, string> | unde
   return result;
 }
 
+function termSatisfied(existing: Record<string, unknown>, term: OrTerm): boolean {
+  switch (term.kind) {
+    case "equality":
+      return existing[term.field] === term.value;
+    case "exists":
+      return term.field in existing;
+    case "notExists":
+      return !(term.field in existing);
+  }
+}
+
 function conditionSatisfied(existing: Record<string, unknown> | undefined, parsed: ParsedCondition): boolean {
   if (parsed.requireExists && !existing) return false;
   if (parsed.requireAbsent && existing) return false;
-  if (!existing) return parsed.requireAbsent === true || (!parsed.requireExists && parsed.equalityGroups.length === 0);
+  if (!existing) {
+    // No item at all: every `notExists` term is trivially satisfied, every `exists`/`equality`
+    // term is not — mirrors real DynamoDB's behavior evaluating a ConditionExpression against
+    // a nonexistent item.
+    return parsed.requireAbsent === true || (!parsed.requireExists && parsed.equalityGroups.every((group) => group.some((term) => term.kind === "notExists")));
+  }
   for (const group of parsed.equalityGroups) {
-    const anyMatches = group.some((eq) => existing[eq.field] === eq.value);
+    const anyMatches = group.some((term) => termSatisfied(existing, term));
     if (!anyMatches) return false;
   }
   return true;

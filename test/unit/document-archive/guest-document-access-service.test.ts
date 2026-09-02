@@ -23,6 +23,7 @@ function makeIds(): DocumentArchiveIdGenerator {
     newRequirementId: () => `req-${++n}`,
     newSeriesId: () => `series-${++n}`,
     newDocumentRequestId: () => `docreq-${++n}`,
+    newFileId: () => `file-${++n}`,
   };
 }
 

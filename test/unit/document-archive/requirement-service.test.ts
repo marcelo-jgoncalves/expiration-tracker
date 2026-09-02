@@ -30,13 +30,14 @@ function makeIds(): DocumentArchiveIdGenerator {
     newRequirementId: () => `req-${++n}`,
     newSeriesId: () => `series-${++n}`,
     newDocumentRequestId: () => `docreq-${++n}`,
+    newFileId: () => `file-${++n}`,
   };
 }
 
 const NOW = "2026-09-01T00:00:00.000Z";
 
 function makeService(store = new InMemoryDocumentArchiveStore()) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), now: () => NOW });
+  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", now: () => NOW });
   return { service, store };
 }
 

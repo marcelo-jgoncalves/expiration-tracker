@@ -7,10 +7,13 @@ import { GuestDocumentAccessService } from "../../../modules/document-archive/ap
 import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
 import { UlidIdGenerator } from "../ids.js";
 
-export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableName: string) {
+/** D-163 §7: reuses the SAME quarantine bucket M6 already provisions (`QUARANTINE_BUCKET_NAME`,
+ * `infra/modules/document-buckets`) — no new bucket for `DocumentFile`, only a new key
+ * namespace within it (`DocumentArchiveService.buildQuarantineKey`). */
+export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableName: string, quarantineBucket: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
-  const documentArchive = new DocumentArchiveService({ store, tableName, ids });
+  const documentArchive = new DocumentArchiveService({ store, tableName, ids, quarantineBucket });
   // D-143 Nucleus 2, entity 3/3 (Decision 8, D-147). Shares the same store/ids as
   // `documentArchive` above — recurrence is not a separate module, just a separate service
   // class within document-archive (same rationale `document-archive-service.ts`'s doc comment

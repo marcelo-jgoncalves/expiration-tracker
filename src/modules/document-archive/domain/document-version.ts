@@ -49,6 +49,17 @@ export interface DocumentVersion extends EntityKey {
    * accepted), both must be zero. */
   pendingFileScans: number;
   infectedFileScans: number;
+  /** D-163 §2: set atomically by `reserveFiles()`'s single `TransactWriteItems`, together with
+   * `principalFileId`/`totalFiles`/`pendingFileScans` — never by a separate write. Fences two
+   * concurrent `reserveFiles()` calls against the same Version: the second one's Update
+   * condition (`fileSetSealed` absent or `false`) fails, closing the race a Rodada 1 proposal
+   * tried to close with input validation alone (D-163 §2, achado real da Rodada 1). Once
+   * `true`, no further file reservation against this Version is possible — the only recovery
+   * for a bad file set is rejecting the whole Version and starting a new one (D-143
+   * Decision 1/7, never reopening a sealed set). */
+  fileSetSealed?: boolean;
+  principalFileId?: string;
+  totalFiles?: number;
   requestId?: string;
   createdAt: string;
   updatedAt: string;
@@ -68,14 +79,6 @@ export function formatVersionSeq(seq: number): string {
 
 export function documentVersionKey(tenantId: string, documentId: string, seq: number): { PK: string; SK: string } {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}` };
-}
-
-export function documentVersionFileKeyPrefix(tenantId: string, documentId: string, seq: number): string {
-  return `TENANT#${tenantId}#DOCUMENT#${documentId}|VERSION#${formatVersionSeq(seq)}#FILE#`;
-}
-
-export function documentVersionEventKeyPrefix(tenantId: string, documentId: string, seq: number): string {
-  return `TENANT#${tenantId}#DOCUMENT#${documentId}|VERSION#${formatVersionSeq(seq)}#EVENT#`;
 }
 
 /** AP5 sparse review-queue index — separate buckets per real state (never a fixed `RECEIVED`

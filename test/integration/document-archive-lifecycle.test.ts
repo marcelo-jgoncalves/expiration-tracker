@@ -48,6 +48,7 @@ function makeIds() {
     newRequirementId: () => `req-${++idCounter}`,
     newSeriesId: () => `series-${++idCounter}`,
     newDocumentRequestId: () => `docreq-${++idCounter}`,
+    newFileId: () => `file-${++idCounter}`,
   };
 }
 
@@ -62,7 +63,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     const store = new InMemoryDocumentArchiveStore();
-    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds() });
+    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket" });
     const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
     deps = { resolver, documentArchive, recurrence, quota };
 

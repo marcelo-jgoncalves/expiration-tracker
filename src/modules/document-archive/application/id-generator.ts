@@ -9,4 +9,6 @@ export interface DocumentArchiveIdGenerator {
   /** D-143 Nucleus 2, recurrence (D-147). */
   newSeriesId(): string;
   newDocumentRequestId(): string;
+  /** D-163 (`DocumentFile`). */
+  newFileId(): string;
 }

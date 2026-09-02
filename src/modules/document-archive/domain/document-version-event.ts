@@ -12,9 +12,10 @@
  * proving RECEIVED and UNDER_REVIEW were traversed, even though the Version item itself only
  * ever shows its terminal `ACCEPTED` state.
  */
+import type { DocumentFileScanStatus } from "./document-file.js";
 import type { DocumentVersionState } from "./document-version.js";
 
-export type DocumentVersionEventType = "RECEIVED" | "CLAIMED" | "CLAIM_EXPIRED" | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN" | "FILE_REMOVED_INFECTED";
+export type DocumentVersionEventType = "RECEIVED" | "CLAIMED" | "CLAIM_EXPIRED" | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN" | "FILE_REJECTED_INFECTED";
 
 export interface DocumentVersionEvent {
   PK: string;
@@ -29,6 +30,18 @@ export interface DocumentVersionEvent {
   toState: DocumentVersionState;
   actor: string;
   occurredAt: string;
+  /** D-163 §2 (Rodada 4): `FILE_REJECTED_INFECTED` is the one event type in this taxonomy
+   * that records a `DocumentFile`-level transition, not a `DocumentVersion`-level one —
+   * `fromState`/`toState` above stay populated with the Version's own (unchanged) state as
+   * informational context only; the real transition this event records is
+   * `fromFileScanStatus` -> `toFileScanStatus` for `fileId`. Renamed from the original
+   * `FILE_REMOVED_INFECTED` (never had a real writer) — the old name implied a human removal
+   * step after the fact, but infection detection IS the file's own terminal transition,
+   * never a separate action (D-163 Rodada 3 removed the contradictory `removeInfectedFile()`
+   * this event was originally meant to back). */
+  fileId?: string;
+  fromFileScanStatus?: DocumentFileScanStatus;
+  toFileScanStatus?: DocumentFileScanStatus;
 }
 
 /** Idempotency record for a mutating command — distinct item type and key space from
