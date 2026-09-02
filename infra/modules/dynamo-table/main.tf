@@ -303,7 +303,10 @@ data "aws_iam_policy_document" "gsi8_read" {
   for_each = local.gsi8_worker_types
 
   statement {
-    sid       = "Gsi8ReadOnly${each.key}"
+    # IAM Sid must be alpha-numeric only ([0-9A-Za-z]*) - each.key ("membership_purge") carries
+    # underscores from the Terraform map key, so the Sid is built from PascalCase-joined segments
+    # instead (live CD failure caught this: MalformedPolicyDocument on the first real apply).
+    sid       = "Gsi8ReadOnly${join("", [for part in split("_", each.key) : title(part)])}"
     actions   = ["dynamodb:Query"]
     resources = [local.gsi8_resource]
 
@@ -325,7 +328,8 @@ data "aws_iam_policy_document" "worker_transact_write" {
   for_each = local.gsi8_worker_types
 
   statement {
-    sid       = "TransactWriteItems${each.key}"
+    # Same alpha-numeric-only Sid fix as gsi8_read above.
+    sid       = "TransactWriteItems${join("", [for part in split("_", each.key) : title(part)])}"
     actions   = ["dynamodb:TransactWriteItems"]
     resources = [local.table_arn]
   }
