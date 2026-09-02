@@ -27,6 +27,7 @@ import type { NotificationStore } from "../ports/notification-store.js";
 import { isTransactionCanceled, isConditionalCheckFailed } from "../../../shared/dynamodb/occ.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { decideCallbackApplication, complaintRequiresSuppression, type SesCallbackEventKind } from "./ses-callback-processor.js";
+import { deriveWebhookInboxMaintenanceDue, transientPurgeGsi8Keys } from "../../../shared/transient-purge-gsi8.js";
 
 export interface ParsedSesCallbackEvent {
   snsMessageId: string;
@@ -64,6 +65,11 @@ export async function processSesCallback(deps: SesCallbackWorkflowDeps, event: P
 
   const now = deps.now();
   const inboxKey = webhookInboxKey(tenantId, deps.providerAccountId, event.snsMessageId);
+  // D-179/D-188 (transient-purge, 7th GSI8 slice): WebhookInbox is create-once/immutable (never
+  // updated after this Put) - the GSI8 pointer is written exactly once, here, at creation, same
+  // shape as the append-only AuditEvent family (D-187/security-audit-purge).
+  const due = deriveWebhookInboxMaintenanceDue({ createdAt: now });
+  const gsi8 = transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, entityType: "WebhookInbox", sk: inboxKey.SK });
   const inboxCreated = await deps.store.putIfAbsent({
     ...inboxKey,
     entityType: "WebhookInbox",
@@ -79,6 +85,7 @@ export async function processSesCallback(deps: SesCallbackWorkflowDeps, event: P
     processingStatus: "PROCESSING",
     version: 1,
     createdAt: now,
+    ...gsi8,
   });
   if (!inboxCreated) {
     return { kind: "DUPLICATE_INBOX" };

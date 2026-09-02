@@ -325,6 +325,11 @@ describe("advanceAfterEvidence — corrida real entre upload e malware", () => {
       expect(slot.status).toBe("CONSUMED");
       expect(slot.GSI6PK).toBeUndefined();
       expect(slot.GSI6SK).toBeUndefined();
+      // D-179/D-188 (transient-purge, 7th GSI8 slice): CONSUMED is a terminal transition off
+      // RESERVED - the GSI8 pointer must be written in this SAME conditional write, reflecting
+      // the 7-day confirmed window (reservedAt 2026-08-22T00:00:00.000Z + 7d).
+      expect(slot.GSI8PK).toBe("WORK#TRANSIENT");
+      expect(slot.GSI8SK).toBe(`2026-08-29T00:00:00.000Z#TENANT#t1#UploadSlot#${uploadSlotKey("t1", "slot1").SK}`);
     });
 
     it("marks the associated RESERVED slot CONSUMED and strips its GSI6 pointer on REJECT", async () => {
@@ -340,6 +345,8 @@ describe("advanceAfterEvidence — corrida real entre upload e malware", () => {
       expect(slot.status).toBe("CONSUMED");
       expect(slot.GSI6PK).toBeUndefined();
       expect(slot.GSI6SK).toBeUndefined();
+      expect(slot.GSI8PK).toBe("WORK#TRANSIENT");
+      expect(slot.GSI8SK).toBe(`2026-08-29T00:00:00.000Z#TENANT#t1#UploadSlot#${uploadSlotKey("t1", "slot1").SK}`);
     });
 
     it("never errors and leaves an already-EXPIRED slot untouched (a concurrent reconciliation sweep resolving the same race is legitimate, not a defect)", async () => {

@@ -95,6 +95,16 @@ describe("processSesCallback", () => {
     expect(attempt?.status).toBe("DELIVERED");
   });
 
+  it("D-179/D-188 (transient-purge, 7th GSI8 slice): the WebhookInbox row is stamped with a GSI8 pointer exactly once, at creation", async () => {
+    await seed(makeAttempt({ status: "ACCEPTED" }));
+    await processSesCallback(deps, makeEvent({ eventKind: "DELIVERY" }));
+    const inbox = await store.get<Record<string, unknown> & { PK: string; SK: string }>({ PK: `TENANT#${TENANT}#WEBHOOK#SES#${ACCOUNT}`, SK: "EVENT#sns-1" });
+    expect(inbox).toBeDefined();
+    expect(inbox?.["GSI8PK"]).toBe("WORK#TRANSIENT");
+    // createdAt = NOW ("2026-09-10T12:05:00.000Z") + 7 days.
+    expect(inbox?.["GSI8SK"]).toBe("2026-09-17T12:05:00.000Z#TENANT#t1#WebhookInbox#EVENT#sns-1");
+  });
+
   it("duplicate SNS delivery of the exact same event -> DUPLICATE_INBOX, no double-apply", async () => {
     await seed(makeAttempt({ status: "ACCEPTED" }));
     const event = makeEvent({ eventKind: "DELIVERY" });

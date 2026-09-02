@@ -1,51 +1,39 @@
 /**
- * Narrow port for the TransientPurgeWorker (D-156, `docs/architecture/reviews/
- * quarantine-retention-scoping/estado-final-consolidado.md` `TRANSIENT` row, Prioridade 6 — the
- * remainder after `InvitationTokenPointer` was already resolved via native TTL, `privacy-lgpd.md`
- * §4 line 42). Investigated both remaining named entities:
+ * Narrow port for the TransientPurgeWorker (D-156, migrated to GSI8 by D-179/D-188 — 7th of 9
+ * workers). Replaces the base-table `Scan` this worker used through D-187 with a `Query` against
+ * GSI8 (`GSI8PK=WORK#TRANSIENT`, `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>`,
+ * `KEYS_ONLY`) — closes the same structural starvation D-170 confirmed for `Scan`+`Limit`.
  *
- * - `WebhookInbox` (`src/modules/notification/application/ses-callback-workflow.ts`) — created on
- *   every inbound SES/SNS delivery callback, one row per `(tenantId, providerAccountId,
- *   snsMessageId)`, purely an idempotency/audit record once its correlated `NotificationAttempt`
- *   has been updated. NO `purgeAfterTtl` field, no TTL wiring, no other purge path anywhere in the
- *   codebase — genuinely unresolved, matches D-154's "TenantQuotaRecord" shape exactly (a real gap,
- *   not a duplicate of an existing mechanism). Clock: `createdAt` (the inbox row's own creation
- *   time — the moment the webhook was received; `occurredAt`, the provider's event timestamp, is a
- *   few seconds earlier at most and not the field the design's "7 dias" language is anchored to).
+ * Covers the same two entities as before the migration — see `shared/transient-purge-gsi8.ts`'s
+ * file header for the full investigation:
+ *   - `WebhookInbox` — create-once/immutable, pointer written exactly once at creation
+ *     (`ses-callback-workflow.ts`), same shape as `security-audit-purge`'s append-only rows.
+ *   - `UploadSlot` — real status transitions. A `RESERVED` slot NEVER gets a GSI8 pointer (never
+ *     a purge candidate); the pointer is written/refreshed atomically at each transition off
+ *     RESERVED (`advance-after-evidence.ts`'s CONSUMED path, `upload-slot-reconciliation/
+ *     reconciliation.ts`'s EXPIRED path) — same "pointer written per relevant transition"
+ *     discipline as `invitation-purge` (D-182), not the simpler create-once shape.
  *
- * - `UploadSlot` (`src/modules/document/domain/upload-slot.ts`) — reserved by `reserveUpload()`,
- *   resolved to `CONSUMED` (successful upload) by `advance-after-evidence.ts` or to `EXPIRED` (never
- *   confirmed in time) by `UploadSlotReconciliationWorker` (`src/workers/upload-slot-reconciliation/
- *   reconciliation.ts`). That reconciliation worker only flips `status`; it never deletes the row.
- *   The entity already carries a `purgeAfter` field and a ready-made, already-approved formula for
- *   it — `computeUploadSlotPurgeAfter()` (`src/modules/document/domain/retention.ts`, M6 design,
- *   directly encodes `privacy-lgpd.md`'s "7 dias; slot incompleto: 24h") — but BOTH are dead: no
- *   writer ever calls `computeUploadSlotPurgeAfter`, `purgeAfter` is set once at reservation time to
- *   the short-lived `expiresAt` and never recomputed, and — decisively — `purgeAfter` is a plain
- *   ISO-string attribute, not `purgeAfterTtl` (the table's actual native-TTL attribute name,
- *   `infra/modules/dynamo-table/main.tf`), so DynamoDB's TTL sweeper never looks at it regardless.
- *   Genuinely unresolved, same shape as `UploadSlot`'s neighbor investigation in D-154. A slot still
- *   `RESERVED` is still an active, in-flight reservation — never a purge candidate regardless of
- *   age (a stuck reconciliation sweep is an operational incident to fix, not a reason to physically
- *   delete a row a client may still be racing to confirm); this worker is scoped strictly to
- *   `CONSUMED`/`EXPIRED`/`RELEASED` slots. "Incompleto" (24h window) = never reached `CONSUMED`
- *   (i.e. `status !== "CONSUMED"`); "confirmed" (7-day window) = `status === "CONSUMED"` — exactly
- *   `computeUploadSlotPurgeAfter`'s own `wasConfirmed` parameter, reused verbatim rather than
- *   reinvented.
- *
- * Single `Scan` (same deliberate full-table tradeoff as D-151/152/153/154/155's candidate sources)
- * filtered to `entityType IN (WebhookInbox, UploadSlot)` — both entity types share one page so one
- * worker invocation drains the whole `TRANSIENT` remainder, mirroring the design doc's own grouping
- * of both rows under a single "TRANSIENT" line.
+ * GSI8 is discovery-only, never a source of eligibility (D-179 §2/§4) — every candidate the
+ * Query returns is revalidated with a consistent `getCandidate()` read before any write, and the
+ * write itself (`transactWrite`) always re-asserts the facts it depends on atomically:
+ *   - the row's own `version` (OCC) — BOTH entities carry a real version counter, unlike
+ *     `security-audit-purge`'s append-only family.
+ *   - the owning tenant's `TenantLifecycleRecord.status = ACTIVE`, checked IN THE SAME
+ *     `TransactWriteItems` as the delete.
  */
-import type { DynamoDeleteCommandInput, EntityKey } from "../../shared/dynamodb/occ.js";
+import type { EntityKey, TransactWriteEntry } from "../../shared/dynamodb/occ.js";
 import type { UploadSlotStatus } from "../../modules/document/domain/upload-slot.js";
+import type { TransientGsi8EntityType } from "../../shared/transient-purge-gsi8.js";
 
 export interface WebhookInboxPurgeCandidate extends EntityKey {
   entityType: "WebhookInbox";
   tenantId: string;
   createdAt: string;
   version: number;
+  maintenanceAttemptCount?: number;
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
 export interface UploadSlotPurgeCandidate extends EntityKey {
@@ -54,31 +42,42 @@ export interface UploadSlotPurgeCandidate extends EntityKey {
   reservedAt: string;
   status: UploadSlotStatus;
   version: number;
+  maintenanceAttemptCount?: number;
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
 export type TransientPurgeCandidate = WebhookInboxPurgeCandidate | UploadSlotPurgeCandidate;
 
-export interface TransientPurgeScanPage {
-  items: TransientPurgeCandidate[];
+/** One `KEYS_ONLY` GSI8 result row — `tenantId`/`entityType` are parsed out of `GSI8SK` (embedded
+ * in the sort key by `transientPurgeGsi8Keys()` precisely so a `KEYS_ONLY` projection is enough to
+ * build the tenant-ACTIVE `ConditionCheck` without a second read). */
+export interface TransientGsi8Candidate extends EntityKey {
+  dueAtIso: string;
+  tenantId: string;
+  entityType: TransientGsi8EntityType;
+}
+
+export interface TransientGsi8Page {
+  items: TransientGsi8Candidate[];
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface TransientPurgeCandidateSource {
-  /** `Scan` with `FilterExpression: entityType IN (:webhookInbox, :uploadSlot)` — see file header
-   * for the cost tradeoff this accepts. */
-  scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<TransientPurgeScanPage>;
-  /** Single conditioned `DeleteItem` (`buildVersionedDelete` — both entities carry a real `version`
-   * counter, unlike D-153/D-154's append-only/counter-only entities). Throws the SDK's real
-   * `ConditionalCheckFailedException` (recognized via `occ.ts#isConditionalCheckFailed`) when the
-   * condition doesn't hold. */
-  deleteCandidate(input: DynamoDeleteCommandInput): Promise<void>;
+  /** `Query GSI8PK = "WORK#TRANSIENT" AND GSI8SK < :before`, ordered by due date. */
+  queryDue(input: { before: string; exclusiveStartKey?: Record<string, unknown> }): Promise<TransientGsi8Page>;
+  /** Strongly-consistent read of the base row - the revalidation `getCandidate()` D-179 §4
+   * requires before acting on any GSI8 candidate. `undefined` when the row is already gone
+   * (idempotent no-op). */
+  getCandidate(key: EntityKey): Promise<TransientPurgeCandidate | undefined>;
+  /** Real `TransactWriteItems` — used both for the claim/delete (ConditionCheck + Delete) and for
+   * the poison-record backoff/DLQ move (a single conditioned Update). */
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }
 
 /**
  * Same ACTIVE-tenant fence as every other purge worker's `TenantLifecycleStatusSource` — a tenant
- * mid-closure is the tenant-purge pipeline's job, never this worker's. Deliberately the same narrow
- * shape (not re-exported/shared), mirroring the precedents' own choice to keep each purge worker's
- * port surface independently readable.
+ * mid-closure is the tenant-purge pipeline's job, never this worker's.
  */
 export interface TenantLifecycleStatusSource {
   getStatus(tenantId: string): Promise<string | undefined>;

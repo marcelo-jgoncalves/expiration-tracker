@@ -968,6 +968,7 @@ module "security_audit_observability" {
     module.requirement_reindex_handler.function_name,
     module.quota_telemetry_purge_handler.function_name,
     module.security_audit_purge_handler.function_name,
+    module.transient_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3393,9 +3394,11 @@ resource "aws_scheduler_schedule" "invitation_purge" {
 # completely separate mechanism from tenant-purge's full-tenant-closure pipeline) - see
 # src/workers/transient-purge/purge.ts's doc comment. InvitationTokenPointer, the third entity
 # named on the same privacy-lgpd.md line, already carries native DynamoDB TTL (purgeAfterTtl) and
-# needs no worker - see candidate-source.ts's doc comment for the full investigation. No dedicated
-# IAM policy beyond the general tenant-facing grant, same reasoning as invitation_purge_handler
-# above.
+# needs no worker - see candidate-source.ts's doc comment for the full investigation. Migrated off
+# the base-table Scan onto GSI8 by D-179/D-188 (7th of 9 workers) -
+# gsi8_read_policy_json/worker_transact_write_policy_json scoped to WORK#TRANSIENT/DLQ#TRANSIENT,
+# same pattern as security_audit_purge_handler above (this worker also has a tenant-ACTIVE fence,
+# so it gets the same poison-record/DLQ shape).
 module "transient_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3405,8 +3408,12 @@ module "transient_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["transient_purge"],
+    module.table.worker_transact_write_policy_json["transient_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "transient_purge_schedule" {
