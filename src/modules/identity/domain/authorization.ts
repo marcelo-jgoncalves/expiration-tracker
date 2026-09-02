@@ -130,6 +130,15 @@ export type Action =
   | "docarchive:series-update"
   | "docarchive:series-cancel"
   | "docarchive:series-materialize"
+  // D-173 (`DocumentType` catalog): tenant-scoped, renamable-but-identity-stable catalog entry
+  // closing item 8 of D-161's macro-order. Same tier as `document:delete`/`requirement:delete`
+  // (ADMIN_ROLES for every mutation, READ_ONLY_ROLES for listing/reading) — a catalog entry is
+  // shared, tenant-wide configuration, not a per-item content resource a MEMBER should mutate.
+  | "docarchive:documenttype-create"
+  | "docarchive:documenttype-rename"
+  | "docarchive:documenttype-deprecate"
+  | "docarchive:documenttype-reactivate"
+  | "docarchive:documenttype-read"
   // D-149 (Admin Activity/Audit Log view, admin-activity-log-scoping/estado-final-consolidado.md
   // decisão 3): visibility into what OTHER members did (renewal/creation/export/etc.) is
   // disclosure-sensitive equivalent to bulk export (`item:export` above) - deliberately NOT the
@@ -227,6 +236,11 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:series-cancel": WRITE_ROLES,
   "docarchive:series-materialize": WRITE_ROLES,
   "activity:read": ADMIN_ROLES,
+  "docarchive:documenttype-create": ADMIN_ROLES,
+  "docarchive:documenttype-rename": ADMIN_ROLES,
+  "docarchive:documenttype-deprecate": ADMIN_ROLES,
+  "docarchive:documenttype-reactivate": ADMIN_ROLES,
+  "docarchive:documenttype-read": READ_ONLY_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

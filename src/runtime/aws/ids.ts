@@ -80,6 +80,10 @@ export class UlidIdGenerator
   newFileId(): string {
     return `docfile_${ulid()}`;
   }
+  /** D-173 (`DocumentType` catalog) — opaque, immutable, never reused. */
+  newDocumentTypeId(): string {
+    return `doctype_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

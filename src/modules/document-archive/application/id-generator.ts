@@ -11,4 +11,6 @@ export interface DocumentArchiveIdGenerator {
   newDocumentRequestId(): string;
   /** D-163 (`DocumentFile`). */
   newFileId(): string;
+  /** D-173 (`DocumentType` catalog). */
+  newDocumentTypeId(): string;
 }

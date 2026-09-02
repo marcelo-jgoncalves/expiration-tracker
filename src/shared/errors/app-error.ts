@@ -460,6 +460,18 @@ export class ResponsibilityReassignmentRequiredError extends AppError {
   }
 }
 
+/** D-173 (`DocumentType` catalog, `docs/architecture/reviews/document-type-scoping/
+ * estado-final-consolidado.md` §3): thrown when `createDocumentType()`'s pointer `Put` or
+ * `renameDocumentType()`'s changed-name pointer `Put` loses the dedupe race — the target
+ * normalized name is already claimed by a different `DocumentType`. `retryable: false`: the
+ * caller must pick a different name, not just retry the identical request. */
+export class DocumentTypeNameConflictError extends AppError {
+  constructor(message = "A DocumentType with this name already exists.", details?: Record<string, unknown>) {
+    super({ code: "DOCUMENT_TYPE_NAME_CONFLICT", category: "CONFLICT", message, retryable: false, details });
+    this.name = "DocumentTypeNameConflictError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

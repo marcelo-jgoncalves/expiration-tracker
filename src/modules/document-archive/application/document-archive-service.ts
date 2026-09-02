@@ -14,19 +14,31 @@
  * extra composition-root wire for no real separation of concerns at this module's current size.
  */
 import {
+  buildConditionalDelete,
   buildExistenceConditionCheck,
   buildVersionedCreate,
   buildVersionedDelete,
   buildVersionedUpdate,
+  getCancellationReasonCodes,
   isTransactionCanceled,
   type EntityKey,
 } from "../../../shared/dynamodb/occ.js";
-import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AuthorizationError, ConflictError, DocumentTypeNameConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { type CreateDocumentInput, type Document, documentGsi1Keys, documentGsi2Keys, documentKey } from "../domain/document.js";
+import {
+  documentTypeGsi1Keys,
+  documentTypeKey,
+  documentTypeNamePointerKey,
+  type CreateDocumentTypeInput,
+  type DocumentType,
+  type DocumentTypeNamePointer,
+} from "../domain/document-type.js";
 import {
   assertExactlyOnePrincipal,
   documentFileKey,
@@ -745,6 +757,199 @@ export class DocumentArchiveService {
       if (isTransactionCanceled(err)) throw new ConflictError("Requirement was concurrently modified.", { requirementId });
       throw err;
     }
+  }
+
+  /**
+   * createDocumentType — D-173 §3. `[0] Put(DocumentType, attribute_not_exists), [1]
+   * Put(pointer, attribute_not_exists), [2] fence]`. Position 1 (the pointer) is what actually
+   * closes the race between two concurrent creators supplying the same normalized name —
+   * position 0 essentially never conflicts in practice (fresh ULID) but is still mapped
+   * defensively, same discipline as every other `putIfAbsent`-shaped create in this module.
+   */
+  async createDocumentType(ctx: RequestContext, input: CreateDocumentTypeInput): Promise<DocumentType> {
+    authorize({ context: ctx, action: "docarchive:documenttype-create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const documentTypeId = this.ids.newDocumentTypeId();
+    const normalizedName = normalizeDisplayName(input.displayName);
+    const now = this.now();
+
+    const documentType: DocumentType = {
+      ...documentTypeKey(tenantId, documentTypeId),
+      entityType: "DocumentType",
+      documentTypeId,
+      tenantId,
+      displayName: input.displayName,
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      ...documentTypeGsi1Keys(tenantId, "ACTIVE", normalizedName, documentTypeId),
+    };
+    const pointer: DocumentTypeNamePointer = {
+      ...documentTypeNamePointerKey(tenantId, normalizedName),
+      entityType: "DocumentTypeNamePointer",
+      tenantId,
+      normalizedName,
+      documentTypeId,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+
+    const entries = [
+      { Put: buildVersionedCreate(this.tableName, documentType as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, pointer as unknown as Record<string, unknown> & EntityKey) },
+    ];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[1] === "ConditionalCheckFailed") throw new DocumentTypeNameConflictError("A DocumentType with this name already exists.", { displayName: input.displayName });
+        throw new ConflictError("DocumentType already exists.", { documentTypeId });
+      }
+      throw err;
+    }
+    return documentType;
+  }
+
+  async getDocumentType(ctx: RequestContext, documentTypeId: string): Promise<DocumentType> {
+    authorize({ context: ctx, action: "docarchive:documenttype-read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.getDocumentTypeUnchecked(ctx.tenant.tenantId, documentTypeId);
+  }
+
+  private async getDocumentTypeUnchecked(tenantId: string, documentTypeId: string): Promise<DocumentType> {
+    const documentType = await this.store.get<DocumentType>(documentTypeKey(tenantId, documentTypeId));
+    if (!documentType) throw new NotFoundError("DocumentType not found.", { documentTypeId });
+    return documentType;
+  }
+
+  /**
+   * renameDocumentType — D-173 §3, two branches (DynamoDB rejects a Delete+Put on the SAME
+   * item within one TransactWriteItems, which is why "normalized name unchanged" and
+   * "normalized name changed" cannot share one transaction shape). `oldNormalizedName` is
+   * ALWAYS derived from this read of the current `DocumentType` (never trusted from caller
+   * input) — the whole point of the dedupe pointer is that the persisted `displayName` is the
+   * only source of truth for what the old pointer key actually was.
+   *
+   * Same-name branch: `[0] Update(DocumentType, expectedVersion), [1] fence]`.
+   * Changed-name branch: `[0] Update(DocumentType, expectedVersion), [1] Delete(old pointer,
+   * documentTypeId=:self), [2] Put(new pointer, attribute_not_exists), [3] fence]`.
+   * `CancellationReasons`: 0 = OCC conflict, 1 = the old pointer no longer points to this type
+   * (stale read), 2 = the target name is already in use by a different DocumentType.
+   */
+  async renameDocumentType(ctx: RequestContext, documentTypeId: string, expectedVersion: number, newDisplayName: string): Promise<DocumentType> {
+    authorize({ context: ctx, action: "docarchive:documenttype-rename", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
+    const oldNormalizedName = normalizeDisplayName(current.displayName);
+    const newNormalizedName = normalizeDisplayName(newDisplayName);
+    const now = this.now();
+
+    if (oldNormalizedName === newNormalizedName) {
+      const update = buildVersionedUpdate({
+        tableName: this.tableName,
+        key: documentTypeKey(tenantId, documentTypeId),
+        tenantId,
+        expectedVersion,
+        set: { displayName: newDisplayName },
+        now,
+      });
+      try {
+        await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
+      } catch (err) {
+        if (isTransactionCanceled(err)) throw new ConflictError("DocumentType was concurrently modified.", { documentTypeId });
+        throw err;
+      }
+      return { ...current, displayName: newDisplayName, version: expectedVersion + 1, updatedAt: now };
+    }
+
+    const newGsi1 = documentTypeGsi1Keys(tenantId, current.status, newNormalizedName, documentTypeId);
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      tenantId,
+      expectedVersion,
+      set: { displayName: newDisplayName, ...newGsi1 },
+      now,
+    });
+    const deleteOldPointer = buildConditionalDelete({
+      tableName: this.tableName,
+      key: documentTypeNamePointerKey(tenantId, oldNormalizedName),
+      conditionExpression: "attribute_exists(PK) AND #docTypeId = :self",
+      names: { "#docTypeId": "documentTypeId" },
+      values: { ":self": documentTypeId },
+    });
+    const newPointer: DocumentTypeNamePointer = {
+      ...documentTypeNamePointerKey(tenantId, newNormalizedName),
+      entityType: "DocumentTypeNamePointer",
+      tenantId,
+      normalizedName: newNormalizedName,
+      documentTypeId,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    const putNewPointer = buildVersionedCreate(this.tableName, newPointer as unknown as Record<string, unknown> & EntityKey);
+
+    const entries = [{ Update: update }, { Delete: deleteOldPointer }, { Put: putNewPointer }];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[0] === "ConditionalCheckFailed") throw new ConflictError("DocumentType was concurrently modified.", { documentTypeId });
+        if (codes?.[1] === "ConditionalCheckFailed") throw new ConflictError("DocumentType's old name pointer was concurrently modified.", { documentTypeId });
+        if (codes?.[2] === "ConditionalCheckFailed") throw new DocumentTypeNameConflictError("A DocumentType with this name already exists.", { displayName: newDisplayName });
+        throw new ConflictError("renameDocumentType transaction was rejected.", { documentTypeId });
+      }
+      throw err;
+    }
+    return { ...current, displayName: newDisplayName, ...newGsi1, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  /** deprecateDocumentType/reactivateDocumentType — D-173 §3: `[0] Update(DocumentType,
+   * expectedVersion, status flip), [1] fence]`. Each direction's `extraConditions` fences the
+   * FROM status transactionally (not just via `expectedVersion`) so a concurrent double-flip
+   * can never silently no-op past the wrong state. */
+  async deprecateDocumentType(ctx: RequestContext, documentTypeId: string, expectedVersion: number): Promise<DocumentType> {
+    return this.flipDocumentTypeStatus(ctx, "docarchive:documenttype-deprecate", documentTypeId, expectedVersion, "ACTIVE", "DEPRECATED");
+  }
+
+  async reactivateDocumentType(ctx: RequestContext, documentTypeId: string, expectedVersion: number): Promise<DocumentType> {
+    return this.flipDocumentTypeStatus(ctx, "docarchive:documenttype-reactivate", documentTypeId, expectedVersion, "DEPRECATED", "ACTIVE");
+  }
+
+  private async flipDocumentTypeStatus(
+    ctx: RequestContext,
+    action: "docarchive:documenttype-deprecate" | "docarchive:documenttype-reactivate",
+    documentTypeId: string,
+    expectedVersion: number,
+    fromStatus: DocumentType["status"],
+    toStatus: DocumentType["status"],
+  ): Promise<DocumentType> {
+    authorize({ context: ctx, action, resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
+    const now = this.now();
+    const normalizedName = normalizeDisplayName(current.displayName);
+    const gsi1 = documentTypeGsi1Keys(tenantId, toStatus, normalizedName, documentTypeId);
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      tenantId,
+      expectedVersion,
+      set: { status: toStatus, ...gsi1 },
+      now,
+      extraConditions: [{ expression: "#st = :from", names: { "#st": "status" }, values: { ":from": fromStatus } }],
+    });
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError(`DocumentType is not ${fromStatus} (already ${toStatus}, or concurrently modified).`, { documentTypeId });
+      throw err;
+    }
+    return { ...current, status: toStatus, ...gsi1, version: expectedVersion + 1, updatedAt: now };
   }
 
   /** Projects a Requirement's own denormalized `evidenceState`/`evidenceValidUntil` (written by

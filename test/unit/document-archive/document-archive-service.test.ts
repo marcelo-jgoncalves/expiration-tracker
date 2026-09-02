@@ -48,6 +48,7 @@ function makeIds(): DocumentArchiveIdGenerator {
     newSeriesId: () => `series-${++n}`,
     newDocumentRequestId: () => `docreq-${++n}`,
     newFileId: () => `file-${++n}`,
+    newDocumentTypeId: () => `doctype-${++n}`,
   };
 }
 

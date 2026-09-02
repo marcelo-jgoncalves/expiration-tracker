@@ -66,6 +66,7 @@ function makeIds() {
     newSeriesId: () => `series-${++idCounter}`,
     newDocumentRequestId: () => `docreq-${++idCounter}`,
     newFileId: () => `file-${++idCounter}`,
+    newDocumentTypeId: () => `doctype-${++idCounter}`,
   };
 }
 

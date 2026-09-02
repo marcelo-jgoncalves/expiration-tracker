@@ -24,6 +24,7 @@ function ids(): DocumentArchiveIdGenerator {
     newSeriesId: () => `series-${++n}`,
     newDocumentRequestId: () => `dr-${++n}`,
     newFileId: () => `file-${++n}`,
+    newDocumentTypeId: () => `doctype-${++n}`,
   };
 }
 
