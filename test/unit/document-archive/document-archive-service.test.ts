@@ -6,6 +6,8 @@ import { AuthorizationError, ConflictError, NotFoundError, ValidationError } fro
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
+import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
+import { documentFileKey } from "../../../src/modules/document-archive/domain/document-file.js";
 import type { UploadUrlSigner, PresignUploadInput, PresignUploadResult } from "../../../src/modules/document/ports/upload-url-signer.js";
 
 /** Fake signer, not a stub that just resolves undefined — records every call so tests can
@@ -56,6 +58,49 @@ function makeService(store = new InMemoryDocumentArchiveStore(), signer: UploadU
 
 const TENANT = "tenant-1";
 
+/** Shared fixture helper: `commitUpload()` requires the file set to be sealed (`fileSetSealed`
+ * gate, D-163 §4, activated in this slice) — every test exercising the DRAFT->RECEIVED
+ * transition must call `reserveFiles()` first now, not just `reserveUpload()`. Also marks the
+ * PRINCIPAL `DocumentFile` CLEAN and reconciles the Version's `pendingFileScans` counter back to
+ * zero, standing in for the real terminal scan transition (`applyFileScanResult`/
+ * `confirmFileScanClean`, D-165) — most fixtures in this suite drive the lifecycle all the way
+ * to `acceptVersion()`, whose PRINCIPAL fence (D-163 §5) requires `scanStatus === "CLEAN"` on
+ * the reserved PRINCIPAL, not just a sealed file set. Returns the DocumentVersion's fresh
+ * `version` for the caller to pass to `commitUpload()`. */
+async function sealDraft(
+  service: DocumentArchiveService,
+  store: InMemoryDocumentArchiveStore,
+  documentId: string,
+  seq: number,
+  expectedVersion: number,
+): Promise<number> {
+  const reserved = await service.reserveFiles(ctx(), documentId, seq, expectedVersion, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }]);
+  const principal = reserved[0]!.file;
+  const sealed = await store.get<DocumentVersion>(documentVersionKey(TENANT, documentId, seq));
+  await store.transactWrite([
+    {
+      Update: buildVersionedUpdate({
+        tableName: "test-table",
+        key: documentFileKey(TENANT, documentId, seq, principal.fileId),
+        tenantId: TENANT,
+        expectedVersion: principal.version,
+        set: { scanStatus: "CLEAN" },
+      }),
+    },
+    {
+      Update: buildVersionedUpdate({
+        tableName: "test-table",
+        key: { PK: sealed!.PK, SK: sealed!.SK },
+        tenantId: TENANT,
+        expectedVersion: sealed!.version,
+        set: { pendingFileScans: 0 },
+      }),
+    },
+  ]);
+  const final = await store.get<DocumentVersion>(documentVersionKey(TENANT, documentId, seq));
+  return final!.version;
+}
+
 describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   it("creates a Document with GSI1 keys reflecting ACTIVE status", async () => {
     const { service } = makeService();
@@ -79,12 +124,13 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   });
 
   it("full happy path: reserveUpload -> commitUpload -> claimReview -> acceptVersion", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
     expect(draft.state).toBe("DRAFT");
 
-    const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, draft.version);
+    const sealedVersion = await sealDraft(service, store, doc.documentId, draft.seq, draft.version);
+    const received = await service.commitUpload(ctx(), doc.documentId, draft.seq, sealedVersion);
     expect(received.state).toBe("RECEIVED");
 
     const underReview = await service.claimReview(ctx(), doc.documentId, draft.seq, received.version);
@@ -100,16 +146,18 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   });
 
   it("a renewal supersedes the previous ACCEPTED version atomically", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
 
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     const v1u = await service.claimReview(ctx(), doc.documentId, v1.seq, v1r.version);
     await service.acceptVersion(ctx(), doc.documentId, v1.seq, v1u.version, "req-token-1");
 
     const v2 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v2r = await service.commitUpload(ctx(), doc.documentId, v2.seq, v2.version);
+    const v2sealed = await sealDraft(service, store, doc.documentId, v2.seq, v2.version);
+    const v2r = await service.commitUpload(ctx(), doc.documentId, v2.seq, v2sealed);
     const v2u = await service.claimReview(ctx(), doc.documentId, v2.seq, v2r.version);
     const result = await service.acceptVersion(ctx(), doc.documentId, v2.seq, v2u.version, "req-token-2");
 
@@ -122,10 +170,11 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   });
 
   it("acceptVersion is idempotent: replaying the same clientRequestToken returns the persisted snapshot, not a fresh read", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     const v1u = await service.claimReview(ctx(), doc.documentId, v1.seq, v1r.version);
 
     const first = await service.acceptVersion(ctx(), doc.documentId, v1.seq, v1u.version, "same-token");
@@ -137,20 +186,22 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   });
 
   it("rejects a claim collision: a second reviewer cannot claim a version another reviewer already claimed", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     await service.claimReview(ctxAs("user-1"), doc.documentId, v1.seq, v1r.version);
 
     await expect(service.claimReview(ctxAs("user-2"), doc.documentId, v1.seq, v1r.version)).rejects.toThrow(ConflictError);
   });
 
   it("a MEMBER who did not claim a version cannot accept/reject it; an ADMIN can override (D-143 Decision 1/Bloqueador 6)", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     const v1u = await service.claimReview(ctxAs("user-1"), doc.documentId, v1.seq, v1r.version);
 
     await expect(service.acceptVersion(ctxAs("user-2"), doc.documentId, v1.seq, v1u.version, "tok")).rejects.toThrow(AuthorizationError);
@@ -160,10 +211,11 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
   });
 
   it("REJECTED is terminal: accepting a rejected version is rejected as a conflict (never removable, never re-acceptable, per J9)", async () => {
-    const { service } = makeService();
+    const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     const rejected = await service.rejectVersion(ctx(), doc.documentId, v1.seq, v1r.version, "ILLEGIBLE");
     expect(rejected.state).toBe("REJECTED");
 
@@ -174,7 +226,8 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     const { service, store } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
     const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+    const v1sealed = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+    const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1sealed);
     const v1u = await service.claimReview(ctx(), doc.documentId, v1.seq, v1r.version);
 
     // Simulate a complementary file still pending scan.
@@ -193,6 +246,15 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     const withPendingScan = await store.get<typeof v1u>(key);
 
     await expect(service.acceptVersion(ctx(), doc.documentId, v1.seq, withPendingScan!.version, "tok")).rejects.toThrow(ValidationError);
+  });
+
+  it("commitUpload rejects a DocumentVersion whose file set has never been sealed (D-163 §4 gate, activated once reserveFiles() has a real HTTP precondition, D-167)", async () => {
+    const { service } = makeService();
+    const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+    const draft = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+    // reserveFiles() was never called — fileSetSealed is absent, same shape as every real DRAFT
+    // Version before this slice existed.
+    await expect(service.commitUpload(ctx(), doc.documentId, draft.seq, draft.version)).rejects.toThrow(ConflictError);
   });
 
   it("getDocument throws NotFoundError for an unknown document", async () => {
@@ -267,10 +329,11 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     });
 
     it("rejects reserving files once the Version has left DRAFT", async () => {
-      const { service } = makeService();
+      const { service, store } = makeService();
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
       const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-      const received = await service.commitUpload(ctx(), doc.documentId, v1.seq, v1.version);
+      const sealedVersion = await sealDraft(service, store, doc.documentId, v1.seq, v1.version);
+      const received = await service.commitUpload(ctx(), doc.documentId, v1.seq, sealedVersion);
       await expect(service.reserveFiles(ctx(), doc.documentId, v1.seq, received.version, [spec("PRINCIPAL")])).rejects.toThrow(ConflictError);
     });
   });

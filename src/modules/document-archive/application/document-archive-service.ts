@@ -321,11 +321,13 @@ export class DocumentArchiveService {
    * responsibility in this increment (DocumentFile persistence is a follow-up slice) — this
    * method only enforces the state-machine transition itself.
    *
-   * D-163 §4 designed a `fileSetSealed === true` gate here once `reserveFiles()` becomes the
-   * mandatory HTTP-level precondition for every commit — deliberately NOT deployed yet: no HTTP
-   * route calls `reserveFiles()` today (only the service method exists, added this session), so
-   * enforcing the gate now would make every existing `commitUpload()` call fail with no way to
-   * satisfy it end-to-end. Land the gate in the same slice that wires the HTTP route. */
+   * D-163 §4 gate, activated now that `reserveFiles()` has a real HTTP route (D-167): a Version
+   * cannot commit until its file set is sealed (`reserveFiles()` ran and produced a determined,
+   * immutable set of files), closing the race where a caller commits while files are still being
+   * added/never reserved at all. The precondition is enforced twice — an in-memory pre-check for
+   * a clear `ConflictError` message, and a transactional `ConditionCheck` (TOCTOU-safe, same
+   * pattern as the PRINCIPAL fence in `acceptVersion()`, D-163 §5) so a concurrent `reserveFiles()`
+   * that seals the set between the read and the write can never be missed. */
   async commitUpload(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
@@ -333,6 +335,7 @@ export class DocumentArchiveService {
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
     this.assertTransitionOrConflict(current.state, "RECEIVED", documentId, seq);
+    if (!current.fileSetSealed) throw new ConflictError("This DocumentVersion's file set is not sealed yet — call reserveFiles() first.", { documentId, seq });
     const now = this.now();
     const gsi5 = reviewQueueGsi5Keys(tenantId, "RECEIVED", now, current.versionId);
     const update = buildVersionedUpdate({
@@ -342,6 +345,7 @@ export class DocumentArchiveService {
       expectedVersion,
       set: { state: "RECEIVED", receivedAt: now, ...gsi5 },
       now,
+      extraConditions: [{ expression: "#sealed = :true", names: { "#sealed": "fileSetSealed" }, values: { ":true": true } }],
     });
     try {
       await this.store.transactWrite([{ Update: update }]);
