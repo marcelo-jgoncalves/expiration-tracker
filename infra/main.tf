@@ -1407,6 +1407,73 @@ resource "aws_scheduler_schedule" "upload_slot_reconciliation" {
   }
 }
 
+# --- DocumentFileReconciliationWorker: EventBridge Scheduler, every 15 minutes (D-163 §6/D-166) --
+# Generalizes UploadSlotReconciliationWorker above from a single-file GSI6 sweep to DocumentFile's
+# sparse GSI5 namespace (TENANT#<t>#DOCFILE-RECON#{PENDING_UPLOAD,SCANNING}) - a base-table `Scan`
+# filtered by entityType/scanStatus, never a GSI6/GSI3 consumer (candidate-source.ts's doc
+# comment explains why this can't be a Query the way GSI6's global namespace allows), so it only
+# needs the same tenant-facing read/write policy requirement-reindex-handler already uses for its
+# own cross-tenant Scan - no new IAM boundary, no new gsi*_read_policy_json grant.
+module "document_file_reconciliation_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-document-file-reconciliation-handler"
+  handler_name          = "document-file-reconciliation-handler"
+  source_dir            = "${local.dist_dir}/document-file-reconciliation-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "document_file_reconciliation_schedule" {
+  name = "${module.document_file_reconciliation_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "document_file_reconciliation_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.document_file_reconciliation_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeDocumentFileReconciliation"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.document_file_reconciliation_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "document_file_reconciliation" {
+  name                = "document-file-reconciliation"
+  schedule_expression = "rate(15 minutes)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = module.document_file_reconciliation_handler.live_alias_arn
+    role_arn = aws_iam_role.document_file_reconciliation_schedule.arn
+    input    = "{}"
+  }
+}
+
 # --- DocumentPurgeWorker: EventBridge Scheduler, every 6 hours (W3-06/D-061) ----------------
 # Fourth (of exactly four) role ever granted gsi6_read - see security-audit.ts's
 # GlobalIndexComponent "document-purge" and stack.tftest.hcl's updated GSI6 isolation

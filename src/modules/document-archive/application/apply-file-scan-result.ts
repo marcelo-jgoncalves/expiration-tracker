@@ -256,6 +256,86 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
   throw new Error(`confirmFileScanClean exhausted retries for file ${input.fileId} under contention.`);
 }
 
+export type ApplyFileScanTimeoutOutcome = "TIMED_OUT" | "IGNORED_STALE";
+
+export interface ApplyFileScanTimeoutInput {
+  tenantId: string;
+  documentId: string;
+  seq: number;
+  fileId: string;
+  /** The exact GSI5 pointer the reconciliation scan observed (D-163 round4 §3) - the
+   * transaction below conditions on it verbatim, so a candidate whose deadline changed or
+   * that already reached a terminal state between the scan and this write is naturally
+   * skipped (ConditionalCheckFailed -> IGNORED_STALE) rather than double-processed. */
+  observedGsi5Pointer: { GSI5PK: string; GSI5SK: string };
+}
+
+/**
+ * applyFileScanTimeout - the reconciliation worker's terminal transition
+ * (PENDING_UPLOAD/SCANNING -> TIMEOUT), symmetric to applyFileScanResult's REJECT branch but
+ * reached by deadline rather than by a physical S3/GuardDuty event. Deliberately reuses the
+ * exact same counter/GSI5-removal mechanism (buildVersionedUpdate, no new pattern) - the only
+ * new ingredient is conditioning on the observed GSI5 pointer itself, which a physical-event
+ * caller never needs (it always re-reads the file fresh and checks scanStatus, never a stale
+ * discovery pointer).
+ */
+export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input: ApplyFileScanTimeoutInput): Promise<ApplyFileScanTimeoutOutcome> {
+  const now = deps.now ?? (() => new Date().toISOString());
+  const key = documentFileKey(input.tenantId, input.documentId, input.seq, input.fileId);
+
+  for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+    const file = await deps.store.get<DocumentFile>(key);
+    if (!file) return "IGNORED_STALE";
+    if (!isNonTerminalFileScanStatus(file.scanStatus)) return "IGNORED_STALE";
+
+    const version = await deps.store.get<DocumentVersion>(documentVersionKey(input.tenantId, input.documentId, input.seq));
+    if (!version) return "IGNORED_STALE"; // Version cannot be removed once files exist - fail closed if this ever changes.
+
+    const nowTs = now();
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key,
+          tenantId: input.tenantId,
+          expectedVersion: file.version,
+          set: { scanStatus: "TIMEOUT" },
+          remove: ["GSI5PK", "GSI5SK"],
+          // Exact-pointer fence (round4-claude-final.md §3): closes the race where the
+          // candidate this scan observed already advanced (new deadline, or terminal) by the
+          // time this write lands - never conditioned on `file.version` alone, since a
+          // concurrent SCANNING->TIMEOUT-eligible re-write could bump version without changing
+          // eligibility in a way the scan already accounted for.
+          extraConditions: [
+            { expression: "#gsi5pk = :gsi5pk", names: { "#gsi5pk": "GSI5PK" }, values: { ":gsi5pk": input.observedGsi5Pointer.GSI5PK } },
+            { expression: "#gsi5sk = :gsi5sk", names: { "#gsi5sk": "GSI5SK" }, values: { ":gsi5sk": input.observedGsi5Pointer.GSI5SK } },
+          ],
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: documentVersionKey(input.tenantId, input.documentId, input.seq),
+          tenantId: input.tenantId,
+          expectedVersion: version.version,
+          set: { pendingFileScans: version.pendingFileScans - 1 },
+          now: nowTs,
+        }),
+      },
+    ];
+    try {
+      await deps.store.transactWrite(entries);
+      return "TIMED_OUT";
+    } catch (err) {
+      if (isTransactionCanceled(err)) return "IGNORED_STALE"; // lost the race - a concurrent event/sweep already claimed this file.
+      throw err;
+    }
+  }
+
+  throw new Error(`applyFileScanTimeout exhausted retries for file ${input.fileId} under contention.`);
+}
+
 function buildFileRejectedEvent(
   deps: ApplyFileScanResultDeps,
   tenantId: string,

@@ -178,6 +178,12 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !anytrue([for p in module.reminder_dispatch.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "ReminderDispatch must NOT reference GSI6"
   }
+  # D-163 §6/D-166: DocumentFileReconciliationWorker reuses GSI5 exclusively, deliberately a
+  # base-table Scan (not even a GSI5 Query) - it must never be granted GSI6 either.
+  assert {
+    condition     = !anytrue([for p in module.document_file_reconciliation_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    error_message = "DocumentFileReconciliationWorker must NOT reference GSI6 (D-143 Decision 2 stays closed to this domain)"
+  }
   # See the GSI3 run block above for why only the plan-time-known entries are checked here.
   assert {
     condition     = !strcontains(module.dispatch_outbox_relay.capability_policy_documents[0], "/index/GSI6")
@@ -801,5 +807,20 @@ run "requirement_reindex_schedule_exists_daily_with_correct_placeholder_escaping
   assert {
     condition     = aws_scheduler_schedule.requirement_reindex.target[0].input == "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
     error_message = "The reindex job's scheduledTime placeholder must be a literal string, never jsonencode()'d (would HTML-escape the angle brackets and break substitution)"
+  }
+}
+
+run "document_file_reconciliation_schedule_exists_every_15_minutes" {
+  command = plan
+
+  # D-163 §6/D-166: same cadence as UploadSlotReconciliationWorker (the worker it generalizes),
+  # no scheduler-context placeholder needed (the worker discovers its own candidates via Scan).
+  assert {
+    condition     = aws_scheduler_schedule.document_file_reconciliation.schedule_expression == "rate(15 minutes)"
+    error_message = "DocumentFileReconciliationWorker must run every 15 minutes, same cadence as UploadSlotReconciliationWorker"
+  }
+  assert {
+    condition     = aws_scheduler_schedule.document_file_reconciliation.target[0].input == "{}"
+    error_message = "The worker takes no input - it discovers its own work by scanning GSI5's sparse pointers"
   }
 }
