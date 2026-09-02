@@ -540,10 +540,56 @@ run "gsi8_worker_isolation" {
     error_message = "MembershipPurgeWorker must NOT reference INVITATION_PURGE's namespace"
   }
 
+  # D-179 slice 3 - document_file_reconciliation_handler joins the same pattern, its own WORK#/
+  # DLQ# namespace pair, isolated from the other two.
+  assert {
+    condition     = anytrue([for p in module.document_file_reconciliation_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "DocumentFileReconciliationWorker must have a policy referencing GSI8"
+  }
+
+  assert {
+    condition = anytrue([
+      for p in module.document_file_reconciliation_handler.capability_policy_documents :
+      strcontains(p, "WORK#DOCUMENT_FILE_RECONCILIATION") && strcontains(p, "DLQ#DOCUMENT_FILE_RECONCILIATION")
+    ])
+    error_message = "DocumentFileReconciliationWorker's GSI8 policy must condition dynamodb:LeadingKeys on exactly its own WORK#/DLQ# namespace pair"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.document_file_reconciliation_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "DocumentFileReconciliationWorker must have dynamodb:TransactWriteItems - applyFileScanTimeout() already issues a real TransactWriteCommand"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.document_file_reconciliation_handler.capability_policy_documents :
+      strcontains(p, "dynamodb:TransactWriteItems") && (strcontains(p, "/index/GSI3") || strcontains(p, "/index/GSI4") || strcontains(p, "/index/GSI6") || strcontains(p, "/index/GSI8"))
+    ])
+    error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.document_file_reconciliation_handler.capability_policy_documents :
+      strcontains(p, "MEMBERSHIP_PURGE") || strcontains(p, "INVITATION_PURGE")
+    ])
+    error_message = "DocumentFileReconciliationWorker must NOT reference MEMBERSHIP_PURGE's or INVITATION_PURGE's namespace"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "DOCUMENT_FILE_RECONCILIATION")])
+    error_message = "InvitationPurgeWorker must NOT reference DOCUMENT_FILE_RECONCILIATION's namespace"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.membership_purge_handler.capability_policy_documents : strcontains(p, "DOCUMENT_FILE_RECONCILIATION")])
+    error_message = "MembershipPurgeWorker must NOT reference DOCUMENT_FILE_RECONCILIATION's namespace"
+  }
+
   # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
   assert {
     condition     = !anytrue([for p in module.transient_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
-    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179 slices 1-2 are membership-purge/invitation-purge only)"
+    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179 slices 1-3 are membership-purge/invitation-purge/document-file-reconciliation only)"
   }
 
   assert {

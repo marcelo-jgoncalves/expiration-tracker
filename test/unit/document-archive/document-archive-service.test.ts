@@ -332,6 +332,19 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
       expect(sealed!.principalFileId).toBe(files.find((f) => f.role === "PRINCIPAL")!.fileId);
     });
 
+    it("D-179 slice 3: stamps a GSI8 MaintenanceDueIndex pointer on every reserved file at creation, one per WORK#DOCUMENT_FILE_RECONCILIATION/deadline", async () => {
+      const { service } = makeService();
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentTypeId: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+
+      const reserved = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("ATTACHMENT")]);
+
+      for (const { file } of reserved) {
+        expect(file.GSI8PK).toBe("WORK#DOCUMENT_FILE_RECONCILIATION");
+        expect(file.GSI8SK).toMatch(new RegExp(`^.+#TENANT#${TENANT}#${file.fileId}$`));
+      }
+    });
+
     it("item 3 (2026-09-02): presigns a real upload URL per file via UploadUrlSigner, keyed to each file's own quarantineObject", async () => {
       const { service, signer } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]), makeSigner());
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentTypeId: "ALVARA", hasValidity: true });

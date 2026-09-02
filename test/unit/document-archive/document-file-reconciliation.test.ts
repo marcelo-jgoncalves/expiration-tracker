@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 import { reconcileTimedOutDocumentFiles } from "../../../src/workers/document-file-reconciliation/reconciliation.js";
-import { applyFileScanTimeout } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
-import { documentFileKey, type DocumentFile, type DocumentFileScanStatus } from "../../../src/modules/document-archive/domain/document-file.js";
+import { applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
+import { documentFileGsi8Keys, documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import type { DocumentFileReconciliationCandidate, DocumentFileReconciliationCandidateSource, DocumentFileReconciliationScanPage } from "../../../src/workers/document-file-reconciliation/candidate-source.js";
+import type { DocumentFileGsi8Candidate, DocumentFileGsi8Page, DocumentFileReconciliationCandidateSource } from "../../../src/workers/document-file-reconciliation/candidate-source.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 const TABLE = "MainTable";
@@ -72,26 +72,31 @@ function baseVersion(overrides: Partial<DocumentVersion> = {}): DocumentVersion 
   };
 }
 
-/** Fake mirroring the real DynamoDB Scan's contract (entityType/scanStatus/attribute_exists
- * (GSI5PK) filter, one page, no lastEvaluatedKey needed at this test's scale) - reads live off
- * the SAME store the worker's transactional writes land in, so a candidate reflects whatever
- * state existed at "scan time" for that test, same discipline the purge workers' fakes use. */
+/** Fake mirroring the real DynamoDB GSI8 Query's contract (`GSI8PK = "WORK#..." AND GSI8SK <
+ * :before`, ordered by due date, `documentId`/`seq`/`fileId` parsed off the base PK/SK) - reads
+ * live off the SAME store the worker's transactional writes land in, same discipline the purge
+ * workers' fakes use. */
 function fakeCandidateSource(store: InMemoryDocumentArchiveStore): DocumentFileReconciliationCandidateSource {
   return {
-    async scanCandidates(status: Extract<DocumentFileScanStatus, "PENDING_UPLOAD" | "SCANNING">): Promise<DocumentFileReconciliationScanPage> {
-      const items = store
+    async queryDue(input: { before: string }): Promise<DocumentFileGsi8Page> {
+      const items: DocumentFileGsi8Candidate[] = store
         .allItems()
-        .filter((item): item is EntityKey & Record<string, unknown> => item["entityType"] === "DocumentFile" && item["scanStatus"] === status && "GSI5PK" in item)
-        .map((item) => item as unknown as DocumentFileReconciliationCandidate);
+        .filter((item): item is EntityKey & Record<string, unknown> => item["entityType"] === "DocumentFile" && typeof item["GSI8SK"] === "string" && (item["GSI8SK"] as string) < input.before)
+        .map((item) => {
+          const gsi8sk = item["GSI8SK"] as string;
+          const file = item as unknown as DocumentFile;
+          return { PK: file.PK, SK: file.SK, dueAtIso: gsi8sk.split("#TENANT#")[0]!, tenantId: file.tenantId, documentId: file.documentId, seq: file.seq, fileId: file.fileId };
+        })
+        .sort((a, b) => a.dueAtIso.localeCompare(b.dueAtIso));
       return { items };
     },
   };
 }
 
-describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes UploadSlotReconciliationWorker over GSI5", () => {
-  it("times out an overdue PENDING_UPLOAD candidate found via the deadline-ordered bounded scan", async () => {
-    const overdue = { GSI5PK: "TENANT#t1#DOCFILE-RECON#PENDING_UPLOAD", GSI5SK: "2026-08-01T00:00:00.000Z#FILE#principal" };
-    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { ...overdue }), baseVersion()] as unknown as (Record<string, unknown> & EntityKey)[]);
+describe("reconcileTimedOutDocumentFiles — D-179 slice 3, migrated off the base-table Scan onto a GSI8 Query", () => {
+  it("times out an overdue PENDING_UPLOAD candidate found via the due-ordered GSI8 query", async () => {
+    const gsi8 = documentFileGsi8Keys({ dueAtIso: "2026-08-01T00:00:00.000Z", tenantId: TENANT, fileId: "principal" });
+    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { ...gsi8 }), baseVersion()] as unknown as (Record<string, unknown> & EntityKey)[]);
     const result = await reconcileTimedOutDocumentFiles({
       store,
       candidates: fakeCandidateSource(store),
@@ -100,6 +105,7 @@ describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes Upload
       now: () => "2026-09-01T00:00:00.000Z",
     });
     expect(result).toMatchObject({ scanned: 1, timedOut: 1, skippedNotDue: 0, skippedStale: 0 });
+    expect(result.oldestCandidateAgeSeconds).toBeGreaterThan(0);
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, "principal"))) as DocumentFile;
     expect(file.scanStatus).toBe("TIMEOUT");
     const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
@@ -107,8 +113,8 @@ describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes Upload
   });
 
   it("never times out a candidate whose deadline has not passed yet", async () => {
-    const notDueYet = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-12-01T00:00:00.000Z#FILE#principal" };
-    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { scanStatus: "SCANNING", ...notDueYet }), baseVersion()] as unknown as (Record<string, unknown> & EntityKey)[]);
+    const gsi8 = documentFileGsi8Keys({ dueAtIso: "2026-12-01T00:00:00.000Z", tenantId: TENANT, fileId: "principal" });
+    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { scanStatus: "SCANNING", ...gsi8 }), baseVersion()] as unknown as (Record<string, unknown> & EntityKey)[]);
     const result = await reconcileTimedOutDocumentFiles({
       store,
       candidates: fakeCandidateSource(store),
@@ -116,17 +122,19 @@ describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes Upload
       ids: ids(),
       now: () => "2026-09-01T00:00:00.000Z",
     });
-    expect(result).toMatchObject({ scanned: 1, timedOut: 0, skippedNotDue: 1 });
+    // The fake's own `GSI8SK < before` filter already excludes this (mirroring the real Query's
+    // KeyConditionExpression) - queryDue() never even returns it, so it's never scanned at all.
+    expect(result).toMatchObject({ scanned: 0, timedOut: 0, skippedNotDue: 0 });
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, "principal"))) as DocumentFile;
     expect(file.scanStatus).toBe("SCANNING");
   });
 
-  it("runs two independent scans, one per non-terminal status, never conflating PENDING_UPLOAD and SCANNING candidates", async () => {
-    const pendingPtr = { GSI5PK: "TENANT#t1#DOCFILE-RECON#PENDING_UPLOAD", GSI5SK: "2026-08-01T00:00:00.000Z#FILE#principal" };
-    const scanningPtr = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-08-01T00:00:00.000Z#FILE#attachment1" };
+  it("a single GSI8 query covers both PENDING_UPLOAD and SCANNING candidates together - no separate per-status pass needed, unlike the old GSI5 mechanism", async () => {
+    const pendingGsi8 = documentFileGsi8Keys({ dueAtIso: "2026-08-01T00:00:00.000Z", tenantId: TENANT, fileId: "principal" });
+    const scanningGsi8 = documentFileGsi8Keys({ dueAtIso: "2026-08-02T00:00:00.000Z", tenantId: TENANT, fileId: "attachment1" });
     const store = new InMemoryDocumentArchiveStore([
-      baseFile("principal", { ...pendingPtr }),
-      baseFile("attachment1", { scanStatus: "SCANNING", ...scanningPtr }),
+      baseFile("principal", { ...pendingGsi8 }),
+      baseFile("attachment1", { scanStatus: "SCANNING", ...scanningGsi8 }),
       baseVersion({ pendingFileScans: 2, totalFiles: 2 }),
     ] as unknown as (Record<string, unknown> & EntityKey)[]);
     const result = await reconcileTimedOutDocumentFiles({
@@ -143,16 +151,15 @@ describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes Upload
     expect(attachment.scanStatus).toBe("TIMEOUT");
   });
 
-  it("exact-pointer condition (D-163 round4 §3): a candidate whose GSI5 pointer already changed by write time is skipped, never double-processed - broken here by removing the condition to prove the test actually catches it", async () => {
-    // This test proves the mechanism by exercising it directly (not by disabling code): the scan
+  it("exact-pointer condition: a candidate whose GSI8 pointer already changed by write time is skipped, never double-processed", async () => {
+    // This test proves the mechanism by exercising it directly (not by disabling code): the query
     // observes a candidate, then - simulating a concurrent terminal transition landing between
-    // discovery and this call - the file moves to CLEAN with its GSI5 pointer removed before
+    // discovery and this call - the file moves to CLEAN with its GSI8 pointer removed before
     // applyFileScanTimeout's own transaction runs.
-    const staleObserved = { GSI5PK: "TENANT#t1#DOCFILE-RECON#SCANNING", GSI5SK: "2026-08-01T00:00:00.000Z#FILE#principal" };
-    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { scanStatus: "SCANNING", ...staleObserved }), baseVersion({ pendingFileScans: 2 })] as unknown as (Record<string, unknown> & EntityKey)[]);
+    const gsi8 = documentFileGsi8Keys({ dueAtIso: "2026-08-01T00:00:00.000Z", tenantId: TENANT, fileId: "principal" });
+    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { scanStatus: "SCANNING", ...gsi8 }), baseVersion({ pendingFileScans: 2 })] as unknown as (Record<string, unknown> & EntityKey)[]);
 
     // Concurrent winner: a real physical event confirms the file CLEAN first.
-    const { confirmFileScanClean } = await import("../../../src/modules/document-archive/application/apply-file-scan-result.js");
     const confirmOutcome = await confirmFileScanClean(
       { store, tableName: TABLE, ids: ids() },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: "principal", cleanObject: { bucket: "clean-bucket", key: "clean/principal", versionId: "c1" } },
@@ -163,7 +170,7 @@ describe("reconcileTimedOutDocumentFiles — D-163 §6/D-166, generalizes Upload
     // must be rejected by the exact-match condition, not silently reopen/re-decrement the file.
     const timeoutOutcome = await applyFileScanTimeout(
       { store, tableName: TABLE, ids: ids() },
-      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: "principal", observedGsi5Pointer: staleObserved },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: "principal", observedGsi8Pointer: gsi8 },
     );
     expect(timeoutOutcome).toBe("IGNORED_STALE");
 

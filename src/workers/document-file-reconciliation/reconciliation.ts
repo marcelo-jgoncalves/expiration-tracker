@@ -1,22 +1,17 @@
-/** DocumentFileReconciliationWorker core logic — D-163 §6/round4-claude-final.md §3,
- * generalizing M6's `UploadSlotReconciliationWorker` (`upload-slot-reconciliation/
- * reconciliation.ts`) from a single GSI6 sweep to DocumentFile's two sparse GSI5 namespaces.
- * Two independent bounded scans, one per non-terminal `scanStatus` (never merged into one -
- * `candidate-source.ts`'s doc comment explains why this is a cross-tenant `Scan`, not a
- * `Query`, unlike the GSI6 case). The actual terminal transition (and the race-closing exact
- * GSI5PK/GSI5SK condition) lives in `apply-file-scan-result.ts`'s `applyFileScanTimeout` - this
- * module only discovers candidates and calls it, same division of labor as
- * `reconcileExpiredUploadSlots`/`processOneSlot`. */
+/** DocumentFileReconciliationWorker core logic — D-163 §6, migrated off the base-table Scan onto
+ * GSI8 by D-179 slice 3 (3rd of 9 workers, `candidate-source.ts`'s doc comment has the full
+ * rationale, including why this collapses to a single Query instead of the two independent
+ * per-status scans D-166 ran). The actual terminal transition (and the race-closing exact
+ * GSI8PK/GSI8SK condition) lives in `apply-file-scan-result.ts`'s `applyFileScanTimeout` — this
+ * module only discovers candidates and calls it, unchanged division of labor from D-166. */
 import { applyFileScanTimeout, type ApplyFileScanResultDeps } from "../../modules/document-archive/application/apply-file-scan-result.js";
-import type { DocumentFileScanStatus } from "../../modules/document-archive/domain/document-file.js";
-import type { DocumentFileReconciliationCandidate, DocumentFileReconciliationCandidateSource } from "./candidate-source.js";
+import { documentFileGsi8Keys } from "../../modules/document-archive/domain/document-file.js";
+import type { DocumentFileGsi8Candidate, DocumentFileReconciliationCandidateSource } from "./candidate-source.js";
 
-const NON_TERMINAL_STATUSES: readonly Extract<DocumentFileScanStatus, "PENDING_UPLOAD" | "SCANNING">[] = ["PENDING_UPLOAD", "SCANNING"];
-
-/** Hard cap on pages drained per status per invocation - same rationale as the purge workers'
- * `MAX_PAGES`: bounds a single invocation against a pathological backlog, the rest picked up by
- * the next scheduled run. */
-const MAX_PAGES_PER_STATUS = 25;
+/** Hard cap on pages drained per invocation - same rationale as the purge workers' `MAX_PAGES`:
+ * bounds a single invocation against a pathological backlog, the rest picked up by the next
+ * scheduled run. */
+const MAX_PAGES = 25;
 
 export interface DocumentFileReconciliationDeps extends ApplyFileScanResultDeps {
   candidates: DocumentFileReconciliationCandidateSource;
@@ -28,35 +23,32 @@ export interface DocumentFileReconciliationResult {
   timedOut: number;
   skippedNotDue: number;
   skippedStale: number;
-}
-
-/** GSI5SK format is `<deadlineIso>#FILE#<fileId>` (`document-file.ts`'s
- * `fileReconciliationGsi5Keys`) - deadline is always the segment before the first `#FILE#`. */
-function deadlineFromGsi5Sk(gsi5sk: string): string {
-  const marker = "#FILE#";
-  const idx = gsi5sk.indexOf(marker);
-  return idx === -1 ? gsi5sk : gsi5sk.slice(0, idx);
+  /** Age in seconds of the oldest due candidate this run's GSI8 query returned. `undefined` when
+   * no candidate was returned at all - same observability shape membership-purge/invitation-purge
+   * added for their own GSI8 migrations. */
+  oldestCandidateAgeSeconds: number | undefined;
 }
 
 export async function reconcileTimedOutDocumentFiles(deps: DocumentFileReconciliationDeps): Promise<DocumentFileReconciliationResult> {
-  const result: DocumentFileReconciliationResult = { scanned: 0, timedOut: 0, skippedNotDue: 0, skippedStale: 0 };
+  const result: DocumentFileReconciliationResult = { scanned: 0, timedOut: 0, skippedNotDue: 0, skippedStale: 0, oldestCandidateAgeSeconds: undefined };
   const nowIso = deps.now();
+  const nowMs = Date.parse(nowIso);
 
-  for (const status of NON_TERMINAL_STATUSES) {
-    let exclusiveStartKey: Record<string, unknown> | undefined;
-    for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
-      const scanPage = await deps.candidates.scanCandidates(status, exclusiveStartKey);
-      // Deadline-ordered WITHIN each returned page - the best ordering guarantee available
-      // given this is a cross-tenant Scan (see candidate-source.ts's doc comment); a
-      // pathological backlog spanning many pages is still bounded by MAX_PAGES_PER_STATUS and
-      // picked up again next run, same discipline as every other Scan-based worker here.
-      const ordered = [...scanPage.items].sort((a, b) => a.GSI5SK.localeCompare(b.GSI5SK));
-      for (const candidate of ordered) {
-        await processOneCandidate(deps, candidate, nowIso, result);
-      }
-      if (!scanPage.lastEvaluatedKey) break;
-      exclusiveStartKey = scanPage.lastEvaluatedKey;
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const gsi8Page = await deps.candidates.queryDue({ before: nowIso, exclusiveStartKey });
+
+    if (page === 0 && gsi8Page.items.length > 0) {
+      const oldest = gsi8Page.items[0]!;
+      result.oldestCandidateAgeSeconds = Math.max(0, Math.floor((nowMs - Date.parse(oldest.dueAtIso)) / 1000));
     }
+
+    for (const candidate of gsi8Page.items) {
+      await processOneCandidate(deps, candidate, nowMs, result);
+    }
+
+    if (!gsi8Page.lastEvaluatedKey) break;
+    exclusiveStartKey = gsi8Page.lastEvaluatedKey;
   }
 
   return result;
@@ -64,23 +56,27 @@ export async function reconcileTimedOutDocumentFiles(deps: DocumentFileReconcili
 
 async function processOneCandidate(
   deps: DocumentFileReconciliationDeps,
-  candidate: DocumentFileReconciliationCandidate,
-  nowIso: string,
+  candidate: DocumentFileGsi8Candidate,
+  nowMs: number,
   result: DocumentFileReconciliationResult,
 ): Promise<void> {
   result.scanned += 1;
 
-  if (deadlineFromGsi5Sk(candidate.GSI5SK) > nowIso) {
+  if (Date.parse(candidate.dueAtIso) > nowMs) {
+    // Defensive only - queryDue()'s own `GSI8SK < :before` filter means this should never be
+    // reachable in practice, but eligibility is always re-derived here, never assumed (same
+    // posture as invitation-purge/membership-purge's own defensive check).
     result.skippedNotDue += 1;
     return;
   }
 
+  const observedGsi8Pointer = documentFileGsi8Keys({ dueAtIso: candidate.dueAtIso, tenantId: candidate.tenantId, fileId: candidate.fileId });
   const outcome = await applyFileScanTimeout(deps, {
     tenantId: candidate.tenantId,
     documentId: candidate.documentId,
     seq: candidate.seq,
     fileId: candidate.fileId,
-    observedGsi5Pointer: { GSI5PK: candidate.GSI5PK, GSI5SK: candidate.GSI5SK },
+    observedGsi8Pointer,
   });
 
   if (outcome === "TIMED_OUT") result.timedOut += 1;

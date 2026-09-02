@@ -51,30 +51,65 @@ export interface DocumentFile extends EntityKey {
   createdAt: string;
   updatedAt: string;
   version: number;
-  /** Sparse reconciliation pointer (D-163 §5/§6) — present only while `scanStatus` is
-   * non-terminal, removed atomically by the same transaction that reaches a terminal state.
-   * Reuses GSI5 (already allocated to this module for the review queue/version lookup),
-   * discriminated by prefix exactly like GSI1 already is between Document/Requirement —
-   * NEVER GSI6 (D-143 Decision 2 closes GSI6 to the document domain; a Rodada 3 proposal to
-   * reuse it was reverted in Rodada 4 for exactly this reason). */
-  GSI5PK?: string;
-  GSI5SK?: string;
+  /** MaintenanceDueIndex pointer (D-179 slice 3/D-166 follow-up) — present only while
+   * `scanStatus` is non-terminal, removed atomically by the same transaction that reaches a
+   * terminal state. REPLACES the GSI5-based `fileReconciliationGsi5Keys()` pointer D-164/D-166
+   * defined: that mechanism was discovered, on re-reading the write path before this migration,
+   * to have never had a real writer (`reserveFiles()` never called it) — the reconciliation
+   * worker's Scan filtered on `attribute_exists(GSI5PK)` could therefore never find a real
+   * candidate in production. GSI8 is a clean replacement, not a second mechanism alongside a
+   * working one — same D-179 mandate the other 8 workers follow. */
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
 export function documentFileKey(tenantId: string, documentId: string, seq: number, fileId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}#FILE#${fileId}` };
 }
 
-/** Sparse GSI5 namespace for reconciliation candidates (D-163 §6) — two prefixes, one per
- * non-terminal `scanStatus`, so the reconciliation worker can run two independent bounded
- * deadline-ordered scans without ever touching GSI6. */
-export function fileReconciliationGsi5Keys(
-  tenantId: string,
-  status: Extract<DocumentFileScanStatus, "PENDING_UPLOAD" | "SCANNING">,
-  deadline: string,
-  fileId: string,
-): { GSI5PK: string; GSI5SK: string } {
-  return { GSI5PK: `TENANT#${tenantId}#DOCFILE-RECON#${status}`, GSI5SK: `${deadline}#FILE#${fileId}` };
+/** Upload+scan window (D-179 slice 3) — mirrors the presign URL's own TTL
+ * (`document-archive-service.ts`'s `PRESIGN_TTL_SECONDS`, which imports this constant rather
+ * than duplicating it): the whole reserve->scan lifecycle is bounded by the same window the
+ * presigned upload URL itself expires under, so a file still non-terminal past this point can no
+ * longer even be uploaded through the URL it was issued, and TIMEOUT is the right verdict. */
+export const FILE_SCAN_TIMEOUT_SECONDS = 600;
+const MS_PER_SECOND = 1000;
+
+/** GSI8 (MaintenanceDueIndex, D-179) namespace this worker owns — the ONLY value any
+ * document-file-reconciliation-scoped IAM policy's `dynamodb:LeadingKeys` condition may
+ * reference (`infra/modules/dynamo-table/main.tf`), alongside the DLQ counterpart. */
+export const DOCUMENT_FILE_RECONCILIATION_WORK_TYPE = "DOCUMENT_FILE_RECONCILIATION";
+
+export interface MaintenanceDue {
+  dueAtIso: string;
+}
+
+/**
+ * deriveDocumentFileMaintenanceDue — D-179 slice 3's pure due-date function, same role as
+ * `deriveMembershipMaintenanceDue()`/`deriveInvitationMaintenanceDue()`: single source of truth
+ * reused by the write path (`reserveFiles()`), the backfill script, and the worker's own
+ * processing (via `applyFileScanTimeout`'s fresh re-read).
+ *
+ * Closer to Invitation's PENDING branch than to Membership's REMOVED branch: the due date is
+ * fully known at creation (`reserveFiles()`) — `createdAt + FILE_SCAN_TIMEOUT_SECONDS` — there is
+ * no later transition ("scan started") to hang it on, since SCANNING is just evidence arriving
+ * within the same fixed window, never a new clock start. `undefined` once terminal (never a real
+ * candidate again).
+ */
+export function deriveDocumentFileMaintenanceDue(file: Pick<DocumentFile, "scanStatus" | "createdAt">): MaintenanceDue | undefined {
+  if (!isNonTerminalFileScanStatus(file.scanStatus)) return undefined;
+  return { dueAtIso: new Date(Date.parse(file.createdAt) + FILE_SCAN_TIMEOUT_SECONDS * MS_PER_SECOND).toISOString() };
+}
+
+/** `GSI8PK=WORK#DOCUMENT_FILE_RECONCILIATION` / `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<fileId>`
+ * (D-179's exact key spec, same shape as `membershipGsi8Keys()`/`invitationGsi8Keys()`) —
+ * `documentId`/`seq` are not embedded here since a `KEYS_ONLY` GSI8 Query already returns the
+ * base table's own `PK`/`SK`, which already encode them (`documentFileKey()`). */
+export function documentFileGsi8Keys(input: { dueAtIso: string; tenantId: string; fileId: string }): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${DOCUMENT_FILE_RECONCILIATION_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.fileId}`,
+  };
 }
 
 export interface FileUploadSpec {
