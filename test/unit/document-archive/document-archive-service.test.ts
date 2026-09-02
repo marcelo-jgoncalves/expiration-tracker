@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
-import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle } from "./in-memory-store.js";
+import { AuthorizationError, ConflictError, DocumentTypeNotActiveError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import { documentFileKey } from "../../../src/modules/document-archive/domain/document-file.js";
+import { documentTypeKey } from "../../../src/modules/document-archive/domain/document-type.js";
 import type { UploadUrlSigner, PresignUploadInput, PresignUploadResult } from "../../../src/modules/document/ports/upload-url-signer.js";
 
 /** Fake signer, not a stub that just resolves undefined — records every call so tests can
@@ -52,7 +53,7 @@ function makeIds(): DocumentArchiveIdGenerator {
   };
 }
 
-function makeService(store = new InMemoryDocumentArchiveStore(), signer: UploadUrlSigner = makeSigner()) {
+function makeService(store = new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]), signer: UploadUrlSigner = makeSigner()) {
   const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => "2026-09-01T00:00:00.000Z" });
   return { service, store, signer };
 }
@@ -122,6 +123,32 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     const { service } = makeService();
     const viewer = ctxAs("viewer-1", ["VIEWER"]);
     await expect(service.createDocument(viewer, { subjectId: "s1", documentType: "ALVARA", hasValidity: true })).rejects.toThrow(AuthorizationDeniedError);
+  });
+
+  /** D-173 §4/item 3: proves the new `ConditionCheck` genuinely blocks `createDocument()` when
+   * the referenced DocumentType has actually flipped to DEPRECATED (not merely "doesn't
+   * exist") — TOCTOU-safe by construction since the check runs inside the same
+   * `TransactWriteItems` as the Document `Put`, never a separate read-before-write. */
+  it("rejects createDocument() with DocumentTypeNotActiveError when the referenced DocumentType is DEPRECATED", async () => {
+    const { service, store } = makeService();
+    await store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          tableName: "test-table",
+          key: documentTypeKey(TENANT, "ALVARA"),
+          tenantId: TENANT,
+          expectedVersion: 1,
+          set: { status: "DEPRECATED" },
+        }),
+      },
+    ]);
+    await expect(service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true })).rejects.toThrow(DocumentTypeNotActiveError);
+  });
+
+  it("createDocument() still succeeds against an ACTIVE DocumentType after the DEPRECATED case above (mechanism isn't globally broken)", async () => {
+    const { service } = makeService();
+    const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+    expect(doc.documentType).toBe("ALVARA");
   });
 
   it("full happy path: reserveUpload -> commitUpload -> claimReview -> acceptVersion", async () => {
@@ -284,7 +311,7 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     });
 
     it("item 3 (2026-09-02): presigns a real upload URL per file via UploadUrlSigner, keyed to each file's own quarantineObject", async () => {
-      const { service, signer } = makeService(new InMemoryDocumentArchiveStore(), makeSigner());
+      const { service, signer } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]), makeSigner());
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
       const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
 
