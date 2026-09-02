@@ -7,6 +7,7 @@ import { uploadSlotKey, type UploadSlot } from "../../modules/document/domain/up
 import type { DocumentStore, UploadSlotReconciliationSource } from "../../modules/document/ports/document-store.js";
 import { GSI6PK_RECON_UPLOAD_PENDING } from "../../modules/document/ports/document-store.js";
 import type { TenantQuotaService } from "../../modules/identity/application/quota.js";
+import { deriveUploadSlotMaintenanceDue, transientPurgeGsi8Keys } from "../../shared/transient-purge-gsi8.js";
 
 export interface ReconciliationDeps {
   store: DocumentStore;
@@ -53,6 +54,12 @@ export async function reconcileExpiredUploadSlots(deps: ReconciliationDeps): Pro
 async function processOneSlot(deps: ReconciliationDeps, slot: UploadSlot): Promise<void> {
   if (slot.status !== "RESERVED") return; // already handled by a previous/concurrent sweep.
 
+  // D-179/D-188 (transient-purge, 7th GSI8 slice): EXPIRED is a terminal transition off
+  // RESERVED, same as CONSUMED (advance-after-evidence.ts) - the GSI8 pointer is written
+  // atomically in this same conditional write, never a separate follow-up write.
+  const due = deriveUploadSlotMaintenanceDue({ status: "EXPIRED", reservedAt: slot.reservedAt });
+  const gsi8 = due ? transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: slot.tenantId, entityType: "UploadSlot", sk: uploadSlotKey(slot.tenantId, slot.uploadSlotId).SK }) : undefined;
+
   try {
     await deps.store.transactWrite([
       {
@@ -61,7 +68,7 @@ async function processOneSlot(deps: ReconciliationDeps, slot: UploadSlot): Promi
           key: uploadSlotKey(slot.tenantId, slot.uploadSlotId),
           tenantId: slot.tenantId,
           expectedVersion: slot.version,
-          set: { status: "EXPIRED" },
+          set: { status: "EXPIRED", ...(gsi8 ?? {}) },
           // Real bug found via Camada 3 verification against AWS real (2026-08-25): this slot
           // is leaving RESERVED for good - its GSI6 discovery pointer must go with it, or it
           // stays visible to every future sweep forever (confirmed empirically: the pointer

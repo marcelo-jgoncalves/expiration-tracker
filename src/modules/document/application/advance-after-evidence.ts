@@ -12,6 +12,7 @@ import type { DocumentStore, TransactWriteEntry } from "../ports/document-store.
 import type { DocumentObjectStore } from "../ports/document-object-store.js";
 import { sameObjectVersion } from "../domain/document-object-reference.js";
 import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { deriveUploadSlotMaintenanceDue, transientPurgeGsi8Keys } from "../../../shared/transient-purge-gsi8.js";
 
 export interface AdvanceAfterEvidenceDeps {
   store: DocumentStore;
@@ -35,13 +36,20 @@ const MAX_OCC_RETRIES = 10;
 async function appendSlotConsumption(deps: AdvanceAfterEvidenceDeps, entries: TransactWriteEntry[], tenantId: string, uploadSlotId: string): Promise<void> {
   const slot = await deps.store.get<UploadSlot>(uploadSlotKey(tenantId, uploadSlotId));
   if (!slot || slot.status !== "RESERVED") return;
+  // D-179/D-188 (transient-purge, 7th GSI8 slice): CONSUMED is a terminal transition off
+  // RESERVED - the slot becomes a real purge candidate the moment this commits, so the GSI8
+  // pointer must be written atomically in the SAME conditional write as the status change,
+  // never as a separate follow-up write (same "pointer + transition, one commit" discipline as
+  // invitation-purge's D-182 writers).
+  const due = deriveUploadSlotMaintenanceDue({ status: "CONSUMED", reservedAt: slot.reservedAt });
+  const gsi8 = due ? transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, entityType: "UploadSlot", sk: uploadSlotKey(tenantId, uploadSlotId).SK }) : undefined;
   entries.push({
     Update: buildVersionedUpdate({
       tableName: deps.tableName,
       key: uploadSlotKey(tenantId, uploadSlotId),
       tenantId,
       expectedVersion: slot.version,
-      set: { status: "CONSUMED" },
+      set: { status: "CONSUMED", ...(gsi8 ?? {}) },
       remove: ["GSI6PK", "GSI6SK"],
     }),
   });

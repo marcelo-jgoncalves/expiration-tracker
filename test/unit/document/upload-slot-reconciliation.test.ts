@@ -101,6 +101,11 @@ describe("reconcileExpiredUploadSlots", () => {
     // the moment the slot leaves RESERVED, or it stays visible to every future sweep forever.
     expect(slot.GSI6PK).toBeUndefined();
     expect(slot.GSI6SK).toBeUndefined();
+    // D-179/D-188 (transient-purge, 7th GSI8 slice): EXPIRED is a terminal transition off
+    // RESERVED - the GSI8 pointer must be written in this SAME conditional write, reflecting the
+    // 24h "incomplete" window (reservedAt 2026-08-22T00:00:00.000Z + 24h).
+    expect(slot.GSI8PK).toBe("WORK#TRANSIENT");
+    expect(slot.GSI8SK).toBe(`2026-08-23T00:00:00.000Z#TENANT#t1#UploadSlot#${uploadSlotKey("t1", "slot1").SK}`);
     const doc = (await store.get(documentKey("t1", "item1", "doc1"))) as Document;
     expect(doc.status).toBe("TIMEOUT");
 

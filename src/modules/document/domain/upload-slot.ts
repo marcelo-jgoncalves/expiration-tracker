@@ -31,6 +31,13 @@ export interface UploadSlot extends EntityKey {
    * ReminderOccurrence's own GSI6 fields. */
   GSI6PK?: string;
   GSI6SK?: string;
+  /** MaintenanceDueIndex (GSI8, D-179/D-188 7th slice) pointer — present exactly when the slot
+   * is a live `transient-purge` candidate: NEVER while `RESERVED`, refreshed atomically in the
+   * SAME conditional write as every transition off RESERVED (`advance-after-evidence.ts`'s
+   * CONSUMED path, `upload-slot-reconciliation/reconciliation.ts`'s EXPIRED path) — see
+   * `shared/transient-purge-gsi8.ts`. */
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
 export function uploadSlotKey(tenantId: string, uploadSlotId: string): EntityKey {
