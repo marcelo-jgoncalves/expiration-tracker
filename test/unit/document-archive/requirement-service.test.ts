@@ -37,7 +37,10 @@ function makeIds(): DocumentArchiveIdGenerator {
 const NOW = "2026-09-01T00:00:00.000Z";
 
 function makeService(store = new InMemoryDocumentArchiveStore()) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", now: () => NOW });
+  // Requirement-focused suite - never exercises reserveFiles(), so a signer that always throws
+  // if called is a stronger guard than a silent stub (would fail loudly if scope ever drifts).
+  const signer = { presignUpload: () => Promise.reject(new Error("presignUpload should not be called in requirement-service.test.ts")) };
+  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => NOW });
   return { service, store };
 }
 

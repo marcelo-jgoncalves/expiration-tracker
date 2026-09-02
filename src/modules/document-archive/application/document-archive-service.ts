@@ -34,6 +34,7 @@ import {
   type DocumentFile,
   type FileUploadSpec,
 } from "../domain/document-file.js";
+import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
 import {
   assertValidDocumentVersionTransition,
   documentVersionKey,
@@ -70,11 +71,12 @@ export interface DocumentArchiveServiceDeps {
   ids: DocumentArchiveIdGenerator;
   /** D-163 §7: same quarantine bucket M6 already provisions (`infra/modules/document-buckets`)
    * — no new bucket for this module, only a new key namespace within it (see
-   * `buildQuarantineKey` below). Presigning the actual upload URL against this bucket
-   * (`UploadUrlSigner`, also reused from M6) is HTTP/composition-layer wiring deferred to the
-   * implementation slice that adds the S3/GuardDuty event handlers — `reserveFiles()` here
-   * only persists the `DocumentFile` rows and returns the keys a caller will presign against. */
+   * `buildQuarantineKey` below). */
   quarantineBucket: string;
+  /** Item 3 (2026-09-02): the SAME `UploadUrlSigner` port M6's `DocumentService` already
+   * depends on (`src/modules/document/ports/upload-url-signer.ts`) — no new signer
+   * abstraction, only a new call site against the existing one. */
+  signer: UploadUrlSigner;
   now?: () => string;
 }
 
@@ -83,11 +85,23 @@ export interface AcceptVersionResult {
   acceptedVersionId: string;
 }
 
+/** A persisted `DocumentFile` row plus the presigned PUT the caller uploads its bytes to —
+ * mirrors `ReserveUploadResult`'s shape in M6's `document-service.ts` (`uploadUrl`/
+ * `requiredHeaders`), one per file in the batch instead of a single document. */
+export interface ReservedFile {
+  file: DocumentFile;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+}
+
+const PRESIGN_TTL_SECONDS = 600; // 10 minutes — same TTL M6's document-service.ts uses.
+
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
   private readonly ids: DocumentArchiveIdGenerator;
   private readonly quarantineBucket: string;
+  private readonly signer: UploadUrlSigner;
   private readonly now: () => string;
 
   constructor(deps: DocumentArchiveServiceDeps) {
@@ -95,6 +109,7 @@ export class DocumentArchiveService {
     this.tableName = deps.tableName;
     this.ids = deps.ids;
     this.quarantineBucket = deps.quarantineBucket;
+    this.signer = deps.signer;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -203,10 +218,15 @@ export class DocumentArchiveService {
    * (input validation alone — `assertExactlyOnePrincipal` — cannot close that race, only the
    * transaction's own condition on `fileSetSealed` can, since it's the one write both callers
    * necessarily contend on). Only permitted while the Version is `DRAFT` and not yet sealed.
-   * Presigning the actual upload URLs against `quarantineObject` is left to the HTTP/
-   * composition layer (deferred, see `DocumentArchiveServiceDeps.quarantineBucket`'s comment).
+   *
+   * Item 3 (2026-09-02): presigns each file's upload URL against its own `quarantineObject`
+   * key AFTER the transaction commits — mirrors M6's `document-service.ts` ordering (DynamoDB
+   * admission point gates a new presigned URL, never the other way around). A presign failure
+   * here therefore never leaves an orphaned `DocumentFile` row with no way to ever be uploaded
+   * to: the row already exists and is retried by the reconciliation worker's TIMEOUT path if
+   * the caller can't retry the presign directly.
    */
-  async reserveFiles(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, files: readonly FileUploadSpec[]): Promise<DocumentFile[]> {
+  async reserveFiles(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, files: readonly FileUploadSpec[]): Promise<ReservedFile[]> {
     authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
     assertExactlyOnePrincipal(files);
     if (files.length > MAX_FILES_PER_VERSION) {
@@ -271,7 +291,21 @@ export class DocumentArchiveService {
       if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion's file set was concurrently reserved or the Version is no longer DRAFT.", { documentId, seq });
       throw err;
     }
-    return documentFiles;
+
+    return Promise.all(
+      documentFiles.map(async (file) => {
+        const presigned = await this.signer.presignUpload({
+          bucket: file.quarantineObject.bucket,
+          key: file.quarantineObject.key,
+          mediaType: file.mediaType,
+          contentLength: file.contentLength,
+          checksumSha256: file.checksumSha256,
+          metadata: { documentId, versionId: current.versionId, fileId: file.fileId, tenantId },
+          expiresInSeconds: PRESIGN_TTL_SECONDS,
+        });
+        return { file, uploadUrl: presigned.uploadUrl, requiredHeaders: presigned.requiredHeaders };
+      }),
+    );
   }
 
   /** D-163 §7: mirrors M6's quarantine key convention (`document-service.ts`'s

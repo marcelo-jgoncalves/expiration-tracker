@@ -6,6 +6,20 @@ import { AuthorizationError, ConflictError, NotFoundError, ValidationError } fro
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
+import type { UploadUrlSigner, PresignUploadInput, PresignUploadResult } from "../../../src/modules/document/ports/upload-url-signer.js";
+
+/** Fake signer, not a stub that just resolves undefined — records every call so tests can
+ * assert `reserveFiles()` actually invokes it with the real key/bucket per file (G-V3). */
+function makeSigner(): UploadUrlSigner & { calls: PresignUploadInput[] } {
+  const calls: PresignUploadInput[] = [];
+  return {
+    calls,
+    presignUpload: async (input: PresignUploadInput): Promise<PresignUploadResult> => {
+      calls.push(input);
+      return { uploadUrl: `https://s3.example/${input.bucket}/${input.key}?sig=fake`, requiredHeaders: { "x-amz-checksum-sha256": input.checksumSha256 } };
+    },
+  };
+}
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -35,9 +49,9 @@ function makeIds(): DocumentArchiveIdGenerator {
   };
 }
 
-function makeService(store = new InMemoryDocumentArchiveStore()) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", now: () => "2026-09-01T00:00:00.000Z" });
-  return { service, store };
+function makeService(store = new InMemoryDocumentArchiveStore(), signer: UploadUrlSigner = makeSigner()) {
+  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => "2026-09-01T00:00:00.000Z" });
+  return { service, store, signer };
 }
 
 const TENANT = "tenant-1";
@@ -194,7 +208,8 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
       const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
 
-      const files = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("ATTACHMENT")]);
+      const reserved = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("ATTACHMENT")]);
+      const files = reserved.map((r) => r.file);
 
       expect(files).toHaveLength(2);
       expect(files.filter((f) => f.role === "PRINCIPAL")).toHaveLength(1);
@@ -203,6 +218,29 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
       expect(sealed!.fileSetSealed).toBe(true);
       expect(sealed!.pendingFileScans).toBe(2);
       expect(sealed!.principalFileId).toBe(files.find((f) => f.role === "PRINCIPAL")!.fileId);
+    });
+
+    it("item 3 (2026-09-02): presigns a real upload URL per file via UploadUrlSigner, keyed to each file's own quarantineObject", async () => {
+      const { service, signer } = makeService(new InMemoryDocumentArchiveStore(), makeSigner());
+      const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
+      const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
+
+      const reserved = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [spec("PRINCIPAL"), spec("ATTACHMENT")]);
+
+      const calls = (signer as ReturnType<typeof makeSigner>).calls;
+      expect(calls).toHaveLength(2);
+      for (const r of reserved) {
+        expect(r.uploadUrl).toBe(`https://s3.example/test-quarantine-bucket/${r.file.quarantineObject.key}?sig=fake`);
+        expect(r.requiredHeaders["x-amz-checksum-sha256"]).toBe(r.file.checksumSha256);
+        const call = calls.find((c) => c.key === r.file.quarantineObject.key);
+        expect(call).toBeDefined();
+        expect(call!.bucket).toBe("test-quarantine-bucket");
+        expect(call!.mediaType).toBe(r.file.mediaType);
+        expect(call!.contentLength).toBe(r.file.contentLength);
+      }
+      // G-V3: break the mechanism by asserting a distinct key per file is actually passed, not
+      // a single shared key that would silently make both presigns collide against one object.
+      expect(new Set(calls.map((c) => c.key)).size).toBe(2);
     });
 
     it("rejects a batch with zero or more than one PRINCIPAL", async () => {
@@ -242,7 +280,7 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
       const { service, store } = makeService();
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentType: "ALVARA", hasValidity: true });
       const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
-      const files = await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1, checksumSha256: "a".repeat(64) }]);
+      const files = (await service.reserveFiles(ctx(), doc.documentId, v1.seq, v1.version, [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1, checksumSha256: "a".repeat(64) }])).map((r) => r.file);
       const sealed = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
       const v1r = await service.commitUpload(ctx(), doc.documentId, v1.seq, sealed!.version);
       await service.claimReview(ctx(), doc.documentId, v1.seq, v1r.version);

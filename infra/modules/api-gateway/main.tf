@@ -497,6 +497,7 @@ locals {
     get_by_id      = { method = "GET", path = "/document-archive/documents/{documentId}" }
     list_versions  = { method = "GET", path = "/document-archive/documents/{documentId}/versions" }
     reserve_upload = { method = "POST", path = "/document-archive/documents/{documentId}/versions" }
+    reserve_files  = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/files" }
     commit_upload  = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/commit" }
     claim_review   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/claim" }
     accept_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/accept" }
