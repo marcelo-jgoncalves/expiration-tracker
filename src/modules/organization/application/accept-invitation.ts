@@ -106,7 +106,10 @@ export class AcceptInvitationService {
       Update: {
         TableName: this.tableName,
         Key: invitationKey(invitation.organizationId, invitation.invitationId),
-        UpdateExpression: "SET #status = :accepted, acceptedAt = :now",
+        // D-179 slice 2: ACCEPTED is never a maintenance-due candidate - clear the PENDING-time
+        // GSI8 pointer atomically here, at the real transition, instead of leaving it to the
+        // worker's own stale-pointer self-heal (same posture as the Membership REMOVE above).
+        UpdateExpression: "SET #status = :accepted, acceptedAt = :now REMOVE GSI8PK, GSI8SK",
         ConditionExpression: "#status = :pending AND emailNormalized = :callerVerifiedEmail",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: { ":accepted": "ACCEPTED", ":pending": "PENDING", ":callerVerifiedEmail": emailNormalized, ":now": nowIso },

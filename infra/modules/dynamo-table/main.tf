@@ -213,14 +213,15 @@ locals {
   gsi6_resource = "${local.table_arn}/index/GSI6"
   gsi8_resource = "${local.table_arn}/index/GSI8"
 
-  # GSI8 worker namespaces actually wired to a Lambda role today (D-179/D-180 pilot slice - only
-  # membership_purge). Each key gets its own gsi8_read_policy_json[key]/
+  # GSI8 worker namespaces actually wired to a Lambda role today (D-179/D-180 pilot slice plus
+  # D-181's invitation_purge, slice 2 of 9). Each key gets its own gsi8_read_policy_json[key]/
   # worker_transact_write_policy_json[key] output below, scoped via `dynamodb:LeadingKeys` so one
   # worker's role can never read (or claim) another worker's GSI8/DLQ candidates. Extending this
-  # map is how each of the other 8 maintenance workers named in D-179 joins the pattern later -
+  # map is how each of the other 7 maintenance workers named in D-179 joins the pattern later -
   # never by widening an existing worker's LeadingKeys list.
   gsi8_worker_types = {
     membership_purge = "MEMBERSHIP_PURGE"
+    invitation_purge = "INVITATION_PURGE"
   }
 }
 

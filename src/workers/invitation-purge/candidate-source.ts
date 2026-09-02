@@ -1,71 +1,54 @@
 /**
- * Narrow port for the InvitationPurgeWorker (D-155, `docs/architecture/reviews/
- * quarantine-retention-scoping/estado-final-consolidado.md` Prioridade 5 — `ACCOUNT_ACTIVE
- * (não-fechamento)` = `Invitation`→`Membership`→`Channel`). **This worker's real scope is
- * `Invitation` ONLY** — see `purge.ts`'s file header and D-155's decisions-log entry for the full
- * investigation of why `Membership` and `Channel` are NOT implemented here (both blocked on a
- * missing eligibility timestamp, not out of scope by design).
+ * Narrow port for the InvitationPurgeWorker (D-155, 2nd worker migrated to GSI8 — D-179/D-181
+ * slice 2, mirroring the D-180 membership-purge pilot exactly). Replaces the base-table `Scan`
+ * this worker used through D-181 with a `Query` against GSI8 (`GSI8PK=WORK#INVITATION_PURGE`,
+ * `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<invitationId>`, `KEYS_ONLY`) — closes the same structural
+ * starvation D-170 confirmed for `Scan`+`Limit`.
  *
- * `Invitation` (`src/modules/organization/domain/invitation.ts`) has 4 declared statuses but only
- * 3 are ever actually written: `PENDING` (created), `ACCEPTED` (`accept-invitation.ts`, leads to
- * an active `Membership` — success, never a termination, out of this worker's scope entirely),
- * `REVOKED` (`revoke-invitation.ts`, sets `revokedAt`). **`EXPIRED` is declared in
- * `InvitationStatus` but NO code path ever transitions a row to it** — a `PENDING` invitation
- * whose `expiresAt` has passed simply stays `PENDING` forever with no purge/expiry mechanism
- * (confirmed by reading every writer of `Invitation.status` in `src/modules/organization/
- * application/`: only `create-invitation.ts`, `accept-invitation.ts`, `revoke-invitation.ts`
- * touch it). This worker therefore treats "PENDING past its own `expiresAt`" as the de-facto
- * `EXPIRED` terminal state the design doc's "non-closure termination" concept describes, using
- * `expiresAt` itself as the termination timestamp (there is no separate `expiredAt` field to add,
- * and none is needed — `expiresAt` is already the exact instant the row became terminal).
- *
- * Two independent terminal-state branches, either makes a row a candidate:
- *   - `status = REVOKED` — eligible when `revokedAt + 30 days <= now`.
- *   - `status = PENDING AND expiresAt <= now` — eligible when `expiresAt + 30 days <= now`.
- * `ACCEPTED` rows are never candidates (that Invitation's terminal state is success, not
- * termination — the resulting `Membership` is the durable record now, per `privacy-lgpd.md` §4's
- * own `ACCOUNT_ACTIVE` framing).
- *
- * Same full-table `Scan` tradeoff as D-151/152/153/154 (filtered by `entityType = "Invitation"`,
- * not a GSI6 worklist) — no external side-effect to protect with a claim state.
+ * GSI8 is discovery-only, never a source of eligibility (D-179 §2/§4) — every candidate the
+ * Query returns is revalidated with a consistent `getInvitation()` read before any write, and the
+ * write itself (`transactWrite`) always re-asserts the facts it depends on atomically:
+ *   - the Invitation row's own `version` (OCC)
+ *   - the owning tenant's `TenantLifecycleRecord.status = ACTIVE`, checked IN THE SAME
+ *     `TransactWriteItems` as the delete.
  */
-import type { DynamoDeleteCommandInput, EntityKey } from "../../shared/dynamodb/occ.js";
-import type { InvitationStatus } from "../../modules/organization/domain/invitation.js";
+import type { EntityKey, TransactWriteEntry } from "../../shared/dynamodb/occ.js";
+import type { Invitation } from "../../modules/organization/domain/invitation.js";
 
 export interface InvitationPurgeCandidate extends EntityKey {
   entityType: "Invitation";
   organizationId: string;
-  status: InvitationStatus;
+  invitationId: string;
+  status: Invitation["status"];
   expiresAt: string;
   revokedAt?: string;
   version: number;
+  maintenanceAttemptCount?: number;
+  GSI8PK?: string;
+  GSI8SK?: string;
 }
 
-export interface InvitationPurgeScanPage {
-  items: InvitationPurgeCandidate[];
+/** One `KEYS_ONLY` GSI8 result row — `tenantId` is parsed out of `GSI8SK` (embedded in the sort
+ * key by `invitationGsi8Keys()` precisely so a `KEYS_ONLY` projection is enough to build the
+ * tenant-ACTIVE `ConditionCheck` without a second read). */
+export interface InvitationGsi8Candidate extends EntityKey {
+  dueAtIso: string;
+  tenantId: string;
+}
+
+export interface InvitationGsi8Page {
+  items: InvitationGsi8Candidate[];
   lastEvaluatedKey?: Record<string, unknown>;
 }
 
 export interface InvitationPurgeCandidateSource {
-  /** `Scan` with `FilterExpression: entityType = :invitation AND (#status = :revoked OR #status =
-   * :pending)` — `ACCEPTED` rows are excluded at the scan itself, never even considered a
-   * candidate (see file header). */
-  scanCandidates(exclusiveStartKey?: Record<string, unknown>): Promise<InvitationPurgeScanPage>;
-  /** Single conditioned `DeleteItem` (version-checked — `Invitation` DOES carry a `version`
-   * counter, unlike D-153/D-154's entities, so the delete re-asserts it directly instead of
-   * re-asserting a domain field observed at scan time). Throws the SDK's real
-   * `ConditionalCheckFailedException` (recognized via `occ.ts#isConditionalCheckFailed`) when the
-   * condition doesn't hold. */
-  deleteCandidate(input: DynamoDeleteCommandInput): Promise<void>;
-}
-
-/**
- * Same ACTIVE-tenant fence as D-151/152/153/154's `TenantLifecycleStatusSource` — a tenant
- * mid-closure is the W3-07 tenant-purge pipeline's job, never this worker's; structurally this
- * worker can never touch a closing tenant's rows because its own fence excludes anything not
- * `ACTIVE`. Deliberately the same narrow shape (not re-exported/shared), mirroring the
- * precedents' own choice to keep each purge worker's port surface independently readable.
- */
-export interface TenantLifecycleStatusSource {
-  getStatus(tenantId: string): Promise<string | undefined>;
+  /** `Query GSI8PK = "WORK#INVITATION_PURGE" AND GSI8SK < :before`, ordered by due date. */
+  queryDue(input: { before: string; exclusiveStartKey?: Record<string, unknown> }): Promise<InvitationGsi8Page>;
+  /** Strongly-consistent read of the base Invitation row — the revalidation `getInvitation()`
+   * D-179 §4 requires before acting on any GSI8 candidate. `undefined` when the row is already
+   * gone (idempotent no-op). */
+  getInvitation(key: EntityKey): Promise<InvitationPurgeCandidate | undefined>;
+  /** Real `TransactWriteItems` — used both for the claim/delete (ConditionCheck + Delete) and for
+   * the poison-record backoff/DLQ move (a single conditioned Update). */
+  transactWrite(entries: TransactWriteEntry[]): Promise<void>;
 }

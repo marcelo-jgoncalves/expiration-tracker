@@ -503,15 +503,47 @@ run "gsi8_worker_isolation" {
     error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
   }
 
-  # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
+  # D-179/D-181 slice 2 - invitation_purge_handler joins the same pattern, its own WORK#/DLQ#
+  # namespace pair, isolated from membership_purge's.
   assert {
-    condition     = !anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
-    error_message = "InvitationPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179/D-180 pilot is membership-purge only)"
+    condition     = anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "InvitationPurgeWorker must have a policy referencing GSI8"
   }
 
   assert {
+    condition     = anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "WORK#INVITATION_PURGE") && strcontains(p, "DLQ#INVITATION_PURGE")])
+    error_message = "InvitationPurgeWorker's GSI8 policy must condition dynamodb:LeadingKeys on exactly its own WORK#/DLQ# namespace pair"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "InvitationPurgeWorker must have dynamodb:TransactWriteItems"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.invitation_purge_handler.capability_policy_documents :
+      strcontains(p, "dynamodb:TransactWriteItems") && (strcontains(p, "/index/GSI3") || strcontains(p, "/index/GSI4") || strcontains(p, "/index/GSI6") || strcontains(p, "/index/GSI8"))
+    ])
+    error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
+  }
+
+  # Cross-namespace isolation, both directions - neither worker's role may reference the other
+  # worker's WORK#/DLQ# namespace strings at all.
+  assert {
+    condition     = !anytrue([for p in module.invitation_purge_handler.capability_policy_documents : strcontains(p, "MEMBERSHIP_PURGE")])
+    error_message = "InvitationPurgeWorker must NOT reference MEMBERSHIP_PURGE's namespace"
+  }
+
+  assert {
+    condition     = !anytrue([for p in module.membership_purge_handler.capability_policy_documents : strcontains(p, "INVITATION_PURGE")])
+    error_message = "MembershipPurgeWorker must NOT reference INVITATION_PURGE's namespace"
+  }
+
+  # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
+  assert {
     condition     = !anytrue([for p in module.transient_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
-    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179/D-180 pilot is membership-purge only)"
+    error_message = "TransientPurgeWorker must NOT reference GSI8 - it has not migrated to the MaintenanceDueIndex pattern yet (D-179 slices 1-2 are membership-purge/invitation-purge only)"
   }
 
   assert {

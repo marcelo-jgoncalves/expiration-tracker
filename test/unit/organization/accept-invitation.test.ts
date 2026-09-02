@@ -6,6 +6,7 @@ import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
 import type { InvitationTokenPointer } from "../../../src/modules/organization/domain/invitation-token.js";
+import { invitationKey, type Invitation } from "../../../src/modules/organization/domain/invitation.js";
 import { ConflictError, InvitationTokenUnavailableError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
@@ -202,5 +203,24 @@ describe("AcceptInvitationService", () => {
     const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
 
     await expect(service.accept({ token: "not-a-real-token", userId: "user-x", callerVerifiedEmail: "x@example.com" })).rejects.toBeInstanceOf(InvitationTokenUnavailableError);
+  });
+
+  // D-179/D-181 slice 2: ACCEPTED is never a maintenance-due candidate - the PENDING-time GSI8
+  // pointer must be cleared atomically in the SAME Update as the status flip to ACCEPTED, never
+  // left to leak into a future invitation-purge GSI8 Query.
+  it("clears the Invitation's GSI8 MaintenanceDueIndex pointer on acceptance", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    const { token, invitation } = await issueInvite(store, "clear-gsi8@example.com", "MEMBER");
+    const preAccept = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    expect(preAccept?.GSI8PK).toBe("WORK#INVITATION_PURGE"); // sanity: creation stamped it
+
+    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+    await service.accept({ token, userId: "user-cleared", callerVerifiedEmail: "clear-gsi8@example.com" });
+
+    const accepted = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    expect(accepted?.status).toBe("ACCEPTED");
+    expect(accepted?.GSI8PK).toBeUndefined();
+    expect(accepted?.GSI8SK).toBeUndefined();
   });
 });

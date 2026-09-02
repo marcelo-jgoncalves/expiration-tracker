@@ -3,7 +3,7 @@ import { CreateInvitationService } from "../../../src/modules/organization/appli
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
-import { invitationDedupKey } from "../../../src/modules/organization/domain/invitation.js";
+import { invitationDedupKey, invitationKey, type Invitation } from "../../../src/modules/organization/domain/invitation.js";
 import { MembershipInviteRateLimiter } from "../../../src/modules/organization/application/membership-invite-rate-limiter.js";
 import { OwnerTierChangeRequiresOwnerError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -129,5 +129,37 @@ describe("CreateInvitationService", () => {
     const service = makeService(store);
 
     await expect(service.invite(ctx(), { email: "ok@example.com", role: "MEMBER" })).resolves.toBeDefined();
+  });
+
+  // D-179/D-181 slice 2: the PENDING branch's GSI8 due date is fully known at creation - the
+  // pointer must be stamped in the SAME Put as the Invitation itself, not deferred. Mutação:
+  // dropping the `...gsi8Keys` spread from the Put item would make this assertion fail.
+  it("stamps a GSI8 MaintenanceDueIndex pointer (WORK#INVITATION_PURGE, dueAt = expiresAt + 30d) at creation", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    const service = makeService(store);
+
+    const { invitation } = await service.invite(ctx(), { email: "gsi8@example.com", role: "MEMBER" });
+
+    const stored = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    expect(stored?.GSI8PK).toBe("WORK#INVITATION_PURGE");
+    const expectedDueAt = new Date(Date.parse(invitation.expiresAt) + 30 * 24 * 60 * 60 * 1000).toISOString();
+    expect(stored?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${invitation.invitationId}`);
+  });
+
+  // A resend moves expiresAt forward - the GSI8 pointer's due date must move with it, not stay
+  // pinned to the original creation-time expiry.
+  it("moves the GSI8 pointer forward when a resend rotates expiresAt", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    const service = makeService(store);
+
+    const first = await service.invite(ctx(), { email: "resend-gsi8@example.com", role: "MEMBER" });
+    const second = await service.invite(ctx(), { email: "resend-gsi8@example.com", role: "MEMBER" });
+
+    const stored = await store.get<Invitation>(invitationKey("org-1", second.invitation.invitationId));
+    expect(stored?.GSI8SK).not.toBe(undefined);
+    const expectedDueAt = new Date(Date.parse(second.invitation.expiresAt) + 30 * 24 * 60 * 60 * 1000).toISOString();
+    expect(stored?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${first.invitation.invitationId}`);
   });
 });

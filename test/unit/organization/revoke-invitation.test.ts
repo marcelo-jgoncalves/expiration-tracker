@@ -94,4 +94,23 @@ describe("RevokeInvitationService", () => {
 
     await expect(revokeService.revoke(ownerCtx(), invitation.invitationId)).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  // D-179/D-181 slice 2: REVOKED is a real transition - the GSI8 pointer must be overwritten
+  // atomically in the SAME Update as the status flip, moving from the PENDING-time
+  // expiresAt-based due date to revokedAt + retention.
+  it("overwrites the GSI8 MaintenanceDueIndex pointer to WORK#INVITATION_PURGE keyed off revokedAt", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    const rateLimiter = new MembershipInviteRateLimiter(store);
+    const createService = new CreateInvitationService(store, TABLE, ids(), rateLimiter, "pepper");
+    const { invitation } = await createService.invite(ownerCtx(), { email: "revoke-gsi8@example.com", role: "MEMBER" });
+
+    const revokeService = new RevokeInvitationService(store, TABLE, ids(), () => "2026-02-01T00:00:00.000Z");
+    await revokeService.revoke(ownerCtx(), invitation.invitationId);
+
+    const revoked = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    expect(revoked?.GSI8PK).toBe("WORK#INVITATION_PURGE");
+    const expectedDueAt = new Date(Date.parse("2026-02-01T00:00:00.000Z") + 30 * 24 * 60 * 60 * 1000).toISOString();
+    expect(revoked?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${invitation.invitationId}`);
+  });
 });

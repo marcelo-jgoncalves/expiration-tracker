@@ -14,7 +14,7 @@ import { authorize } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { InternalError, OwnerTierChangeRequiresOwnerError } from "../../../shared/errors/app-error.js";
 import type { TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { invitationDedupKey, invitationKey, type Invitation, type InvitationDedupPointer } from "../domain/invitation.js";
+import { deriveInvitationMaintenanceDue, invitationDedupKey, invitationGsi8Keys, invitationKey, type Invitation, type InvitationDedupPointer } from "../domain/invitation.js";
 import {
   INVITATION_TOKEN_TTL_SECONDS,
   epochSecondsFromIso,
@@ -95,6 +95,11 @@ export class CreateInvitationService {
     const now = this.now();
     const expiresAt = new Date(Date.parse(now) + INVITATION_TOKEN_TTL_SECONDS * 1000).toISOString();
     const issued = issueInvitationToken(this.tokenPepper);
+    // D-179 slice 2: the PENDING branch's due date is fully known at creation (expiresAt is set
+    // right here, never later) - the GSI8 pointer is stamped now, not deferred to a later
+    // transition that doesn't exist for this branch (see domain/invitation.ts's file comment).
+    const due = deriveInvitationMaintenanceDue({ status: "PENDING", expiresAt });
+    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId: ctx.tenant.tenantId, invitationId });
 
     const invitation: Invitation = {
       ...invitationKey(ctx.tenant.tenantId, invitationId),
@@ -109,6 +114,7 @@ export class CreateInvitationService {
       createdBy: ctx.principal.userId,
       createdAt: now,
       version: 1,
+      ...gsi8Keys,
     };
 
     const tokenPointer: InvitationTokenPointer = {
@@ -175,6 +181,10 @@ export class CreateInvitationService {
     const now = this.now();
     const expiresAt = new Date(Date.parse(now) + INVITATION_TOKEN_TTL_SECONDS * 1000).toISOString();
     const issued = issueInvitationToken(this.tokenPepper);
+    // Rotation moves expiresAt forward - the GSI8 pointer's due date (expiresAt + retention) must
+    // move with it, same reasoning as the initial Put in invite() above.
+    const due = deriveInvitationMaintenanceDue({ status: "PENDING", expiresAt });
+    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId: ctx.tenant.tenantId, invitationId: invitation.invitationId });
 
     const tokenPointer: InvitationTokenPointer = {
       ...invitationTokenPointerKey(issued.selectorHash),
@@ -195,10 +205,17 @@ export class CreateInvitationService {
         Update: {
           TableName: this.tableName,
           Key: invitationKey(ctx.tenant.tenantId, invitation.invitationId),
-          UpdateExpression: "SET expiresAt = :expiresAt, tokenPointerId = :tokenPointerId, version = version + :one",
+          UpdateExpression: "SET expiresAt = :expiresAt, tokenPointerId = :tokenPointerId, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :pending",
           ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ":expiresAt": expiresAt, ":tokenPointerId": issued.selectorHash, ":one": 1, ":pending": "PENDING" },
+          ExpressionAttributeValues: {
+            ":expiresAt": expiresAt,
+            ":tokenPointerId": issued.selectorHash,
+            ":one": 1,
+            ":pending": "PENDING",
+            ":gsi8pk": gsi8Keys.GSI8PK,
+            ":gsi8sk": gsi8Keys.GSI8SK,
+          },
         },
       },
       { Put: { TableName: this.tableName, Item: tokenPointer as unknown as Record<string, unknown>, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
