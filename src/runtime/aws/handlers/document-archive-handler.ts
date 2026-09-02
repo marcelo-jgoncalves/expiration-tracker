@@ -16,6 +16,7 @@ import {
   handleGetDocument,
   handleListVersions,
   handleRejectVersion,
+  handleReserveFiles,
   handleReserveUpload,
   handleCreateRequirement,
   handleGetRequirement,
@@ -64,6 +65,8 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleListVersions(deps, base);
         case "POST /document-archive/documents/{documentId}/versions":
           return await handleReserveUpload(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/documents/{documentId}/versions/{seq}/files":
+          return await handleReserveFiles(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/documents/{documentId}/versions/{seq}/commit":
           return await handleCommitUpload(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/documents/{documentId}/versions/{seq}/claim":

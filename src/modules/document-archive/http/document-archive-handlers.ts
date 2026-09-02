@@ -14,6 +14,7 @@ import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { DocumentArchiveService } from "../application/document-archive-service.js";
 import type { DocumentRequestRecurrenceService } from "../application/document-request-recurrence-service.js";
 import type { CreateDocumentInput } from "../domain/document.js";
+import type { FileUploadSpec } from "../domain/document-file.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
 import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
@@ -27,6 +28,7 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 
 const CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-create-request.v1.json";
 const RESERVE_UPLOAD_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-reserve-upload-request.v1.json";
+const RESERVE_FILES_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-reserve-files-request.v1.json";
 const COMMIT_UPLOAD_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-commit-upload-request.v1.json";
 const CLAIM_REVIEW_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-claim-review-request.v1.json";
 const ACCEPT_VERSION_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-accept-version-request.v1.json";
@@ -179,6 +181,21 @@ export async function handleReserveUpload(deps: DocumentArchiveHttpDeps, req: Ht
     const context = await resolve(deps, req);
     const version = await deps.documentArchive.reserveUpload(context, documentId, req.body.origin);
     return { statusCode: 201, body: { version } };
+  });
+}
+
+export async function handleReserveFiles(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ expectedVersion: number; files: readonly FileUploadSpec[] }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentId = requireDocumentId(req);
+    const seq = requireSeq(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(RESERVE_FILES_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const reserved = await deps.documentArchive.reserveFiles(context, documentId, seq, req.body.expectedVersion, req.body.files);
+    return { statusCode: 201, body: { files: reserved } };
   });
 }
 

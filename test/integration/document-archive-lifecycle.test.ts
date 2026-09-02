@@ -22,6 +22,7 @@ import {
   handleGetDocument,
   handleListVersions,
   handleRejectVersion,
+  handleReserveFiles,
   handleReserveUpload,
   handleCreateRequirement,
   handleGetRequirement,
@@ -29,6 +30,21 @@ import {
   handleDeleteRequirement,
   type DocumentArchiveHttpDeps,
 } from "../../src/modules/document-archive/http/document-archive-handlers.js";
+import type { UploadUrlSigner, PresignUploadInput, PresignUploadResult } from "../../src/modules/document/ports/upload-url-signer.js";
+
+/** Fake signer that returns a real-shaped presign result and records every call - used to
+ * prove the HTTP route actually reaches a real presign mechanism (G-V3), not a stub that
+ * never gets invoked. */
+function makeSigner(): UploadUrlSigner & { calls: PresignUploadInput[] } {
+  const calls: PresignUploadInput[] = [];
+  return {
+    calls,
+    presignUpload: async (input: PresignUploadInput): Promise<PresignUploadResult> => {
+      calls.push(input);
+      return { uploadUrl: `https://s3.example/${input.bucket}/${input.key}?sig=fake`, requiredHeaders: { "x-amz-checksum-sha256": input.checksumSha256 } };
+    },
+  };
+}
 
 function claims(sub: string): ValidatedClaims {
   return {
@@ -55,6 +71,7 @@ function makeIds() {
 describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
   let deps: DocumentArchiveHttpDeps;
   let req: { requestId: string; correlationId: string; claims: ValidatedClaims };
+  let signer: ReturnType<typeof makeSigner>;
 
   beforeEach(async () => {
     const identityStore = new InMemoryIdentityStore();
@@ -63,7 +80,8 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     const store = new InMemoryDocumentArchiveStore();
-    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket" });
+    signer = makeSigner();
+    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer });
     const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
     deps = { resolver, documentArchive, recurrence, quota };
 
@@ -113,6 +131,66 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     const versions = listResponse.body["versions"] as Array<{ state: string }>;
     expect(versions).toHaveLength(1);
     expect(versions[0]!.state).toBe("ACCEPTED");
+  });
+
+  it("item 4 (2026-09-02): POST .../versions/{seq}/files reserves DocumentFile rows and returns real presigned upload URLs via the HTTP route", async () => {
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const documentId = (created.body["document"] as { documentId: string }).documentId;
+    const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
+    const version = draft.body["version"] as { seq: number; version: number };
+
+    const response = await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: {
+        expectedVersion: version.version,
+        files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const files = response.body["files"] as Array<{ file: { fileId: string; scanStatus: string }; uploadUrl: string; requiredHeaders: Record<string, string> }>;
+    expect(files).toHaveLength(1);
+    expect(files[0]!.file.scanStatus).toBe("PENDING_UPLOAD");
+    expect(files[0]!.uploadUrl).toContain("test-quarantine-bucket");
+    // Proves the mechanism is real, not a stub the route never reaches (G-V3).
+    expect(signer.calls).toHaveLength(1);
+    expect(signer.calls[0]!.checksumSha256).toBe("a".repeat(64));
+  });
+
+  it("item 4 (2026-09-02): a body failing schema validation (files array empty) is rejected with 400 before reaching the service", async () => {
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const documentId = (created.body["document"] as { documentId: string }).documentId;
+    const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
+    const version = draft.body["version"] as { seq: number; version: number };
+
+    const response = await handleReserveFiles(deps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: { expectedVersion: version.version, files: [] } as never,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(signer.calls).toHaveLength(0);
+  });
+
+  it("item 4 (2026-09-02): a VIEWER is denied (403) reserving files, same docarchive:upload RBAC tier as reserveUpload/commitUpload", async () => {
+    const created = await handleCreateDocument(deps, { ...req, body: { subjectId: "subject-1", documentType: "ALVARA", hasValidity: true } });
+    const documentId = (created.body["document"] as { documentId: string }).documentId;
+    const draft = await handleReserveUpload(deps, { ...req, pathParameters: { documentId }, body: { origin: "MANUAL_UPLOAD" } });
+    const version = draft.body["version"] as { seq: number; version: number };
+
+    const realContext = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: undefined });
+    const viewerContext = { ...realContext, tenant: { ...realContext.tenant, roles: ["VIEWER"] } };
+    const fakeResolver = { resolve: async () => viewerContext };
+    const viewerDeps = { resolver: fakeResolver, documentArchive: deps.documentArchive, quota: deps.quota } as unknown as DocumentArchiveHttpDeps;
+
+    const response = await handleReserveFiles(viewerDeps, {
+      ...req,
+      pathParameters: { documentId, seq: String(version.seq) },
+      body: { expectedVersion: version.version, files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1, checksumSha256: "a".repeat(64) }] },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(signer.calls).toHaveLength(0);
   });
 
   it("a rejected version stays in history (never removable) and a corrected re-upload becomes the accepted current version", async () => {

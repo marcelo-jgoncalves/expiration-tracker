@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-reserve-files-request.v1.json",
+  "title": "DocArchiveReserveFilesRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/files request body (src/modules/document-archive/domain/document-file.ts FileUploadSpec). D-163/item 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion", "files"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "mediaType", "contentLength", "checksumSha256"],
+        "properties": {
+          "role": { "type": "string", "enum": ["PRINCIPAL", "ATTACHMENT"] },
+          "mediaType": { "type": "string", "minLength": 1 },
+          "contentLength": { "type": "integer", "minimum": 1 },
+          "checksumSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}

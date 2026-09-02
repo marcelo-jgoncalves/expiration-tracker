@@ -343,9 +343,25 @@ module "outbox_sweeper" {
 # already part of `tenant_facing_read_write_policy_json` (dynamo-table module's
 # `tenant_facing_index_names`), unlike the isolated GSI3/GSI4/GSI6 family. D-163: reuses the
 # SAME quarantine bucket M6 already provisions (`module.document_buckets`, no new bucket) —
-# `QUARANTINE_BUCKET_NAME` env var only, no S3 IAM policy yet (`reserveFiles()` only builds the
-# key string this increment; actual presign/S3 calls are deferred to the slice that wires the
-# reused `UploadUrlSigner` adapter).
+# `QUARANTINE_BUCKET_NAME` env var only. Item 3 (2026-09-02): `reserveFiles()` now presigns for
+# real (`S3UploadUrlSigner`, reused from M6) — grants the exact same scoped PutObject/
+# GenerateDataKey pair `documents_presign_quarantine_put` already grants `documents_handler`,
+# never a broader policy for a second module presigning against the same bucket.
+data "aws_iam_policy_document" "document_archive_presign_quarantine_put" {
+  statement {
+    sid       = "PresignQuarantinePut"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${module.document_buckets.quarantine_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "EncryptQuarantineObjects"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey"]
+    resources = [module.document_buckets.quarantine_kms_key_arn]
+  }
+}
+
 module "document_archive_handler" {
   source = "./modules/lambda-function"
 
@@ -356,8 +372,11 @@ module "document_archive_handler" {
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
   })
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.document_archive_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- DocumentArchiveGuestHandler: /document-archive/guest/document-requests/{token}* -------

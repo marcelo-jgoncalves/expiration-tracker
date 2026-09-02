@@ -58,6 +58,7 @@ import acceptInvitationRequestV1 from "../../../schemas/api/accept-invitation-re
 // D-143 Nucleus 1 (Document Archive domain).
 import docarchiveCreateRequestV1 from "../../../schemas/api/docarchive-create-request.v1.json";
 import docarchiveReserveUploadRequestV1 from "../../../schemas/api/docarchive-reserve-upload-request.v1.json";
+import docarchiveReserveFilesRequestV1 from "../../../schemas/api/docarchive-reserve-files-request.v1.json";
 import docarchiveCommitUploadRequestV1 from "../../../schemas/api/docarchive-commit-upload-request.v1.json";
 import docarchiveClaimReviewRequestV1 from "../../../schemas/api/docarchive-claim-review-request.v1.json";
 import docarchiveAcceptVersionRequestV1 from "../../../schemas/api/docarchive-accept-version-request.v1.json";
@@ -168,6 +169,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   acceptInvitationRequestV1,
   docarchiveCreateRequestV1,
   docarchiveReserveUploadRequestV1,
+  docarchiveReserveFilesRequestV1,
   docarchiveCommitUploadRequestV1,
   docarchiveClaimReviewRequestV1,
   docarchiveAcceptVersionRequestV1,

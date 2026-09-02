@@ -928,6 +928,28 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid docarchive-reserve-files-request.v1 (item 3, D-163)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reserve-files-request.v1.json", {
+      expectedVersion: 1,
+      files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "a".repeat(64) }],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-reserve-files-request.v1 with an invalid checksumSha256 (wrong length/charset)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reserve-files-request.v1.json", {
+      expectedVersion: 1,
+      files: [{ role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "not-a-real-checksum" }],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-reserve-files-request.v1 with an empty files array", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-reserve-files-request.v1.json", { expectedVersion: 1, files: [] });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid docarchive-commit-upload-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-commit-upload-request.v1.json", { expectedVersion: 1 });
     expect(errors).toEqual([]);
