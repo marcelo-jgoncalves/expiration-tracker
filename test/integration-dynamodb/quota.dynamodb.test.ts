@@ -12,6 +12,14 @@
  * `putIfAbsent` (no ConditionExpression referencing `count`), so it always succeeded even
  * with the bug - only the SECOND call within the same window hits `updateConditional` and
  * would have failed for real.
+ *
+ * D-136 D-D (2026-09-02): `API_REQUEST` no longer exercises this transactional
+ * `updateConditional` path at all (it now routes to the `EphemeralTelemetryMutation` lane's
+ * `incrementTelemetryCounter`, a plain `ADD`-only `UpdateItem`) - the regression tests below
+ * were retargeted to `AI_CALL` (still transactional) so they keep proving what they always
+ * proved; the new lane gets its own real-DynamoDB coverage further down this file, since it
+ * has its own reserved-word risk (`count` is reserved) that only a live wire-protocol test can
+ * catch, same reasoning as the rest of this file.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startDynamoDbLocal, TABLE_NAME } from "./setup.js";
@@ -35,7 +43,7 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
 
   it("a second consume() call within the same window hits updateConditional against real DynamoDB without a reserved-word ValidationException", async () => {
     const quota = new TenantQuotaService(store, TABLE_NAME);
-    const input = { tenantId: "t-dynamo-quota", quotaType: "API_REQUEST" as const, window: "w1", limit: 5, windowSeconds: 60 };
+    const input = { tenantId: "t-dynamo-quota", quotaType: "AI_CALL" as const, window: "w1", limit: 5, windowSeconds: 60 };
     // W3-07 fence (D-068/D-069 follow-up): consume() now requires a TenantLifecycleRecord.
     await store.putIfAbsent({
       ...tenantLifecycleKey(input.tenantId),
@@ -62,7 +70,7 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
 
   it("still enforces the limit correctly once exhausted (proves updateConditional's real writes actually land)", async () => {
     const quota = new TenantQuotaService(store, TABLE_NAME);
-    const input = { tenantId: "t-dynamo-quota-2", quotaType: "API_REQUEST" as const, window: "w1", limit: 2, windowSeconds: 60 };
+    const input = { tenantId: "t-dynamo-quota-2", quotaType: "AI_CALL" as const, window: "w1", limit: 2, windowSeconds: 60 };
     await store.putIfAbsent({
       ...tenantLifecycleKey(input.tenantId),
       entityType: "TenantLifecycleRecord",
@@ -76,5 +84,52 @@ describe("TenantQuotaService against REAL DynamoDB (Camada 2)", () => {
     await quota.consume(input);
     await quota.consume(input);
     await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError);
+  });
+
+  describe("EphemeralTelemetryMutation lane (D-136 D-D) against REAL DynamoDB", () => {
+    it("a repeated API_REQUEST consume() in the same window hits incrementTelemetryCounter's ADD-only UpdateItem against real DynamoDB without a reserved-word ValidationException (count is reserved)", async () => {
+      const quota = new TenantQuotaService(store, TABLE_NAME);
+      const input = { tenantId: "t-dynamo-quota-3", quotaType: "API_REQUEST" as const, window: "current", limit: 5, windowSeconds: 60 };
+      await store.putIfAbsent({
+        ...tenantLifecycleKey(input.tenantId),
+        entityType: "TenantLifecycleRecord",
+        tenantId: input.tenantId,
+        status: "ACTIVE",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:00.000Z",
+        version: 1,
+      });
+
+      await quota.consume(input);
+      await quota.consume(input);
+      await quota.consume(input);
+      await expect(quota.consume(input)).resolves.toBeUndefined();
+      await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError);
+    });
+
+    it("never touches TenantQuotaRecord's putIfAbsent/updateConditional path for API_REQUEST (no residual TransactWriteItems call against real DynamoDB)", async () => {
+      const quota = new TenantQuotaService(store, TABLE_NAME);
+      const input = { tenantId: "t-dynamo-quota-4", quotaType: "API_REQUEST" as const, window: "current", limit: 5, windowSeconds: 60 };
+      await store.putIfAbsent({
+        ...tenantLifecycleKey(input.tenantId),
+        entityType: "TenantLifecycleRecord",
+        tenantId: input.tenantId,
+        status: "ACTIVE",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:00.000Z",
+        version: 1,
+      });
+
+      await quota.consume(input);
+
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const windowId = Math.floor(nowSeconds / input.windowSeconds);
+      const record = await store.get<{ count: number; entityType: string }>({
+        PK: `TENANT#${input.tenantId}#QUOTA`,
+        SK: `TYPE#API_REQUEST#${windowId}`,
+      });
+      expect(record?.entityType).toBe("EphemeralTelemetryMutation");
+      expect(record?.count).toBe(1);
+    });
   });
 });
