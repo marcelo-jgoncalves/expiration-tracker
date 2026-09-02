@@ -94,6 +94,14 @@ resource "aws_dynamodb_table" "this" {
     name = "GSI7SK"
     type = "S"
   }
+  attribute {
+    name = "GSI8PK"
+    type = "S"
+  }
+  attribute {
+    name = "GSI8SK"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "GSI1"
@@ -149,6 +157,21 @@ resource "aws_dynamodb_table" "this" {
     projection_type = "ALL"
   }
 
+  # GSI8 - MaintenanceDueIndex (D-179/D-180). Global PK (no tenantId, sparse), KEYS_ONLY
+  # projection - discovery-only for maintenance/purge workers, never a source of eligibility
+  # (every consumer revalidates the base item before acting). PK="WORK#<workerType>" or
+  # "DLQ#<workerType>" for quarantined poison records; SK="<dueAtIso>#TENANT#<tenantId>#
+  # <entityId>", ordered by due date so a Query replaces the Scan+Limit+bounded-pages pattern
+  # D-170 confirmed permanently starves candidates past a single run's page cap. Same isolation
+  # discipline as GSI3/GSI6: IAM access is per-worker via `dynamodb:LeadingKeys`, never a general
+  # "read GSI8" grant (round-1 finding of the approved design - "por índice não é por worker").
+  global_secondary_index {
+    name            = "GSI8"
+    hash_key        = "GSI8PK"
+    range_key       = "GSI8SK"
+    projection_type = "KEYS_ONLY"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
@@ -188,6 +211,17 @@ locals {
   gsi3_resource = "${local.table_arn}/index/GSI3"
   gsi4_resource = "${local.table_arn}/index/GSI4"
   gsi6_resource = "${local.table_arn}/index/GSI6"
+  gsi8_resource = "${local.table_arn}/index/GSI8"
+
+  # GSI8 worker namespaces actually wired to a Lambda role today (D-179/D-180 pilot slice - only
+  # membership_purge). Each key gets its own gsi8_read_policy_json[key]/
+  # worker_transact_write_policy_json[key] output below, scoped via `dynamodb:LeadingKeys` so one
+  # worker's role can never read (or claim) another worker's GSI8/DLQ candidates. Extending this
+  # map is how each of the other 8 maintenance workers named in D-179 joins the pattern later -
+  # never by widening an existing worker's LeadingKeys list.
+  gsi8_worker_types = {
+    membership_purge = "MEMBERSHIP_PURGE"
+  }
 }
 
 # General read/write policy on the base table + GSI1/GSI2/GSI4/GSI5 (tenant-scoped
@@ -257,5 +291,42 @@ data "aws_iam_policy_document" "gsi4_read" {
     sid       = "Gsi4ReadOnly"
     actions   = ["dynamodb:Query", "dynamodb:GetItem"]
     resources = [local.gsi4_resource]
+  }
+}
+
+# GSI8 (MaintenanceDueIndex, D-179/D-180) - one policy document per worker in
+# `local.gsi8_worker_types`, condition-scoped to that worker's exact WORK#/DLQ# namespace pair
+# via `dynamodb:LeadingKeys`. Deliberately `Query` only (never `GetItem`) - every consumer reads
+# a due-ordered range, never a single known key. Resource is the GSI8 index ARN exclusively,
+# same isolation discipline as gsi3_read/gsi6_read above.
+data "aws_iam_policy_document" "gsi8_read" {
+  for_each = local.gsi8_worker_types
+
+  statement {
+    sid       = "Gsi8ReadOnly${each.key}"
+    actions   = ["dynamodb:Query"]
+    resources = [local.gsi8_resource]
+
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["WORK#${each.value}", "DLQ#${each.value}"]
+    }
+  }
+}
+
+# `dynamodb:TransactWriteItems` on the base table - a real action gap the approved design found:
+# `tenant_facing_read_write` grants Get/Put/Update/Delete/ConditionCheckItem but never
+# TransactWriteItems, and this capability is deliberately NOT added to the general policy (only
+# the workers that actually need atomic claim/revalidation get it, one policy per worker so a
+# future audit can see exactly who holds it). Table-level, not GSI8-scoped - TransactWriteItems
+# always targets the base table's own items (ConditionCheck/Delete/Update), never a GSI directly.
+data "aws_iam_policy_document" "worker_transact_write" {
+  for_each = local.gsi8_worker_types
+
+  statement {
+    sid       = "TransactWriteItems${each.key}"
+    actions   = ["dynamodb:TransactWriteItems"]
+    resources = [local.table_arn]
   }
 }

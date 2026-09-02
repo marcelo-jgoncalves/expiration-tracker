@@ -81,8 +81,12 @@ export class AcceptInvitationService {
       Update: {
         TableName: this.tableName,
         Key: membershipKey(invitation.organizationId, input.userId),
+        // D-179/D-180: REMOVE GSI8PK/GSI8SK atomically alongside removedAt — a reactivated
+        // Membership must never keep leaking a stale MaintenanceDueIndex pointer (the worker's
+        // own revalidation would self-heal it eventually, but clearing it here at the source of
+        // the state change, in the same transaction, means it never appears as a candidate at all).
         UpdateExpression:
-          "SET role = :role, #status = :active, membershipId = :membershipId, joinedAt = :now, GSI4PK = :gsi4pk, GSI4SK = :gsi4sk, version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now) REMOVE removedAt",
+          "SET role = :role, #status = :active, membershipId = :membershipId, joinedAt = :now, GSI4PK = :gsi4pk, GSI4SK = :gsi4sk, version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now) REMOVE removedAt, GSI8PK, GSI8SK",
         ConditionExpression: "attribute_not_exists(PK) OR #status = :removed",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
