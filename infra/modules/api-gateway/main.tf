@@ -263,8 +263,8 @@ resource "aws_apigatewayv2_integration" "subjects" {
 
 locals {
   subjects_routes = {
-    create      = { method = "POST", path = "/subjects" }
-    dashboard   = { method = "GET", path = "/subjects/dashboard" }
+    create    = { method = "POST", path = "/subjects" }
+    dashboard = { method = "GET", path = "/subjects/dashboard" }
     # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {subjectId}" precedent
     # as "dashboard" above.
     search      = { method = "GET", path = "/subjects/search" }
@@ -532,12 +532,12 @@ locals {
     # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {subjectId}" precedent
     # as "GET /items/dashboard" already documents above.
     search_requirements = { method = "GET", path = "/document-archive/requirements/search" }
-    list_requirements  = { method = "GET", path = "/document-archive/requirements/{subjectId}" }
-    get_requirement    = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    update_requirement = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    link_evidence      = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
-    unlink_evidence    = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
-    delete_requirement = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
+    list_requirements   = { method = "GET", path = "/document-archive/requirements/{subjectId}" }
+    get_requirement     = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    update_requirement  = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    link_evidence       = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
+    unlink_evidence     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
+    delete_requirement  = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate
