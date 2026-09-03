@@ -3,7 +3,7 @@
  * expiration/persistence/dynamodb-expiration-store.ts: executa os parâmetros já produzidos
  * pelos builders de shared/dynamodb/occ.ts, não reconstrói lógica de OCC/transação aqui.
  */
-import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { EntityKey, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../ports/subject-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
@@ -118,6 +118,34 @@ export class DynamoDbSubjectStore implements SubjectStore {
       return items;
     } catch (err) {
       throw mapDynamoError(err, "SubjectStore.queryByPk");
+    }
+  }
+
+  /** D-192 §4 — `BatchGetItem` real, 100 chaves por chamada (limite do SDK), retry de
+   * `UnprocessedKeys` até esvaziar (mesma disciplina de retry que `client.ts` já aplica a nível
+   * de conexão via `maxAttempts`, mas `UnprocessedKeys` não é uma falha de rede - o SDK devolve
+   * 200 OK com uma sublista não processada, então precisa de retry explícito aqui). */
+  async batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]> {
+    if (keys.length === 0) return [];
+    try {
+      const items: T[] = [];
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+        let pending = keys.slice(i, i + CHUNK_SIZE);
+        while (pending.length > 0) {
+          const result = await this.client.send(
+            new BatchGetCommand({
+              RequestItems: { [this.tableName]: { Keys: pending as unknown as Record<string, unknown>[] } },
+            }),
+          );
+          items.push(...((result.Responses?.[this.tableName] ?? []) as T[]));
+          const unprocessed = result.UnprocessedKeys?.[this.tableName]?.Keys;
+          pending = (unprocessed ?? []) as unknown as EntityKey[];
+        }
+      }
+      return items;
+    } catch (err) {
+      throw mapDynamoError(err, "SubjectStore.batchGet");
     }
   }
 }

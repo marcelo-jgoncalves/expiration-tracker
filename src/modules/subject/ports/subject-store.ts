@@ -33,4 +33,11 @@ export interface SubjectStore {
   /** Query pela partição do subject com prefixo de SK — lista RequirementAssignment sem GSI
    * novo (coleção sob a partição, mesmo padrão de identity/document já em produção). */
   queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;
+  /** D-192 §4: `BatchGetItem` real (com retry de `UnprocessedKeys`) — usado pela resolução de
+   * referência do bulk-import de Document/Requirement para resolver um `Set` de chaves
+   * DISTINTAS de uma vez (pointer de externalId numa fase, `TrackedSubject` na outra), nunca um
+   * `get()` por linha. Ordem do retorno não é garantida (mesma semântica de `BatchGetItem` real)
+   * — chamador deve indexar pela própria chave, nunca assumir a ordem de `keys`. Chave ausente
+   * na tabela é simplesmente omitida do array de retorno (nunca `undefined` no meio do array).*/
+  batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]>;
 }

@@ -16,7 +16,11 @@ export function buildImportHttpDeps(client: DynamoDBDocumentClient, tableName: s
   const store = new DynamoDbImportStore(client, tableName);
   const signer = new S3UploadUrlSigner(new S3Client({}));
   const ids = new UlidIdGenerator();
-  const imports = new ImportService({ store, tableName, rawBucket, ids, signer, quota });
+  // D-192 slice 9: getImportJobSchema()/submitImportMapping() read the raw CSV back (header
+  // sniff) - same bucket/object shape the parse worker already reads, via the module's own
+  // small S3 port (never DocumentObjectStore - see ports/import-object-store.ts's header comment).
+  const objectStore = new S3ImportObjectStore(new S3Client({}));
+  const imports = new ImportService({ store, tableName, rawBucket, ids, signer, quota, objectStore });
   return { store, imports };
 }
 
@@ -35,5 +39,10 @@ export function buildImportCommitWorkerDeps(client: DynamoDBDocumentClient, tabl
   // commitImportJob() reaproveita SubjectService.createSubject() INALTERADO (design) - nunca
   // uma segunda implementação de criação de subject só para o worker de import.
   const { subjects } = buildSubjectDeps(client, tableName);
-  return { store, objectStore, planBucket, subjects, now: () => new Date().toISOString() };
+  // D-192 §6 (fatia 8) - Document/Requirement geram documentId/requirementId ANTES da
+  // transação de commit via os mesmos planejadores puros que document-archive-service.ts usa;
+  // `UlidIdGenerator` já implementa `DocumentArchiveIdGenerator` (mesma instância reaproveitada
+  // em toda a composição AWS, nunca um segundo gerador de ids).
+  const documentArchiveIds = new UlidIdGenerator();
+  return { store, objectStore, planBucket, tableName, subjects, documentArchiveIds, now: () => new Date().toISOString() };
 }

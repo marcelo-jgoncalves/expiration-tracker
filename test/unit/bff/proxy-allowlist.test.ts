@@ -80,4 +80,17 @@ describe("proxy-allowlist", () => {
   it("does not allowlist a RequirementTemplate route that does not exist in Terraform", () => {
     expect(matchAllowlistedRoute("DELETE", "/document-archive/requirement-templates/tpl-1")).toBeUndefined();
   });
+
+  // D-192 slice 9 (bulk-import-documents-requirements-scoping): GET .../schema and
+  // POST .../mapping are new Lambda-backed routes (import-handlers.ts) — same D-117/D-120/D-178
+  // gap class, asserted at the time of writing (adversarial: fails without the fix).
+  it("matches the D-192 import-job schema/mapping routes", () => {
+    expect(matchAllowlistedRoute("GET", "/import-jobs/job-1/schema")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/import-jobs/job-1/mapping")).toBeDefined();
+  });
+
+  it("does not match the D-192 import-job routes with the wrong method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("POST", "/import-jobs/job-1/schema")).toBeUndefined();
+    expect(matchAllowlistedRoute("GET", "/import-jobs/job-1/mapping")).toBeUndefined();
+  });
 });

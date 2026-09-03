@@ -25,12 +25,15 @@ const chasingDispatchQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL
 const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
 // BLOCKER-B (reminder-delivery-pipeline.md §4): fifth destination, same reasoning.
 const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
+// D-192 slice 9: sixth destination, same reasoning.
+const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
 if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
 if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
 if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
+if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
 
 const sqsClient = new SQSClient({});
 const store = new DynamoDbOutboxRelayStore(client, tableName);
@@ -64,6 +67,7 @@ const deps = {
     SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
     SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
     SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
+    SQS_IMPORT_PARSE_V1: send(importParseQueueUrl),
     SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
   },
 };

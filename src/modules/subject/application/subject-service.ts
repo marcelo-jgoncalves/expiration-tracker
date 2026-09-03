@@ -8,16 +8,18 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError, QuotaExceededError } from "../../../shared/errors/app-error.js";
-import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError } from "../../../shared/errors/app-error.js";
+import { buildVersionedCreate, buildVersionedUpdate, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
 import {
   subjectKey,
   gsi7Keys,
   normalizeDisplayName,
+  subjectExternalIdPointerKey,
   type TrackedSubject,
   type TrackedSubjectStatus,
   type CreateSubjectInput,
   type UpdateSubjectInput,
+  type SubjectExternalIdPointer,
 } from "../domain/tracked-subject.js";
 import { entitlementKey, defaultEntitlement, type TenantEntitlement } from "../domain/entitlement.js";
 import { buildSubjectAuditEvent, appendSubjectAuditToTransaction, type SubjectAuditAction } from "../domain/audit-event.js";
@@ -80,6 +82,7 @@ export class SubjectService {
         displayName: input.displayName,
         displayNameNormalized,
         notes: input.notes,
+        externalId: input.externalId,
         tags: input.tags ?? [],
         status: "ACTIVE",
         createdAt: now,
@@ -100,6 +103,25 @@ export class SubjectService {
         },
         { Put: buildVersionedCreate(this.tableName, subject as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       ];
+      // Index of the pointer's Put entry, if present - needed below to distinguish an
+      // externalId collision (SubjectExternalIdConflictError, no retry) from an ordinary
+      // contention race on the entitlement counter or a colliding fresh ULID (retry with
+      // fresh state), per D-192 §2.
+      let pointerEntryIndex: number | undefined;
+      if (input.externalId !== undefined) {
+        const pointer: SubjectExternalIdPointer = {
+          ...subjectExternalIdPointerKey(ctx.tenant.tenantId, input.externalId),
+          entityType: "SubjectExternalIdPointer",
+          tenantId: ctx.tenant.tenantId,
+          externalId: input.externalId,
+          subjectId,
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+        };
+        pointerEntryIndex = entries.length;
+        entries.push({ Put: buildVersionedCreate(this.tableName, pointer as unknown as Record<string, unknown> & { PK: string; SK: string }) });
+      }
       this.appendAudit(entries, ctx, {
         resourceType: "TrackedSubject",
         resourceId: subjectId,
@@ -114,12 +136,34 @@ export class SubjectService {
         await this.store.transactWrite(entries);
         return subject;
       } catch (err) {
-        if (isTransactionCanceled(err)) continue; // corrida no contador ou no ID novo - repete com estado fresco
+        if (isTransactionCanceled(err)) {
+          if (pointerEntryIndex !== undefined) {
+            const codes = getCancellationReasonCodes(err);
+            if (codes?.[pointerEntryIndex] === "ConditionalCheckFailed") {
+              throw new SubjectExternalIdConflictError("A TrackedSubject with this externalId already exists.", {
+                tenantId: ctx.tenant.tenantId,
+                externalId: input.externalId,
+              });
+            }
+          }
+          continue; // corrida no contador ou no ID novo - repete com estado fresco
+        }
         throw err;
       }
     }
 
     throw new ConflictError("Could not create subject under contention.", { tenantId: ctx.tenant.tenantId });
+  }
+
+  /** D-192 §4 lookup path the later Document/Requirement import slices resolve
+   * `subjectRefKind="EXTERNAL_ID"` through: pointer Get -> subjectId -> Get TrackedSubject.
+   * Returns `undefined` (never throws) when no such externalId is claimed in this tenant -
+   * callers decide what "not found" means for them (e.g. a 404 vs. a per-row import rejection). */
+  async getSubjectByExternalId(ctx: RequestContext, externalId: string): Promise<TrackedSubject | undefined> {
+    authorize({ context: ctx, action: "subject:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const pointer = await this.store.get<SubjectExternalIdPointer>(subjectExternalIdPointerKey(ctx.tenant.tenantId, externalId));
+    if (!pointer) return undefined;
+    return this.store.get<TrackedSubject>(subjectKey(ctx.tenant.tenantId, pointer.subjectId));
   }
 
   async getSubject(ctx: RequestContext, subjectId: string): Promise<TrackedSubject> {

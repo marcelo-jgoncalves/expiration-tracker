@@ -460,6 +460,12 @@ locals {
     reserve = { method = "POST", path = "/imports" }
     get     = { method = "GET", path = "/imports/{jobId}" }
     commit  = { method = "POST", path = "/imports/{jobId}/commit" }
+    # D-192 slice 9 (bulk-import-documents-requirements-scoping/estado-final-consolidado.md
+    # §3) - same imports-handler Lambda, resource name deliberately "/import-jobs" per the
+    # design's exact HTTP contract (never "/imports/{jobId}/schema" - a distinct resource root,
+    # not nested under the v1 CSV-subject-only "/imports" surface).
+    schema  = { method = "GET", path = "/import-jobs/{jobId}/schema" }
+    mapping = { method = "POST", path = "/import-jobs/{jobId}/mapping" }
   }
 }
 
@@ -480,6 +486,18 @@ resource "aws_lambda_permission" "imports" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/imports*"
+}
+
+# D-192 slice 9: "/import-jobs*" is a DIFFERENT path prefix from "/imports*" above - API
+# Gateway's source_arn wildcard match is prefix-based on the literal path text, so the schema/
+# mapping routes need their own lambda_permission grant even though it's the same Lambda.
+resource "aws_lambda_permission" "import_jobs" {
+  statement_id  = "AllowApiGatewayInvokeImportJobs"
+  action        = "lambda:InvokeFunction"
+  function_name = var.imports_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/import-jobs*"
 }
 
 # --- DocumentArchiveHandler: /document-archive/* (D-143 Nucleus 1) -------------------------

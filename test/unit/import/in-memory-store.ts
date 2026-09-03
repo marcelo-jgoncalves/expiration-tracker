@@ -235,7 +235,11 @@ export class FakeImportObjectStore implements ImportObjectStore {
 
   async getObject(bucket: string, key: string): Promise<Buffer> {
     const value = this.objects.get(`${bucket}/${key}`);
-    if (!value) throw new Error(`FakeImportObjectStore: object not found: ${bucket}/${key}`);
+    // Real S3Client (@aws-sdk/client-s3) throws an error named "NoSuchKey" when the object
+    // doesn't exist - import-service.ts#rawCsvNotYetUploaded relies on that name to distinguish
+    // "file hasn't arrived yet" (§3: UPLOADED -> POST /mapping -> stays UPLOADED, mapping-only
+    // write) from a genuine failure, so this fake mirrors the real error's `name`.
+    if (!value) throw Object.assign(new Error(`FakeImportObjectStore: object not found: ${bucket}/${key}`), { name: "NoSuchKey" });
     return value;
   }
 

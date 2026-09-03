@@ -1293,4 +1293,53 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json", { subjectId: "s", bogus: true });
     expect(valid).toBe(false);
   });
+
+  // D-192 slice 9 (bulk-import-documents-requirements-scoping) - POST /import-jobs/{jobId}/mapping.
+
+  it("accepts a valid TrackedSubject import-mapping-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: { schemaVersion: 1, targetKind: "TrackedSubject", columns: { displayName: "Nome", type: "Tipo", externalId: "ID Externo" } },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid Document import-mapping-request", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: {
+        schemaVersion: 1,
+        targetKind: "Document",
+        columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", documentTypeRef: "Tipo Doc", documentTypeRefKind: "DISPLAY_NAME", hasValidity: "Tem Validade" },
+      },
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid Requirement import-mapping-request", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: { schemaVersion: 1, targetKind: "Requirement", columns: { subjectRef: "Subject", subjectRefKind: "SUBJECT_ID", name: "Nome do Requisito" } },
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an import-mapping-request missing a required field for its targetKind", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: { schemaVersion: 1, targetKind: "TrackedSubject", columns: { type: "Tipo" } },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an import-mapping-request with an unknown targetKind", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: { schemaVersion: 1, targetKind: "NotARealKind", columns: {} },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an import-mapping-request with an unknown column key (additionalProperties)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/import-mapping-request.v1.json", {
+      columnMapping: { schemaVersion: 1, targetKind: "TrackedSubject", columns: { displayName: "Nome", type: "Tipo", bogus: "x" } },
+    });
+    expect(valid).toBe(false);
+  });
 });

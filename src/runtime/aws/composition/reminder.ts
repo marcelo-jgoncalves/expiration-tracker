@@ -70,6 +70,11 @@ export function buildOutboxRelayDeps(
   chasingQueueUrl?: string,
   importCommitQueueUrl?: string,
   materializationTriggerQueueUrl?: string,
+  // D-192 slice 9: FOURTH optional sender on this same shared relay - `POST /mapping`'s
+  // AWAITING_MAPPING->PARSING transition dispatches this destination in the same TWI as the
+  // claim (import-service.ts#submitImportMapping). Same "bare event.data, self-contained"
+  // payload shape as SQS_IMPORT_COMMIT_V1 (tenantId embedded, no extra envelope wrapping).
+  importParseQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -103,6 +108,7 @@ export function buildOutboxRelayDeps(
       SQS_REMINDER_DISPATCH_V1: send(queueUrl),
       ...(chasingQueueUrl ? { SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingQueueUrl) } : {}),
       ...(importCommitQueueUrl ? { SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl) } : {}),
+      ...(importParseQueueUrl ? { SQS_IMPORT_PARSE_V1: send(importParseQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
     },
   };

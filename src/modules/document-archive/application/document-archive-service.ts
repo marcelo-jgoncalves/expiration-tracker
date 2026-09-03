@@ -123,7 +123,9 @@ export type TransactEntryLabel =
   | { kind: "REQUIREMENT"; templateItemId?: string }
   | { kind: "POINTER"; name: string; templateItemId?: string }
   | { kind: "TEMPLATE_FENCE" }
-  | { kind: "SUBJECT_FENCE" };
+  | { kind: "SUBJECT_FENCE" }
+  | { kind: "DOCUMENT_TYPE_FENCE" }
+  | { kind: "DOCUMENT" };
 
 export interface DocumentArchiveServiceDeps {
   store: DocumentArchiveStore;
@@ -143,6 +145,185 @@ export interface DocumentArchiveServiceDeps {
 export interface AcceptVersionResult {
   document: Document;
   acceptedVersionId: string;
+}
+
+/** Input to `buildCreateDocumentEntries()` — every field the pure planner needs, with
+ * `subjectId`/`documentTypeId` already RESOLVED to real ids (D-192 §4: reference resolution
+ * — externalId/displayName lookups via `SubjectExternalIdPointer`/`documentTypeNamePointerKey`
+ * — is the import module's job, done in a batched `BatchGetItem` phase before this planner ever
+ * runs; `document-archive` cannot reach `subject/**` per `.dependency-cruiser.cjs`, so this
+ * function is deliberately never the place that does an externalId lookup itself). */
+export interface BuildCreateDocumentEntriesInput {
+  tableName: string;
+  tenantId: string;
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+  hasValidity: boolean;
+  now: string;
+}
+
+export interface BuildCreateDocumentEntriesResult {
+  document: Document;
+  entries: TransactWriteEntry[];
+  labels: TransactEntryLabel[];
+}
+
+/**
+ * D-192 §5/§6: pure planner (no I/O) that builds the `Document` row plus its transactional
+ * entries — the SAME `{entries, labels}` shape `createRequirement()`/`applyTemplate()` already
+ * use for structural cancellation classification. Reused by `createDocument()` below (zero
+ * change to its external contract) and, later, by the bulk-import commit worker (not wired yet —
+ * this slice only adds the function).
+ *
+ * Entry order fixed at [DocumentType fence, Subject fence, Document Put] — mirrors
+ * `createRequirement()`'s "broadest precondition first" discipline in `throwClassifiedCancellation`.
+ * The Subject fence (D-192 §5, gap `DA-SUBJECT-FENCE-01`) is NEW here: `createDocument()` never
+ * checked the owning Subject's existence/status before this slice, unlike `createRequirement()`
+ * (D-191) which already had it.
+ */
+export function buildCreateDocumentEntries(input: BuildCreateDocumentEntriesInput): BuildCreateDocumentEntriesResult {
+  const { tableName, tenantId, documentId, subjectId, documentTypeId, hasValidity, now } = input;
+  const document: Document = {
+    ...documentKey(tenantId, documentId),
+    entityType: "Document",
+    documentId,
+    tenantId,
+    subjectId,
+    documentTypeId,
+    status: "ACTIVE",
+    hasValidity,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
+    // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
+    // both index memberships live on one physical row, no mirror item needed for this pattern.
+    ...documentGsi2Keys(tenantId, subjectId, documentTypeId, documentId),
+  };
+
+  const labels: TransactEntryLabel[] = [{ kind: "DOCUMENT_TYPE_FENCE" }, { kind: "SUBJECT_FENCE" }, { kind: "DOCUMENT" }];
+  const entries: TransactWriteEntry[] = [
+    buildExistenceConditionCheck({
+      tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      extra: { status: "ACTIVE" },
+    }),
+    // `attribute_exists(PK) AND status = ACTIVE` — enumerated, never `<> DELETED` (same reasoning
+    // as `buildSubjectFence()` below; `TrackedSubjectStatus` is `ACTIVE | ARCHIVED | DELETED`).
+    buildSubjectFence(tableName, tenantId, subjectId),
+    { Put: buildVersionedCreate(tableName, document as unknown as Record<string, unknown> & EntityKey) },
+  ];
+  return { document, entries, labels };
+}
+
+/** Shared by `createRequirement`/`updateRequirement`/`applyTemplate` and, since D-192 §6,
+ * `buildCreateRequirementEntries()` — the pointer row that makes the per-Subject name
+ * uniqueness rule transactional rather than a read-then-write. Module-level (not a class method)
+ * so the pure planner below can build the identical row with no `DocumentArchiveService`
+ * instance in scope. */
+function buildRequirementNamePointer(tenantId: string, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
+  const normalizedName = normalizeDisplayName(name);
+  return {
+    ...requirementNamePointerKey(tenantId, subjectId, normalizedName),
+    entityType: "RequirementNamePointer",
+    tenantId,
+    subjectId,
+    normalizedName,
+    requirementId,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+}
+
+/** `attribute_exists(PK) AND status = ACTIVE` — the status is ENUMERATED, never `<> DELETED`,
+ * which would let an ARCHIVED Subject through (`TrackedSubjectStatus` is
+ * `ACTIVE | ARCHIVED | DELETED`). Module-level for the same reason as `buildRequirementNamePointer`
+ * above — shared by `createDocument`/`createRequirement`/`applyTemplate` and the pure planners. */
+function buildSubjectFence(tableName: string, tenantId: string, subjectId: string) {
+  return buildExistenceConditionCheck({
+    tableName,
+    key: trackedSubjectKeyForFence(tenantId, subjectId),
+    extra: { status: SUBJECT_STATUS_ACCEPTING_REQUIREMENTS },
+  });
+}
+
+/** Shared by all 4 Requirement mutation sites (D-179/D-185) plus `buildCreateRequirementEntries()`
+ * — computes the GSI8 pointer fields to `set` (SATISFIED + `evidenceValidUntil`) or the sentinel
+ * meaning "remove instead" (every other case), keeping `deriveRequirementMaintenanceDue` the
+ * single source of truth for eligibility rather than re-deriving it at each call site. Module-level
+ * for the same "pure planner needs no class instance" reason as the two helpers above. */
+function buildRequirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: string, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
+  const due = deriveRequirementMaintenanceDue(status, evidenceValidUntil);
+  return due ? requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, requirementId }) : {};
+}
+
+/** Input to `buildCreateRequirementEntries()` — the sibling planner to
+ * `buildCreateDocumentEntries()` above (D-192 §6 slice 3). No externalId/subjectId resolution
+ * happens here either — same division of labor: the import module resolves references in a
+ * batched phase before ever calling this pure function. */
+export interface BuildCreateRequirementEntriesInput {
+  tableName: string;
+  tenantId: string;
+  requirementId: string;
+  subjectId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  now: string;
+}
+
+export interface BuildCreateRequirementEntriesResult {
+  requirement: Requirement;
+  entries: TransactWriteEntry[];
+  labels: TransactEntryLabel[];
+}
+
+/**
+ * D-192 §6 slice 3: pure planner (no I/O), sibling to `buildCreateDocumentEntries()` above —
+ * builds the `Requirement` row, its `RequirementNamePointer`, and the Subject fence, in the
+ * exact `{requirement, entries, labels}` shape `createRequirement()` already builds inline.
+ * Reused by `createRequirement()` below (zero change to its external contract) and, later, by
+ * the bulk-import commit worker (not wired yet — this slice only adds the function).
+ *
+ * Entry order fixed at [Requirement Put, RequirementNamePointer Put, Subject fence] — matches
+ * `createRequirement()`'s existing entry order (unlike Document's fence-first order) so this
+ * refactor changes no observable transaction shape.
+ */
+export function buildCreateRequirementEntries(input: BuildCreateRequirementEntriesInput): BuildCreateRequirementEntriesResult {
+  const { tableName, tenantId, requirementId, subjectId, name, notes, applicability, now } = input;
+  const status = deriveRequirementStatus(applicability, undefined, new Date(now));
+  const requirement: Requirement = {
+    ...requirementKey(tenantId, subjectId, requirementId),
+    entityType: "Requirement",
+    requirementId,
+    tenantId,
+    subjectId,
+    name,
+    // `notes` omitted entirely (never written as an explicit `undefined` attribute value) when
+    // the caller didn't supply one — same D3-style "no fabricated value" discipline as
+    // Document.hasValidity's optional siblings.
+    ...(notes !== undefined ? { notes } : {}),
+    applicability,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    ...requirementGsi1Keys(tenantId, status, now, requirementId),
+    // Never due at creation (status is always MISSING/NOT_APPLICABLE here, `deriveRequirementStatus`
+    // with no evidence linked) — included anyway for the same uniform-write-site discipline the
+    // other 3 mutation sites need, since a future caller shape could change that invariant.
+    ...buildRequirementGsi8Fields(status, undefined, tenantId, requirementId),
+  };
+
+  const labels: TransactEntryLabel[] = [{ kind: "REQUIREMENT" }, { kind: "POINTER", name }, { kind: "SUBJECT_FENCE" }];
+  const entries: TransactWriteEntry[] = [
+    { Put: buildVersionedCreate(tableName, requirement as unknown as Record<string, unknown> & EntityKey) },
+    { Put: buildVersionedCreate(tableName, buildRequirementNamePointer(tenantId, subjectId, name, requirementId, now) as unknown as Record<string, unknown> & EntityKey) },
+    buildSubjectFence(tableName, tenantId, subjectId),
+  ];
+  return { requirement, entries, labels };
 }
 
 /** A persisted `DocumentFile` row plus the presigned PUT the caller uploads its bytes to —
@@ -210,42 +391,19 @@ export class DocumentArchiveService {
     const tenantId = ctx.tenant.tenantId;
     const documentId = this.ids.newDocumentId();
     const now = this.now();
-    const document: Document = {
-      ...documentKey(tenantId, documentId),
-      entityType: "Document",
-      documentId,
+    const { document, entries, labels } = buildCreateDocumentEntries({
+      tableName: this.tableName,
       tenantId,
+      documentId,
       subjectId: input.subjectId,
       documentTypeId: input.documentTypeId,
-      status: "ACTIVE",
       hasValidity: input.hasValidity,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-      ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
-      // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
-      // both index memberships live on one physical row, no mirror item needed for this pattern.
-      ...documentGsi2Keys(tenantId, input.subjectId, input.documentTypeId, documentId),
-    };
-
-    const entries = [
-      buildExistenceConditionCheck({
-        tableName: this.tableName,
-        key: documentTypeKey(tenantId, input.documentTypeId),
-        extra: { status: "ACTIVE" },
-      }),
-      { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
-    ];
+      now,
+    });
     try {
       await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
-      if (isTransactionCanceled(err)) {
-        const codes = getCancellationReasonCodes(err);
-        if (codes?.[0] === "ConditionalCheckFailed") throw new DocumentTypeNotActiveError("This DocumentType is not ACTIVE.", { documentTypeId: input.documentTypeId });
-        if (codes?.[1] === "ConditionalCheckFailed") throw new ConflictError("Document already exists.", { documentId });
-        throw new ConflictError("createDocument transaction was rejected.", { documentId });
-      }
-      throw err;
+      this.throwClassifiedCancellation(err, labels, { documentId, subjectId: input.subjectId, documentTypeId: input.documentTypeId });
     }
     return document;
   }
@@ -676,46 +834,23 @@ export class DocumentArchiveService {
     const tenantId = ctx.tenant.tenantId;
     const requirementId = this.ids.newRequirementId();
     const now = this.now();
-    const status = deriveRequirementStatus(input.applicability, undefined, new Date(now));
-    const requirement: Requirement = {
-      ...requirementKey(tenantId, input.subjectId, requirementId),
-      entityType: "Requirement",
-      requirementId,
+    // P0.1/§3: `putIfAbsent` replaced by a real transaction, planned by `buildCreateRequirementEntries()`
+    // (D-192 §6 slice 3). Two properties this buys, neither of which a single conditional Put can
+    // give: the per-Subject name uniqueness rule is enforced by the pointer's own
+    // `attribute_not_exists` (not by a read-then-write), and the Subject's existence/status is
+    // fenced INSIDE the same transaction — a pre-existing gap found by this decision's Round 2
+    // (`createRequirement` never checked the Subject at all and would happily create a
+    // Requirement under a non-existent or ARCHIVED Subject).
+    const { requirement, entries, labels } = buildCreateRequirementEntries({
+      tableName: this.tableName,
       tenantId,
+      requirementId,
       subjectId: input.subjectId,
       name: input.name,
-      // `notes` omitted entirely (never written as an explicit `undefined` attribute value) when
-      // the caller didn't supply one — same D3-style "no fabricated value" discipline as
-      // Document.hasValidity's optional siblings.
-      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      notes: input.notes,
       applicability: input.applicability,
-      status,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-      ...requirementGsi1Keys(tenantId, status, now, requirementId),
-      // Never due at creation (status is always MISSING/NOT_APPLICABLE here, `deriveRequirementStatus`
-      // with no evidence linked) — included anyway for the same uniform-write-site discipline the
-      // other 3 mutation sites below need, since a future caller shape could change that invariant.
-      ...this.requirementGsi8Fields(status, undefined, tenantId, requirementId),
-    };
-
-    // P0.1/§3: `putIfAbsent` replaced by a real transaction. Two properties this buys, neither
-    // of which a single conditional Put can give: the per-Subject name uniqueness rule is
-    // enforced by the pointer's own `attribute_not_exists` (not by a read-then-write), and the
-    // Subject's existence/status is fenced INSIDE the same transaction — a pre-existing gap
-    // found by this decision's Round 2 (`createRequirement` never checked the Subject at all and
-    // would happily create a Requirement under a non-existent or ARCHIVED Subject).
-    const labels: TransactEntryLabel[] = [
-      { kind: "REQUIREMENT" },
-      { kind: "POINTER", name: input.name },
-      { kind: "SUBJECT_FENCE" },
-    ];
-    const entries = [
-      { Put: buildVersionedCreate(this.tableName, requirement as unknown as Record<string, unknown> & EntityKey) },
-      { Put: buildVersionedCreate(this.tableName, this.buildRequirementNamePointer(tenantId, input.subjectId, input.name, requirementId, now) as unknown as Record<string, unknown> & EntityKey) },
-      this.buildSubjectFence(tenantId, input.subjectId),
-    ];
+      now,
+    });
     try {
       await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
@@ -774,6 +909,9 @@ export class DocumentArchiveService {
     if (failed.some((label) => label.kind === "TEMPLATE_FENCE")) {
       throw new TemplatePreconditionFailedError(undefined, details);
     }
+    if (failed.some((label) => label.kind === "DOCUMENT_TYPE_FENCE")) {
+      throw new DocumentTypeNotActiveError(undefined, details);
+    }
     if (failed.some((label) => label.kind === "SUBJECT_FENCE")) {
       throw new SubjectPreconditionFailedError(undefined, details);
     }
@@ -784,6 +922,9 @@ export class DocumentArchiveService {
     }
     if (failed.some((label) => label.kind === "REQUIREMENT")) {
       throw new ConflictError("Requirement was concurrently modified.", details);
+    }
+    if (failed.some((label) => label.kind === "DOCUMENT")) {
+      throw new ConflictError("Document already exists.", details);
     }
     throw new ConflictError("The transaction was rejected by a condition check.", details);
   }

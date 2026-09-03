@@ -85,4 +85,10 @@ export interface DocumentArchiveStore {
    * One physical `ScanCommand` per call, paginated by the caller.
    */
   scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
+  /** D-192 §4 (fatia 6) — `BatchGetItem` real, mesmo contrato de `SubjectStore.batchGet`
+   * (`import/application/resolve-subject-references.ts`, fatia 5): usado pela resolução
+   * batched de referência de DocumentType do bulk-import de Document (duas fases,
+   * `DocumentTypeNamePointer` numa fase, `DocumentType` na outra). Ordem do retorno não é
+   * garantida; chave ausente na tabela é simplesmente omitida do array de retorno. */
+  batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]>;
 }

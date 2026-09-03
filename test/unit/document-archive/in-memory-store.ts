@@ -315,4 +315,21 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }
+
+  /** D-192 §4 (fatia 6) fake — mesmo padrão de test/unit/subject/in-memory-store.ts:
+   * `batchGetCallCount`/`batchGetKeyCount` provam que o CHAMADOR dedupou antes de bater no
+   * store, não que o fake dedupou por conta própria. */
+  batchGetCallCount = 0;
+  batchGetKeyCount = 0;
+
+  async batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]> {
+    this.batchGetCallCount += 1;
+    this.batchGetKeyCount += keys.length;
+    const found: T[] = [];
+    for (const key of keys) {
+      const item = this.items.get(this.k(key));
+      if (item) found.push(item as unknown as T);
+    }
+    return found;
+  }
 }

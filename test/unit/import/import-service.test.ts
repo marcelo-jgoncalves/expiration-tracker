@@ -1,9 +1,10 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { InMemoryImportStore, activeLifecycleRecord } from "./in-memory-store.js";
+import { InMemoryImportStore, activeLifecycleRecord, FakeImportObjectStore } from "./in-memory-store.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { ImportService, type ImportCommitCommand } from "../../../src/modules/import/application/import-service.js";
-import { importJobKey, type ImportJob } from "../../../src/modules/import/domain/import-job.js";
+import { importJobKey, type ImportJob, type ColumnMapping } from "../../../src/modules/import/domain/import-job.js";
+import { ValidationError } from "../../../src/shared/errors/app-error.js";
 import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
 import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -34,6 +35,7 @@ describe("ImportService (M11, D-042)", () => {
   let store: InMemoryImportStore;
   let service: ImportService;
   let identityStore: InMemoryIdentityStore;
+  let objectStore: FakeImportObjectStore;
 
   beforeEach(async () => {
     store = new InMemoryImportStore([activeLifecycleRecord(TENANT)]);
@@ -51,6 +53,7 @@ describe("ImportService (M11, D-042)", () => {
     });
     const quota = new TenantQuotaService(identityStore, "MainTable", () => NOW);
     let counter = 0;
+    objectStore = new FakeImportObjectStore();
     service = new ImportService({
       store,
       tableName: TABLE,
@@ -58,6 +61,7 @@ describe("ImportService (M11, D-042)", () => {
       ids: { newImportJobId: () => `importjob-${++counter}` },
       signer: { presignUpload: async (input) => ({ uploadUrl: `https://s3.example/${input.key}`, requiredHeaders: {} }) },
       quota,
+      objectStore,
       now: () => NOW,
     });
   });
@@ -205,6 +209,168 @@ describe("ImportService (M11, D-042)", () => {
 
       const job = await service.getImportJob(ctx(), retry.jobId);
       expect(job.status).toBe("UPLOADED");
+    });
+  });
+
+  // D-192 slice 9 (bulk-import-documents-requirements-scoping/estado-final-consolidado.md §3):
+  // GET /import-jobs/{jobId}/schema and POST /import-jobs/{jobId}/mapping.
+  describe("getImportJobSchema / submitImportMapping (D-192 slice 9)", () => {
+    function rawKey(tenantId: string, jobId: string): string {
+      return `tenant/${tenantId}/imports/${jobId}/raw.csv`;
+    }
+
+    async function seedDocumentJob(jobId: string): Promise<ImportJob> {
+      const job: ImportJob = {
+        PK: `TENANT#${TENANT}#IMPORTJOB#${jobId}`,
+        SK: "META",
+        entityType: "ImportJob",
+        jobId,
+        tenantId: TENANT,
+        targetEntityType: "Document",
+        status: "AWAITING_MAPPING",
+        createdByUserId: "user-1",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        createdAt: NOW,
+        updatedAt: NOW,
+        version: 1,
+      };
+      await store.putIfAbsent(job);
+      return job;
+    }
+
+    it("getImportJobSchema returns FIELD_CATALOG fields + sniffed headers/sample rows for a Document job", async () => {
+      const jobId = "docjob-1";
+      await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\nACME,Contract,true\n");
+
+      const result = await service.getImportJobSchema(ctx(), jobId);
+      expect(result.targetEntityType).toBe("Document");
+      expect(result.fields.map((f) => f.field)).toContain("subjectRef");
+      expect(result.headers).toEqual(["Subject", "Doc Type", "Has Validity"]);
+      expect(result.sampleRows).toEqual([["ACME", "Contract", "true"]]);
+    });
+
+    it("getImportJobSchema throws ConflictError once the job is past AWAITING_MAPPING/UPLOADED", async () => {
+      const jobId = "docjob-2";
+      const job = await seedDocumentJob(jobId);
+      await store.update<ImportJob>({ ...job, status: "PARSING" });
+      await expect(service.getImportJobSchema(ctx(), jobId)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("submitImportMapping rejects a mapping whose targetKind does not match the job's targetEntityType", async () => {
+      const jobId = "docjob-3";
+      const job = await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\n");
+      const mapping: ColumnMapping = { schemaVersion: 1, targetKind: "Requirement", columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", name: "Name" } };
+      await expect(service.submitImportMapping(ctx(), jobId, mapping, job.version)).rejects.toBeInstanceOf(ValidationError);
+    });
+
+    it("submitImportMapping rejects a mapping referencing a column not present in the uploaded CSV header (G-V3: mapping-validation-rejects-mismatched-headers)", async () => {
+      const jobId = "docjob-4";
+      const job = await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\n");
+      const mapping: ColumnMapping = {
+        schemaVersion: 1,
+        targetKind: "Document",
+        columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", documentTypeRef: "Does Not Exist Column", documentTypeRefKind: "DISPLAY_NAME", hasValidity: "Has Validity" },
+      };
+      await expect(service.submitImportMapping(ctx(), jobId, mapping, job.version)).rejects.toBeInstanceOf(ValidationError);
+    });
+
+    it("submitImportMapping rejects a mapping missing a required field for the job's targetEntityType", async () => {
+      const jobId = "docjob-5";
+      const job = await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\n");
+      const mapping = { schemaVersion: 1, targetKind: "Document", columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID" } } as unknown as ColumnMapping;
+      await expect(service.submitImportMapping(ctx(), jobId, mapping, job.version)).rejects.toBeInstanceOf(ValidationError);
+    });
+
+    it("submitImportMapping on a valid mapping transitions AWAITING_MAPPING->PARSING and dispatches SQS_IMPORT_PARSE_V1 in the SAME transaction", async () => {
+      const jobId = "docjob-6";
+      const job = await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\nACME,Contract,true\n");
+      const mapping: ColumnMapping = {
+        schemaVersion: 1,
+        targetKind: "Document",
+        columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", documentTypeRef: "Doc Type", documentTypeRefKind: "DISPLAY_NAME", hasValidity: "Has Validity" },
+      };
+
+      const result = await service.submitImportMapping(ctx(), jobId, mapping, job.version);
+      expect(result.status).toBe("PARSING");
+
+      const updated = await store.get<ImportJob>(importJobKey(TENANT, jobId));
+      expect(updated?.status).toBe("PARSING");
+      expect(updated?.columnMapping).toEqual(mapping);
+      expect(updated?.columnMappingSha256).toBeTruthy();
+
+      const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
+      expect(outboxRecords).toHaveLength(1);
+      expect(outboxRecords[0]?.["destination"]).toBe("SQS_IMPORT_PARSE_V1");
+      const payload = outboxRecords[0]?.["payload"] as { tenantId: string; jobId: string };
+      expect(payload.tenantId).toBe(TENANT);
+      expect(payload.jobId).toBe(jobId);
+    });
+
+    it("submitImportMapping on a job still UPLOADED (file not yet delivered) stays UPLOADED, mapping-only write, no outbox dispatch", async () => {
+      const jobId = "docjob-7";
+      const job: ImportJob = {
+        PK: `TENANT#${TENANT}#IMPORTJOB#${jobId}`,
+        SK: "META",
+        entityType: "ImportJob",
+        jobId,
+        tenantId: TENANT,
+        targetEntityType: "Document",
+        status: "UPLOADED",
+        createdByUserId: "user-1",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        createdAt: NOW,
+        updatedAt: NOW,
+        version: 1,
+      };
+      await store.putIfAbsent(job);
+      // File genuinely hasn't arrived yet - objectStore has nothing seeded for this key.
+      const mapping: ColumnMapping = {
+        schemaVersion: 1,
+        targetKind: "Document",
+        columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", documentTypeRef: "Doc Type", documentTypeRefKind: "DISPLAY_NAME", hasValidity: "Has Validity" },
+      };
+
+      const result = await service.submitImportMapping(ctx(), jobId, mapping, job.version);
+      expect(result.status).toBe("UPLOADED");
+
+      const updated = await store.get<ImportJob>(importJobKey(TENANT, jobId));
+      expect(updated?.status).toBe("UPLOADED");
+      expect(updated?.columnMapping).toEqual(mapping);
+
+      const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
+      expect(outboxRecords).toHaveLength(0);
+    });
+
+    // G-V3 adversarial: concurrent double-POST /mapping - one wins, the other loses the OCC claim.
+    it("adversarial: two concurrent submitImportMapping calls with the SAME expectedVersion - exactly one wins, the loser gets ConflictError", async () => {
+      const jobId = "docjob-8";
+      const job = await seedDocumentJob(jobId);
+      objectStore.seed(RAW_BUCKET, rawKey(TENANT, jobId), "Subject,Doc Type,Has Validity\nACME,Contract,true\n");
+      const mapping: ColumnMapping = {
+        schemaVersion: 1,
+        targetKind: "Document",
+        columns: { subjectRef: "Subject", subjectRefKind: "EXTERNAL_ID", documentTypeRef: "Doc Type", documentTypeRefKind: "DISPLAY_NAME", hasValidity: "Has Validity" },
+      };
+
+      const results = await Promise.allSettled([
+        service.submitImportMapping(ctx(), jobId, mapping, job.version),
+        service.submitImportMapping(ctx(), jobId, mapping, job.version),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(ConflictError);
+
+      // Only ONE outbox record was ever produced - the loser never got far enough to dispatch.
+      const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
+      expect(outboxRecords).toHaveLength(1);
     });
   });
 });

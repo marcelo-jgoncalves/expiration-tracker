@@ -529,6 +529,20 @@ export class SubjectPreconditionFailedError extends AppError {
   }
 }
 
+/** D-192 §2 (`docs/architecture/reviews/bulk-import-documents-requirements-scoping/
+ * estado-final-consolidado.md`): thrown when `createSubject()`'s `SubjectExternalIdPointer`
+ * `Put` (`attribute_not_exists`) loses the race — the tenant already has a different
+ * `TrackedSubject` claiming this `externalId`. Same shape as `DocumentTypeNameConflictError`
+ * (D-173), but `externalId` is create-only here (no rename path yet, so no equivalent of
+ * `renameDocumentType()`'s changed-name pointer). `retryable: false`: the caller must supply a
+ * different `externalId`, not just retry the identical request. */
+export class SubjectExternalIdConflictError extends AppError {
+  constructor(message = "A TrackedSubject with this externalId already exists.", details?: Record<string, unknown>) {
+    super({ code: "SUBJECT_EXTERNAL_ID_CONFLICT", category: "CONFLICT", message, retryable: false, details });
+    this.name = "SubjectExternalIdConflictError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

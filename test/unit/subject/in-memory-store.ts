@@ -158,6 +158,23 @@ export class InMemorySubjectStore implements SubjectStore {
     return matches as unknown as T[];
   }
 
+  /** D-192 §4 fake — no chunking/retry needed in-memory (no `UnprocessedKeys` concept), but
+   * `batchGetCallCount`/`batchGetKeyCount` below let tests assert the CALLER deduped its input
+   * (batched resolution's whole point) rather than the fake proving anything on its own. */
+  batchGetCallCount = 0;
+  batchGetKeyCount = 0;
+
+  async batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]> {
+    this.batchGetCallCount += 1;
+    this.batchGetKeyCount += keys.length;
+    const found: T[] = [];
+    for (const key of keys) {
+      const item = this.items.get(this.k(key));
+      if (item) found.push(item as unknown as T);
+    }
+    return found;
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }

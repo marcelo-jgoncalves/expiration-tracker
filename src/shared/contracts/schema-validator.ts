@@ -49,6 +49,8 @@ import updateDocumentRequestDeliveryPreferenceRequestV1 from "../../../schemas/a
 import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
 import reserveImportRequestV1 from "../../../schemas/api/reserve-import-request.v1.json";
 import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
+// D-192 slice 9 (bulk-import-documents-requirements-scoping) — POST /import-jobs/{jobId}/mapping.
+import importMappingRequestV1 from "../../../schemas/api/import-mapping-request.v1.json";
 import confirmExtractedFieldRequestV1 from "../../../schemas/api/confirm-extracted-field-request.v1.json";
 import rejectExtractedFieldRequestV1 from "../../../schemas/api/reject-extracted-field-request.v1.json";
 // Wave B2B-8 (D-099).
@@ -171,6 +173,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   updateDocumentRequestDeliveryPreferenceRequestV1,
   reserveImportRequestV1,
   importCommitV1,
+  importMappingRequestV1,
   // M7 item 8's two HTTP routes (documents-handler). Missing here until 2026-08-27, which made
   // both routes return 500 "Unknown schema $id" in `dev` real — see NEXT_SESSION_PROMPT.md's
   // M7 verification section for the captured evidence.

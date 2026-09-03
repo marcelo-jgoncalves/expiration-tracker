@@ -117,6 +117,7 @@ describe("finalizeSubmissionUpload", () => {
       updateConditional: store.updateConditional.bind(store),
       queryGsi7: store.queryGsi7.bind(store),
       queryByPk: store.queryByPk.bind(store),
+      batchGet: store.batchGet.bind(store),
     };
 
     const outcome = await finalizeSubmissionUpload({ store: racingStore, objects: fakeObjects(), parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET }, INPUT_BASE);

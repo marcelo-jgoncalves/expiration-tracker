@@ -28,16 +28,39 @@ interface S3ObjectCreatedDetail {
   object: { key: string };
 }
 
+/** D-192 slice 9: the SQS_IMPORT_PARSE_V1 envelope (`import-service.ts#submitImportMapping`'s
+ * outbox dispatch) - bare `{tenantId, jobId}`, no S3 `detail` wrapper. Discriminated from the
+ * S3-event shape ONLY here in the handler (never inside `parseImportJob()`, which stays a pure
+ * function agnostic of which of the two triggers called it, per the design). */
+interface ImportParseTriggerMessage {
+  tenantId: string;
+  jobId: string;
+}
+
+function isImportParseTriggerMessage(message: unknown): message is ImportParseTriggerMessage {
+  const m = message as Partial<ImportParseTriggerMessage> | undefined;
+  return typeof m?.tenantId === "string" && typeof m?.jobId === "string";
+}
+
 export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
     await runWithContext({ correlationId: randomUUID() }, async () => {
       try {
-        const message = JSON.parse(record.body) as { detail?: S3ObjectCreatedDetail };
+        const message = JSON.parse(record.body) as { detail?: S3ObjectCreatedDetail } & Partial<ImportParseTriggerMessage>;
+
+        if (isImportParseTriggerMessage(message)) {
+          await runWithContext({ correlationId: randomUUID(), tenantId: message.tenantId }, async () => {
+            const outcome = await parseImportJob(deps, message.tenantId, message.jobId);
+            logger.info("import-parse outcome (SQS_IMPORT_PARSE_V1 trigger)", { jobId: message.jobId, outcome });
+          });
+          return;
+        }
+
         const detail = message.detail;
         if (!detail?.bucket?.name || !detail.object?.key) {
-          logger.error("import-parse malformed S3 event", { messageId: record.messageId });
+          logger.error("import-parse malformed message (neither S3 event nor SQS_IMPORT_PARSE_V1 trigger)", { messageId: record.messageId });
           batchItemFailures.push({ itemIdentifier: record.messageId });
           return;
         }
@@ -52,7 +75,7 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
 
         await runWithContext({ correlationId: randomUUID(), tenantId: parsed.tenantId }, async () => {
           const outcome = await parseImportJob(deps, parsed.tenantId, parsed.jobId);
-          logger.info("import-parse outcome", { jobId: parsed.jobId, outcome });
+          logger.info("import-parse outcome (S3 event trigger)", { jobId: parsed.jobId, outcome });
         });
       } catch (err) {
         const e = err as { name?: string; message?: string; Code?: string; $metadata?: unknown } | undefined;
