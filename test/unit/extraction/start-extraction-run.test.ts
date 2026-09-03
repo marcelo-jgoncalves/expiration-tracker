@@ -97,7 +97,7 @@ describe("startExtractionRun", () => {
     expect(outcome).toBe("STARTED");
     expect(executions.calls).toHaveLength(1);
 
-    const expectedRunId = deriveExtractionRunId("t1", "doc1", 3, PIPELINE_VERSION_V1);
+    const expectedRunId = deriveExtractionRunId("t1", "doc1", "3", PIPELINE_VERSION_V1);
     expect(executions.calls[0]?.name).toBe(expectedRunId);
     expect(executions.calls[0]?.input).toEqual({
       tenantId: "t1",

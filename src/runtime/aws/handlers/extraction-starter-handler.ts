@@ -4,9 +4,17 @@
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
-import { buildExtractionStarterWorkerDeps } from "../composition/extraction.js";
+import { buildExtractionStarterWorkerDeps, buildExtractionStarterWorkerDepsForDocumentArchive } from "../composition/extraction.js";
 import { startExtractionRun } from "../../../modules/extraction/application/start-extraction-run.js";
+import { startExtractionRunForDocumentArchive } from "../../../modules/extraction/application/start-extraction-run-for-document-archive.js";
 import { parseCleanKey } from "../../../modules/document/domain/clean-key.js";
+// D-193 item 3/9 ("Starter"): third branch, additive, same "never collides" reasoning slice 1's
+// own quarantine-key branch documents in upload-finalizer-handler.ts - the `document-archive/`
+// prefix never appears in `parseCleanKey`'s `clean/<tenantId>/<itemId>/<documentId>` shape. No
+// new infra: this Lambda already receives every S3 "Object Created" event on the shared clean
+// bucket regardless of key prefix (same bucket `buildDocumentArchiveWorkerDeps` already wires
+// for slice 1's ingestion physical handlers).
+import { parseDocumentArchiveCleanKey } from "../../../modules/document-archive/domain/document-archive-clean-key.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -16,6 +24,7 @@ const stateMachineArn = process.env["EXTRACTION_STATE_MACHINE_ARN"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!stateMachineArn) throw new Error("EXTRACTION_STATE_MACHINE_ARN env var is required.");
 const deps = buildExtractionStarterWorkerDeps(client, tableName, stateMachineArn);
+const documentArchiveDeps = buildExtractionStarterWorkerDepsForDocumentArchive(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "extraction-starter" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source (same as
@@ -36,6 +45,24 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         if (!detail?.bucket?.name || !detail.object?.key || !detail.object["version-id"]) {
           logger.error("extraction-starter malformed S3 event", { messageId: record.messageId });
           batchItemFailures.push({ itemIdentifier: record.messageId });
+          return;
+        }
+
+        // D-193 item 3/9: tried FIRST, same "never collides" reasoning as the two physical
+        // handlers' own `document-archive/` branches - this prefix never appears in the OLD
+        // `document`-module `clean/<tenantId>/<itemId>/<documentId>` shape parsed below.
+        const parsedArchive = parseDocumentArchiveCleanKey(detail.object.key);
+        if (parsedArchive) {
+          await runWithContext({ correlationId: randomUUID(), tenantId: parsedArchive.tenantId }, async () => {
+            const outcome = await startExtractionRunForDocumentArchive(documentArchiveDeps, {
+              tenantId: parsedArchive.tenantId,
+              documentId: parsedArchive.documentId,
+              versionId: parsedArchive.versionId,
+              fileId: parsedArchive.fileId,
+              observedCleanObject: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
+            });
+            logger.info("extraction-starter document-archive outcome", { documentId: parsedArchive.documentId, fileId: parsedArchive.fileId, outcome });
+          });
           return;
         }
 

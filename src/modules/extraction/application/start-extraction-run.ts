@@ -50,17 +50,22 @@ export async function startExtractionRun(deps: StartExtractionRunDeps, input: St
   if (doc.status !== "CLEAN") throw new DocumentNotCleanYetError(input.documentId, doc.status);
 
   const documentVersion = doc.version;
+  // D-193 item 3: ExtractionRun's own identity field is now `versionId` (string), never a raw
+  // `documentVersion` number - this OLD `document`-module trigger (kept intact, out of scope
+  // for D-193) adapts by stringifying its own numeric version. `itemId` stays a local
+  // application parameter only (needed below to build ExtractionExecutionInput), never stored
+  // on the ExtractionRun entity itself any more.
+  const versionId = String(documentVersion);
   const pipelineVersion = PIPELINE_VERSION_V1;
-  const runId = deriveExtractionRunId(input.tenantId, input.documentId, documentVersion, pipelineVersion);
+  const runId = deriveExtractionRunId(input.tenantId, input.documentId, versionId, pipelineVersion);
   const now = deps.now?.() ?? new Date().toISOString();
 
   const run: ExtractionRun = {
     ...extractionRunKey(input.tenantId, input.documentId, runId),
     entityType: "ExtractionRun",
     tenantId: input.tenantId,
-    itemId: input.itemId,
     documentId: input.documentId,
-    documentVersion,
+    versionId,
     runId,
     pipelineVersion,
     status: "RUNNING",
