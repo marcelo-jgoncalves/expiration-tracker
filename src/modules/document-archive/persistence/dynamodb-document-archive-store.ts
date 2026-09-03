@@ -19,6 +19,7 @@ const INDEX_PARTITION_KEY_ATTRIBUTE: Record<IndexPageInput["indexName"], string>
   GSI1: "GSI1PK",
   GSI2: "GSI2PK",
   GSI5: "GSI5PK",
+  GSI9: "GSI9PK",
 };
 
 export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {

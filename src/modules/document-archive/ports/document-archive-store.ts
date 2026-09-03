@@ -31,7 +31,7 @@ export interface IndexPageInput {
   /** The partition-key ATTRIBUTE NAME is derived from `indexName` by the persistence
    * implementation (GSI1 -> GSI1PK, etc.) — never supplied by the caller, so a caller cannot
    * accidentally query GSI2 with a GSI1PK-shaped value. */
-  indexName: "GSI1" | "GSI2" | "GSI5";
+  indexName: "GSI1" | "GSI2" | "GSI5" | "GSI9";
   partitionKeyValue: string;
   ascending?: boolean;
   limit?: number;

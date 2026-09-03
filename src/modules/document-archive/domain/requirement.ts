@@ -91,6 +91,18 @@ export interface Requirement extends EntityKey {
    * evidence with no expiration, never drifts on its own). */
   GSI8PK?: string;
   GSI8SK?: string;
+  /** GSI_EVIDENCE reverse index (D-193 slice 5, physical GSI9 — GSI1-GSI8 already claimed,
+   * see `infra/modules/dynamo-table/main.tf`) — present ONLY while `evidenceVersionId` is set
+   * (genuinely sparse, written/removed atomically together with `evidenceVersionId` inside
+   * `linkEvidence`/`unlinkEvidence`, never left stale). Lets the async
+   * `requirement-evidence-refresh` worker (D-193, next slice) find every Requirement
+   * referencing a given DocumentVersion as evidence WITHOUT a direct transaction coupling
+   * between `confirmField`/`rejectField` and `Requirement` — the exact decoupling D-193's design
+   * calls for (`confirmField`/`rejectField` deliberately never touch `Requirement`). Tenant-scoped
+   * (PK carries `TENANT#<t>#...`, unlike the tenantless GSI3/GSI6/GSI8), so it is a normal
+   * `tenant_facing_index_names` entry, not an isolated-IAM index. */
+  GSI9PK?: string;
+  GSI9SK?: string;
 }
 
 /**
@@ -217,5 +229,33 @@ export function requirementGsi8Keys(input: { dueAtIso: string; tenantId: string;
   return {
     GSI8PK: `WORK#${REQUIREMENT_REINDEX_WORK_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#REQUIREMENT#${input.requirementId}`,
+  };
+}
+
+/**
+ * GSI_EVIDENCE (D-193 slice 5, physical GSI9): sparse reverse index from an evidence
+ * `DocumentVersion` back to every `Requirement` that currently links it — `linkEvidence`
+ * SETs these two attributes, `unlinkEvidence` REMOVEs them (genuinely absent afterward, never
+ * set-to-null), same "removed field, not nulled field" discipline as GSI8's pointer above.
+ * `GSI9SK` embeds `requirementId` for uniqueness (a Subject's Requirements never collide, but two
+ * DIFFERENT Subjects' Requirements can legitimately reference the same evidence versionId, e.g.
+ * two Requirements pointing at one shared certificate — the SK must disambiguate those, not just
+ * be a constant marker). Deliberately NOT keyed by `subjectId` — the whole point of this index is
+ * "which Requirement(s) reference this DocumentVersion", found from the DocumentVersion side,
+ * where the caller does not yet know which Subject(s) to look under.
+ */
+/** The partition-key half of `requirementGsi9Keys()`, exposed standalone for the QUERY side
+ * (the reverse-lookup caller has a `tenantId`/`evidenceVersionId` pair but no `requirementId` —
+ * that's the whole point of the query) — `Query(GSI9PK = requirementGsi9PartitionKey(...))`
+ * returns every `Requirement` currently linking that DocumentVersion, no `requirementId` needed
+ * up front. `requirementGsi9Keys()` below reuses this rather than duplicating the template. */
+export function requirementGsi9PartitionKey(tenantId: string, evidenceVersionId: string): string {
+  return `TENANT#${tenantId}#DOCVERSION#${evidenceVersionId}`;
+}
+
+export function requirementGsi9Keys(input: { tenantId: string; evidenceVersionId: string; requirementId: string }): { GSI9PK: string; GSI9SK: string } {
+  return {
+    GSI9PK: requirementGsi9PartitionKey(input.tenantId, input.evidenceVersionId),
+    GSI9SK: `REQUIREMENT#${input.requirementId}`,
   };
 }
