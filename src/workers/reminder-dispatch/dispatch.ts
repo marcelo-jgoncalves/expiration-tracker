@@ -24,6 +24,7 @@ import { itemKey } from "../../modules/expiration/domain/expiration-item.js";
 import { policyKey, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import { occurrenceKey, type ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
 import { intentKey, type NotificationIntent } from "../../modules/reminder/domain/notification-intent.js";
+import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../shared/delivery-record-gsi8.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../../modules/reminder/ports/reminder-store.js";
 import type { DispatchCommand } from "../reminder-producer/producer.js";
 
@@ -164,8 +165,21 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     updatedAt: now,
   };
 
+  const intentGsi8 = deliveryRecordGsi8Keys({
+    dueAtIso: deriveDeliveryRecordMaintenanceDue({ createdAt: intent.createdAt }).dueAtIso,
+    tenantId: intent.tenantId,
+    entityType: "NotificationIntent",
+    sk: intent.SK,
+  });
+
   const entries: TransactWriteEntry[] = [
-    { Put: { TableName: deps.tableName, Item: { ...intent }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
+    {
+      Put: {
+        TableName: deps.tableName,
+        Item: { ...intent, ...intentGsi8 },
+        ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+      },
+    },
     {
       Update: buildVersionedUpdate({
         tableName: deps.tableName,

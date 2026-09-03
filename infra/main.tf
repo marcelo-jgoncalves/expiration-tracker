@@ -969,6 +969,7 @@ module "security_audit_observability" {
     module.quota_telemetry_purge_handler.function_name,
     module.security_audit_purge_handler.function_name,
     module.transient_purge_handler.function_name,
+    module.delivery_record_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3085,9 +3086,11 @@ resource "aws_scheduler_schedule" "core_user_data_purge" {
 # physically purges NotificationIntent/NotificationAttempt rows once createdAt+180d has passed,
 # within ACTIVE tenants only (a completely separate mechanism from tenant-purge's
 # full-tenant-closure pipeline) - see src/workers/delivery-record-purge/purge.ts's doc comment.
-# No dedicated IAM policy beyond the general tenant-facing grant, same reasoning as
-# core_user_data_purge_handler above: this worker's Scan is a base-table operation, and the
-# TenantLifecycleRecord GetItem it performs is a normal tenant-scoped row, not GSI3/GSI6.
+# Migrated off the base-table Scan onto GSI8 by D-179/D-18x (8th of 9 workers) -
+# gsi8_read_policy_json/worker_transact_write_policy_json scoped to WORK#DELIVERY_RECORD/
+# DLQ#DELIVERY_RECORD, same pattern as security_audit_purge_handler below (this worker also has a
+# tenant-ACTIVE fence AND a real `version` OCC counter on both entities, so the claim/delete
+# re-asserts version, not just createdAt).
 module "delivery_record_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3097,8 +3100,12 @@ module "delivery_record_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["delivery_record_purge"],
+    module.table.worker_transact_write_policy_json["delivery_record_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "delivery_record_purge_schedule" {

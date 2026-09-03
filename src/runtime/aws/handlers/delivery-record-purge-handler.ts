@@ -4,7 +4,7 @@
  * never `event.detail`" contract as `core-user-data-purge-handler.ts`. Wired to real infra
  * (Lambda resource + EventBridge Scheduler schedule + IAM) in `infra/main.tf`. */
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
-import { DynamoDbDeliveryRecordPurgeCandidateSource, DynamoDbTenantLifecycleStatusSource } from "../../../workers/delivery-record-purge/dynamodb-candidate-source.js";
+import { DynamoDbDeliveryRecordPurgeCandidateSource } from "../../../workers/delivery-record-purge/dynamodb-candidate-source.js";
 import { runDeliveryRecordPurge } from "../../../workers/delivery-record-purge/purge.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
@@ -13,7 +13,6 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const candidates = new DynamoDbDeliveryRecordPurgeCandidateSource(client, tableName);
-const lifecycle = new DynamoDbTenantLifecycleStatusSource(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "delivery-record-purge" } });
 
 export interface DeliveryRecordPurgeEvent {
@@ -28,6 +27,6 @@ export async function handler(event: DeliveryRecordPurgeEvent): Promise<void> {
 }
 
 async function handlePurge(event: DeliveryRecordPurgeEvent): Promise<void> {
-  const result = await runDeliveryRecordPurge({ candidates, lifecycle, tableName: tableName as string, now: () => new Date().toISOString() });
+  const result = await runDeliveryRecordPurge({ candidates, tableName: tableName as string, now: () => new Date().toISOString() });
   logger.info("delivery-record-purge complete", { scheduledTime: event.scheduledTime, ...result });
 }
