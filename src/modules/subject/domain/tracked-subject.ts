@@ -25,6 +25,14 @@ export interface TrackedSubject extends EntityKey {
   /** Emenda registrada em 08-domain-model-custom-fields.md: observação não indexada, não
    * pesquisável, tenant-only (nunca editável pelo convidado do futuro fluxo de guest upload). */
   notes?: string;
+  /** D-192 §2 (bulk-import-documents-requirements-scoping/estado-final-consolidado.md) — a
+   * caller-supplied durable identifier from the tenant's source-of-record system (e.g. an
+   * external CRM/vendor-management id). Optional (not every Subject needs one), create-only
+   * (`updateSubject()` deliberately does not gain this capability in this slice — no rename
+   * path, mirrors DocumentType's identity-vs-displayName split but simpler: no rename at all).
+   * Uniqueness enforced tenant-wide via `SubjectExternalIdPointer`, same mechanism as
+   * `DocumentTypeNamePointer`/`RequirementNamePointer` (D-173/D-191). */
+  externalId?: string;
   tags: string[];
   status: TrackedSubjectStatus;
   deletedAt?: string;
@@ -54,11 +62,33 @@ export function gsi7Keys(
   };
 }
 
+/** Dedupe/lookup pointer for `TrackedSubject.externalId` — D-192 §2. One pointer row per
+ * (tenant, externalId), created transactionally alongside the TrackedSubject it names so two
+ * concurrent creators can never both claim the same externalId. Never deleted/repointed in
+ * this slice (create-only, no rename path) — unlike `DocumentTypeNamePointer`, there is no
+ * `renameSubject...` counterpart to keep in sync. */
+export interface SubjectExternalIdPointer extends EntityKey {
+  SK: "POINTER";
+  entityType: "SubjectExternalIdPointer";
+  tenantId: string;
+  externalId: string;
+  subjectId: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export function subjectExternalIdPointerKey(tenantId: string, externalId: string): { PK: string; SK: "POINTER" } {
+  return { PK: `TENANT#${tenantId}#SUBJECTEXTID#${externalId}`, SK: "POINTER" };
+}
+
 export interface CreateSubjectInput {
   type: TrackedSubjectType;
   displayName: string;
   notes?: string;
   tags?: string[];
+  /** Create-only — see `TrackedSubject.externalId` doc comment. */
+  externalId?: string;
 }
 
 export interface UpdateSubjectInput {

@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemorySubjectStore, makeSubjectIdGenerator } from "./in-memory-store.js";
 import { SubjectService } from "../../../src/modules/subject/application/subject-service.js";
-import { ConflictError, NotFoundError, QuotaExceededError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { DEFAULT_ACTIVE_TRACKED_SUBJECTS_LIMIT, entitlementKey } from "../../../src/modules/subject/domain/entitlement.js";
@@ -126,6 +126,55 @@ describe("SubjectService", () => {
     const stillThere = await service.getSubject(ctx(), subject.subjectId);
     expect(stillThere.notes).not.toBe("hijacked");
     expect(stillThere.status).toBe("ACTIVE");
+  });
+
+  it("createSubject without externalId still works unchanged (backward compat)", async () => {
+    const subject = await service.createSubject(ctx(), { type: "VENDOR", displayName: "no external id" });
+    expect(subject.externalId).toBeUndefined();
+    expect(subject.status).toBe("ACTIVE");
+
+    const persisted = await store.get<{ PK: string; SK: string; externalId?: string }>({ PK: `TENANT#tenant-1#SUBJECT#${subject.subjectId}`, SK: "META" });
+    expect(persisted?.externalId).toBeUndefined();
+  });
+
+  it("createSubject persists externalId and a resolvable SubjectExternalIdPointer", async () => {
+    const subject = await service.createSubject(ctx(), { type: "VENDOR", displayName: "with ext id", externalId: "crm-123" });
+    expect(subject.externalId).toBe("crm-123");
+
+    const found = await service.getSubjectByExternalId(ctx(), "crm-123");
+    expect(found?.subjectId).toBe(subject.subjectId);
+
+    const notFound = await service.getSubjectByExternalId(ctx(), "does-not-exist");
+    expect(notFound).toBeUndefined();
+  });
+
+  it("getSubjectByExternalId never resolves another tenant's pointer (cross-tenant isolation)", async () => {
+    await service.createSubject(ctx(), { type: "VENDOR", displayName: "tenant-1 subject", externalId: "shared-key" });
+    const crossTenant = await service.getSubjectByExternalId(tenantB(), "shared-key");
+    expect(crossTenant).toBeUndefined();
+  });
+
+  it("G-V3 adversarial: two concurrent createSubject calls racing on the same externalId in the same tenant - exactly one wins, the loser gets SubjectExternalIdConflictError, and only one TrackedSubject with that externalId is ever persisted", async () => {
+    // Simulates the race by having the second call's transactWrite observe the first call's
+    // already-committed pointer: both calls read a fresh entitlement (0 count) concurrently,
+    // then interleave their transactWrite commits - the in-memory store's attribute_not_exists
+    // check on the pointer Put is what decides the winner, exactly like real DynamoDB OCC.
+    const results = await Promise.allSettled([
+      service.createSubject(ctx(), { type: "VENDOR", displayName: "racer A", externalId: "race-key" }),
+      service.createSubject(ctx(), { type: "VENDOR", displayName: "racer B", externalId: "race-key" }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(SubjectExternalIdConflictError);
+
+    const subjectsWithExternalId = store.allItems().filter((i) => i["entityType"] === "TrackedSubject" && i["externalId"] === "race-key");
+    expect(subjectsWithExternalId).toHaveLength(1);
+
+    const pointer = await store.get<{ PK: string; SK: string; subjectId: string }>({ PK: "TENANT#tenant-1#SUBJECTEXTID#race-key", SK: "POINTER" });
+    expect(pointer?.subjectId).toBe((fulfilled[0] as PromiseFulfilledResult<{ subjectId: string }>).value.subjectId);
   });
 
   it("listSubjects for one tenant never returns another tenant's subjects", async () => {
