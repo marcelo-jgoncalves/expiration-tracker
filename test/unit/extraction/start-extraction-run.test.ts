@@ -101,6 +101,7 @@ describe("startExtractionRun", () => {
     expect(executions.calls[0]?.name).toBe(expectedRunId);
     expect(executions.calls[0]?.input).toEqual({
       tenantId: "t1",
+      documentSource: "DOCUMENT",
       itemId: "item1",
       documentId: "doc1",
       documentVersion: 3,

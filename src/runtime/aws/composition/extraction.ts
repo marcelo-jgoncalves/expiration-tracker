@@ -20,13 +20,14 @@ export function buildExtractionStarterWorkerDeps(client: DynamoDBDocumentClient,
 }
 
 /** D-193 item 3/9 ("Starter") — the `document-archive`-flavored branch of
- * `extraction-starter-handler.ts`. No `ExtractionExecutionStarter` here (see
- * `start-extraction-run-for-document-archive.ts`'s own doc comment, "KNOWN, DOCUMENTED GAP" —
- * this slice deliberately stops at gate-and-record, not a real Step Functions start). */
-export function buildExtractionStarterWorkerDepsForDocumentArchive(client: DynamoDBDocumentClient, tableName: string): StartExtractionRunForDocumentArchiveDeps {
+ * `extraction-starter-handler.ts`. Slice 3 wires the real `ExtractionExecutionStarter` now that
+ * `run-extraction-validation.ts`'s `commitOrDiscard()` understands `document-archive` documents
+ * (see `start-extraction-run-for-document-archive.ts`'s own doc comment, "RESOLVED GAP"). */
+export function buildExtractionStarterWorkerDepsForDocumentArchive(client: DynamoDBDocumentClient, tableName: string, stateMachineArn: string): StartExtractionRunForDocumentArchiveDeps {
   const archive = new DynamoDbDocumentArchiveStore(client, tableName);
   const runs = new DynamoDbExtractionRunStore(client, tableName);
-  return { archive, runs };
+  const executions = new SfnExtractionExecutionStarter(createSfnClient(), stateMachineArn);
+  return { archive, runs, executions };
 }
 
 /** M7 item 8 (§1.7) — the confirm/reject field HTTP routes. `DynamoDbExpirationStore` already

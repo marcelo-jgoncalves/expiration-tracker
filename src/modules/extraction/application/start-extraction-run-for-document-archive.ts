@@ -26,20 +26,15 @@
  * decide anything on its own) - it is the S3 "Object Created" event's own claimed bucket/key/
  * versionId, matched byte-for-byte against the freshly re-read `DocumentFile.cleanObject`.
  *
- * KNOWN, DOCUMENTED GAP (real engineering finding, not anticipated by the design text):
- * actually calling `ExtractionExecutionStarter.startExecution()` here would feed the M7 Step
- * Functions pipeline an `ExtractionExecutionInput` this pipeline's OWN downstream stage
- * (`run-extraction-validation.ts`'s `commitOrDiscard`) cannot yet honor correctly - it reads a
- * `document`-module `Document` by `documentKey(tenantId, itemId, documentId)` to guard
- * PERSIST_EXTRACTED_FIELDS/MARK_PENDING_CONFIRMATION, a row that does not exist for a
- * `document-archive`-only document. `DocumentFile` also carries no `fileName` today (RunTextract's
- * classifier requires one). Rather than start a real Step Functions execution that would
- * silently resolve to DISCARDED for every document-archive document (or worse, misapply state
- * if that guard is ever loosened), this Starter's job in THIS slice stops at gate-and-record:
- * it creates the idempotent `ExtractionRun` row (the authoritative record that extraction
- * SHOULD proceed for this version) but leaves the actual `StartExecution` call for the slice
- * that teaches the validation stage to understand `document-archive` documents (named
- * explicitly as follow-up work in `NEXT_SESSION_PROMPT.md`).
+ * RESOLVED GAP (D-193 item 3/9 slice 3, `run-extraction-validation.ts`'s own doc comments have
+ * the detail): `commitOrDiscard()` now branches on `ExtractionExecutionInput.documentSource` to
+ * guard against the `document-archive` `Document` row instead of the OLD module's, and the
+ * classifier's `fileName` gap is closed by passing `""` (never a fabricated name — the
+ * classifier's own fallback chain, magic bytes -> extension -> `contentType`, already degrades
+ * gracefully to `contentType` when `fileName` yields no extension match; `DocumentFile.mediaType`
+ * supplies that `contentType` here). `startExecution()` is therefore called for real below, same
+ * "call every time, dedup via Step Functions' own execution-name uniqueness" discipline
+ * `start-extraction-run.ts` documents.
  */
 import { documentFileKey, type DocumentFile } from "../../document-archive/domain/document-file.js";
 import { documentVersionKey, type DocumentVersion, type DocumentVersionState } from "../../document-archive/domain/document-version.js";
@@ -49,10 +44,12 @@ import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../shared/
 import { extractionRunKey, deriveExtractionRunId, type ExtractionRun } from "../domain/extraction-run.js";
 import { PIPELINE_VERSION_V1 } from "../domain/field-schema.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
+import type { ExtractionExecutionStarter } from "../ports/extraction-execution-starter.js";
 
 export interface StartExtractionRunForDocumentArchiveDeps {
   archive: DocumentArchiveStore;
   runs: ExtractionRunStore;
+  executions: ExtractionExecutionStarter;
   now?: () => string;
 }
 
@@ -69,6 +66,10 @@ export interface StartExtractionRunForDocumentArchiveInput {
   /** The S3 "Object Created" event's own claimed clean-bucket object — matched against a fresh
    * `DocumentFile.cleanObject` read, never trusted on its own (precondition 2). */
   observedCleanObject: DocumentObjectReference;
+  /** The run's one business correlationId, established once by the caller
+   * (`extraction-starter-handler.ts`) — threaded into the Step Functions execution input, same
+   * discipline as `StartExtractionRunInput.correlationId`. */
+  correlationId: string;
 }
 
 export type StartExtractionRunForDocumentArchivePreconditionFailure =
@@ -142,8 +143,6 @@ export async function startExtractionRunForDocumentArchive(
 
   // All 5 preconditions passed - open the gate: create the idempotent ExtractionRun row,
   // keyed by {tenantId, documentId, versionId} (domain/extraction-run.ts's D-193 re-keying).
-  // Deliberately does NOT call ExtractionExecutionStarter.startExecution() yet - see this
-  // file's own doc comment ("KNOWN, DOCUMENTED GAP").
   const pipelineVersion = PIPELINE_VERSION_V1;
   const runId = deriveExtractionRunId(input.tenantId, input.documentId, version.versionId, pipelineVersion);
   const now = deps.now?.() ?? new Date().toISOString();
@@ -164,5 +163,36 @@ export async function startExtractionRunForDocumentArchive(
   };
 
   const created = await deps.runs.putIfAbsent(run);
+
+  // startExecution is called EVERY time, whether the ExtractionRun row was just created or
+  // already existed - same "never gate on `created`" discipline start-extraction-run.ts
+  // documents (a transient failure here after a successful putIfAbsent must not orphan the run;
+  // Step Functions' own execution-name uniqueness on `runId` is the real dedup mechanism).
+  await deps.executions.startExecution({
+    name: runId,
+    input: {
+      tenantId: input.tenantId,
+      documentSource: "DOCUMENT_ARCHIVE",
+      // No ExpirationItem/M6-Document concept exists on this path - opaque passthrough, see
+      // ExtractionExecutionInput's own doc comment.
+      itemId: input.documentId,
+      documentId: input.documentId,
+      documentVersion: seq,
+      runId,
+      pipelineVersion,
+      correlationId: input.correlationId,
+      cleanObject: input.observedCleanObject,
+      // RunTextract's classifier (`document-classifier.ts`) needs SOME signal to pick a
+      // Textract call - DocumentFile carries no `fileName` (real gap this slice found, not
+      // invented away). Passing "" never fabricates an identity: `classifyByExtension("")`
+      // yields no match by construction, so the classifier's own fallback chain lands on
+      // `classifyByContentType(file.mediaType)`, which alone already covers all 4 formats
+      // Textract supports (PDF/JPEG/PNG/TIFF) - the same set `mediaType` is validated against
+      // at `reserveFiles()` time.
+      fileName: "",
+      contentType: file.mediaType,
+    },
+  });
+
   return created ? { outcome: "GATE_OPENED" } : { outcome: "ALREADY_OPENED" };
 }

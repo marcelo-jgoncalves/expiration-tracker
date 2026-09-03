@@ -16,6 +16,7 @@ import type { ExtractionArtifactRef, OcrArtifactStore } from "../../../src/modul
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 import type { EntityReader } from "../../../src/modules/extraction/ports/entity-reader.js";
 import { documentKey, type Document } from "../../../src/modules/document/domain/document.js";
+import { documentKey as documentArchiveKey, type Document as ArchiveDocument } from "../../../src/modules/document-archive/domain/document.js";
 import { gsi1Keys, itemKey, type ExpirationItem } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { PIPELINE_VERSION_V1 } from "../../../src/modules/extraction/domain/field-schema.js";
 import { ExtractionCommitFailedError } from "../../../src/shared/errors/app-error.js";
@@ -43,10 +44,37 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
 }
 
 class FakeDocumentReader implements DocumentReader {
-  constructor(private readonly doc: Document | undefined) {}
-  async get<T extends EntityKey>(): Promise<T | undefined> {
+  public getCalls: EntityKey[] = [];
+  constructor(private readonly doc: Document | ArchiveDocument | undefined) {}
+  async get<T extends EntityKey>(key: EntityKey): Promise<T | undefined> {
+    this.getCalls.push(key);
     return this.doc as unknown as T | undefined;
   }
+}
+
+/** D-193 item 3/9 slice 3: the `document-archive` counterpart of `makeDocument()` above — a
+ * distinct entity (`Document.status` is ACTIVE/ARCHIVED, never DELETED, and there is no
+ * `itemId`), read through the SAME `FakeDocumentReader`/`DocumentReader.get()` (structural,
+ * single-table reuse), never a second port. */
+function makeArchiveDocument(overrides: Partial<ArchiveDocument> = {}): ArchiveDocument {
+  return {
+    ...documentArchiveKey("t1", "doc1"),
+    entityType: "Document",
+    documentId: "doc1",
+    tenantId: "t1",
+    subjectId: "subject1",
+    documentTypeId: "doctype1",
+    status: "ACTIVE",
+    hasValidity: true,
+    version: 5,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    GSI1PK: "x",
+    GSI1SK: "y",
+    GSI2PK: "x",
+    GSI2SK: "y",
+    ...overrides,
+  };
 }
 
 function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
@@ -140,8 +168,8 @@ function baseContext(overrides: Partial<ValidationContext> = {}): ValidationCont
   };
 }
 
-function makeDeps(overrides: Partial<{ doc: Document | undefined; item: ExpirationItem | undefined; commitResult: CommitRunOutcomeResult | Error }> = {}) {
-  const documents = new FakeDocumentReader(overrides.doc ?? makeDocument());
+function makeDeps(overrides: Partial<{ doc: Document | ArchiveDocument | undefined; item: ExpirationItem | undefined; commitResult: CommitRunOutcomeResult | Error }> = {}) {
+  const documents = new FakeDocumentReader("doc" in overrides ? overrides.doc : makeDocument());
   const items = new FakeItemReader("item" in overrides ? overrides.item : makeItem());
   const runs = new FakeExtractionRunStore();
   const fields = new FakeExtractedFieldStore(overrides.commitResult ?? "COMMITTED");
@@ -360,5 +388,74 @@ describe("governing invariant (design §3): the artifact is deleted in exactly o
     const ctx = baseContext({ artifact: { bucket: "b", key: "k" }, extractedFields: undefined, parserFailure: { error: "DeterministicParserFailed" } });
     await runExtractionValidation(deps, "MARK_PENDING_CONFIRMATION", ctx as ValidationContext);
     expect(artifacts.deleteCalls).toHaveLength(1);
+  });
+});
+
+// -------------------------------------------------------------------------------------------
+// D-193 item 3/9 slice 3: commitOrDiscard()'s NEW `documentSource: "DOCUMENT_ARCHIVE"` branch —
+// guards against the `document-archive` `Document` row (by `documentId` alone) instead of the
+// OLD `document`-module `Document` (by `itemId`), and never builds the OLD path's auto-confirm
+// `ExpirationItem` update (item 4/9 of the design, explicitly deferred).
+// -------------------------------------------------------------------------------------------
+describe("commitOrDiscard — document-archive source (D-193 item 3/9 slice 3)", () => {
+  const archiveCompared = baseContext({
+    documentSource: "DOCUMENT_ARCHIVE",
+    comparedFields: [{ fieldName: "expirationDate", valueType: "DATE", agreement: "MATCH", sources: ["DETERMINISTIC_PARSER", "BEDROCK"], candidateValue: "2027-03-31", confidence: 0.95 }],
+  });
+
+  it("commits against the document-archive Document (never the OLD module's Document-by-itemId), with no item update", async () => {
+    const { deps, fields, documents, items } = makeDeps({ doc: makeArchiveDocument() });
+    const out = await persistExtractedFieldsStage(deps, archiveCompared);
+
+    expect(out.runOutcome).toBe("COMPLETED");
+    expect(fields.commitCalls).toHaveLength(1);
+    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey("t1", "doc1"));
+    expect(fields.commitCalls[0]?.documentExpectedVersion).toBe(5);
+    expect(fields.commitCalls[0]?.itemUpdate).toBeUndefined();
+    // The OLD path's per-item-attribute lookup never runs for a document-archive-sourced run -
+    // this slice defers the DocumentVersion.validUntil equivalent to item 4/9.
+    expect(items.getCalls).toHaveLength(0);
+    expect(documents.getCalls).toEqual([documentArchiveKey("t1", "doc1")]);
+  });
+
+  it("discards when the document-archive Document row is missing", async () => {
+    const { deps, fields, runs } = makeDeps({ doc: undefined });
+    const out = await persistExtractedFieldsStage(deps, archiveCompared);
+    expect(out.runOutcome).toBe("DISCARDED");
+    expect(fields.commitCalls).toHaveLength(0);
+    expect(runs.updateStatusCalls).toHaveLength(1);
+  });
+
+  it("does NOT discard for an ARCHIVED document-archive Document - archiving is a soft-hide (document-archive/domain/document.ts's own invariant), never equivalent to the OLD path's hard DELETED", async () => {
+    const { deps, fields } = makeDeps({ doc: makeArchiveDocument({ status: "ARCHIVED" }) });
+    const out = await persistExtractedFieldsStage(deps, archiveCompared);
+    expect(out.runOutcome).toBe("COMPLETED");
+    expect(fields.commitCalls).toHaveLength(1);
+  });
+
+  it("falls back to DISCARDED when commitRunOutcome reports a concurrent document-archive Document change (same TOCTOU close as the OLD path)", async () => {
+    const { deps, runs } = makeDeps({ doc: makeArchiveDocument(), commitResult: "DOCUMENT_DISCARDED" });
+    const out = await persistExtractedFieldsStage(deps, archiveCompared);
+    expect(out.runOutcome).toBe("DISCARDED");
+    expect(runs.updateStatusCalls).toHaveLength(1);
+  });
+
+  it("markPendingConfirmationStage also branches to the document-archive guard, still deleting the artifact", async () => {
+    const { deps, fields, artifacts } = makeDeps({ doc: makeArchiveDocument() });
+    const out = await markPendingConfirmationStage(deps, { ...archiveCompared, artifact: { bucket: "b", key: "k" } });
+    expect(out.runOutcome).toBe("FAILED");
+    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey("t1", "doc1"));
+    expect(artifacts.deleteCalls).toEqual([{ bucket: "b", key: "k" }]);
+  });
+
+  it("an execution started before this slice (documentSource undefined) keeps resolving to the OLD path unchanged (regression)", async () => {
+    const { deps, fields, documents } = makeDeps({ doc: makeDocument() });
+    const compared = baseContext({
+      comparedFields: [{ fieldName: "expirationDate", valueType: "DATE", agreement: "MATCH", sources: ["DETERMINISTIC_PARSER", "BEDROCK"], candidateValue: "2027-03-31", confidence: 0.95 }],
+    });
+    const out = await persistExtractedFieldsStage(deps, compared);
+    expect(out.runOutcome).toBe("COMPLETED");
+    expect(fields.commitCalls[0]?.documentKey).toEqual(documentKey("t1", "item1", "doc1"));
+    expect(documents.getCalls).toEqual([documentKey("t1", "item1", "doc1")]);
   });
 });

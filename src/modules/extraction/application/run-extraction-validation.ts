@@ -25,6 +25,11 @@ import { decideFieldOutcome } from "../domain/decide-field-outcome.js";
 import { extractionRunKey } from "../domain/extraction-run.js";
 import { extractedFieldKey, type ExtractedField, type ExtractedFieldValueType, type ExtractionSource } from "../domain/extracted-field.js";
 import { documentKey, type Document } from "../../document/domain/document.js";
+// D-193 item 3/9 slice 3: the `document-archive` counterpart of the OLD `document`-module
+// `Document` above — aliased to avoid a name collision, never the same entity. Both are read
+// through the same generic `DocumentReader.get()` (structural, single-table reuse), never a
+// second port.
+import { documentKey as documentArchiveKey, type Document as ArchiveDocument } from "../../document-archive/domain/document.js";
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { buildItemAttributeUpdate, ITEM_ATTRIBUTE_BY_FIELD_NAME } from "./item-field-mapping.js";
 import type { DocumentReader } from "../ports/document-reader.js";
@@ -66,6 +71,12 @@ export interface ValidationFieldCandidate {
  * to interpret a Catch's captured error details, only preserve them across the JSON round-trip. */
 export interface ValidationContext {
   tenantId: string;
+  /** D-193 item 3/9 slice 3 (`ExtractionExecutionInput`'s own doc comment has the full
+   * rationale): dispatches `commitOrDiscard()` between the OLD `document`-module guard and the
+   * `document-archive` guard. Optional/`undefined` treated as `"DOCUMENT"` — every execution
+   * started before this slice (OLD trigger, or an in-flight Standard execution from before this
+   * deploy) never set this field, and must keep resolving to the OLD path unchanged. */
+  documentSource?: "DOCUMENT" | "DOCUMENT_ARCHIVE";
   itemId: string;
   documentId: string;
   documentVersion: number;
@@ -157,15 +168,27 @@ async function commitOrDiscard(
   itemUpdate?: CommitItemUpdate,
 ): Promise<"COMPLETED" | "FAILED" | "DISCARDED"> {
   const now = deps.now?.() ?? new Date().toISOString();
-  const docKey = documentKey(ctx.tenantId, ctx.itemId, ctx.documentId);
   const runKey = extractionRunKey(ctx.tenantId, ctx.documentId, ctx.runId);
   // `ExtractionRun` is only ever created once (start-extraction-run.ts's putIfAbsent, version 1)
   // and never updated by anything else before this handler runs - documented invariant, not
   // read back here to avoid an extra consistent GetItem for a value that cannot have changed.
   const runExpectedVersion = 1;
 
-  const doc = await deps.documents.get<Document>(docKey, true);
-  if (!doc || doc.status === "DELETED") {
+  // D-193 item 3/9 slice 3: `documentSource` picks which aggregate is the TOCTOU-fence guard —
+  // the OLD `document`-module `Document` (by `itemId`) or the `document-archive` `Document` (by
+  // `documentId` alone, no `itemId` concept). `undefined` (any execution started before this
+  // slice) resolves to the OLD path, unchanged.
+  const docKey = ctx.documentSource === "DOCUMENT_ARCHIVE" ? documentArchiveKey(ctx.tenantId, ctx.documentId) : documentKey(ctx.tenantId, ctx.itemId, ctx.documentId);
+
+  // D-193 item 3/9 slice 3: unlike the OLD path's `status === "DELETED"` (a genuine hard-delete
+  // taxonomy value), `document-archive`'s `Document.status` only ever flips ACTIVE/ARCHIVED
+  // (`document-archive/domain/document.ts`'s own doc comment: "archiving a Document can never
+  // silently change" anything it satisfies) — ARCHIVED is a soft-hide, not "this document is
+  // gone", so it is deliberately NOT treated as a discard reason here. Only a missing row (the
+  // Document was deleted by a mechanism this codebase doesn't otherwise have) discards.
+  const doc = await deps.documents.get<Document | ArchiveDocument>(docKey, true);
+  const discardReason = ctx.documentSource === "DOCUMENT_ARCHIVE" ? !doc : !doc || (doc as Document).status === "DELETED";
+  if (discardReason) {
     await deps.runs.updateStatus(runKey, ctx.tenantId, runExpectedVersion, "DISCARDED", now);
     return "DISCARDED";
   }
@@ -180,7 +203,7 @@ async function commitOrDiscard(
       runStatus,
       completedAt: now,
       documentKey: docKey,
-      documentExpectedVersion: doc.version,
+      documentExpectedVersion: doc!.version,
       ...(itemUpdate ? { itemUpdate } : {}),
     });
   } catch (err) {
@@ -279,7 +302,11 @@ export async function persistExtractedFieldsStage(deps: RunExtractionValidationD
     };
   });
 
-  const itemUpdate = await buildAutoConfirmItemUpdate(deps, input, fields);
+  // D-193 item 3/9 slice 3: the auto-confirm `ExpirationItem.dueDate` write (W2-01-DECISION)
+  // stays OLD-path-only in this slice — the `document-archive` equivalent effect
+  // (`DocumentVersion.validUntil` via a shared `planDocumentVersionValidityEffect`) is item 4/9
+  // of the approved design, explicitly out of scope here (`estado-final-consolidado.md`).
+  const itemUpdate = input.documentSource === "DOCUMENT_ARCHIVE" ? undefined : await buildAutoConfirmItemUpdate(deps, input, fields);
 
   // NEVER deletes the artifact here - PersistExtractedFields runs before the run has reached a
   // terminal state (CompleteRun is the very next state); a retry of this state must still be

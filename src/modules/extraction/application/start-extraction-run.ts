@@ -90,6 +90,7 @@ export async function startExtractionRun(deps: StartExtractionRunDeps, input: St
     name: runId,
     input: {
       tenantId: input.tenantId,
+      documentSource: "DOCUMENT",
       itemId: input.itemId,
       documentId: input.documentId,
       documentVersion,
