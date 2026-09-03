@@ -46,6 +46,36 @@ variable "whatsapp_enabled" {
   default     = false
 }
 
+variable "extraction_document_archive_trigger_enabled" {
+  description = <<-EOT
+    D-193 item 8/9 ("Sequenciamento", estado-final-consolidado.md) STARTER flag
+    (`EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`). Gates whether
+    `startExtractionRunForDocumentArchive()` may open the ExtractionRun gate/`startExecution()`
+    for a `document-archive`-sourced `DocumentVersion`. Default false — same deliberate,
+    observable-activation posture as `ai_extraction_enabled`/`ocr_enabled`. MUST be turned on
+    strictly BEFORE `document_archive_promotion_enabled` (never the reverse) — see that
+    variable's own description for why.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "document_archive_promotion_enabled" {
+  description = <<-EOT
+    D-193 item 8/9 PROMOTER flag (`DOCUMENT_ARCHIVE_PROMOTION_ENABLED`). Gates whether
+    `upload-finalizer-handler.ts`/`malware-result-handler.ts`'s third (`document-archive`)
+    branch is allowed to reach `applyFileScanResult`/`confirmFileScanClean` at all. Default
+    false. Application code (`isDocumentArchivePromotionEnabled()`,
+    `extraction/application/document-archive-activation.ts`) treats this flag as meaningless unless
+    `extraction_document_archive_trigger_enabled` is ALSO true — turning promotion on alone (the
+    forbidden reverse activation order) can never promote a file to the CLEAN key, closing the
+    approved design's "CLEAN sem consumidor" window by construction rather than by runbook
+    discipline alone.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags applied to the AppConfig application/environment/deployment resources."
   type        = map(string)

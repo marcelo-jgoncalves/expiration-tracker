@@ -19,6 +19,7 @@ const INDEX_PARTITION_KEY_ATTRIBUTE: Record<IndexPageInput["indexName"], string>
   GSI1: "GSI1PK",
   GSI2: "GSI2PK",
   GSI5: "GSI5PK",
+  GSI9: "GSI9PK",
 };
 
 export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
@@ -141,6 +142,26 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
       return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
     } catch (err) {
       throw mapDynamoError(err, "DocumentArchiveStore.scanActiveSeries");
+    }
+  }
+
+  /** D-193 item 7/9 — see port doc comment: status-independent by design, filters only on
+   * `attribute_exists(evidenceVersionId)` so a Requirement whose cached `status` is stale (the
+   * exact failure mode a lost refresh wake-up produces) is still found. */
+  async scanRequirementsWithEvidence<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
+    try {
+      const result = await this.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: "#entityType = :entityType AND attribute_exists(#evidenceVersionId)",
+          ExpressionAttributeNames: { "#entityType": "entityType", "#evidenceVersionId": "evidenceVersionId" },
+          ExpressionAttributeValues: { ":entityType": "Requirement" },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "DocumentArchiveStore.scanRequirementsWithEvidence");
     }
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyDocumentType } from "../../../src/modules/extraction/domain/document-classifier.js";
+import { classifyDocumentType } from "../../../src/modules/extraction/domain/document-format-classifier.js";
 
 describe("classifyDocumentType", () => {
   it("classifies a PDF by magic bytes", () => {
@@ -42,5 +42,16 @@ describe("classifyDocumentType", () => {
 
   it("returns null for empty/short magicBytes buffers rather than throwing", () => {
     expect(classifyDocumentType({ fileName: "unknown", magicBytes: new Uint8Array([]) })).toBeNull();
+  });
+
+  // D-193 item 3/9 slice 3: `DocumentFile` (document-archive) carries no `fileName` field at
+  // all - `start-extraction-run-for-document-archive.ts` passes `""` rather than fabricate one,
+  // relying on this exact fallback (empty extension never matches -> contentType decides) using
+  // `DocumentFile.mediaType` as `contentType`. All 4 Textract-supported formats covered.
+  it("classifies correctly from an empty fileName + real contentType alone (the document-archive path, which has no fileName concept)", () => {
+    expect(classifyDocumentType({ fileName: "", contentType: "application/pdf" })).toBe("PDF");
+    expect(classifyDocumentType({ fileName: "", contentType: "image/jpeg" })).toBe("IMAGE_JPEG");
+    expect(classifyDocumentType({ fileName: "", contentType: "image/png" })).toBe("IMAGE_PNG");
+    expect(classifyDocumentType({ fileName: "", contentType: "image/tiff" })).toBe("IMAGE_TIFF");
   });
 });

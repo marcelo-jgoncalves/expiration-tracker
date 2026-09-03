@@ -312,6 +312,17 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
     return { items: matches as unknown as T[], lastEvaluatedKey: undefined };
   }
 
+  /** Fake for `scanRequirementsWithEvidence` (D-193 item 7/9) — same "no pagination needed for
+   * this fake's test sizes" posture as `scanActiveSeries` above; a dedicated pagination test
+   * exercises the worker's own page-loop against `pageSize`-sliced calls instead of against a
+   * real DynamoDB `Limit` (see `requirement-evidence-daily-sweep.test.ts`). Status-independent —
+   * filters ONLY on `entityType`/presence of `evidenceVersionId`, mirroring the real Scan's
+   * FilterExpression exactly (never on `status`). */
+  async scanRequirementsWithEvidence<T extends EntityKey = Record<string, unknown> & EntityKey>(_exclusiveStartKey?: Record<string, unknown>): Promise<{ items: T[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    const matches = [...this.items.values()].filter((item) => item["entityType"] === "Requirement" && item["evidenceVersionId"] !== undefined);
+    return { items: matches as unknown as T[], lastEvaluatedKey: undefined };
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }

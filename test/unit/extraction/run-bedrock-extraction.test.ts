@@ -60,7 +60,7 @@ function seededIdentityStore(): InMemoryIdentityStore {
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {
   constructor(
-    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false },
+    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false },
     private readonly shouldThrow = false,
   ) {}
   async getFlags(): Promise<FeatureFlags> {
@@ -119,7 +119,7 @@ describe("runBedrockExtraction", () => {
     const bedrock = new FakeBedrockClient(undefined);
     await expect(
       runBedrockExtraction(
-        { featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false }), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
+        { featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false }), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
         baseInput(),
       ),
     ).rejects.toBeInstanceOf(AiExtractionDisabledError);

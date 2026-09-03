@@ -3,26 +3,26 @@ import { deriveExtractionRunId, extractionRunKey } from "../../../src/modules/ex
 
 describe("deriveExtractionRunId", () => {
   it("is deterministic for the same idempotency key", () => {
-    const a = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-08-01");
-    const b = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-08-01");
+    const a = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-08-01");
+    const b = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-08-01");
     expect(a).toBe(b);
   });
 
-  it("differs when documentVersion changes - a new version starts a new run, never reuses the old id", () => {
-    const v3 = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-08-01");
-    const v4 = deriveExtractionRunId("tenant-1", "doc-1", 4, "2026-08-01");
+  it("differs when versionId changes - a new version starts a new run, never reuses the old id", () => {
+    const v3 = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-08-01");
+    const v4 = deriveExtractionRunId("tenant-1", "doc-1", "4", "2026-08-01");
     expect(v3).not.toBe(v4);
   });
 
   it("differs when pipelineVersion changes - reprocessing under a new pipeline is a new run", () => {
-    const p1 = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-08-01");
-    const p2 = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-09-01");
+    const p1 = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-08-01");
+    const p2 = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-09-01");
     expect(p1).not.toBe(p2);
   });
 
   it("differs across tenants for otherwise identical documentId/version/pipeline", () => {
-    const t1 = deriveExtractionRunId("tenant-1", "doc-1", 3, "2026-08-01");
-    const t2 = deriveExtractionRunId("tenant-2", "doc-1", 3, "2026-08-01");
+    const t1 = deriveExtractionRunId("tenant-1", "doc-1", "3", "2026-08-01");
+    const t2 = deriveExtractionRunId("tenant-2", "doc-1", "3", "2026-08-01");
     expect(t1).not.toBe(t2);
   });
 });

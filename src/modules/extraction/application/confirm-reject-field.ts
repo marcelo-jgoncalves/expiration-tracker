@@ -122,7 +122,7 @@ export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestCon
   }
 
   try {
-    const outcome = await doConfirmField(deps, tenantId, params);
+    const outcome = await doConfirmField(deps, tenantId, params, ctx.principal.userId);
     await deps.idempotency.complete({ tenantId, operation, key, responseRef: params.fieldName });
     return outcome;
   } catch (err) {
@@ -131,7 +131,7 @@ export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestCon
   }
 }
 
-async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, params: ConfirmFieldParams): Promise<ExtractedField> {
+async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, params: ConfirmFieldParams, confirmedBy: string): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);
   const { key: runKey, run } = await readRun(deps, tenantId, params.documentId, params.runId);
   const { key: documentKeyResolved, document } = await readDocument(deps, tenantId, params.itemId, params.documentId);
@@ -177,6 +177,7 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
     fieldTenantId: tenantId,
     fieldExpectedVersion: params.expectedFieldVersion,
     confirmedValue: params.confirmedValue,
+    confirmedBy,
     runKey,
     runExpectedVersion: params.expectedRunVersion,
     documentKey: documentKeyResolved,
@@ -197,7 +198,7 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
     });
   }
 
-  return { ...field, state: "CONFIRMED", confirmedValue: params.confirmedValue, version: field.version + 1, updatedAt: now };
+  return { ...field, state: "CONFIRMED", confirmedValue: params.confirmedValue, confirmedBy, confirmedAt: now, version: field.version + 1, updatedAt: now };
 }
 
 export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestContext, params: RejectFieldParams): Promise<ExtractedField> {

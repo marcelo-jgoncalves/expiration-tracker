@@ -6,8 +6,25 @@
 
 export interface ExtractionExecutionInput {
   tenantId: string;
+  /** D-193 item 3/9 slice 3: which aggregate authoritatively owns this run — dispatches
+   * `run-extraction-validation.ts`'s `commitOrDiscard()` between the OLD `document`-module
+   * `Document`-by-`itemId` guard and the `document-archive` `Document`-by-`documentId` guard.
+   * `start-extraction-run.ts` (OLD trigger) always sets `"DOCUMENT"`; `start-extraction-run-
+   * for-document-archive.ts` always sets `"DOCUMENT_ARCHIVE"`. */
+  documentSource: "DOCUMENT" | "DOCUMENT_ARCHIVE";
+  /** For `documentSource: "DOCUMENT"`, the real M6 `Document`-module anchor. For
+   * `documentSource: "DOCUMENT_ARCHIVE"`, there is no `ExpirationItem`/M6-`Document` concept at
+   * all — this is set to `documentId` as an opaque passthrough (every downstream reader of this
+   * field — `start-ocr.ts`, `run-deterministic-parser.ts`, `run-bedrock-extraction.ts`,
+   * `complete-ocr.ts`, `TextractJob.itemId` — only ever logs or round-trips it, never uses it to
+   * look up an `ExpirationItem` or M6 `Document` row; the ONE place that ever did,
+   * `commitOrDiscard()`, is exactly the branch this field steers away from that lookup). */
   itemId: string;
   documentId: string;
+  /** For `documentSource: "DOCUMENT"`, `Document.version` (M6). For `"DOCUMENT_ARCHIVE"`, the
+   * `DocumentVersion.seq` resolved by the Starter — both are plain numeric version identifiers
+   * for their respective aggregate, so `ExtractedField.documentVersion` (a bare `number`) stays
+   * meaningful for either source without a schema change. */
   documentVersion: number;
   runId: string;
   pipelineVersion: string;

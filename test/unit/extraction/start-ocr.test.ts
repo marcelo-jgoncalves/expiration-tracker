@@ -40,7 +40,7 @@ function seededIdentityStore(): InMemoryIdentityStore {
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {
   constructor(
-    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false },
+    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false },
     private readonly shouldThrow = false,
   ) {}
   async getFlags(): Promise<FeatureFlags> {
@@ -164,7 +164,7 @@ describe("startOcr", () => {
     await expect(
       startOcr(
         {
-          featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: true, OCR: false, WHATSAPP: false }),
+          featureFlags: new FakeFeatureFlagsReader({ AI_EXTRACTION: true, OCR: false, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false }),
           quota,
           textract,
           jobs,

@@ -1260,3 +1260,28 @@ run "document_file_reconciliation_schedule_exists_every_15_minutes" {
     error_message = "The worker takes no input - it discovers its own work by scanning GSI5's sparse pointers"
   }
 }
+
+run "requirement_evidence_daily_sweep_schedule_exists_daily_after_reindex" {
+  command = plan
+
+  # D-193 item 7/9 (estado-final-consolidado.md's "Rede de reparo autoritativa") - fixed UTC cron
+  # staggered after requirement_reindex (04:00 UTC), same staggering discipline as that schedule's
+  # own comment.
+  assert {
+    condition     = aws_scheduler_schedule.requirement_evidence_daily_sweep.schedule_expression == "cron(0 5 * * ? *)"
+    error_message = "The requirement-evidence daily sweep must run once a day on a fixed UTC cron, staggered after requirement-reindex"
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.requirement_evidence_daily_sweep.target[0].input == "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+    error_message = "The sweep job's scheduledTime placeholder must be a literal string, never jsonencode()'d (would HTML-escape the angle brackets and break substitution)"
+  }
+
+  # This handler only re-enqueues onto SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 - it never writes a
+  # Requirement itself, so it must never be granted the worker_transact_write_policy_json/GSI8
+  # capabilities item 6/9's own refresh handler and requirement_reindex_handler carry.
+  assert {
+    condition     = !anytrue([for p in module.requirement_evidence_daily_sweep_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "RequirementEvidenceDailySweepHandler must never be granted TransactWriteItems - it only re-enqueues, per D-193 item 7/9's single-writer constraint"
+  }
+}

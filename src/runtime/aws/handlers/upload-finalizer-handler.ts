@@ -2,6 +2,7 @@
  * quarantine bucket routed through EventBridge). M6 design §3.2/§4. */
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { randomUUID } from "node:crypto";
+import { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildDocumentWorkerDeps } from "../composition/document.js";
 import { finalizeUpload } from "../../../workers/upload-finalizer/finalizer.js";
@@ -13,6 +14,13 @@ import { parseQuarantineKey } from "../../../modules/document/domain/quarantine-
 import { parseSubmissionQuarantineKey } from "../../../modules/subject/domain/submission-quarantine-key.js";
 import { finalizeSubmissionUpload } from "../../../workers/submission-finalizer/finalizer.js";
 import { buildSubjectWorkerDeps } from "../composition/subject.js";
+// D-193 ("Ingestão física", slice 1): terceiro branch aditivo para o namespace `document-
+// archive/...` (D-163 §7) - o BUG REAL este slice corrige: nenhum dos dois parsers acima
+// reconhece esse prefixo, então até este slice uma DocumentFile enviada via document-archive
+// caía no "unrecognized key shape" abaixo e ficava presa em PENDING_UPLOAD para sempre.
+import { parseDocumentArchiveQuarantineKey } from "../../../modules/document-archive/domain/document-archive-quarantine-key.js";
+import { finalizeDocumentArchiveUpload } from "../../../workers/upload-finalizer/document-archive-finalizer.js";
+import { buildDocumentArchiveWorkerDeps } from "../composition/document-archive.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -20,11 +28,27 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const cleanBucket = process.env["CLEAN_BUCKET_NAME"];
 const parserFunctionName = process.env["PARSER_SANDBOX_FUNCTION_NAME"];
+// D-193 item 8/9 (PROMOTER gate): finalizeDocumentArchiveUpload() itself fails closed against
+// this AppConfig flags module (isDocumentArchivePromotionEnabled(), which requires BOTH the
+// STARTER and PROMOTER flags) - see that function's own doc comment for the ordering-safety
+// mechanism this closes by construction. Same env var trio every other AppConfig-gated Lambda
+// in this repo already requires.
+const appConfigApplicationId = process.env["APPCONFIG_APPLICATION_ID"];
+const appConfigEnvironmentId = process.env["APPCONFIG_ENVIRONMENT_ID"];
+const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PROFILE_ID"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!cleanBucket) throw new Error("CLEAN_BUCKET_NAME env var is required.");
 if (!parserFunctionName) throw new Error("PARSER_SANDBOX_FUNCTION_NAME env var is required.");
+if (!appConfigApplicationId) throw new Error("APPCONFIG_APPLICATION_ID env var is required.");
+if (!appConfigEnvironmentId) throw new Error("APPCONFIG_ENVIRONMENT_ID env var is required.");
+if (!appConfigConfigurationProfileId) throw new Error("APPCONFIG_CONFIGURATION_PROFILE_ID env var is required.");
 const deps = buildDocumentWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
 const submissionDeps = buildSubjectWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
+const documentArchiveDeps = buildDocumentArchiveWorkerDeps(client, tableName, cleanBucket, new AppConfigDataClient({}), {
+  applicationId: appConfigApplicationId,
+  environmentId: appConfigEnvironmentId,
+  configurationProfileId: appConfigConfigurationProfileId,
+});
 const logger = new SecureLogger({ baseContext: { service: "upload-finalizer" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source
@@ -45,6 +69,25 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         if (!detail?.bucket?.name || !detail.object?.key || !detail.object["version-id"]) {
           logger.error("upload-finalizer malformed S3 event", { messageId: record.messageId });
           batchItemFailures.push({ itemIdentifier: record.messageId });
+          return;
+        }
+
+        // D-193 slice 1: tried FIRST since its `document-archive/` prefix never collides with
+        // either of the two formats below (`tenant/.../item/...`, `tenant/.../subject/...`) -
+        // order is not a correctness concern here, just documents which format is authoritative
+        // for new uploads going forward (D-143).
+        const parsedArchive = parseDocumentArchiveQuarantineKey(detail.object.key);
+        if (parsedArchive) {
+          await runWithContext({ correlationId: randomUUID(), tenantId: parsedArchive.tenantId }, async () => {
+            const outcome = await finalizeDocumentArchiveUpload(documentArchiveDeps, {
+              tenantId: parsedArchive.tenantId,
+              documentId: parsedArchive.documentId,
+              seq: parsedArchive.seq,
+              fileId: parsedArchive.fileId,
+              object: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
+            });
+            logger.info("upload-finalizer document-archive outcome", { documentId: parsedArchive.documentId, fileId: parsedArchive.fileId, outcome });
+          });
           return;
         }
 

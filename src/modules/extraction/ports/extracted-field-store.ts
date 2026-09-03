@@ -14,6 +14,7 @@
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { ExtractedField } from "../domain/extracted-field.js";
+import type { DocumentVersionValidityEffect } from "../domain/document-version-validity-effect.js";
 
 export type CommitRunOutcomeResult = "COMMITTED" | "DOCUMENT_DISCARDED";
 
@@ -36,6 +37,14 @@ export interface CommitRunOutcomeInput {
    * (nothing to assert — unlike `confirmField`, this operation has no design requirement to
    * pin the item's version when it has no item-side effect). */
   itemUpdate?: CommitItemUpdate;
+  /** D-193 item 4/9: the `document-archive` counterpart of `itemUpdate` above — present only
+   * when `ctx.documentSource === "DOCUMENT_ARCHIVE"` AND the run auto-confirmed the one field
+   * `planDocumentVersionValidityEffect` acts on. Mutually exclusive with `itemUpdate` in
+   * practice (a run is either OLD-`document`-sourced or `document-archive`-sourced, never both),
+   * but the port does not enforce that itself — the caller (`run-extraction-validation.ts`)
+   * never sets both. The `Outbox` Put only joins the transaction when `effect.kind === "SET"` —
+   * same conditional-outbox discipline as the manual `confirmFieldForDocumentArchive` path. */
+  documentVersionUpdate?: CommitDocumentVersionUpdate;
 }
 
 /** The `ExpirationItem` leg of a `commitRunOutcome` transaction. */
@@ -44,6 +53,23 @@ export interface CommitItemUpdate {
   tenantId: string;
   expectedVersion: number;
   set: Record<string, unknown>;
+}
+
+/** The `DocumentVersion` leg of a `commitRunOutcome` transaction — D-193 item 4/9's auto-confirm
+ * counterpart of `CommitItemUpdate`. */
+export interface CommitDocumentVersionUpdate {
+  key: EntityKey;
+  tenantId: string;
+  expectedVersion: number;
+  effect: DocumentVersionValidityEffect;
+  documentId: string;
+  /** D-193 item 6/9: the evidence `DocumentVersion.versionId` (its immutable identity, distinct
+   * from `documentId`+`seq`'s row locator) — threaded into the conditional outbox event's `data`
+   * so `requirement-evidence-refresh-handler.ts` has a `GSI_EVIDENCE` (GSI9) partition key to
+   * discover candidates with. Never anything more than a discovery hint — the worker still
+   * re-reads `DocumentVersion`/`Requirement` fresh rather than trusting any other field here. */
+  versionId: string;
+  correlationId: string;
 }
 
 export interface ExtractedFieldStore {
@@ -82,6 +108,22 @@ export interface ExtractedFieldStore {
    * optional `correctionReason`) plus `ConditionCheck`s pinning `ExtractionRun`/`Document` —
    * NEVER touches `ExpirationItem` (no `expectedItemVersion` in the reject contract at all). */
   rejectField(input: RejectFieldInput): Promise<FieldTransitionResult>;
+
+  /** D-193 item 4/9 (`estado-final-consolidado.md` "Transação de confirmação"): the
+   * `document-archive` counterpart of `confirmField` above — 3 aggregates / 4 actions
+   * (`DocumentVersion` Update, `ExtractionRun` ConditionCheck, `ExtractedField` Update, `Outbox`
+   * Put), fixed cardinality independent of `effect`. The `DocumentVersion` Update ALWAYS runs
+   * (bumping its `version`/`updatedAt` even on a `NO_CHANGE` plan — the transaction's shape never
+   * varies); the `Outbox` Put is the one conditional action, appended only when
+   * `input.effect.kind === "SET"`. `Requirement` never appears here — it is re-derived
+   * asynchronously by a later slice (item 5/9), never fanned out to synchronously. */
+  confirmFieldForDocumentArchive(input: ConfirmFieldForDocumentArchiveInput): Promise<FieldTransitionResult>;
+
+  /** D-193 item 4/9: the `document-archive` counterpart of `rejectField` above — 2 aggregates /
+   * 2 actions (`ExtractedField` Update, `ExtractionRun` ConditionCheck). Never touches
+   * `DocumentVersion` at all (not even a `ConditionCheck` — the design's exact wording: "nunca
+   * toca DocumentVersion"). */
+  rejectFieldForDocumentArchive(input: RejectFieldForDocumentArchiveInput): Promise<FieldTransitionResult>;
 }
 
 export type FieldTransitionResult = "COMMITTED" | "VERSION_CONFLICT";
@@ -91,6 +133,9 @@ export interface ConfirmFieldInput {
   fieldTenantId: string;
   fieldExpectedVersion: number;
   confirmedValue: string;
+  /** D-193 item 4/9's provenance addition (`ExtractedField.confirmedBy`/`confirmedAt`) — the
+   * confirming principal's userId. */
+  confirmedBy: string;
   runKey: EntityKey;
   runExpectedVersion: number;
   documentKey: EntityKey;
@@ -113,5 +158,43 @@ export interface RejectFieldInput {
   runExpectedVersion: number;
   documentKey: EntityKey;
   documentExpectedVersion: number;
+  now: string;
+}
+
+export interface ConfirmFieldForDocumentArchiveInput {
+  documentId: string;
+  fieldKey: EntityKey;
+  fieldTenantId: string;
+  fieldExpectedVersion: number;
+  confirmedValue: string;
+  /** D-193 item 4/9's provenance addition (`ExtractedField.confirmedBy`) — the confirming
+   * principal's userId for a manual confirm, or the fixed `"SYSTEM_AUTO_CONFIRM"` sentinel for
+   * the pipeline's auto-confirm path. Never inferred later — always supplied by the caller. */
+  confirmedBy: string;
+  runKey: EntityKey;
+  runExpectedVersion: number;
+  documentVersionKey: EntityKey;
+  documentVersionTenantId: string;
+  documentVersionExpectedVersion: number;
+  /** D-193 item 6/9: see `CommitDocumentVersionUpdate.versionId`'s doc comment — same discovery-
+   * hint role in the conditional outbox event's `data`. */
+  documentVersionVersionId: string;
+  /** Computed by `planDocumentVersionValidityEffect` — the ONE planner both this manual path and
+   * the pipeline's auto-confirm path call, so both apply the identical effect. */
+  effect: DocumentVersionValidityEffect;
+  /** Threaded straight into the conditional outbox event's `correlationId`/`aggregate` fields —
+   * never read from ambient context inside the adapter (same discipline `outbox.ts` documents). */
+  tenantId: string;
+  correlationId: string;
+  now: string;
+}
+
+export interface RejectFieldForDocumentArchiveInput {
+  fieldKey: EntityKey;
+  fieldTenantId: string;
+  fieldExpectedVersion: number;
+  correctionReason?: string;
+  runKey: EntityKey;
+  runExpectedVersion: number;
   now: string;
 }

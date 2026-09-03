@@ -102,6 +102,14 @@ resource "aws_dynamodb_table" "this" {
     name = "GSI8SK"
     type = "S"
   }
+  attribute {
+    name = "GSI9PK"
+    type = "S"
+  }
+  attribute {
+    name = "GSI9SK"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "GSI1"
@@ -172,6 +180,21 @@ resource "aws_dynamodb_table" "this" {
     projection_type = "KEYS_ONLY"
   }
 
+  # GSI9 - GSI_EVIDENCE (D-193, Requirement<->evidence DocumentVersion reverse index). Tenant-
+  # scoped (PK carries TENANT#<t>#DOCVERSION#<versionId>, unlike the tenantless GSI3/GSI6/GSI8),
+  # genuinely sparse - present only on a Requirement row while it has evidence linked
+  # (`linkEvidence`/`unlinkEvidence`, `document-archive/domain/requirement.ts`). ALL projection
+  # (not KEYS_ONLY like GSI8) because the async `requirement-evidence-refresh` worker (D-193,
+  # next slice) needs the full Requirement item off this one Query to re-derive it, not just its
+  # key. Ordinary tenant-facing index - added to `tenant_facing_index_names` below, no isolated
+  # IAM the way GSI3/GSI6/GSI8 need (no cross-tenant fan-out risk: PK is always tenant-scoped).
+  global_secondary_index {
+    name            = "GSI9"
+    hash_key        = "GSI9PK"
+    range_key       = "GSI9SK"
+    projection_type = "ALL"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
@@ -203,7 +226,7 @@ locals {
   # safeguard, extended to GSI4 in Wave B2B-3 of Multi-User B2B — see comment above).
   # DynamoDB IAM cannot restrict by SK prefix, so grants are table-level per index
   # (documented judgment call, same as the CDK construct's tenantFacingResources()).
-  tenant_facing_index_names = ["GSI1", "GSI2", "GSI5", "GSI7"]
+  tenant_facing_index_names = ["GSI1", "GSI2", "GSI5", "GSI7", "GSI9"]
   tenant_facing_resources = concat(
     [local.table_arn],
     [for name in local.tenant_facing_index_names : "${local.table_arn}/index/${name}"],

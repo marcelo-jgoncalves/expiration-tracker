@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { reconcileTimedOutDocumentFiles } from "../../../src/workers/document-file-reconciliation/reconciliation.js";
 import { applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
 import { documentFileGsi8Keys, documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
@@ -159,7 +159,11 @@ describe("reconcileTimedOutDocumentFiles — D-179 slice 3, migrated off the bas
     // discovery and this call - the file moves to CLEAN with its GSI8 pointer removed before
     // applyFileScanTimeout's own transaction runs.
     const gsi8 = documentFileGsi8Keys({ dueAtIso: "2026-08-01T00:00:00.000Z", tenantId: TENANT, fileId: "principal" });
-    const store = new InMemoryDocumentArchiveStore([baseFile("principal", { scanStatus: "SCANNING", ...gsi8 }), baseVersion({ pendingFileScans: 2 })] as unknown as (Record<string, unknown> & EntityKey)[]);
+    const store = new InMemoryDocumentArchiveStore([
+      baseFile("principal", { scanStatus: "SCANNING", ...gsi8 }),
+      baseVersion({ pendingFileScans: 2 }),
+      seedActiveTenantLifecycle(TENANT),
+    ] as unknown as (Record<string, unknown> & EntityKey)[]);
 
     // Concurrent winner: a real physical event confirms the file CLEAN first.
     const confirmOutcome = await confirmFileScanClean(

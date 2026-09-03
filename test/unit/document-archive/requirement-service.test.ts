@@ -185,6 +185,72 @@ describe("RequirementService (D-143 Nucleus 2, Decision 5/D9)", () => {
     expect(unlinked.evidenceValidUntil).toBeUndefined();
   });
 
+  it("linkEvidence populates GSI_EVIDENCE (GSI9), queryable via findRequirementsByEvidenceVersion", async () => {
+    const { service } = makeService();
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
+    const { doc, accepted } = await acceptedVersion(service);
+
+    const linked = await service.linkEvidence(ctx(), SUBJECT, req.requirementId, req.version, doc.documentId, accepted.versionId);
+    expect(linked.GSI9PK).toBe(`TENANT#${TENANT}#DOCVERSION#${accepted.versionId}`);
+    expect(linked.GSI9SK).toBe(`REQUIREMENT#${req.requirementId}`);
+
+    const found = await service.findRequirementsByEvidenceVersion(TENANT, accepted.versionId);
+    expect(found.map((r) => r.requirementId)).toEqual([req.requirementId]);
+  });
+
+  it("unlinkEvidence removes the GSI9 pointer entirely (genuinely sparse, not just nulled)", async () => {
+    const { service, store } = makeService();
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
+    const { doc, accepted } = await acceptedVersion(service);
+    const linked = await service.linkEvidence(ctx(), SUBJECT, req.requirementId, req.version, doc.documentId, accepted.versionId);
+
+    const unlinked = await service.unlinkEvidence(ctx(), SUBJECT, req.requirementId, linked.version);
+    expect(unlinked.GSI9PK).toBeUndefined();
+    expect(unlinked.GSI9SK).toBeUndefined();
+    const raw = await store.get({ PK: linked.PK, SK: linked.SK });
+    expect(Object.prototype.hasOwnProperty.call(raw, "GSI9PK")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(raw, "GSI9SK")).toBe(false);
+
+    const found = await service.findRequirementsByEvidenceVersion(TENANT, accepted.versionId);
+    expect(found).toEqual([]);
+  });
+
+  it("a Requirement with no evidence link never appears in GSI_EVIDENCE at all (sparse by construction)", async () => {
+    const { service, store } = makeService();
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
+    const raw = await store.get({ PK: req.PK, SK: req.SK });
+    expect(Object.prototype.hasOwnProperty.call(raw, "GSI9PK")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(raw, "GSI9SK")).toBe(false);
+  });
+
+  it("findRequirementsByEvidenceVersion returns ALL Requirements referencing the same evidence DocumentVersion, not just the first", async () => {
+    const { service } = makeService();
+    const reqA = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND-A", applicability: "APPLICABLE" });
+    const reqB = await service.createRequirement(ctx(), { subjectId: "other-subject", name: "CND-B", applicability: "APPLICABLE" });
+    const { doc, accepted } = await acceptedVersion(service);
+
+    await service.linkEvidence(ctx(), SUBJECT, reqA.requirementId, reqA.version, doc.documentId, accepted.versionId);
+    await service.linkEvidence(ctx(), "other-subject", reqB.requirementId, reqB.version, doc.documentId, accepted.versionId);
+
+    const found = await service.findRequirementsByEvidenceVersion(TENANT, accepted.versionId);
+    expect(found.map((r) => r.requirementId).sort()).toEqual([reqA.requirementId, reqB.requirementId].sort());
+  });
+
+  it("relinking a Requirement to a different evidence version moves its GSI9 pointer (old versionId no longer finds it)", async () => {
+    const { service } = makeService();
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });
+    const first = await acceptedVersion(service);
+    const linked = await service.linkEvidence(ctx(), SUBJECT, req.requirementId, req.version, first.doc.documentId, first.accepted.versionId);
+
+    const second = await acceptedVersion(service);
+    const relinked = await service.linkEvidence(ctx(), SUBJECT, req.requirementId, linked.version, second.doc.documentId, second.accepted.versionId);
+    expect(relinked.GSI9PK).toBe(`TENANT#${TENANT}#DOCVERSION#${second.accepted.versionId}`);
+
+    expect(await service.findRequirementsByEvidenceVersion(TENANT, first.accepted.versionId)).toEqual([]);
+    const foundOnNew = await service.findRequirementsByEvidenceVersion(TENANT, second.accepted.versionId);
+    expect(foundOnNew.map((r) => r.requirementId)).toEqual([req.requirementId]);
+  });
+
   it("updateRequirement flips applicability to NOT_APPLICABLE immediately, without waiting for the reindex worker", async () => {
     const { service } = makeService();
     const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND", applicability: "APPLICABLE" });

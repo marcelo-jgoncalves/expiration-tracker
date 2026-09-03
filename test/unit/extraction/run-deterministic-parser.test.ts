@@ -21,7 +21,7 @@ class FakeArtifactStore implements OcrArtifactStore {
 
 class FakeFeatureFlagsReader implements FeatureFlagsReader {
   constructor(
-    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false },
+    private readonly flags: FeatureFlags | undefined = { AI_EXTRACTION: true, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false },
     private readonly shouldThrow = false,
   ) {}
   async getFlags(): Promise<FeatureFlags> {
@@ -50,7 +50,7 @@ function textractBlocks(lines: string[]): string {
 describe("runDeterministicParser", () => {
   it("happy path: finds a confident candidate, does not need Bedrock, reports AI_EXTRACTION flag", async () => {
     const artifacts = new FakeArtifactStore({ "ocr/run_x.json": textractBlocks(["Contrato XYZ", "Validade: 31/03/2027"]) });
-    const featureFlags = new FakeFeatureFlagsReader({ AI_EXTRACTION: true, OCR: true, WHATSAPP: false });
+    const featureFlags = new FakeFeatureFlagsReader({ AI_EXTRACTION: true, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
     const output = await runDeterministicParser(
       { artifacts, featureFlags },
       baseInput({ ocrAvailable: true, artifact: { bucket: "b", key: "ocr/run_x.json" } }),

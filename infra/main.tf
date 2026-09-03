@@ -289,6 +289,7 @@ module "dispatch_outbox_relay" {
     IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
+    REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -298,6 +299,7 @@ module "dispatch_outbox_relay" {
     module.import_commit_queue.send_policy_json,
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
+    module.requirement_evidence_refresh_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -321,6 +323,7 @@ module "outbox_sweeper" {
     IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
+    REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -328,8 +331,9 @@ module "outbox_sweeper" {
   # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
   # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
   # for document-chasing-dispatch, M11 (D-042) once more for import-commit, BLOCKER-B once
-  # more for the reminder-materialization-trigger queue, and D-192 slice 9 once more for the
-  # import-parse-dispatch queue, same reasoning.
+  # more for the reminder-materialization-trigger queue, D-192 slice 9 once more for the
+  # import-parse-dispatch queue, and D-193 item 6/9 once more for the
+  # requirement-evidence-refresh queue, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
@@ -339,6 +343,7 @@ module "outbox_sweeper" {
     module.import_commit_queue.send_policy_json,
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
+    module.requirement_evidence_refresh_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1275,12 +1280,18 @@ module "upload_finalizer_handler" {
   environment_variables = merge(local.common_env, {
     CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
     PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
+    # D-193 item 8/9 (PROMOTER gate) - this handler's third (document-archive) branch fails
+    # closed against the AppConfig flags module, same trio every AppConfig-gated Lambda uses.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.upload_finalizer_object_access.json,
     data.aws_iam_policy_document.upload_finalizer_invoke_parser_sandbox.json,
     module.upload_finalizer_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1339,11 +1350,16 @@ module "malware_result_handler" {
   environment_variables = merge(local.common_env, {
     CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
     PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
+    # D-193 item 8/9 (PROMOTER gate) - same reasoning as upload_finalizer_handler above.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.malware_result_object_access.json,
     module.malware_result_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1760,6 +1776,133 @@ resource "aws_lambda_event_source_mapping" "import_parse_from_dispatch_queue" {
   function_response_types = ["ReportBatchItemFailures"]
 }
 
+# --- RequirementEvidenceRefreshWorker: SQS_REQUIREMENT_EVIDENCE_REFRESH_V1, fed by
+# dispatch_outbox_relay/outbox_sweeper (D-193 item 6/9, estado-final-consolidado.md
+# "Convergência de Requirement"). The event is only ever a wake-up hint (tenantId/versionId) —
+# the handler always re-reads DocumentVersion+Requirement fresh via the GSI9 (GSI_EVIDENCE)
+# reverse index (D-193 slice 5) before writing anything, never trusting the message body's
+# `validUntil`. GSI9 access needs no dedicated policy (tenant-facing index, already covered by
+# `tenant_facing_read_write_policy_json`, same as GSI2/GSI5) — only TransactWriteItems on the
+# base table (via that same policy) for the per-Requirement OCC update, never a standalone
+# UpdateItem (buildVersionedUpdate/store.transactWrite()'s real mechanism, matching the design's
+# Rodada 5 correction for the item 7/9 sweep worker's own IAM comment).
+
+module "requirement_evidence_refresh_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-requirement-evidence-refresh"
+  consumer_timeout_seconds = 30
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "requirement_evidence_refresh_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-requirement-evidence-refresh-handler"
+  handler_name          = "requirement-evidence-refresh-handler"
+  source_dir            = "${local.dist_dir}/requirement-evidence-refresh-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 30
+  environment_variables = merge(local.common_env, {})
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.requirement_evidence_refresh_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "requirement_evidence_refresh_from_queue" {
+  event_source_arn        = module.requirement_evidence_refresh_queue.queue_arn
+  function_name           = module.requirement_evidence_refresh_handler.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- RequirementEvidenceDailySweepHandler: daily EventBridge Scheduler job (D-193 item 7/9,
+# estado-final-consolidado.md "Rede de reparo autoritativa", Rodada 5 closure) - closes the
+# total-message-loss risk item 6/9 left open: `store.scanRequirementsWithEvidence` (base-table
+# Scan, same accepted cost tradeoff as `scanActiveSeries`/`document_request_recurrence_handler`
+# above - status-independent by design, see that port method's doc comment) pages every
+# Requirement with a linked evidence version and re-enqueues each one onto the SAME
+# SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 queue item 6/9 already consumes - this handler never writes
+# a Requirement itself (no worker_transact_write_policy_json grant needed, unlike
+# document_file_reconciliation_handler/requirement_reindex_handler above), so its only privileges
+# beyond the general tenant-facing Scan/read grant are `sqs:SendMessage` on that one queue.
+module "requirement_evidence_daily_sweep_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-requirement-evidence-daily-sweep-handler"
+  handler_name    = "requirement-evidence-daily-sweep-handler"
+  source_dir      = "${local.dist_dir}/requirement-evidence-daily-sweep-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 300
+  environment_variables = merge(local.common_env, {
+    REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL = module.requirement_evidence_refresh_queue.queue_url
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.requirement_evidence_refresh_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "requirement_evidence_daily_sweep_schedule" {
+  # "-sched-role" (not the usual "-schedule-role" suffix) - the base function_name is already
+  # long enough that the usual suffix pushes this past IAM's 64-char role name limit.
+  name = "${module.requirement_evidence_daily_sweep_handler.function_name}-sched-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "requirement_evidence_daily_sweep_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.requirement_evidence_daily_sweep_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeRequirementEvidenceDailySweep"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.requirement_evidence_daily_sweep_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "requirement_evidence_daily_sweep" {
+  name                         = "${local.name_prefix}-requirement-evidence-daily-sweep"
+  schedule_expression          = "cron(0 5 * * ? *)" # daily 05:00 UTC, after requirement-reindex (04:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.requirement_evidence_daily_sweep_handler.live_alias_arn
+    role_arn = aws_iam_role.requirement_evidence_daily_sweep_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 # --- ImportCommitWorker: SQS_IMPORT_COMMIT_V1, fed by dispatch_outbox_relay/outbox_sweeper --
 
 module "import_commit_queue" {
@@ -1945,11 +2088,17 @@ module "extraction_starter_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     EXTRACTION_STATE_MACHINE_ARN = local.extraction_state_machine_arn
+    # D-193 item 8/9 (STARTER gate) - the document-archive branch fails closed against the
+    # AppConfig flags module, same trio every AppConfig-gated Lambda uses.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.extraction_starter_start_execution.json,
     module.extraction_starter_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

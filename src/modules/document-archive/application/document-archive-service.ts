@@ -108,6 +108,8 @@ import {
   deriveRequirementStatus,
   requirementGsi1Keys,
   requirementGsi8Keys,
+  requirementGsi9Keys,
+  requirementGsi9PartitionKey,
   requirementKey,
   REQUIREMENT_SK_PREFIX,
   type CreateRequirementInput,
@@ -1048,6 +1050,7 @@ export class DocumentArchiveService {
       evidenceState: evidenceVersion.state,
       status,
       ...requirementGsi1Keys(tenantId, status, now, requirementId),
+      ...requirementGsi9Keys({ tenantId, evidenceVersionId: versionId, requirementId }),
     };
     // `undefined` is not a valid DynamoDB attribute value (occ.ts's SET-clause builder would
     // otherwise emit an ExpressionAttributeValue literally equal to `undefined`) — only include
@@ -1091,8 +1094,10 @@ export class DocumentArchiveService {
     const set = { status, ...requirementGsi1Keys(tenantId, status, now, requirementId) };
     // Never SATISFIED here (deriveRequirementStatus with no evidence only ever returns
     // MISSING/NOT_APPLICABLE) — the GSI8 pointer is always cleared unconditionally, no
-    // requirementGsi8Fields() branch needed.
-    const removedFields = ["evidenceVersionId", "evidenceDocumentId", "evidenceSeq", "evidenceState", "evidenceValidUntil", "GSI8PK", "GSI8SK"] as const;
+    // requirementGsi8Fields() branch needed. GSI9 (GSI_EVIDENCE) is always cleared
+    // unconditionally too — the whole point of "sparse" is that a Requirement with no evidence
+    // link never appears in it at all.
+    const removedFields = ["evidenceVersionId", "evidenceDocumentId", "evidenceSeq", "evidenceState", "evidenceValidUntil", "GSI8PK", "GSI8SK", "GSI9PK", "GSI9SK"] as const;
     const update = buildVersionedUpdate({
       tableName: this.tableName,
       key: requirementKey(tenantId, subjectId, requirementId),
@@ -1110,6 +1115,34 @@ export class DocumentArchiveService {
     const next = { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as Requirement;
     for (const field of removedFields) delete next[field];
     return next;
+  }
+
+  /**
+   * GSI_EVIDENCE reverse lookup (D-193 slice 5) — given a `DocumentVersion` identity, returns
+   * every `Requirement` currently linking it as evidence, paging the full GSI9 partition (never
+   * a single-page peek: the design's convergence worker (D-193 slice 6, not built yet) must
+   * re-derive EVERY Requirement referencing a re-confirmed/rejected DocumentVersion, not just the
+   * first one a page happens to return). No `RequestContext`/`authorize()` here on purpose — this
+   * is a SYSTEM query for the async worker (D-193's whole point: the worker re-reads
+   * `DocumentVersion`+`Requirement` fresh itself, it is never acting on behalf of an
+   * authenticated end-user request), same posture `scanActiveSeries` already holds for the
+   * recurrence materializer worker. Callers still owe re-fetching each `Requirement` fresh
+   * before acting — this index is discovery-only, never a source of eligibility (same posture
+   * every GSI8 consumer already holds, D-179/D-180).
+   */
+  async findRequirementsByEvidenceVersion(tenantId: string, evidenceVersionId: string): Promise<Requirement[]> {
+    const items: Requirement[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const page = await this.store.queryIndexPage<Requirement>({
+        indexName: "GSI9",
+        partitionKeyValue: requirementGsi9PartitionKey(tenantId, evidenceVersionId),
+        exclusiveStartKey,
+      });
+      items.push(...page.items);
+      exclusiveStartKey = page.lastEvaluatedKey;
+    } while (exclusiveStartKey);
+    return items;
   }
 
   async deleteRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number): Promise<void> {

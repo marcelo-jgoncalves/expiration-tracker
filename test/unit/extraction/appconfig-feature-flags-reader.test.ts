@@ -33,19 +33,19 @@ describe("AppConfigFeatureFlagsReader", () => {
   it("starts a session then returns the parsed flags on first poll", async () => {
     const client = makeClient({
       latest: () => ({
-        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false } })),
         NextPollConfigurationToken: "next-1",
       }),
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
     expect(client.calls.map((c) => c.commandName)).toEqual(["StartConfigurationSessionCommand", "GetLatestConfigurationCommand"]);
   });
 
   it("reuses the cached session token across calls (no repeated StartConfigurationSession)", async () => {
     const client = makeClient({
       latest: () => ({
-        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false } })),
         NextPollConfigurationToken: "next-1",
       }),
     });
@@ -61,14 +61,14 @@ describe("AppConfigFeatureFlagsReader", () => {
       latest: () => {
         if (first) {
           first = false;
-          return { Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: true, OCR: true, WHATSAPP: true } })), NextPollConfigurationToken: "next-1" };
+          return { Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: true, OCR: true, WHATSAPP: true, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false } })), NextPollConfigurationToken: "next-1" };
         }
         return { Configuration: Buffer.alloc(0), NextPollConfigurationToken: "next-2" };
       },
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
     await reader.getFlags();
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
   });
 
   /** Regression for the 2026-08-27 M7 E2E verification finding: this adapter read the three
@@ -80,12 +80,12 @@ describe("AppConfigFeatureFlagsReader", () => {
   it("reads the flags from the `features` envelope that AppConfig actually serves", async () => {
     const client = makeClient({
       latest: () => ({
-        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false } })),
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false } })),
         NextPollConfigurationToken: "next-1",
       }),
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
   });
 
   it("throws (never resolves 'unknown, proceed') when the session cannot be started", async () => {
@@ -98,5 +98,44 @@ describe("AppConfigFeatureFlagsReader", () => {
     const client = makeClient({ latest: () => ({ Configuration: Buffer.alloc(0), NextPollConfigurationToken: "next-1" }) });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
     await expect(reader.getFlags()).rejects.toThrow();
+  });
+
+  /** D-193 item 8/9: the two new flags parse with the SAME "=== true" fail-closed discipline
+   * as AI_EXTRACTION/OCR/WHATSAPP - an absent key (a config published before this slice
+   * existed) resolves to `false`, and an explicit `true` parses through correctly. */
+  it("parses EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED/DOCUMENT_ARCHIVE_PROMOTION_ENABLED when both are explicitly true", async () => {
+    const client = makeClient({
+      latest: () => ({
+        Configuration: Buffer.from(
+          JSON.stringify({ features: { AI_EXTRACTION: false, OCR: false, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: true, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: true } }),
+        ),
+        NextPollConfigurationToken: "next-1",
+      }),
+    });
+    const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
+    await expect(reader.getFlags()).resolves.toEqual({
+      AI_EXTRACTION: false,
+      OCR: false,
+      WHATSAPP: false,
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: true,
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED: true,
+    });
+  });
+
+  it("defaults both new flags to false when a config published before D-193 item 8/9 omits them entirely", async () => {
+    const client = makeClient({
+      latest: () => ({
+        Configuration: Buffer.from(JSON.stringify({ features: { AI_EXTRACTION: true, OCR: true, WHATSAPP: true } })),
+        NextPollConfigurationToken: "next-1",
+      }),
+    });
+    const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
+    await expect(reader.getFlags()).resolves.toEqual({
+      AI_EXTRACTION: true,
+      OCR: true,
+      WHATSAPP: true,
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false,
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false,
+    });
   });
 });

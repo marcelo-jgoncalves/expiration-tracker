@@ -31,9 +31,11 @@ resource "aws_appconfig_hosted_configuration_version" "kill_switches" {
   content_type             = "application/json"
   content = jsonencode({
     features = {
-      AI_EXTRACTION = var.ai_extraction_enabled
-      OCR           = var.ocr_enabled
-      WHATSAPP      = var.whatsapp_enabled
+      AI_EXTRACTION                               = var.ai_extraction_enabled
+      OCR                                         = var.ocr_enabled
+      WHATSAPP                                    = var.whatsapp_enabled
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED = var.extraction_document_archive_trigger_enabled
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED          = var.document_archive_promotion_enabled
     }
   })
 }
