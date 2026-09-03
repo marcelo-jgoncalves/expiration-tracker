@@ -71,6 +71,15 @@ export interface Requirement extends EntityKey {
   evidenceState?: DocumentVersionState;
   evidenceValidUntil?: string;
   status: RequirementStatus;
+  /** Provenance of a Requirement materialized by `applyTemplate` (P0.1) — AUDIT TRAIL ONLY.
+   * No read path, derivation or worker ever consults these three: applying a RequirementTemplate
+   * is a SNAPSHOT (copy), never a live link, so editing/archiving/deleting the template later
+   * must not reach a Requirement that already exists. `sourceTemplateAppliedVersion` is the
+   * template version the apply transaction actually FENCED on (`status = ACTIVE AND version =`),
+   * so it is a protected fact rather than "the version I happened to read before the race". */
+  sourceTemplateId?: string;
+  sourceTemplateItemId?: string;
+  sourceTemplateAppliedVersion?: number;
   createdAt: string;
   updatedAt: string;
   version: number;

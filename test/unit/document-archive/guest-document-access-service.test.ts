@@ -28,6 +28,8 @@ function makeIds(): DocumentArchiveIdGenerator {
     newDocumentRequestId: () => `docreq-${++n}`,
     newFileId: () => `file-${++n}`,
     newDocumentTypeId: () => `doctype-${++n}`,
+  newRequirementTemplateId: () => "reqtpl_test",
+  newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
   };
 }
 

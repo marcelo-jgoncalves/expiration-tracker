@@ -19,6 +19,24 @@ export function seedActiveTenantLifecycle(tenantId: string): Record<string, unkn
   return record as unknown as Record<string, unknown> & EntityKey;
 }
 
+/** P0.1 (RequirementTemplate): `createRequirement()`/`applyTemplate()` now fence on the owning
+ * `TrackedSubject` existing AND being ACTIVE inside the same transaction — closing a real
+ * pre-existing gap (`createRequirement` previously never checked the Subject at all). Same
+ * fixture-seeding shape as `seedActiveTenantLifecycle`/`seedActiveDocumentType` above. */
+export function seedActiveTrackedSubject(tenantId: string, subjectId: string): Record<string, unknown> & EntityKey {
+  return {
+    PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`,
+    SK: "META",
+    entityType: "TrackedSubject",
+    tenantId,
+    subjectId,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 1,
+  } as unknown as Record<string, unknown> & EntityKey;
+}
+
 /** D-173 item 3: `createDocument()`'s transactional `ConditionCheck` requires a real
  * `DocumentType` row (status ACTIVE) to exist at the id `input.documentTypeId` names.
  * Fixtures across this suite pass a literal like "ALVARA" as that id — this seeds one ACTIVE

@@ -18,12 +18,24 @@ import {
   buildExistenceConditionCheck,
   buildVersionedCreate,
   buildVersionedDelete,
+  buildVersionConditionCheck,
   buildVersionedUpdate,
   getCancellationReasonCodes,
   isTransactionCanceled,
   type EntityKey,
+  type TransactWriteEntry,
 } from "../../../shared/dynamodb/occ.js";
-import { AuthorizationError, ConflictError, DocumentTypeNameConflictError, DocumentTypeNotActiveError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
+import {
+  AuthorizationError,
+  ConflictError,
+  DocumentTypeNameConflictError,
+  DocumentTypeNotActiveError,
+  NotFoundError,
+  RequirementNameConflictError,
+  SubjectPreconditionFailedError,
+  TemplatePreconditionFailedError,
+  ValidationError,
+} from "../../../shared/errors/app-error.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { authorize } from "../../identity/domain/authorization.js";
@@ -31,6 +43,27 @@ import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { type CreateDocumentInput, type Document, documentGsi1Keys, documentGsi2Keys, documentKey } from "../domain/document.js";
+import {
+  assertTemplateItemNamesUnique,
+  assertTemplateItemSizes,
+  MAX_NAME_BYTES,
+  MAX_NOTES_BYTES,
+  MAX_TEMPLATE_ITEMS,
+  planTemplateApplication,
+  requirementNamePointerKey,
+  requirementTemplateGsi1Keys,
+  requirementTemplateKey,
+  requirementTemplateNamePointerKey,
+  SUBJECT_STATUS_ACCEPTING_REQUIREMENTS,
+  trackedSubjectKeyForFence,
+  type CreateRequirementTemplateInput,
+  type RequirementNamePointer,
+  type RequirementTemplate,
+  type RequirementTemplateItem,
+  type RequirementTemplateNamePointer,
+  type TemplateApplicationPlan,
+  type UpdateRequirementTemplateInput,
+} from "../domain/requirement-template.js";
 import {
   documentTypeGsi1Keys,
   documentTypeKey,
@@ -79,9 +112,18 @@ import {
   REQUIREMENT_SK_PREFIX,
   type CreateRequirementInput,
   type Requirement,
+  type RequirementApplicability,
   type RequirementStatus,
   type UpdateRequirementInput,
 } from "../domain/requirement.js";
+
+/** Metadata paired with each transaction entry so a cancellation is classified structurally
+ * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
+export type TransactEntryLabel =
+  | { kind: "REQUIREMENT"; templateItemId?: string }
+  | { kind: "POINTER"; name: string; templateItemId?: string }
+  | { kind: "TEMPLATE_FENCE" }
+  | { kind: "SUBJECT_FENCE" };
 
 export interface DocumentArchiveServiceDeps {
   store: DocumentArchiveStore;
@@ -657,9 +699,93 @@ export class DocumentArchiveService {
       // other 3 mutation sites below need, since a future caller shape could change that invariant.
       ...this.requirementGsi8Fields(status, undefined, tenantId, requirementId),
     };
-    const created = await this.store.putIfAbsent(requirement);
-    if (!created) throw new ConflictError("Requirement already exists.", { requirementId });
+
+    // P0.1/§3: `putIfAbsent` replaced by a real transaction. Two properties this buys, neither
+    // of which a single conditional Put can give: the per-Subject name uniqueness rule is
+    // enforced by the pointer's own `attribute_not_exists` (not by a read-then-write), and the
+    // Subject's existence/status is fenced INSIDE the same transaction — a pre-existing gap
+    // found by this decision's Round 2 (`createRequirement` never checked the Subject at all and
+    // would happily create a Requirement under a non-existent or ARCHIVED Subject).
+    const labels: TransactEntryLabel[] = [
+      { kind: "REQUIREMENT" },
+      { kind: "POINTER", name: input.name },
+      { kind: "SUBJECT_FENCE" },
+    ];
+    const entries = [
+      { Put: buildVersionedCreate(this.tableName, requirement as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, this.buildRequirementNamePointer(tenantId, input.subjectId, input.name, requirementId, now) as unknown as Record<string, unknown> & EntityKey) },
+      this.buildSubjectFence(tenantId, input.subjectId),
+    ];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      this.throwClassifiedCancellation(err, labels, { subjectId: input.subjectId, requirementId });
+    }
     return requirement;
+  }
+
+  /** Shared by `createRequirement` and `applyTemplate` — the pointer row that makes the
+   * per-Subject name uniqueness rule transactional rather than a read-then-write. */
+  private buildRequirementNamePointer(tenantId: string, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
+    const normalizedName = normalizeDisplayName(name);
+    return {
+      ...requirementNamePointerKey(tenantId, subjectId, normalizedName),
+      entityType: "RequirementNamePointer",
+      tenantId,
+      subjectId,
+      normalizedName,
+      requirementId,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+  }
+
+  /** `attribute_exists(PK) AND status = ACTIVE` — the status is ENUMERATED, never `<> DELETED`,
+   * which would let an ARCHIVED Subject through (`TrackedSubjectStatus` is
+   * `ACTIVE | ARCHIVED | DELETED`). */
+  private buildSubjectFence(tenantId: string, subjectId: string) {
+    return buildExistenceConditionCheck({
+      tableName: this.tableName,
+      key: trackedSubjectKeyForFence(tenantId, subjectId),
+      extra: { status: SUBJECT_STATUS_ACCEPTING_REQUIREMENTS },
+    });
+  }
+
+  /**
+   * Structural classification of a `TransactionCanceledException` — never a literal index
+   * (`codes?.[1]`), which breaks the moment an entry is inserted, and never a re-read that picks
+   * WHICH error to throw (that would assert a cause DynamoDB did not reveal; Codex Rounds 3/4).
+   *
+   * Coupling with the shared lane, declared rather than assumed: `executeTenantBusinessMutation`
+   * always appends its tenant fence LAST and converts that fence's failure into
+   * `TenantNotActiveError` before the caller ever sees the cancellation, so `labels` covers the
+   * whole space this classifier can still be asked about. Any `ConditionalCheckFailed` at an
+   * index beyond `labels` falls back to a generic conflict rather than a wrong label.
+   *
+   * Precedence runs from the broadest precondition to the narrowest: if the template is no
+   * longer applicable, reporting "name X collided" would be misleading; likewise for the Subject.
+   */
+  private throwClassifiedCancellation(err: unknown, labels: TransactEntryLabel[], details: Record<string, unknown>): never {
+    if (!isTransactionCanceled(err)) throw err;
+    const codes = getCancellationReasonCodes(err);
+    const failed = (codes ?? []).flatMap((code, index) => (code === "ConditionalCheckFailed" && index < labels.length ? [labels[index] as TransactEntryLabel] : []));
+
+    if (failed.some((label) => label.kind === "TEMPLATE_FENCE")) {
+      throw new TemplatePreconditionFailedError(undefined, details);
+    }
+    if (failed.some((label) => label.kind === "SUBJECT_FENCE")) {
+      throw new SubjectPreconditionFailedError(undefined, details);
+    }
+    const collisions = failed.filter((label) => label.kind === "POINTER");
+    if (collisions.length > 0) {
+      // Every colliding name, not just the first — a single apply can lose more than one race.
+      throw new RequirementNameConflictError(undefined, { ...details, conflictingNames: collisions.map((label) => label.name) });
+    }
+    if (failed.some((label) => label.kind === "REQUIREMENT")) {
+      throw new ConflictError("Requirement was concurrently modified.", details);
+    }
+    throw new ConflictError("The transaction was rejected by a condition check.", details);
   }
 
   /** Shared by all 4 Requirement mutation sites (D-179/D-185) — computes the GSI8 pointer fields
@@ -716,11 +842,41 @@ export class DocumentArchiveService {
       set,
       remove: Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : undefined,
     });
+
+    // P0.1/§3: a name change has to move the dedupe pointer too, in the SAME transaction. Two
+    // branches for the same reason `renameDocumentType()` has two (D-173 §3): DynamoDB rejects a
+    // Delete and a Put against the SAME item inside one TransactWriteItems, so "normalized name
+    // unchanged" and "normalized name changed" cannot share one transaction shape. The old
+    // normalized name is ALWAYS derived from the persisted `current.name`, never from caller
+    // input — the persisted value is the only source of truth for which pointer key exists.
+    const oldNormalizedName = normalizeDisplayName(current.name);
+    const newNormalizedName = input.name !== undefined ? normalizeDisplayName(input.name) : oldNormalizedName;
+    const entries: TransactWriteEntry[] = [{ Update: update }];
+    const labels: TransactEntryLabel[] = [{ kind: "REQUIREMENT" }];
+    if (newNormalizedName !== oldNormalizedName) {
+      entries.push({
+        Delete: buildConditionalDelete({
+          tableName: this.tableName,
+          key: requirementNamePointerKey(tenantId, subjectId, oldNormalizedName),
+          conditionExpression: "attribute_exists(PK) AND #reqId = :self",
+          names: { "#reqId": "requirementId" },
+          values: { ":self": requirementId },
+        }),
+      });
+      labels.push({ kind: "POINTER", name: current.name });
+      entries.push({
+        Put: buildVersionedCreate(
+          this.tableName,
+          this.buildRequirementNamePointer(tenantId, subjectId, input.name as string, requirementId, now) as unknown as Record<string, unknown> & EntityKey,
+        ),
+      });
+      labels.push({ kind: "POINTER", name: input.name as string });
+    }
+
     try {
-      await this.store.transactWrite([{ Update: update }]);
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
-      if (isTransactionCanceled(err)) throw new ConflictError("Requirement was concurrently modified.", { requirementId });
-      throw err;
+      this.throwClassifiedCancellation(err, labels, { subjectId, requirementId });
     }
     return { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as Requirement;
   }
@@ -818,14 +974,30 @@ export class DocumentArchiveService {
   async deleteRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number): Promise<void> {
     authorize({ context: ctx, action: "docarchive:requirement-delete", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
-    await this.getRequirementUnchecked(tenantId, subjectId, requirementId); // 404s if absent
+    const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId); // 404s if absent
     const key = requirementKey(tenantId, subjectId, requirementId);
     const del = buildVersionedDelete({ tableName: this.tableName, key, tenantId, expectedVersion });
+    // The pointer is released together with the Requirement it names — this is why "a deleted
+    // name is freed" is true by construction, and why an archived-forever name reservation (a
+    // risk the Codex raised in Round 2) cannot happen: `Requirement` has no archived state, its
+    // delete is physical.
+    const pointerDelete = buildConditionalDelete({
+      tableName: this.tableName,
+      key: requirementNamePointerKey(tenantId, subjectId, normalizeDisplayName(current.name)),
+      conditionExpression: "attribute_exists(PK) AND #reqId = :self",
+      names: { "#reqId": "requirementId" },
+      values: { ":self": requirementId },
+    });
+    const labels: TransactEntryLabel[] = [{ kind: "REQUIREMENT" }, { kind: "POINTER", name: current.name }];
     try {
-      await this.store.transactWrite([{ Delete: del }]);
+      await executeTenantBusinessMutation({
+        store: this.store,
+        tableName: this.tableName,
+        tenantId,
+        entries: [{ Delete: del }, { Delete: pointerDelete }],
+      });
     } catch (err) {
-      if (isTransactionCanceled(err)) throw new ConflictError("Requirement was concurrently modified.", { requirementId });
-      throw err;
+      this.throwClassifiedCancellation(err, labels, { subjectId, requirementId });
     }
   }
 
@@ -1030,6 +1202,393 @@ export class DocumentArchiveService {
       await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
     } catch (err) {
       if (isTransactionCanceled(err)) throw new ConflictError(`DocumentType is not ${fromStatus} (already ${toStatus}, or concurrently modified).`, { documentTypeId });
+      throw err;
+    }
+    return { ...current, status: toStatus, ...gsi1, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // RequirementTemplate (P0.1) — design APPROVED in
+  // `docs/architecture/reviews/requirement-template-scoping/estado-final-consolidado.md`.
+  // ---------------------------------------------------------------------------------------
+
+  /** Same shape as `createDocumentType` (D-173 §3): `[0] Put(template, attribute_not_exists),
+   * [1] Put(name pointer, attribute_not_exists), [2] fence]`. Position 1 is what actually closes
+   * the race between two concurrent creators supplying the same normalized name. */
+  async createRequirementTemplate(ctx: RequestContext, input: CreateRequirementTemplateInput): Promise<RequirementTemplate> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const now = this.now();
+    const templateId = this.ids.newRequirementTemplateId();
+    const items = this.buildTemplateItems(input.items);
+    this.assertTemplateEnvelopeSizes(input.displayName, input.description);
+
+    const normalizedName = normalizeDisplayName(input.displayName);
+    const template: RequirementTemplate = {
+      ...requirementTemplateKey(tenantId, templateId),
+      entityType: "RequirementTemplate",
+      templateId,
+      tenantId,
+      displayName: input.displayName,
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      status: "ACTIVE",
+      items,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      ...requirementTemplateGsi1Keys(tenantId, "ACTIVE", normalizedName, templateId),
+    };
+    await this.commitTemplateCreate(tenantId, template, normalizedName, now, input.displayName);
+    return template;
+  }
+
+  async getRequirementTemplate(ctx: RequestContext, templateId: string): Promise<RequirementTemplate> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.getRequirementTemplateUnchecked(ctx.tenant.tenantId, templateId);
+  }
+
+  /** One physical GSI page per call, same discipline as `listDocumentTypes` — the caller drives
+   * pagination (the D-142 cursor-skip lesson). GSI1SK already orders by normalized name, so a
+   * catalog listing comes out alphabetical for free. */
+  async listRequirementTemplates(
+    ctx: RequestContext,
+    status: RequirementTemplate["status"],
+    exclusiveStartKey?: Record<string, unknown>,
+  ): Promise<{ items: RequirementTemplate[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.store.queryIndexPage<RequirementTemplate>({
+      indexName: "GSI1",
+      partitionKeyValue: `TENANT#${ctx.tenant.tenantId}#REQTEMPLATESTATUS#${status}`,
+      exclusiveStartKey,
+    });
+  }
+
+  /** Renames and/or replaces the whole `items` list under OCC. An ARCHIVED template is not
+   * editable (409, fenced by `extraConditions` on the FROM status, not just by `expectedVersion`)
+   * — unarchive first. Rename has the same two pointer branches as `renameDocumentType`. */
+  async updateRequirementTemplate(
+    ctx: RequestContext,
+    templateId: string,
+    expectedVersion: number,
+    input: UpdateRequirementTemplateInput,
+  ): Promise<RequirementTemplate> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-update", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getRequirementTemplateUnchecked(tenantId, templateId);
+    const now = this.now();
+    this.assertTemplateEnvelopeSizes(input.displayName ?? current.displayName, input.description ?? current.description);
+
+    const nextItems = input.items !== undefined ? this.buildTemplateItems(input.items) : current.items;
+    const nextDisplayName = input.displayName ?? current.displayName;
+    const oldNormalizedName = normalizeDisplayName(current.displayName);
+    const newNormalizedName = normalizeDisplayName(nextDisplayName);
+    const set: Record<string, unknown> = {
+      displayName: nextDisplayName,
+      items: nextItems,
+      ...requirementTemplateGsi1Keys(tenantId, current.status, newNormalizedName, templateId),
+    };
+    if (input.description !== undefined) set["description"] = input.description;
+
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: requirementTemplateKey(tenantId, templateId),
+      tenantId,
+      expectedVersion,
+      set,
+      now,
+      extraConditions: [{ expression: "#st = :active", names: { "#st": "status" }, values: { ":active": "ACTIVE" } }],
+    });
+    const entries: TransactWriteEntry[] = [{ Update: update }];
+    if (newNormalizedName !== oldNormalizedName) {
+      entries.push({
+        Delete: buildConditionalDelete({
+          tableName: this.tableName,
+          key: requirementTemplateNamePointerKey(tenantId, oldNormalizedName),
+          conditionExpression: "attribute_exists(PK) AND #tplId = :self",
+          names: { "#tplId": "templateId" },
+          values: { ":self": templateId },
+        }),
+      });
+      entries.push({ Put: buildVersionedCreate(this.tableName, this.buildTemplateNamePointer(tenantId, newNormalizedName, templateId, now) as unknown as Record<string, unknown> & EntityKey) });
+    }
+
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes && codes.length > 2 && codes[2] === "ConditionalCheckFailed") {
+          throw new ConflictError("A RequirementTemplate with this name already exists.", { displayName: nextDisplayName });
+        }
+        throw new ConflictError("RequirementTemplate is not ACTIVE, or was concurrently modified.", { templateId });
+      }
+      throw err;
+    }
+    return { ...current, ...(set as Partial<RequirementTemplate>), version: expectedVersion + 1, updatedAt: now } as RequirementTemplate;
+  }
+
+  /**
+   * Duplicating mints a new `templateId` AND brand-new `templateItemId`s — a copy is an
+   * INDEPENDENT template, never an alias of the original (the same snapshot posture the apply
+   * itself takes, applied one level up). Duplicating an ARCHIVED template is allowed on purpose:
+   * it is how a retired template is revived without unarchiving the original.
+   */
+  async duplicateRequirementTemplate(ctx: RequestContext, templateId: string, newDisplayName: string): Promise<RequirementTemplate> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-duplicate", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const source = await this.getRequirementTemplateUnchecked(tenantId, templateId);
+    this.assertTemplateEnvelopeSizes(newDisplayName, source.description);
+    const now = this.now();
+    const newTemplateId = this.ids.newRequirementTemplateId();
+    const normalizedName = normalizeDisplayName(newDisplayName);
+    const items = this.buildTemplateItems(source.items);
+
+    const copy: RequirementTemplate = {
+      ...requirementTemplateKey(tenantId, newTemplateId),
+      entityType: "RequirementTemplate",
+      templateId: newTemplateId,
+      tenantId,
+      displayName: newDisplayName,
+      ...(source.description !== undefined ? { description: source.description } : {}),
+      status: "ACTIVE",
+      items,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      ...requirementTemplateGsi1Keys(tenantId, "ACTIVE", normalizedName, newTemplateId),
+    };
+    await this.commitTemplateCreate(tenantId, copy, normalizedName, now, newDisplayName);
+    return copy;
+  }
+
+  async archiveRequirementTemplate(ctx: RequestContext, templateId: string, expectedVersion: number): Promise<RequirementTemplate> {
+    return this.flipTemplateStatus(ctx, "docarchive:requirementtemplate-archive", templateId, expectedVersion, "ACTIVE", "ARCHIVED");
+  }
+
+  async unarchiveRequirementTemplate(ctx: RequestContext, templateId: string, expectedVersion: number): Promise<RequirementTemplate> {
+    return this.flipTemplateStatus(ctx, "docarchive:requirementtemplate-unarchive", templateId, expectedVersion, "ARCHIVED", "ACTIVE");
+  }
+
+  /**
+   * Pure read. Returns the plan plus the `templateVersion` it was computed against, so the caller
+   * can hand that back to `applyTemplate` as `expectedTemplateVersion` and have the apply reject
+   * a plan the template moved out from under.
+   *
+   * Declared contract: preview and apply CANNOT diverge algorithmically (one implementation of
+   * `planTemplateApplication`, two call sites) but CAN diverge temporally — anything may create,
+   * rename or delete a Requirement between the two reads.
+   */
+  async previewTemplateApplication(
+    ctx: RequestContext,
+    templateId: string,
+    subjectId: string,
+  ): Promise<TemplateApplicationPlan & { templateVersion: number }> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const template = await this.getRequirementTemplateUnchecked(tenantId, templateId);
+    const existing = await this.readExistingForPlan(tenantId, subjectId);
+    return { ...planTemplateApplication(template.items, existing), templateVersion: template.version };
+  }
+
+  /**
+   * Materializes the template's eligible items as real `Requirement` rows, by COPY (snapshot) —
+   * never a live link. Transaction shape (§4 of the design):
+   *
+   * ```text
+   * N × Put(Requirement, attribute_not_exists) + N × Put(name pointer, attribute_not_exists)
+   *   + ConditionCheck(template: status = ACTIVE AND version = <expected>)
+   *   + ConditionCheck(Subject:  attribute_exists(PK) AND status = ACTIVE)
+   *   + tenant fence (appended by executeTenantBusinessMutation)
+   * = 2N + 3, bounded by MAX_TEMPLATE_ITEMS against the hard 100-action limit
+   * ```
+   *
+   * All-or-nothing by construction: a late pointer collision aborts the WHOLE apply, so a
+   * partially-applied template is never observable. Re-applying is idempotent and is SUCCESS
+   * (200 with `created: []`), not a conflict — that is the real "the customer added one item to
+   * the template, apply just that one" use case.
+   *
+   * Known, declared window: the plan's read is eventually consistent (`queryByPk` does not use
+   * `ConsistentRead`), so a Requirement created moments earlier may be missed by the plan and
+   * collide at commit, cancelling the whole apply instead of being skipped. Re-applying is safe,
+   * and once the read converges the item is skipped.
+   */
+  async applyTemplate(
+    ctx: RequestContext,
+    templateId: string,
+    subjectId: string,
+    expectedTemplateVersion?: number,
+  ): Promise<{ created: Array<{ templateItemId: string; requirementId: string; name: string }>; skipped: TemplateApplicationPlan["skip"]; templateVersion: number }> {
+    authorize({ context: ctx, action: "docarchive:requirementtemplate-apply", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const template = await this.getRequirementTemplateUnchecked(tenantId, templateId);
+    const fencedVersion = expectedTemplateVersion ?? template.version;
+    const existing = await this.readExistingForPlan(tenantId, subjectId);
+    const plan = planTemplateApplication(template.items, existing);
+
+    if (plan.create.length === 0) {
+      // Nothing to write. Deliberately NOT a transaction with only fences: the lane rejects a
+      // zero-mutation call, and there is no state to protect when nothing is being written.
+      return { created: [], skipped: plan.skip, templateVersion: fencedVersion };
+    }
+
+    const now = this.now();
+    const entries: TransactWriteEntry[] = [];
+    const labels: TransactEntryLabel[] = [];
+    const created: Array<{ templateItemId: string; requirementId: string; name: string }> = [];
+
+    for (const item of plan.create) {
+      const requirementId = this.ids.newRequirementId();
+      const status = deriveRequirementStatus(item.applicability, undefined, new Date(now));
+      const requirement: Requirement = {
+        ...requirementKey(tenantId, subjectId, requirementId),
+        entityType: "Requirement",
+        requirementId,
+        tenantId,
+        subjectId,
+        name: item.name,
+        ...(item.notes !== undefined ? { notes: item.notes } : {}),
+        applicability: item.applicability,
+        status,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        ...requirementGsi1Keys(tenantId, status, now, requirementId),
+        ...this.requirementGsi8Fields(status, undefined, tenantId, requirementId),
+        // Provenance ONLY — no read path, derivation or worker ever consults these three.
+        sourceTemplateId: templateId,
+        sourceTemplateItemId: item.templateItemId,
+        sourceTemplateAppliedVersion: fencedVersion,
+      };
+      entries.push({ Put: buildVersionedCreate(this.tableName, requirement as unknown as Record<string, unknown> & EntityKey) });
+      labels.push({ kind: "REQUIREMENT", templateItemId: item.templateItemId });
+      entries.push({
+        Put: buildVersionedCreate(this.tableName, this.buildRequirementNamePointer(tenantId, subjectId, item.name, requirementId, now) as unknown as Record<string, unknown> & EntityKey),
+      });
+      labels.push({ kind: "POINTER", name: item.name, templateItemId: item.templateItemId });
+      created.push({ templateItemId: item.templateItemId, requirementId, name: item.name });
+    }
+
+    // `buildVersionConditionCheck` pins version AND status in one action — closing the TOCTOU
+    // the Codex found in Round 2 (checking only ACTIVE would let an apply materialize items from
+    // a template version that had already been edited away) at zero extra action cost.
+    entries.push(buildVersionConditionCheck({
+      tableName: this.tableName,
+      key: requirementTemplateKey(tenantId, templateId),
+      expectedVersion: fencedVersion,
+      extra: { status: "ACTIVE" },
+    }));
+    labels.push({ kind: "TEMPLATE_FENCE" });
+    entries.push(this.buildSubjectFence(tenantId, subjectId));
+    labels.push({ kind: "SUBJECT_FENCE" });
+
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      this.throwClassifiedCancellation(err, labels, { templateId, subjectId, expectedTemplateVersion: fencedVersion });
+    }
+    return { created, skipped: plan.skip, templateVersion: fencedVersion };
+  }
+
+  private async getRequirementTemplateUnchecked(tenantId: string, templateId: string): Promise<RequirementTemplate> {
+    const template = await this.store.get<RequirementTemplate>(requirementTemplateKey(tenantId, templateId));
+    if (!template) throw new NotFoundError("RequirementTemplate not found.", { templateId });
+    return template;
+  }
+
+  /** `queryByPk` exhausts `LastEvaluatedKey` internally (verified in
+   * `dynamodb-document-archive-store.ts`), so the plan always sees EVERY Requirement of the
+   * Subject — an incomplete plan would silently under-report skips. */
+  private async readExistingForPlan(tenantId: string, subjectId: string) {
+    const rows = await this.store.queryByPk<Requirement>(`TENANT#${tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
+    return rows.map((row) => ({ requirementId: row.requirementId, name: row.name, sourceTemplateItemId: row.sourceTemplateItemId }));
+  }
+
+  private buildTemplateItems(input: ReadonlyArray<{ name: string; notes?: string; applicability?: RequirementApplicability }>): RequirementTemplateItem[] {
+    if (input.length > MAX_TEMPLATE_ITEMS) {
+      throw new ValidationError(`A RequirementTemplate may hold at most ${MAX_TEMPLATE_ITEMS} items.`, { count: input.length });
+    }
+    assertTemplateItemSizes(input);
+    assertTemplateItemNamesUnique(input);
+    return input.map((item, index) => ({
+      templateItemId: this.ids.newRequirementTemplateItemId(),
+      name: item.name,
+      ...(item.notes !== undefined ? { notes: item.notes } : {}),
+      applicability: item.applicability ?? "APPLICABLE",
+      position: index,
+    }));
+  }
+
+  private assertTemplateEnvelopeSizes(displayName: string, description: string | undefined): void {
+    if (Buffer.byteLength(displayName, "utf8") > MAX_NAME_BYTES) {
+      throw new ValidationError(`RequirementTemplate displayName exceeds ${MAX_NAME_BYTES} UTF-8 bytes.`);
+    }
+    if (description !== undefined && Buffer.byteLength(description, "utf8") > MAX_NOTES_BYTES) {
+      throw new ValidationError(`RequirementTemplate description exceeds ${MAX_NOTES_BYTES} UTF-8 bytes.`);
+    }
+  }
+
+  private buildTemplateNamePointer(tenantId: string, normalizedName: string, templateId: string, now: string): RequirementTemplateNamePointer {
+    return {
+      ...requirementTemplateNamePointerKey(tenantId, normalizedName),
+      entityType: "RequirementTemplateNamePointer",
+      tenantId,
+      normalizedName,
+      templateId,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+  }
+
+  private async commitTemplateCreate(tenantId: string, template: RequirementTemplate, normalizedName: string, now: string, displayName: string): Promise<void> {
+    const entries = [
+      { Put: buildVersionedCreate(this.tableName, template as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, this.buildTemplateNamePointer(tenantId, normalizedName, template.templateId, now) as unknown as Record<string, unknown> & EntityKey) },
+    ];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[1] === "ConditionalCheckFailed") {
+          throw new ConflictError("A RequirementTemplate with this name already exists.", { displayName });
+        }
+        throw new ConflictError("RequirementTemplate already exists.", { templateId: template.templateId });
+      }
+      throw err;
+    }
+  }
+
+  private async flipTemplateStatus(
+    ctx: RequestContext,
+    action: "docarchive:requirementtemplate-archive" | "docarchive:requirementtemplate-unarchive",
+    templateId: string,
+    expectedVersion: number,
+    fromStatus: RequirementTemplate["status"],
+    toStatus: RequirementTemplate["status"],
+  ): Promise<RequirementTemplate> {
+    authorize({ context: ctx, action, resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getRequirementTemplateUnchecked(tenantId, templateId);
+    const now = this.now();
+    const gsi1 = requirementTemplateGsi1Keys(tenantId, toStatus, normalizeDisplayName(current.displayName), templateId);
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: requirementTemplateKey(tenantId, templateId),
+      tenantId,
+      expectedVersion,
+      set: { status: toStatus, ...gsi1 },
+      now,
+      // Fences the FROM status transactionally, not just via expectedVersion, so a concurrent
+      // double-flip can never silently no-op past the wrong state (same as flipDocumentTypeStatus).
+      extraConditions: [{ expression: "#st = :from", names: { "#st": "status" }, values: { ":from": fromStatus } }],
+    });
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        throw new ConflictError(`RequirementTemplate is not ${fromStatus} (already ${toStatus}, or concurrently modified).`, { templateId });
+      }
       throw err;
     }
     return { ...current, status: toStatus, ...gsi1, version: expectedVersion + 1, updatedAt: now };

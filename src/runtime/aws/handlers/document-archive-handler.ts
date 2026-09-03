@@ -36,6 +36,15 @@ import {
   handleRenameDocumentType,
   handleDeprecateDocumentType,
   handleReactivateDocumentType,
+  handleCreateRequirementTemplate,
+  handleListRequirementTemplates,
+  handleGetRequirementTemplate,
+  handleUpdateRequirementTemplate,
+  handleDuplicateRequirementTemplate,
+  handleArchiveRequirementTemplate,
+  handleUnarchiveRequirementTemplate,
+  handlePreviewRequirementTemplate,
+  handleApplyRequirementTemplate,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -122,6 +131,25 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleDeprecateDocumentType(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/document-types/{documentTypeId}/reactivate":
           return await handleReactivateDocumentType(deps, { ...base, body: parseBody(event) });
+        // P0.1 (RequirementTemplate) — tenant-facing catalog CRUD + preview/apply.
+        case "POST /document-archive/requirement-templates":
+          return await handleCreateRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/requirement-templates":
+          return await handleListRequirementTemplates(deps, base);
+        case "GET /document-archive/requirement-templates/{templateId}":
+          return await handleGetRequirementTemplate(deps, base);
+        case "PATCH /document-archive/requirement-templates/{templateId}":
+          return await handleUpdateRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirement-templates/{templateId}/duplicate":
+          return await handleDuplicateRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirement-templates/{templateId}/archive":
+          return await handleArchiveRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirement-templates/{templateId}/unarchive":
+          return await handleUnarchiveRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirement-templates/{templateId}/preview":
+          return await handlePreviewRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/requirement-templates/{templateId}/apply":
+          return await handleApplyRequirementTemplate(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

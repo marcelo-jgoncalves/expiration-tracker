@@ -488,6 +488,47 @@ export class DocumentTypeNotActiveError extends AppError {
   }
 }
 
+/** RequirementTemplate (P0.1, `docs/architecture/reviews/requirement-template-scoping/
+ * estado-final-consolidado.md` §3): the normalized `Requirement` name is already claimed by a
+ * different `Requirement` under the same Subject — the transactional dedupe pointer's `Put`
+ * lost the race, or a rename landed on a name in use. `retryable: false`: the caller must pick
+ * a different name. */
+export class RequirementNameConflictError extends AppError {
+  constructor(message = "A Requirement with this name already exists for this Subject.", details?: Record<string, unknown>) {
+    super({ code: "REQUIREMENT_NAME_CONFLICT", category: "CONFLICT", message, retryable: false, details });
+    this.name = "RequirementNameConflictError";
+  }
+}
+
+/** RequirementTemplate (P0.1, §4 of the approved design): thrown when the template's own
+ * `ConditionCheck` (`status = ACTIVE AND version = <expected>`) fails inside `applyTemplate`'s
+ * transaction.
+ *
+ * Says ONLY what the composite condition revealed — never a cause the DynamoDB response did not
+ * disclose (Codex Round 3, achado 5). `details.currentStateAtRetry`, when present, is explicitly
+ * a LATER observation used for diagnostics, never the cause of the cancellation. */
+export class TemplatePreconditionFailedError extends AppError {
+  constructor(message = "The RequirementTemplate did not satisfy its precondition at commit time (it must be ACTIVE at the expected version).", details?: Record<string, unknown>) {
+    super({ code: "TEMPLATE_PRECONDITION_FAILED", category: "CONFLICT", message, retryable: false, details });
+    this.name = "TemplatePreconditionFailedError";
+  }
+}
+
+/** RequirementTemplate (P0.1, §8 of the approved design): the Subject's transactional
+ * `ConditionCheck` (`attribute_exists(PK) AND status = ACTIVE`) failed.
+ *
+ * Deliberately ONE error, never a 404/409 split chosen by re-reading the Subject afterwards —
+ * the transaction only reveals that the COMPOSITE condition failed, and a later re-read observes
+ * a possibly-changed state, not the cause (Codex Round 3, achado 7 — the most clearly
+ * insufficient closure of that round). A genuine 404 still exists on the READ path
+ * (`previewTemplateApplication`), where it is a direct observation rather than an inference. */
+export class SubjectPreconditionFailedError extends AppError {
+  constructor(message = "The Subject did not satisfy the precondition for this write at commit time (it must exist and be ACTIVE).", details?: Record<string, unknown>) {
+    super({ code: "SUBJECT_PRECONDITION_FAILED", category: "CONFLICT", message, retryable: false, details });
+    this.name = "SubjectPreconditionFailedError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

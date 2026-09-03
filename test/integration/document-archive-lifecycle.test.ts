@@ -8,7 +8,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryIdentityStore, makeIdGenerator, bootstrapWithOrganization } from "../unit/identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../unit/organization/in-memory-store.js";
-import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle } from "../unit/document-archive/in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "../unit/document-archive/in-memory-store.js";
 import { GlobalUserRepository } from "../../src/modules/identity/persistence/global-user-repository.js";
 import { RequestContextResolver, type ValidatedClaims } from "../../src/modules/identity/application/resolve-request-context.js";
 import { TenantQuotaService } from "../../src/modules/identity/application/quota.js";
@@ -67,6 +67,8 @@ function makeIds() {
     newDocumentRequestId: () => `docreq-${++idCounter}`,
     newFileId: () => `file-${++idCounter}`,
     newDocumentTypeId: () => `doctype-${++idCounter}`,
+  newRequirementTemplateId: () => "reqtpl_test",
+  newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
   };
 }
 
@@ -121,6 +123,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
     // references documentTypeId "ALVARA" as if it already names a real catalog entry.
     await store.putIfAbsent(seedActiveTenantLifecycle(tenantId));
     await store.putIfAbsent(seedActiveDocumentType(tenantId, "ALVARA"));
+    await store.putIfAbsent(seedActiveTrackedSubject(tenantId, "subject-1"));
   });
 
   it("create -> reserveUpload -> commitUpload -> claimReview -> acceptVersion, all via HTTP handlers", async () => {
