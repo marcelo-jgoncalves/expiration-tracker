@@ -1810,6 +1810,88 @@ resource "aws_lambda_event_source_mapping" "requirement_evidence_refresh_from_qu
   function_response_types = ["ReportBatchItemFailures"]
 }
 
+# --- RequirementEvidenceDailySweepHandler: daily EventBridge Scheduler job (D-193 item 7/9,
+# estado-final-consolidado.md "Rede de reparo autoritativa", Rodada 5 closure) - closes the
+# total-message-loss risk item 6/9 left open: `store.scanRequirementsWithEvidence` (base-table
+# Scan, same accepted cost tradeoff as `scanActiveSeries`/`document_request_recurrence_handler`
+# above - status-independent by design, see that port method's doc comment) pages every
+# Requirement with a linked evidence version and re-enqueues each one onto the SAME
+# SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 queue item 6/9 already consumes - this handler never writes
+# a Requirement itself (no worker_transact_write_policy_json grant needed, unlike
+# document_file_reconciliation_handler/requirement_reindex_handler above), so its only privileges
+# beyond the general tenant-facing Scan/read grant are `sqs:SendMessage` on that one queue.
+module "requirement_evidence_daily_sweep_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-requirement-evidence-daily-sweep-handler"
+  handler_name    = "requirement-evidence-daily-sweep-handler"
+  source_dir      = "${local.dist_dir}/requirement-evidence-daily-sweep-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 300
+  environment_variables = merge(local.common_env, {
+    REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL = module.requirement_evidence_refresh_queue.queue_url
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.requirement_evidence_refresh_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "requirement_evidence_daily_sweep_schedule" {
+  # "-sched-role" (not the usual "-schedule-role" suffix) - the base function_name is already
+  # long enough that the usual suffix pushes this past IAM's 64-char role name limit.
+  name = "${module.requirement_evidence_daily_sweep_handler.function_name}-sched-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "requirement_evidence_daily_sweep_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.requirement_evidence_daily_sweep_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeRequirementEvidenceDailySweep"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.requirement_evidence_daily_sweep_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "requirement_evidence_daily_sweep" {
+  name                         = "${local.name_prefix}-requirement-evidence-daily-sweep"
+  schedule_expression          = "cron(0 5 * * ? *)" # daily 05:00 UTC, after requirement-reindex (04:00)
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.requirement_evidence_daily_sweep_handler.live_alias_arn
+    role_arn = aws_iam_role.requirement_evidence_daily_sweep_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
 # --- ImportCommitWorker: SQS_IMPORT_COMMIT_V1, fed by dispatch_outbox_relay/outbox_sweeper --
 
 module "import_commit_queue" {

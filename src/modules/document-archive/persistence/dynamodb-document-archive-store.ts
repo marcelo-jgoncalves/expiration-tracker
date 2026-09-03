@@ -145,6 +145,26 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
     }
   }
 
+  /** D-193 item 7/9 — see port doc comment: status-independent by design, filters only on
+   * `attribute_exists(evidenceVersionId)` so a Requirement whose cached `status` is stale (the
+   * exact failure mode a lost refresh wake-up produces) is still found. */
+  async scanRequirementsWithEvidence<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>> {
+    try {
+      const result = await this.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: "#entityType = :entityType AND attribute_exists(#evidenceVersionId)",
+          ExpressionAttributeNames: { "#entityType": "entityType", "#evidenceVersionId": "evidenceVersionId" },
+          ExpressionAttributeValues: { ":entityType": "Requirement" },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "DocumentArchiveStore.scanRequirementsWithEvidence");
+    }
+  }
+
   /** D-192 §4 (fatia 6) — mesma disciplina de retry de `UnprocessedKeys` de
    * `DynamoDbSubjectStore.batchGet`: 100 chaves por chamada (limite do SDK), retry explícito
    * até esvaziar cada chunk (200 OK parcial, não falha de rede). */

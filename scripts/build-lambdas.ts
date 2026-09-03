@@ -106,6 +106,10 @@ const HANDLERS = [
   // D-193 item 6/9: SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 consumer — always re-reads
   // DocumentVersion+Requirement fresh, never trusts the wake-up event's payload.
   "requirement-evidence-refresh-handler",
+  // D-193 item 7/9: daily EventBridge Scheduler repair sweep — re-enqueues every Requirement
+  // with a linked evidence version onto SQS_REQUIREMENT_EVIDENCE_REFRESH_V1, closing the
+  // total-message-loss risk item 6/9 left open.
+  "requirement-evidence-daily-sweep-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

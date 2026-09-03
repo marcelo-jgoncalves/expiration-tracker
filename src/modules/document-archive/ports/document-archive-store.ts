@@ -85,6 +85,18 @@ export interface DocumentArchiveStore {
    * One physical `ScanCommand` per call, paginated by the caller.
    */
   scanActiveSeries<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
+  /**
+   * D-193 item 7/9 (`estado-final-consolidado.md`'s "Rede de reparo autoritativa") — cross-tenant
+   * `Scan` filtered to `entityType = "Requirement" AND attribute_exists(evidenceVersionId)`, the
+   * SAME accepted cost tradeoff as `scanActiveSeries` above (this module still has no
+   * tenant-enumeration port method). Deliberately status-independent — filters ONLY on the
+   * presence of a linked evidence version, never on `status`, because the whole point of the
+   * daily sweep this feeds is to self-heal a Requirement whose STATUS might be stale precisely
+   * because a `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1` wake-up was lost (item 6/9) — filtering by
+   * status here would exclude the exact rows most likely to be wrong. One physical `ScanCommand`
+   * per call, paginated by the caller (same shape as `scanActiveSeries`).
+   */
+  scanRequirementsWithEvidence<T extends EntityKey = Record<string, unknown> & EntityKey>(exclusiveStartKey?: Record<string, unknown>): Promise<ScanPage<T>>;
   /** D-192 §4 (fatia 6) — `BatchGetItem` real, mesmo contrato de `SubjectStore.batchGet`
    * (`import/application/resolve-subject-references.ts`, fatia 5): usado pela resolução
    * batched de referência de DocumentType do bulk-import de Document (duas fases,
