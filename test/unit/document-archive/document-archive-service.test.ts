@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCreateDocumentEntries, DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
+import { buildCreateDocumentEntries, buildCreateRequirementEntries, DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
 import { AuthorizationError, ConflictError, DocumentTypeNotActiveError, NotFoundError, SubjectPreconditionFailedError, ValidationError } from "../../../src/shared/errors/app-error.js";
@@ -532,6 +532,81 @@ describe("buildCreateDocumentEntries (D-192 §6, pure planner)", () => {
     const first = buildCreateDocumentEntries(BASE);
     const second = buildCreateDocumentEntries(BASE);
     expect(second.document).toEqual(first.document);
+    expect(second.entries).toEqual(first.entries);
+    expect(second.labels).toEqual(first.labels);
+  });
+});
+
+/**
+ * D-192 §6 slice 3: `buildCreateRequirementEntries()` is the sibling pure planner to
+ * `buildCreateDocumentEntries()` above — same posture (exercised directly, never through the
+ * service), extracted from `createRequirement()`'s body with `createRequirement()` now
+ * delegating to it. The existing `createRequirement` describe block elsewhere in this file
+ * remains the end-to-end regression guard (name-conflict → `RequirementNameConflictError`,
+ * subject-fence-failure → `SubjectPreconditionFailedError`); these tests assert the planner
+ * builds the exact entries/labels shape that classification depends on.
+ */
+describe("buildCreateRequirementEntries (D-192 §6, pure planner)", () => {
+  const BASE = {
+    tableName: "test-table",
+    tenantId: "tenant-1",
+    requirementId: "req-plan-1",
+    subjectId: "subject-plan-1",
+    name: "Alvara de Funcionamento",
+    applicability: "APPLICABLE" as const,
+    now: "2026-09-03T00:00:00.000Z",
+  };
+
+  it("builds a Requirement with derived status/GSI1 keys, no GSI8 fields at creation, and does not execute any write itself", () => {
+    const { requirement, entries, labels } = buildCreateRequirementEntries(BASE);
+    expect(requirement.requirementId).toBe(BASE.requirementId);
+    expect(requirement.subjectId).toBe(BASE.subjectId);
+    expect(requirement.name).toBe(BASE.name);
+    expect(requirement.applicability).toBe("APPLICABLE");
+    // No evidence linked at creation -> MISSING, never due -> no GSI8 pointer fields written.
+    expect(requirement.status).toBe("MISSING");
+    expect(requirement.GSI1PK).toBe(`TENANT#${BASE.tenantId}#REQSTATUS#MISSING`);
+    expect(requirement).not.toHaveProperty("GSI8PK");
+    expect(requirement).not.toHaveProperty("GSI8SK");
+    expect(requirement).not.toHaveProperty("notes");
+    // 3 entries: Requirement Put, RequirementNamePointer Put, Subject fence — no more, no less.
+    expect(entries).toHaveLength(3);
+    expect(labels).toEqual([{ kind: "REQUIREMENT" }, { kind: "POINTER", name: BASE.name }, { kind: "SUBJECT_FENCE" }]);
+  });
+
+  it("derives NOT_APPLICABLE status when applicability is NOT_APPLICABLE", () => {
+    const { requirement } = buildCreateRequirementEntries({ ...BASE, applicability: "NOT_APPLICABLE" });
+    expect(requirement.status).toBe("NOT_APPLICABLE");
+  });
+
+  it("includes notes only when supplied — never a fabricated undefined attribute", () => {
+    const withNotes = buildCreateRequirementEntries({ ...BASE, notes: "renew annually" });
+    expect(withNotes.requirement.notes).toBe("renew annually");
+    const withoutNotes = buildCreateRequirementEntries(BASE);
+    expect(withoutNotes.requirement).not.toHaveProperty("notes");
+  });
+
+  it("orders entries [Requirement Put, RequirementNamePointer Put, Subject fence] — matches createRequirement()'s pre-existing entry order and the labels array cancellation classification depends on", () => {
+    const { entries } = buildCreateRequirementEntries(BASE);
+    expect(entries[0]).toHaveProperty("Put");
+    expect(entries[1]).toHaveProperty("Put");
+    expect(entries[2]).toHaveProperty("ConditionCheck");
+    // entries[1] is the RequirementNamePointer whose attribute_not_exists condition is what
+    // fails (name-conflict branch) when another Requirement already holds that normalized name
+    // under the same Subject.
+    const pointerPut = (entries[1] as unknown as { Put: { Item: { PK: string; SK: string; entityType: string } } }).Put.Item;
+    expect(pointerPut.entityType).toBe("RequirementNamePointer");
+    expect(pointerPut.PK).toBe(`TENANT#${BASE.tenantId}#SUBJECT#${BASE.subjectId}#REQNAME#${BASE.name.toLowerCase()}`);
+    // entries[2] is the Subject fence whose failure (missing/ARCHIVED Subject) is the
+    // subject-fence-failure branch.
+    const fence = entries[2] as { ConditionCheck: { Key: { PK: string } } };
+    expect(fence.ConditionCheck.Key.PK).toBe(`TENANT#${BASE.tenantId}#SUBJECT#${BASE.subjectId}`);
+  });
+
+  it("is deterministic and never mutates DynamoDB by itself — calling it twice with the same input produces byte-identical entries/labels", () => {
+    const first = buildCreateRequirementEntries(BASE);
+    const second = buildCreateRequirementEntries(BASE);
+    expect(second.requirement).toEqual(first.requirement);
     expect(second.entries).toEqual(first.entries);
     expect(second.labels).toEqual(first.labels);
   });
