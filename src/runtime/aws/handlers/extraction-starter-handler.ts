@@ -3,6 +3,7 @@
  * trigger). M7, `implementation-blueprint.md` §12.5. */
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { randomUUID } from "node:crypto";
+import { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildExtractionStarterWorkerDeps, buildExtractionStarterWorkerDepsForDocumentArchive } from "../composition/extraction.js";
 import { startExtractionRun } from "../../../modules/extraction/application/start-extraction-run.js";
@@ -21,10 +22,23 @@ import { SecureLogger } from "../../../shared/observability/logger.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const stateMachineArn = process.env["EXTRACTION_STATE_MACHINE_ARN"];
+// D-193 item 8/9: STARTER gate (EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED) - same AppConfig
+// env var trio every other AppConfig-gated Lambda in this repo already requires.
+const appConfigApplicationId = process.env["APPCONFIG_APPLICATION_ID"];
+const appConfigEnvironmentId = process.env["APPCONFIG_ENVIRONMENT_ID"];
+const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PROFILE_ID"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!stateMachineArn) throw new Error("EXTRACTION_STATE_MACHINE_ARN env var is required.");
+if (!appConfigApplicationId) throw new Error("APPCONFIG_APPLICATION_ID env var is required.");
+if (!appConfigEnvironmentId) throw new Error("APPCONFIG_ENVIRONMENT_ID env var is required.");
+if (!appConfigConfigurationProfileId) throw new Error("APPCONFIG_CONFIGURATION_PROFILE_ID env var is required.");
+const appConfigData = new AppConfigDataClient({});
 const deps = buildExtractionStarterWorkerDeps(client, tableName, stateMachineArn);
-const documentArchiveDeps = buildExtractionStarterWorkerDepsForDocumentArchive(client, tableName, stateMachineArn);
+const documentArchiveDeps = buildExtractionStarterWorkerDepsForDocumentArchive(client, tableName, stateMachineArn, appConfigData, {
+  applicationId: appConfigApplicationId,
+  environmentId: appConfigEnvironmentId,
+  configurationProfileId: appConfigConfigurationProfileId,
+});
 const logger = new SecureLogger({ baseContext: { service: "extraction-starter" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source (same as

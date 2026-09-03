@@ -2,6 +2,7 @@
  * quarantine bucket routed through EventBridge). M6 design §3.2/§4. */
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { randomUUID } from "node:crypto";
+import { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildDocumentWorkerDeps } from "../composition/document.js";
 import { finalizeUpload } from "../../../workers/upload-finalizer/finalizer.js";
@@ -27,12 +28,27 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const cleanBucket = process.env["CLEAN_BUCKET_NAME"];
 const parserFunctionName = process.env["PARSER_SANDBOX_FUNCTION_NAME"];
+// D-193 item 8/9 (PROMOTER gate): finalizeDocumentArchiveUpload() itself fails closed against
+// this AppConfig flags module (isDocumentArchivePromotionEnabled(), which requires BOTH the
+// STARTER and PROMOTER flags) - see that function's own doc comment for the ordering-safety
+// mechanism this closes by construction. Same env var trio every other AppConfig-gated Lambda
+// in this repo already requires.
+const appConfigApplicationId = process.env["APPCONFIG_APPLICATION_ID"];
+const appConfigEnvironmentId = process.env["APPCONFIG_ENVIRONMENT_ID"];
+const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PROFILE_ID"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!cleanBucket) throw new Error("CLEAN_BUCKET_NAME env var is required.");
 if (!parserFunctionName) throw new Error("PARSER_SANDBOX_FUNCTION_NAME env var is required.");
+if (!appConfigApplicationId) throw new Error("APPCONFIG_APPLICATION_ID env var is required.");
+if (!appConfigEnvironmentId) throw new Error("APPCONFIG_ENVIRONMENT_ID env var is required.");
+if (!appConfigConfigurationProfileId) throw new Error("APPCONFIG_CONFIGURATION_PROFILE_ID env var is required.");
 const deps = buildDocumentWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
 const submissionDeps = buildSubjectWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
-const documentArchiveDeps = buildDocumentArchiveWorkerDeps(client, tableName, cleanBucket);
+const documentArchiveDeps = buildDocumentArchiveWorkerDeps(client, tableName, cleanBucket, new AppConfigDataClient({}), {
+  applicationId: appConfigApplicationId,
+  environmentId: appConfigEnvironmentId,
+  configurationProfileId: appConfigConfigurationProfileId,
+});
 const logger = new SecureLogger({ baseContext: { service: "upload-finalizer" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source

@@ -1,6 +1,7 @@
 /** Composition root for the document-archive module against real DynamoDB (D-143 Nucleus 1/2). */
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
+import type { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/persistence/dynamodb-document-archive-store.js";
 import { DocumentArchiveService } from "../../../modules/document-archive/application/document-archive-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../modules/document-archive/application/document-archive-guest-rate-limiter.js";
@@ -8,6 +9,7 @@ import { GuestDocumentAccessService } from "../../../modules/document-archive/ap
 import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
+import { AppConfigFeatureFlagsReader } from "../../../modules/extraction/persistence/appconfig-feature-flags-reader.js";
 import { UlidIdGenerator } from "../ids.js";
 
 /** D-163 §7: reuses the SAME quarantine bucket M6 already provisions (`QUARANTINE_BUCKET_NAME`,
@@ -38,11 +40,20 @@ export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableNa
  * comment already gives for reusing `S3UploadUrlSigner`) — `document-archive`'s clean/quarantine
  * copy-and-verify needs exactly the same `headObject`/`copyObject`/`deleteObjectVersion` surface
  * M6's own finalizer/malware-result workers already depend on. */
-export function buildDocumentArchiveWorkerDeps(client: DynamoDBDocumentClient, tableName: string, cleanBucket: string) {
+export function buildDocumentArchiveWorkerDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  cleanBucket: string,
+  appConfigData: AppConfigDataClient,
+  appConfig: { applicationId: string; environmentId: string; configurationProfileId: string },
+) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const objects = new S3DocumentObjectStore(new S3Client({}));
   const ids = new UlidIdGenerator();
-  return { store, objects, ids, tableName, cleanBucket };
+  // D-193 item 8/9 (PROMOTER gate) - same AppConfigFeatureFlagsReader adapter every other
+  // AppConfig-gated worker in this repo already uses.
+  const featureFlags = new AppConfigFeatureFlagsReader(appConfigData, appConfig);
+  return { store, objects, ids, tableName, cleanBucket, featureFlags };
 }
 
 /** D-143 Decision 4 / D-146 (guest access). Separate from `buildDocumentArchiveDeps` — the

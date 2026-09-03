@@ -5,7 +5,28 @@ import { documentFileKey, type DocumentFile } from "../../../src/modules/documen
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
+import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
+
+/** D-193 item 8/9 (PROMOTER gate) test double - same shape as
+ * `document-archive-finalizer.test.ts`'s own copy of this fake. */
+class FakeFeatureFlagsReader implements FeatureFlagsReader {
+  constructor(
+    private readonly enabled: boolean = true,
+    private readonly throwOnRead: boolean = false,
+  ) {}
+  async getFlags(): Promise<FeatureFlags> {
+    if (this.throwOnRead) throw new Error("AppConfig unreachable (simulated)");
+    return {
+      AI_EXTRACTION: false,
+      OCR: false,
+      WHATSAPP: false,
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: this.enabled,
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED: this.enabled,
+    };
+  }
+}
+const ENABLED_FLAGS = new FakeFeatureFlagsReader(true);
 
 function ids(): DocumentArchiveIdGenerator {
   let n = 0;
@@ -93,7 +114,7 @@ describe("processDocumentArchiveMalwareResult — D-193 slice 1", () => {
   it("PROMOTES to APPLIED when this finding is the second, deciding half of the evidence", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await processDocumentArchiveMalwareResult(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1" },
     );
     expect(outcome).toBe("APPLIED");
@@ -104,7 +125,7 @@ describe("processDocumentArchiveMalwareResult — D-193 slice 1", () => {
   it("infection: still reports APPLIED (the finding was applied, resulting in REJECTED)", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await processDocumentArchiveMalwareResult(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "THREATS_FOUND", scanResultId: "s1" },
     );
     expect(outcome).toBe("APPLIED");
@@ -115,7 +136,7 @@ describe("processDocumentArchiveMalwareResult — D-193 slice 1", () => {
   it("dedupes a repeated GuardDuty finding by scanResultId", async () => {
     const store = seededStore([baseFile({ malwareEvidence: { object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1", observedAt: "2026-09-01T00:01:00.000Z" } }), baseVersion()]);
     const outcome = await processDocumentArchiveMalwareResult(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1" },
     );
     expect(outcome).toBe("IGNORED_DUPLICATE_SCAN");
@@ -124,7 +145,7 @@ describe("processDocumentArchiveMalwareResult — D-193 slice 1", () => {
   it("fail-closed: a finding for a different bucket/key than the one this file reserved is ignored", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await processDocumentArchiveMalwareResult(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: { ...OBJECT, key: "document-archive/tenant/t1/document/doc1/version/1/file/wrong" }, status: "NO_THREATS_FOUND", scanResultId: "s1" },
     );
     expect(outcome).toBe("IGNORED_WRONG_OBJECT");
@@ -133,9 +154,32 @@ describe("processDocumentArchiveMalwareResult — D-193 slice 1", () => {
   it("ignores a finding for a DocumentFile that doesn't exist", async () => {
     const store = seededStore([]);
     const outcome = await processDocumentArchiveMalwareResult(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1" },
     );
     expect(outcome).toBe("IGNORED_UNKNOWN_FILE");
+  });
+});
+
+describe("processDocumentArchiveMalwareResult — D-193 item 8/9 (PROMOTER gate)", () => {
+  it("G-V3: default OFF - never touches the store at all, even for an otherwise-decisive finding", async () => {
+    const store = seededStore([baseFile(), baseVersion()]);
+    const outcome = await processDocumentArchiveMalwareResult(
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: new FakeFeatureFlagsReader(false) },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1" },
+    );
+    expect(outcome).toBe("IGNORED_PROMOTION_DISABLED");
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("SCANNING"); // untouched - not even the malwareEvidence half was recorded.
+    expect(file.malwareEvidence).toBeUndefined();
+  });
+
+  it("fail-closed: a FeatureFlagsReader read/parse error is treated identically to the flag being off", async () => {
+    const store = seededStore([baseFile(), baseVersion()]);
+    const outcome = await processDocumentArchiveMalwareResult(
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: new FakeFeatureFlagsReader(true, true) },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT, status: "NO_THREATS_FOUND", scanResultId: "s1" },
+    );
+    expect(outcome).toBe("IGNORED_PROMOTION_DISABLED");
   });
 });

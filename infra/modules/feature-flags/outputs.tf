@@ -9,7 +9,7 @@ output "environment_id" {
 }
 
 output "configuration_profile_id" {
-  description = "AppConfig configuration profile ID for the kill-switches (AI_EXTRACTION/OCR/WHATSAPP) freeform config."
+  description = "AppConfig configuration profile ID for the kill-switches (AI_EXTRACTION/OCR/WHATSAPP/EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED/DOCUMENT_ARCHIVE_PROMOTION_ENABLED) freeform config."
   value       = aws_appconfig_configuration_profile.kill_switches.configuration_profile_id
 }
 

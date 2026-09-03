@@ -5,7 +5,29 @@ import { documentFileKey, type DocumentFile } from "../../../src/modules/documen
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
+import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
+
+/** D-193 item 8/9 (PROMOTER gate) test double. `enabled: true` by default so every
+ * pre-existing test in this file keeps exercising the SAME mechanism it always did - the
+ * flag-off/flag-error behavior gets its own dedicated `describe` block below. */
+class FakeFeatureFlagsReader implements FeatureFlagsReader {
+  constructor(
+    private readonly enabled: boolean = true,
+    private readonly throwOnRead: boolean = false,
+  ) {}
+  async getFlags(): Promise<FeatureFlags> {
+    if (this.throwOnRead) throw new Error("AppConfig unreachable (simulated)");
+    return {
+      AI_EXTRACTION: false,
+      OCR: false,
+      WHATSAPP: false,
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: this.enabled,
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED: this.enabled,
+    };
+  }
+}
+const ENABLED_FLAGS = new FakeFeatureFlagsReader(true);
 
 function ids(): DocumentArchiveIdGenerator {
   let n = 0;
@@ -92,7 +114,7 @@ describe("finalizeDocumentArchiveUpload — D-193 slice 1 (the handler-level fix
   it("stays AWAITING on the S3 upload event alone (consolidates the quarantineObject triple)", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await finalizeDocumentArchiveUpload(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
     );
     expect(outcome).toBe("AWAITING");
@@ -107,7 +129,7 @@ describe("finalizeDocumentArchiveUpload — D-193 slice 1 (the handler-level fix
       baseVersion(),
     ]);
     const outcome = await finalizeDocumentArchiveUpload(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
     );
     expect(outcome).toBe("CONFIRMED");
@@ -118,7 +140,7 @@ describe("finalizeDocumentArchiveUpload — D-193 slice 1 (the handler-level fix
   it("rejects on a size mismatch against what reserveFiles() declared", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await finalizeDocumentArchiveUpload(
-      { store, objects: fakeObjects({ headObject: async () => ({ contentLength: 999, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }) }), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects({ headObject: async () => ({ contentLength: 999, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }) }), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
     );
     expect(outcome).toBe("REJECTED_INVALID"); // an invalid upload rejects immediately, regardless of malware evidence arrival order.
@@ -130,7 +152,7 @@ describe("finalizeDocumentArchiveUpload — D-193 slice 1 (the handler-level fix
   it("ignores an event for an object that doesn't match this file's own reserved quarantine key (fail-closed)", async () => {
     const store = seededStore([baseFile(), baseVersion()]);
     const outcome = await finalizeDocumentArchiveUpload(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: { ...OBJECT, key: "document-archive/tenant/t1/document/doc1/version/1/file/wrong" } },
     );
     expect(outcome).toBe("IGNORED_UNKNOWN_FILE");
@@ -139,9 +161,36 @@ describe("finalizeDocumentArchiveUpload — D-193 slice 1 (the handler-level fix
   it("ignores an event for a DocumentFile that doesn't exist at all", async () => {
     const store = seededStore([]);
     const outcome = await finalizeDocumentArchiveUpload(
-      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: ENABLED_FLAGS },
       { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
     );
     expect(outcome).toBe("IGNORED_UNKNOWN_FILE");
+  });
+});
+
+describe("finalizeDocumentArchiveUpload — D-193 item 8/9 (PROMOTER gate)", () => {
+  it("G-V3: default OFF - never touches the store/objects at all, even for an otherwise-perfectly-valid upload event", async () => {
+    const store = seededStore([baseFile(), baseVersion()]);
+    let headCalled = false;
+    const outcome = await finalizeDocumentArchiveUpload(
+      { store, objects: fakeObjects({ headObject: async () => { headCalled = true; return { contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }; } }), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: new FakeFeatureFlagsReader(false) },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
+    );
+    expect(outcome).toBe("IGNORED_PROMOTION_DISABLED");
+    expect(headCalled).toBe(false);
+    // The DocumentFile row itself was never touched either - completely inert, not merely
+    // refused at the final promotion step.
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("PENDING_UPLOAD");
+    expect(file.uploadEvidence).toBeUndefined();
+  });
+
+  it("fail-closed: a FeatureFlagsReader read/parse error is treated identically to the flag being off", async () => {
+    const store = seededStore([baseFile(), baseVersion()]);
+    const outcome = await finalizeDocumentArchiveUpload(
+      { store, objects: fakeObjects(), ids: ids(), tableName: TABLE, cleanBucket: CLEAN_BUCKET, featureFlags: new FakeFeatureFlagsReader(true, true) },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, object: OBJECT },
+    );
+    expect(outcome).toBe("IGNORED_PROMOTION_DISABLED");
   });
 });

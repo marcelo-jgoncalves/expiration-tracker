@@ -11,6 +11,8 @@ import {
   type AdvanceDocumentArchiveFileDeps,
 } from "../../modules/document-archive/application/advance-file-after-evidence.js";
 import { documentFileKey, type DocumentFile } from "../../modules/document-archive/domain/document-file.js";
+import { isDocumentArchivePromotionEnabled } from "../../modules/extraction/application/document-archive-activation.js";
+import type { FeatureFlagsReader } from "../../modules/extraction/ports/feature-flags-reader.js";
 
 export interface FinalizeDocumentArchiveUploadInput {
   tenantId: string;
@@ -20,7 +22,15 @@ export interface FinalizeDocumentArchiveUploadInput {
   object: { bucket: string; key: string; versionId: string };
 }
 
-export type FinalizeDocumentArchiveUploadDeps = AdvanceDocumentArchiveFileDeps;
+export type FinalizeDocumentArchiveUploadDeps = AdvanceDocumentArchiveFileDeps & {
+  /** D-193 item 8/9 (PROMOTER gate). Checked FIRST, before any DynamoDB/S3 access - while
+   * disabled (the default, requires BOTH `EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED` AND
+   * `DOCUMENT_ARCHIVE_PROMOTION_ENABLED`, see `isDocumentArchivePromotionEnabled()`'s own doc
+   * comment), this worker is completely inert for `document-archive` uploads - byte-identical
+   * to how an unrecognized key shape is handled (logged and dropped upstream in
+   * `upload-finalizer-handler.ts`, never retried, never partially applied). */
+  featureFlags: FeatureFlagsReader;
+};
 
 export type FinalizeDocumentArchiveOutcome =
   | "CONFIRMED"
@@ -29,13 +39,25 @@ export type FinalizeDocumentArchiveOutcome =
   | "AWAITING"
   | "IGNORED_STALE"
   | "IGNORED_WRONG_VERSION"
-  | "IGNORED_TENANT_NOT_ACTIVE";
+  | "IGNORED_TENANT_NOT_ACTIVE"
+  | "IGNORED_PROMOTION_DISABLED";
 
 /**
  * Fail-closed at every branch, same posture `finalizeUpload()`'s doc comment establishes for M6:
  * an event whose bucket/key doesn't match this file's own `quarantineObject` is never applied.
  */
 export async function finalizeDocumentArchiveUpload(deps: FinalizeDocumentArchiveUploadDeps, input: FinalizeDocumentArchiveUploadInput): Promise<FinalizeDocumentArchiveOutcome> {
+  // D-193 item 8/9 (PROMOTER gate) - checked before any store/object access, same fail-closed
+  // posture start-ocr.ts's OcrDisabledError already established (a flags-read error is treated
+  // identically to the flag being off).
+  let flags;
+  try {
+    flags = await deps.featureFlags.getFlags();
+  } catch {
+    return "IGNORED_PROMOTION_DISABLED";
+  }
+  if (!isDocumentArchivePromotionEnabled(flags)) return "IGNORED_PROMOTION_DISABLED";
+
   const now = deps.now ?? (() => new Date().toISOString());
   const file = await deps.store.get<DocumentFile>(documentFileKey(input.tenantId, input.documentId, input.seq, input.fileId));
   if (!file) return "IGNORED_UNKNOWN_FILE";

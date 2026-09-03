@@ -67,6 +67,11 @@ export class AppConfigFeatureFlagsReader implements FeatureFlagsReader {
         AI_EXTRACTION: features.AI_EXTRACTION === true,
         OCR: features.OCR === true,
         WHATSAPP: features.WHATSAPP === true,
+        // D-193 item 8/9: same "=== true" fail-closed parsing as every other flag here - any
+        // absent/malformed value (including a config published before this slice existed)
+        // resolves to `false`, never "unknown, assume enabled".
+        EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: features.EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED === true,
+        DOCUMENT_ARCHIVE_PROMOTION_ENABLED: features.DOCUMENT_ARCHIVE_PROMOTION_ENABLED === true,
       };
     }
 

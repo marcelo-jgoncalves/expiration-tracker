@@ -7,6 +7,7 @@ import { extractionRunKey, deriveExtractionRunId } from "../../../src/modules/ex
 import { PIPELINE_VERSION_V1 } from "../../../src/modules/extraction/domain/field-schema.js";
 import type { ExtractionRunStore } from "../../../src/modules/extraction/ports/extraction-run-store.js";
 import type { ExtractionExecutionInput, ExtractionExecutionStarter } from "../../../src/modules/extraction/ports/extraction-execution-starter.js";
+import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 const TENANT = "t1";
@@ -84,6 +85,27 @@ class FakeExecutionStarter implements ExtractionExecutionStarter {
   }
 }
 
+/** D-193 item 8/9 (STARTER gate) test double. `enabled: true` by default so every existing
+ * precondition test in this file keeps exercising the SAME mechanism it always did - the new
+ * flag-off/flag-error behavior gets its own dedicated `describe` block below. */
+class FakeFeatureFlagsReader implements FeatureFlagsReader {
+  constructor(
+    private readonly enabled: boolean = true,
+    private readonly throwOnRead: boolean = false,
+  ) {}
+  async getFlags(): Promise<FeatureFlags> {
+    if (this.throwOnRead) throw new Error("AppConfig unreachable (simulated)");
+    return {
+      AI_EXTRACTION: false,
+      OCR: false,
+      WHATSAPP: false,
+      EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: this.enabled,
+      DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false,
+    };
+  }
+}
+const ENABLED_FLAGS = new FakeFeatureFlagsReader(true);
+
 function seededArchive(items: readonly (EntityKey & object)[], opts: { activeTenant?: boolean } = { activeTenant: true }): InMemoryDocumentArchiveStore {
   const seed = opts.activeTenant === false ? items : [...items, seedActiveTenantLifecycle(TENANT)];
   return new InMemoryDocumentArchiveStore(seed as unknown as (Record<string, unknown> & EntityKey)[]);
@@ -96,7 +118,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile(), baseVersion()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, now: () => "2026-09-03T00:05:00.000Z" }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS, now: () => "2026-09-03T00:05:00.000Z" }, INPUT);
 
     expect(outcome).toEqual({ outcome: "GATE_OPENED" });
     const expectedRunId = deriveExtractionRunId(TENANT, DOC, VERSION_ID, PIPELINE_VERSION_V1);
@@ -127,7 +149,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile(), baseVersion()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const deps = { archive, runs, executions };
+    const deps = { archive, runs, executions, featureFlags: ENABLED_FLAGS };
 
     const first = await startExtractionRunForDocumentArchive(deps, INPUT);
     const second = await startExtractionRunForDocumentArchive(deps, INPUT);
@@ -146,7 +168,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile({ scanStatus: "SCANNING", cleanObject: undefined }), baseVersion()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "FILE_NOT_CLEAN" });
   });
@@ -155,7 +177,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile({ cleanObject: { ...CLEAN_OBJECT, versionId: "some-other-version" } }), baseVersion()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "CLEAN_OBJECT_MISMATCH" });
   });
@@ -164,7 +186,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile({ role: "ATTACHMENT" }), baseVersion()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "NOT_PRINCIPAL" });
   });
@@ -173,7 +195,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile(), baseVersion({ state: "SUPERSEDED" })]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "VERSION_NOT_ELIGIBLE" });
   });
@@ -182,7 +204,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile()]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "VERSION_NOT_FOUND" });
   });
@@ -191,7 +213,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile(), baseVersion()], { activeTenant: false });
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "TENANT_NOT_ACTIVE" });
   });
@@ -200,7 +222,7 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "FILE_NOT_FOUND" });
   });
@@ -223,10 +245,46 @@ describe("startExtractionRunForDocumentArchive — D-193 item 3/9, 5 fresh-re-re
     const archive = seededArchive([baseFile({ scanStatus: "REJECTED", cleanObject: undefined }), baseVersion({ pendingFileScans: 0, infectedFileScans: 1 })]);
     const runs = new FakeExtractionRunStore();
     const executions = new FakeExecutionStarter();
-    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions }, INPUT);
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: ENABLED_FLAGS }, INPUT);
     expect(executions.calls).toHaveLength(0);
 
     // The fresh read, not the stale CLEAN observation above, decides the outcome.
     expect(outcome).toEqual({ outcome: "REFUSED", reason: "FILE_NOT_CLEAN" });
+  });
+});
+
+describe("startExtractionRunForDocumentArchive — D-193 item 8/9 (STARTER gate, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED)", () => {
+  it("G-V3: default OFF - refuses STARTER_DISABLED WITHOUT ever reading the tenant/file/version rows, even when every other precondition is perfectly satisfiable", async () => {
+    const archive = seededArchive([baseFile(), baseVersion()]);
+    const runs = new FakeExtractionRunStore();
+    const executions = new FakeExecutionStarter();
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: new FakeFeatureFlagsReader(false) }, INPUT);
+
+    expect(outcome).toEqual({ outcome: "REFUSED", reason: "STARTER_DISABLED" });
+    // The behavioral proof, not just "the flag is false": no ExtractionRun was created and
+    // Step Functions was never invoked - the mechanism is completely inert, not merely refused
+    // at the very last step.
+    expect(runs.items.size).toBe(0);
+    expect(executions.calls).toHaveLength(0);
+  });
+
+  it("fail-closed: a FeatureFlagsReader read/parse error is treated identically to the flag being off, never as \"unknown, proceed\" (same posture start-ocr.ts's OcrDisabledError already established)", async () => {
+    const archive = seededArchive([baseFile(), baseVersion()]);
+    const runs = new FakeExtractionRunStore();
+    const executions = new FakeExecutionStarter();
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: new FakeFeatureFlagsReader(true, true) }, INPUT);
+
+    expect(outcome).toEqual({ outcome: "REFUSED", reason: "STARTER_DISABLED" });
+    expect(executions.calls).toHaveLength(0);
+  });
+
+  it("once ON, the Starter proceeds exactly as before (regression guard: the gate only ADDS a check, never changes the other 5 preconditions' behavior)", async () => {
+    const archive = seededArchive([baseFile(), baseVersion()]);
+    const runs = new FakeExtractionRunStore();
+    const executions = new FakeExecutionStarter();
+    const outcome = await startExtractionRunForDocumentArchive({ archive, runs, executions, featureFlags: new FakeFeatureFlagsReader(true) }, INPUT);
+
+    expect(outcome).toEqual({ outcome: "GATE_OPENED" });
+    expect(executions.calls).toHaveLength(1);
   });
 });

@@ -1280,12 +1280,18 @@ module "upload_finalizer_handler" {
   environment_variables = merge(local.common_env, {
     CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
     PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
+    # D-193 item 8/9 (PROMOTER gate) - this handler's third (document-archive) branch fails
+    # closed against the AppConfig flags module, same trio every AppConfig-gated Lambda uses.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.upload_finalizer_object_access.json,
     data.aws_iam_policy_document.upload_finalizer_invoke_parser_sandbox.json,
     module.upload_finalizer_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1344,11 +1350,16 @@ module "malware_result_handler" {
   environment_variables = merge(local.common_env, {
     CLEAN_BUCKET_NAME            = module.document_buckets.clean_bucket_name
     PARSER_SANDBOX_FUNCTION_NAME = module.parser_sandbox.function_name
+    # D-193 item 8/9 (PROMOTER gate) - same reasoning as upload_finalizer_handler above.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.malware_result_object_access.json,
     module.malware_result_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -2077,11 +2088,17 @@ module "extraction_starter_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     EXTRACTION_STATE_MACHINE_ARN = local.extraction_state_machine_arn
+    # D-193 item 8/9 (STARTER gate) - the document-archive branch fails closed against the
+    # AppConfig flags module, same trio every AppConfig-gated Lambda uses.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.extraction_starter_start_execution.json,
     module.extraction_starter_queue.consume_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

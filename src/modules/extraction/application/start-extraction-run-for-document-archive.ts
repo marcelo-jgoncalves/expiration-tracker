@@ -43,13 +43,19 @@ import type { DocumentObjectReference } from "../../document/domain/document-obj
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { extractionRunKey, deriveExtractionRunId, type ExtractionRun } from "../domain/extraction-run.js";
 import { PIPELINE_VERSION_V1 } from "../domain/field-schema.js";
+import { isDocumentArchiveExtractionTriggerEnabled } from "./document-archive-activation.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
 import type { ExtractionExecutionStarter } from "../ports/extraction-execution-starter.js";
+import type { FeatureFlagsReader } from "../ports/feature-flags-reader.js";
 
 export interface StartExtractionRunForDocumentArchiveDeps {
   archive: DocumentArchiveStore;
   runs: ExtractionRunStore;
   executions: ExtractionExecutionStarter;
+  /** D-193 item 8/9 (STARTER gate). Read once at the top of every invocation - a read/parse
+   * failure fails closed exactly like `start-ocr.ts`'s own `OcrDisabledError` posture (any error
+   * is treated identically to the flag being off, never as "unknown, proceed"). */
+  featureFlags: FeatureFlagsReader;
   now?: () => string;
 }
 
@@ -73,6 +79,7 @@ export interface StartExtractionRunForDocumentArchiveInput {
 }
 
 export type StartExtractionRunForDocumentArchivePreconditionFailure =
+  | "STARTER_DISABLED"
   | "FILE_NOT_FOUND"
   | "FILE_NOT_CLEAN"
   | "CLEAN_OBJECT_MISMATCH"
@@ -112,6 +119,20 @@ export async function startExtractionRunForDocumentArchive(
   deps: StartExtractionRunForDocumentArchiveDeps,
   input: StartExtractionRunForDocumentArchiveInput,
 ): Promise<StartExtractionRunForDocumentArchiveOutcome> {
+  // D-193 item 8/9 (STARTER gate) - checked FIRST, before any DynamoDB read: while OFF (the
+  // default), this Starter must be completely inert for document-archive documents, never even
+  // reading the tenant/file/version rows. Fail-closed on a flags-read error too, same posture
+  // start-ocr.ts's OcrDisabledError already established for the sibling OLD-module trigger.
+  let flags;
+  try {
+    flags = await deps.featureFlags.getFlags();
+  } catch {
+    return { outcome: "REFUSED", reason: "STARTER_DISABLED" };
+  }
+  if (!isDocumentArchiveExtractionTriggerEnabled(flags)) {
+    return { outcome: "REFUSED", reason: "STARTER_DISABLED" };
+  }
+
   // Precondition 5 (this file's own doc comment: the design's summary says "5", the design's
   // prose only names 4 — the 5th is this tenant-ACTIVE fresh check, same discipline every other
   // D-193 write path applies explicitly rather than inheriting).
