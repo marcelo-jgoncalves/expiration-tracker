@@ -217,12 +217,11 @@ locals {
   # D-181's invitation_purge slice 2, D-179 slice 3's document_file_reconciliation, D-179 slice
   # 4's requirement_reindex, D-179/D-186 slice 5's quota_telemetry_purge, D-179/D-187 slice 6's
   # security_audit_purge, D-179/D-188 slice 7's transient_purge, D-179/D-18x slice 8's
-  # delivery_record_purge - 8th of 9).
+  # delivery_record_purge, D-179/D-190 slice 9's core_user_data_purge - 9th and LAST of 9,
+  # completing D-179's MaintenanceDueIndex program).
   # Each key gets its own gsi8_read_policy_json[key]/worker_transact_write_policy_json[key]
   # output below, scoped via `dynamodb:LeadingKeys` so one worker's role can never read (or claim)
-  # another worker's GSI8/DLQ candidates. Extending this map is how each of the other maintenance
-  # workers named in D-179 joins the pattern later - never by widening an existing worker's
-  # LeadingKeys list.
+  # another worker's GSI8/DLQ candidates.
   gsi8_worker_types = {
     membership_purge             = "MEMBERSHIP_PURGE"
     invitation_purge             = "INVITATION_PURGE"
@@ -232,6 +231,7 @@ locals {
     security_audit_purge         = "SECURITY_AUDIT"
     transient_purge              = "TRANSIENT"
     delivery_record_purge        = "DELIVERY_RECORD"
+    core_user_data_purge         = "CORE_USER_DATA"
   }
 }
 

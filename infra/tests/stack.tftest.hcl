@@ -834,6 +834,61 @@ run "gsi8_worker_isolation" {
     error_message = "No previously migrated worker may reference DELIVERY_RECORD's namespace"
   }
 
+  # D-179/D-190 slice 9 - core_user_data_purge_handler joins the same pattern (poison-record/DLQ
+  # shape, same as delivery_record_purge_handler - this worker also has a tenant-ACTIVE fence AND
+  # a real `version` OCC counter), its own WORK#/DLQ# namespace pair, isolated from the other
+  # eight. This is the 9th and LAST worker in D-179's MaintenanceDueIndex program - once this
+  # slice's isolation holds, all 9 workers are cross-verified against each other.
+  assert {
+    condition     = anytrue([for p in module.core_user_data_purge_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])
+    error_message = "CoreUserDataPurgeWorker must have a policy referencing GSI8"
+  }
+
+  assert {
+    condition = anytrue([
+      for p in module.core_user_data_purge_handler.capability_policy_documents :
+      strcontains(p, "WORK#CORE_USER_DATA") && strcontains(p, "DLQ#CORE_USER_DATA")
+    ])
+    error_message = "CoreUserDataPurgeWorker's GSI8 policy must condition dynamodb:LeadingKeys on exactly its own WORK#/DLQ# namespace pair"
+  }
+
+  assert {
+    condition     = anytrue([for p in module.core_user_data_purge_handler.capability_policy_documents : strcontains(p, "dynamodb:TransactWriteItems")])
+    error_message = "CoreUserDataPurgeWorker must have dynamodb:TransactWriteItems - the atomic claim/revalidation action the approved design added as a real gap in the general policy"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.core_user_data_purge_handler.capability_policy_documents :
+      strcontains(p, "dynamodb:TransactWriteItems") && (strcontains(p, "/index/GSI3") || strcontains(p, "/index/GSI4") || strcontains(p, "/index/GSI6") || strcontains(p, "/index/GSI8"))
+    ])
+    error_message = "dynamodb:TransactWriteItems must never be granted on a GSI resource, only the base table"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in module.core_user_data_purge_handler.capability_policy_documents :
+      strcontains(p, "MEMBERSHIP_PURGE") || strcontains(p, "INVITATION_PURGE") || strcontains(p, "DOCUMENT_FILE_RECONCILIATION") || strcontains(p, "REQUIREMENT_REINDEX") || strcontains(p, "QUOTA_TELEMETRY") || strcontains(p, "SECURITY_AUDIT") || strcontains(p, "TRANSIENT") || strcontains(p, "DELIVERY_RECORD")
+    ])
+    error_message = "CoreUserDataPurgeWorker must NOT reference MEMBERSHIP_PURGE's, INVITATION_PURGE's, DOCUMENT_FILE_RECONCILIATION's, REQUIREMENT_REINDEX's, QUOTA_TELEMETRY's, SECURITY_AUDIT's, TRANSIENT's, or DELIVERY_RECORD's namespace"
+  }
+
+  assert {
+    condition = !anytrue([
+      for p in flatten([
+        module.membership_purge_handler.capability_policy_documents,
+        module.invitation_purge_handler.capability_policy_documents,
+        module.document_file_reconciliation_handler.capability_policy_documents,
+        module.requirement_reindex_handler.capability_policy_documents,
+        module.quota_telemetry_purge_handler.capability_policy_documents,
+        module.security_audit_purge_handler.capability_policy_documents,
+        module.transient_purge_handler.capability_policy_documents,
+        module.delivery_record_purge_handler.capability_policy_documents,
+      ]) : strcontains(p, "CORE_USER_DATA")
+    ])
+    error_message = "No previously migrated worker may reference CORE_USER_DATA's namespace"
+  }
+
   # No other worker's role may reference GSI8 at all - isolation is per-worker, not per-index.
   assert {
     condition     = !anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "/index/GSI8")])

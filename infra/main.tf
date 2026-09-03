@@ -970,6 +970,7 @@ module "security_audit_observability" {
     module.security_audit_purge_handler.function_name,
     module.transient_purge_handler.function_name,
     module.delivery_record_purge_handler.function_name,
+    module.core_user_data_purge_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -3012,10 +3013,11 @@ module "document_request_recurrence_handler" {
 # quarantine-retention-scoping/estado-final-consolidado.md, CORE_USER_DATA row, Prioridade 1) -
 # physically purges ExpirationItem/ReminderPolicy rows once deletedAt+30d has passed, within
 # ACTIVE tenants only (a completely separate mechanism from tenant-purge's full-tenant-closure
-# pipeline) - see src/workers/core-user-data-purge/purge.ts's doc comment. No dedicated IAM
-# policy beyond the general tenant-facing grant (same reasoning as requirement_reindex_handler
-# above: this worker's Scan is a base-table operation, and the TenantLifecycleRecord GetItem it
-# performs is a normal tenant-scoped row, not GSI3/GSI6).
+# pipeline) - see src/workers/core-user-data-purge/purge.ts's doc comment. Migrated off the
+# base-table Scan onto GSI8 by D-179/D-190 (9th and LAST of 9 workers) -
+# gsi8_read_policy_json/worker_transact_write_policy_json scoped to WORK#CORE_USER_DATA/
+# DLQ#CORE_USER_DATA, same pattern as delivery_record_purge_handler below (this worker also has a
+# tenant-ACTIVE fence AND a real `version` OCC counter on both entities).
 module "core_user_data_purge_handler" {
   source = "./modules/lambda-function"
 
@@ -3025,8 +3027,12 @@ module "core_user_data_purge_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi8_read_policy_json["core_user_data_purge"],
+    module.table.worker_transact_write_policy_json["core_user_data_purge"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 resource "aws_iam_role" "core_user_data_purge_schedule" {
