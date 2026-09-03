@@ -159,7 +159,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
           }
           seenExternalIdsInFile.add(row.externalId);
 
-          const existingDedup = await deps.store.get(importDedupKey(tenantId, row.externalId));
+          const existingDedup = await deps.store.get(importDedupKey(tenantId, "SUBJECT", row.externalId));
           if (existingDedup) {
             subjectPlan.push({ rowNumber: row.rowNumber, action: "SKIP_DUPLICATE", reason: "EXTERNAL_ID_ALREADY_EXISTS", externalId: row.externalId, displayName: row.displayName });
             duplicateRows += 1;

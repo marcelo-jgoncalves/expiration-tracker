@@ -95,9 +95,10 @@ describe("parseImportJob (M11, D-042)", () => {
 
   it("skips a row whose externalId already exists from a PRIOR import (strong dedup)", async () => {
     await store.putIfAbsent<ImportDedupRecord>({
-      ...importDedupKey(TENANT, "ext-1"),
+      ...importDedupKey(TENANT, "SUBJECT", "ext-1"),
       entityType: "ImportDedupRecord",
       tenantId: TENANT,
+      kind: "SUBJECT",
       externalId: "ext-1",
       subjectId: "subject-existing",
       createdAt: NOW,
