@@ -91,6 +91,10 @@ import docarchiveRequirementTemplatePreviewRequestV1 from "../../../schemas/api/
 import docarchiveRequirementTemplateApplyRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
 // D-149 (Admin Activity/Audit Log view).
 import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1.json";
+// D-194 Fatia 3 (search/filters) - GET /subjects/search, GET /document-archive/requirements/search, GET /items/search.
+import subjectSearchRequestV1 from "../../../schemas/api/subject-search-request.v1.json";
+import docarchiveRequirementSearchRequestV1 from "../../../schemas/api/docarchive-requirement-search-request.v1.json";
+import itemSearchRequestV1 from "../../../schemas/api/item-search-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -210,4 +214,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveRequirementTemplatePreviewRequestV1,
   docarchiveRequirementTemplateApplyRequestV1,
   listActivityRequestV1,
+  subjectSearchRequestV1,
+  docarchiveRequirementSearchRequestV1,
+  itemSearchRequestV1,
 ]);

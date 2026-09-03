@@ -1232,6 +1232,90 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // D-194 Fatia 3 (search/filters) - GET /subjects/search, GET /document-archive/requirements/search, GET /items/search.
+  it("accepts a valid subject-search-request.v1 with only the required status", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/subject-search-request.v1.json", { status: "ACTIVE" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a fully-populated subject-search-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/subject-search-request.v1.json", {
+      status: "ACTIVE",
+      type: "VENDOR",
+      namePrefix: "Alfa",
+      tag: "urgent",
+      cursor: "abc123",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a subject-search-request.v1 missing status", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/subject-search-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a subject-search-request.v1 with an invalid status value", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/subject-search-request.v1.json", { status: "BOGUS" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a subject-search-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/subject-search-request.v1.json", { status: "ACTIVE", bogus: "x" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a fully-populated docarchive-requirement-search-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json", {
+      status: "SATISFIED",
+      namePrefix: "negativa",
+      assigneeUserId: "user-9",
+      validityState: "VENCENDO",
+      cursor: "abc123",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-requirement-search-request.v1 missing status", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-requirement-search-request.v1 with a tag field (Requirement has no tags, out of scope)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json", { status: "MISSING", tag: "x" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-requirement-search-request.v1 with an invalid validityState", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json", { status: "MISSING", validityState: "BOGUS" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a fully-populated item-search-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/item-search-request.v1.json", {
+      status: "ACTIVE",
+      namePrefix: "alvará",
+      tag: "urgent",
+      assigneeUserId: "user-9",
+      validityState: "VALIDO",
+      cursor: "abc123",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an item-search-request.v1 missing status", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/item-search-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an item-search-request.v1 with an invalid status value", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/item-search-request.v1.json", { status: "BOGUS" });
+    expect(valid).toBe(false);
+  });
+
   // P0.1 (RequirementTemplate).
   it("accepts a valid docarchive-requirementtemplate-create-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json", { displayName: "Regularidade básica", items: [{ name: "CND Federal" }, { name: "Alvará", notes: "anual", applicability: "NOT_APPLICABLE" }] });

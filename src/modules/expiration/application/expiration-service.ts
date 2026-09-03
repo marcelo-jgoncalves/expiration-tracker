@@ -23,11 +23,14 @@ import {
   itemKey,
   gsi1Keys,
   normalizeCategory,
+  deriveExpirationItemValidityState,
   type ExpirationItem,
   type CreateItemInput,
   type UpdateItemInput,
   type RenewItemInput,
 } from "../domain/expiration-item.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import { buildAuditEvent, appendAuditToTransaction, type AuditAction } from "../domain/audit-event.js";
 import { buildTenantAuditEvent, appendTenantAuditToTransaction, buildExportLockItem, appendExportLockToTransaction } from "../../activity/domain/tenant-audit-event.js";
 import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
@@ -74,6 +77,29 @@ export interface DashboardQuery {
 export interface DashboardPage {
   items: ExpirationItem[];
   lastEvaluatedKey?: Record<string, unknown>;
+}
+
+/** D-194 Fatia 3 (search/filters) — `status` required/singular. `tag`/`assigneeUserId` are
+ * real native fields on `ExpirationItem` (unlike Requirement's `tag`, which does not exist and
+ * is out of scope), so both apply here. No `type` dimension (ExpirationItem has none). */
+export interface ExpirationItemSearchQuery {
+  status: ExpirationItem["status"];
+  namePrefix?: string;
+  tag?: string;
+  assigneeUserId?: string;
+  validityState?: UnifiedValidityState;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface ExpirationItemSearchHit {
+  kind: "EXPIRATION_ITEM";
+  item: ExpirationItem;
+}
+
+export interface ExpirationItemSearchPage {
+  items: ExpirationItemSearchHit[];
+  lastEvaluatedKey?: Record<string, unknown>;
+  scanLimitReached: boolean;
 }
 
 export class ExpirationService {
@@ -625,6 +651,46 @@ export class ExpirationService {
       limit: query.limit,
       exclusiveStartKey: query.exclusiveStartKey,
     });
+  }
+
+  /**
+   * D-194 Fatia 3 — single `Query` on GSI1's ITEMSTATUS namespace (already tenant-facing, no new
+   * index), filtered in memory over the page already read: `name` substring (no type-scoped
+   * physical ordering here either, same "substring, never prefix" posture as
+   * `searchRequirements`), `tag` exact membership, `assigneeUserId` exact match,
+   * `UnifiedValidityState` via `deriveExpirationItemValidityState` (never reimplemented). No
+   * `subjectDisplayName` enrichment — `ExpirationItem` has no `subjectId` (out of scope per the
+   * design, unifying the two models is a separate data-model change).
+   */
+  async searchExpirationItems(ctx: RequestContext, query: ExpirationItemSearchQuery): Promise<ExpirationItemSearchPage> {
+    authorize({ context: ctx, action: "item:read", resource: { tenantId: ctx.tenant.tenantId } });
+    if (!query.status) throw new ValidationError("status is required for searchExpirationItems.");
+    const now = new Date();
+    const namePrefix = query.namePrefix;
+
+    const result = await runPagedSearch<ExpirationItem>({
+      exclusiveStartKey: query.exclusiveStartKey,
+      fetchPage: (exclusiveStartKey) =>
+        this.store.queryGsi1Page<ExpirationItem>({
+          gsi1pk: `TENANT#${ctx.tenant.tenantId}#ITEMSTATUS#${query.status}`,
+          ascending: true,
+          limit: SEARCH_PAGE_SIZE,
+          exclusiveStartKey,
+        }),
+      matches: (item) => {
+        if (namePrefix !== undefined && !item.name.toLowerCase().includes(namePrefix.toLowerCase())) return false;
+        if (query.tag !== undefined && !item.tags.includes(query.tag)) return false;
+        if (query.assigneeUserId !== undefined && item.assigneeUserId !== query.assigneeUserId) return false;
+        if (query.validityState !== undefined && deriveExpirationItemValidityState(item, now) !== query.validityState) return false;
+        return true;
+      },
+    });
+
+    return {
+      items: result.items.map((item) => ({ kind: "EXPIRATION_ITEM" as const, item })),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      scanLimitReached: result.scanLimitReached,
+    };
   }
 
   /**

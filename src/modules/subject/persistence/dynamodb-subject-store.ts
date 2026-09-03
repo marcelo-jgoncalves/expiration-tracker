@@ -5,7 +5,7 @@
  */
 import { BatchGetCommand, GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../ports/subject-store.js";
+import type { EntityKey, Gsi7Page, Gsi7PageInput, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../ports/subject-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 export class DynamoDbSubjectStore implements SubjectStore {
@@ -96,6 +96,27 @@ export class DynamoDbSubjectStore implements SubjectStore {
       return input.limit ? items.slice(0, input.limit) : items;
     } catch (err) {
       throw mapDynamoError(err, "SubjectStore.queryGsi7");
+    }
+  }
+
+  /** D-194 Fatia 3 — one physical page per call, see `Gsi7PageInput`'s doc comment (mirrors
+   * `queryGsi1Page`/`queryIndexPage` in the sibling stores). */
+  async queryGsi7Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7PageInput): Promise<Gsi7Page<T>> {
+    try {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI7",
+          KeyConditionExpression: "GSI7PK = :pk",
+          ExpressionAttributeValues: { ":pk": input.gsi7pk },
+          ScanIndexForward: input.ascending ?? true,
+          Limit: input.limit,
+          ExclusiveStartKey: input.exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "SubjectStore.queryGsi7Page");
     }
   }
 

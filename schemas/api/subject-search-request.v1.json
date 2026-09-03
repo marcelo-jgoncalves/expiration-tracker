@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/subject-search-request.v1.json",
+  "title": "SubjectSearchRequest v1",
+  "description": "GET /subjects/search query parameters (D-194 Fatia 3, src/modules/subject/application/subject-service.ts SubjectSearchQuery). All fields arrive as HTTP query-string values (strings); `status` is required and singular.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED", "DELETED"] },
+    "type": { "type": "string", "enum": ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"] },
+    "namePrefix": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tag": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "cursor": { "type": "string", "minLength": 1 }
+  }
+}

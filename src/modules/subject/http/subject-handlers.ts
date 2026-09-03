@@ -8,11 +8,12 @@ import { AuthorizationDeniedError } from "../../identity/domain/authorization.js
 import { AuthorizationError } from "../../../shared/errors/app-error.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
+import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/search-cursor.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { SubjectService } from "../application/subject-service.js";
-import type { CreateSubjectInput, UpdateSubjectInput, TrackedSubjectStatus } from "../domain/tracked-subject.js";
+import type { CreateSubjectInput, UpdateSubjectInput, TrackedSubjectStatus, TrackedSubjectType } from "../domain/tracked-subject.js";
 
 async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
   await quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
@@ -27,6 +28,7 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 
 const CREATE_SUBJECT_SCHEMA_ID = "https://expiration-tracker/schemas/api/create-subject-request.v1.json";
 const UPDATE_SUBJECT_SCHEMA_ID = "https://expiration-tracker/schemas/api/update-subject-request.v1.json";
+const SEARCH_SUBJECTS_SCHEMA_ID = "https://expiration-tracker/schemas/api/subject-search-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -166,5 +168,50 @@ export async function handleListSubjects(deps: SubjectHttpDeps, req: HttpRequest
     await consumeApiRequestQuota(deps.quota, context);
     const subjects = await deps.subjects.listSubjects(context, { status });
     return { statusCode: 200, body: { subjects } };
+  });
+}
+
+const SUBJECT_TYPES = new Set(["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"]);
+
+/** D-194 Fatia 3 — GET /subjects/search. `status` is required/singular (schema enforces
+ * presence, this function enforces validity against the real enum). The cursor's fingerprint
+ * signature mirrors every field this route accepts as a filter, so re-presenting it with a
+ * different query param on the next call fails closed (400) at `decodeSearchCursor`, never
+ * silently reinterpreted against a different search. */
+export async function handleSearchSubjects(deps: SubjectHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const qs = req.queryStringParameters ?? {};
+    const queryObject: Record<string, string> = {};
+    for (const key of ["status", "type", "namePrefix", "tag", "cursor"] as const) {
+      const value = qs[key];
+      if (value !== undefined) queryObject[key] = value;
+    }
+    const { valid, errors } = defaultSchemaRegistry.validate(SEARCH_SUBJECTS_SCHEMA_ID, queryObject);
+    if (!valid) throw new ValidationError("Query parameters failed schema validation.", { errors });
+
+    const status = queryObject["status"] as TrackedSubjectStatus | undefined;
+    if (!status || !SUBJECT_STATUSES.has(status)) {
+      throw new ValidationError("Invalid or missing status query parameter.", { allowed: [...SUBJECT_STATUSES] });
+    }
+    const type = queryObject["type"] as TrackedSubjectType | undefined;
+    if (type !== undefined && !SUBJECT_TYPES.has(type)) {
+      throw new ValidationError("Invalid type query parameter.", { allowed: [...SUBJECT_TYPES] });
+    }
+    const namePrefix = queryObject["namePrefix"];
+    const tag = queryObject["tag"];
+    const signature = { mode: "SUBJECT", status, type, namePrefix, tag };
+    const exclusiveStartKey = queryObject["cursor"] !== undefined ? decodeSearchCursor(queryObject["cursor"], signature) : undefined;
+
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const page = await deps.subjects.searchSubjects(context, { status, type, namePrefix, tag, exclusiveStartKey });
+    return {
+      statusCode: 200,
+      body: {
+        items: page.items,
+        cursor: page.lastEvaluatedKey ? encodeSearchCursor(signature, page.lastEvaluatedKey) : null,
+        scanLimitReached: page.scanLimitReached,
+      },
+    };
   });
 }

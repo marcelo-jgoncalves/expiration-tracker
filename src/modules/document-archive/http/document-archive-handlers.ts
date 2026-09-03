@@ -9,6 +9,8 @@ import { AppError, AuthorizationError, ValidationError, toAppError } from "../..
 import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
+import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/search-cursor.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { DocumentArchiveService } from "../application/document-archive-service.js";
@@ -16,7 +18,7 @@ import type { DocumentRequestRecurrenceService } from "../application/document-r
 import type { CreateDocumentInput } from "../domain/document.js";
 import type { FileUploadSpec } from "../domain/document-file.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
-import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
+import type { CreateRequirementInput, RequirementStatus, UpdateRequirementInput } from "../domain/requirement.js";
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
 import type { CreateDocumentTypeInput, DocumentType } from "../domain/document-type.js";
 import type { CreateRequirementTemplateInput, RequirementTemplate, UpdateRequirementTemplateInput } from "../domain/requirement-template.js";
@@ -40,6 +42,7 @@ const REQUIREMENT_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/doc
 const REQUIREMENT_LINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-link-evidence-request.v1.json";
 const REQUIREMENT_UNLINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
 const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json";
+const REQUIREMENT_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json";
 const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
 const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
 const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
@@ -303,6 +306,50 @@ export async function handleListRequirements(deps: DocumentArchiveHttpDeps, req:
     const context = await resolve(deps, req);
     const requirements = await deps.documentArchive.listRequirements(context, subjectId);
     return { statusCode: 200, body: { requirements } };
+  });
+}
+
+const REQUIREMENT_STATUSES = new Set(["MISSING", "PENDING", "SATISFIED", "NOT_SATISFIED", "NOT_APPLICABLE"]);
+const VALIDITY_STATES = new Set(["PERMANENTE", "VALIDO", "VENCENDO", "VENCIDO", "AGUARDANDO_REVISAO"]);
+
+/** D-194 Fatia 3 — GET /document-archive/requirements/search. Route lives ABOVE
+ * `/document-archive/requirements/{subjectId}` in `main.tf`/the switch below on purpose — API
+ * Gateway v2 prioritizes the literal `search` segment over the `{subjectId}` path parameter at
+ * the same position (same precedent `main.tf`'s `GET /items/dashboard` comment documents). */
+export async function handleSearchRequirements(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const qs = req.queryStringParameters ?? {};
+    const queryObject: Record<string, string> = {};
+    for (const key of ["status", "namePrefix", "assigneeUserId", "validityState", "cursor"] as const) {
+      const value = qs[key];
+      if (value !== undefined) queryObject[key] = value;
+    }
+    const { valid, errors } = defaultSchemaRegistry.validate(REQUIREMENT_SEARCH_SCHEMA_ID, queryObject);
+    if (!valid) throw new ValidationError("Query parameters failed schema validation.", { errors });
+
+    const status = queryObject["status"] as RequirementStatus | undefined;
+    if (!status || !REQUIREMENT_STATUSES.has(status)) {
+      throw new ValidationError("Invalid or missing status query parameter.", { allowed: [...REQUIREMENT_STATUSES] });
+    }
+    const validityState = queryObject["validityState"] as UnifiedValidityState | undefined;
+    if (validityState !== undefined && !VALIDITY_STATES.has(validityState)) {
+      throw new ValidationError("Invalid validityState query parameter.", { allowed: [...VALIDITY_STATES] });
+    }
+    const namePrefix = queryObject["namePrefix"];
+    const assigneeUserId = queryObject["assigneeUserId"];
+    const signature = { mode: "REQUIREMENT", status, namePrefix, assigneeUserId, validityState };
+    const exclusiveStartKey = queryObject["cursor"] !== undefined ? decodeSearchCursor(queryObject["cursor"], signature) : undefined;
+
+    const context = await resolve(deps, req);
+    const page = await deps.documentArchive.searchRequirements(context, { status, namePrefix, assigneeUserId, validityState, exclusiveStartKey });
+    return {
+      statusCode: 200,
+      body: {
+        items: page.items,
+        cursor: page.lastEvaluatedKey ? encodeSearchCursor(signature, page.lastEvaluatedKey) : null,
+        scanLimitReached: page.scanLimitReached,
+      },
+    };
   });
 }
 

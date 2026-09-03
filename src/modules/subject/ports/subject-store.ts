@@ -16,6 +16,22 @@ export interface Gsi7QueryInput {
   limit?: number;
 }
 
+/** D-194 Fatia 3 (search/filters): one real physical GSI7 page per call, unlike `queryGsi7`
+ * above (which accumulates across pages internally — fine for the bounded `listSubjects`
+ * dashboard read, but exactly the D-142 cursor-skip shape `searchSubjects` must avoid so its
+ * cursor can resume from the real `LastEvaluatedKey`). Mirrors `ExpirationStore.queryGsi1Page`/
+ * `DocumentArchiveStore.queryIndexPage`. */
+export interface Gsi7PageInput {
+  gsi7pk: string;
+  ascending?: boolean;
+  limit?: number;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+export interface Gsi7Page<T> {
+  items: T[];
+  lastEvaluatedKey?: Record<string, unknown>;
+}
+
 export interface SubjectStore {
   /** Leitura fortemente consistente (mesma exigência de ExpirationStore.get). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
@@ -30,6 +46,8 @@ export interface SubjectStore {
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
   /** GSI7 — listagem de subjects por status/tipo/nome (domain/tracked-subject.ts#gsi7Keys). */
   queryGsi7<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7QueryInput): Promise<T[]>;
+  /** D-194 Fatia 3 — one physical GSI7 page per call, see `Gsi7PageInput`'s doc comment. */
+  queryGsi7Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7PageInput): Promise<Gsi7Page<T>>;
   /** Query pela partição do subject com prefixo de SK — lista RequirementAssignment sem GSI
    * novo (coleção sob a partição, mesmo padrão de identity/document já em produção). */
   queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;

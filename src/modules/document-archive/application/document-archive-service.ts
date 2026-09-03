@@ -108,6 +108,7 @@ import {
 import {
   deriveRequirementMaintenanceDue,
   deriveRequirementStatus,
+  deriveRequirementValidityState,
   requirementGsi1Keys,
   requirementGsi8Keys,
   requirementGsi9Keys,
@@ -120,6 +121,8 @@ import {
   type RequirementStatus,
   type UpdateRequirementInput,
 } from "../domain/requirement.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
  * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
@@ -353,6 +356,28 @@ export interface ReservedFile {
 // are deliberately the same window, so reserveFiles()'s GSI8 pointer and the presign expiry never
 // drift apart.
 const PRESIGN_TTL_SECONDS = FILE_SCAN_TIMEOUT_SECONDS;
+
+/** D-194 Fatia 3 — see `searchRequirements`'s doc comment. `tag` is deliberately absent
+ * (Requirement has no `tags` field, out of scope per the design). */
+export interface RequirementSearchQuery {
+  status: RequirementStatus;
+  namePrefix?: string;
+  assigneeUserId?: string;
+  validityState?: UnifiedValidityState;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface RequirementSearchHit {
+  kind: "REQUIREMENT";
+  requirement: Requirement;
+  subjectDisplayName?: string;
+}
+
+export interface RequirementSearchPage {
+  items: RequirementSearchHit[];
+  lastEvaluatedKey?: Record<string, unknown>;
+  scanLimitReached: boolean;
+}
 
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
@@ -982,6 +1007,72 @@ export class DocumentArchiveService {
   async listRequirements(ctx: RequestContext, subjectId: string): Promise<Requirement[]> {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
     return this.store.queryByPk<Requirement>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
+  }
+
+  /**
+   * D-194 Fatia 3 — single `Query` on GSI1's REQSTATUS namespace (already tenant-facing, no new
+   * index), filtered in memory: `name` substring (Requirement has no type-scoped physical name
+   * ordering the way TrackedSubject's GSI7SK does, so this is always substring, never prefix —
+   * "ou substring-sem" per the design), `assigneeUserId` exact match, `UnifiedValidityState` via
+   * `deriveRequirementValidityState` (never reimplemented here). `tag` is deliberately NOT a
+   * parameter — Requirement has no `tags` field, out of scope per the design's own "Escopo
+   * explicitamente fora desta decisão" (tags em Requirement). `subjectDisplayName` enrichment: one
+   * `BatchGetItem` (this module's own `store.batchGet`, already 100-key chunked internally,
+   * `import/resolve-subject-references.ts` precedent) over the DISTINCT `subjectId`s of the
+   * matched page — at most 125 evaluated items per call (`SEARCH_MAX_PAGES` * `SEARCH_PAGE_SIZE`),
+   * so at most 125 distinct subjectIds, well within 2 chunks of 100. `trackedSubjectKeyForFence`
+   * (not a new port) composes the TrackedSubject key without importing `subject/**` directly —
+   * same module-boundary precedent this file already uses for `SUBJECT_STATUS_ACCEPTING_REQUIREMENTS`
+   * fencing.
+   */
+  async searchRequirements(ctx: RequestContext, query: RequirementSearchQuery): Promise<RequirementSearchPage> {
+    authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
+    if (!query.status) throw new ValidationError("status is required for searchRequirements.");
+    const tenantId = ctx.tenant.tenantId;
+    const now = new Date();
+    const namePrefix = query.namePrefix;
+
+    const result = await runPagedSearch<Requirement>({
+      exclusiveStartKey: query.exclusiveStartKey,
+      fetchPage: (exclusiveStartKey) =>
+        this.store.queryIndexPage<Requirement>({
+          indexName: "GSI1",
+          partitionKeyValue: `TENANT#${tenantId}#REQSTATUS#${query.status}`,
+          limit: SEARCH_PAGE_SIZE,
+          exclusiveStartKey,
+        }),
+      matches: (requirement) => {
+        if (namePrefix !== undefined && !requirement.name.toLowerCase().includes(namePrefix.toLowerCase())) return false;
+        if (query.assigneeUserId !== undefined && requirement.assigneeUserId !== query.assigneeUserId) return false;
+        if (query.validityState !== undefined && deriveRequirementValidityState(requirement, now) !== query.validityState) return false;
+        return true;
+      },
+    });
+
+    const subjectIds = [...new Set(result.items.map((r) => r.subjectId))];
+    const subjectRows =
+      subjectIds.length > 0
+        ? await this.store.batchGet<EntityKey & { displayName?: string }>(subjectIds.map((subjectId) => trackedSubjectKeyForFence(tenantId, subjectId)))
+        : [];
+    const displayNameBySubjectId = new Map<string, string>();
+    subjectRows.forEach((row, i) => {
+      // batchGet's return order is not guaranteed to match `subjectIds` - but each key IS the
+      // TrackedSubject's own PK/SK, so recovering subjectId from the returned row's own PK is
+      // correct regardless of order (never assumed positional).
+      const pk = (row as unknown as EntityKey).PK;
+      const subjectId = subjectIds.find((id) => trackedSubjectKeyForFence(tenantId, id).PK === pk) ?? subjectIds[i];
+      if (subjectId !== undefined && row.displayName !== undefined) displayNameBySubjectId.set(subjectId, row.displayName);
+    });
+
+    return {
+      items: result.items.map((requirement) => ({
+        kind: "REQUIREMENT" as const,
+        requirement,
+        subjectDisplayName: displayNameBySubjectId.get(requirement.subjectId),
+      })),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      scanLimitReached: result.scanLimitReached,
+    };
   }
 
   /** Never touches `evidenceVersionId`/`status` directly — an `applicability` change here still

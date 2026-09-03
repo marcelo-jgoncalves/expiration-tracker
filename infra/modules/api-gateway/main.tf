@@ -95,6 +95,9 @@ locals {
   items_routes = {
     create    = { method = "POST", path = "/items" }
     dashboard = { method = "GET", path = "/items/dashboard" }
+    # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {itemId} at the same
+    # position" precedent as "dashboard" above.
+    search    = { method = "GET", path = "/items/search" }
     get_by_id = { method = "GET", path = "/items/{itemId}" }
     update    = { method = "PUT", path = "/items/{itemId}" }
     delete    = { method = "DELETE", path = "/items/{itemId}" }
@@ -262,6 +265,9 @@ locals {
   subjects_routes = {
     create      = { method = "POST", path = "/subjects" }
     dashboard   = { method = "GET", path = "/subjects/dashboard" }
+    # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {subjectId}" precedent
+    # as "dashboard" above.
+    search      = { method = "GET", path = "/subjects/search" }
     get_by_id   = { method = "GET", path = "/subjects/{subjectId}" }
     update      = { method = "PUT", path = "/subjects/{subjectId}" }
     delete      = { method = "DELETE", path = "/subjects/{subjectId}" }
@@ -523,6 +529,9 @@ locals {
 
     # D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same Lambda, subject-scoped routes.
     create_requirement = { method = "POST", path = "/document-archive/requirements" }
+    # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {subjectId}" precedent
+    # as "GET /items/dashboard" already documents above.
+    search_requirements = { method = "GET", path = "/document-archive/requirements/search" }
     list_requirements  = { method = "GET", path = "/document-archive/requirements/{subjectId}" }
     get_requirement    = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
     update_requirement = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }

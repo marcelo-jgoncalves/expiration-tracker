@@ -12,6 +12,7 @@ import {
   handleDeleteItem,
   handleGetItem,
   handleRenewItem,
+  handleSearchItems,
   handleUpdateItem,
   type ExpirationHttpDeps,
 } from "../../../modules/expiration/http/item-handlers.js";
@@ -53,6 +54,11 @@ async function handleItemsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer):
           return await handleCreateItem(deps, { ...base, body: parseBody(event) });
         case "GET /items/dashboard":
           return await handleDashboard(deps, base);
+        // D-194 Fatia 3 (search/filters) - literal segment, must be routed BEFORE
+        // "GET /items/{itemId}" below (API Gateway v2 prioritizes the literal at the same
+        // position, same precedent as "GET /items/dashboard" already living alongside it).
+        case "GET /items/search":
+          return await handleSearchItems(deps, base);
         case "GET /items/{itemId}":
           return await handleGetItem(deps, base);
         case "PUT /items/{itemId}":

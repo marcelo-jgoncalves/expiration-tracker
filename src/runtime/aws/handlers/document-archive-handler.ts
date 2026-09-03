@@ -21,6 +21,7 @@ import {
   handleCreateRequirement,
   handleGetRequirement,
   handleListRequirements,
+  handleSearchRequirements,
   handleUpdateRequirement,
   handleLinkEvidence,
   handleUnlinkEvidence,
@@ -93,6 +94,10 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // D-143 Nucleus 2, Requirement (Decision 5 / D-145) — subject-scoped routes.
         case "POST /document-archive/requirements":
           return await handleCreateRequirement(deps, { ...base, body: parseBody(event) });
+        // D-194 Fatia 3 (search/filters) - literal segment, routed before
+        // "GET /document-archive/requirements/{subjectId}" below.
+        case "GET /document-archive/requirements/search":
+          return await handleSearchRequirements(deps, base);
         case "GET /document-archive/requirements/{subjectId}":
           return await handleListRequirements(deps, base);
         case "GET /document-archive/requirements/{subjectId}/{requirementId}":
