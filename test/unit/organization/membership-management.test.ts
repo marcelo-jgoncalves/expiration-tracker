@@ -10,6 +10,7 @@ import { LastOwnerError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassi
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { AssignedActiveItemsLookup } from "../../../src/modules/organization/ports/assigned-active-items-lookup.js";
+import type { AssignedActiveRequirementsLookup } from "../../../src/modules/organization/ports/assigned-active-requirements-lookup.js";
 
 /** Test double for `AssignedActiveItemsLookup` - `assignments` maps `userId` to the ACTIVE
  * `ExpirationItem` ids assigned to them, defaulting an unlisted user to "no active items" (the
@@ -19,6 +20,17 @@ function fakeAssignedItems(assignments: Record<string, string[]> = {}): Assigned
     async findAssignedActiveItems(_organizationId: string, userId: string) {
       const itemIds = assignments[userId] ?? [];
       return { itemIds, totalKnown: itemIds.length, truncated: false };
+    },
+  };
+}
+
+/** D-194 Fatia 2 - sibling test double for `AssignedActiveRequirementsLookup`, same shape/
+ * defaulting convention as `fakeAssignedItems` above. */
+function fakeAssignedRequirements(assignments: Record<string, string[]> = {}): AssignedActiveRequirementsLookup {
+  return {
+    async findAssignedActiveRequirements(_organizationId: string, userId: string) {
+      const requirementIds = assignments[userId] ?? [];
+      return { requirementIds, totalKnownRequirements: requirementIds.length, truncatedRequirements: false };
     },
   };
 }
@@ -153,7 +165,7 @@ describe("RemoveMembershipService", () => {
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-owner-2", "OWNER");
     seedMembership(store, "user-admin", "ADMIN");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await expect(service.remove(ctx("user-admin", ["ADMIN"]), "user-owner-2", 1)).rejects.toBeInstanceOf(OwnerTierChangeRequiresOwnerError);
   });
@@ -164,7 +176,7 @@ describe("RemoveMembershipService", () => {
     const store = new InMemoryOrganizationStore();
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await expect(service.remove(ctx("user-owner", ["OWNER"]), "user-owner", 1)).rejects.toBeInstanceOf(LastOwnerError);
   });
@@ -176,7 +188,7 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
     const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -191,7 +203,7 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
     const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -208,7 +220,7 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
     const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -224,7 +236,7 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await expect(service.remove(ctx("user-owner", ["OWNER"]), "user-member", 999)).rejects.toThrow();
     const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -241,13 +253,53 @@ describe("RemoveMembershipService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1"] }));
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1"] }), fakeAssignedRequirements());
 
     const err = await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1).catch((e) => e);
     expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
     expect(err.details).toMatchObject({ targetUserId: "user-member", itemIds: ["item-1"], totalKnown: 1, truncated: false });
     const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
     expect(stillActive?.status).toBe("ACTIVE");
+  });
+
+  // D-194 Fatia 2 - additive contract test: when ONLY Requirements are found (no ExpirationItem),
+  // the pre-existing `itemIds`/`totalKnown`/`truncated` fields stay exactly as they were before
+  // this slice (empty/zero/false), and the NEW `requirements` field carries the finding. Mutação:
+  // dropping the `assignedReqs.requirementIds.length > 0` branch of the OR (or the `requirements`
+  // spread) would make this member removable despite a real, undiscovered Requirement assignment.
+  it("blocks removing a member who is still the assignee of a Requirement (no ExpirationItem involved)", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements({ "user-member": ["req-1", "req-2"] }));
+
+    const err = await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1).catch((e) => e);
+    expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
+    expect(err.details).toMatchObject({
+      targetUserId: "user-member",
+      itemIds: [],
+      totalKnown: 0,
+      truncated: false,
+      requirements: { requirementIds: ["req-1", "req-2"], totalKnownRequirements: 2, truncatedRequirements: false },
+    });
+    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    expect(stillActive?.status).toBe("ACTIVE");
+  });
+
+  // D-194 Fatia 2 - proves `requirements` is genuinely ABSENT (not an empty/undefined key) when
+  // nothing is found, so a caller checking `"requirements" in err.details` sees the field only
+  // when it's meaningful.
+  it("never includes a `requirements` key when no Requirement is assigned", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-owner", "OWNER");
+    seedMembership(store, "user-member", "MEMBER");
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1"] }), fakeAssignedRequirements());
+
+    const err = await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1).catch((e) => e);
+    expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
+    expect("requirements" in err.details).toBe(false);
   });
 
   // Mutação: inverter a ordem (checar assigned items antes do tier OWNER) mudaria qual erro um
@@ -260,7 +312,7 @@ describe("RemoveMembershipService", () => {
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-owner-2", "OWNER");
     seedMembership(store, "user-admin", "ADMIN");
-    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-owner-2": ["item-1"] }));
+    const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems({ "user-owner-2": ["item-1"] }), fakeAssignedRequirements());
 
     await expect(service.remove(ctx("user-admin", ["ADMIN"]), "user-owner-2", 1)).rejects.toBeInstanceOf(OwnerTierChangeRequiresOwnerError);
   });
@@ -274,7 +326,7 @@ describe("LeaveOrganizationService", () => {
     const store = new InMemoryOrganizationStore();
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
-    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await expect(service.leave(ctx("user-owner", ["OWNER"]))).rejects.toBeInstanceOf(LastOwnerError);
   });
@@ -287,7 +339,7 @@ describe("LeaveOrganizationService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems());
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -301,7 +353,7 @@ describe("LeaveOrganizationService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -314,7 +366,7 @@ describe("LeaveOrganizationService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), () => "2026-06-15T10:00:00.000Z");
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.leave(ctx("user-member", ["MEMBER"]));
     const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
@@ -329,7 +381,7 @@ describe("LeaveOrganizationService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-member", "MEMBER");
-    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1", "item-2"] }));
+    const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems({ "user-member": ["item-1", "item-2"] }), fakeAssignedRequirements());
 
     const err = await service.leave(ctx("user-member", ["MEMBER"])).catch((e) => e);
     expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);

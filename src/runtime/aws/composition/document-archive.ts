@@ -11,6 +11,7 @@ import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-uplo
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
 import { AppConfigFeatureFlagsReader } from "../../../modules/extraction/persistence/appconfig-feature-flags-reader.js";
 import { UlidIdGenerator } from "../ids.js";
+import { buildMemberEligibilityChecker } from "./expiration.js";
 
 /** D-163 §7: reuses the SAME quarantine bucket M6 already provisions (`QUARANTINE_BUCKET_NAME`,
  * `infra/modules/document-buckets`) — no new bucket for `DocumentFile`, only a new key
@@ -21,7 +22,11 @@ export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableNa
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
   const signer = new S3UploadUrlSigner(new S3Client({}));
-  const documentArchive = new DocumentArchiveService({ store, tableName, ids, quarantineBucket, signer });
+  // D-194 Fatia 2: same THIN adapter `buildExpirationDeps` already builds against the shared
+  // main table - reused verbatim (not duplicated) so both modules validate `assigneeUserId`
+  // against the exact same eligibility rule.
+  const members = buildMemberEligibilityChecker(client, tableName);
+  const documentArchive = new DocumentArchiveService({ store, tableName, ids, quarantineBucket, signer, members });
   // D-143 Nucleus 2, entity 3/3 (Decision 8, D-147). Shares the same store/ids as
   // `documentArchive` above — recurrence is not a separate module, just a separate service
   // class within document-archive (same rationale `document-archive-service.ts`'s doc comment

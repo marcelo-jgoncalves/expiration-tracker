@@ -30,12 +30,14 @@ import {
   ConflictError,
   DocumentTypeNameConflictError,
   DocumentTypeNotActiveError,
+  IneligibleAssigneeError,
   NotFoundError,
   RequirementNameConflictError,
   SubjectPreconditionFailedError,
   TemplatePreconditionFailedError,
   ValidationError,
 } from "../../../shared/errors/app-error.js";
+import type { MemberEligibilityChecker } from "../../expiration/ports/member-eligibility.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { authorize } from "../../identity/domain/authorization.js";
@@ -141,6 +143,10 @@ export interface DocumentArchiveServiceDeps {
    * depends on (`src/modules/document/ports/upload-url-signer.ts`) — no new signer
    * abstraction, only a new call site against the existing one. */
   signer: UploadUrlSigner;
+  /** D-194 Fatia 2: the SAME `MemberEligibilityChecker` port `expiration-service.ts` already
+   * uses (`expiration/ports/member-eligibility.ts`) — validates `Requirement.assigneeUserId` on
+   * `createRequirement`/`updateRequirement`, never a second eligibility abstraction. */
+  members: MemberEligibilityChecker;
   now?: () => string;
 }
 
@@ -273,6 +279,9 @@ export interface BuildCreateRequirementEntriesInput {
   name: string;
   notes?: string;
   applicability: RequirementApplicability;
+  /** D-194 Fatia 2 - callers MUST validate eligibility (`MemberEligibilityChecker`) BEFORE
+   * calling this pure planner; it never validates on its own (no I/O). */
+  assigneeUserId?: string;
   now: string;
 }
 
@@ -294,7 +303,7 @@ export interface BuildCreateRequirementEntriesResult {
  * refactor changes no observable transaction shape.
  */
 export function buildCreateRequirementEntries(input: BuildCreateRequirementEntriesInput): BuildCreateRequirementEntriesResult {
-  const { tableName, tenantId, requirementId, subjectId, name, notes, applicability, now } = input;
+  const { tableName, tenantId, requirementId, subjectId, name, notes, applicability, assigneeUserId, now } = input;
   const status = deriveRequirementStatus(applicability, undefined, new Date(now));
   const requirement: Requirement = {
     ...requirementKey(tenantId, subjectId, requirementId),
@@ -307,6 +316,8 @@ export function buildCreateRequirementEntries(input: BuildCreateRequirementEntri
     // the caller didn't supply one — same D3-style "no fabricated value" discipline as
     // Document.hasValidity's optional siblings.
     ...(notes !== undefined ? { notes } : {}),
+    // D-194 Fatia 2 - same omit-when-absent discipline as `notes` above.
+    ...(assigneeUserId !== undefined ? { assigneeUserId } : {}),
     applicability,
     status,
     createdAt: now,
@@ -349,6 +360,7 @@ export class DocumentArchiveService {
   private readonly ids: DocumentArchiveIdGenerator;
   private readonly quarantineBucket: string;
   private readonly signer: UploadUrlSigner;
+  private readonly members: MemberEligibilityChecker;
   private readonly now: () => string;
 
   constructor(deps: DocumentArchiveServiceDeps) {
@@ -357,7 +369,18 @@ export class DocumentArchiveService {
     this.ids = deps.ids;
     this.quarantineBucket = deps.quarantineBucket;
     this.signer = deps.signer;
+    this.members = deps.members;
     this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  /** D-194 Fatia 2 - same "empty string clears, undefined means not provided (never reaches
+   * here), any other value must be a real eligible member" convention as
+   * `ExpirationService.validateAssignee`. */
+  private async validateAssignee(tenantId: string, assigneeUserId: string | undefined): Promise<void> {
+    if (!assigneeUserId) return;
+    if (!(await this.members.isEligibleMember(tenantId, assigneeUserId))) {
+      throw new IneligibleAssigneeError("assigneeUserId is not an eligible member of this organization.", { assigneeUserId });
+    }
   }
 
   /**
@@ -834,6 +857,10 @@ export class DocumentArchiveService {
   async createRequirement(ctx: RequestContext, input: CreateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
+    // D-194 Fatia 2 - validated BEFORE any transactional write is attempted, same "reject early,
+    // never burn a write attempt on a request that will never succeed" posture as
+    // `ExpirationService.createItem`.
+    await this.validateAssignee(tenantId, input.assigneeUserId);
     const requirementId = this.ids.newRequirementId();
     const now = this.now();
     // P0.1/§3: `putIfAbsent` replaced by a real transaction, planned by `buildCreateRequirementEntries()`
@@ -851,6 +878,7 @@ export class DocumentArchiveService {
       name: input.name,
       notes: input.notes,
       applicability: input.applicability,
+      assigneeUserId: input.assigneeUserId,
       now,
     });
     try {
@@ -962,6 +990,11 @@ export class DocumentArchiveService {
   async updateRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number, input: UpdateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-update", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
+    // D-194 Fatia 2 - only validated when actually CHANGING (same "unrelated-field update never
+    // re-validates" posture as `ExpirationService.updateItem`).
+    if (input.assigneeUserId !== undefined) {
+      await this.validateAssignee(tenantId, input.assigneeUserId);
+    }
     const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId);
     const nextApplicability = input.applicability ?? current.applicability;
     const now = this.now();
@@ -977,13 +1010,24 @@ export class DocumentArchiveService {
     const set: Record<string, unknown> = { applicability: nextApplicability, status, ...requirementGsi1Keys(tenantId, status, now, requirementId), ...gsi8Fields };
     if (input.name !== undefined) set["name"] = input.name;
     if (input.notes !== undefined) set["notes"] = input.notes;
+    // D-194 Fatia 2 - an empty string REMOVES the attribute (clears the assignee), any other
+    // value is written as-is (already validated above); `undefined` means "not provided" and
+    // touches neither `set` nor `remove`.
+    const removeFields: string[] = Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : [];
+    if (input.assigneeUserId !== undefined) {
+      if (input.assigneeUserId === "") {
+        removeFields.push("assigneeUserId");
+      } else {
+        set["assigneeUserId"] = input.assigneeUserId;
+      }
+    }
     const update = buildVersionedUpdate({
       tableName: this.tableName,
       key: requirementKey(tenantId, subjectId, requirementId),
       tenantId,
       expectedVersion,
       set,
-      remove: Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : undefined,
+      remove: removeFields.length > 0 ? removeFields : undefined,
     });
 
     // P0.1/§3: a name change has to move the dedupe pointer too, in the SAME transaction. Two
@@ -1021,7 +1065,13 @@ export class DocumentArchiveService {
     } catch (err) {
       this.throwClassifiedCancellation(err, labels, { subjectId, requirementId });
     }
-    return { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as Requirement;
+    // `removeFields` (e.g. a cleared `assigneeUserId`) must be dropped from the in-memory return
+    // too - `set` alone can't overwrite a field that was REMOVEd rather than SET, so `current`'s
+    // stale value would otherwise leak into the caller-visible result despite being genuinely
+    // absent in DynamoDB after this write.
+    const returned = { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as unknown as Record<string, unknown>;
+    for (const field of removeFields) delete returned[field];
+    return returned as unknown as Requirement;
   }
 
   /**

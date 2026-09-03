@@ -2,9 +2,20 @@
  * TrackedSubject — docs/architecture/roadmap-evolution/03-domain-model-tracked-subject-requirement.md
  * (D-036, protocolo Claude↔Codex 9,1/9,1). Agregado raiz próprio, tenant-owned, mesmo padrão
  * de chave de ExpirationItem (`TENANT#t#ITEM#i`/`META`): `TENANT#t#SUBJECT#s`/`META`.
- * Sem `ownerUserId`/`assigneeUserId` — modelar responsável interno antes de existir um
- * segundo usuário real (Organization/Membership, FUT-001) violaria "evidência antes de
- * mecanismo" (docs/engineering/principles.md #1), mesmo raciocínio já aplicado no cluster.
+ *
+ * Sem `ownerUserId`/`assigneeUserId` (correção registrada em D-194 Fatia 2,
+ * `docs/architecture/reviews/search-and-filters-scoping/estado-final-consolidado.md`): a premissa
+ * original acima ("modelar responsável antes de existir um segundo usuário real") está
+ * desatualizada desde D-086/D-122 — um segundo usuário real já existe (Organization/Membership),
+ * e "responsável" já é um conceito modelado no sistema, só que em duas outras entidades:
+ * `ExpirationItem.assigneeUserId` (D-122/D-125) e, desde D-194 Fatia 2,
+ * `document-archive/domain/requirement.ts`'s `Requirement.assigneeUserId`. TrackedSubject
+ * permanece deliberadamente sem o campo — não porque o mecanismo ainda careça de evidência, mas
+ * porque D-194 tratou "quem carrega o responsável" (Document, evidência, vs. Requirement,
+ * obrigação acionável, vs. TrackedSubject, o próprio sujeito rastreado) como uma decisão de
+ * engenharia dentro da autoridade já delegada por D-122, e nenhuma das 5 rodadas do debate
+ * encontrou motivo de produto para estender esse campo a TrackedSubject nesta fase (ver "Escopo
+ * explicitamente fora desta decisão" no documento acima).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";

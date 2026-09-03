@@ -101,6 +101,7 @@ function makeService(store = new InMemoryDocumentArchiveStore()) {
     ids: makeIds(),
     quarantineBucket: "test-quarantine-bucket",
     signer: noopSigner,
+    members: { isEligibleMember: async () => true },
     now: () => NOW,
   });
   return { service, store };
@@ -235,6 +236,32 @@ describe("RequirementTemplate — preview and apply", () => {
       expect(requirement?.status).toBe("MISSING");
       const pointer = await store.get(requirementNamePointerKey(TENANT, SUBJECT, normalizeDisplayName(created.name)));
       expect(pointer).toMatchObject({ requirementId: created.requirementId });
+    }
+  });
+
+  // D-194 Fatia 2 (G-V3 adversarial) - Kills: a plausible-but-wrong "the caller becomes the
+  // assignee" default (a common real-world bug pattern for any "create on behalf of" flow). The
+  // caller here (`ctx()`'s "user-1") is deliberately a real, eligible member of the tenant (not a
+  // stranger who would fail eligibility and mask the bug as a different error) - IF
+  // `applyTemplate` ever defaulted `assigneeUserId` to `ctx.principal.userId`, this test would
+  // still pass eligibility and silently assign every materialized Requirement to the caller.
+  // `applyTemplate` never accepts an `assigneeUserId` input at all - `Requirement` is always
+  // built without the field (see `document-archive-service.ts`'s `applyTemplate` loop), so this
+  // also proves no accidental pass-through of a request-scoped value.
+  it("applyTemplate never assigns a materialized Requirement to the caller (or anyone) - always unassigned", async () => {
+    const { service, store } = makeService();
+    await seed(store);
+    const caller = ctx();
+    expect(caller.principal.userId).toBe("user-1");
+    const template = await service.createRequirementTemplate(caller, { displayName: "T", items: BASIC_ITEMS });
+
+    const result = await service.applyTemplate(caller, template.templateId, SUBJECT);
+
+    expect(result.created.length).toBeGreaterThan(0);
+    for (const created of result.created) {
+      const requirement = await store.get<Requirement>(requirementKey(TENANT, SUBJECT, created.requirementId));
+      expect(requirement?.assigneeUserId).toBeUndefined();
+      expect("assigneeUserId" in (requirement ?? {})).toBe(false);
     }
   });
 

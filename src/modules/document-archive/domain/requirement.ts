@@ -47,6 +47,16 @@ export interface Requirement extends EntityKey {
   name: string;
   notes?: string;
   applicability: RequirementApplicability;
+  /** D-194 Fatia 2 (`docs/architecture/reviews/search-and-filters-scoping/estado-final-consolidado.md`
+   * §"Responsável"): the member responsible for this Requirement, mirroring
+   * `ExpirationItem.assigneeUserId`'s mechanism (D-122/D-125) - validated against
+   * `MemberEligibilityChecker` (the SAME port `expiration-service.ts` already uses, not a second
+   * one) on `createRequirement`/`updateRequirement`. Deliberately absent from `Document` (D-194's
+   * correction to the Fase 1 scoping doc: Document is evidence, Requirement is the acted-upon
+   * obligation). `applyTemplate` (D-191) NEVER sets this field - a Requirement materialized from a
+   * RequirementTemplate always starts unassigned, consistent with "apply is a snapshot, never a
+   * live link" (see this file's doc comment on `sourceTemplateId` et al.). */
+  assigneeUserId?: string;
   /** Singular by design (Decision 5 explicitly corrects an earlier draft that modeled this as
    * a list) — a Requirement links to at most one CURRENT evidence DocumentVersion at a time. */
   evidenceVersionId?: string;
@@ -143,6 +153,8 @@ export interface CreateRequirementInput {
   name: string;
   notes?: string;
   applicability: RequirementApplicability;
+  /** D-194 Fatia 2 - optional, validated against `MemberEligibilityChecker` when supplied. */
+  assigneeUserId?: string;
 }
 
 /** Fields an authenticated caller may change directly via `updateRequirement`. Never includes
@@ -152,6 +164,10 @@ export interface UpdateRequirementInput {
   name?: string;
   notes?: string;
   applicability?: RequirementApplicability;
+  /** D-194 Fatia 2 - `undefined` means "not provided" (unchanged); an empty string clears the
+   * assignee (never validated as a candidate userId, same convention as
+   * `ExpirationService.validateAssignee`); any other value must be a real, eligible member. */
+  assigneeUserId?: string;
 }
 
 /** The minimal shape of the linked evidence DocumentVersion this derivation needs — never the

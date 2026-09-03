@@ -67,7 +67,17 @@ function makeService(
   ]),
   signer: UploadUrlSigner = makeSigner(),
 ) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => "2026-09-01T00:00:00.000Z" });
+  const service = new DocumentArchiveService({
+    store,
+    tableName: "test-table",
+    ids: makeIds(),
+    quarantineBucket: "test-quarantine-bucket",
+    signer,
+    // D-194 Fatia 2 - permissive by default (this suite isn't exercising eligibility itself);
+    // requirement-service.test.ts covers the real rejection paths.
+    members: { isEligibleMember: async () => true },
+    now: () => "2026-09-01T00:00:00.000Z",
+  });
   return { service, store, signer };
 }
 

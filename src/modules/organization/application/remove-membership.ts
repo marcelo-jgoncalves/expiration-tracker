@@ -25,6 +25,7 @@ import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from ".
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { AssignedActiveItemsLookup } from "../ports/assigned-active-items-lookup.js";
+import type { AssignedActiveRequirementsLookup } from "../ports/assigned-active-requirements-lookup.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
 
 export class RemoveMembershipService {
@@ -33,6 +34,11 @@ export class RemoveMembershipService {
     private readonly tableName: string,
     private readonly ids: OrganizationIdGenerator,
     private readonly assignedItems: AssignedActiveItemsLookup,
+    // D-194 Fatia 2: sibling port, queried in PARALLEL with `assignedItems` below (never
+    // sequentially) - both are read-only preconditions, there is no ordering dependency between
+    // them, and running them serially would double the worst-case latency of this best-effort
+    // check for no correctness benefit.
+    private readonly assignedRequirements: AssignedActiveRequirementsLookup,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -48,9 +54,23 @@ export class RemoveMembershipService {
       throw new OwnerTierChangeRequiresOwnerError("Only an OWNER can remove another OWNER.");
     }
 
-    const assigned = await this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, targetUserId);
-    if (assigned.itemIds.length > 0) {
-      throw new ResponsibilityReassignmentRequiredError({ targetUserId, ...assigned });
+    // D-194 Fatia 2: the 4 Requirement-status Queries (inside `assignedRequirements`) run in
+    // PARALLEL with the ExpirationItem Query below - 5 Queries total, bounded together by the
+    // composition root's fail-closed timeout wrapping each port (`ServiceUnavailableError`
+    // propagates through this `Promise.all` unchanged, rejecting the removal rather than
+    // silently treating a slow/failed lookup as "nothing assigned").
+    const [assigned, assignedReqs] = await Promise.all([
+      this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, targetUserId),
+      this.assignedRequirements.findAssignedActiveRequirements(ctx.tenant.tenantId, targetUserId),
+    ]);
+    if (assigned.itemIds.length > 0 || assignedReqs.requirementIds.length > 0) {
+      throw new ResponsibilityReassignmentRequiredError({
+        targetUserId,
+        ...assigned,
+        // Additive: `requirements` is present ONLY when at least one Requirement is flagged -
+        // `itemIds`/`totalKnown`/`truncated` above are unchanged either way.
+        ...(assignedReqs.requirementIds.length > 0 ? { requirements: assignedReqs } : {}),
+      });
     }
 
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);

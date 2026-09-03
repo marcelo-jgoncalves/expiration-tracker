@@ -443,10 +443,24 @@ export class OrganizationClosureUnavailableError extends AppError {
  * `AssignedActiveItemsLookup`'s pagination contract; `totalKnown`/`truncated` always reflect the
  * true count. `retryable: false`: the caller must reassign the flagged items first (via the
  * existing `updateItem` mutation, already validated by `MemberEligibilityChecker`), not just
- * retry the identical removal. */
+ * retry the identical removal.
+ *
+ * D-194 Fatia 2 (`docs/architecture/reviews/search-and-filters-scoping/estado-final-consolidado.md`):
+ * `requirements?` is an ADDITIVE extension - `itemIds`/`totalKnown`/`truncated` (ExpirationItem)
+ * are UNCHANGED, present exactly as before regardless of whether any Requirement is also flagged.
+ * `requirements` is present ONLY when at least one `Requirement` is still assigned to the target
+ * (mirrors `AssignedActiveRequirementsLookup`'s pagination contract - same 20-item cap/true-count
+ * discipline as the ExpirationItem side, `organization/ports/assigned-active-requirements-lookup.ts`).
+ * Zero observable-contract break for any existing caller reading only the original 3 fields. */
 export class ResponsibilityReassignmentRequiredError extends AppError {
   constructor(
-    input: { targetUserId: string; itemIds: string[]; totalKnown: number; truncated: boolean },
+    input: {
+      targetUserId: string;
+      itemIds: string[];
+      totalKnown: number;
+      truncated: boolean;
+      requirements?: { requirementIds: string[]; totalKnownRequirements: number; truncatedRequirements: boolean };
+    },
     message = "Target user is still the assignee of active expiration items - reassign them before removing this member.",
   ) {
     super({
@@ -540,6 +554,24 @@ export class SubjectExternalIdConflictError extends AppError {
   constructor(message = "A TrackedSubject with this externalId already exists.", details?: Record<string, unknown>) {
     super({ code: "SUBJECT_EXTERNAL_ID_CONFLICT", category: "CONFLICT", message, retryable: false, details });
     this.name = "SubjectExternalIdConflictError";
+  }
+}
+
+/** D-194 Fatia 2 (`docs/architecture/reviews/search-and-filters-scoping/estado-final-consolidado.md`
+ * §"Responsável"): thrown by the composition-root reassignment-lookup wiring
+ * (`runtime/aws/composition/organization.ts`) when the combined 5-Query lookup (1 ExpirationItem
+ * + 4 Requirement-status Queries, run in parallel) does not resolve within the fixed 5s budget -
+ * a fail-CLOSED timeout (never fail-open into "no items found", which would let a member with
+ * real, undiscovered assigned work be silently removed). `retryable: true`: the timeout is a
+ * transient capacity/latency condition (throttling, cold GSI partition, etc.), not a permanent
+ * business-rule violation - an identical retry may succeed once the underlying Query completes
+ * faster. Distinct from `DependencyUnavailableError` (a NAMED class for this one lookup, so
+ * `RemoveMembershipService`/`LeaveOrganizationService`'s error surface unambiguously identifies a
+ * reassignment-check timeout rather than a generic downstream failure). */
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "The service did not respond within the required time budget.", details?: Record<string, unknown>, cause?: unknown) {
+    super({ code: "SERVICE_UNAVAILABLE", category: "DEPENDENCY_UNAVAILABLE", message, retryable: true, details, cause });
+    this.name = "ServiceUnavailableError";
   }
 }
 
