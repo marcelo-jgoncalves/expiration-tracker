@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
+import { buildCreateDocumentEntries, DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle } from "./in-memory-store.js";
-import { AuthorizationError, ConflictError, DocumentTypeNotActiveError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
+import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
+import { AuthorizationError, ConflictError, DocumentTypeNotActiveError, NotFoundError, SubjectPreconditionFailedError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
@@ -55,7 +55,18 @@ function makeIds(): DocumentArchiveIdGenerator {
   };
 }
 
-function makeService(store = new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]), signer: UploadUrlSigner = makeSigner()) {
+function makeService(
+  store = new InMemoryDocumentArchiveStore([
+    seedActiveDocumentType(TENANT, "ALVARA"),
+    seedActiveTenantLifecycle(TENANT),
+    // D-192 §5: createDocument() now fences the owning Subject too — every fixture in this
+    // suite that doesn't test that fence itself needs a real ACTIVE TrackedSubject at the
+    // literal subjectIds ("s1"/"subject-1") the rest of the file already uses.
+    seedActiveTrackedSubject(TENANT, "s1"),
+    seedActiveTrackedSubject(TENANT, "subject-1"),
+  ]),
+  signer: UploadUrlSigner = makeSigner(),
+) {
   const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => "2026-09-01T00:00:00.000Z" });
   return { service, store, signer };
 }
@@ -173,6 +184,33 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     const { service } = makeService();
     const doc = await service.createDocument(ctx(), { subjectId: "s1", documentTypeId: "ALVARA", hasValidity: true });
     expect(doc.documentTypeId).toBe("ALVARA");
+  });
+
+  /** G-V3 (D-192 §5, gap `DA-SUBJECT-FENCE-01`): before this fix `createDocument()` never
+   * checked the owning Subject at all — it would happily create a Document under a Subject id
+   * that doesn't exist. Must fail with the SAME typed error `createRequirement()` already uses
+   * for this precondition (`SubjectPreconditionFailedError`), never a generic 500/transaction-
+   * canceled leak. Proven by pointing at a store that seeds NO TrackedSubject for this id. */
+  it("rejects createDocument() with SubjectPreconditionFailedError when the referenced Subject does not exist", async () => {
+    const { service } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]));
+    await expect(service.createDocument(ctx(), { subjectId: "no-such-subject", documentTypeId: "ALVARA", hasValidity: true })).rejects.toThrow(SubjectPreconditionFailedError);
+  });
+
+  /** G-V3, second half: an ARCHIVED Subject must be rejected too — `<> DELETED` would wrongly
+   * let this through (`TrackedSubjectStatus` is `ACTIVE | ARCHIVED | DELETED`), so the fence must
+   * be an ENUMERATED `status = ACTIVE` check, same discipline as `buildSubjectFence()`. */
+  it("rejects createDocument() with SubjectPreconditionFailedError when the referenced Subject is ARCHIVED", async () => {
+    const archivedSubject = { ...seedActiveTrackedSubject(TENANT, "archived-subject"), status: "ARCHIVED" };
+    const { service } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT), archivedSubject]));
+    await expect(service.createDocument(ctx(), { subjectId: "archived-subject", documentTypeId: "ALVARA", hasValidity: true })).rejects.toThrow(SubjectPreconditionFailedError);
+  });
+
+  /** Regression guard: the two rejections above must not be a side effect of a globally-broken
+   * fence — creating against a real ACTIVE Subject must keep succeeding. */
+  it("createDocument() still succeeds against an ACTIVE Subject (regression guard for the fence above)", async () => {
+    const { service } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, "s1")]));
+    const doc = await service.createDocument(ctx(), { subjectId: "s1", documentTypeId: "ALVARA", hasValidity: true });
+    expect(doc.subjectId).toBe("s1");
   });
 
   it("full happy path: reserveUpload -> commitUpload -> claimReview -> acceptVersion", async () => {
@@ -348,7 +386,10 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
     });
 
     it("item 3 (2026-09-02): presigns a real upload URL per file via UploadUrlSigner, keyed to each file's own quarantineObject", async () => {
-      const { service, signer } = makeService(new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT)]), makeSigner());
+      const { service, signer } = makeService(
+        new InMemoryDocumentArchiveStore([seedActiveDocumentType(TENANT, "ALVARA"), seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, "s1")]),
+        makeSigner(),
+      );
       const doc = await service.createDocument(ctx(), { subjectId: "s1", documentTypeId: "ALVARA", hasValidity: true });
       const v1 = await service.reserveUpload(ctx(), doc.documentId, "MANUAL_UPLOAD");
 
@@ -444,5 +485,54 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
       const versionAfterReconcile = await store.get<typeof v1>({ PK: v1.PK, SK: v1.SK });
       await expect(service.acceptVersion(ctx(), doc.documentId, v1.seq, versionAfterReconcile!.version, "tok")).rejects.toThrow(ConflictError);
     });
+  });
+});
+
+/**
+ * D-192 §6: `buildCreateDocumentEntries()` is a pure planner (no I/O) — exported so the future
+ * bulk-import commit worker can reuse the exact same `{document, entries, labels}` shape
+ * `createDocument()` itself now delegates to, without executing any write. These tests exercise
+ * the function directly (never through the service), the same posture `planTemplateApplication`
+ * tests would use if isolated from `RequirementTemplateService`.
+ */
+describe("buildCreateDocumentEntries (D-192 §6, pure planner)", () => {
+  const BASE = {
+    tableName: "test-table",
+    tenantId: "tenant-1",
+    documentId: "doc-plan-1",
+    subjectId: "subject-plan-1",
+    documentTypeId: "ALVARA",
+    hasValidity: true,
+    now: "2026-09-03T00:00:00.000Z",
+  };
+
+  it("builds an ACTIVE Document with GSI1/GSI2 keys and does not execute any write itself", () => {
+    const { document, entries, labels } = buildCreateDocumentEntries(BASE);
+    expect(document.status).toBe("ACTIVE");
+    expect(document.documentId).toBe(BASE.documentId);
+    expect(document.subjectId).toBe(BASE.subjectId);
+    expect(document.documentTypeId).toBe(BASE.documentTypeId);
+    expect(document.GSI1PK).toBe(`TENANT#${BASE.tenantId}#DOCSTATUS#ACTIVE`);
+    expect(document.GSI2PK).toBe(`TENANT#${BASE.tenantId}#SUBJECT#${BASE.subjectId}#DOC`);
+    // 3 entries: DocumentType fence, Subject fence, Document Put — no more, no less.
+    expect(entries).toHaveLength(3);
+    expect(labels).toEqual([{ kind: "DOCUMENT_TYPE_FENCE" }, { kind: "SUBJECT_FENCE" }, { kind: "DOCUMENT" }]);
+  });
+
+  it("orders entries [DocumentType fence, Subject fence, Document Put] — the same order the labels array assumes for cancellation classification", () => {
+    const { entries } = buildCreateDocumentEntries(BASE);
+    expect(entries[0]).toHaveProperty("ConditionCheck");
+    expect(entries[1]).toHaveProperty("ConditionCheck");
+    expect(entries[2]).toHaveProperty("Put");
+    expect((entries[0] as { ConditionCheck: { Key: { PK: string } } }).ConditionCheck.Key.PK).toBe(`TENANT#${BASE.tenantId}#DOCTYPE#${BASE.documentTypeId}`);
+    expect((entries[1] as { ConditionCheck: { Key: { PK: string } } }).ConditionCheck.Key.PK).toBe(`TENANT#${BASE.tenantId}#SUBJECT#${BASE.subjectId}`);
+  });
+
+  it("is deterministic and never mutates DynamoDB by itself — calling it twice with the same input produces byte-identical entries/labels", () => {
+    const first = buildCreateDocumentEntries(BASE);
+    const second = buildCreateDocumentEntries(BASE);
+    expect(second.document).toEqual(first.document);
+    expect(second.entries).toEqual(first.entries);
+    expect(second.labels).toEqual(first.labels);
   });
 });

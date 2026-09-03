@@ -123,7 +123,9 @@ export type TransactEntryLabel =
   | { kind: "REQUIREMENT"; templateItemId?: string }
   | { kind: "POINTER"; name: string; templateItemId?: string }
   | { kind: "TEMPLATE_FENCE" }
-  | { kind: "SUBJECT_FENCE" };
+  | { kind: "SUBJECT_FENCE" }
+  | { kind: "DOCUMENT_TYPE_FENCE" }
+  | { kind: "DOCUMENT" };
 
 export interface DocumentArchiveServiceDeps {
   store: DocumentArchiveStore;
@@ -143,6 +145,80 @@ export interface DocumentArchiveServiceDeps {
 export interface AcceptVersionResult {
   document: Document;
   acceptedVersionId: string;
+}
+
+/** Input to `buildCreateDocumentEntries()` — every field the pure planner needs, with
+ * `subjectId`/`documentTypeId` already RESOLVED to real ids (D-192 §4: reference resolution
+ * — externalId/displayName lookups via `SubjectExternalIdPointer`/`documentTypeNamePointerKey`
+ * — is the import module's job, done in a batched `BatchGetItem` phase before this planner ever
+ * runs; `document-archive` cannot reach `subject/**` per `.dependency-cruiser.cjs`, so this
+ * function is deliberately never the place that does an externalId lookup itself). */
+export interface BuildCreateDocumentEntriesInput {
+  tableName: string;
+  tenantId: string;
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+  hasValidity: boolean;
+  now: string;
+}
+
+export interface BuildCreateDocumentEntriesResult {
+  document: Document;
+  entries: TransactWriteEntry[];
+  labels: TransactEntryLabel[];
+}
+
+/**
+ * D-192 §5/§6: pure planner (no I/O) that builds the `Document` row plus its transactional
+ * entries — the SAME `{entries, labels}` shape `createRequirement()`/`applyTemplate()` already
+ * use for structural cancellation classification. Reused by `createDocument()` below (zero
+ * change to its external contract) and, later, by the bulk-import commit worker (not wired yet —
+ * this slice only adds the function).
+ *
+ * Entry order fixed at [DocumentType fence, Subject fence, Document Put] — mirrors
+ * `createRequirement()`'s "broadest precondition first" discipline in `throwClassifiedCancellation`.
+ * The Subject fence (D-192 §5, gap `DA-SUBJECT-FENCE-01`) is NEW here: `createDocument()` never
+ * checked the owning Subject's existence/status before this slice, unlike `createRequirement()`
+ * (D-191) which already had it.
+ */
+export function buildCreateDocumentEntries(input: BuildCreateDocumentEntriesInput): BuildCreateDocumentEntriesResult {
+  const { tableName, tenantId, documentId, subjectId, documentTypeId, hasValidity, now } = input;
+  const document: Document = {
+    ...documentKey(tenantId, documentId),
+    entityType: "Document",
+    documentId,
+    tenantId,
+    subjectId,
+    documentTypeId,
+    status: "ACTIVE",
+    hasValidity,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
+    // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
+    // both index memberships live on one physical row, no mirror item needed for this pattern.
+    ...documentGsi2Keys(tenantId, subjectId, documentTypeId, documentId),
+  };
+
+  const labels: TransactEntryLabel[] = [{ kind: "DOCUMENT_TYPE_FENCE" }, { kind: "SUBJECT_FENCE" }, { kind: "DOCUMENT" }];
+  const entries: TransactWriteEntry[] = [
+    buildExistenceConditionCheck({
+      tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      extra: { status: "ACTIVE" },
+    }),
+    // `attribute_exists(PK) AND status = ACTIVE` — enumerated, never `<> DELETED` (same reasoning
+    // as `buildSubjectFence()` below; `TrackedSubjectStatus` is `ACTIVE | ARCHIVED | DELETED`).
+    buildExistenceConditionCheck({
+      tableName,
+      key: trackedSubjectKeyForFence(tenantId, subjectId),
+      extra: { status: SUBJECT_STATUS_ACCEPTING_REQUIREMENTS },
+    }),
+    { Put: buildVersionedCreate(tableName, document as unknown as Record<string, unknown> & EntityKey) },
+  ];
+  return { document, entries, labels };
 }
 
 /** A persisted `DocumentFile` row plus the presigned PUT the caller uploads its bytes to —
@@ -210,42 +286,19 @@ export class DocumentArchiveService {
     const tenantId = ctx.tenant.tenantId;
     const documentId = this.ids.newDocumentId();
     const now = this.now();
-    const document: Document = {
-      ...documentKey(tenantId, documentId),
-      entityType: "Document",
-      documentId,
+    const { document, entries, labels } = buildCreateDocumentEntries({
+      tableName: this.tableName,
       tenantId,
+      documentId,
       subjectId: input.subjectId,
       documentTypeId: input.documentTypeId,
-      status: "ACTIVE",
       hasValidity: input.hasValidity,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-      ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
-      // GSI2 (AP3, Documents-by-Subject) written as a second attribute set on the same item —
-      // both index memberships live on one physical row, no mirror item needed for this pattern.
-      ...documentGsi2Keys(tenantId, input.subjectId, input.documentTypeId, documentId),
-    };
-
-    const entries = [
-      buildExistenceConditionCheck({
-        tableName: this.tableName,
-        key: documentTypeKey(tenantId, input.documentTypeId),
-        extra: { status: "ACTIVE" },
-      }),
-      { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
-    ];
+      now,
+    });
     try {
       await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
     } catch (err) {
-      if (isTransactionCanceled(err)) {
-        const codes = getCancellationReasonCodes(err);
-        if (codes?.[0] === "ConditionalCheckFailed") throw new DocumentTypeNotActiveError("This DocumentType is not ACTIVE.", { documentTypeId: input.documentTypeId });
-        if (codes?.[1] === "ConditionalCheckFailed") throw new ConflictError("Document already exists.", { documentId });
-        throw new ConflictError("createDocument transaction was rejected.", { documentId });
-      }
-      throw err;
+      this.throwClassifiedCancellation(err, labels, { documentId, subjectId: input.subjectId, documentTypeId: input.documentTypeId });
     }
     return document;
   }
@@ -774,6 +827,9 @@ export class DocumentArchiveService {
     if (failed.some((label) => label.kind === "TEMPLATE_FENCE")) {
       throw new TemplatePreconditionFailedError(undefined, details);
     }
+    if (failed.some((label) => label.kind === "DOCUMENT_TYPE_FENCE")) {
+      throw new DocumentTypeNotActiveError(undefined, details);
+    }
     if (failed.some((label) => label.kind === "SUBJECT_FENCE")) {
       throw new SubjectPreconditionFailedError(undefined, details);
     }
@@ -784,6 +840,9 @@ export class DocumentArchiveService {
     }
     if (failed.some((label) => label.kind === "REQUIREMENT")) {
       throw new ConflictError("Requirement was concurrently modified.", details);
+    }
+    if (failed.some((label) => label.kind === "DOCUMENT")) {
+      throw new ConflictError("Document already exists.", details);
     }
     throw new ConflictError("The transaction was rejected by a condition check.", details);
   }
