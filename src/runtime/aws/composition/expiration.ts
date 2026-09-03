@@ -13,7 +13,7 @@ import { UlidIdGenerator } from "../ids.js";
  * Organization AND GlobalUser identityStatus ACTIVE) - deliberately a THIN adapter directly
  * against the shared main table (both entities live there) rather than pulling in
  * `DynamoDbOrganizationStore`/`GlobalUserRepository`'s full port surface for a single read each. */
-function buildMemberEligibilityChecker(client: DynamoDBDocumentClient, tableName: string): MemberEligibilityChecker {
+export function buildMemberEligibilityChecker(client: DynamoDBDocumentClient, tableName: string): MemberEligibilityChecker {
   return {
     async isEligibleMember(organizationId: string, userId: string): Promise<boolean> {
       const [membershipResult, globalUserResult] = await Promise.all([

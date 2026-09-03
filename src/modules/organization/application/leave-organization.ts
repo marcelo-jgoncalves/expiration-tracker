@@ -21,6 +21,7 @@ import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from ".
 import { buildOwnerCountDeltaEntry } from "./owner-count-guard.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { AssignedActiveItemsLookup } from "../ports/assigned-active-items-lookup.js";
+import type { AssignedActiveRequirementsLookup } from "../ports/assigned-active-requirements-lookup.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
 
 export class LeaveOrganizationService {
@@ -29,6 +30,8 @@ export class LeaveOrganizationService {
     private readonly tableName: string,
     private readonly ids: OrganizationIdGenerator,
     private readonly assignedItems: AssignedActiveItemsLookup,
+    // D-194 Fatia 2: same sibling port / parallel-query rationale as `remove-membership.ts`.
+    private readonly assignedRequirements: AssignedActiveRequirementsLookup,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -41,9 +44,18 @@ export class LeaveOrganizationService {
       throw new NotFoundError("No active membership to leave.", {});
     }
 
-    const assigned = await this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, ctx.principal.userId);
-    if (assigned.itemIds.length > 0) {
-      throw new ResponsibilityReassignmentRequiredError({ targetUserId: ctx.principal.userId, ...assigned });
+    // D-194 Fatia 2: same parallel 5-Query / fail-closed-timeout rationale as
+    // `remove-membership.ts`.
+    const [assigned, assignedReqs] = await Promise.all([
+      this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, ctx.principal.userId),
+      this.assignedRequirements.findAssignedActiveRequirements(ctx.tenant.tenantId, ctx.principal.userId),
+    ]);
+    if (assigned.itemIds.length > 0 || assignedReqs.requirementIds.length > 0) {
+      throw new ResponsibilityReassignmentRequiredError({
+        targetUserId: ctx.principal.userId,
+        ...assigned,
+        ...(assignedReqs.requirementIds.length > 0 ? { requirements: assignedReqs } : {}),
+      });
     }
 
     const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);

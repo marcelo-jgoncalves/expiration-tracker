@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json",
+  "title": "DocArchiveRequirementSearchRequest v1",
+  "description": "GET /document-archive/requirements/search query parameters (D-194 Fatia 3, src/modules/document-archive/application/document-archive-service.ts RequirementSearchQuery). All fields arrive as HTTP query-string values (strings); `status` is required and singular. No `tag` field - Requirement has no tags (out of scope per the design).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["MISSING", "PENDING", "SATISFIED", "NOT_SATISFIED", "NOT_APPLICABLE"] },
+    "namePrefix": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "assigneeUserId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "validityState": { "type": "string", "enum": ["PERMANENTE", "VALIDO", "VENCENDO", "VENCIDO", "AGUARDANDO_REVISAO"] },
+    "cursor": { "type": "string", "minLength": 1 }
+  }
+}

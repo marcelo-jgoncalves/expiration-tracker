@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/item-search-request.v1.json",
+  "title": "ItemSearchRequest v1",
+  "description": "GET /items/search query parameters (D-194 Fatia 3, src/modules/expiration/application/expiration-service.ts ExpirationItemSearchQuery). All fields arrive as HTTP query-string values (strings); `status` is required and singular.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED", "RENEWED", "DELETED"] },
+    "namePrefix": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tag": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "assigneeUserId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "validityState": { "type": "string", "enum": ["PERMANENTE", "VALIDO", "VENCENDO", "VENCIDO", "AGUARDANDO_REVISAO"] },
+    "cursor": { "type": "string", "minLength": 1 }
+  }
+}

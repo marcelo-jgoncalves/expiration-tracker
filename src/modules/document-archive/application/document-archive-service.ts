@@ -30,12 +30,14 @@ import {
   ConflictError,
   DocumentTypeNameConflictError,
   DocumentTypeNotActiveError,
+  IneligibleAssigneeError,
   NotFoundError,
   RequirementNameConflictError,
   SubjectPreconditionFailedError,
   TemplatePreconditionFailedError,
   ValidationError,
 } from "../../../shared/errors/app-error.js";
+import type { MemberEligibilityChecker } from "../../expiration/ports/member-eligibility.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { authorize } from "../../identity/domain/authorization.js";
@@ -106,6 +108,7 @@ import {
 import {
   deriveRequirementMaintenanceDue,
   deriveRequirementStatus,
+  deriveRequirementValidityState,
   requirementGsi1Keys,
   requirementGsi8Keys,
   requirementGsi9Keys,
@@ -118,6 +121,8 @@ import {
   type RequirementStatus,
   type UpdateRequirementInput,
 } from "../domain/requirement.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
  * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
@@ -141,6 +146,10 @@ export interface DocumentArchiveServiceDeps {
    * depends on (`src/modules/document/ports/upload-url-signer.ts`) — no new signer
    * abstraction, only a new call site against the existing one. */
   signer: UploadUrlSigner;
+  /** D-194 Fatia 2: the SAME `MemberEligibilityChecker` port `expiration-service.ts` already
+   * uses (`expiration/ports/member-eligibility.ts`) — validates `Requirement.assigneeUserId` on
+   * `createRequirement`/`updateRequirement`, never a second eligibility abstraction. */
+  members: MemberEligibilityChecker;
   now?: () => string;
 }
 
@@ -273,6 +282,9 @@ export interface BuildCreateRequirementEntriesInput {
   name: string;
   notes?: string;
   applicability: RequirementApplicability;
+  /** D-194 Fatia 2 - callers MUST validate eligibility (`MemberEligibilityChecker`) BEFORE
+   * calling this pure planner; it never validates on its own (no I/O). */
+  assigneeUserId?: string;
   now: string;
 }
 
@@ -294,7 +306,7 @@ export interface BuildCreateRequirementEntriesResult {
  * refactor changes no observable transaction shape.
  */
 export function buildCreateRequirementEntries(input: BuildCreateRequirementEntriesInput): BuildCreateRequirementEntriesResult {
-  const { tableName, tenantId, requirementId, subjectId, name, notes, applicability, now } = input;
+  const { tableName, tenantId, requirementId, subjectId, name, notes, applicability, assigneeUserId, now } = input;
   const status = deriveRequirementStatus(applicability, undefined, new Date(now));
   const requirement: Requirement = {
     ...requirementKey(tenantId, subjectId, requirementId),
@@ -307,6 +319,8 @@ export function buildCreateRequirementEntries(input: BuildCreateRequirementEntri
     // the caller didn't supply one — same D3-style "no fabricated value" discipline as
     // Document.hasValidity's optional siblings.
     ...(notes !== undefined ? { notes } : {}),
+    // D-194 Fatia 2 - same omit-when-absent discipline as `notes` above.
+    ...(assigneeUserId !== undefined ? { assigneeUserId } : {}),
     applicability,
     status,
     createdAt: now,
@@ -343,12 +357,35 @@ export interface ReservedFile {
 // drift apart.
 const PRESIGN_TTL_SECONDS = FILE_SCAN_TIMEOUT_SECONDS;
 
+/** D-194 Fatia 3 — see `searchRequirements`'s doc comment. `tag` is deliberately absent
+ * (Requirement has no `tags` field, out of scope per the design). */
+export interface RequirementSearchQuery {
+  status: RequirementStatus;
+  namePrefix?: string;
+  assigneeUserId?: string;
+  validityState?: UnifiedValidityState;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface RequirementSearchHit {
+  kind: "REQUIREMENT";
+  requirement: Requirement;
+  subjectDisplayName?: string;
+}
+
+export interface RequirementSearchPage {
+  items: RequirementSearchHit[];
+  lastEvaluatedKey?: Record<string, unknown>;
+  scanLimitReached: boolean;
+}
+
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
   private readonly ids: DocumentArchiveIdGenerator;
   private readonly quarantineBucket: string;
   private readonly signer: UploadUrlSigner;
+  private readonly members: MemberEligibilityChecker;
   private readonly now: () => string;
 
   constructor(deps: DocumentArchiveServiceDeps) {
@@ -357,7 +394,18 @@ export class DocumentArchiveService {
     this.ids = deps.ids;
     this.quarantineBucket = deps.quarantineBucket;
     this.signer = deps.signer;
+    this.members = deps.members;
     this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  /** D-194 Fatia 2 - same "empty string clears, undefined means not provided (never reaches
+   * here), any other value must be a real eligible member" convention as
+   * `ExpirationService.validateAssignee`. */
+  private async validateAssignee(tenantId: string, assigneeUserId: string | undefined): Promise<void> {
+    if (!assigneeUserId) return;
+    if (!(await this.members.isEligibleMember(tenantId, assigneeUserId))) {
+      throw new IneligibleAssigneeError("assigneeUserId is not an eligible member of this organization.", { assigneeUserId });
+    }
   }
 
   /**
@@ -834,6 +882,10 @@ export class DocumentArchiveService {
   async createRequirement(ctx: RequestContext, input: CreateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
+    // D-194 Fatia 2 - validated BEFORE any transactional write is attempted, same "reject early,
+    // never burn a write attempt on a request that will never succeed" posture as
+    // `ExpirationService.createItem`.
+    await this.validateAssignee(tenantId, input.assigneeUserId);
     const requirementId = this.ids.newRequirementId();
     const now = this.now();
     // P0.1/§3: `putIfAbsent` replaced by a real transaction, planned by `buildCreateRequirementEntries()`
@@ -851,6 +903,7 @@ export class DocumentArchiveService {
       name: input.name,
       notes: input.notes,
       applicability: input.applicability,
+      assigneeUserId: input.assigneeUserId,
       now,
     });
     try {
@@ -956,12 +1009,83 @@ export class DocumentArchiveService {
     return this.store.queryByPk<Requirement>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
   }
 
+  /**
+   * D-194 Fatia 3 — single `Query` on GSI1's REQSTATUS namespace (already tenant-facing, no new
+   * index), filtered in memory: `name` substring (Requirement has no type-scoped physical name
+   * ordering the way TrackedSubject's GSI7SK does, so this is always substring, never prefix —
+   * "ou substring-sem" per the design), `assigneeUserId` exact match, `UnifiedValidityState` via
+   * `deriveRequirementValidityState` (never reimplemented here). `tag` is deliberately NOT a
+   * parameter — Requirement has no `tags` field, out of scope per the design's own "Escopo
+   * explicitamente fora desta decisão" (tags em Requirement). `subjectDisplayName` enrichment: one
+   * `BatchGetItem` (this module's own `store.batchGet`, already 100-key chunked internally,
+   * `import/resolve-subject-references.ts` precedent) over the DISTINCT `subjectId`s of the
+   * matched page — at most 125 evaluated items per call (`SEARCH_MAX_PAGES` * `SEARCH_PAGE_SIZE`),
+   * so at most 125 distinct subjectIds, well within 2 chunks of 100. `trackedSubjectKeyForFence`
+   * (not a new port) composes the TrackedSubject key without importing `subject/**` directly —
+   * same module-boundary precedent this file already uses for `SUBJECT_STATUS_ACCEPTING_REQUIREMENTS`
+   * fencing.
+   */
+  async searchRequirements(ctx: RequestContext, query: RequirementSearchQuery): Promise<RequirementSearchPage> {
+    authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
+    if (!query.status) throw new ValidationError("status is required for searchRequirements.");
+    const tenantId = ctx.tenant.tenantId;
+    const now = new Date();
+    const namePrefix = query.namePrefix;
+
+    const result = await runPagedSearch<Requirement>({
+      exclusiveStartKey: query.exclusiveStartKey,
+      fetchPage: (exclusiveStartKey) =>
+        this.store.queryIndexPage<Requirement>({
+          indexName: "GSI1",
+          partitionKeyValue: `TENANT#${tenantId}#REQSTATUS#${query.status}`,
+          limit: SEARCH_PAGE_SIZE,
+          exclusiveStartKey,
+        }),
+      matches: (requirement) => {
+        if (namePrefix !== undefined && !requirement.name.toLowerCase().includes(namePrefix.toLowerCase())) return false;
+        if (query.assigneeUserId !== undefined && requirement.assigneeUserId !== query.assigneeUserId) return false;
+        if (query.validityState !== undefined && deriveRequirementValidityState(requirement, now) !== query.validityState) return false;
+        return true;
+      },
+    });
+
+    const subjectIds = [...new Set(result.items.map((r) => r.subjectId))];
+    const subjectRows =
+      subjectIds.length > 0
+        ? await this.store.batchGet<EntityKey & { displayName?: string }>(subjectIds.map((subjectId) => trackedSubjectKeyForFence(tenantId, subjectId)))
+        : [];
+    const displayNameBySubjectId = new Map<string, string>();
+    subjectRows.forEach((row, i) => {
+      // batchGet's return order is not guaranteed to match `subjectIds` - but each key IS the
+      // TrackedSubject's own PK/SK, so recovering subjectId from the returned row's own PK is
+      // correct regardless of order (never assumed positional).
+      const pk = (row as unknown as EntityKey).PK;
+      const subjectId = subjectIds.find((id) => trackedSubjectKeyForFence(tenantId, id).PK === pk) ?? subjectIds[i];
+      if (subjectId !== undefined && row.displayName !== undefined) displayNameBySubjectId.set(subjectId, row.displayName);
+    });
+
+    return {
+      items: result.items.map((requirement) => ({
+        kind: "REQUIREMENT" as const,
+        requirement,
+        subjectDisplayName: displayNameBySubjectId.get(requirement.subjectId),
+      })),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      scanLimitReached: result.scanLimitReached,
+    };
+  }
+
   /** Never touches `evidenceVersionId`/`status` directly — an `applicability` change here still
    * re-derives `status` (e.g. flipping to NOT_APPLICABLE must immediately reflect in GSI1's
    * REQSTATUS namespace, not wait for the next unrelated mutation or the daily reindex). */
   async updateRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number, input: UpdateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-update", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
+    // D-194 Fatia 2 - only validated when actually CHANGING (same "unrelated-field update never
+    // re-validates" posture as `ExpirationService.updateItem`).
+    if (input.assigneeUserId !== undefined) {
+      await this.validateAssignee(tenantId, input.assigneeUserId);
+    }
     const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId);
     const nextApplicability = input.applicability ?? current.applicability;
     const now = this.now();
@@ -977,13 +1101,24 @@ export class DocumentArchiveService {
     const set: Record<string, unknown> = { applicability: nextApplicability, status, ...requirementGsi1Keys(tenantId, status, now, requirementId), ...gsi8Fields };
     if (input.name !== undefined) set["name"] = input.name;
     if (input.notes !== undefined) set["notes"] = input.notes;
+    // D-194 Fatia 2 - an empty string REMOVES the attribute (clears the assignee), any other
+    // value is written as-is (already validated above); `undefined` means "not provided" and
+    // touches neither `set` nor `remove`.
+    const removeFields: string[] = Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : [];
+    if (input.assigneeUserId !== undefined) {
+      if (input.assigneeUserId === "") {
+        removeFields.push("assigneeUserId");
+      } else {
+        set["assigneeUserId"] = input.assigneeUserId;
+      }
+    }
     const update = buildVersionedUpdate({
       tableName: this.tableName,
       key: requirementKey(tenantId, subjectId, requirementId),
       tenantId,
       expectedVersion,
       set,
-      remove: Object.keys(gsi8Fields).length === 0 ? ["GSI8PK", "GSI8SK"] : undefined,
+      remove: removeFields.length > 0 ? removeFields : undefined,
     });
 
     // P0.1/§3: a name change has to move the dedupe pointer too, in the SAME transaction. Two
@@ -1021,7 +1156,13 @@ export class DocumentArchiveService {
     } catch (err) {
       this.throwClassifiedCancellation(err, labels, { subjectId, requirementId });
     }
-    return { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as Requirement;
+    // `removeFields` (e.g. a cleared `assigneeUserId`) must be dropped from the in-memory return
+    // too - `set` alone can't overwrite a field that was REMOVEd rather than SET, so `current`'s
+    // stale value would otherwise leak into the caller-visible result despite being genuinely
+    // absent in DynamoDB after this write.
+    const returned = { ...current, ...set, version: expectedVersion + 1, updatedAt: now } as unknown as Record<string, unknown>;
+    for (const field of removeFields) delete returned[field];
+    return returned as unknown as Requirement;
   }
 
   /**

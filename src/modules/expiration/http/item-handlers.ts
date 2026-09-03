@@ -9,11 +9,13 @@ import { AuthorizationDeniedError } from "../../identity/domain/authorization.js
 import { AuthorizationError } from "../../../shared/errors/app-error.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
+import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/search-cursor.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { ExpirationService } from "../application/expiration-service.js";
-import type { CreateItemInput, RenewItemInput, UpdateItemInput } from "../domain/expiration-item.js";
+import type { CreateItemInput, ExpirationItemStatus, RenewItemInput, UpdateItemInput } from "../domain/expiration-item.js";
 
 /**
  * full-audit round1/Seguranca criterio 9 (Resistencia a Abuso/DoS): TenantQuotaService
@@ -50,6 +52,7 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 const CREATE_ITEM_SCHEMA_ID = "https://expiration-tracker/schemas/api/create-item-request.v1.json";
 const UPDATE_ITEM_SCHEMA_ID = "https://expiration-tracker/schemas/api/update-item-request.v1.json";
 const RENEW_ITEM_SCHEMA_ID = "https://expiration-tracker/schemas/api/renew-item-request.v1.json";
+const SEARCH_ITEMS_SCHEMA_ID = "https://expiration-tracker/schemas/api/item-search-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -113,6 +116,7 @@ function requireItemId(req: HttpRequest): string {
 }
 
 const DASHBOARD_STATUSES = new Set(["ACTIVE", "ARCHIVED", "RENEWED", "DELETED"]);
+const VALIDITY_STATES = new Set(["PERMANENTE", "VALIDO", "VENCENDO", "VENCIDO", "AGUARDANDO_REVISAO"]);
 
 function requireExpectedVersion(req: HttpRequest): number {
   const raw = req.headers?.["if-match"] ?? req.queryStringParameters?.["expectedVersion"];
@@ -267,6 +271,47 @@ export async function handleDashboard(deps: ExpirationHttpDeps, req: HttpRequest
     return {
       statusCode: 200,
       body: { items: page.items, nextCursor: page.lastEvaluatedKey ? encodeDashboardCursor(page.lastEvaluatedKey) : null },
+    };
+  });
+}
+
+/** D-194 Fatia 3 — GET /items/search. Route lives ABOVE `/items/{itemId}` on purpose (same
+ * literal-vs-parameterized precedent `main.tf`'s `GET /items/dashboard` comment documents). */
+export async function handleSearchItems(deps: ExpirationHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const qs = req.queryStringParameters ?? {};
+    const queryObject: Record<string, string> = {};
+    for (const key of ["status", "namePrefix", "tag", "assigneeUserId", "validityState", "cursor"] as const) {
+      const value = qs[key];
+      if (value !== undefined) queryObject[key] = value;
+    }
+    const { valid, errors } = defaultSchemaRegistry.validate(SEARCH_ITEMS_SCHEMA_ID, queryObject);
+    if (!valid) throw new ValidationError("Query parameters failed schema validation.", { errors });
+
+    const status = queryObject["status"] as ExpirationItemStatus | undefined;
+    if (!status || !DASHBOARD_STATUSES.has(status)) {
+      throw new ValidationError("Invalid or missing status query parameter.", { allowed: [...DASHBOARD_STATUSES] });
+    }
+    const validityState = queryObject["validityState"] as UnifiedValidityState | undefined;
+    if (validityState !== undefined && !VALIDITY_STATES.has(validityState)) {
+      throw new ValidationError("Invalid validityState query parameter.", { allowed: [...VALIDITY_STATES] });
+    }
+    const namePrefix = queryObject["namePrefix"];
+    const tag = queryObject["tag"];
+    const assigneeUserId = queryObject["assigneeUserId"];
+    const signature = { mode: "EXPIRATION_ITEM", status, namePrefix, tag, assigneeUserId, validityState };
+    const exclusiveStartKey = queryObject["cursor"] !== undefined ? decodeSearchCursor(queryObject["cursor"], signature) : undefined;
+
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const page = await deps.expiration.searchExpirationItems(context, { status, namePrefix, tag, assigneeUserId, validityState, exclusiveStartKey });
+    return {
+      statusCode: 200,
+      body: {
+        items: page.items,
+        cursor: page.lastEvaluatedKey ? encodeSearchCursor(signature, page.lastEvaluatedKey) : null,
+        scanLimitReached: page.scanLimitReached,
+      },
     };
   });
 }

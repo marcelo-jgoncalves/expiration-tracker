@@ -116,6 +116,7 @@ describe("finalizeSubmissionUpload", () => {
       update: store.update.bind(store),
       updateConditional: store.updateConditional.bind(store),
       queryGsi7: store.queryGsi7.bind(store),
+      queryGsi7Page: store.queryGsi7Page.bind(store),
       queryByPk: store.queryByPk.bind(store),
       batchGet: store.batchGet.bind(store),
     };

@@ -10,6 +10,7 @@
     "expectedVersion": { "type": "integer", "minimum": 1 },
     "name": { "type": "string", "minLength": 1, "maxLength": 200 },
     "notes": { "type": "string", "maxLength": 2000 },
-    "applicability": { "type": "string", "enum": ["APPLICABLE", "NOT_APPLICABLE"] }
+    "applicability": { "type": "string", "enum": ["APPLICABLE", "NOT_APPLICABLE"] },
+    "assigneeUserId": { "type": "string", "maxLength": 100 }
   }
 }

@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
-import { ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import { documentFileKey } from "../../../src/modules/document-archive/domain/document-file.js";
+import type { Requirement } from "../../../src/modules/document-archive/domain/requirement.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -41,12 +42,31 @@ function makeIds(): DocumentArchiveIdGenerator {
 
 const NOW = "2026-09-01T00:00:00.000Z";
 
-function makeService(store = new InMemoryDocumentArchiveStore([seedActiveDocumentType("tenant-1", "ALVARA"), seedActiveTenantLifecycle("tenant-1"), seedActiveTrackedSubject("tenant-1", "subject-1"), seedActiveTrackedSubject("tenant-1", "other-subject")])) {
+/** D-194 Fatia 2 - test double for `MemberEligibilityChecker`, same "eligible set, everyone else
+ * ineligible" shape `member-eligibility` fakes use elsewhere in this codebase. Defaults to
+ * "everyone eligible" (`undefined`) so the rest of this suite, which doesn't exercise the
+ * eligibility gate, is unaffected. */
+function makeMembers(eligibleUserIds?: string[]): { isEligibleMember: (organizationId: string, userId: string) => Promise<boolean> } {
+  return { isEligibleMember: async (_organizationId, userId) => eligibleUserIds === undefined || eligibleUserIds.includes(userId) };
+}
+
+function makeService(
+  store = new InMemoryDocumentArchiveStore([seedActiveDocumentType("tenant-1", "ALVARA"), seedActiveTenantLifecycle("tenant-1"), seedActiveTrackedSubject("tenant-1", "subject-1"), seedActiveTrackedSubject("tenant-1", "other-subject")]),
+  members = makeMembers(),
+) {
   // Requirement-focused suite doesn't assert anything about presign itself, but `acceptedVersion()`
   // now has to seal the file set via `reserveFiles()` before `commitUpload()` (fileSetSealed gate,
   // D-163 §4) — a working fake stands in, not a throwing one.
   const signer = { presignUpload: async () => ({ uploadUrl: "https://s3.example/fake?sig=fake", requiredHeaders: {} }) };
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, now: () => NOW });
+  const service = new DocumentArchiveService({
+    store,
+    tableName: "test-table",
+    ids: makeIds(),
+    quarantineBucket: "test-quarantine-bucket",
+    signer,
+    members,
+    now: () => NOW,
+  });
   return { service, store };
 }
 
@@ -117,6 +137,47 @@ describe("RequirementService (D-143 Nucleus 2, Decision 5/D9)", () => {
   it("getRequirement 404s for an unknown id", async () => {
     const { service } = makeService();
     await expect(service.getRequirement(ctx(), SUBJECT, "missing")).rejects.toThrow(NotFoundError);
+  });
+
+  // D-194 Fatia 2 (G-V3 adversarial - negative path, not the happy path). Kills: skipping the
+  // `MemberEligibilityChecker` call, or calling it but ignoring a `false` result.
+  it("createRequirement rejects an assigneeUserId that is not an eligible member (IneligibleAssigneeError)", async () => {
+    const { service } = makeService(undefined, makeMembers(["user-1"]));
+    await expect(
+      service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND Federal", applicability: "APPLICABLE", assigneeUserId: "stranger" }),
+    ).rejects.toThrow(IneligibleAssigneeError);
+    // No Requirement (and no name pointer) should exist after the rejected create — the
+    // eligibility check runs BEFORE any transactional write is attempted.
+    const rows = await service.listRequirements(ctx(), SUBJECT);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("createRequirement accepts a real eligible assigneeUserId", async () => {
+    const { service } = makeService(undefined, makeMembers(["user-1", "eligible-1"]));
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND Federal", applicability: "APPLICABLE", assigneeUserId: "eligible-1" });
+    expect(req.assigneeUserId).toBe("eligible-1");
+  });
+
+  it("updateRequirement rejects reassigning to an ineligible userId, and never validates when assigneeUserId is omitted", async () => {
+    const { service } = makeService(undefined, makeMembers(["user-1", "eligible-1"]));
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND Federal", applicability: "APPLICABLE", assigneeUserId: "eligible-1" });
+
+    await expect(service.updateRequirement(ctx(), SUBJECT, req.requirementId, req.version, { assigneeUserId: "stranger" })).rejects.toThrow(IneligibleAssigneeError);
+
+    // Unrelated-field update (no assigneeUserId key at all) must succeed even though "stranger"
+    // would fail eligibility — proves the check only runs when the field is actually present.
+    const updated = await service.updateRequirement(ctx(), SUBJECT, req.requirementId, req.version, { notes: "unrelated change" });
+    expect(updated.assigneeUserId).toBe("eligible-1");
+  });
+
+  it("updateRequirement clears assigneeUserId when given an empty string, without re-validating eligibility", async () => {
+    const { service, store } = makeService(undefined, makeMembers(["user-1", "eligible-1"]));
+    const req = await service.createRequirement(ctx(), { subjectId: SUBJECT, name: "CND Federal", applicability: "APPLICABLE", assigneeUserId: "eligible-1" });
+
+    const updated = await service.updateRequirement(ctx(), SUBJECT, req.requirementId, req.version, { assigneeUserId: "" });
+    expect(updated.assigneeUserId).toBeUndefined();
+    const persisted = await store.get<Requirement>({ PK: req.PK, SK: req.SK });
+    expect("assigneeUserId" in (persisted ?? {})).toBe(false);
   });
 
   it("listRequirements returns every Requirement under a Subject", async () => {

@@ -61,7 +61,7 @@ async function seedTenant(store: InMemoryDocumentArchiveStore): Promise<void> {
 }
 
 function makeService(store = new InMemoryDocumentArchiveStore()) {
-  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer: noopSigner, now: () => NOW });
+  const service = new DocumentArchiveService({ store, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer: noopSigner, members: { isEligibleMember: async () => true }, now: () => NOW });
   return { service, store };
 }
 

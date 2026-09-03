@@ -11,6 +11,7 @@ import {
   handleArchiveSubject,
   handleDeleteSubject,
   handleListSubjects,
+  handleSearchSubjects,
   type SubjectHttpDeps,
 } from "../../../modules/subject/http/subject-handlers.js";
 import {
@@ -83,6 +84,9 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
           return await handleCreateSubject(deps, { ...base, body: parseBody(event) });
         case "GET /subjects/dashboard":
           return await handleListSubjects(deps, base);
+        // D-194 Fatia 3 (search/filters) - literal segment, routed before "GET /subjects/{subjectId}".
+        case "GET /subjects/search":
+          return await handleSearchSubjects(deps, base);
         case "GET /subjects/{subjectId}":
           return await handleGetSubject(deps, base);
         case "PUT /subjects/{subjectId}":

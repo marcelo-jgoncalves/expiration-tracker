@@ -23,6 +23,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/activity" },
   { method: "POST", pathTemplate: "/items" },
   { method: "GET", pathTemplate: "/items/dashboard" },
+  // D-194 Fatia 3 (search/filters).
+  { method: "GET", pathTemplate: "/items/search" },
   { method: "GET", pathTemplate: "/items/{itemId}" },
   { method: "PUT", pathTemplate: "/items/{itemId}" },
   { method: "DELETE", pathTemplate: "/items/{itemId}" },
@@ -51,6 +53,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/reminders/policies/{policyId}/disable" },
   { method: "POST", pathTemplate: "/subjects" },
   { method: "GET", pathTemplate: "/subjects/dashboard" },
+  // D-194 Fatia 3 (search/filters).
+  { method: "GET", pathTemplate: "/subjects/search" },
   { method: "GET", pathTemplate: "/subjects/document-request-delivery-preference" },
   { method: "PUT", pathTemplate: "/subjects/document-request-delivery-preference" },
   { method: "GET", pathTemplate: "/subjects/{subjectId}" },
@@ -102,6 +106,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/reject" },
   // D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/requirements" },
+  // D-194 Fatia 3 (search/filters).
+  { method: "GET", pathTemplate: "/document-archive/requirements/search" },
   { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}" },
   { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },
   { method: "PATCH", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },

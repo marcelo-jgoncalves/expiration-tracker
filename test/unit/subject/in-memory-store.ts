@@ -1,4 +1,4 @@
-import type { EntityKey, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../../../src/modules/subject/ports/subject-store.js";
+import type { EntityKey, Gsi7Page, Gsi7PageInput, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../../../src/modules/subject/ports/subject-store.js";
 import type { SubjectIdGenerator } from "../../../src/modules/subject/application/id-generator.js";
 import type { ExpirationItemLookup } from "../../../src/modules/subject/ports/expiration-item-lookup.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -156,6 +156,30 @@ export class InMemorySubjectStore implements SubjectStore {
     const matches = [...this.items.values()].filter((item) => item["PK"] === pk && (!skPrefix || String(item["SK"]).startsWith(skPrefix)));
     matches.sort((a, b) => String(a["SK"]).localeCompare(String(b["SK"])));
     return matches as unknown as T[];
+  }
+
+  /** D-194 Fatia 3 — one real page per call, same slice-by-cursor shape as
+   * `document-archive/in-memory-store.ts`'s `queryIndexPage` fake (not `queryGsi7`'s
+   * accumulate-everything-then-slice above, which real pagination tests must not rely on). */
+  async queryGsi7Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi7PageInput): Promise<Gsi7Page<T>> {
+    const ascending = input.ascending ?? true;
+    const matches = [...this.items.values()].filter((item) => item["GSI7PK"] === input.gsi7pk);
+    matches.sort((a, b) => {
+      const sa = String(a["GSI7SK"]);
+      const sb = String(b["GSI7SK"]);
+      return ascending ? sa.localeCompare(sb) : sb.localeCompare(sa);
+    });
+    const startAfter = input.exclusiveStartKey?.["GSI7SK"] as string | undefined;
+    const fromCursor =
+      startAfter === undefined ? matches : matches.filter((item) => (ascending ? String(item["GSI7SK"]) > startAfter : String(item["GSI7SK"]) < startAfter));
+    const limit = input.limit ?? fromCursor.length;
+    const page = fromCursor.slice(0, limit);
+    const hasMore = fromCursor.length > page.length;
+    const last = page[page.length - 1];
+    return {
+      items: page as unknown as T[],
+      lastEvaluatedKey: hasMore && last ? { PK: last["PK"], SK: last["SK"], GSI7PK: last["GSI7PK"], GSI7SK: last["GSI7SK"] } : undefined,
+    };
   }
 
   /** D-192 §4 fake — no chunking/retry needed in-memory (no `UnprocessedKeys` concept), but

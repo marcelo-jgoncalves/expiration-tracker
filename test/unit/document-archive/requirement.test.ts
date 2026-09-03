@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveRequirementStatus,
+  deriveRequirementValidityState,
   isRequirementExpiringSoon,
   requirementKey,
   requirementGsi1Keys,
@@ -102,5 +103,43 @@ describe("GSI_EVIDENCE (GSI9, D-193 slice 5) key builders", () => {
     const b = requirementGsi9Keys({ tenantId: "t1", evidenceVersionId: "v1", requirementId: "r2" });
     expect(a.GSI9PK).toBe(b.GSI9PK);
     expect(a.GSI9SK).not.toBe(b.GSI9SK);
+  });
+});
+
+describe("deriveRequirementValidityState (D-194 fatia 1, 8-line table)", () => {
+  it("NOT_APPLICABLE -> undefined", () => {
+    expect(deriveRequirementValidityState({ status: "NOT_APPLICABLE", evidenceState: undefined, evidenceValidUntil: undefined }, NOW)).toBeUndefined();
+  });
+
+  it("MISSING -> undefined", () => {
+    expect(deriveRequirementValidityState({ status: "MISSING", evidenceState: undefined, evidenceValidUntil: undefined }, NOW)).toBeUndefined();
+  });
+
+  it.each(["REJECTED", "WITHDRAWN", "SUPERSEDED"] as const)("PENDING with terminal-but-not-accepted evidence (%s) -> undefined", (evidenceState) => {
+    expect(deriveRequirementValidityState({ status: "PENDING", evidenceState, evidenceValidUntil: undefined }, NOW)).toBeUndefined();
+  });
+
+  it.each(["DRAFT", "RECEIVED", "UNDER_REVIEW"] as const)("PENDING with in-flow evidence (%s) -> AGUARDANDO_REVISAO", (evidenceState) => {
+    expect(deriveRequirementValidityState({ status: "PENDING", evidenceState, evidenceValidUntil: undefined }, NOW)).toBe("AGUARDANDO_REVISAO");
+  });
+
+  it("SATISFIED with no evidenceValidUntil -> PERMANENTE", () => {
+    expect(deriveRequirementValidityState({ status: "SATISFIED", evidenceState: "ACCEPTED", evidenceValidUntil: undefined }, NOW)).toBe("PERMANENTE");
+  });
+
+  it("SATISFIED with evidenceValidUntil far in the future -> VALIDO", () => {
+    expect(deriveRequirementValidityState({ status: "SATISFIED", evidenceState: "ACCEPTED", evidenceValidUntil: "2026-12-31T00:00:00.000Z" }, NOW)).toBe(
+      "VALIDO",
+    );
+  });
+
+  it("SATISFIED with evidenceValidUntil within the soon window -> VENCENDO", () => {
+    expect(deriveRequirementValidityState({ status: "SATISFIED", evidenceState: "ACCEPTED", evidenceValidUntil: "2026-09-05T00:00:00.000Z" }, NOW)).toBe(
+      "VENCENDO",
+    );
+  });
+
+  it("NOT_SATISFIED -> VENCIDO", () => {
+    expect(deriveRequirementValidityState({ status: "NOT_SATISFIED", evidenceState: "ACCEPTED", evidenceValidUntil: "2020-01-01" }, NOW)).toBe("VENCIDO");
   });
 });

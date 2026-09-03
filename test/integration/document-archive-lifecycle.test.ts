@@ -108,7 +108,7 @@ describe("Document Archive end-to-end lifecycle (D-143 Nucleus 1)", () => {
 
     store = new InMemoryDocumentArchiveStore();
     signer = makeSigner();
-    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer });
+    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer, members: { isEligibleMember: async () => true } });
     const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
     deps = { resolver, documentArchive, recurrence, quota };
 

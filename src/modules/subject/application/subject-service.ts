@@ -8,7 +8,8 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError } from "../../../shared/errors/app-error.js";
+import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError, ValidationError } from "../../../shared/errors/app-error.js";
+import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import { buildVersionedCreate, buildVersionedUpdate, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
 import {
   subjectKey,
@@ -17,6 +18,7 @@ import {
   subjectExternalIdPointerKey,
   type TrackedSubject,
   type TrackedSubjectStatus,
+  type TrackedSubjectType,
   type CreateSubjectInput,
   type UpdateSubjectInput,
   type SubjectExternalIdPointer,
@@ -37,6 +39,36 @@ export interface SubjectListQuery {
   status: TrackedSubjectStatus;
   ascending?: boolean;
   limit?: number;
+}
+
+/**
+ * D-194 Fatia 3 (`docs/architecture/reviews/search-and-filters-scoping/estado-final-
+ * consolidado.md`) — `status` is REQUIRED and singular (no server-side composition of multiple
+ * statuses). `type` narrows both the physical scan (still one GSI7 partition, filtered in memory)
+ * AND the name-matching semantics: `namePrefix` is a PREFIX match against `displayNameNormalized`
+ * when `type` is given (GSI7SK's real physical order groups by type-then-name, so "prefix" is a
+ * meaningful concept once type is fixed), or a SUBSTRING match when `type` is absent (no
+ * type-scoped physical ordering to reason a prefix against). `tag` is exact membership in
+ * `TrackedSubject.tags`. `exclusiveStartKey` is the raw decoded cursor key, never the opaque
+ * string — the HTTP handler owns encode/decode via `shared/domain/search-cursor.ts`.
+ */
+export interface SubjectSearchQuery {
+  status: TrackedSubjectStatus;
+  type?: TrackedSubjectType;
+  namePrefix?: string;
+  tag?: string;
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface SubjectSearchHit {
+  kind: "SUBJECT";
+  subject: TrackedSubject;
+}
+
+export interface SubjectSearchPage {
+  items: SubjectSearchHit[];
+  lastEvaluatedKey?: Record<string, unknown>;
+  scanLimitReached: boolean;
 }
 
 /** Mesmo limite de tentativas sob contenção já usado por TenantQuotaService
@@ -248,6 +280,47 @@ export class SubjectService {
       ascending: query.ascending ?? true,
       limit: query.limit,
     });
+  }
+
+  /**
+   * D-194 Fatia 3 — single `Query` on GSI7 (already tenant-facing, never a new index), one
+   * physical page of `SEARCH_PAGE_SIZE` per fetch, filtered in memory over the page already
+   * read, capped at `SEARCH_MAX_PAGES` (`shared/domain/paged-search.ts`). Eventually consistent
+   * — same posture as `listSubjects`, never used for authorization/pre-mutation decisions.
+   */
+  async searchSubjects(ctx: RequestContext, query: SubjectSearchQuery): Promise<SubjectSearchPage> {
+    authorize({ context: ctx, action: "subject:read", resource: { tenantId: ctx.tenant.tenantId } });
+    if (!query.status) throw new ValidationError("status is required for searchSubjects.");
+
+    const normalizedPrefix = query.namePrefix !== undefined ? normalizeDisplayName(query.namePrefix) : undefined;
+    const result = await runPagedSearch<TrackedSubject>({
+      exclusiveStartKey: query.exclusiveStartKey,
+      fetchPage: (exclusiveStartKey) =>
+        this.store.queryGsi7Page<TrackedSubject>({
+          gsi7pk: `TENANT#${ctx.tenant.tenantId}#SUBJECTSTATUS#${query.status}`,
+          ascending: true,
+          limit: SEARCH_PAGE_SIZE,
+          exclusiveStartKey,
+        }),
+      matches: (subject) => {
+        if (query.type !== undefined && subject.type !== query.type) return false;
+        if (normalizedPrefix !== undefined) {
+          const matchesName =
+            query.type !== undefined
+              ? subject.displayNameNormalized.startsWith(normalizedPrefix)
+              : subject.displayNameNormalized.includes(normalizedPrefix);
+          if (!matchesName) return false;
+        }
+        if (query.tag !== undefined && !subject.tags.includes(query.tag)) return false;
+        return true;
+      },
+    });
+
+    return {
+      items: result.items.map((subject) => ({ kind: "SUBJECT" as const, subject })),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      scanLimitReached: result.scanLimitReached,
+    };
   }
 
   private async transitionStatus(

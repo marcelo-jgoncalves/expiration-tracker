@@ -59,7 +59,7 @@ describe("DocumentType catalog HTTP routes (D-173/item 5)", () => {
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     const store = new InMemoryDocumentArchiveStore();
-    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer: noopSigner });
+    const documentArchive = new DocumentArchiveService({ store, tableName: "MainTable", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer: noopSigner, members: { isEligibleMember: async () => true } });
     const recurrence = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds() });
     deps = { resolver, documentArchive, recurrence, quota };
 
