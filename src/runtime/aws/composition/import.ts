@@ -35,5 +35,10 @@ export function buildImportCommitWorkerDeps(client: DynamoDBDocumentClient, tabl
   // commitImportJob() reaproveita SubjectService.createSubject() INALTERADO (design) - nunca
   // uma segunda implementação de criação de subject só para o worker de import.
   const { subjects } = buildSubjectDeps(client, tableName);
-  return { store, objectStore, planBucket, subjects, now: () => new Date().toISOString() };
+  // D-192 §6 (fatia 8) - Document/Requirement geram documentId/requirementId ANTES da
+  // transação de commit via os mesmos planejadores puros que document-archive-service.ts usa;
+  // `UlidIdGenerator` já implementa `DocumentArchiveIdGenerator` (mesma instância reaproveitada
+  // em toda a composição AWS, nunca um segundo gerador de ids).
+  const documentArchiveIds = new UlidIdGenerator();
+  return { store, objectStore, planBucket, tableName, subjects, documentArchiveIds, now: () => new Date().toISOString() };
 }
