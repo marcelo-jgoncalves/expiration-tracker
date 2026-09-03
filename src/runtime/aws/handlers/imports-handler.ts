@@ -3,7 +3,14 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildImportHttpDeps } from "../composition/import.js";
-import { handleReserveImport, handleGetImportJob, handleRequestImportCommit, type ImportHttpDeps } from "../../../modules/import/http/import-handlers.js";
+import {
+  handleReserveImport,
+  handleGetImportJob,
+  handleRequestImportCommit,
+  handleGetImportJobSchema,
+  handleSubmitImportMapping,
+  type ImportHttpDeps,
+} from "../../../modules/import/http/import-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -35,6 +42,10 @@ async function handleImportsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer
           return await handleGetImportJob(deps, base);
         case "POST /imports/{jobId}/commit":
           return await handleRequestImportCommit(deps, base);
+        case "GET /import-jobs/{jobId}/schema":
+          return await handleGetImportJobSchema(deps, base);
+        case "POST /import-jobs/{jobId}/mapping":
+          return await handleSubmitImportMapping(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

@@ -128,6 +128,45 @@ export interface ImportJob extends EntityKey {
   version: number;
 }
 
+/**
+ * D-192 §3/slice 9 (`GET /import-jobs/{jobId}/schema`): per-`targetEntityType` field catalog a
+ * client uses to build a mapping UI — describes which `ColumnMapping.columns` keys exist and
+ * whether they are required, mirroring the `ColumnMapping` discriminated union above exactly
+ * (never a second source of truth — `test/unit/import/import-field-catalog.test.ts`, if written,
+ * should assert the two stay in lockstep). `targetKind` is NOT itself a catalog entry (it's the
+ * discriminant, always implied by the job's `targetEntityType`, never a mapped column).
+ */
+export interface ImportFieldCatalogEntry {
+  field: string;
+  required: boolean;
+}
+
+export const FIELD_CATALOG: Record<ImportTargetEntityType, ImportFieldCatalogEntry[]> = {
+  TrackedSubject: [
+    { field: "displayName", required: true },
+    { field: "type", required: true },
+    { field: "externalId", required: false },
+    { field: "notes", required: false },
+    { field: "tags", required: false },
+  ],
+  Document: [
+    { field: "subjectRef", required: true },
+    { field: "subjectRefKind", required: true },
+    { field: "documentTypeRef", required: true },
+    { field: "documentTypeRefKind", required: true },
+    { field: "hasValidity", required: true },
+    { field: "externalId", required: false },
+  ],
+  Requirement: [
+    { field: "subjectRef", required: true },
+    { field: "subjectRefKind", required: true },
+    { field: "name", required: true },
+    { field: "notes", required: false },
+    { field: "applicability", required: false },
+    { field: "externalId", required: false },
+  ],
+};
+
 export function importJobKey(tenantId: string, jobId: string): { PK: string; SK: "META" } {
   return { PK: `TENANT#${tenantId}#IMPORTJOB#${jobId}`, SK: "META" };
 }

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/import-mapping-request.v1.json",
+  "title": "ImportMappingRequest v1",
+  "description": "POST /import-jobs/{jobId}/mapping request body (D-192 slice 9, bulk-import-documents-requirements-scoping/estado-final-consolidado.md §3). Wraps ColumnMapping (src/modules/import/domain/import-job.ts) - a discriminated union keyed on targetKind, one variant per ImportTargetEntityType.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["columnMapping"],
+  "properties": {
+    "columnMapping": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "targetKind", "columns"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "targetKind": { "const": "TrackedSubject" },
+            "columns": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["displayName", "type"],
+              "properties": {
+                "displayName": { "type": "string", "minLength": 1 },
+                "type": { "type": "string", "minLength": 1 },
+                "externalId": { "type": "string", "minLength": 1 },
+                "notes": { "type": "string", "minLength": 1 },
+                "tags": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "targetKind", "columns"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "targetKind": { "const": "Document" },
+            "columns": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["subjectRef", "subjectRefKind", "documentTypeRef", "documentTypeRefKind", "hasValidity"],
+              "properties": {
+                "subjectRef": { "type": "string", "minLength": 1 },
+                "subjectRefKind": { "enum": ["EXTERNAL_ID", "SUBJECT_ID"] },
+                "documentTypeRef": { "type": "string", "minLength": 1 },
+                "documentTypeRefKind": { "enum": ["DOCUMENT_TYPE_ID", "DISPLAY_NAME"] },
+                "hasValidity": { "type": "string", "minLength": 1 },
+                "externalId": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "targetKind", "columns"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "targetKind": { "const": "Requirement" },
+            "columns": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["subjectRef", "subjectRefKind", "name"],
+              "properties": {
+                "subjectRef": { "type": "string", "minLength": 1 },
+                "subjectRefKind": { "enum": ["EXTERNAL_ID", "SUBJECT_ID"] },
+                "name": { "type": "string", "minLength": 1 },
+                "notes": { "type": "string", "minLength": 1 },
+                "applicability": { "type": "string", "minLength": 1 },
+                "externalId": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

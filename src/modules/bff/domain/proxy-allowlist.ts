@@ -40,6 +40,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/imports" },
   { method: "GET", pathTemplate: "/imports/{jobId}" },
   { method: "POST", pathTemplate: "/imports/{jobId}/commit" },
+  // D-192 slice 9 (bulk-import-documents-requirements-scoping/estado-final-consolidado.md §3).
+  { method: "GET", pathTemplate: "/import-jobs/{jobId}/schema" },
+  { method: "POST", pathTemplate: "/import-jobs/{jobId}/mapping" },
   { method: "GET", pathTemplate: "/notifications/preferences" },
   { method: "PUT", pathTemplate: "/notifications/preferences" },
   { method: "POST", pathTemplate: "/reminders/policies" },

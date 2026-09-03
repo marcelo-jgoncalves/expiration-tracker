@@ -30,7 +30,15 @@ export type OutboxDestination =
    * implementation, not previously known. Every outbox-driven consumer in production is
    * destination-routed through DispatchOutboxRelay; this destination follows the same
    * proven mechanism rather than the never-built one the original design doc assumed. */
-  | "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1";
+  | "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1"
+  /** D-192 slice 9 (`bulk-import-documents-requirements-scoping/estado-final-consolidado.md`
+   * §3): dispatched in the SAME `TransactWriteItems` as `POST /import-jobs/{jobId}/mapping`'s
+   * `AWAITING_MAPPING`->`PARSING` claim, whenever that POST is the one that resolves the claim
+   * (never when the job stays `UPLOADED`, mapping-only write). Consumed by the SAME
+   * `parseImportJob()`/`import-parse-handler.ts` the S3-event trigger already uses — the two
+   * triggers are discriminated only by envelope shape in the Lambda handler, never inside the
+   * pure function, per the design. */
+  | "SQS_IMPORT_PARSE_V1";
 
 export interface OutboxRecord {
   PK: string;

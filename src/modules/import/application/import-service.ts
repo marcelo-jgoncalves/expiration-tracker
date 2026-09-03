@@ -15,8 +15,21 @@ import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
-import { importJobKey, IMPORT_JOB_TTL_SECONDS, MAX_IMPORT_FILE_BYTES, DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING, type ImportJob } from "../domain/import-job.js";
+import { canonicalJsonStringify } from "../../../shared/json/canonical-json.js";
+import {
+  importJobKey,
+  IMPORT_JOB_TTL_SECONDS,
+  MAX_IMPORT_FILE_BYTES,
+  DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING,
+  FIELD_CATALOG,
+  buildImportJobClaim,
+  type ImportJob,
+  type ColumnMapping,
+  type ImportTargetEntityType,
+} from "../domain/import-job.js";
 import { isTransactionCanceled, type ImportStore, type TransactWriteEntry } from "../ports/import-store.js";
+import type { ImportObjectStore } from "../ports/import-object-store.js";
+import { parseCsv } from "./csv-parser.js";
 import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
 import type { ImportIdGenerator } from "./id-generator.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
@@ -58,7 +71,44 @@ export interface ImportServiceDeps {
   ids: ImportIdGenerator;
   signer: UploadUrlSigner;
   quota: TenantQuotaService;
+  /** D-192 slice 9: only required by `getImportJobSchema()`/`submitImportMapping()` (both read
+   * the raw CSV to sniff headers). Optional so every pre-existing test/composition that never
+   * exercises those two new methods keeps working unchanged. */
+  objectStore?: ImportObjectStore;
   now?: () => string;
+}
+
+/** `GET /import-jobs/{jobId}/schema` result — D-192 §3. `objectETag` is diagnostic-only for the
+ * UI (design §9, qualification 1: "não-autoritativo" — there is an accepted TOCTOU between this
+ * read and the real parse; `columnMappingSha256` is what actually fences correctness, not this). */
+export interface ImportJobSchemaResult {
+  targetEntityType: ImportTargetEntityType;
+  fields: { field: string; required: boolean }[];
+  headers: string[];
+  sampleRows: string[][];
+  objectETag: string | undefined;
+}
+
+const SAMPLE_ROW_COUNT = 5;
+
+function rawCsvNotYetUploaded(err: unknown): boolean {
+  const e = err as { name?: string; Code?: string } | undefined;
+  return e?.name === "NoSuchKey" || e?.Code === "NoSuchKey";
+}
+
+/** Which `ColumnMapping.columns` values are actual CSV header references (vs. fixed-vocabulary
+ * mode selectors like `subjectRefKind`/`documentTypeRefKind`, which are never header names) —
+ * only these are checked against the uploaded file's real header. Kept in one place so the
+ * `submitImportMapping()` validation and any future caller never drift on which fields mean
+ * "a column in the file" vs. "a client-chosen enum". */
+function mappingHeaderRefFields(mapping: ColumnMapping): string[] {
+  const fields: (string | undefined)[] =
+    mapping.targetKind === "TrackedSubject"
+      ? [mapping.columns.displayName, mapping.columns.type, mapping.columns.externalId, mapping.columns.notes, mapping.columns.tags]
+      : mapping.targetKind === "Document"
+        ? [mapping.columns.subjectRef, mapping.columns.documentTypeRef, mapping.columns.hasValidity, mapping.columns.externalId]
+        : [mapping.columns.subjectRef, mapping.columns.name, mapping.columns.notes, mapping.columns.applicability, mapping.columns.externalId];
+  return fields.filter((f): f is string => !!f);
 }
 
 export class ImportService {
@@ -68,6 +118,7 @@ export class ImportService {
   private readonly ids: ImportIdGenerator;
   private readonly signer: UploadUrlSigner;
   private readonly quota: TenantQuotaService;
+  private readonly objectStore: ImportObjectStore | undefined;
   private readonly now: () => string;
   private readonly idempotency: IdempotencyStore;
 
@@ -78,6 +129,7 @@ export class ImportService {
     this.ids = deps.ids;
     this.signer = deps.signer;
     this.quota = deps.quota;
+    this.objectStore = deps.objectStore;
     this.now = deps.now ?? (() => new Date().toISOString());
     const adapter: DynamoLike = {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
@@ -231,6 +283,131 @@ export class ImportService {
     const job = await this.store.get<ImportJob>(importJobKey(ctx.tenant.tenantId, jobId));
     if (!job) throw new NotFoundError("ImportJob not found.", { jobId });
     return job;
+  }
+
+  /**
+   * `GET /import-jobs/{jobId}/schema` (D-192 §3, slice 9) — read-only, allowed only in
+   * `UPLOADED`/`AWAITING_MAPPING` (the two states a client can still submit a mapping into).
+   * Sniffs the raw CSV's header + a small sample so a client can build a mapping UI, alongside
+   * `FIELD_CATALOG`'s per-`targetEntityType` field list. Judgment call vs. the design's literal
+   * 64 KiB `Range` GET: `objectStore.getObject()` fetches the whole object (the module's port is
+   * deliberately small, no Range support — see `ports/import-object-store.ts`) — safe given the
+   * pre-existing 5 MiB file cap (`MAX_IMPORT_FILE_BYTES`), same worst case the parse worker
+   * already reads in full; only the true streaming-Range optimization is deferred, not any
+   * correctness property (header/sample content is byte-identical either way).
+   */
+  async getImportJobSchema(ctx: RequestContext, jobId: string): Promise<ImportJobSchemaResult> {
+    authorize({ context: ctx, action: "import:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const job = await this.store.get<ImportJob>(importJobKey(ctx.tenant.tenantId, jobId));
+    if (!job) throw new NotFoundError("ImportJob not found.", { jobId });
+    if (job.status !== "UPLOADED" && job.status !== "AWAITING_MAPPING") {
+      throw new ConflictError(`ImportJob schema is only readable in UPLOADED/AWAITING_MAPPING (current status: ${job.status}).`, { jobId, status: job.status });
+    }
+    if (!this.objectStore) throw new Error("ImportService.objectStore dependency required for getImportJobSchema().");
+
+    const { headers, sampleRows, objectETag } = await this.readCsvHeaderAndSample(ctx.tenant.tenantId, jobId);
+    return { targetEntityType: job.targetEntityType, fields: FIELD_CATALOG[job.targetEntityType], headers, sampleRows, objectETag };
+  }
+
+  /**
+   * `POST /import-jobs/{jobId}/mapping` (D-192 §3, slice 9). Validates the submitted mapping
+   * against the job's `targetEntityType` (400 on mismatch — defensive per §2, `targetKind` is
+   * never an independent source of truth) and, when the raw file has already arrived, against
+   * its actual CSV headers (a header a client maps to that doesn't exist in the file is a 400,
+   * never silently accepted and only discovered at parse time). Then performs the
+   * `AWAITING_MAPPING`->`PARSING` (or `UPLOADED`->`UPLOADED`, mapping-only) OCC-guarded
+   * transition from `buildImportJobClaim()`, dispatching `SQS_IMPORT_PARSE_V1` in the SAME
+   * `TransactWriteItems` only when the transition actually resolves to `PARSING`.
+   */
+  async submitImportMapping(ctx: RequestContext, jobId: string, mapping: ColumnMapping, expectedVersion: number): Promise<{ status: ImportJob["status"] }> {
+    authorize({ context: ctx, action: "import:map", resource: { tenantId: ctx.tenant.tenantId } });
+    const job = await this.store.get<ImportJob>(importJobKey(ctx.tenant.tenantId, jobId));
+    if (!job) throw new NotFoundError("ImportJob not found.", { jobId });
+    if (job.status !== "UPLOADED" && job.status !== "AWAITING_MAPPING") {
+      throw new ConflictError(`ImportJob mapping can only be submitted in UPLOADED/AWAITING_MAPPING (current status: ${job.status}).`, { jobId, status: job.status });
+    }
+    if (mapping.targetKind !== job.targetEntityType) {
+      throw new ValidationError("columnMapping.targetKind does not match ImportJob.targetEntityType.", { targetKind: mapping.targetKind, targetEntityType: job.targetEntityType });
+    }
+
+    const catalog = FIELD_CATALOG[job.targetEntityType];
+    const columns = mapping.columns as Record<string, string | undefined>;
+    for (const entry of catalog) {
+      if (entry.required && !columns[entry.field]?.trim()) {
+        throw new ValidationError(`columnMapping is missing required field "${entry.field}".`, { field: entry.field });
+      }
+    }
+
+    // Header-vs-file validation only when the raw file has already arrived — per §3, a job can
+    // still be UPLOADED with the file not yet delivered (S3 hasn't confirmed to the backend
+    // synchronously), and this POST must still accept a mapping-only write in that case.
+    let fileHeaders: string[] | undefined;
+    if (this.objectStore) {
+      try {
+        const sniffed = await this.readCsvHeaderAndSample(ctx.tenant.tenantId, jobId);
+        fileHeaders = sniffed.headers;
+      } catch (err) {
+        if (!rawCsvNotYetUploaded(err)) throw err;
+      }
+    }
+    if (fileHeaders) {
+      const normalizedHeaders = new Set(fileHeaders.map((h) => h.trim().toLowerCase()));
+      const referencedHeaderFields = mappingHeaderRefFields(mapping);
+      for (const headerName of referencedHeaderFields) {
+        if (!normalizedHeaders.has(headerName.trim().toLowerCase())) {
+          throw new ValidationError(`columnMapping references a column not present in the uploaded CSV header: "${headerName}".`, { headerName });
+        }
+      }
+    }
+
+    const now = this.now();
+    const columnMappingSha256 = createHash("sha256").update(canonicalJsonStringify(mapping), "utf-8").digest("hex");
+    const toStatus: ImportJob["status"] = job.status === "AWAITING_MAPPING" ? "PARSING" : "UPLOADED";
+
+    const entries: TransactWriteEntry[] = [
+      buildImportJobClaim({
+        tableName: this.tableName,
+        tenantId: ctx.tenant.tenantId,
+        jobId,
+        expectedVersion,
+        fromStatus: job.status,
+        toStatus,
+        set: { columnMapping: mapping, columnMappingSha256, updatedAt: now },
+      }),
+    ];
+
+    if (toStatus === "PARSING") {
+      const event: DomainEvent = {
+        specVersion: "1.0",
+        eventId: randomUUID(),
+        eventType: "ImportMappingSubmitted",
+        source: "expiration-tracker.import-service",
+        occurredAt: now,
+        correlationId: ctx.correlationId,
+        tenantId: ctx.tenant.tenantId,
+        actor: { type: "USER", userId: ctx.principal.userId },
+        aggregate: { type: "ImportJob", id: jobId, version: expectedVersion + 1 },
+        data: { tenantId: ctx.tenant.tenantId, jobId },
+      };
+      appendToTransaction(entries, this.tableName, event, "SQS_IMPORT_PARSE_V1");
+    }
+
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("Failed to submit import mapping under contention.", { jobId });
+      throw err;
+    }
+
+    return { status: toStatus };
+  }
+
+  private async readCsvHeaderAndSample(tenantId: string, jobId: string): Promise<{ headers: string[]; sampleRows: string[][]; objectETag: string }> {
+    if (!this.objectStore) throw new Error("ImportService.objectStore dependency required.");
+    const bytes = await this.objectStore.getObject(this.rawBucket, this.rawObjectKey(tenantId, jobId));
+    const objectETag = createHash("sha256").update(bytes).digest("hex");
+    const { header, rows } = parseCsv(bytes.toString("utf-8"));
+    return { headers: header, sampleRows: rows.slice(0, SAMPLE_ROW_COUNT), objectETag };
   }
 
   async requestCommit(ctx: RequestContext, jobId: string, expectedVersion: number): Promise<void> {

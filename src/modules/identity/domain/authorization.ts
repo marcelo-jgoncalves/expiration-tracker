@@ -48,6 +48,9 @@ export type Action =
   | "import:create"
   | "import:read"
   | "import:commit"
+  // D-192 slice 9: `POST /import-jobs/{jobId}/mapping` — same WRITE_ROLES tier as
+  // `import:commit` (both mutate the job's lifecycle/state machine, never a passive read).
+  | "import:map"
   // B2B-8 (D-099, docs/architecture/multi-user-b2b-wave-b2b8-scope.md): Invitations/Team.
   // Pesquisa (GitHub/Slack/Linear/Notion, 2026-08-30) convergiu em ADMIN-tier-e-acima gerencia
   // membros (nunca MEMBER/VIEWER), e só OWNER promove/demove o próprio tier OWNER (Slack:
@@ -222,6 +225,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "import:create": WRITE_ROLES,
   "import:read": READ_ONLY_ROLES,
   "import:commit": WRITE_ROLES,
+  "import:map": WRITE_ROLES,
   "membership:invite": ADMIN_ROLES,
   "membership:revoke-invitation": ADMIN_ROLES,
   "membership:list-invitations": ADMIN_ROLES,

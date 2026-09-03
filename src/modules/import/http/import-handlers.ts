@@ -8,8 +8,10 @@ import type { RequestContextResolver, ValidatedClaims } from "../../identity/app
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { ImportService, ReserveImportInput } from "../application/import-service.js";
+import type { ColumnMapping } from "../domain/import-job.js";
 
 const RESERVE_IMPORT_SCHEMA_ID = "https://expiration-tracker/schemas/api/reserve-import-request.v1.json";
+const IMPORT_MAPPING_SCHEMA_ID = "https://expiration-tracker/schemas/api/import-mapping-request.v1.json";
 
 async function consumeApiQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
   await quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
@@ -108,6 +110,29 @@ export async function handleGetImportJob(deps: ImportHttpDeps, req: HttpRequest)
     await consumeApiQuota(deps.quota, context);
     const job = await deps.imports.getImportJob(context, jobId);
     return { statusCode: 200, body: { job } };
+  });
+}
+
+export async function handleGetImportJobSchema(deps: ImportHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const jobId = requireJobId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiQuota(deps.quota, context);
+    const schema = await deps.imports.getImportJobSchema(context, jobId);
+    return { statusCode: 200, body: { ...schema } };
+  });
+}
+
+export async function handleSubmitImportMapping(deps: ImportHttpDeps, req: HttpRequest<{ columnMapping: ColumnMapping }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(IMPORT_MAPPING_SCHEMA_ID, req.body);
+    const jobId = requireJobId(req);
+    const expectedVersion = requireExpectedVersion(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiQuota(deps.quota, context);
+    const result = await deps.imports.submitImportMapping(context, jobId, req.body.columnMapping, expectedVersion);
+    return { statusCode: 200, body: { ...result } };
   });
 }
 

@@ -23,12 +23,15 @@ const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
 // actually implemented in this codebase (confirmed during implementation, see outbox.ts's
 // OutboxDestination comment), so this is the only real delivery mechanism available.
 const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
+// D-192 slice 9: fifth destination, same reasoning.
+const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
 if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
 if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
-const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}), chasingQueueUrl, importCommitQueueUrl, materializationTriggerQueueUrl);
+if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
+const deps = buildOutboxRelayDeps(client, tableName, queueUrl, new SQSClient({}), chasingQueueUrl, importCommitQueueUrl, materializationTriggerQueueUrl, importParseQueueUrl);
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {

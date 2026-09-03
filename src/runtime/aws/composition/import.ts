@@ -16,7 +16,11 @@ export function buildImportHttpDeps(client: DynamoDBDocumentClient, tableName: s
   const store = new DynamoDbImportStore(client, tableName);
   const signer = new S3UploadUrlSigner(new S3Client({}));
   const ids = new UlidIdGenerator();
-  const imports = new ImportService({ store, tableName, rawBucket, ids, signer, quota });
+  // D-192 slice 9: getImportJobSchema()/submitImportMapping() read the raw CSV back (header
+  // sniff) - same bucket/object shape the parse worker already reads, via the module's own
+  // small S3 port (never DocumentObjectStore - see ports/import-object-store.ts's header comment).
+  const objectStore = new S3ImportObjectStore(new S3Client({}));
+  const imports = new ImportService({ store, tableName, rawBucket, ids, signer, quota, objectStore });
   return { store, imports };
 }
 
