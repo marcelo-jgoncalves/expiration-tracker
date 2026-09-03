@@ -63,6 +63,12 @@ export interface CommitDocumentVersionUpdate {
   expectedVersion: number;
   effect: DocumentVersionValidityEffect;
   documentId: string;
+  /** D-193 item 6/9: the evidence `DocumentVersion.versionId` (its immutable identity, distinct
+   * from `documentId`+`seq`'s row locator) — threaded into the conditional outbox event's `data`
+   * so `requirement-evidence-refresh-handler.ts` has a `GSI_EVIDENCE` (GSI9) partition key to
+   * discover candidates with. Never anything more than a discovery hint — the worker still
+   * re-reads `DocumentVersion`/`Requirement` fresh rather than trusting any other field here. */
+  versionId: string;
   correlationId: string;
 }
 
@@ -170,6 +176,9 @@ export interface ConfirmFieldForDocumentArchiveInput {
   documentVersionKey: EntityKey;
   documentVersionTenantId: string;
   documentVersionExpectedVersion: number;
+  /** D-193 item 6/9: see `CommitDocumentVersionUpdate.versionId`'s doc comment — same discovery-
+   * hint role in the conditional outbox event's `data`. */
+  documentVersionVersionId: string;
   /** Computed by `planDocumentVersionValidityEffect` — the ONE planner both this manual path and
    * the pipeline's auto-confirm path call, so both apply the identical effect. */
   effect: DocumentVersionValidityEffect;

@@ -191,6 +191,7 @@ async function doConfirmFieldForDocumentArchive(
     documentVersionKey: versionKey,
     documentVersionTenantId: tenantId,
     documentVersionExpectedVersion: params.expectedDocumentVersionVersion,
+    documentVersionVersionId: version.versionId,
     effect,
     tenantId,
     correlationId: params.correlationId,

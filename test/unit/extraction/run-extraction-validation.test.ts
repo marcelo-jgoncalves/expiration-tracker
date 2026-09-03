@@ -465,6 +465,7 @@ describe("commitOrDiscard — document-archive source (D-193 item 3/9 slice 3)",
       expectedVersion: 4,
       effect: { kind: "SET", validUntil: "2027-03-31" },
       documentId: "doc1",
+      versionId: "v1",
       correlationId: "corr-1",
     });
     // Provenance (checklist criterion 6) — set on the same ExtractedField row, same transaction.

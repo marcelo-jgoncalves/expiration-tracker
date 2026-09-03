@@ -91,7 +91,7 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
     const outboxPut: unknown[] = [];
     if (input.documentVersionUpdate && input.documentVersionUpdate.effect.kind === "SET") {
       const dvu = input.documentVersionUpdate;
-      const event: DomainEvent<{ documentId: string; validUntil: string }> = {
+      const event: DomainEvent<{ documentId: string; versionId: string; validUntil: string }> = {
         specVersion: "1.0",
         eventId: randomUUID(),
         eventType: "DocumentVersionValidUntilChanged",
@@ -101,7 +101,10 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
         tenantId: dvu.tenantId,
         actor: { type: "SYSTEM" },
         aggregate: { type: "DocumentVersion", id: `${dvu.key.PK}#${dvu.key.SK}`, version: dvu.expectedVersion + 1 },
-        data: { documentId: dvu.documentId, validUntil: dvu.effect.kind === "SET" ? dvu.effect.validUntil : "" },
+        // `versionId` is a mere discovery hint for requirement-evidence-refresh-handler.ts's
+        // GSI9 query (D-193 item 6/9) — the worker never trusts `validUntil` here, always
+        // re-reads DocumentVersion fresh before acting.
+        data: { documentId: dvu.documentId, versionId: dvu.versionId, validUntil: dvu.effect.kind === "SET" ? dvu.effect.validUntil : "" },
       };
       const tx: TransactWriteEntry[] = [];
       appendToTransaction(tx, this.tableName, event, "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1");
@@ -243,7 +246,7 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
     // deliberately never part of this transaction (async convergence, item 5/9): the outbox row
     // is just a "wake up" for a worker that always re-reads DocumentVersion+Requirement fresh.
     if (input.effect.kind === "SET") {
-      const event: DomainEvent<{ documentId: string; validUntil: string }> = {
+      const event: DomainEvent<{ documentId: string; versionId: string; validUntil: string }> = {
         specVersion: "1.0",
         eventId: randomUUID(),
         eventType: "DocumentVersionValidUntilChanged",
@@ -253,7 +256,9 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
         tenantId: input.tenantId,
         actor: { type: "SYSTEM" },
         aggregate: { type: "DocumentVersion", id: `${input.documentVersionKey.PK}#${input.documentVersionKey.SK}`, version: input.documentVersionExpectedVersion + 1 },
-        data: { documentId: input.documentId, validUntil: input.effect.validUntil },
+        // `versionId` is a mere discovery hint (D-193 item 6/9) — see the commitRunOutcome
+        // branch above's identical comment.
+        data: { documentId: input.documentId, versionId: input.documentVersionVersionId, validUntil: input.effect.validUntil },
       };
       const tx: TransactWriteEntry[] = [];
       appendToTransaction(tx, this.tableName, event, "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1");

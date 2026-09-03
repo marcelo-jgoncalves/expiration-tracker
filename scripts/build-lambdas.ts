@@ -103,6 +103,9 @@ const HANDLERS = [
   // D-166 (DocumentFile GSI5 reconciliation, generalizing UploadSlotReconciliationWorker for
   // D-163's N-files-per-Version pipeline): 15-min EventBridge Scheduler timeout sweep.
   "document-file-reconciliation-handler",
+  // D-193 item 6/9: SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 consumer — always re-reads
+  // DocumentVersion+Requirement fresh, never trusts the wake-up event's payload.
+  "requirement-evidence-refresh-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

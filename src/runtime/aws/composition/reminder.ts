@@ -75,6 +75,12 @@ export function buildOutboxRelayDeps(
   // claim (import-service.ts#submitImportMapping). Same "bare event.data, self-contained"
   // payload shape as SQS_IMPORT_COMMIT_V1 (tenantId embedded, no extra envelope wrapping).
   importParseQueueUrl?: string,
+  // D-193 item 6/9: FIFTH optional sender - `confirmFieldForDocumentArchive`/`commitRunOutcome`
+  // dispatch this destination in the same TWI as `DocumentVersion`'s `validUntil` Update, only
+  // when it actually changed. Same bare-event-data shape as SQS_IMPORT_PARSE_V1 above; the
+  // payload's `validUntil` is a mere wake-up hint - requirement-evidence-refresh-handler.ts
+  // never trusts it, always re-reads DocumentVersion+Requirement fresh.
+  requirementEvidenceRefreshQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -109,6 +115,7 @@ export function buildOutboxRelayDeps(
       ...(chasingQueueUrl ? { SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingQueueUrl) } : {}),
       ...(importCommitQueueUrl ? { SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl) } : {}),
       ...(importParseQueueUrl ? { SQS_IMPORT_PARSE_V1: send(importParseQueueUrl) } : {}),
+      ...(requirementEvidenceRefreshQueueUrl ? { SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
     },
   };

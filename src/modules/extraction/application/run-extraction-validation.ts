@@ -303,7 +303,7 @@ async function buildAutoConfirmDocumentVersionUpdate(
 
   const effect = planDocumentVersionValidityEffect({ fieldName: confirmed.fieldName, confirmedValue: confirmed.confirmedValue, documentVersion: version });
 
-  return { key, tenantId: ctx.tenantId, expectedVersion: version.version, effect, documentId: ctx.documentId, correlationId: ctx.correlationId };
+  return { key, tenantId: ctx.tenantId, expectedVersion: version.version, effect, documentId: ctx.documentId, versionId: version.versionId, correlationId: ctx.correlationId };
 }
 
 export async function persistExtractedFieldsStage(deps: RunExtractionValidationDeps, input: ValidationContext): Promise<ValidationContext> {
