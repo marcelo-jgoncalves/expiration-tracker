@@ -41,6 +41,15 @@ export interface ExtractedField extends EntityKey {
    * §12.5's confirm body carries `confirmedValue` explicitly for this reason). */
   confirmedValue?: string;
   correctionReason?: string;
+  /** D-193 item 4/9 (`estado-final-consolidado.md` checklist criterion 6, "Proveniência sempre
+   * presente, nunca inferida"): who/when actually confirmed this field's value — set atomically
+   * in the SAME transaction that flips `state` to `CONFIRMED`, by BOTH the manual HTTP path
+   * (`confirmedBy` = the confirming principal's userId) and the pipeline's auto-confirm path
+   * (`confirmedBy` = `"SYSTEM_AUTO_CONFIRM"`, a fixed sentinel — never a fabricated userId).
+   * Absent on a field that is still `PENDING_CONFIRMATION`/`REJECTED`, or on any row persisted
+   * before this field existed (historical data, never backfilled). */
+  confirmedBy?: string;
+  confirmedAt?: string;
   documentVersion: number;
   pipelineVersion: string;
   version: number;

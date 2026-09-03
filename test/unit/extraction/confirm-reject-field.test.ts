@@ -95,7 +95,11 @@ class FakeExtractedFieldStore implements ExtractedFieldStore {
     } else if (!this.table.assertVersion(input.itemKey, input.itemExpectedVersion)) {
       return "VERSION_CONFLICT";
     }
-    const ok = this.table.write(input.fieldKey, { state: "CONFIRMED", confirmedValue: input.confirmedValue, updatedAt: input.now }, input.fieldExpectedVersion);
+    const ok = this.table.write(
+      input.fieldKey,
+      { state: "CONFIRMED", confirmedValue: input.confirmedValue, confirmedBy: input.confirmedBy, confirmedAt: input.now, updatedAt: input.now },
+      input.fieldExpectedVersion,
+    );
     return ok ? "COMMITTED" : "VERSION_CONFLICT";
   }
   async rejectField(input: RejectFieldInput): Promise<"COMMITTED" | "VERSION_CONFLICT"> {
@@ -105,6 +109,12 @@ class FakeExtractedFieldStore implements ExtractedFieldStore {
     if (input.correctionReason !== undefined) set["correctionReason"] = input.correctionReason;
     const ok = this.table.write(input.fieldKey, set, input.fieldExpectedVersion);
     return ok ? "COMMITTED" : "VERSION_CONFLICT";
+  }
+  async confirmFieldForDocumentArchive(): Promise<"COMMITTED" | "VERSION_CONFLICT"> {
+    throw new Error("not used");
+  }
+  async rejectFieldForDocumentArchive(): Promise<"COMMITTED" | "VERSION_CONFLICT"> {
+    throw new Error("not used");
   }
 }
 

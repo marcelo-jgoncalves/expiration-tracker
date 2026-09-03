@@ -30,11 +30,14 @@ import { documentKey, type Document } from "../../document/domain/document.js";
 // through the same generic `DocumentReader.get()` (structural, single-table reuse), never a
 // second port.
 import { documentKey as documentArchiveKey, type Document as ArchiveDocument } from "../../document-archive/domain/document.js";
+import { documentVersionKey, type DocumentVersion } from "../../document-archive/domain/document-version.js";
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { buildItemAttributeUpdate, ITEM_ATTRIBUTE_BY_FIELD_NAME } from "./item-field-mapping.js";
+import { planDocumentVersionValidityEffect, DOCUMENT_VERSION_VALIDITY_FIELD_NAME } from "../domain/document-version-validity-effect.js";
+import { SYSTEM_AUTO_CONFIRM_ACTOR } from "./confirm-reject-field-document-archive.js";
 import type { DocumentReader } from "../ports/document-reader.js";
 import type { EntityReader } from "../ports/entity-reader.js";
-import type { CommitItemUpdate } from "../ports/extracted-field-store.js";
+import type { CommitDocumentVersionUpdate, CommitItemUpdate } from "../ports/extracted-field-store.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
 import type { ExtractedFieldStore } from "../ports/extracted-field-store.js";
 import type { ExtractionArtifactRef, OcrArtifactStore } from "../ports/ocr-artifact-store.js";
@@ -166,6 +169,7 @@ async function commitOrDiscard(
   fields: ExtractedField[],
   runStatus: "COMPLETED" | "FAILED",
   itemUpdate?: CommitItemUpdate,
+  documentVersionUpdate?: CommitDocumentVersionUpdate,
 ): Promise<"COMPLETED" | "FAILED" | "DISCARDED"> {
   const now = deps.now?.() ?? new Date().toISOString();
   const runKey = extractionRunKey(ctx.tenantId, ctx.documentId, ctx.runId);
@@ -205,6 +209,7 @@ async function commitOrDiscard(
       documentKey: docKey,
       documentExpectedVersion: doc!.version,
       ...(itemUpdate ? { itemUpdate } : {}),
+      ...(documentVersionUpdate ? { documentVersionUpdate } : {}),
     });
   } catch (err) {
     throw new ExtractionCommitFailedError(`Failed to commit outcome for run ${ctx.runId}.`, { runId: ctx.runId, documentId: ctx.documentId }, err);
@@ -274,6 +279,33 @@ async function buildAutoConfirmItemUpdate(
   return { key, tenantId: ctx.tenantId, expectedVersion: item.version, set };
 }
 
+/**
+ * D-193 item 4/9: the `document-archive` counterpart of `buildAutoConfirmItemUpdate` above —
+ * closes the gap slice 3 left explicitly open (this function's call site's own prior comment:
+ * "stays OLD-path-only in this slice"). Calls the SAME `planDocumentVersionValidityEffect`
+ * planner the manual `confirmFieldForDocumentArchive` path uses (checklist criterion 5: the two
+ * paths must reach the identical `DocumentVersion` effect by construction). `seq` is
+ * `ctx.documentVersion` — the numeric `DocumentVersion` row locator
+ * `start-extraction-run-for-document-archive.ts` already threads through the Step Functions
+ * execution input as this exact field, never re-resolved from `versionId` here.
+ */
+async function buildAutoConfirmDocumentVersionUpdate(
+  deps: RunExtractionValidationDeps,
+  ctx: ValidationContext,
+  fields: readonly ExtractedField[],
+): Promise<CommitDocumentVersionUpdate | undefined> {
+  const confirmed = fields.find((f) => f.state === "CONFIRMED" && f.confirmedValue !== undefined && f.fieldName === DOCUMENT_VERSION_VALIDITY_FIELD_NAME);
+  if (!confirmed || confirmed.confirmedValue === undefined) return undefined;
+
+  const key = documentVersionKey(ctx.tenantId, ctx.documentId, ctx.documentVersion);
+  const version = await deps.documents.get<DocumentVersion>(key, true);
+  if (!version || version.tenantId !== ctx.tenantId) return undefined;
+
+  const effect = planDocumentVersionValidityEffect({ fieldName: confirmed.fieldName, confirmedValue: confirmed.confirmedValue, documentVersion: version });
+
+  return { key, tenantId: ctx.tenantId, expectedVersion: version.version, effect, documentId: ctx.documentId, correlationId: ctx.correlationId };
+}
+
 export async function persistExtractedFieldsStage(deps: RunExtractionValidationDeps, input: ValidationContext): Promise<ValidationContext> {
   const now = deps.now?.() ?? new Date().toISOString();
   const compared = input.comparedFields ?? [];
@@ -294,6 +326,11 @@ export async function persistExtractedFieldsStage(deps: RunExtractionValidationD
       agreement: cf.agreement,
       state: outcome.state,
       confirmedValue: outcome.confirmedValue,
+      // D-193 item 4/9 (checklist criterion 6, provenance "sempre presente, nunca inferida"):
+      // the auto-confirm path's own fixed sentinel — never a fabricated userId — set atomically
+      // together with `state: "CONFIRMED"`, same as the manual path sets `confirmedBy` to the
+      // confirming principal.
+      ...(outcome.state === "CONFIRMED" ? { confirmedBy: SYSTEM_AUTO_CONFIRM_ACTOR, confirmedAt: now } : {}),
       documentVersion: input.documentVersion,
       pipelineVersion: input.pipelineVersion,
       version: 1,
@@ -302,17 +339,17 @@ export async function persistExtractedFieldsStage(deps: RunExtractionValidationD
     };
   });
 
-  // D-193 item 3/9 slice 3: the auto-confirm `ExpirationItem.dueDate` write (W2-01-DECISION)
-  // stays OLD-path-only in this slice — the `document-archive` equivalent effect
-  // (`DocumentVersion.validUntil` via a shared `planDocumentVersionValidityEffect`) is item 4/9
-  // of the approved design, explicitly out of scope here (`estado-final-consolidado.md`).
+  // D-193 item 4/9: the `document-archive` counterpart of the OLD path's auto-confirm
+  // `ExpirationItem.dueDate` write — closes the gap slice 3 left explicitly open. Both branches
+  // are mutually exclusive by construction (a run is sourced from exactly one module).
   const itemUpdate = input.documentSource === "DOCUMENT_ARCHIVE" ? undefined : await buildAutoConfirmItemUpdate(deps, input, fields);
+  const documentVersionUpdate = input.documentSource === "DOCUMENT_ARCHIVE" ? await buildAutoConfirmDocumentVersionUpdate(deps, input, fields) : undefined;
 
   // NEVER deletes the artifact here - PersistExtractedFields runs before the run has reached a
   // terminal state (CompleteRun is the very next state); a retry of this state must still be
   // able to observe the same Document row it read a moment ago, and CompleteRun still needs
   // `input.artifact` intact to know what to delete (design §3).
-  const outcome = await commitOrDiscard(deps, input, fields, "COMPLETED", itemUpdate);
+  const outcome = await commitOrDiscard(deps, input, fields, "COMPLETED", itemUpdate, documentVersionUpdate);
   const requiresReview = outcome === "COMPLETED" && fields.some((f) => f.state === "PENDING_CONFIRMATION");
 
   return { ...input, runOutcome: outcome, requiresReview };

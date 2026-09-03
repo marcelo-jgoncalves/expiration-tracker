@@ -1,64 +1,83 @@
 /**
- * M7 item 8 (`claude-reconciliation-final-design.md` §1.7): the two HTTP confirmation routes —
- * `POST .../fields/{fieldName}/confirm` and `POST .../fields/{fieldName}/reject`. Same shape as
- * `ExpirationService.renewItem` (idempotent via `IdempotencyStore`, transactional via
- * `TransactWriteItems`) — `confirm` is a 4-way OCC (`ExpirationItem`/`Document`/`ExtractionRun`/
- * `ExtractedField`), `reject` is 3-way (never touches `ExpirationItem`).
+ * confirmFieldForDocumentArchive / rejectFieldForDocumentArchive — D-193 item 4/9
+ * (`estado-final-consolidado.md` "Transação de confirmação — cardinalidade fixa, Requirement
+ * nunca dentro dela"): the `document-archive` counterpart of `confirm-reject-field.ts`'s OLD
+ * `document`-module 4-way transaction. Confirm is 3 aggregates / 4 actions (`DocumentVersion`
+ * Update, `ExtractionRun` ConditionCheck, `ExtractedField` Update, `Outbox` Put — the last one
+ * only when `planDocumentVersionValidityEffect` says `validUntil` actually changed). Reject is
+ * 2 aggregates / 2 actions (`ExtractedField` Update, `ExtractionRun` ConditionCheck) and never
+ * touches `DocumentVersion` at all.
  *
- * The `extraction:confirm` authorization action covers BOTH routes (§1.7: "the confirm/reject
- * distinction is an HTTP route distinction, not a separate authorization action").
+ * `Requirement` never appears in either transaction — its convergence is fully asynchronous
+ * (item 5/9, a separate slice not yet built): the conditional outbox row is only ever a
+ * "wake up", never a value carrier.
+ *
+ * `planDocumentVersionValidityEffect` (`../domain/document-version-validity-effect.ts`) is the
+ * ONE planner this file's `doConfirmFieldForDocumentArchive` shares with the pipeline's
+ * auto-confirm path (`run-extraction-validation.ts`'s `persistExtractedFieldsStage`) — checklist
+ * criterion 5: the two paths must reach the identical `DocumentVersion` effect by construction.
+ *
+ * No `ExpirationItem`/OLD-`Document` concept exists on this side (the sibling file's `itemId`
+ * has no equivalent here) — `documentId`+`seq` locate the `DocumentVersion` row directly
+ * (`document-archive/domain/document-version.ts#documentVersionKey`), exactly as
+ * `start-extraction-run-for-document-archive.ts` and `run-extraction-validation.ts` already do
+ * for this same pipeline.
+ *
+ * No HTTP route wires this yet — deferred (the `document-archive` review/confirm UI is a later
+ * slice); this file establishes the mechanism whose shape D-193 item 4/9 fixes.
  */
 import { createHash } from "node:crypto";
 import { BusinessRuleError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { IdempotencyStore } from "../../../shared/idempotency/idempotency.js";
-import { documentKey, type Document } from "../../document/domain/document.js";
-import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
+import { documentVersionKey, type DocumentVersion } from "../../document-archive/domain/document-version.js";
 import { extractionRunKey, type ExtractionRun } from "../domain/extraction-run.js";
 import { extractedFieldKey, type ExtractedField } from "../domain/extracted-field.js";
 import { getFieldSchema } from "../domain/field-schema.js";
 import { isValidFieldValue } from "../domain/validate-field-value.js";
+import { planDocumentVersionValidityEffect } from "../domain/document-version-validity-effect.js";
 import type { EntityReader } from "../ports/entity-reader.js";
 import type { ExtractionRunStore } from "../ports/extraction-run-store.js";
 import type { ExtractedFieldStore } from "../ports/extracted-field-store.js";
-import { buildItemAttributeUpdate } from "./item-field-mapping.js";
 
-export interface ConfirmRejectFieldDeps {
-  documents: EntityReader;
-  items: EntityReader;
+/** Fixed sentinel for the pipeline's auto-confirm path's `confirmedBy` — never a fabricated
+ * userId (`extracted-field.ts`'s own doc comment on the field). Exported so
+ * `run-extraction-validation.ts` uses the exact same literal, never a re-typed copy. */
+export const SYSTEM_AUTO_CONFIRM_ACTOR = "SYSTEM_AUTO_CONFIRM";
+
+export interface ConfirmRejectFieldDocumentArchiveDeps {
+  archive: EntityReader;
   runs: ExtractionRunStore;
   fields: ExtractedFieldStore;
   idempotency: IdempotencyStore;
   now: () => string;
 }
 
-export interface ConfirmFieldParams {
-  itemId: string;
+export interface ConfirmFieldDocumentArchiveParams {
   documentId: string;
+  seq: number;
   runId: string;
   fieldName: string;
-  expectedItemVersion: number;
-  expectedDocumentVersion: number;
+  expectedDocumentVersionVersion: number;
   expectedRunVersion: number;
   expectedFieldVersion: number;
   confirmedValue: string;
+  correlationId: string;
   idempotencyKey: string;
 }
 
-export interface RejectFieldParams {
-  itemId: string;
+export interface RejectFieldDocumentArchiveParams {
   documentId: string;
   runId: string;
   fieldName: string;
-  expectedDocumentVersion: number;
   expectedRunVersion: number;
   expectedFieldVersion: number;
   correctionReason?: string;
   idempotencyKey: string;
 }
 
-async function readField(deps: ConfirmRejectFieldDeps, tenantId: string, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
+async function readField(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
   const field = await deps.fields.get(extractedFieldKey(tenantId, documentId, fieldName, runId));
   if (!field || field.tenantId !== tenantId) {
     throw new NotFoundError("ExtractedField not found.", { documentId, fieldName, runId });
@@ -66,25 +85,18 @@ async function readField(deps: ConfirmRejectFieldDeps, tenantId: string, documen
   return field;
 }
 
-async function readRun(deps: ConfirmRejectFieldDeps, tenantId: string, documentId: string, runId: string) {
+async function readRun(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, runId: string) {
   const key = extractionRunKey(tenantId, documentId, runId);
   const run = await deps.runs.get<ExtractionRun>(key);
   if (!run || run.tenantId !== tenantId) throw new NotFoundError("ExtractionRun not found.", { documentId, runId });
   return { key, run };
 }
 
-async function readDocument(deps: ConfirmRejectFieldDeps, tenantId: string, itemId: string, documentId: string) {
-  const key = documentKey(tenantId, itemId, documentId);
-  const document = await deps.documents.get<Document>(key);
-  if (!document || document.tenantId !== tenantId) throw new NotFoundError("Document not found.", { itemId, documentId });
-  return { key, document };
-}
-
-async function readItem(deps: ConfirmRejectFieldDeps, tenantId: string, itemId: string) {
-  const key = itemKey(tenantId, itemId);
-  const item = await deps.items.get<ExpirationItem>(key);
-  if (!item || item.tenantId !== tenantId) throw new NotFoundError("ExpirationItem not found.", { itemId });
-  return { key, item };
+async function readDocumentVersion(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, seq: number) {
+  const key = documentVersionKey(tenantId, documentId, seq);
+  const version = await deps.archive.get<DocumentVersion>(key);
+  if (!version || version.tenantId !== tenantId) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
+  return { key, version };
 }
 
 function assertVersion(entity: string, expected: number, actual: number, details: Record<string, unknown>): void {
@@ -93,21 +105,24 @@ function assertVersion(entity: string, expected: number, actual: number, details
   }
 }
 
-export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestContext, params: ConfirmFieldParams): Promise<ExtractedField> {
+export async function confirmFieldForDocumentArchive(
+  deps: ConfirmRejectFieldDocumentArchiveDeps,
+  ctx: RequestContext,
+  params: ConfirmFieldDocumentArchiveParams,
+): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
   const tenantId = ctx.tenant.tenantId;
-  const operation = "extraction.confirmField";
+  const operation = "extraction.confirmFieldForDocumentArchive";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
     .update(
       JSON.stringify({
-        itemId: params.itemId,
         documentId: params.documentId,
+        seq: params.seq,
         runId: params.runId,
         fieldName: params.fieldName,
-        expectedItemVersion: params.expectedItemVersion,
-        expectedDocumentVersion: params.expectedDocumentVersion,
+        expectedDocumentVersionVersion: params.expectedDocumentVersionVersion,
         expectedRunVersion: params.expectedRunVersion,
         expectedFieldVersion: params.expectedFieldVersion,
         confirmedValue: params.confirmedValue,
@@ -122,7 +137,7 @@ export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestCon
   }
 
   try {
-    const outcome = await doConfirmField(deps, tenantId, params, ctx.principal.userId);
+    const outcome = await doConfirmFieldForDocumentArchive(deps, tenantId, ctx.principal.userId, params);
     await deps.idempotency.complete({ tenantId, operation, key, responseRef: params.fieldName });
     return outcome;
   } catch (err) {
@@ -131,16 +146,19 @@ export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestCon
   }
 }
 
-async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, params: ConfirmFieldParams, confirmedBy: string): Promise<ExtractedField> {
+async function doConfirmFieldForDocumentArchive(
+  deps: ConfirmRejectFieldDocumentArchiveDeps,
+  tenantId: string,
+  confirmedBy: string,
+  params: ConfirmFieldDocumentArchiveParams,
+): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);
   const { key: runKey, run } = await readRun(deps, tenantId, params.documentId, params.runId);
-  const { key: documentKeyResolved, document } = await readDocument(deps, tenantId, params.itemId, params.documentId);
-  const { key: itemKeyResolved, item } = await readItem(deps, tenantId, params.itemId);
+  const { key: versionKey, version } = await readDocumentVersion(deps, tenantId, params.documentId, params.seq);
 
   assertVersion("ExtractedField", params.expectedFieldVersion, field.version, { fieldName: params.fieldName });
   assertVersion("ExtractionRun", params.expectedRunVersion, run.version, { runId: params.runId });
-  assertVersion("Document", params.expectedDocumentVersion, document.version, { documentId: params.documentId });
-  assertVersion("ExpirationItem", params.expectedItemVersion, item.version, { itemId: params.itemId });
+  assertVersion("DocumentVersion", params.expectedDocumentVersionVersion, version.version, { documentId: params.documentId, seq: params.seq });
 
   if (field.state !== "PENDING_CONFIRMATION") {
     throw new BusinessRuleError(`ExtractedField is not pending confirmation (state=${field.state}).`, { fieldName: params.fieldName, state: field.state });
@@ -156,23 +174,13 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
   }
 
   const now = deps.now();
-  // Same helper the pipeline's auto-confirm path uses (item-field-mapping.ts) — the two paths
-  // must produce an identical item-side effect (W2-01-DECISION).
-  const itemUpdate = buildItemAttributeUpdate({
-    tenantId,
-    itemId: params.itemId,
-    itemStatus: item.status,
-    fieldName: field.fieldName,
-    confirmedValue: params.confirmedValue,
-  });
 
-  const outcome = await deps.fields.confirmField({
-    // MUST be the bare {PK,SK} key, never the whole `field` entity: `buildVersionedUpdate`
-    // passes this straight through as the DynamoDB `Key`, and any extra attribute makes the
-    // real service reject the transact item with "The provided key element does not match the
-    // schema" — surfaced as a TransactionCanceledException and mis-mapped to a permanent HTTP
-    // 409. Both routes were 100% broken against a real table until 2026-08-27; the in-memory
-    // fakes in the unit tests ignore extra key attributes, which is why they never caught it.
+  // The ONE planner shared with the pipeline's auto-confirm path (`run-extraction-validation.ts`)
+  // — both compute the identical DocumentVersion effect from identical inputs.
+  const effect = planDocumentVersionValidityEffect({ fieldName: field.fieldName, confirmedValue: params.confirmedValue, documentVersion: version });
+
+  const outcome = await deps.fields.confirmFieldForDocumentArchive({
+    documentId: params.documentId,
     fieldKey: extractedFieldKey(tenantId, params.documentId, params.fieldName, params.runId),
     fieldTenantId: tenantId,
     fieldExpectedVersion: params.expectedFieldVersion,
@@ -180,18 +188,17 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
     confirmedBy,
     runKey,
     runExpectedVersion: params.expectedRunVersion,
-    documentKey: documentKeyResolved,
-    documentExpectedVersion: params.expectedDocumentVersion,
-    itemKey: itemKeyResolved,
-    itemTenantId: tenantId,
-    itemExpectedVersion: params.expectedItemVersion,
-    itemUpdate,
+    documentVersionKey: versionKey,
+    documentVersionTenantId: tenantId,
+    documentVersionExpectedVersion: params.expectedDocumentVersionVersion,
+    effect,
+    tenantId,
+    correlationId: params.correlationId,
     now,
   });
 
   if (outcome === "VERSION_CONFLICT") {
-    throw new ConflictError("Version conflict while confirming field — one of item/document/run/field changed concurrently.", {
-      itemId: params.itemId,
+    throw new ConflictError("Version conflict while confirming field — one of run/documentVersion/field changed concurrently.", {
       documentId: params.documentId,
       runId: params.runId,
       fieldName: params.fieldName,
@@ -201,20 +208,22 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
   return { ...field, state: "CONFIRMED", confirmedValue: params.confirmedValue, confirmedBy, confirmedAt: now, version: field.version + 1, updatedAt: now };
 }
 
-export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestContext, params: RejectFieldParams): Promise<ExtractedField> {
+export async function rejectFieldForDocumentArchive(
+  deps: ConfirmRejectFieldDocumentArchiveDeps,
+  ctx: RequestContext,
+  params: RejectFieldDocumentArchiveParams,
+): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
   const tenantId = ctx.tenant.tenantId;
-  const operation = "extraction.rejectField";
+  const operation = "extraction.rejectFieldForDocumentArchive";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
     .update(
       JSON.stringify({
-        itemId: params.itemId,
         documentId: params.documentId,
         runId: params.runId,
         fieldName: params.fieldName,
-        expectedDocumentVersion: params.expectedDocumentVersion,
         expectedRunVersion: params.expectedRunVersion,
         expectedFieldVersion: params.expectedFieldVersion,
         correctionReason: params.correctionReason ?? null,
@@ -229,7 +238,7 @@ export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestCont
   }
 
   try {
-    const outcome = await doRejectField(deps, tenantId, params);
+    const outcome = await doRejectFieldForDocumentArchive(deps, tenantId, params);
     await deps.idempotency.complete({ tenantId, operation, key, responseRef: params.fieldName });
     return outcome;
   } catch (err) {
@@ -238,36 +247,35 @@ export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestCont
   }
 }
 
-async function doRejectField(deps: ConfirmRejectFieldDeps, tenantId: string, params: RejectFieldParams): Promise<ExtractedField> {
+async function doRejectFieldForDocumentArchive(
+  deps: ConfirmRejectFieldDocumentArchiveDeps,
+  tenantId: string,
+  params: RejectFieldDocumentArchiveParams,
+): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);
   const { key: runKey, run } = await readRun(deps, tenantId, params.documentId, params.runId);
-  const { key: documentKeyResolved, document } = await readDocument(deps, tenantId, params.itemId, params.documentId);
 
   assertVersion("ExtractedField", params.expectedFieldVersion, field.version, { fieldName: params.fieldName });
   assertVersion("ExtractionRun", params.expectedRunVersion, run.version, { runId: params.runId });
-  assertVersion("Document", params.expectedDocumentVersion, document.version, { documentId: params.documentId });
 
   if (field.state !== "PENDING_CONFIRMATION") {
     throw new BusinessRuleError(`ExtractedField is not pending confirmation (state=${field.state}).`, { fieldName: params.fieldName, state: field.state });
   }
 
   const now = deps.now();
-  const outcome = await deps.fields.rejectField({
-    // Bare {PK,SK} only — see the identical note in doConfirmField above.
+  // 2 aggregates / 2 actions — DocumentVersion is never referenced, not even a ConditionCheck.
+  const outcome = await deps.fields.rejectFieldForDocumentArchive({
     fieldKey: extractedFieldKey(tenantId, params.documentId, params.fieldName, params.runId),
     fieldTenantId: tenantId,
     fieldExpectedVersion: params.expectedFieldVersion,
     correctionReason: params.correctionReason,
     runKey,
     runExpectedVersion: params.expectedRunVersion,
-    documentKey: documentKeyResolved,
-    documentExpectedVersion: params.expectedDocumentVersion,
     now,
   });
 
   if (outcome === "VERSION_CONFLICT") {
-    throw new ConflictError("Version conflict while rejecting field — one of document/run/field changed concurrently.", {
-      itemId: params.itemId,
+    throw new ConflictError("Version conflict while rejecting field — run or field changed concurrently.", {
       documentId: params.documentId,
       runId: params.runId,
       fieldName: params.fieldName,

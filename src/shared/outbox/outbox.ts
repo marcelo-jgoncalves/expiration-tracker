@@ -38,7 +38,17 @@ export type OutboxDestination =
    * `parseImportJob()`/`import-parse-handler.ts` the S3-event trigger already uses — the two
    * triggers are discriminated only by envelope shape in the Lambda handler, never inside the
    * pure function, per the design. */
-  | "SQS_IMPORT_PARSE_V1";
+  | "SQS_IMPORT_PARSE_V1"
+  /** D-193 item 4/9 (`estado-final-consolidado.md` "Transação de confirmação"): written in the
+   * SAME `TransactWriteItems` as `confirmFieldForDocumentArchive`'s `DocumentVersion` Update,
+   * ONLY when `planDocumentVersionValidityEffect` says `validUntil` actually changed — never
+   * unconditionally. The queue/route/worker that consumes this destination
+   * (`requirement-evidence-refresh-handler.ts`, a new `GSI_EVIDENCE` reverse index) is D-193
+   * item 5/9, a separate slice not yet built — this destination value exists now so the outbox
+   * row already carries its final routing discriminator, with nothing downstream wired to it
+   * yet (the row simply waits, same "written before its consumer exists" pattern this file's
+   * own history has no precedent needing — first use of a destination pre-dating its consumer). */
+  | "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1";
 
 export interface OutboxRecord {
   PK: string;
