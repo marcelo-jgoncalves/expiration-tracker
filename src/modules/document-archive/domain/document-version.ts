@@ -20,6 +20,8 @@
  * (via WITHDRAWN, before it ever became evidence).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
 
 export type DocumentVersionState = "DRAFT" | "RECEIVED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN";
 
@@ -156,4 +158,25 @@ export function isTerminalDocumentVersionState(state: DocumentVersionState): boo
 /** Decision 6/Bloqueador 9 gate for `acceptVersion` — both counters must be zero. */
 export function hasCleanFileScans(version: Pick<DocumentVersion, "pendingFileScans" | "infectedFileScans">): boolean {
   return version.pendingFileScans === 0 && version.infectedFileScans === 0;
+}
+
+/**
+ * D-194 fatia 1: `UnifiedValidityState` adapter. `DRAFT` is excluded (`undefined`) — it is not a
+ * pending review, just an in-progress upload. `RECEIVED`/`UNDER_REVIEW` -> `AGUARDANDO_REVISAO`.
+ * `REJECTED`/`WITHDRAWN`/`SUPERSEDED` are terminal-but-not-current -> excluded. `ACCEPTED`
+ * delegates to `deriveValidityStateFromExpiry` (PERMANENTE/VALIDO/VENCENDO/VENCIDO, the only
+ * state here that can genuinely be expired). Not consumed by any search mode in this phase (no
+ * mode searches `Document`/`DocumentVersion` directly) — exists for a future detail-view use per
+ * the design doc.
+ */
+export function deriveDocumentVersionValidityState(version: Pick<DocumentVersion, "state" | "validUntil">, now: Date): UnifiedValidityState | undefined {
+  switch (version.state) {
+    case "RECEIVED":
+    case "UNDER_REVIEW":
+      return "AGUARDANDO_REVISAO";
+    case "ACCEPTED":
+      return deriveValidityStateFromExpiry(version.validUntil, now);
+    default:
+      return undefined;
+  }
 }

@@ -10,10 +10,38 @@ import {
   documentVersionKey,
   reviewQueueGsi5Keys,
   versionLookupGsi5Keys,
+  deriveDocumentVersionValidityState,
   type DocumentVersionState,
 } from "../../../src/modules/document-archive/domain/document-version.js";
 
 const ALL_STATES: DocumentVersionState[] = ["DRAFT", "RECEIVED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "SUPERSEDED", "WITHDRAWN"];
+const NOW = new Date("2026-09-03T00:00:00.000Z");
+
+describe("deriveDocumentVersionValidityState (D-194 fatia 1)", () => {
+  it.each(["DRAFT", "REJECTED", "SUPERSEDED", "WITHDRAWN"] as const)("excludes state %s (undefined)", (state) => {
+    expect(deriveDocumentVersionValidityState({ state, validUntil: undefined }, NOW)).toBeUndefined();
+  });
+
+  it.each(["RECEIVED", "UNDER_REVIEW"] as const)("state %s -> AGUARDANDO_REVISAO", (state) => {
+    expect(deriveDocumentVersionValidityState({ state, validUntil: undefined }, NOW)).toBe("AGUARDANDO_REVISAO");
+  });
+
+  it("ACCEPTED with no validUntil -> PERMANENTE", () => {
+    expect(deriveDocumentVersionValidityState({ state: "ACCEPTED", validUntil: undefined }, NOW)).toBe("PERMANENTE");
+  });
+
+  it("ACCEPTED with a future validUntil beyond the soon window -> VALIDO", () => {
+    expect(deriveDocumentVersionValidityState({ state: "ACCEPTED", validUntil: "2027-01-01T00:00:00.000Z" }, NOW)).toBe("VALIDO");
+  });
+
+  it("ACCEPTED within the soon window -> VENCENDO", () => {
+    expect(deriveDocumentVersionValidityState({ state: "ACCEPTED", validUntil: "2026-09-05T00:00:00.000Z" }, NOW)).toBe("VENCENDO");
+  });
+
+  it("ACCEPTED with a past validUntil -> VENCIDO", () => {
+    expect(deriveDocumentVersionValidityState({ state: "ACCEPTED", validUntil: "2026-01-01T00:00:00.000Z" }, NOW)).toBe("VENCIDO");
+  });
+});
 
 describe("DocumentVersion state machine (D-143 Decision 1)", () => {
   it.each([

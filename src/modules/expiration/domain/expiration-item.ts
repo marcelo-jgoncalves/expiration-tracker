@@ -7,6 +7,8 @@
  * ACTIVE item is created with `renewedFromId` pointing at the source).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
 
 export type ExpirationItemStatus = "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
 
@@ -89,6 +91,18 @@ export interface UpdateItemInput {
   assigneeUserId?: string;
   tags?: string[];
   priority?: string;
+}
+
+/**
+ * D-194 fatia 1: `UnifiedValidityState` adapter. Only `ACTIVE` has a validity to present —
+ * `ARCHIVED`/`RENEWED`/`DELETED` are excluded (`undefined`), never a `PERMANENTE`/`VENCIDO` that
+ * would misrepresent a non-current item. `dueDate` is always present on this aggregate (unlike
+ * `Requirement`'s optional `evidenceValidUntil`), so `PERMANENTE` never occurs here in practice —
+ * `deriveValidityStateFromExpiry` stays the shared entry point regardless.
+ */
+export function deriveExpirationItemValidityState(item: Pick<ExpirationItem, "status" | "dueDate">, now: Date): UnifiedValidityState | undefined {
+  if (item.status !== "ACTIVE") return undefined;
+  return deriveValidityStateFromExpiry(item.dueDate, now);
 }
 
 export interface RenewItemInput {

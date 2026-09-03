@@ -24,7 +24,10 @@
  * 7-day window means the same thing across both domains, without a second persisted state.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
+import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
 import type { DocumentVersionState } from "./document-version.js";
+import { isTerminalDocumentVersionState } from "./document-version.js";
 
 /** Persisted fact — never derived (Decision 5). */
 export type RequirementApplicability = "APPLICABLE" | "NOT_APPLICABLE";
@@ -202,6 +205,38 @@ export function isRequirementExpiringSoon(status: RequirementStatus, validUntil:
   if (status !== "SATISFIED" || !validUntil) return false;
   const daysUntil = Math.ceil((new Date(validUntil).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   return daysUntil >= 0 && daysUntil <= EXPIRING_SOON_THRESHOLD_DAYS;
+}
+
+/**
+ * D-194 fatia 1: `UnifiedValidityState` adapter — the 8-line table from
+ * `estado-final-consolidado.md` covering every real `status`x`evidenceState` combination
+ * `deriveRequirementStatus` can produce. `NOT_APPLICABLE`/`MISSING` have no validity to present
+ * (`undefined`); `PENDING` with evidence still mid-flow (not yet a terminal
+ * `DocumentVersionState`) -> `AGUARDANDO_REVISAO`, but `PENDING` with a terminal-but-not-accepted
+ * evidence (REJECTED/WITHDRAWN/SUPERSEDED — states `deriveRequirementStatus` stays total for but
+ * that should never realistically be the CURRENT evidence pointer) is excluded (`undefined`)
+ * rather than misrepresented as "awaiting review"; `SATISFIED` delegates to
+ * `deriveValidityStateFromExpiry` (PERMANENTE/VALIDO/VENCENDO, never VENCIDO here — the
+ * derivation invariant guarantees `evidenceValidUntil` is absent or still `>= now` whenever
+ * `status === "SATISFIED"`); `NOT_SATISFIED` -> `VENCIDO` directly, no date math needed.
+ */
+export function deriveRequirementValidityState(
+  requirement: Pick<Requirement, "status" | "evidenceState" | "evidenceValidUntil">,
+  now: Date,
+): UnifiedValidityState | undefined {
+  switch (requirement.status) {
+    case "NOT_APPLICABLE":
+    case "MISSING":
+      return undefined;
+    case "PENDING":
+      return requirement.evidenceState !== undefined && !isTerminalDocumentVersionState(requirement.evidenceState)
+        ? "AGUARDANDO_REVISAO"
+        : undefined;
+    case "SATISFIED":
+      return deriveValidityStateFromExpiry(requirement.evidenceValidUntil, now);
+    case "NOT_SATISFIED":
+      return "VENCIDO";
+  }
 }
 
 /** GSI8 namespace for `requirement-reindex` (D-179/D-185, 4th of 9 MaintenanceDueIndex
