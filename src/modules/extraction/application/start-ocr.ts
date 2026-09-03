@@ -6,7 +6,7 @@
  * `SendTaskSuccess` — on a clean return the Step Functions execution stays parked on the task
  * token until `completeOcr` (a LATER, separate SQS-triggered invocation) resolves it.
  */
-import { classifyDocumentType } from "../domain/document-classifier.js";
+import { classifyDocumentType } from "../domain/document-format-classifier.js";
 import {
   deriveTextractClientRequestToken,
   computeTextractJobTtl,

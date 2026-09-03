@@ -203,7 +203,7 @@ export async function startExtractionRunForDocumentArchive(
       pipelineVersion,
       correlationId: input.correlationId,
       cleanObject: input.observedCleanObject,
-      // RunTextract's classifier (`document-classifier.ts`) needs SOME signal to pick a
+      // RunTextract's classifier (`document-format-classifier.ts`) needs SOME signal to pick a
       // Textract call - DocumentFile carries no `fileName` (real gap this slice found, not
       // invented away). Passing "" never fabricates an identity: `classifyByExtension("")`
       // yields no match by construction, so the classifier's own fallback chain lands on

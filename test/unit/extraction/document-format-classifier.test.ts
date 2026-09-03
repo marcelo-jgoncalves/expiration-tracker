@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyDocumentType } from "../../../src/modules/extraction/domain/document-classifier.js";
+import { classifyDocumentType } from "../../../src/modules/extraction/domain/document-format-classifier.js";
 
 describe("classifyDocumentType", () => {
   it("classifies a PDF by magic bytes", () => {
