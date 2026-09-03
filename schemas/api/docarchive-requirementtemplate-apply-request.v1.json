@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json",
+  "title": "DocArchiveRequirementTemplateApplyRequest v1",
+  "description": "POST /document-archive/requirement-templates/{templateId}/apply request body. expectedTemplateVersion is OPTIONAL: when supplied (from a preview) it is what the transaction's ConditionCheck fences on, so an apply can never materialize a plan the template moved out from under; when absent the version read by the apply itself is used. P0.1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subjectId"
+  ],
+  "properties": {
+    "subjectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "expectedTemplateVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

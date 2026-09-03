@@ -118,6 +118,17 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "PATCH", pathTemplate: "/document-archive/document-types/{documentTypeId}" },
   { method: "POST", pathTemplate: "/document-archive/document-types/{documentTypeId}/deprecate" },
   { method: "POST", pathTemplate: "/document-archive/document-types/{documentTypeId}/reactivate" },
+  // RequirementTemplate (P0.1) — D-117/D-120/D-178 discipline: a route wired in Terraform but
+  // absent here is a Lambda nothing can reach through the BFF.
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates" },
+  { method: "GET", pathTemplate: "/document-archive/requirement-templates" },
+  { method: "GET", pathTemplate: "/document-archive/requirement-templates/{templateId}" },
+  { method: "PATCH", pathTemplate: "/document-archive/requirement-templates/{templateId}" },
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/duplicate" },
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/archive" },
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/unarchive" },
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/preview" },
+  { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/apply" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

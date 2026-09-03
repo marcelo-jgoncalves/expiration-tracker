@@ -60,4 +60,24 @@ describe("proxy-allowlist", () => {
   it("matches the DocumentVersion reserveFiles route closed for D-178", () => {
     expect(matchAllowlistedRoute("POST", "/document-archive/documents/doc-1/versions/1/files")).toBeDefined();
   });
+
+  // P0.1 (RequirementTemplate): all 9 routes wired in infra/modules/api-gateway/main.tf must be
+  // reachable through the BFF. A route present in Terraform but missing here is a Lambda nothing
+  // can call - the exact D-117/D-120/D-178 gap class, asserted at the time of writing instead of
+  // being found by a later session.
+  it("matches every RequirementTemplate route (P0.1)", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/document-archive/requirement-templates")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/document-archive/requirement-templates/tpl-1")).toBeDefined();
+    expect(matchAllowlistedRoute("PATCH", "/document-archive/requirement-templates/tpl-1")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates/tpl-1/duplicate")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates/tpl-1/archive")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates/tpl-1/unarchive")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates/tpl-1/preview")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirement-templates/tpl-1/apply")).toBeDefined();
+  });
+
+  it("does not allowlist a RequirementTemplate route that does not exist in Terraform", () => {
+    expect(matchAllowlistedRoute("DELETE", "/document-archive/requirement-templates/tpl-1")).toBeUndefined();
+  });
 });

@@ -13,4 +13,9 @@ export interface DocumentArchiveIdGenerator {
   newFileId(): string;
   /** D-173 (`DocumentType` catalog). */
   newDocumentTypeId(): string;
+  /** P0.1 (`RequirementTemplate`). */
+  newRequirementTemplateId(): string;
+  /** P0.1 — one per template item. A DUPLICATE mints fresh ones (a copy is an independent
+   * template, never an alias). */
+  newRequirementTemplateItemId(): string;
 }

@@ -41,6 +41,8 @@ function makeIds() {
     newDocumentRequestId: () => `docreq-${++idCounter}`,
     newFileId: () => `file-${++idCounter}`,
     newDocumentTypeId: () => `doctype-${++idCounter}`,
+  newRequirementTemplateId: () => "reqtpl_test",
+  newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
   };
 }
 

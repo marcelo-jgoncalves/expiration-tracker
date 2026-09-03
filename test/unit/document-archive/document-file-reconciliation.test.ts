@@ -25,6 +25,8 @@ function ids(): DocumentArchiveIdGenerator {
     newDocumentRequestId: () => `dr-${++n}`,
     newFileId: () => `file-${++n}`,
     newDocumentTypeId: () => `doctype-${++n}`,
+  newRequirementTemplateId: () => "reqtpl_test",
+  newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
   };
 }
 

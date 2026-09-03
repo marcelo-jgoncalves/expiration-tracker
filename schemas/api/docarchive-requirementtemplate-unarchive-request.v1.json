@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-unarchive-request.v1.json",
+  "title": "DocArchiveRequirementTemplateUnarchiveRequest v1",
+  "description": "POST /document-archive/requirement-templates/{templateId}/unarchive request body - OCC guard only. P0.1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "expectedVersion"
+  ],
+  "properties": {
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

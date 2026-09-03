@@ -1231,4 +1231,66 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/list-activity-request.v1.json", { bogus: "x" });
     expect(valid).toBe(false);
   });
+
+  // P0.1 (RequirementTemplate).
+  it("accepts a valid docarchive-requirementtemplate-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json", { displayName: "Regularidade básica", items: [{ name: "CND Federal" }, { name: "Alvará", notes: "anual", applicability: "NOT_APPLICABLE" }] });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a requirementtemplate-create with zero items (an empty template has nothing to apply)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json", { displayName: "T", items: [] });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a requirementtemplate-create with more items than MAX_TEMPLATE_ITEMS (transaction-budget cap)", () => {
+    const items = Array.from({ length: 31 }, (_, i) => ({ name: `Item ${i}` }));
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json", { displayName: "T", items });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a requirementtemplate-create item with an unknown applicability", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json", { displayName: "T", items: [{ name: "X", applicability: "MAYBE" }] });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a requirementtemplate-update carrying only the OCC guard", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-update-request.v1.json", { expectedVersion: 3 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a requirementtemplate-update missing expectedVersion (no OCC guard otherwise)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-update-request.v1.json", { displayName: "X" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid requirementtemplate-duplicate request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-duplicate-request.v1.json", { displayName: "Cópia" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts requirementtemplate-archive/unarchive with the OCC guard and rejects them without it", () => {
+    for (const op of ["archive", "unarchive"]) {
+      expect(registry.validate(`https://expiration-tracker/schemas/api/docarchive-requirementtemplate-${op}-request.v1.json`, { expectedVersion: 2 }).valid).toBe(true);
+      expect(registry.validate(`https://expiration-tracker/schemas/api/docarchive-requirementtemplate-${op}-request.v1.json`, {}).valid).toBe(false);
+    }
+  });
+
+  it("accepts a valid requirementtemplate-preview request and rejects one without subjectId", () => {
+    expect(registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json", { subjectId: "subject-1" }).valid).toBe(true);
+    expect(registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json", {}).valid).toBe(false);
+  });
+
+  it("accepts a requirementtemplate-apply with and without the optional expectedTemplateVersion", () => {
+    expect(registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json", { subjectId: "subject-1" }).valid).toBe(true);
+    expect(registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json", { subjectId: "subject-1", expectedTemplateVersion: 4 }).valid).toBe(true);
+  });
+
+  it("rejects a requirementtemplate-apply with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json", { subjectId: "s", bogus: true });
+    expect(valid).toBe(false);
+  });
 });

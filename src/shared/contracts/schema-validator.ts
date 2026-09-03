@@ -80,6 +80,13 @@ import docarchiveDocumentTypeCreateRequestV1 from "../../../schemas/api/docarchi
 import docarchiveDocumentTypeRenameRequestV1 from "../../../schemas/api/docarchive-documenttype-rename-request.v1.json";
 import docarchiveDocumentTypeDeprecateRequestV1 from "../../../schemas/api/docarchive-documenttype-deprecate-request.v1.json";
 import docarchiveDocumentTypeReactivateRequestV1 from "../../../schemas/api/docarchive-documenttype-reactivate-request.v1.json";
+import docarchiveRequirementTemplateCreateRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-create-request.v1.json";
+import docarchiveRequirementTemplateUpdateRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-update-request.v1.json";
+import docarchiveRequirementTemplateDuplicateRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-duplicate-request.v1.json";
+import docarchiveRequirementTemplateArchiveRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-archive-request.v1.json";
+import docarchiveRequirementTemplateUnarchiveRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-unarchive-request.v1.json";
+import docarchiveRequirementTemplatePreviewRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
+import docarchiveRequirementTemplateApplyRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
 // D-149 (Admin Activity/Audit Log view).
 import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1.json";
 
@@ -192,5 +199,12 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveDocumentTypeRenameRequestV1,
   docarchiveDocumentTypeDeprecateRequestV1,
   docarchiveDocumentTypeReactivateRequestV1,
+  docarchiveRequirementTemplateCreateRequestV1,
+  docarchiveRequirementTemplateUpdateRequestV1,
+  docarchiveRequirementTemplateDuplicateRequestV1,
+  docarchiveRequirementTemplateArchiveRequestV1,
+  docarchiveRequirementTemplateUnarchiveRequestV1,
+  docarchiveRequirementTemplatePreviewRequestV1,
+  docarchiveRequirementTemplateApplyRequestV1,
   listActivityRequestV1,
 ]);

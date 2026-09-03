@@ -84,6 +84,13 @@ export class UlidIdGenerator
   newDocumentTypeId(): string {
     return `doctype_${ulid()}`;
   }
+  /** P0.1 (`RequirementTemplate`) — opaque, immutable, never reused. */
+  newRequirementTemplateId(): string {
+    return `reqtpl_${ulid()}`;
+  }
+  newRequirementTemplateItemId(): string {
+    return `reqtplitem_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

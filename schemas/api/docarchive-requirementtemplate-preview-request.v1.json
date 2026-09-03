@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json",
+  "title": "DocArchiveRequirementTemplatePreviewRequest v1",
+  "description": "POST /document-archive/requirement-templates/{templateId}/preview request body. POST rather than GET because it carries subjectId and is a computation, not an addressable resource - and so it shares its shape with apply. P0.1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subjectId"
+  ],
+  "properties": {
+    "subjectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

@@ -528,6 +528,18 @@ locals {
     rename_document_type     = { method = "PATCH", path = "/document-archive/document-types/{documentTypeId}" }
     deprecate_document_type  = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/deprecate" }
     reactivate_document_type = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/reactivate" }
+
+    # P0.1 (RequirementTemplate) - same Lambda. preview/apply are POST because both carry a
+    # subjectId body and are computations, not addressable resources.
+    create_requirement_template    = { method = "POST", path = "/document-archive/requirement-templates" }
+    list_requirement_templates     = { method = "GET", path = "/document-archive/requirement-templates" }
+    get_requirement_template       = { method = "GET", path = "/document-archive/requirement-templates/{templateId}" }
+    update_requirement_template    = { method = "PATCH", path = "/document-archive/requirement-templates/{templateId}" }
+    duplicate_requirement_template = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/duplicate" }
+    archive_requirement_template   = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/archive" }
+    unarchive_requirement_template = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/unarchive" }
+    preview_requirement_template   = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/preview" }
+    apply_requirement_template     = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/apply" }
   }
 }
 

@@ -19,6 +19,7 @@ import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-
 import type { CreateRequirementInput, UpdateRequirementInput } from "../domain/requirement.js";
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
 import type { CreateDocumentTypeInput, DocumentType } from "../domain/document-type.js";
+import type { CreateRequirementTemplateInput, RequirementTemplate, UpdateRequirementTemplateInput } from "../domain/requirement-template.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -46,6 +47,13 @@ const DOCUMENTTYPE_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/do
 const DOCUMENTTYPE_RENAME_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json";
 const DOCUMENTTYPE_DEPRECATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json";
 const DOCUMENTTYPE_REACTIVATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-reactivate-request.v1.json";
+const REQTEMPLATE_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-create-request.v1.json";
+const REQTEMPLATE_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-update-request.v1.json";
+const REQTEMPLATE_DUPLICATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-duplicate-request.v1.json";
+const REQTEMPLATE_ARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-archive-request.v1.json";
+const REQTEMPLATE_UNARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-unarchive-request.v1.json";
+const REQTEMPLATE_PREVIEW_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
+const REQTEMPLATE_APPLY_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -467,6 +475,137 @@ export async function handleReactivateDocumentType(deps: DocumentArchiveHttpDeps
     const context = await resolve(deps, req);
     const documentType = await deps.documentArchive.reactivateDocumentType(context, documentTypeId, req.body.expectedVersion);
     return { statusCode: 200, body: { documentType } };
+  });
+}
+
+// --- RequirementTemplate catalog (P0.1) -----------------------------------------------------
+// Same pipeline as the DocumentType routes above (resolve context -> schema validation ->
+// service, which authorizes internally -> AppError -> status mapping). Every mutation consumes
+// the same API_REQUEST quota as every other business write in this module.
+
+function requireTemplateId(req: HttpRequest): string {
+  const templateId = req.pathParameters?.["templateId"];
+  if (!templateId) throw new ValidationError("Missing templateId path parameter.");
+  return templateId;
+}
+
+function requireTemplateStatus(req: HttpRequest): RequirementTemplate["status"] {
+  const raw = req.queryStringParameters?.["status"] ?? "ACTIVE";
+  if (raw !== "ACTIVE" && raw !== "ARCHIVED") {
+    throw new ValidationError("Invalid status query parameter (expected ACTIVE or ARCHIVED).", { status: raw });
+  }
+  return raw;
+}
+
+export async function handleCreateRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest<CreateRequirementTemplateInput>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const template = await deps.documentArchive.createRequirementTemplate(context, req.body);
+    return { statusCode: 201, body: { requirementTemplate: template } };
+  });
+}
+
+export async function handleGetRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    const context = await resolve(deps, req);
+    const template = await deps.documentArchive.getRequirementTemplate(context, templateId);
+    return { statusCode: 200, body: { requirementTemplate: template } };
+  });
+}
+
+export async function handleListRequirementTemplates(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const status = requireTemplateStatus(req);
+    const context = await resolve(deps, req);
+    const { items, lastEvaluatedKey } = await deps.documentArchive.listRequirementTemplates(context, status);
+    return { statusCode: 200, body: { requirementTemplates: items, ...(lastEvaluatedKey ? { lastEvaluatedKey } : {}) } };
+  });
+}
+
+export async function handleUpdateRequirementTemplate(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<UpdateRequirementTemplateInput & { expectedVersion: number }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_UPDATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const { expectedVersion, ...input } = req.body;
+    const template = await deps.documentArchive.updateRequirementTemplate(context, templateId, expectedVersion, input);
+    return { statusCode: 200, body: { requirementTemplate: template } };
+  });
+}
+
+export async function handleDuplicateRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ displayName: string }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_DUPLICATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const template = await deps.documentArchive.duplicateRequirementTemplate(context, templateId, req.body.displayName);
+    return { statusCode: 201, body: { requirementTemplate: template } };
+  });
+}
+
+export async function handleArchiveRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_ARCHIVE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const template = await deps.documentArchive.archiveRequirementTemplate(context, templateId, req.body.expectedVersion);
+    return { statusCode: 200, body: { requirementTemplate: template } };
+  });
+}
+
+export async function handleUnarchiveRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_UNARCHIVE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const template = await deps.documentArchive.unarchiveRequirementTemplate(context, templateId, req.body.expectedVersion);
+    return { statusCode: 200, body: { requirementTemplate: template } };
+  });
+}
+
+/** POST, not GET: it carries `subjectId` in the body and is a computation rather than an
+ * addressable resource — and so it shares its validation shape with apply. Read-only, so no
+ * write quota is consumed. */
+export async function handlePreviewRequirementTemplate(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ subjectId: string }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_PREVIEW_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const plan = await deps.documentArchive.previewTemplateApplication(context, templateId, req.body.subjectId);
+    return { statusCode: 200, body: { ...plan } };
+  });
+}
+
+export async function handleApplyRequirementTemplate(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ subjectId: string; expectedTemplateVersion?: number }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const templateId = requireTemplateId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQTEMPLATE_APPLY_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await consumeApiRequestQuota(deps.quota, context.tenant.tenantId);
+    const result = await deps.documentArchive.applyTemplate(context, templateId, req.body.subjectId, req.body.expectedTemplateVersion);
+    // 200, not 201: an apply that creates nothing is a legitimate, idempotent success (re-applying
+    // a template the Subject already satisfies), not a conflict.
+    return { statusCode: 200, body: { ...result } };
   });
 }
 
