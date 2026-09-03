@@ -16,8 +16,8 @@ import { parseCsv, mapCsvRowsToNamedFields } from "./csv-parser.js";
 import { validateImportRow, type RawImportRow, type ImportRowPlanEntry } from "../domain/import-row.js";
 import { normalizeDisplayName, type TrackedSubjectType } from "../../subject/domain/tracked-subject.js";
 import { importDedupKey } from "../domain/import-dedup.js";
-import { importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
-import type { ImportStore } from "../ports/import-store.js";
+import { buildImportJobClaim, importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
+import { isTransactionCanceled, type ImportStore } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import type { SubjectStore } from "../../subject/ports/subject-store.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
@@ -36,6 +36,12 @@ export interface ImportParseDeps {
 export type ImportParseOutcome =
   | { kind: "PARSED"; totalRows: number; acceptedRows: number; rejectedRows: number; duplicateRows: number }
   | { kind: "SKIPPED_NOT_UPLOADED" }
+  // D-192 §3: o job entrou (ou já estava) em AWAITING_MAPPING - nada a parsear ainda, aguarda
+  // POST /mapping (fatia futura) preencher `columnMapping` antes de um novo trigger avançar.
+  | { kind: "AWAITING_MAPPING" }
+  // D-192 §3: o claim OCC (`status IN (UPLOADED, AWAITING_MAPPING) AND version = <lido>`)
+  // perdeu para uma entrega concorrente de QUALQUER trigger - nunca lê S3 nem produz plano.
+  | { kind: "SKIPPED_ALREADY_CLAIMED" }
   | { kind: "FAILED"; reason: string };
 
 function planObjectKey(tenantId: string, jobId: string): string {
@@ -44,23 +50,50 @@ function planObjectKey(tenantId: string, jobId: string): string {
 
 export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jobId: string): Promise<ImportParseOutcome> {
   const job = await deps.store.get<ImportJob>(importJobKey(tenantId, jobId));
-  if (!job || job.status !== "UPLOADED") {
+  // D-192 §3: dois triggers possíveis (evento S3 e a fila de parse pós-mapping, discriminados
+  // só no handler Lambda, nunca aqui) podem chegar em qualquer ordem/concorrência - o claim
+  // abaixo é a PRIMEIRA mutação e É o que decide quem vence, nunca uma leitura simples.
+  if (!job || (job.status !== "UPLOADED" && job.status !== "AWAITING_MAPPING")) {
     return { kind: "SKIPPED_NOT_UPLOADED" };
   }
 
-  const now = deps.now();
-  await deps.store.update<ImportJob>({ ...job, status: "PARSING", updatedAt: now });
+  if (!job.columnMapping) {
+    // Mapeamento ainda não fornecido - nunca avança para PARSING sem ele. Se já está
+    // AWAITING_MAPPING, não há nova mutação a fazer (aguarda POST /mapping, fatia futura).
+    if (job.status === "AWAITING_MAPPING") return { kind: "AWAITING_MAPPING" };
+    try {
+      await deps.store.transactWrite([
+        buildImportJobClaim({ tableName: deps.tableName, tenantId, jobId, expectedVersion: job.version, fromStatus: "UPLOADED", toStatus: "AWAITING_MAPPING" }),
+      ]);
+    } catch (err) {
+      if (isTransactionCanceled(err)) return { kind: "SKIPPED_ALREADY_CLAIMED" };
+      throw err;
+    }
+    return { kind: "AWAITING_MAPPING" };
+  }
+
+  try {
+    await deps.store.transactWrite([
+      buildImportJobClaim({ tableName: deps.tableName, tenantId, jobId, expectedVersion: job.version, fromStatus: job.status, toStatus: "PARSING" }),
+    ]);
+  } catch (err) {
+    if (isTransactionCanceled(err)) return { kind: "SKIPPED_ALREADY_CLAIMED" };
+    throw err;
+  }
+  // Estado local pós-claim: version bumped uma vez pelo claim acima - toda escrita subsequente
+  // parte DAQUI, nunca do `job` original lido no topo (mesma disciplina do commit worker).
+  const claimedJob: ImportJob = { ...job, status: "PARSING", version: job.version + 1 };
 
   try {
     const rawKey = `tenant/${tenantId}/imports/${jobId}/raw.csv`;
     const bytes = await deps.objectStore.getObject(deps.rawBucket, rawKey);
     if (bytes.byteLength > MAX_IMPORT_FILE_BYTES) {
-      return await failJob(deps, tenantId, job, "FILE_TOO_LARGE");
+      return await failJob(deps, tenantId, claimedJob, "FILE_TOO_LARGE");
     }
 
     const { header, rows } = parseCsv(bytes.toString("utf-8"));
     if (rows.length > MAX_IMPORT_ROWS) {
-      return await failJob(deps, tenantId, job, "TOO_MANY_ROWS");
+      return await failJob(deps, tenantId, claimedJob, "TOO_MANY_ROWS");
     }
 
     const namedRows = mapCsvRowsToNamedFields(header, rows);
@@ -129,7 +162,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
     await deps.objectStore.putObject(deps.planBucket, key, planContent, "application/x-ndjson");
 
     await deps.store.update<ImportJob>({
-      ...job,
+      ...claimedJob,
       status: "PREVIEW_READY",
       totalRows: rawRows.length,
       acceptedRows,
@@ -138,13 +171,13 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
       planObjectKey: key,
       planSha256,
       updatedAt: deps.now(),
-      version: job.version + 1,
+      version: claimedJob.version + 1,
     });
 
     return { kind: "PARSED", totalRows: rawRows.length, acceptedRows, rejectedRows, duplicateRows };
   } catch (err) {
     const reason = err instanceof Error ? err.message : "UNKNOWN_PARSE_ERROR";
-    return await failJob(deps, tenantId, job, reason);
+    return await failJob(deps, tenantId, claimedJob, reason);
   }
 }
 

@@ -52,7 +52,6 @@ describe("commitImportJob (M11, D-042)", () => {
       targetEntityType: "TrackedSubject",
       status: "COMMITTING",
       createdByUserId: "user-1",
-      mappingVersion: 1,
       expiresAt: "2026-08-30T12:00:00.000Z",
       createdAt: NOW,
       updatedAt: NOW,

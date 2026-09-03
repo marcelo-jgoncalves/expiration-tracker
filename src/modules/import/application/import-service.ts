@@ -6,7 +6,7 @@
  * aqui, mesmo para preview pequeno (design: "sync só até 128 KiB/100 linhas" fica registrado
  * como possível otimização futura, não implementado em v1 — simplicidade > latência agora).
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
@@ -15,7 +15,7 @@ import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
-import { importJobKey, IMPORT_JOB_TTL_SECONDS, MAX_IMPORT_FILE_BYTES, type ImportJob } from "../domain/import-job.js";
+import { importJobKey, IMPORT_JOB_TTL_SECONDS, MAX_IMPORT_FILE_BYTES, DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING, type ImportJob } from "../domain/import-job.js";
 import { isTransactionCanceled, type ImportStore, type TransactWriteEntry } from "../ports/import-store.js";
 import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
 import type { ImportIdGenerator } from "./id-generator.js";
@@ -146,7 +146,12 @@ export class ImportService {
           status: "UPLOADED",
           createdByUserId: ctx.principal.userId,
           checksumSha256: input.checksumSha256,
-          mappingVersion: 1,
+          // D-192 §3 backward compat: um job TrackedSubject sempre nasce com o mapeamento fixo
+          // v1 já preenchido (CSV header convention de D-042) - nunca passa por
+          // AWAITING_MAPPING, vai direto UPLOADED->PARSING quando o evento S3 chegar, exatamente
+          // como hoje. Só Document/Requirement (fatia futura, POST /mapping) nascem sem ele.
+          columnMapping: DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING,
+          columnMappingSha256: createHash("sha256").update(JSON.stringify(DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING), "utf-8").digest("hex"),
           expiresAt: jobExpiresAt,
           createdAt: now,
           updatedAt: now,
