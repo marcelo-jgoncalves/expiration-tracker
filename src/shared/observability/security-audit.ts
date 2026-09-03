@@ -42,8 +42,9 @@ export type GlobalIndexOperation = "Query";
  * "invitation-purge" (D-179/D-181, slice 2 of 9), "document-file-reconciliation" (D-179
  * slice 3, 3rd of 9), "requirement-reindex" (D-179/D-185, slice 4 of 9), and
  * "quota-telemetry-purge" (D-179/D-186, slice 5 of 9), "security-audit-purge" (D-179/D-187,
- * slice 6 of 9), and "transient-purge" (D-179/D-188, slice 7 of 9); each future worker that
- * migrates joins this list explicitly, never a silent widening. */
+ * slice 6 of 9), "transient-purge" (D-179/D-188, slice 7 of 9), and "delivery-record-purge"
+ * (D-179, slice 8 of 9); each future worker that migrates joins this list explicitly, never a
+ * silent widening. */
 export type GlobalIndexComponent =
   | "reminder-producer"
   | "reminder-reconciliation"
@@ -56,7 +57,8 @@ export type GlobalIndexComponent =
   | "requirement-reindex"
   | "quota-telemetry-purge"
   | "security-audit-purge"
-  | "transient-purge";
+  | "transient-purge"
+  | "delivery-record-purge";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

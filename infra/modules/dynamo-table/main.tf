@@ -216,12 +216,13 @@ locals {
   # GSI8 worker namespaces actually wired to a Lambda role today (D-179/D-180 pilot slice,
   # D-181's invitation_purge slice 2, D-179 slice 3's document_file_reconciliation, D-179 slice
   # 4's requirement_reindex, D-179/D-186 slice 5's quota_telemetry_purge, D-179/D-187 slice 6's
-  # security_audit_purge, D-179/D-188 slice 7's transient_purge - 7th of 9).
+  # security_audit_purge, D-179/D-188 slice 7's transient_purge, D-179/D-18x slice 8's
+  # delivery_record_purge - 8th of 9).
   # Each key gets its own gsi8_read_policy_json[key]/worker_transact_write_policy_json[key]
   # output below, scoped via `dynamodb:LeadingKeys` so one worker's role can never read (or claim)
-  # another worker's GSI8/DLQ candidates. Extending this map is how each of the other 2
-  # maintenance workers named in D-179 joins the pattern later - never by widening an existing
-  # worker's LeadingKeys list.
+  # another worker's GSI8/DLQ candidates. Extending this map is how each of the other maintenance
+  # workers named in D-179 joins the pattern later - never by widening an existing worker's
+  # LeadingKeys list.
   gsi8_worker_types = {
     membership_purge             = "MEMBERSHIP_PURGE"
     invitation_purge             = "INVITATION_PURGE"
@@ -230,6 +231,7 @@ locals {
     quota_telemetry_purge        = "QUOTA_TELEMETRY"
     security_audit_purge         = "SECURITY_AUDIT"
     transient_purge              = "TRANSIENT"
+    delivery_record_purge        = "DELIVERY_RECORD"
   }
 }
 

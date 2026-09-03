@@ -23,6 +23,7 @@ import { decideRouting, type RouterDecision } from "./notification-router.js";
 import { correctiveIdempotencyKey } from "./corrective-intent-service.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js";
+import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -214,7 +215,21 @@ async function applyStaleDecision(
         set: { status: "CANCELLED", cancelledChannels: intent.requestedChannels.map((channel) => ({ channel, reason: "STALE_ITEM_VERSION" })) },
       }),
     },
-    { Put: { TableName: deps.tableName, Item: { ...newIntent }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
+    {
+      Put: {
+        TableName: deps.tableName,
+        Item: {
+          ...newIntent,
+          ...deliveryRecordGsi8Keys({
+            dueAtIso: deriveDeliveryRecordMaintenanceDue({ createdAt: newIntent.createdAt }).dueAtIso,
+            tenantId: newIntent.tenantId,
+            entityType: "NotificationIntent",
+            sk: newIntent.SK,
+          }),
+        },
+        ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+      },
+    },
     {
       Put: {
         TableName: deps.tableName,
@@ -296,7 +311,21 @@ async function applyRoutedDecision(
       createdAt: now,
       updatedAt: now,
     };
-    entries.push({ Put: { TableName: deps.tableName, Item: { ...attempt }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } });
+    entries.push({
+      Put: {
+        TableName: deps.tableName,
+        Item: {
+          ...attempt,
+          ...deliveryRecordGsi8Keys({
+            dueAtIso: deriveDeliveryRecordMaintenanceDue({ createdAt: attempt.createdAt }).dueAtIso,
+            tenantId: attempt.tenantId,
+            entityType: "NotificationAttempt",
+            sk: attempt.SK,
+          }),
+        },
+        ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+      },
+    });
 
     const lookup = buildNotificationAttemptLookup(attempt);
     entries.push({ Put: { TableName: deps.tableName, Item: { ...lookup }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } });

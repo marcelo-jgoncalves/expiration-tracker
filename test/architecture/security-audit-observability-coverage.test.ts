@@ -56,6 +56,7 @@ const GLOBAL_INDEX_ACCESS_CALL_SITES: Array<{ file: string; component: string; l
   { file: "src/workers/quota-telemetry-purge/dynamodb-candidate-source.ts", component: "quota-telemetry-purge", lambdaModule: "quota_telemetry_purge_handler" },
   { file: "src/workers/security-audit-purge/dynamodb-candidate-source.ts", component: "security-audit-purge", lambdaModule: "security_audit_purge_handler" },
   { file: "src/workers/transient-purge/dynamodb-candidate-source.ts", component: "transient-purge", lambdaModule: "transient_purge_handler" },
+  { file: "src/workers/delivery-record-purge/dynamodb-candidate-source.ts", component: "delivery-record-purge", lambdaModule: "delivery_record_purge_handler" },
 ];
 
 function read(relativePath: string): string {
