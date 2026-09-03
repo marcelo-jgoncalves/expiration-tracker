@@ -48,6 +48,26 @@
 
 **Item pendente carregado de D-186/D-187, ainda NÃO resolvido**: o bug do guard `main()` (`if (import.meta.url === \`file://${process.argv[1]}\`)` nunca casa no Windows/Git Bash deste ambiente) continua presente em 6 scripts irmãos (`backfill-gsi8-{document-file-reconciliation,invitation-purge,membership-purge,requirement-reindex}.ts`, `backfill-reminder-policies.ts`, `reset-dev-data.ts`) — corrigido em `backfill-gsi8-quota-telemetry-purge.ts` (D-186), `backfill-gsi8-security-audit-purge.ts` (D-187) e `backfill-gsi8-transient-purge.ts` (D-188), todos escritos já com o fix desde o início. **Ação recomendada para a próxima sessão**: aplicar o mesmo fix de uma linha nos outros 6 scripts (nível 1-2, mecânico) e reverificar/reexecutar os backfills de D-180/D-182/D-183/D-185 contra `dev` para confirmar se os ponteiros GSI8 daquelas fatias realmente foram escritos (`Query GSI8 WORK#<tipo>` e comparar contagem esperada) — não presumir que já estão corretos só porque a sessão anterior relatou sucesso.
 
+## Roadmap de lançamento (`docs/project/roadmap-competitivo-2026-09-01.md`) — próxima fila de trabalho depois do MaintenanceDueIndex fechar
+
+Marcelo confirmou nesta sessão (2026-09-02): terminar os 2 workers restantes de D-179 primeiro (padrão já validado 7x, sem decisão pendente), e SÓ DEPOIS entrar na fila de funcionalidades do roadmap de lançamento — não interromper o MaintenanceDueIndex no meio.
+
+`docs/project/roadmap-competitivo-2026-09-01.md` é a fonte normativa da ordem de funcionalidades **P0** necessárias antes do lançamento comercial (11 itens, ordem já decidida no documento — não reordenar sem motivo real). Auditoria rápida do estado real de cada item, feita nesta sessão por leitura direta do código (não presumida):
+
+1. **Requirement Templates** — ❌ não implementado; `requirement-assignment.ts` declara explicitamente "`RequirementDefinition`/`RequirementTemplate` ficam deferidos por completo".
+2. **Bulk onboarding/importação em massa** — 🟡 parcial; `src/modules/import/` existe e funciona (CSV parse/commit real), mas não confirmado se cobre Documents+Requirements como o roadmap pede (provavelmente só Subjects/ExpirationItems) — precisa investigação antes de assumir escopo.
+3. **WhatsApp operacional** — ❌ não implementado; só modelado no type system (`NotificationChannelKind`, `notification-entitlements.ts`'s `whatsapp: {enabled}`) — `notification-router.ts`'s `SUPPORTED_CHANNELS = ["EMAIL"]` no código real, comentário confirma "later submilestone (kill switch AppConfig WHATSAPP)".
+4. **IA/OCR integrada ao novo Document Lifecycle** — 🟡 parcial; M7 é E2E PROVEN mas contra o Document Lifecycle ANTIGO — reconciliar com `DocumentFile`/`DocumentType` (que só existem desde D-163+) é trabalho real ainda não feito, já nomeado como item 4 da macro-ordem de D-161.
+5. **Busca e filtros documentais** — ❓ não investigado ainda nesta sessão.
+6. **Dashboard operacional/compliance básico** — ❌ nenhuma implementação real encontrada (grep não achou rota/serviço de compliance dashboard).
+7. **Relatórios + exportação + audit trail** — 🟡 parcial; export CSV existe (D-126), Admin Activity Log existe (D-149), mas não é o conjunto completo de relatórios do roadmap (documentos vencidos/vencendo/por Subject/por responsável/solicitações pendentes/renovações).
+8. **Document Types configuráveis** — 🟢 bem avançado (D-173→D-186): CRUD completo, rotas HTTP, RBAC; falta só o item 6 do design original (schema HTTP guest obrigatório + rota pública de leitura de tipos).
+9. **Consolidar Guest Upload + Requests + Review + Recurrence** — 🟡 backend avançado (D-143 a D-147: guest access, requirements, recorrência), mas "solicitar novamente"/histórico completo do roadmap não confirmado item a item.
+10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechou por completo (D-163 a D-168).
+11. **Frontend completo do P0** — ❌ não iniciado, deliberadamente por último (a própria estratégia do roadmap pede isso — não antecipar).
+
+**Próxima ação real depois do MaintenanceDueIndex fechar (9/9)**: seguir a ordem prática do roadmap (§6 do documento) — item 1 (Requirement Templates) é o próximo, por ter a melhor relação esforço/valor segundo o próprio documento. Antes de começar qualquer item, escopar de verdade (mesma disciplina de sempre — não presumir tamanho/nível de risco sem ler o código real primeiro); itens que envolvem modelo de dados novo ou definem um padrão que sistemas fora do projeto já resolveram (Requirement Templates parece nível 5-6, candidato a protocolo Claude↔Codex/E-014) devem passar pelo protocolo do `AGENTS.md` §4 antes de implementar.
+
 `develop`/`main` sincronizados (diff zero) até D-188 inclusive (D-188 mergeado via PR #212, commit `ca50bcf`). Confirmar `git status`/`git log`/`git diff origin/main..develop --stat` antes de presumir qualquer coisa. Ver a seção "Próxima ação" abaixo.
 
 **Estado em 2026-09-01 (fim de sessão, atualizado após verificação ao vivo)**: sessão de execução contínua e autônoma, autorizada explicitamente por Marcelo a fazer applies e merges reais (não só design). Tudo abaixo foi **confirmado ao vivo contra `dev`** via `aws --profile claude-dev`, não presumido.
