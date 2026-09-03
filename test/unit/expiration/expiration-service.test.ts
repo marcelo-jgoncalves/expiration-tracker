@@ -6,6 +6,7 @@ import { ConcurrentOperationError } from "../../../src/shared/idempotency/idempo
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { deriveCoreUserDataMaintenanceDue } from "../../../src/shared/core-user-data-gsi8.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -238,6 +239,20 @@ describe("ExpirationService", () => {
 
     const deactivated = store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "expiration.item-deactivated.v1");
     expect(deactivated).toHaveLength(1);
+  });
+
+  it("deleteItem stamps the GSI8 MaintenanceDueIndex pointer (D-179/D-190, 9th and LAST worker) at the deletedAt transition itself, never before", async () => {
+    const item = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    const beforeDelete = await store.get<{ PK: string; SK: string } & Record<string, unknown>>({ PK: `TENANT#tenant-1#ITEM#${item.itemId}`, SK: "META" });
+    expect(beforeDelete?.["GSI8PK"]).toBeUndefined(); // never a candidate before deletedAt is set
+
+    await service.deleteItem(ctx(), item.itemId, item.version);
+
+    const row = await store.get<{ PK: string; SK: string } & Record<string, unknown>>({ PK: `TENANT#tenant-1#ITEM#${item.itemId}`, SK: "META" });
+    expect(row?.["deletedAt"]).toBeDefined();
+    const expectedDue = deriveCoreUserDataMaintenanceDue({ deletedAt: row?.["deletedAt"] as string }).dueAtIso;
+    expect(row?.["GSI8PK"]).toBe("WORK#CORE_USER_DATA");
+    expect(row?.["GSI8SK"]).toBe(`${expectedDue}#TENANT#tenant-1#ExpirationItem#META`);
   });
 
   it("renewItem emits expiration.item-deactivated.v1 for the OLD item alongside item-due-date-changed.v1 for the NEW item", async () => {

@@ -31,6 +31,7 @@ import {
 import { buildAuditEvent, appendAuditToTransaction, type AuditAction } from "../domain/audit-event.js";
 import { buildTenantAuditEvent, appendTenantAuditToTransaction, buildExportLockItem, appendExportLockToTransaction } from "../../activity/domain/tenant-audit-event.js";
 import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
+import { deriveCoreUserDataMaintenanceDue, coreUserDataGsi8Keys } from "../../../shared/core-user-data-gsi8.js";
 import {
   isTransactionCanceled,
   type ExpirationStore,
@@ -363,7 +364,16 @@ export class ExpirationService {
   async deleteItem(ctx: RequestContext, itemId: string, expectedVersion: number): Promise<void> {
     const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
     authorize({ context: ctx, action: "item:delete", resource: { tenantId: item.tenantId } });
-    await this.transitionStatus(ctx, item, expectedVersion, "DELETED", "DELETE", { deletedAt: this.now() });
+    // D-190 (GSI8, 9th/last worker): the CoreUserDataPurgeWorker's discovery pointer is written
+    // in the SAME transaction as the deletedAt transition itself - the only moment an
+    // ExpirationItem becomes a purge candidate at all (deriveCoreUserDataMaintenanceDue()
+    // returns undefined before deletedAt is set, so no pointer exists on a live row).
+    const deletedAt = this.now();
+    const due = deriveCoreUserDataMaintenanceDue({ deletedAt });
+    const gsi8 = due.dueAtIso
+      ? coreUserDataGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.tenantId, entityType: "ExpirationItem", sk: itemKey(item.tenantId, item.itemId).SK })
+      : {};
+    await this.transitionStatus(ctx, item, expectedVersion, "DELETED", "DELETE", { deletedAt, ...gsi8 });
   }
 
   /**
