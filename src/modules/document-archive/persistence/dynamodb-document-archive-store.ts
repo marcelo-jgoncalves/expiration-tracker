@@ -5,7 +5,7 @@
  * executes the SDK command (same division of responsibility as
  * `DynamoDbExpirationStore.transactWrite`).
  */
-import { GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, ScanPage, TransactWriteEntry } from "../ports/document-archive-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
@@ -141,6 +141,33 @@ export class DynamoDbDocumentArchiveStore implements DocumentArchiveStore {
       return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
     } catch (err) {
       throw mapDynamoError(err, "DocumentArchiveStore.scanActiveSeries");
+    }
+  }
+
+  /** D-192 §4 (fatia 6) — mesma disciplina de retry de `UnprocessedKeys` de
+   * `DynamoDbSubjectStore.batchGet`: 100 chaves por chamada (limite do SDK), retry explícito
+   * até esvaziar cada chunk (200 OK parcial, não falha de rede). */
+  async batchGet<T extends EntityKey = Record<string, unknown> & EntityKey>(keys: EntityKey[]): Promise<T[]> {
+    if (keys.length === 0) return [];
+    try {
+      const items: T[] = [];
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+        let pending = keys.slice(i, i + CHUNK_SIZE);
+        while (pending.length > 0) {
+          const result = await this.client.send(
+            new BatchGetCommand({
+              RequestItems: { [this.tableName]: { Keys: pending as unknown as Record<string, unknown>[] } },
+            }),
+          );
+          items.push(...((result.Responses?.[this.tableName] ?? []) as T[]));
+          const unprocessed = result.UnprocessedKeys?.[this.tableName]?.Keys;
+          pending = (unprocessed ?? []) as unknown as EntityKey[];
+        }
+      }
+      return items;
+    } catch (err) {
+      throw mapDynamoError(err, "DocumentArchiveStore.batchGet");
     }
   }
 }
