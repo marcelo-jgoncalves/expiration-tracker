@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { applyFileScanResult, applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
 import { documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
+// D-193 ("Ingestão física"): applyFileScanResult/confirmFileScanClean now fence every write
+// against TenantLifecycleRecord.status = ACTIVE (tryTenantBusinessMutation) - every fixture in
+// this file needs that row, same seeding discipline document-archive-service.test.ts already
+// established for its own tenant-fenced writers. A dedicated adversarial test below (using
+// `seededStoreWithoutTenant`) proves the fence actually rejects an inactive/missing tenant.
 function seededStore(items: readonly (EntityKey & object)[]): InMemoryDocumentArchiveStore {
+  return new InMemoryDocumentArchiveStore([...items, seedActiveTenantLifecycle(TENANT)] as unknown as (Record<string, unknown> & EntityKey)[]);
+}
+
+function seededStoreWithoutTenant(items: readonly (EntityKey & object)[]): InMemoryDocumentArchiveStore {
   return new InMemoryDocumentArchiveStore(items as unknown as (Record<string, unknown> & EntityKey)[]);
 }
 
@@ -176,6 +185,34 @@ describe("applyFileScanResult — D-163 §1/§5 symmetric evidence correlation +
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("CLEAN"); // never reopened.
   });
+
+  it("D-193 tenant fence: a tenant with no ACTIVE TenantLifecycleRecord is rejected, never silently processed (AWAIT_MORE_EVIDENCE branch)", async () => {
+    const store = seededStoreWithoutTenant([baseFile(), baseVersion()]);
+    const observed = { bucket: PLACEHOLDER.bucket, key: PLACEHOLDER.key, versionId: "real-v1" };
+    const outcome = await applyFileScanResult(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedObject: observed, uploadEvidence: { object: observed, contentLength: 100, mediaType: "application/pdf", checksumSha256: "a".repeat(64), valid: true, observedAt: "2026-09-01T00:01:00.000Z" } },
+    );
+    expect(outcome).toEqual({ outcome: "IGNORED_TENANT_NOT_ACTIVE" });
+    // Never mutated: the fence rejected the whole TransactWriteItems, evidence never consolidated.
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("PENDING_UPLOAD");
+    expect(file.quarantineObject.versionId).toBe("");
+  });
+
+  it("D-193 tenant fence: rejects the REJECT (infection) branch's write for a non-ACTIVE tenant, never decrementing counters", async () => {
+    const observed = { ...PLACEHOLDER, versionId: "real-v1" };
+    const store = seededStoreWithoutTenant([baseFile({ scanStatus: "SCANNING", quarantineObject: observed }), baseVersion()]);
+    const outcome = await applyFileScanResult(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, observedObject: observed, malwareEvidence: { object: observed, status: "THREATS_FOUND", scanResultId: "s1", observedAt: "2026-09-01T00:02:00.000Z" } },
+    );
+    expect(outcome).toEqual({ outcome: "IGNORED_TENANT_NOT_ACTIVE" });
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("SCANNING"); // never flipped to REJECTED.
+    const version = (await store.get(documentVersionKey(TENANT, DOC, SEQ))) as DocumentVersion;
+    expect(version.pendingFileScans).toBe(1); // never decremented.
+  });
 });
 
 describe("confirmFileScanClean — PROMOTE confirmation step, called only after the caller's own copy+verify", () => {
@@ -206,6 +243,19 @@ describe("confirmFileScanClean — PROMOTE confirmation step, called only after 
     expect(outcome).toBe("IGNORED_STALE");
     const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
     expect(file.scanStatus).toBe("REJECTED");
+    expect(file.cleanObject).toBeUndefined();
+  });
+
+  it("D-193 tenant fence: a non-ACTIVE tenant is rejected, never confirmed CLEAN", async () => {
+    const observed = { ...PLACEHOLDER, versionId: "real-v1" };
+    const store = seededStoreWithoutTenant([baseFile({ scanStatus: "SCANNING", quarantineObject: observed }), baseVersion()]);
+    const outcome = await confirmFileScanClean(
+      { store, tableName: TABLE, ids: ids() },
+      { tenantId: TENANT, documentId: DOC, seq: SEQ, fileId: FILE, cleanObject: { bucket: "clean-bucket", key: "clean/file1", versionId: "c1" } },
+    );
+    expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
+    const file = (await store.get(documentFileKey(TENANT, DOC, SEQ, FILE))) as DocumentFile;
+    expect(file.scanStatus).toBe("SCANNING"); // never flipped to CLEAN.
     expect(file.cleanObject).toBeUndefined();
   });
 });

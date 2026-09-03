@@ -14,8 +14,16 @@
  * `confirmFileScanClean()` is the confirmation step, called only once that caller's own S3
  * copy+verify has succeeded - mirrors M6's `advanceAfterEvidence()` PROMOTE branch's contract,
  * just as a separate, independently retryable step instead of inlined in the same function.
+ *
+ * D-193 ("Ingestão física"): every `transactWrite` this file performs is fenced against
+ * `TenantLifecycleRecord.status = ACTIVE` via `tryTenantBusinessMutation()` — added explicitly to
+ * BOTH functions' own transactional writes (never inherited from a caller), same discipline
+ * `advance-after-evidence.ts`/`finalizer.ts`/`result-processor.ts` already apply to M6's
+ * equivalent writes (W3-07). Before this, these two functions (with zero real call sites) had
+ * never been fenced at all — the design's explicit closing item.
  */
 import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { decideNextAction } from "../../document/domain/document-state-machine.js";
 import type { UploadEvidence } from "../../document/domain/document.js";
 import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
@@ -51,6 +59,7 @@ export type ApplyFileScanResultOutcome =
   | { outcome: "AWAITING" }
   | { outcome: "IGNORED_WRONG_VERSION" }
   | { outcome: "IGNORED_STALE" }
+  | { outcome: "IGNORED_TENANT_NOT_ACTIVE" }
   | { outcome: "REJECTED"; status: Extract<DocumentFileScanStatus, "REJECTED" | "UNSUPPORTED"> }
   | { outcome: "READY_TO_PROMOTE"; sourceObject: DocumentObjectReference };
 
@@ -101,8 +110,11 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
 
     if (decision.action === "AWAIT_MORE_EVIDENCE") {
       const nowTs = now();
-      try {
-        await deps.store.transactWrite([
+      const result = await tryTenantBusinessMutation({
+        store: deps.store,
+        tableName: deps.tableName,
+        tenantId: input.tenantId,
+        entries: [
           {
             Update: buildVersionedUpdate({
               tableName: deps.tableName,
@@ -116,12 +128,11 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
               now: nowTs,
             }),
           },
-        ]);
-        return { outcome: "AWAITING" };
-      } catch (err) {
-        if (isTransactionCanceled(err)) continue; // concurrent half of evidence landed - retry fresh.
-        throw err;
-      }
+        ],
+      });
+      if (result.ok) return { outcome: "AWAITING" };
+      if (result.reason === "OCC_CONFLICT") continue; // concurrent half of evidence landed - retry fresh.
+      return { outcome: "IGNORED_TENANT_NOT_ACTIVE" };
     }
 
     if (decision.action === "PROMOTE") {
@@ -178,19 +189,16 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
         ),
       });
     }
-    try {
-      await deps.store.transactWrite(entries);
-      return { outcome: "REJECTED", status: decision.status };
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue;
-      throw err;
-    }
+    const result = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
+    if (result.ok) return { outcome: "REJECTED", status: decision.status };
+    if (result.reason === "OCC_CONFLICT") continue;
+    return { outcome: "IGNORED_TENANT_NOT_ACTIVE" };
   }
 
   throw new Error(`applyFileScanResult exhausted retries for file ${input.fileId} under contention.`);
 }
 
-export type ConfirmFileScanCleanOutcome = "CONFIRMED" | "IGNORED_STALE";
+export type ConfirmFileScanCleanOutcome = "CONFIRMED" | "IGNORED_STALE" | "IGNORED_TENANT_NOT_ACTIVE";
 
 export interface ConfirmFileScanCleanInput {
   tenantId: string;
@@ -244,13 +252,10 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
         }),
       },
     ];
-    try {
-      await deps.store.transactWrite(entries);
-      return "CONFIRMED";
-    } catch (err) {
-      if (isTransactionCanceled(err)) continue;
-      throw err;
-    }
+    const result = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
+    if (result.ok) return "CONFIRMED";
+    if (result.reason === "OCC_CONFLICT") continue;
+    return "IGNORED_TENANT_NOT_ACTIVE";
   }
 
   throw new Error(`confirmFileScanClean exhausted retries for file ${input.fileId} under contention.`);

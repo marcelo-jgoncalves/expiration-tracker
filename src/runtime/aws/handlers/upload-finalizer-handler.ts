@@ -13,6 +13,13 @@ import { parseQuarantineKey } from "../../../modules/document/domain/quarantine-
 import { parseSubmissionQuarantineKey } from "../../../modules/subject/domain/submission-quarantine-key.js";
 import { finalizeSubmissionUpload } from "../../../workers/submission-finalizer/finalizer.js";
 import { buildSubjectWorkerDeps } from "../composition/subject.js";
+// D-193 ("Ingestão física", slice 1): terceiro branch aditivo para o namespace `document-
+// archive/...` (D-163 §7) - o BUG REAL este slice corrige: nenhum dos dois parsers acima
+// reconhece esse prefixo, então até este slice uma DocumentFile enviada via document-archive
+// caía no "unrecognized key shape" abaixo e ficava presa em PENDING_UPLOAD para sempre.
+import { parseDocumentArchiveQuarantineKey } from "../../../modules/document-archive/domain/document-archive-quarantine-key.js";
+import { finalizeDocumentArchiveUpload } from "../../../workers/upload-finalizer/document-archive-finalizer.js";
+import { buildDocumentArchiveWorkerDeps } from "../composition/document-archive.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -25,6 +32,7 @@ if (!cleanBucket) throw new Error("CLEAN_BUCKET_NAME env var is required.");
 if (!parserFunctionName) throw new Error("PARSER_SANDBOX_FUNCTION_NAME env var is required.");
 const deps = buildDocumentWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
 const submissionDeps = buildSubjectWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
+const documentArchiveDeps = buildDocumentArchiveWorkerDeps(client, tableName, cleanBucket);
 const logger = new SecureLogger({ baseContext: { service: "upload-finalizer" } });
 
 /** Real EventBridge "Object Created" detail shape for an S3 source
@@ -45,6 +53,25 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         if (!detail?.bucket?.name || !detail.object?.key || !detail.object["version-id"]) {
           logger.error("upload-finalizer malformed S3 event", { messageId: record.messageId });
           batchItemFailures.push({ itemIdentifier: record.messageId });
+          return;
+        }
+
+        // D-193 slice 1: tried FIRST since its `document-archive/` prefix never collides with
+        // either of the two formats below (`tenant/.../item/...`, `tenant/.../subject/...`) -
+        // order is not a correctness concern here, just documents which format is authoritative
+        // for new uploads going forward (D-143).
+        const parsedArchive = parseDocumentArchiveQuarantineKey(detail.object.key);
+        if (parsedArchive) {
+          await runWithContext({ correlationId: randomUUID(), tenantId: parsedArchive.tenantId }, async () => {
+            const outcome = await finalizeDocumentArchiveUpload(documentArchiveDeps, {
+              tenantId: parsedArchive.tenantId,
+              documentId: parsedArchive.documentId,
+              seq: parsedArchive.seq,
+              fileId: parsedArchive.fileId,
+              object: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
+            });
+            logger.info("upload-finalizer document-archive outcome", { documentId: parsedArchive.documentId, fileId: parsedArchive.fileId, outcome });
+          });
           return;
         }
 
