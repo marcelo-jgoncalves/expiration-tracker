@@ -8,6 +8,11 @@ cdk.out/
 !.env.example
 .claude/settings.local.json
 
+# Claude Code's own per-agent worktree bookkeeping (Agent tool, isolation:"worktree") - real
+# git worktrees, never a submodule; a prior session committed 2 of these as broken gitlinks
+# with no .gitmodules entry, breaking CI checkout ("no url found for submodule path").
+.claude/worktrees/
+
 # scripts/reset-dev-data.ts's raw snapshot (Wave B2B-12/D-110) - may contain real PII/secrets
 # (session tokens, e-mails) from a live dev scan. Never committed - only the redacted manifest
 # (docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/) goes in the repo.
