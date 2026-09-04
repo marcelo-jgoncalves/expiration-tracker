@@ -309,6 +309,22 @@ export async function handleListRequirements(deps: DocumentArchiveHttpDeps, req:
   });
 }
 
+/** Roadmap P0.6 (dashboard operacional/compliance básico), fatia 2 — GET
+ * /document-archive/requirements/{subjectId}/compliance. Routed ABOVE
+ * `/document-archive/requirements/{subjectId}/{requirementId}` in
+ * `document-archive-handler.ts`'s switch (API Gateway itself resolves the literal `compliance`
+ * segment over `{requirementId}` regardless of switch-case order - see that handler's own
+ * routeKey comment) but the `PROXY_ALLOWLIST` array in `proxy-allowlist.ts` matches by
+ * `.find()`, so THAT list must list this entry before the `{requirementId}` one. */
+export async function handleGetSubjectCompliance(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const compliance = await deps.documentArchive.getSubjectCompliance(context, subjectId);
+    return { statusCode: 200, body: { compliance } };
+  });
+}
+
 const REQUIREMENT_STATUSES = new Set(["MISSING", "PENDING", "SATISFIED", "NOT_SATISFIED", "NOT_APPLICABLE"]);
 const VALIDITY_STATES = new Set(["PERMANENTE", "VALIDO", "VENCENDO", "VENCIDO", "AGUARDANDO_REVISAO"]);
 

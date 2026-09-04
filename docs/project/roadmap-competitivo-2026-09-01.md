@@ -265,6 +265,17 @@ Compliance documental: 85%
 
 O percentual deve ser inicialmente simples e explicável.
 
+**Status de implementação (2026-09-03)**: 4 dos 6 contadores tenant-wide do exemplo acima
+implementados — `GET /dashboard/summary` (`vencidos`/`overdueCount`, `vencendo em 30 dias`/
+`expiringSoonCount` — janela real de 7 dias, reuso do `UnifiedValidityState`, não 30 —,
+`aguardando revisão`/`awaitingReviewCount`, `requisitos ausentes`/`missingRequirementsCount`);
+card por Subject implementado — `GET /document-archive/requirements/{subjectId}/compliance`
+(`totalRequirements`/`satisfiedCount`/`expiringSoonCount`/`missingCount`/`compliancePercent`,
+fórmula acima, `null` quando `totalRequirements === 0`). `aguardando cliente` e `renovações
+abertas` ficam PENDENTES — nenhum status do modelo de dados atual (`Requirement`/
+`ExpirationItem`) cobre esses dois conceitos; gap de produto genuíno, aguardando decisão do
+Marcelo antes de qualquer desenho técnico, não implementado nesta fatia.
+
 ---
 
 ## P0.7 — Relatórios, Exportação e Audit Trail

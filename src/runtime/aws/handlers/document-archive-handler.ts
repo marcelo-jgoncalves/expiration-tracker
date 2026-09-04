@@ -20,6 +20,7 @@ import {
   handleReserveUpload,
   handleCreateRequirement,
   handleGetRequirement,
+  handleGetSubjectCompliance,
   handleListRequirements,
   handleSearchRequirements,
   handleUpdateRequirement,
@@ -100,6 +101,10 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleSearchRequirements(deps, base);
         case "GET /document-archive/requirements/{subjectId}":
           return await handleListRequirements(deps, base);
+        // Roadmap P0.6, fatia 2 — literal segment, routed before "{requirementId}" below (same
+        // "literal beats param at the same position" precedent as "search" above).
+        case "GET /document-archive/requirements/{subjectId}/compliance":
+          return await handleGetSubjectCompliance(deps, base);
         case "GET /document-archive/requirements/{subjectId}/{requirementId}":
           return await handleGetRequirement(deps, base);
         case "PATCH /document-archive/requirements/{subjectId}/{requirementId}":

@@ -112,6 +112,9 @@ locals {
     # same ItemsHandler Lambda/integration (no new function) - activity:read RBAC gates it
     # at the ActivityService layer, same as every other route sharing this integration.
     list_activity = { method = "GET", path = "/activity" }
+    # Roadmap P0.6 (dashboard operacional/compliance básico), fatia 1 - same ItemsHandler
+    # Lambda/integration as list_activity above (no new function).
+    dashboard_summary = { method = "GET", path = "/dashboard/summary" }
   }
 
   reminders_routes = {
@@ -150,6 +153,17 @@ resource "aws_lambda_permission" "items_activity" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/activity"
+}
+
+# Roadmap P0.6 fatia 1: GET /dashboard/summary does not live under /items* either - same
+# per-route invoke permission need as GET /activity above.
+resource "aws_lambda_permission" "items_dashboard_summary" {
+  statement_id  = "AllowApiGatewayInvokeItemsDashboardSummary"
+  action        = "lambda:InvokeFunction"
+  function_name = var.items_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/dashboard/summary"
 }
 
 # --- ExportHandler: GET /items/export (D-123/D-126, CSV data export) -------------------
@@ -533,11 +547,14 @@ locals {
     # as "GET /items/dashboard" already documents above.
     search_requirements = { method = "GET", path = "/document-archive/requirements/search" }
     list_requirements   = { method = "GET", path = "/document-archive/requirements/{subjectId}" }
-    get_requirement     = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    update_requirement  = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    link_evidence       = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
-    unlink_evidence     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
-    delete_requirement  = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
+    # Roadmap P0.6 (dashboard operacional/compliance básico), fatia 2 - literal segment, same
+    # "literal beats {requirementId}" precedent as "search_requirements" above.
+    get_subject_compliance = { method = "GET", path = "/document-archive/requirements/{subjectId}/compliance" }
+    get_requirement        = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    update_requirement     = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    link_evidence          = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
+    unlink_evidence        = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
+    delete_requirement     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate

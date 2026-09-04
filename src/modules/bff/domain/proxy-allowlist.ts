@@ -21,6 +21,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // D-149 (admin-activity-log-scoping/estado-final-consolidado.md): tenant-facing read,
   // activity:read RBAC (ADMIN/OWNER) enforced by ActivityService, not by this allowlist.
   { method: "GET", pathTemplate: "/activity" },
+  // Roadmap P0.6 (dashboard operacional/compliance básico), fatia 1 - tenant-wide read, RBAC
+  // enforced by DashboardService, not by this allowlist (same posture as /activity above).
+  { method: "GET", pathTemplate: "/dashboard/summary" },
   { method: "POST", pathTemplate: "/items" },
   { method: "GET", pathTemplate: "/items/dashboard" },
   // D-194 Fatia 3 (search/filters).
@@ -109,6 +112,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // D-194 Fatia 3 (search/filters).
   { method: "GET", pathTemplate: "/document-archive/requirements/search" },
   { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}" },
+  // Roadmap P0.6, fatia 2 - MUST stay before "{subjectId}/{requirementId}" below: this array is
+  // matched by `.find()` (first match wins), unlike API Gateway itself (which resolves the
+  // literal segment over a param regardless of declaration order).
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/compliance" },
   { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },
   { method: "PATCH", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}" },
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" },
