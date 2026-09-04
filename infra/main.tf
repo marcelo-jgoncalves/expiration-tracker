@@ -92,6 +92,26 @@ module "export_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# Roadmap P0.7 (D-195, Relatórios/Exportação/Audit Trail): dedicated Lambda, same reasoning as
+# export_handler above (own module for the raw-CSV Content-Disposition pipeline). Reads both
+# document-archive's GSI1 (Requirement) and expiration's GSI1 (ExpirationItem), plus resolves
+# RequestContext like every other route Lambda — gsi4_read_policy_json required (Wave
+# B2B-14/D-116's finding class: a Lambda calling resolver.resolve() without it crashes on
+# GSI4 access-denied at the first real invocation). No dedicated timeout — unlike
+# export_handler's 2.000-item/3-GSI1-page budget, each report here caps at 5 pages/125 items
+# per underlying status query (reports-service.ts), well inside the 10s default.
+module "reports_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-reports-handler"
+  handler_name          = "reports-handler"
+  source_dir            = "${local.dist_dir}/reports-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 # M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
 # GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
 # faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
@@ -430,6 +450,8 @@ module "api" {
   items_function_name                  = module.items_handler.function_name
   export_invoke_arn                    = module.export_handler.live_alias_invoke_arn
   export_function_name                 = module.export_handler.function_name
+  reports_invoke_arn                   = module.reports_handler.live_alias_invoke_arn
+  reports_function_name                = module.reports_handler.function_name
   reminders_invoke_arn                 = module.reminders_handler.live_alias_invoke_arn
   reminders_function_name              = module.reminders_handler.function_name
   notifications_invoke_arn             = module.notifications_handler.live_alias_invoke_arn
@@ -952,6 +974,13 @@ resource "aws_cloudwatch_log_group" "export_handler" {
   tags              = { Project = local.project_name, Environment = var.environment }
 }
 
+# Roadmap P0.7 (D-195): same log-group-race treatment as export_handler above.
+resource "aws_cloudwatch_log_group" "reports_handler" {
+  name              = "/aws/lambda/${module.reports_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
 module "security_audit_observability" {
   source = "./modules/security-audit-observability"
 
@@ -965,6 +994,7 @@ module "security_audit_observability" {
     module.imports_handler.function_name,
     module.memberships_handler.function_name,
     module.export_handler.function_name,
+    module.reports_handler.function_name,
   ]
   global_index_function_names = [
     module.reminder_producer.function_name,
@@ -990,6 +1020,7 @@ module "security_audit_observability" {
     aws_cloudwatch_log_group.imports_handler,
     aws_cloudwatch_log_group.memberships_handler,
     aws_cloudwatch_log_group.export_handler,
+    aws_cloudwatch_log_group.reports_handler,
   ]
 }
 

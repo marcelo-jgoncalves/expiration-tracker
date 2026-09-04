@@ -196,6 +196,50 @@ resource "aws_lambda_permission" "export" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/export"
 }
 
+# --- ReportsHandler: GET /reports/* (Roadmap P0.7, D-195, CSV reports) -----------------
+# Own integration/Lambda, not folded into any other handler — see reports-handler.ts's own
+# comment for why (raw CSV/Content-Disposition pipeline, same class as ExportHandler above).
+# 7 literal-segment routes, one Lambda, one integration shared by all of them (same
+# "1 integration : N routes" shape already used for items_handler above).
+
+resource "aws_apigatewayv2_integration" "reports" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.reports_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  report_routes = {
+    expired_items                = { method = "GET", path = "/reports/expired-items" }
+    expiring_soon_items          = { method = "GET", path = "/reports/expiring-soon-items" }
+    renewed_items                = { method = "GET", path = "/reports/renewed-items" }
+    expiration_items_by_assignee = { method = "GET", path = "/reports/expiration-items-by-assignee" }
+    missing_requirements         = { method = "GET", path = "/reports/missing-requirements" }
+    requirements_by_subject      = { method = "GET", path = "/reports/requirements-by-subject" }
+    requirements_by_assignee     = { method = "GET", path = "/reports/requirements-by-assignee" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "reports" {
+  for_each = local.report_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.reports.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "reports" {
+  statement_id  = "AllowApiGatewayInvokeReports"
+  action        = "lambda:InvokeFunction"
+  function_name = var.reports_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reports*"
+}
+
 # --- RemindersHandler: /reminders/policies* (M3) ----------------------------------------
 
 resource "aws_apigatewayv2_integration" "reminders" {

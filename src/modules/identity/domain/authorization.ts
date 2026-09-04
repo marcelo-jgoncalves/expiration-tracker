@@ -152,6 +152,12 @@ export type Action =
   | "docarchive:requirementtemplate-unarchive"
   | "docarchive:requirementtemplate-read"
   | "docarchive:requirementtemplate-apply"
+  // Roadmap P0.7 ("Relatórios, Exportação e Audit Trail"), fatias 1-2: bulk CSV reports over
+  // Requirement rows (missing-requirements/requirements-by-subject/requirements-by-assignee),
+  // reading every member's rows tenant-wide. Same disclosure-asymmetry rationale `item:export`
+  // above already documents for D-123/D-126, not `docarchive:requirement-read`'s READ_ONLY_ROLES
+  // tier (a single caller-scoped search page). ADMIN_ROLES, same tier as `item:export`.
+  | "docarchive:requirement-export"
   // D-149 (Admin Activity/Audit Log view, admin-activity-log-scoping/estado-final-consolidado.md
   // decisão 3): visibility into what OTHER members did (renewal/creation/export/etc.) is
   // disclosure-sensitive equivalent to bulk export (`item:export` above) - deliberately NOT the
@@ -262,6 +268,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:requirementtemplate-unarchive": ADMIN_ROLES,
   "docarchive:requirementtemplate-read": READ_ONLY_ROLES,
   "docarchive:requirementtemplate-apply": WRITE_ROLES,
+  "docarchive:requirement-export": ADMIN_ROLES,
 };
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";

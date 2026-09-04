@@ -61,6 +61,18 @@ variable "export_function_name" {
   type        = string
 }
 
+# Roadmap P0.7 (D-195): dedicated Lambda/route family, same reasoning as export above — see
+# src/runtime/aws/handlers/reports-handler.ts.
+variable "reports_invoke_arn" {
+  description = "Invoke ARN of the ReportsHandler Lambda — backs every GET /reports/* route."
+  type        = string
+}
+
+variable "reports_function_name" {
+  description = "Function name of the ReportsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "reminders_function_name" {
   description = "Function name of the RemindersHandler Lambda, for the API Gateway invoke permission."
   type        = string
