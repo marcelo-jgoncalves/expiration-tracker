@@ -110,6 +110,8 @@ const HANDLERS = [
   // with a linked evidence version onto SQS_REQUIREMENT_EVIDENCE_REFRESH_V1, closing the
   // total-message-loss risk item 6/9 left open.
   "requirement-evidence-daily-sweep-handler",
+  // Roadmap P0.7 (D-195): dedicated CSV reports Lambda, own timeout, see reports-handler.ts.
+  "reports-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
