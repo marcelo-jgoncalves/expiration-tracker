@@ -379,6 +379,15 @@ export interface RequirementSearchPage {
   scanLimitReached: boolean;
 }
 
+/** Roadmap P0.6, fatia 2 — see `getSubjectCompliance`'s doc comment for the exact formula. */
+export interface SubjectComplianceSummary {
+  totalRequirements: number;
+  satisfiedCount: number;
+  expiringSoonCount: number;
+  missingCount: number;
+  compliancePercent: number | null;
+}
+
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
@@ -1007,6 +1016,31 @@ export class DocumentArchiveService {
   async listRequirements(ctx: RequestContext, subjectId: string): Promise<Requirement[]> {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
     return this.store.queryByPk<Requirement>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
+  }
+
+  /**
+   * Roadmap P0.6 (dashboard operacional/compliance básico), fatia 2 — reuses the exact same
+   * `queryByPk` over the Subject's own partition `listRequirements` already does (no new read
+   * path). `totalRequirements`/`satisfiedCount`/`missingCount` deliberately EXCLUDE
+   * `NOT_APPLICABLE` (a requirement marked not-applicable should never penalize OR inflate the
+   * percentage — there is no obligation to measure). `expiringSoonCount` reuses
+   * `deriveRequirementValidityState` (never reimplements the 7-day threshold) filtered to
+   * `VENCENDO`. `compliancePercent` is `null` (never `0`/`100`) when `totalRequirements === 0` —
+   * an empty/all-not-applicable Subject has no basis for a percentage, and forcing one would
+   * misrepresent either full or zero compliance.
+   */
+  async getSubjectCompliance(ctx: RequestContext, subjectId: string): Promise<SubjectComplianceSummary> {
+    authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const requirements = await this.store.queryByPk<Requirement>(`TENANT#${tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
+    const now = new Date(this.now());
+    const applicable = requirements.filter((r) => r.status !== "NOT_APPLICABLE");
+    const totalRequirements = applicable.length;
+    const satisfiedCount = applicable.filter((r) => r.status === "SATISFIED").length;
+    const missingCount = applicable.filter((r) => r.status === "MISSING").length;
+    const expiringSoonCount = applicable.filter((r) => deriveRequirementValidityState(r, now) === "VENCENDO").length;
+    const compliancePercent = totalRequirements === 0 ? null : Math.round((100 * satisfiedCount) / totalRequirements);
+    return { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent };
   }
 
   /**
