@@ -46,13 +46,16 @@ export function toApiGatewayResult(response: { statusCode: number; body: Record<
  * export handler is the ONLY call site of this one; every other handler keeps using
  * toApiGatewayResult() unchanged. `body` here is the raw CSV string, never JSON-encoded.
  */
-export function toApiGatewayCsvResult(response: { statusCode: number; csv: string; filename: string }): APIGatewayProxyStructuredResultV2 {
-  return {
-    statusCode: response.statusCode,
-    headers: {
-      "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="${response.filename}"`,
-    },
-    body: response.csv,
+export function toApiGatewayCsvResult(response: { statusCode: number; csv: string; filename: string; truncated?: boolean }): APIGatewayProxyStructuredResultV2 {
+  const headers: Record<string, string> = {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${response.filename}"`,
   };
+  // Roadmap P0.7 reports only (`truncated` is never set by export-handler.ts's own
+  // CsvHttpResponse, so this header is never emitted for the existing /items/export route) —
+  // surfaces ReportPage.truncated (reports-service.ts) so a caller can tell "lower bound,
+  // refine your filters" from "this is genuinely everything", same distinction
+  // DashboardSummary.approximate already established.
+  if (response.truncated) headers["x-report-truncated"] = "true";
+  return { statusCode: response.statusCode, headers, body: response.csv };
 }
