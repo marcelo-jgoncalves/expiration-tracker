@@ -550,11 +550,11 @@ locals {
     # Roadmap P0.6 (dashboard operacional/compliance básico), fatia 2 - literal segment, same
     # "literal beats {requirementId}" precedent as "search_requirements" above.
     get_subject_compliance = { method = "GET", path = "/document-archive/requirements/{subjectId}/compliance" }
-    get_requirement     = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    update_requirement  = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
-    link_evidence       = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
-    unlink_evidence     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
-    delete_requirement  = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
+    get_requirement        = { method = "GET", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    update_requirement     = { method = "PATCH", path = "/document-archive/requirements/{subjectId}/{requirementId}" }
+    link_evidence          = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
+    unlink_evidence        = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
+    delete_requirement     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate
