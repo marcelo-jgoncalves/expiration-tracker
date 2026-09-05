@@ -9,6 +9,7 @@
  * (src/runtime/aws/handlers) wires in the real adapters.
  */
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
+import { itemWatchKey, type ItemWatch } from "../../expiration/domain/item-watch.js";
 import { policyKey, type ReminderPolicy } from "../../reminder/domain/reminder-policy.js";
 import type { NotificationIntent, NotificationChannel } from "../../reminder/domain/notification-intent.js";
 import type { NotificationAttemptStatus } from "../domain/notification-attempt.js";
@@ -59,7 +60,18 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
   const item = await deps.store.get<ExpirationItem>(itemKey(intent.tenantId, intent.itemId), true);
   const policy = await deps.store.get<ReminderPolicy>(policyKey(intent.tenantId, intent.policyId), true);
 
-  const candidateUserId = resolveCandidateUserId({ assigneeUserId: item?.assigneeUserId });
+  // D-200 (watcher notification fan-out): a WATCHER-targeted intent never trusts the
+  // ItemWatch value it was created with - it is revalidated fresh here, exactly like the
+  // ASSIGNEE path already re-reads item.assigneeUserId fresh instead of trusting anything
+  // written at creation time. A watcher removed between dispatch and routing resolves to no
+  // candidate, same RECIPIENT_NOT_FOUND/RECIPIENT_NOT_ELIGIBLE path the assignee case uses.
+  let candidateUserId: string;
+  if (intent.targetKind === "WATCHER" && intent.targetWatcherUserId) {
+    const watch = await deps.store.get<ItemWatch>(itemWatchKey(intent.tenantId, intent.itemId, intent.targetWatcherUserId), true);
+    candidateUserId = watch?.status === "ACTIVE" ? intent.targetWatcherUserId : "";
+  } else {
+    candidateUserId = resolveCandidateUserId({ assigneeUserId: item?.assigneeUserId });
+  }
   const candidateWasEmpty = candidateUserId.trim().length === 0;
   const resolved = candidateWasEmpty ? undefined : await deps.recipientResolver.resolve({ tenantId: intent.tenantId, candidateUserId });
 
@@ -200,6 +212,11 @@ async function applyStaleDecision(
     status: "PENDING",
     supersedesIntentId: intent.intentId,
     correctionReason: correctiveKind === "CORRECTIVE" ? "ITEM_VERSION_CHANGED_BEFORE_SEND" : null,
+    // D-200: the corrective/replacement intent MUST target the same recipient as the one it
+    // supersedes - never silently re-defaulting a WATCHER-targeted intent to ASSIGNEE just
+    // because this field wasn't threaded through (the exact bug the protocol's Round 1 found).
+    ...(intent.targetKind ? { targetKind: intent.targetKind } : {}),
+    ...(intent.targetWatcherUserId ? { targetWatcherUserId: intent.targetWatcherUserId } : {}),
     version: 1,
     createdAt: now,
     updatedAt: now,

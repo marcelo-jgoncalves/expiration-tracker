@@ -151,4 +151,32 @@ describe("ItemWatchService", () => {
     const list = await watches.listWatchers(ctx(), item.itemId);
     expect(list.map((w) => w.userId).sort()).toEqual(["watcher-a", "watcher-b"]);
   });
+
+  // D-200 (watcher notification fan-out): teto justificado pelo limite de 100 ações de
+  // TransactWriteItems em dispatchOccurrence() - ver MAX_ITEM_WATCHERS.
+  it("addWatcher rejects the 21st distinct ACTIVE watcher (MAX_ITEM_WATCHERS = 20)", async () => {
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    for (let i = 0; i < 20; i++) await watches.addWatcher(ctx(), item.itemId, `watcher-${i}`);
+
+    await expect(watches.addWatcher(ctx(), item.itemId, "watcher-21")).rejects.toThrow();
+    expect(await watches.listWatchers(ctx(), item.itemId)).toHaveLength(20);
+  });
+
+  it("addWatcher cap does not block an idempotent re-add of an already-ACTIVE watcher", async () => {
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    for (let i = 0; i < 20; i++) await watches.addWatcher(ctx(), item.itemId, `watcher-${i}`);
+
+    await expect(watches.addWatcher(ctx(), item.itemId, "watcher-0")).resolves.toBeDefined();
+  });
+
+  it("addWatcher cap counts a REMOVED->ACTIVE reactivation, not just brand-new rows", async () => {
+    const item = await expiration.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
+    for (let i = 0; i < 20; i++) await watches.addWatcher(ctx(), item.itemId, `watcher-${i}`);
+    await watches.removeWatcher(ctx(), item.itemId, "watcher-0");
+
+    // 19 ACTIVE now - reactivating watcher-0 brings it back to 20, still allowed.
+    await expect(watches.addWatcher(ctx(), item.itemId, "watcher-0")).resolves.toBeDefined();
+    // But a genuinely NEW 21st watcher is rejected again once back at 20 ACTIVE.
+    await expect(watches.addWatcher(ctx(), item.itemId, "watcher-21")).rejects.toThrow();
+  });
 });

@@ -3,6 +3,7 @@ import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { routeNotificationIntent, type NotificationRouterWorkflowDeps } from "../../../src/modules/notification/application/notification-router-workflow.js";
 import type { NotificationRecipientResolver, ResolvedRecipient } from "../../../src/modules/notification/ports/recipient-resolver.js";
 import { itemKey, type ExpirationItem } from "../../../src/modules/expiration/domain/expiration-item.js";
+import { itemWatchKey } from "../../../src/modules/expiration/domain/item-watch.js";
 import { policyKey, type ReminderPolicy } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { notificationEntitlementsKey, type NotificationEntitlements } from "../../../src/modules/notification/domain/notification-entitlements.js";
 import { notificationPreferencesKey, type NotificationPreferences } from "../../../src/modules/notification/domain/notification-preferences.js";
@@ -281,5 +282,53 @@ describe("routeNotificationIntent", () => {
 
     const outcome = await routeNotificationIntent(deps, intent);
     expect(outcome).toEqual({ kind: "CANCELLED", reason: "OPTED_OUT" });
+  });
+
+  // D-200 (watcher notification fan-out).
+  const WATCHER = "watcher-1";
+
+  it("targetKind WATCHER + ItemWatch ACTIVE -> routes to the watcher, recipientUserId set to the watcher (not the assignee)", async () => {
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
+    await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "ACTIVE", createdAt: NOW, updatedAt: NOW, version: 1 });
+    resolver.result = { userId: WATCHER, tenantId: TENANT, active: true };
+    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["EMAIL"] });
+
+    const updatedIntent = await store.get<NotificationIntent>({ PK: intent.PK, SK: intent.SK });
+    expect(updatedIntent?.recipientUserId).toBe(WATCHER);
+  });
+
+  it("targetKind WATCHER but the ItemWatch was removed since dispatch -> CANCELLED RECIPIENT_NOT_FOUND, never trusts the creation-time value", async () => {
+    let resolveCalled = false;
+    resolver.resolve = async () => {
+      resolveCalled = true;
+      return resolver.result;
+    };
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
+    await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "REMOVED", createdAt: NOW, updatedAt: NOW, version: 2 });
+    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "CANCELLED", reason: "RECIPIENT_NOT_FOUND" });
+    expect(resolveCalled).toBe(false);
+  });
+
+  it("STALE WATCHER intent -> the REPLACEMENT intent preserves targetKind/targetWatcherUserId, never degrades to ASSIGNEE (Rodada 1 Codex finding)", async () => {
+    await seed({ item: makeItem({ version: 4 }), entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
+    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER }); // itemVersion: 3, item is now version 4
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "STALE_REPLACEMENT" });
+
+    const all = store.allItems();
+    const newIntent = all.find((i) => i["entityType"] === "NotificationIntent" && i["intentId"] !== intent.intentId) as unknown as NotificationIntent;
+    expect(newIntent).toBeDefined();
+    expect(newIntent.targetKind).toBe("WATCHER");
+    expect(newIntent.targetWatcherUserId).toBe(WATCHER);
   });
 });

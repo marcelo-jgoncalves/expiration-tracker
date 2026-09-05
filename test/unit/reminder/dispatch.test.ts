@@ -16,6 +16,7 @@ import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-c
 import { dispatchOccurrence, type DispatchDeps } from "../../../src/workers/reminder-dispatch/dispatch.js";
 import type { DispatchCommand } from "../../../src/workers/reminder-producer/producer.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
+import { itemWatchKey, type ItemWatch } from "../../../src/modules/expiration/domain/item-watch.js";
 import { policyKey } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
@@ -60,6 +61,7 @@ class RacingStore extends InMemoryReminderStore {
 
 async function setupScheduled(
   store: InMemoryReminderStore,
+  opts: { assigneeUserId?: string; watcherUserIds?: string[] } = {},
 ): Promise<{ command: DispatchCommand; dispatchDeps: DispatchDeps; policyPk: string }> {
   await store.putIfAbsent({
     ...itemKey(TENANT, ITEM_ID),
@@ -69,7 +71,22 @@ async function setupScheduled(
     status: "ACTIVE",
     dueDate: "2026-09-10T00:00:00.000Z",
     version: 1,
+    ...(opts.assigneeUserId !== undefined ? { assigneeUserId: opts.assigneeUserId } : {}),
   });
+
+  for (const userId of opts.watcherUserIds ?? []) {
+    await store.putIfAbsent({
+      ...itemWatchKey(TENANT, ITEM_ID, userId),
+      entityType: "ItemWatch",
+      itemId: ITEM_ID,
+      tenantId: TENANT,
+      userId,
+      status: "ACTIVE",
+      createdAt: NOW,
+      updatedAt: NOW,
+      version: 1,
+    });
+  }
 
   const policies = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => NOW });
   const policy = await policies.createPolicy(contextFor(TENANT), {
@@ -125,6 +142,8 @@ async function setupScheduled(
     },
   };
 
+  let intentCounter = 0;
+  let eventCounter = 0;
   const dispatchDeps: DispatchDeps = {
     store,
     tableName: TABLE,
@@ -132,8 +151,11 @@ async function setupScheduled(
     // relevant to this test is dispatch TIME (the occurrence's own scheduled minute), not
     // the fixed materialization-time clock used to seed the fixtures above.
     now: () => occurrence.scheduledAt,
-    newIntentId: () => "intent-1",
-    newEventId: () => "evt-1",
+    // Counter-based (D-200: one dispatch can now create N intents, one per recipient) -
+    // "intent-1"/"evt-1" for the first call keeps every pre-existing single-recipient test's
+    // fixed id unchanged.
+    newIntentId: () => `intent-${++intentCounter}`,
+    newEventId: () => `evt-${++eventCounter}`,
     correlationId: () => "corr-dispatch",
   };
 
@@ -216,7 +238,10 @@ describe("dispatchOccurrence — D-170 perf fixes", () => {
     const outcome = await dispatchOccurrence(dispatchDeps, command);
 
     expect(outcome.kind).toBe("TRIGGERED");
-    expect(store.queryByItemCalls).toBe(0);
+    // D-200 (watcher notification fan-out): exactly ONE queryByItem call, for the item's
+    // ItemWatch rows (ITEM_WATCH_SK_PREFIX) - the occurrence itself is still never looked up
+    // this way, only a direct GetItem (asserted via getCalls.length below).
+    expect(store.queryByItemCalls).toBe(1);
     // Exactly 3 get() calls: occurrence, item, policy - never scanning every OCC# row.
     expect(store.getCalls.length).toBe(3);
   });
@@ -249,5 +274,76 @@ describe("dispatchOccurrence — D-170 perf fixes", () => {
     // occurrence's own get() runs alone first (its key is needed before item/policy are
     // known), then item+policy run together - so at least 2 must overlap.
     expect(maxConcurrentGets).toBeGreaterThanOrEqual(2);
+  });
+});
+
+function intentsFrom(store: InMemoryReminderStore): (Record<string, unknown> & { targetKind?: string; targetWatcherUserId?: string })[] {
+  return store.allItems().filter((i) => i["entityType"] === "NotificationIntent") as (Record<string, unknown> & { targetKind?: string; targetWatcherUserId?: string })[];
+}
+
+describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
+  it("with no watchers, creates exactly one ASSIGNEE-targeted intent (unchanged pre-D-200 behavior)", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1" });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.targetKind).toBe("ASSIGNEE");
+  });
+
+  it("creates one intent per ACTIVE watcher, in addition to the assignee's, each with its own targetKind/targetWatcherUserId", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1", watcherUserIds: ["watcher-a", "watcher-b"] });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(3);
+    expect(intents.filter((i) => i.targetKind === "ASSIGNEE")).toHaveLength(1);
+    const watcherIntents = intents.filter((i) => i.targetKind === "WATCHER");
+    expect(watcherIntents.map((i) => i.targetWatcherUserId).sort()).toEqual(["watcher-a", "watcher-b"]);
+    // Every intent is its own IdempotencyRecord/OutboxEvent - never shared across recipients.
+    expect(store.allItems().filter((i) => i["entityType"] === "IdempotencyRecord" && i["operation"] === "reminder.dispatch")).toHaveLength(3);
+    expect(store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "notification.intent-created.v1")).toHaveLength(3);
+  });
+
+  it("dedupes: a watcher who is ALSO the assignee receives exactly ONE intent, not two", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "same-user", watcherUserIds: ["same-user", "watcher-b"] });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(2);
+    expect(intents.filter((i) => i.targetKind === "ASSIGNEE")).toHaveLength(1);
+    expect(intents.filter((i) => i.targetWatcherUserId === "same-user")).toHaveLength(0);
+  });
+
+  it("ignores REMOVED watchers - only ACTIVE ones are fanned out to", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1", watcherUserIds: ["watcher-a"] });
+    await store.update<ItemWatch>({ ...(await store.get<ItemWatch>(itemWatchKey(TENANT, ITEM_ID, "watcher-a")))!, status: "REMOVED", version: 2 });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.targetKind).toBe("ASSIGNEE");
+  });
+
+  it("with no assignee and no watchers, still creates one ASSIGNEE intent (auditable RECIPIENT_NOT_FOUND cancellation downstream, never a silently skipped occurrence)", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store);
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    expect(intentsFrom(store)).toHaveLength(1);
   });
 });

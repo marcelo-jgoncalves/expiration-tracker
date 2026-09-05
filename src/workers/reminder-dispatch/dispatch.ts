@@ -21,9 +21,10 @@ import { appendToTransaction } from "../../shared/outbox/outbox.js";
 import { buildIdempotencyKey } from "../../shared/idempotency/idempotency.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
 import { itemKey } from "../../modules/expiration/domain/expiration-item.js";
+import { ITEM_WATCH_SK_PREFIX, type ItemWatch } from "../../modules/expiration/domain/item-watch.js";
 import { policyKey, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import { occurrenceKey, type ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
-import { intentKey, type NotificationIntent } from "../../modules/reminder/domain/notification-intent.js";
+import { intentKey, type NotificationChannel, type NotificationIntent } from "../../modules/reminder/domain/notification-intent.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../shared/delivery-record-gsi8.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../../modules/reminder/ports/reminder-store.js";
 import type { DispatchCommand } from "../reminder-producer/producer.js";
@@ -47,6 +48,105 @@ export type DispatchOutcome =
   | { kind: "CANCELLED_STALE"; reason: string }
   | { kind: "SKIPPED_NOT_CLAIMED" }
   | { kind: "ABORTED_FRESHNESS_RACE" };
+
+/** D-200 (watcher notification fan-out): one NotificationIntent per recipient target. */
+type DispatchTarget = { kind: "ASSIGNEE" } | { kind: "WATCHER"; userId: string };
+
+interface BuiltIntent {
+  intent: NotificationIntent;
+  gsi8: { GSI8PK: string; GSI8SK: string };
+  idempotencyRecord: Record<string, unknown>;
+  event: DomainEvent;
+}
+
+function idempotencySuffix(target: DispatchTarget): string {
+  return target.kind === "ASSIGNEE" ? "ASSIGNEE" : `WATCHER#${target.userId}`;
+}
+
+function buildIntentForTarget(
+  deps: Pick<DispatchDeps, "tableName" | "newIntentId" | "newEventId" | "correlationId">,
+  common: { tenantId: string; itemId: string; occurrenceId: string; itemVersion: number; policyId: string; policyVersion: number; scheduledAt: string; requestedChannels: NotificationChannel[] },
+  target: DispatchTarget,
+  now: string,
+): BuiltIntent {
+  const intentId = deps.newIntentId();
+  const intent: NotificationIntent = {
+    ...intentKey(common.tenantId, intentId),
+    entityType: "NotificationIntent",
+    intentId,
+    tenantId: common.tenantId,
+    kind: "EXPIRATION_REMINDER",
+    itemId: common.itemId,
+    occurrenceId: common.occurrenceId,
+    itemVersion: common.itemVersion,
+    policyId: common.policyId,
+    policyVersion: common.policyVersion,
+    scheduledAt: common.scheduledAt,
+    requestedChannels: common.requestedChannels,
+    status: "PENDING",
+    supersedesIntentId: null,
+    correctionReason: null,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+    ...(target.kind === "WATCHER" ? { targetKind: "WATCHER" as const, targetWatcherUserId: target.userId } : { targetKind: "ASSIGNEE" as const }),
+  };
+
+  const gsi8 = deliveryRecordGsi8Keys({
+    dueAtIso: deriveDeliveryRecordMaintenanceDue({ createdAt: intent.createdAt }).dueAtIso,
+    tenantId: intent.tenantId,
+    entityType: "NotificationIntent",
+    sk: intent.SK,
+  });
+
+  // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId"),
+  // extended (D-200) with the target so N recipients from the SAME occurrence never collide
+  // on the same idempotency key.
+  const idem = buildIdempotencyKey(deps.tableName, common.tenantId, "reminder.dispatch", `${common.occurrenceId}#${idempotencySuffix(target)}`);
+  const idempotencyRecord = {
+    PK: idem.PK,
+    SK: idem.SK,
+    entityType: "IdempotencyRecord",
+    tenantId: common.tenantId,
+    operation: "reminder.dispatch",
+    requestHash: `${common.occurrenceId}#${idempotencySuffix(target)}`,
+    status: "COMPLETED",
+    responseRef: intentId,
+    expiresAt: new Date(Date.parse(now) + 7 * 24 * 60 * 60_000).toISOString(),
+    createdAt: now,
+    completedAt: now,
+  };
+
+  const event: DomainEvent = {
+    specVersion: "1.0",
+    eventId: deps.newEventId(),
+    eventType: NOTIFICATION_INTENT_CREATED,
+    source: "expiration-tracker.reminder",
+    occurredAt: now,
+    correlationId: deps.correlationId(),
+    tenantId: common.tenantId,
+    actor: { type: "SYSTEM" },
+    aggregate: { type: "NotificationIntent", id: intentId, version: 1 },
+    data: {
+      intentId,
+      kind: "EXPIRATION_REMINDER",
+      itemId: common.itemId,
+      occurrenceId: common.occurrenceId,
+      itemVersion: common.itemVersion,
+      policyId: common.policyId,
+      policyVersion: common.policyVersion,
+      scheduledAt: common.scheduledAt,
+      requestedChannels: intent.requestedChannels,
+      status: "PENDING",
+      supersedesIntentId: null,
+      correctionReason: null,
+      ...(intent.targetKind ? { targetKind: intent.targetKind } : {}),
+      ...(intent.targetWatcherUserId ? { targetWatcherUserId: intent.targetWatcherUserId } : {}),
+    },
+  };
+
+  return { intent, gsi8, idempotencyRecord, event };
+}
 
 /** Looks up the occurrence by its exact key - the command carries `scheduledAt` (the SK's
  * own segment, see DispatchCommand.data in producer.ts), so this is a direct GetItem, not
@@ -79,7 +179,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
 
   // D-170: independent reads (item, policy), fetched concurrently rather than sequentially.
   const [item, policy] = await Promise.all([
-    deps.store.get<{ PK: string; SK: string; status: string; version: number }>(itemKey(tenantId, itemId)),
+    deps.store.get<{ PK: string; SK: string; status: string; version: number; assigneeUserId?: string }>(itemKey(tenantId, itemId)),
     deps.store.get<ReminderPolicy>(policyKey(tenantId, occurrence.policyId)),
   ]);
 
@@ -143,43 +243,33 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
   }
 
   const now = deps.now();
-  const intentId = deps.newIntentId();
-  const intent: NotificationIntent = {
-    ...intentKey(tenantId, intentId),
-    entityType: "NotificationIntent",
-    intentId,
-    tenantId,
-    kind: "EXPIRATION_REMINDER",
-    itemId,
-    occurrenceId,
-    itemVersion,
-    policyId: occurrence.policyId,
-    policyVersion,
-    scheduledAt: occurrence.scheduledAt,
-    requestedChannels: policy.channels.filter((c) => !(policy.optOutChannels ?? []).includes(c)),
-    status: "PENDING",
-    supersedesIntentId: null,
-    correctionReason: null,
-    version: 1,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const requestedChannels = policy.channels.filter((c) => !(policy.optOutChannels ?? []).includes(c));
 
-  const intentGsi8 = deliveryRecordGsi8Keys({
-    dueAtIso: deriveDeliveryRecordMaintenanceDue({ createdAt: intent.createdAt }).dueAtIso,
-    tenantId: intent.tenantId,
-    entityType: "NotificationIntent",
-    sk: intent.SK,
-  });
+  // D-200 (watcher notification fan-out): the deduplicated recipient set - assignee (if any)
+  // plus every ACTIVE watcher, minus a watcher who is ALSO the assignee (never two intents,
+  // never two notifications, for the same person - the dedupe requirement research found
+  // convergent for this exact shape, watcher-notification-fanout-scoping/round1). Watchers are
+  // read from the item's own partition (same Query ItemWatchService.listWatchers already uses,
+  // no GSI), never trusted stale by the router later (D-4/estado-final-consolidado.md).
+  const watcherRows = await deps.store.queryByItem<ItemWatch>(tenantId, itemId, ITEM_WATCH_SK_PREFIX);
+  const watcherUserIds = new Set(watcherRows.filter((w) => w.status === "ACTIVE").map((w) => w.userId));
+  if (item.assigneeUserId) watcherUserIds.delete(item.assigneeUserId);
+  // An ASSIGNEE-kind target is ALWAYS created, even with no assigneeUserId at all - same
+  // pre-existing behavior (the router cancels it as RECIPIENT_NOT_FOUND, an auditable
+  // cancellation, never a silently skipped occurrence) this change must not regress.
+  const targets: DispatchTarget[] = [{ kind: "ASSIGNEE" as const }, ...[...watcherUserIds].map((userId) => ({ kind: "WATCHER" as const, userId }))];
 
+  const built = targets.map((target) =>
+    buildIntentForTarget(deps, { tenantId, itemId, occurrenceId, itemVersion, policyId: occurrence.policyId, policyVersion, scheduledAt: occurrence.scheduledAt, requestedChannels }, target, now),
+  );
+
+  // Entries 0-3 keep the EXACT positions the error-handling catch block below checks by
+  // index (occurrence update at 1, item/policy fences at 2/3) - built[0]'s intent Put takes
+  // slot 0, same as when there was always exactly one recipient. Every additional target's
+  // 3 entries (intent/idempotency/outbox Put) are appended after slot 4, never checked by
+  // index, so the fixed-index checks below are unaffected by how many recipients exist.
   const entries: TransactWriteEntry[] = [
-    {
-      Put: {
-        TableName: deps.tableName,
-        Item: { ...intent, ...intentGsi8 },
-        ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
-      },
-    },
+    { Put: { TableName: deps.tableName, Item: { ...built[0]!.intent, ...built[0]!.gsi8 }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
     {
       Update: buildVersionedUpdate({
         tableName: deps.tableName,
@@ -206,54 +296,18 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     }),
   ];
 
-  // Idempotency record for NotificationIntentCreated consumers (§9.4: "tenantId|occurrenceId").
-  const idem = buildIdempotencyKey(deps.tableName, tenantId, "reminder.dispatch", occurrenceId);
   entries.push({
-    Put: {
-      TableName: deps.tableName,
-      Item: {
-        PK: idem.PK,
-        SK: idem.SK,
-        entityType: "IdempotencyRecord",
-        tenantId,
-        operation: "reminder.dispatch",
-        requestHash: occurrenceId,
-        status: "COMPLETED",
-        responseRef: intentId,
-        expiresAt: new Date(Date.parse(now) + 7 * 24 * 60 * 60_000).toISOString(),
-        createdAt: now,
-        completedAt: now,
-      },
-      ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
-    },
+    Put: { TableName: deps.tableName, Item: built[0]!.idempotencyRecord, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" },
   });
+  appendToTransaction(entries, deps.tableName, built[0]!.event);
 
-  const event: DomainEvent = {
-    specVersion: "1.0",
-    eventId: deps.newEventId(),
-    eventType: NOTIFICATION_INTENT_CREATED,
-    source: "expiration-tracker.reminder",
-    occurredAt: now,
-    correlationId: deps.correlationId(),
-    tenantId,
-    actor: { type: "SYSTEM" },
-    aggregate: { type: "NotificationIntent", id: intentId, version: 1 },
-    data: {
-      intentId,
-      kind: "EXPIRATION_REMINDER",
-      itemId,
-      occurrenceId,
-      itemVersion,
-      policyId: occurrence.policyId,
-      policyVersion,
-      scheduledAt: occurrence.scheduledAt,
-      requestedChannels: intent.requestedChannels,
-      status: "PENDING",
-      supersedesIntentId: null,
-      correctionReason: null,
-    },
-  };
-  appendToTransaction(entries, deps.tableName, event);
+  for (const b of built.slice(1)) {
+    entries.push({ Put: { TableName: deps.tableName, Item: { ...b.intent, ...b.gsi8 }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } });
+    entries.push({ Put: { TableName: deps.tableName, Item: b.idempotencyRecord, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } });
+    appendToTransaction(entries, deps.tableName, b.event);
+  }
+
+  const intent = built[0]!.intent;
 
   try {
     await deps.store.transactWrite(entries);

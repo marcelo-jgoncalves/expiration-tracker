@@ -26,3 +26,9 @@ export function itemWatchKey(tenantId: string, itemId: string, userId: string): 
 
 /** Prefixo de SK para listar todos os watchers de um item via Query(PK, begins_with(SK, ...)). */
 export const ITEM_WATCH_SK_PREFIX = "WATCH#USER#";
+
+/** D-200 (watcher notification fan-out): teto de watchers ACTIVE por item, justificado pelo
+ * teto de 100 ações de `TransactWriteItems` em `dispatchOccurrence()` — 20 watchers + 1
+ * assignee = 21 destinatários × 3 itens (NotificationIntent/IdempotencyRecord/OutboxEvent
+ * Put) + 3 entradas fixas = 66, com folga real contra o teto de 100. */
+export const MAX_ITEM_WATCHERS = 20;
