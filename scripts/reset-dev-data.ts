@@ -43,6 +43,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BatchWriteCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts";
@@ -385,7 +386,9 @@ async function main(): Promise<void> {
   console.log("[reset-dev-data] DONE — final verification confirms everything is empty.");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `fileURLToPath` (not a raw `file://${argv[1]}` string comparison) - the string-comparison form
+// never matches on Windows (AGENTS.md §4's shell notes).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error("[reset-dev-data] FAILED:", err);
     process.exitCode = 1;

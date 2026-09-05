@@ -8,7 +8,7 @@ import {
 } from "../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { executeTenantBusinessMutation } from "../../src/shared/tenant-lifecycle/tenant-business-mutation.js";
 import { buildVersionedCreate, buildVersionedUpdate, buildVersionedDelete, type TransactWriteEntry } from "../../src/shared/dynamodb/occ.js";
-import { InternalError, TenantNotActiveError } from "../../src/shared/errors/app-error.js";
+import { ConflictError, InternalError, TenantNotActiveError } from "../../src/shared/errors/app-error.js";
 import { InMemoryIdentityStore } from "./identity/in-memory-store.js";
 
 const ALL_STATUSES: TenantLifecycleStatus[] = ["ACTIVE", "HELD_FOR_RECOVERY", "DELETING", "QUIESCING", "PURGING", "VERIFIED", "DELETED", "BLOCKED", "HELD"];
@@ -345,10 +345,12 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
     expect(await store.get({ PK: "TENANT#tenant-B#ITEM#item-4", SK: "META" })).toBeDefined();
   });
 
-  it("adversarial (D-072 item 4 hardening): a broken adapter that populates CancellationReasons with a non-array shape does not crash - falls back to TenantNotActiveError, the same safe-by-default outcome as CancellationReasons being absent entirely", async () => {
+  it("adversarial (RT-LANE-FALLBACK-01, D-191/D-194 C7, 2026-09-05): a broken adapter that populates CancellationReasons with a non-array shape does not crash and does not assert a cause DynamoDB never revealed - falls back to a generic ConflictError, never TenantNotActiveError", async () => {
     // Real AWS DynamoDB always sends CancellationReasons as an array; this simulates a
-    // hypothetical broken/stripped adapter to prove the lane degrades safely instead of
-    // throwing a TypeError from `reasons[fenceIndex]?.Code` on a non-array value.
+    // hypothetical broken/stripped adapter to prove the lane degrades safely (no crash) AND
+    // honestly (no false causal claim) instead of throwing a TypeError from
+    // `reasons[fenceIndex]?.Code` on a non-array value, or claiming the tenant fence failed
+    // when that was never actually revealed.
     const brokenStore = {
       transactWrite: async (): Promise<void> => {
         const err = new Error("TransactionCanceledException");
@@ -362,12 +364,12 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
       { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-3", SK: "META", version: 1 }) },
     ];
 
-    await expect(
-      executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
-    ).rejects.toBeInstanceOf(TenantNotActiveError);
+    const promise = executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries });
+    await expect(promise).rejects.toBeInstanceOf(ConflictError);
+    await expect(promise).rejects.not.toBeInstanceOf(TenantNotActiveError);
   });
 
-  it("adversarial (D-072 item 4 hardening, extended after follow-up review): a CancellationReasons array present but with a malformed element at the fence's own index (missing/non-string Code) also falls back to TenantNotActiveError, not a silent pass-through of the caller's own conflict", async () => {
+  it("adversarial (RT-LANE-FALLBACK-01, D-191/D-194 C7, extended after follow-up review): a CancellationReasons array present but with a malformed element at the fence's own index (missing/non-string Code) also falls back to a generic ConflictError, not a false TenantNotActiveError claim nor a silent pass-through of the caller's own conflict", async () => {
     // Distinguishes the array-present-but-element-malformed case from the array-absent case
     // this file's other broken-adapter test already covers - closes the specific gap a
     // follow-up Codex review found: Array.isArray() alone does not validate the SHAPE of the
@@ -387,9 +389,9 @@ describe("executeTenantBusinessMutation (TenantBusinessMutation lane)", () => {
       { Put: buildVersionedCreate(TABLE, { PK: "TENANT#tenant-1#ITEM#item-5", SK: "META", version: 1 }) },
     ];
 
-    await expect(
-      executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries }),
-    ).rejects.toBeInstanceOf(TenantNotActiveError);
+    const promise = executeTenantBusinessMutation({ store: brokenStore, tableName: TABLE, tenantId: "tenant-1", entries });
+    await expect(promise).rejects.toBeInstanceOf(ConflictError);
+    await expect(promise).rejects.not.toBeInstanceOf(TenantNotActiveError);
   });
 
   it("control (D-072 item 4): a well-formed CancellationReasons array where the fence's own index is Code 'None' still surfaces the caller's own conflict, not misclassified as TenantNotActiveError - proves the hardening did not regress the original CancellationReasons-aware distinction", async () => {

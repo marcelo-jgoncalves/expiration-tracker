@@ -33,6 +33,7 @@
  * any pointer or calling materialize() - use this first against a real table to sanity-check
  * scope before committing writes.
  */
+import { fileURLToPath } from "node:url";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { DynamoDbReminderStore } from "../src/modules/reminder/persistence/dynamodb-reminder-store.js";
@@ -173,7 +174,9 @@ async function main(): Promise<void> {
 // when imported for its pure helpers (parseArgs/decodeKey/encodeKey/processPage), which
 // test/unit/reminder/backfill-reminder-policies.test.ts does without ever wanting main() to
 // run (it has no --table, no real DynamoDB table, and shouldn't need either).
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `fileURLToPath` (not a raw `file://${argv[1]}` string comparison) - the string-comparison form
+// never matches on Windows (AGENTS.md §4's shell notes).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error("[backfill] FAILED:", err);
     process.exitCode = 1;
