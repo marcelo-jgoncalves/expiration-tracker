@@ -50,16 +50,20 @@ export interface NotificationIntent extends EntityKey {
   updatedAt: string;
   /** M4: resolved by NotificationRecipientResolver, never written by the M3 dispatch worker. */
   recipientUserId?: string;
-  /** D-200 (watcher notification fan-out): the INTENDED recipient at creation time - distinct
-   * from `recipientUserId` above, which is exclusively a post-routing, resolved-and-confirmed
-   * value (D-199). Absent or "ASSIGNEE" means the router derives the candidate from
-   * `ExpirationItem.assigneeUserId`, same as before this field existed. "WATCHER" means the
-   * router must instead revalidate `targetWatcherUserId` against a live ItemWatch row (never
-   * trust the value from creation time). Propagated verbatim by `applyStaleDecision()` into
-   * any REPLACEMENT/CORRECTIVE intent it derives - never re-defaulted to ASSIGNEE. */
-  targetKind?: "ASSIGNEE" | "WATCHER";
-  /** D-200: only set when `targetKind === "WATCHER"`. */
-  targetWatcherUserId?: string;
+  /** D-200/D-201 (watcher fan-out / MANAGER escalation): the INTENDED recipient at creation
+   * time - distinct from `recipientUserId` above, which is exclusively a post-routing,
+   * resolved-and-confirmed value (D-199). Absent or "ASSIGNEE" means the router derives the
+   * candidate from `ExpirationItem.assigneeUserId`, same as before this field existed.
+   * "WATCHER"/"MANAGER" mean the router must instead revalidate `targetUserId` fresh (against
+   * a live ItemWatch row, or a live Membership+GlobalUser pair, respectively) - never trust
+   * the value from creation time. Propagated verbatim by `applyStaleDecision()` into any
+   * REPLACEMENT/CORRECTIVE intent it derives - never re-defaulted to ASSIGNEE. */
+  targetKind?: "ASSIGNEE" | "WATCHER" | "MANAGER";
+  /** D-200/D-201: only set when `targetKind` is "WATCHER" or "MANAGER" - renamed from
+   * `targetWatcherUserId` (D-200) to `targetUserId` when D-201 added a second non-ASSIGNEE
+   * kind: zero NotificationIntent rows existed in `dev` at the time of the rename (no
+   * migration needed, `AGENTS.md` §1/D-093). */
+  targetUserId?: string;
   /** M4: channels actually routed to the outbox after the router's fail-closed/fail-open matrix. */
   routedChannels?: NotificationChannel[];
   /** M4: per-channel reason a requested channel was NOT routed - auditable, never silent. */

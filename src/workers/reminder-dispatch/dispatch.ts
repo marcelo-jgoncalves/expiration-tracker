@@ -27,13 +27,20 @@ import { occurrenceKey, type ReminderOccurrence } from "../../modules/reminder/d
 import { intentKey, type NotificationChannel, type NotificationIntent } from "../../modules/reminder/domain/notification-intent.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../shared/delivery-record-gsi8.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../../modules/reminder/ports/reminder-store.js";
+import type { TenantManagerLookup } from "../../modules/reminder/ports/tenant-manager-lookup.js";
 import type { DispatchCommand } from "../reminder-producer/producer.js";
 
 const NOTIFICATION_INTENT_CREATED = "notification.intent-created.v1";
 
+/** D-201 (MANAGER escalation): mirrors MAX_ITEM_WATCHERS's arithmetic - a trigger's audience
+ * (ASSIGNEE_AND_WATCHERS or MANAGER) never mixes in the same dispatch, so this budget is
+ * independent of the watcher cap, not additive with it. */
+const MAX_MANAGER_ESCALATION_RECIPIENTS = 20;
+
 export interface DispatchDeps {
   store: ReminderStore;
   tableName: string;
+  managerLookup: TenantManagerLookup;
   now: () => string;
   newIntentId: () => string;
   newEventId: () => string;
@@ -49,8 +56,8 @@ export type DispatchOutcome =
   | { kind: "SKIPPED_NOT_CLAIMED" }
   | { kind: "ABORTED_FRESHNESS_RACE" };
 
-/** D-200 (watcher notification fan-out): one NotificationIntent per recipient target. */
-type DispatchTarget = { kind: "ASSIGNEE" } | { kind: "WATCHER"; userId: string };
+/** D-200/D-201: one NotificationIntent per recipient target. */
+type DispatchTarget = { kind: "ASSIGNEE" } | { kind: "WATCHER" | "MANAGER"; userId: string };
 
 interface BuiltIntent {
   intent: NotificationIntent;
@@ -60,7 +67,7 @@ interface BuiltIntent {
 }
 
 function idempotencySuffix(target: DispatchTarget): string {
-  return target.kind === "ASSIGNEE" ? "ASSIGNEE" : `WATCHER#${target.userId}`;
+  return target.kind === "ASSIGNEE" ? "ASSIGNEE" : `${target.kind}#${target.userId}`;
 }
 
 function buildIntentForTarget(
@@ -89,7 +96,7 @@ function buildIntentForTarget(
     version: 1,
     createdAt: now,
     updatedAt: now,
-    ...(target.kind === "WATCHER" ? { targetKind: "WATCHER" as const, targetWatcherUserId: target.userId } : { targetKind: "ASSIGNEE" as const }),
+    ...(target.kind === "ASSIGNEE" ? { targetKind: "ASSIGNEE" as const } : { targetKind: target.kind, targetUserId: target.userId }),
   };
 
   const gsi8 = deliveryRecordGsi8Keys({
@@ -141,7 +148,7 @@ function buildIntentForTarget(
       supersedesIntentId: null,
       correctionReason: null,
       ...(intent.targetKind ? { targetKind: intent.targetKind } : {}),
-      ...(intent.targetWatcherUserId ? { targetWatcherUserId: intent.targetWatcherUserId } : {}),
+      ...(intent.targetUserId ? { targetUserId: intent.targetUserId } : {}),
     },
   };
 
@@ -245,19 +252,42 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
   const now = deps.now();
   const requestedChannels = policy.channels.filter((c) => !(policy.optOutChannels ?? []).includes(c));
 
-  // D-200 (watcher notification fan-out): the deduplicated recipient set - assignee (if any)
-  // plus every ACTIVE watcher, minus a watcher who is ALSO the assignee (never two intents,
-  // never two notifications, for the same person - the dedupe requirement research found
-  // convergent for this exact shape, watcher-notification-fanout-scoping/round1). Watchers are
-  // read from the item's own partition (same Query ItemWatchService.listWatchers already uses,
-  // no GSI), never trusted stale by the router later (D-4/estado-final-consolidado.md).
-  const watcherRows = await deps.store.queryByItem<ItemWatch>(tenantId, itemId, ITEM_WATCH_SK_PREFIX);
-  const watcherUserIds = new Set(watcherRows.filter((w) => w.status === "ACTIVE").map((w) => w.userId));
-  if (item.assigneeUserId) watcherUserIds.delete(item.assigneeUserId);
-  // An ASSIGNEE-kind target is ALWAYS created, even with no assigneeUserId at all - same
-  // pre-existing behavior (the router cancels it as RECIPIENT_NOT_FOUND, an auditable
-  // cancellation, never a silently skipped occurrence) this change must not regress.
-  const targets: DispatchTarget[] = [{ kind: "ASSIGNEE" as const }, ...[...watcherUserIds].map((userId) => ({ kind: "WATCHER" as const, userId }))];
+  // D-201 (MANAGER escalation): the trigger that materialized THIS occurrence decides the
+  // WHOLE audience of this dispatch - a MANAGER-audience trigger never mixes with
+  // ASSIGNEE/WATCHERS (they are different occurrences, from different triggers, dispatched
+  // independently, possibly at completely different times - estado-final-consolidado.md's
+  // "dedupe is scoped to the current occurrence, never cross-trigger").
+  const firingTrigger = policy.triggers.find((t) => t.triggerId === occurrence.triggerId);
+
+  let targets: DispatchTarget[];
+  if (firingTrigger?.audience === "MANAGER") {
+    const managers = await deps.managerLookup.listActiveManagers(tenantId);
+    // Truncation is a real, named operational limit (>20 concurrent OWNER/ADMIN in one
+    // tenant), never silent - order is stable (whatever listActiveManagers returned) but
+    // arbitrary, never a priority decision about WHICH managers matter more.
+    targets = managers.slice(0, MAX_MANAGER_ESCALATION_RECIPIENTS).map((m) => ({ kind: "MANAGER" as const, userId: m.userId }));
+    // Defensive, should not happen in practice (last-OWNER protection guarantees at least one
+    // ACTIVE OWNER exists) - but never crash on an empty fan-out. Same auditable-cancellation
+    // shape the ASSIGNEE path already uses for "no candidate at all": one degenerate intent
+    // with an empty targetUserId, which the router's own candidateWasEmpty check (identical
+    // to the ASSIGNEE branch) resolves to RECIPIENT_NOT_FOUND, never a silently skipped
+    // occurrence.
+    if (targets.length === 0) targets = [{ kind: "MANAGER", userId: "" }];
+  } else {
+    // D-200 (watcher notification fan-out): the deduplicated recipient set - assignee (if any)
+    // plus every ACTIVE watcher, minus a watcher who is ALSO the assignee (never two intents,
+    // never two notifications, for the same person - the dedupe requirement research found
+    // convergent for this exact shape, watcher-notification-fanout-scoping/round1). Watchers
+    // are read from the item's own partition (same Query ItemWatchService.listWatchers
+    // already uses, no GSI), never trusted stale by the router later.
+    const watcherRows = await deps.store.queryByItem<ItemWatch>(tenantId, itemId, ITEM_WATCH_SK_PREFIX);
+    const watcherUserIds = new Set(watcherRows.filter((w) => w.status === "ACTIVE").map((w) => w.userId));
+    if (item.assigneeUserId) watcherUserIds.delete(item.assigneeUserId);
+    // An ASSIGNEE-kind target is ALWAYS created, even with no assigneeUserId at all - same
+    // pre-existing behavior (the router cancels it as RECIPIENT_NOT_FOUND, an auditable
+    // cancellation, never a silently skipped occurrence) this change must not regress.
+    targets = [{ kind: "ASSIGNEE" as const }, ...[...watcherUserIds].map((userId) => ({ kind: "WATCHER" as const, userId }))];
+  }
 
   const built = targets.map((target) =>
     buildIntentForTarget(deps, { tenantId, itemId, occurrenceId, itemVersion, policyId: occurrence.policyId, policyVersion, scheduledAt: occurrence.scheduledAt, requestedChannels }, target, now),

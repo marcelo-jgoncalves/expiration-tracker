@@ -162,7 +162,42 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
           supersedesIntentId: null,
           correctionReason: null,
           targetKind: "WATCHER",
-          targetWatcherUserId: "user_watcher_01",
+          targetUserId: "user_watcher_01",
+        },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid notification.intent-created.v1 event targeting a MANAGER (D-201)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/notification-intent-created.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_int_02b",
+        eventType: "notification.intent-created.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-09-10T12:00:01.120Z",
+        correlationId: "cor_02b",
+        tenantId: "t_01",
+        actor: { type: "SYSTEM" },
+        aggregate: { type: "NotificationIntent", id: "int_02b", version: 1 },
+        data: {
+          intentId: "int_02b",
+          kind: "EXPIRATION_REMINDER",
+          itemId: "item_01",
+          occurrenceId: "occ_01",
+          itemVersion: 8,
+          policyId: "policy_01",
+          policyVersion: 4,
+          scheduledAt: "2026-09-10T12:00:00.000Z",
+          requestedChannels: ["EMAIL"],
+          status: "PENDING",
+          supersedesIntentId: null,
+          correctionReason: null,
+          targetKind: "MANAGER",
+          targetUserId: "user_manager_01",
         },
       },
     );
@@ -196,7 +231,7 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
           status: "PENDING",
           supersedesIntentId: null,
           correctionReason: null,
-          targetKind: "MANAGER",
+          targetKind: "SUPERVISOR",
         },
       },
     );
