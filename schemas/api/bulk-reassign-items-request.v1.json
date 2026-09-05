@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json",
+  "title": "BulkReassignItemsRequest v1",
+  "description": "POST /items/bulk-reassign request body (D-206/D-207, Roadmap P1 item 17). Each entry carries its own expectedVersion - preserves the same per-item OCC guarantee a single-item PUT /items/{itemId} already gets via If-Match, since a bulk request has no single version to attach to a header. assigneeUserId empty string clears the assignee (same convention as UpdateItemRequest).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemId", "expectedVersion", "assigneeUserId"],
+        "properties": {
+          "itemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "expectedVersion": { "type": "integer", "minimum": 1 },
+          "assigneeUserId": { "type": "string", "maxLength": 100 }
+        }
+      }
+    }
+  }
+}

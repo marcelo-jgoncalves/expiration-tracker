@@ -93,4 +93,19 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("POST", "/import-jobs/job-1/schema")).toBeUndefined();
     expect(matchAllowlistedRoute("GET", "/import-jobs/job-1/mapping")).toBeUndefined();
   });
+
+  // D-206/D-207 (bulk actions, Roadmap P1 item 17): same D-117/D-120/D-178 gap class, asserted
+  // at the time of writing instead of found by a later session.
+  it("matches the D-206/D-207 bulk-actions routes", () => {
+    expect(matchAllowlistedRoute("POST", "/items/bulk-reassign")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/items/bulk-archive")).toBeDefined();
+  });
+
+  it("does not match the bulk-actions routes with a method allowlisted for no /items* path at all (fails without the fix)", () => {
+    // Not GET/PUT/DELETE - those are allowlisted for /items/{itemId} and would legitimately
+    // fall through to that template (same ambiguity as "PATCH /items/item-1" above), which
+    // would defeat this assertion's purpose of proving the bulk-actions entries themselves.
+    expect(matchAllowlistedRoute("PATCH", "/items/bulk-reassign")).toBeUndefined();
+    expect(matchAllowlistedRoute("PATCH", "/items/bulk-archive")).toBeUndefined();
+  });
 });

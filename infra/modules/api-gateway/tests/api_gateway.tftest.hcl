@@ -41,6 +41,18 @@ run "jwt_authorizer_attached_to_every_route" {
     imports_function_name         = "imports"
     export_invoke_arn             = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:export/invocations"
     export_function_name          = "export"
+    # Pre-existing gap found while wiring D-206/D-207 (this test file's variables block
+    # never followed D-195/D-143's additions to variables.tf) - filled in here (mock
+    # values only, no production change) so this module's own `terraform test` can run at
+    # all again. Not otherwise in scope of this decision.
+    reports_invoke_arn                   = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reports/invocations"
+    reports_function_name                = "reports"
+    document_archive_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:document-archive/invocations"
+    document_archive_function_name       = "document-archive"
+    document_archive_guest_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:document-archive-guest/invocations"
+    document_archive_guest_function_name = "document-archive-guest"
+    bulk_actions_invoke_arn              = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:bulk-actions/invocations"
+    bulk_actions_function_name           = "bulk-actions"
   }
 
   assert {
@@ -110,6 +122,43 @@ run "jwt_authorizer_attached_to_every_route" {
   assert {
     condition     = aws_lambda_permission.export.qualifier == "live"
     error_message = "ExportHandler's invoke permission must target the live alias, not $LATEST"
+  }
+
+  # D-206/D-207 (bulk actions, Roadmap P1 item 17): POST /items/bulk-reassign and
+  # POST /items/bulk-archive are wired as their own dedicated routes, never merged into
+  # aws_apigatewayv2_route.items — same class of bug D-117/D-120 fixed (a route never wired
+  # to API Gateway) would recur if this were forgotten.
+  assert {
+    condition     = length(aws_apigatewayv2_route.bulk_actions) == 2
+    error_message = "Expected exactly 2 bulk-actions routes (reassign, archive)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.bulk_actions : r.route_key],
+      "POST /items/bulk-reassign",
+    )
+    error_message = "POST /items/bulk-reassign route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.bulk_actions : r.route_key],
+      "POST /items/bulk-archive",
+    )
+    error_message = "POST /items/bulk-archive route must exist"
+  }
+
+  assert {
+    condition = alltrue([
+      for r in aws_apigatewayv2_route.bulk_actions : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
+    ])
+    error_message = "Every bulk-actions route must be JWT-authorized with the shared authorizer"
+  }
+
+  assert {
+    condition     = aws_lambda_permission.bulk_actions.qualifier == "live"
+    error_message = "BulkActionsHandler's invoke permission must target the live alias, not $LATEST"
   }
 
   # Every /reminders/policies* route exists and is JWT-authorized.

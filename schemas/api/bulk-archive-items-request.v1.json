@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/bulk-archive-items-request.v1.json",
+  "title": "BulkArchiveItemsRequest v1",
+  "description": "POST /items/bulk-archive request body (D-206/D-207, Roadmap P1 item 17). `confirm` must be exactly true - archive is more destructive than reassign (emits ItemDeactivated, cancels any live reminder occurrence), so the client must state that intent explicitly rather than it being inferred from calling the route at all.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "confirm"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemId", "expectedVersion"],
+        "properties": {
+          "itemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "expectedVersion": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "confirm": { "const": true }
+  }
+}

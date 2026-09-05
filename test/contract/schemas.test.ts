@@ -1529,4 +1529,62 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // D-206/D-207 (bulk actions, Roadmap P1 item 17).
+  it("accepts a valid bulk-reassign-items-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json", {
+      items: [{ itemId: "item-1", expectedVersion: 1, assigneeUserId: "user-2" }],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts assigneeUserId as an empty string (clears the assignee, same convention as UpdateItemRequest)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json", {
+      items: [{ itemId: "item-1", expectedVersion: 1, assigneeUserId: "" }],
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a bulk-reassign-items-request with an empty items array", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json", { items: [] });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a bulk-reassign-items-request with more than 100 items (BULK_ACTION_ITEM_CAP)", () => {
+    const items = Array.from({ length: 101 }, (_, i) => ({ itemId: `item-${i}`, expectedVersion: 1, assigneeUserId: "user-2" }));
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json", { items });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a bulk-reassign-items-request item missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-reassign-items-request.v1.json", {
+      items: [{ itemId: "item-1", assigneeUserId: "user-2" }],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid bulk-archive-items-request with confirm:true", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/bulk-archive-items-request.v1.json", {
+      items: [{ itemId: "item-1", expectedVersion: 1 }],
+      confirm: true,
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a bulk-archive-items-request with confirm:false (const true required)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-archive-items-request.v1.json", {
+      items: [{ itemId: "item-1", expectedVersion: 1 }],
+      confirm: false,
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a bulk-archive-items-request missing confirm entirely", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/bulk-archive-items-request.v1.json", {
+      items: [{ itemId: "item-1", expectedVersion: 1 }],
+    });
+    expect(valid).toBe(false);
+  });
 });

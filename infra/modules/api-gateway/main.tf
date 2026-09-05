@@ -240,6 +240,46 @@ resource "aws_lambda_permission" "reports" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reports*"
 }
 
+# --- BulkActionsHandler: POST /items/bulk-reassign, POST /items/bulk-archive (D-206/D-207,
+# Roadmap P1 item 17) ---------------------------------------------------------------------
+# Own integration/Lambda, not folded into aws_apigatewayv2_integration.items above — see
+# bulk-actions-handler.ts's own comment for why (dedicated timeout_seconds=25). Literal
+# segments, same "literal alongside {itemId} param route" precedent as GET /items/dashboard
+# and GET /items/export already living beside GET /items/{itemId}.
+
+resource "aws_apigatewayv2_integration" "bulk_actions" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.bulk_actions_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  bulk_actions_routes = {
+    reassign = { method = "POST", path = "/items/bulk-reassign" }
+    archive  = { method = "POST", path = "/items/bulk-archive" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "bulk_actions" {
+  for_each = local.bulk_actions_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.bulk_actions.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "bulk_actions" {
+  statement_id  = "AllowApiGatewayInvokeBulkActions"
+  action        = "lambda:InvokeFunction"
+  function_name = var.bulk_actions_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/bulk-*"
+}
+
 # --- RemindersHandler: /reminders/policies* (M3) ----------------------------------------
 
 resource "aws_apigatewayv2_integration" "reminders" {
