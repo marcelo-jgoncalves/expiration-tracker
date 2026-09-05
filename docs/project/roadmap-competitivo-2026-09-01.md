@@ -745,3 +745,42 @@ lançamento
 ```
 
 Essa passa a ser a sequência recomendada para o Expiration Tracker.
+
+---
+
+# 17. Débito técnico de infraestrutura (custo/performance, revisar antes de produção real)
+
+Itens de otimização de infraestrutura identificados mas deliberadamente adiados — nenhum é
+urgente hoje (`AGENTS.md` §1: sem usuário real, sem produção), mas ambos devem ser reavaliados
+como decisão explícita (protocolo Claude↔Codex, `AGENTS.md` §4, por serem mudança de
+arquitetura/segurança) quando o projeto se aproximar de produção real.
+
+## 17.1 — Migrar Lambdas de x86_64 para ARM64 (Graviton2)
+
+Todas as Lambdas do projeto rodam hoje em x86_64 — nunca decidido explicitamente, é o default
+implícito do provider (`infra/modules/lambda-function/main.tf`'s `aws_lambda_function` nunca
+declara `architectures`). Graviton2/ARM64 tipicamente reduz custo (~20%) e melhora
+performance/watt para workloads Node.js. Pendências reais a resolver na migração: o layer ADOT
+pinado em `infra/env/dev.tfvars` (`aws-otel-nodejs-amd64-...`) é arquitetura-específica e precisa
+trocar para a variante `arm64` correspondente; validar que todas as dependências nativas (se
+houver alguma com binário compilado) têm build ARM64 disponível.
+
+**Registrado por pedido de Marcelo, 2026-09-05.**
+
+## 17.2 — Hardening de rede (VPC + WAF)
+
+1. VPC com subnets privadas + NAT Gateway, Lambdas dentro da VPC, Gateway Endpoints para S3 e
+   DynamoDB (evita rotear esse tráfego pelo NAT/internet pública) — reduz superfície de ataque.
+   Trade-off real: hoje nenhuma Lambda fala com algo que exija VPC (sem RDS/ElastiCache/serviço
+   privado), então colocar em VPC é só sobre controlar egress (benefício real, mas mais estreito
+   que corrigir uma lacuna explorável hoje), com custo real recorrente (NAT Gateway
+   hora+processamento de dados) e complexidade de rede adicional.
+2. WAF na frente do CloudFront, mais automação para bloquear bots/scans considerados ameaça
+   real. Módulo `waf` já existiu e foi removido (D-051, `decisions-log.md`) — AWS WAFv2 não
+   suporta associação com API Gateway HTTP API v2, só REST API/ALB/AppSync/Cognito/App
+   Runner/Verified Access/Amplify; reavaliar contra o CloudFront (ADR-0011), que suporta WAFv2
+   nativamente — pode fechar essa lacuna. Prioridade mais alta que o item 1 (protege a superfície
+   pública/não-autenticada de fato).
+
+**Registrado por pedido de Marcelo, 2026-08-30** (item já existia em memória de sessão anterior,
+nunca tinha sido escrito no repositório — corrigido aqui).
