@@ -152,7 +152,7 @@ describe("Reminder Engine end-to-end against REAL DynamoDB (Camada 2)", () => {
     // Real dispatch: CLAIMED -> TRIGGERED + NotificationIntent, real TransactWriteItems.
     const command = sentToQueue[0] as Parameters<typeof dispatchOccurrence>[1];
     const outcome = await dispatchOccurrence(
-      { store, tableName: TABLE_NAME, now, newIntentId: () => "intent-1", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "corr-2" },
+      { store, tableName: TABLE_NAME, managerLookup: { listActiveManagers: async () => [], isActiveManager: async () => false }, now, newIntentId: () => "intent-1", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "corr-2" },
       command,
     );
     expect(outcome.kind).toBe("TRIGGERED");
@@ -166,7 +166,7 @@ describe("Reminder Engine end-to-end against REAL DynamoDB (Camada 2)", () => {
 
     // Duplicate delivery (SQS at-least-once) must not create a second NotificationIntent.
     const duplicateOutcome = await dispatchOccurrence(
-      { store, tableName: TABLE_NAME, now, newIntentId: () => "intent-2", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "corr-3" },
+      { store, tableName: TABLE_NAME, managerLookup: { listActiveManagers: async () => [], isActiveManager: async () => false }, now, newIntentId: () => "intent-2", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "corr-3" },
       command,
     );
     expect(duplicateOutcome.kind).toBe("ALREADY_TRIGGERED");

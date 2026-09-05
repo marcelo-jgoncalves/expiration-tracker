@@ -113,6 +113,7 @@ describe("GSI8 pointer written at creation for NotificationIntent/NotificationAt
     const dispatchDeps: DispatchDeps = {
       store,
       tableName: TABLE,
+      managerLookup: { listActiveManagers: async () => [], isActiveManager: async () => false },
       now: () => occurrence.scheduledAt,
       newIntentId: () => "intent-1",
       newEventId: () => "evt-1",

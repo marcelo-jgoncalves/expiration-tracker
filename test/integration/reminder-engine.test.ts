@@ -125,6 +125,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     const dispatchDeps = {
       store,
       tableName: TABLE,
+      managerLookup: { listActiveManagers: async () => [], isActiveManager: async () => false },
       now,
       newIntentId: () => "intent-1",
       newEventId: () => `evt-${++eventIdCounter}`,
@@ -280,7 +281,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
 
     let eventIdCounter = 0;
     const outcome = await dispatchOccurrence(
-      { store, tableName: TABLE, now, newIntentId: () => "intent-x", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "c" },
+      { store, tableName: TABLE, managerLookup: { listActiveManagers: async () => [], isActiveManager: async () => false }, now, newIntentId: () => "intent-x", newEventId: () => `evt-${++eventIdCounter}`, correlationId: () => "c" },
       command,
     );
     expect(outcome.kind).toBe("CANCELLED_STALE");

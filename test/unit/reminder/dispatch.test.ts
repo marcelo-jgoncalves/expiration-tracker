@@ -59,10 +59,23 @@ class RacingStore extends InMemoryReminderStore {
   }
 }
 
+/** D-201 (MANAGER escalation) test fake - `activeManagers` is a mutable Set so a test can
+ * simulate a manager being demoted/removed between dispatch and routing (mirrors how
+ * `ItemWatch` rows are mutated directly for the analogous WATCHER test). */
+class FakeTenantManagerLookup {
+  activeManagers = new Set<string>();
+  async listActiveManagers(_tenantId: string): Promise<{ userId: string }[]> {
+    return [...this.activeManagers].map((userId) => ({ userId }));
+  }
+  async isActiveManager(_tenantId: string, userId: string): Promise<boolean> {
+    return this.activeManagers.has(userId);
+  }
+}
+
 async function setupScheduled(
   store: InMemoryReminderStore,
-  opts: { assigneeUserId?: string; watcherUserIds?: string[] } = {},
-): Promise<{ command: DispatchCommand; dispatchDeps: DispatchDeps; policyPk: string }> {
+  opts: { assigneeUserId?: string; watcherUserIds?: string[]; managerUserIds?: string[]; triggerAudience?: "MANAGER" } = {},
+): Promise<{ command: DispatchCommand; dispatchDeps: DispatchDeps; policyPk: string; managerLookup: FakeTenantManagerLookup }> {
   await store.putIfAbsent({
     ...itemKey(TENANT, ITEM_ID),
     entityType: "ExpirationItem",
@@ -94,7 +107,7 @@ async function setupScheduled(
     itemId: ITEM_ID,
     rule: {
       name: "7 days before",
-      triggers: [{ triggerId: "trig1", offsetIso: "-P7D", localTime: "09:00" }],
+      triggers: [{ triggerId: "trig1", offsetIso: "-P7D", localTime: "09:00", ...(opts.triggerAudience ? { audience: opts.triggerAudience } : {}) }],
       timeZone: "America/Sao_Paulo",
       channels: ["EMAIL"],
     },
@@ -144,9 +157,12 @@ async function setupScheduled(
 
   let intentCounter = 0;
   let eventCounter = 0;
+  const managerLookup = new FakeTenantManagerLookup();
+  for (const userId of opts.managerUserIds ?? []) managerLookup.activeManagers.add(userId);
   const dispatchDeps: DispatchDeps = {
     store,
     tableName: TABLE,
+    managerLookup,
     // Dispatch checks `scheduledAt` against `now()` within a tolerance window - the "now"
     // relevant to this test is dispatch TIME (the occurrence's own scheduled minute), not
     // the fixed materialization-time clock used to seed the fixtures above.
@@ -159,7 +175,7 @@ async function setupScheduled(
     correlationId: () => "corr-dispatch",
   };
 
-  return { command, dispatchDeps, policyPk: policyKey(TENANT, policy.policyId).PK };
+  return { command, dispatchDeps, policyPk: policyKey(TENANT, policy.policyId).PK, managerLookup };
 }
 
 describe("dispatchOccurrence — freshness fence under a genuine read/commit race", () => {
@@ -277,8 +293,8 @@ describe("dispatchOccurrence — D-170 perf fixes", () => {
   });
 });
 
-function intentsFrom(store: InMemoryReminderStore): (Record<string, unknown> & { targetKind?: string; targetWatcherUserId?: string })[] {
-  return store.allItems().filter((i) => i["entityType"] === "NotificationIntent") as (Record<string, unknown> & { targetKind?: string; targetWatcherUserId?: string })[];
+function intentsFrom(store: InMemoryReminderStore): (Record<string, unknown> & { targetKind?: string; targetUserId?: string })[] {
+  return store.allItems().filter((i) => i["entityType"] === "NotificationIntent") as (Record<string, unknown> & { targetKind?: string; targetUserId?: string })[];
 }
 
 describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
@@ -294,7 +310,7 @@ describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
     expect(intents[0]!.targetKind).toBe("ASSIGNEE");
   });
 
-  it("creates one intent per ACTIVE watcher, in addition to the assignee's, each with its own targetKind/targetWatcherUserId", async () => {
+  it("creates one intent per ACTIVE watcher, in addition to the assignee's, each with its own targetKind/targetUserId", async () => {
     const store = new InMemoryReminderStore();
     const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1", watcherUserIds: ["watcher-a", "watcher-b"] });
 
@@ -305,7 +321,7 @@ describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
     expect(intents).toHaveLength(3);
     expect(intents.filter((i) => i.targetKind === "ASSIGNEE")).toHaveLength(1);
     const watcherIntents = intents.filter((i) => i.targetKind === "WATCHER");
-    expect(watcherIntents.map((i) => i.targetWatcherUserId).sort()).toEqual(["watcher-a", "watcher-b"]);
+    expect(watcherIntents.map((i) => i.targetUserId).sort()).toEqual(["watcher-a", "watcher-b"]);
     // Every intent is its own IdempotencyRecord/OutboxEvent - never shared across recipients.
     expect(store.allItems().filter((i) => i["entityType"] === "IdempotencyRecord" && i["operation"] === "reminder.dispatch")).toHaveLength(3);
     expect(store.allItems().filter((i) => i["entityType"] === "OutboxEvent" && i["eventType"] === "notification.intent-created.v1")).toHaveLength(3);
@@ -321,7 +337,7 @@ describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
     const intents = intentsFrom(store);
     expect(intents).toHaveLength(2);
     expect(intents.filter((i) => i.targetKind === "ASSIGNEE")).toHaveLength(1);
-    expect(intents.filter((i) => i.targetWatcherUserId === "same-user")).toHaveLength(0);
+    expect(intents.filter((i) => i.targetUserId === "same-user")).toHaveLength(0);
   });
 
   it("ignores REMOVED watchers - only ACTIVE ones are fanned out to", async () => {
@@ -345,5 +361,57 @@ describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
 
     expect(outcome.kind).toBe("TRIGGERED");
     expect(intentsFrom(store)).toHaveLength(1);
+  });
+});
+
+describe("dispatchOccurrence — D-201 MANAGER escalation", () => {
+  it("a MANAGER-audience trigger creates one intent per active manager, NEVER the assignee/watcher intents of a normal trigger", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1", watcherUserIds: ["watcher-a"], managerUserIds: ["owner-1", "admin-1"], triggerAudience: "MANAGER" });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(2);
+    expect(intents.every((i) => i.targetKind === "MANAGER")).toBe(true);
+    expect(intents.map((i) => i.targetUserId).sort()).toEqual(["admin-1", "owner-1"]);
+  });
+
+  it("does NOT dedupe a manager against the assignee/watchers - a manager who is also the assignee still gets escalated (cross-trigger dedupe was revoked, D-201 Rodada 2)", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "same-user", managerUserIds: ["same-user"], triggerAudience: "MANAGER" });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.targetKind).toBe("MANAGER");
+    expect(intents[0]!.targetUserId).toBe("same-user");
+  });
+
+  it("truncates at MAX_MANAGER_ESCALATION_RECIPIENTS (20) rather than exceeding the TransactWriteItems budget", async () => {
+    const store = new InMemoryReminderStore();
+    const managerUserIds = Array.from({ length: 25 }, (_, i) => `manager-${i}`);
+    const { command, dispatchDeps } = await setupScheduled(store, { managerUserIds, triggerAudience: "MANAGER" });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    expect(intentsFrom(store)).toHaveLength(20);
+  });
+
+  it("with zero eligible managers (defensive edge case), still creates one auditable MANAGER intent rather than crashing", async () => {
+    const store = new InMemoryReminderStore();
+    const { command, dispatchDeps } = await setupScheduled(store, { triggerAudience: "MANAGER" });
+
+    const outcome = await dispatchOccurrence(dispatchDeps, command);
+
+    expect(outcome.kind).toBe("TRIGGERED");
+    const intents = intentsFrom(store);
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.targetKind).toBe("MANAGER");
+    expect(intents[0]!.targetUserId).toBe("");
   });
 });

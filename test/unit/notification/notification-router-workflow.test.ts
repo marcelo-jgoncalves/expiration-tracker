@@ -96,20 +96,36 @@ class FakeRecipientResolver implements NotificationRecipientResolver {
   }
 }
 
+/** D-201 (MANAGER escalation) test fake - mutable Set mirrors FakeTenantManagerLookup in
+ * test/unit/reminder/dispatch.test.ts (same shape, separate file - no shared module for a
+ * 2-file test double). */
+class FakeTenantManagerLookup {
+  activeManagers = new Set<string>();
+  async listActiveManagers(_tenantId: string): Promise<{ userId: string }[]> {
+    return [...this.activeManagers].map((userId) => ({ userId }));
+  }
+  async isActiveManager(_tenantId: string, userId: string): Promise<boolean> {
+    return this.activeManagers.has(userId);
+  }
+}
+
 describe("routeNotificationIntent", () => {
   let store: InMemoryNotificationStore;
   let resolver: FakeRecipientResolver;
+  let managerLookup: FakeTenantManagerLookup;
   let deps: NotificationRouterWorkflowDeps;
   let idCounter: number;
 
   beforeEach(() => {
     store = new InMemoryNotificationStore();
     resolver = new FakeRecipientResolver();
+    managerLookup = new FakeTenantManagerLookup();
     idCounter = 0;
     deps = {
       store,
       tableName: "MainTable",
       recipientResolver: resolver,
+      managerLookup,
       now: () => NOW,
       newAttemptId: () => `attempt-${++idCounter}`,
       newIntentId: () => `newintent-${++idCounter}`,
@@ -291,7 +307,7 @@ describe("routeNotificationIntent", () => {
     await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
     await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "ACTIVE", createdAt: NOW, updatedAt: NOW, version: 1 });
     resolver.result = { userId: WATCHER, tenantId: TENANT, active: true };
-    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER });
+    const intent = makeIntent({ targetKind: "WATCHER", targetUserId: WATCHER });
     await store.putIfAbsent(intent);
 
     const outcome = await routeNotificationIntent(deps, intent);
@@ -309,7 +325,7 @@ describe("routeNotificationIntent", () => {
     };
     await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
     await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "REMOVED", createdAt: NOW, updatedAt: NOW, version: 2 });
-    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER });
+    const intent = makeIntent({ targetKind: "WATCHER", targetUserId: WATCHER });
     await store.putIfAbsent(intent);
 
     const outcome = await routeNotificationIntent(deps, intent);
@@ -317,9 +333,9 @@ describe("routeNotificationIntent", () => {
     expect(resolveCalled).toBe(false);
   });
 
-  it("STALE WATCHER intent -> the REPLACEMENT intent preserves targetKind/targetWatcherUserId, never degrades to ASSIGNEE (Rodada 1 Codex finding)", async () => {
+  it("STALE WATCHER intent -> the REPLACEMENT intent preserves targetKind/targetUserId, never degrades to ASSIGNEE (Rodada 1 Codex finding)", async () => {
     await seed({ item: makeItem({ version: 4 }), entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
-    const intent = makeIntent({ targetKind: "WATCHER", targetWatcherUserId: WATCHER }); // itemVersion: 3, item is now version 4
+    const intent = makeIntent({ targetKind: "WATCHER", targetUserId: WATCHER }); // itemVersion: 3, item is now version 4
     await store.putIfAbsent(intent);
 
     const outcome = await routeNotificationIntent(deps, intent);
@@ -329,6 +345,63 @@ describe("routeNotificationIntent", () => {
     const newIntent = all.find((i) => i["entityType"] === "NotificationIntent" && i["intentId"] !== intent.intentId) as unknown as NotificationIntent;
     expect(newIntent).toBeDefined();
     expect(newIntent.targetKind).toBe("WATCHER");
-    expect(newIntent.targetWatcherUserId).toBe(WATCHER);
+    expect(newIntent.targetUserId).toBe(WATCHER);
+  });
+
+  // D-201 (MANAGER escalation).
+  const MANAGER = "manager-1";
+
+  it("targetKind MANAGER + isActiveManager true -> routes to the manager, recipientUserId set to the manager", async () => {
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(MANAGER) });
+    managerLookup.activeManagers.add(MANAGER);
+    resolver.result = { userId: MANAGER, tenantId: TENANT, active: true };
+    const intent = makeIntent({ targetKind: "MANAGER", targetUserId: MANAGER });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["EMAIL"] });
+
+    const updatedIntent = await store.get<NotificationIntent>({ PK: intent.PK, SK: intent.SK });
+    expect(updatedIntent?.recipientUserId).toBe(MANAGER);
+  });
+
+  it("targetKind MANAGER but demoted/removed since dispatch -> CANCELLED RECIPIENT_NOT_FOUND, never trusts the creation-time value", async () => {
+    let resolveCalled = false;
+    resolver.resolve = async () => {
+      resolveCalled = true;
+      return resolver.result;
+    };
+    await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(MANAGER) });
+    // managerLookup.activeManagers deliberately left empty - simulates demotion/removal.
+    const intent = makeIntent({ targetKind: "MANAGER", targetUserId: MANAGER });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "CANCELLED", reason: "RECIPIENT_NOT_FOUND" });
+    expect(resolveCalled).toBe(false);
+  });
+
+  it("targetKind MANAGER with empty targetUserId (defensive dispatch-time sentinel, no eligible manager existed) -> CANCELLED RECIPIENT_NOT_FOUND, never falls back to the assignee", async () => {
+    await seed({ item: makeItem({ assigneeUserId: ASSIGNEE }), entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
+    const intent = makeIntent({ targetKind: "MANAGER", targetUserId: "" });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "CANCELLED", reason: "RECIPIENT_NOT_FOUND" });
+  });
+
+  it("STALE MANAGER intent -> the REPLACEMENT intent preserves targetKind/targetUserId, never degrades to ASSIGNEE", async () => {
+    await seed({ item: makeItem({ version: 4 }), entitlements: defaultEntitlements(), preferences: defaultPreferences(MANAGER) });
+    const intent = makeIntent({ targetKind: "MANAGER", targetUserId: MANAGER }); // itemVersion: 3, item is now version 4
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "STALE_REPLACEMENT" });
+
+    const all = store.allItems();
+    const newIntent = all.find((i) => i["entityType"] === "NotificationIntent" && i["intentId"] !== intent.intentId) as unknown as NotificationIntent;
+    expect(newIntent).toBeDefined();
+    expect(newIntent.targetKind).toBe("MANAGER");
+    expect(newIntent.targetUserId).toBe(MANAGER);
   });
 });

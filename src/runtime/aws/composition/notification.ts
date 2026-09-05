@@ -7,6 +7,7 @@ import { DynamoDbNotificationRecipientResolver } from "../../../modules/notifica
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
 import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
+import { buildTenantManagerLookup } from "./reminder.js";
 import { UlidIdGenerator } from "../ids.js";
 
 export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
@@ -23,6 +24,7 @@ export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tabl
     store,
     tableName,
     recipientResolver,
+    managerLookup: buildTenantManagerLookup(client, tableName),
     now: () => new Date().toISOString(),
     newAttemptId: () => ids.newAttemptId(),
     newIntentId: () => ids.newIntentId(),

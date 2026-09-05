@@ -15,6 +15,14 @@ export interface ReminderTrigger {
   triggerId: string;
   offsetIso: string; // restricted ISO-8601 duration, see recurrence.ts parseDayOffset
   localTime: string; // "HH:mm"
+  /** D-201 (MANAGER escalation, roadmap P1 item 13, fio 2/2): who this trigger's occurrence
+   * notifies. Absent/"ASSIGNEE_AND_WATCHERS" is today's only behavior, unchanged - a trigger
+   * only becomes an escalation by being explicitly authored with "MANAGER" (typically a
+   * positive offsetIso, after the due date). Escalation is a plain time-based trigger, same
+   * mechanism as any other - never inference over whether the assignee "acted" (no such
+   * concept exists in this domain; matches the convergent external pattern this decision's
+   * research found - Jira/Zendesk escalation is SLA-timer-driven, never activity-inferred). */
+  audience?: "ASSIGNEE_AND_WATCHERS" | "MANAGER";
 }
 
 /** If a trigger's local time falls within [startLocalTime, endLocalTime), it is pushed to

@@ -1,5 +1,6 @@
 /** Composition root for the reminder module and its async workers against real DynamoDB/SQS (M3.5). */
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { DynamoDbReminderStore } from "../../../modules/reminder/persistence/dynamodb-reminder-store.js";
 import { DynamoDbReminderProducerStore } from "../../../modules/reminder/persistence/dynamodb-reminder-producer-store.js";
@@ -7,7 +8,40 @@ import { DynamoDbReminderReconciliationCandidateSource } from "../../../modules/
 import { DynamoDbOutboxRelayStore } from "../../../shared/outbox/persistence/dynamodb-outbox-relay-store.js";
 import { ReminderPolicyService } from "../../../modules/reminder/application/reminder-policy-service.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
+import type { TenantManagerLookup } from "../../../modules/reminder/ports/tenant-manager-lookup.js";
+import { organizationKey } from "../../../modules/organization/domain/organization.js";
+import { membershipKey, type Membership } from "../../../modules/organization/domain/membership.js";
+import { globalUserKey } from "../../../modules/identity/persistence/global-user-repository.js";
 import { UlidIdGenerator, newCorrelationId } from "../ids.js";
+
+const MANAGER_ROLES: ReadonlySet<Membership["role"]> = new Set(["OWNER", "ADMIN"]);
+
+/** D-201 (MANAGER escalation): same 2-layer eligibility bar as
+ * `expiration.ts`'s `buildMemberEligibilityChecker` (Membership ACTIVE AND GlobalUser
+ * identityStatus ACTIVE), extended with a role filter - a "manager" is real RBAC
+ * (`OWNER`/`ADMIN`), never a separately configured list. */
+export function buildTenantManagerLookup(client: DynamoDBDocumentClient, tableName: string): TenantManagerLookup {
+  async function isGlobalUserActive(userId: string): Promise<boolean> {
+    const result = await client.send(new GetCommand({ TableName: tableName, Key: globalUserKey(userId), ConsistentRead: true }));
+    return (result.Item as { identityStatus?: string } | undefined)?.identityStatus === "ACTIVE";
+  }
+
+  return {
+    async listActiveManagers(tenantId: string): Promise<{ userId: string }[]> {
+      const { PK } = organizationKey(tenantId);
+      const result = await client.send(new QueryCommand({ TableName: tableName, ConsistentRead: true, KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)", ExpressionAttributeValues: { ":pk": PK, ":prefix": "MEMBER#" } }));
+      const candidates = ((result.Items ?? []) as Membership[]).filter((m) => m.status === "ACTIVE" && MANAGER_ROLES.has(m.role));
+      const activeFlags = await Promise.all(candidates.map((m) => isGlobalUserActive(m.userId)));
+      return candidates.filter((_, i) => activeFlags[i]).map((m) => ({ userId: m.userId }));
+    },
+    async isActiveManager(tenantId: string, userId: string): Promise<boolean> {
+      const result = await client.send(new GetCommand({ TableName: tableName, Key: membershipKey(tenantId, userId), ConsistentRead: true }));
+      const membership = result.Item as Membership | undefined;
+      if (membership?.status !== "ACTIVE" || !MANAGER_ROLES.has(membership.role)) return false;
+      return isGlobalUserActive(userId);
+    },
+  };
+}
 
 export function buildReminderHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbReminderStore(client, tableName);
@@ -22,6 +56,7 @@ export function buildReminderDispatchDeps(client: DynamoDBDocumentClient, tableN
   return {
     store,
     tableName,
+    managerLookup: buildTenantManagerLookup(client, tableName),
     now: () => new Date().toISOString(),
     newIntentId: () => ids.newIntentId(),
     newEventId: () => ids.newEventId(),
