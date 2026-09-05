@@ -48,7 +48,15 @@ export type OutboxDestination =
    * row already carries its final routing discriminator, with nothing downstream wired to it
    * yet (the row simply waits, same "written before its consumer exists" pattern this file's
    * own history has no precedent needing — first use of a destination pre-dating its consumer). */
-  | "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1";
+  | "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1"
+  /** D-204 (Roadmap P1 item 15, `scheduled-reports-scoping/estado-final-consolidado.md`
+   * decision 4): written in the SAME `TransactWriteItems` as the scheduled worker's claim
+   * `Update` on `ReportSubscription` (advances `nextRunAt`, `ConditionCheck` on `version`) —
+   * the 2-action cardinality decision 4 names explicitly. Consumed by a new delivery worker
+   * (not yet built — this destination value exists now so the outbox row already carries its
+   * final routing discriminator, same "written before its consumer exists" pattern
+   * `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1` above already established). */
+  | "SQS_REPORT_SUBSCRIPTION_DELIVERY_V1";
 
 export interface OutboxRecord {
   PK: string;
