@@ -26,7 +26,7 @@
  * item 2 (this file).
  */
 import { buildExistenceConditionCheck, isTransactionCanceled, type TransactWriteEntry } from "../dynamodb/occ.js";
-import { InternalError, TenantNotActiveError } from "../errors/app-error.js";
+import { ConflictError, InternalError, TenantNotActiveError } from "../errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS } from "./tenant-lifecycle-record.js";
 
 /**
@@ -156,14 +156,15 @@ export interface TenantBusinessMutationInput {
 /**
  * Commits `entries` plus a `ConditionCheck` asserting `TenantLifecycleRecord.status =
  * ACTIVE` for `tenantId`, in the SAME TransactWriteItems call. Throws `TenantNotActiveError`
- * (never the raw `TransactionCanceledException`) when the fence specifically is what failed
- * so callers can distinguish "tenant is being deleted" from an ordinary OCC version conflict
- * on their own entries — callers that need to tell the two apart should check
- * `err.details?.tenantId` is populated, or inspect `CancellationReasons` on the underlying
- * SDK error themselves (this lane does not yet thread `CancellationReasons` through in typed
- * form — a documented gap, see the file header's scope note and `Q` roadmap item 2's
- * "CancellationReasons tipado" obligation, deferred to the writer-migration chunk that will
- * actually need to distinguish per-entry causes for compensation).
+ * only when `CancellationReasons` names the fence's own index as the cause — the one case
+ * where "tenant is being deleted" is an actually revealed fact, not a guess. When the
+ * cancellation happened but `CancellationReasons` doesn't reveal which entry caused it
+ * (RT-LANE-FALLBACK-01, D-191/D-194's C7 criterion, 2026-09-05 — never happens against real
+ * AWS DynamoDB, only a hypothetical broken/stripped adapter), throws a generic `ConflictError`
+ * instead: never assert a specific cause the underlying error did not actually reveal. When
+ * the fence's own index is known and is NOT the cause, the original error propagates
+ * unchanged so the caller's own OCC/conflict handling (reading `CancellationReasons` itself)
+ * still works.
  */
 export async function executeTenantBusinessMutation(input: TenantBusinessMutationInput): Promise<void> {
   if (input.entries.length === 0) {
@@ -203,13 +204,15 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
       //
       // W3-07 D-072 item 4 hardening (2026-08-29, extended after a follow-up Codex review found
       // the first pass only guarded non-array shapes, not a malformed element WITHIN an array):
-      // absent, non-array, too-short, or malformed-element `CancellationReasons` all fall back to
-      // the SAME conservative "treat as fence failed" classification - never a crash, and never
-      // silently treated as "the fence definitely did not fail" just because the shape at the
-      // fence's own index doesn't look like what real DynamoDB sends. Real AWS DynamoDB always
-      // sends a full array (one entry per TransactItem, `{ Code: "None" }` for non-causing
-      // entries) with a string `Code` on every element - this only matters for a hypothetical
-      // broken/stripped adapter, confirmed against the SDK docs during the original design review.
+      // absent, non-array, too-short, or malformed-element `CancellationReasons` never crash, but
+      // also never assert a cause DynamoDB did not actually reveal (RT-LANE-FALLBACK-01, D-191/
+      // D-194's C7 criterion, 2026-09-05: the previous version of this code collapsed that
+      // ambiguity into `TenantNotActiveError` — a specific, false causal claim — instead of the
+      // generic/indeterminate conflict the ambiguity actually is). Real AWS DynamoDB always sends
+      // a full array (one entry per TransactItem, `{ Code: "None" }` for non-causing entries)
+      // with a string `Code` on every element - the ambiguous branch below only matters for a
+      // hypothetical broken/stripped adapter, confirmed against the SDK docs during the original
+      // design review.
       const rawReasons = (err as { CancellationReasons?: unknown }).CancellationReasons;
       const fenceIndex = input.entries.length;
       const fenceReason = Array.isArray(rawReasons) ? (rawReasons as unknown[])[fenceIndex] : undefined;
@@ -217,10 +220,19 @@ export async function executeTenantBusinessMutation(input: TenantBusinessMutatio
         typeof fenceReason === "object" && fenceReason !== null && typeof (fenceReason as { Code?: unknown }).Code === "string"
           ? (fenceReason as { Code: string }).Code
           : undefined;
-      const fenceFailed = !Array.isArray(rawReasons) || fenceReasonCode === undefined || fenceReasonCode === "ConditionalCheckFailed";
-      if (fenceFailed) {
+      const fenceReasonKnown = Array.isArray(rawReasons) && fenceReasonCode !== undefined;
+      if (fenceReasonKnown && fenceReasonCode === "ConditionalCheckFailed") {
         throw new TenantNotActiveError("Tenant is not ACTIVE; mutation rejected.", { tenantId: input.tenantId });
       }
+      if (!fenceReasonKnown) {
+        throw new ConflictError(
+          "TransactWriteItems was canceled but CancellationReasons did not reveal which entry (including the tenant fence) caused it - indeterminate conflict, not necessarily the tenant fence.",
+          { tenantId: input.tenantId },
+        );
+      }
+      // fenceReasonKnown && fenceReasonCode !== "ConditionalCheckFailed": the fence's own index is
+      // known and it is NOT what failed - fall through to rethrow the original error unchanged, so
+      // the caller's own OCC/conflict handling (reading CancellationReasons itself) still works.
     }
     throw err;
   }

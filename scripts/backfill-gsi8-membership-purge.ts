@@ -25,6 +25,7 @@
  * --dry-run reports what WOULD be backfilled without writing any pointer - use this first
  * against a real table to sanity-check scope before committing writes.
  */
+import { fileURLToPath } from "node:url";
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { deriveMembershipMaintenanceDue, membershipGsi8Keys, type Membership } from "../src/modules/organization/domain/membership.js";
@@ -155,7 +156,9 @@ async function main(): Promise<void> {
 
 // Only run when executed directly - not when imported for its pure helpers (parseArgs/
 // decodeKey/encodeKey/processPage), which a unit test can exercise without a real table.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `fileURLToPath` (not a raw `file://${argv[1]}` string comparison) - the string-comparison form
+// never matches on Windows (AGENTS.md §4's shell notes).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error("[backfill-gsi8-membership-purge] FAILED:", err);
     process.exitCode = 1;
