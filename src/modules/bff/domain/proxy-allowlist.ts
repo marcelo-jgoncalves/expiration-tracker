@@ -32,6 +32,11 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "PUT", pathTemplate: "/items/{itemId}" },
   { method: "DELETE", pathTemplate: "/items/{itemId}" },
   { method: "POST", pathTemplate: "/items/{itemId}/archive" },
+  // D-206/D-207 (bulk actions, Roadmap P1 item 17): plain JSON response (never CSV), so
+  // unlike /items/export this doesn't hit ProxyService.forward()'s content-disposition gap -
+  // safe to proxy like any other item mutation.
+  { method: "POST", pathTemplate: "/items/bulk-reassign" },
+  { method: "POST", pathTemplate: "/items/bulk-archive" },
   { method: "POST", pathTemplate: "/items/{itemId}/renew" },
   { method: "POST", pathTemplate: "/items/{itemId}/watchers/{userId}" },
   { method: "DELETE", pathTemplate: "/items/{itemId}/watchers/{userId}" },

@@ -112,6 +112,25 @@ module "reports_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
+# D-206/D-207 (bulk actions, Roadmap P1 item 17): dedicated Lambda, not routes folded into
+# items_handler above — see bulk-actions-handler.ts's own comment for why (timeout_seconds=25
+# vs. items_handler's 10s default, needed to process up to BULK_ACTION_ITEM_CAP=100 items
+# sequentially, each its own strong GetItem+TransactWriteItems, without changing every other
+# /items* route's budget). Resolves RequestContext like every other route Lambda —
+# gsi4_read_policy_json required (Wave B2B-14/D-116's finding class).
+module "bulk_actions_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-bulk-actions-handler"
+  handler_name          = "bulk-actions-handler"
+  source_dir            = "${local.dist_dir}/bulk-actions-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
+  timeout_seconds       = 25
+  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
 # M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
 # GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
 # faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
@@ -452,6 +471,8 @@ module "api" {
   export_function_name                 = module.export_handler.function_name
   reports_invoke_arn                   = module.reports_handler.live_alias_invoke_arn
   reports_function_name                = module.reports_handler.function_name
+  bulk_actions_invoke_arn              = module.bulk_actions_handler.live_alias_invoke_arn
+  bulk_actions_function_name           = module.bulk_actions_handler.function_name
   reminders_invoke_arn                 = module.reminders_handler.live_alias_invoke_arn
   reminders_function_name              = module.reminders_handler.function_name
   notifications_invoke_arn             = module.notifications_handler.live_alias_invoke_arn

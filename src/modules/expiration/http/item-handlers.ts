@@ -24,7 +24,7 @@ import type { CreateItemInput, ExpirationItemStatus, RenewItemInput, UpdateItemI
  * leituras/escritas ilimitadas. Mesmo limite/janela do test-route-handler.ts
  * (100 req/60s) como ponto de partida - ajustavel por rota no futuro.
  */
-async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
+export async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
   await quota.consume({
     tenantId: context.tenant.tenantId,
     quotaType: "API_REQUEST",
@@ -42,7 +42,7 @@ async function consumeApiRequestQuota(quota: TenantQuotaService, context: Reques
  * extras etc. direto para o DynamoDB. Fail-closed real: rejeita 400 ANTES de tocar o
  * resolver/store quando o payload nao bate com o schema Ajv correspondente.
  */
-function validateAgainstSchema(schemaId: string, body: unknown): void {
+export function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
   if (!valid) {
     throw new ValidationError("Request body failed schema validation.", { errors });
@@ -91,7 +91,7 @@ function toResponse(appError: AppError): HttpResponse {
   return { statusCode: status, body: appError.toJSON() };
 }
 
-async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpResponse> {
+export async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpResponse> {
   try {
     return await fn();
   } catch (err) {

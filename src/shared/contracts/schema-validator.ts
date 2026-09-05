@@ -35,6 +35,8 @@ import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-
 import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
 import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
 import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
+import bulkReassignItemsRequestV1 from "../../../schemas/api/bulk-reassign-items-request.v1.json";
+import bulkArchiveItemsRequestV1 from "../../../schemas/api/bulk-archive-items-request.v1.json";
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 import updateProfileRequestV1 from "../../../schemas/api/update-profile-request.v1.json";
@@ -163,6 +165,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   createItemRequestV1,
   updateItemRequestV1,
   renewItemRequestV1,
+  bulkReassignItemsRequestV1,
+  bulkArchiveItemsRequestV1,
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
   updateProfileRequestV1,

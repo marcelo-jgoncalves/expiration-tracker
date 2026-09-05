@@ -112,6 +112,9 @@ const HANDLERS = [
   "requirement-evidence-daily-sweep-handler",
   // Roadmap P0.7 (D-195): dedicated CSV reports Lambda, own timeout, see reports-handler.ts.
   "reports-handler",
+  // D-206/D-207 (bulk actions, Roadmap P1 item 17): dedicated Lambda, own timeout, see
+  // bulk-actions-handler.ts.
+  "bulk-actions-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

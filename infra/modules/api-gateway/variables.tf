@@ -73,6 +73,18 @@ variable "reports_function_name" {
   type        = string
 }
 
+# D-206/D-207 (bulk actions, Roadmap P1 item 17): dedicated Lambda/route family, same
+# reasoning as export/reports above — see src/runtime/aws/handlers/bulk-actions-handler.ts.
+variable "bulk_actions_invoke_arn" {
+  description = "Invoke ARN of the BulkActionsHandler Lambda — backs POST /items/bulk-reassign and POST /items/bulk-archive."
+  type        = string
+}
+
+variable "bulk_actions_function_name" {
+  description = "Function name of the BulkActionsHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "reminders_function_name" {
   description = "Function name of the RemindersHandler Lambda, for the API Gateway invoke permission."
   type        = string
