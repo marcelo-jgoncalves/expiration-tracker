@@ -1002,6 +1002,14 @@ resource "aws_cloudwatch_log_group" "reports_handler" {
   tags              = { Project = local.project_name, Environment = var.environment }
 }
 
+# D-211 fatia 2 (D-204 decisions 3-4, Roadmap P1 item 15): same log-group-race treatment as
+# reports_handler above.
+resource "aws_cloudwatch_log_group" "scheduled_reports_scheduler_handler" {
+  name              = "/aws/lambda/${module.scheduled_reports_scheduler_handler.function_name}"
+  retention_in_days = 30
+  tags              = { Project = local.project_name, Environment = var.environment }
+}
+
 module "security_audit_observability" {
   source = "./modules/security-audit-observability"
 
@@ -1032,6 +1040,7 @@ module "security_audit_observability" {
     module.transient_purge_handler.function_name,
     module.delivery_record_purge_handler.function_name,
     module.core_user_data_purge_handler.function_name,
+    module.scheduled_reports_scheduler_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -1042,6 +1051,7 @@ module "security_audit_observability" {
     aws_cloudwatch_log_group.memberships_handler,
     aws_cloudwatch_log_group.export_handler,
     aws_cloudwatch_log_group.reports_handler,
+    aws_cloudwatch_log_group.scheduled_reports_scheduler_handler,
   ]
 }
 
@@ -3855,6 +3865,94 @@ resource "aws_scheduler_schedule" "document_request_recurrence" {
   target {
     arn      = module.document_request_recurrence_handler.live_alias_arn
     role_arn = aws_iam_role.document_request_recurrence_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
+# --- ScheduledReportsSchedulerHandler: D-204 decisions 3-4 (Roadmap P1 item 15), implemented
+# D-211 fatia 2 - claims due ReportSubscriptions via GSI8 (WORK#REPORT_SUBSCRIPTION) and writes a
+# durable outbox event per claim, same 2-action TransactWriteItems discipline as
+# reminder-producer's claim (see src/workers/scheduled-reports/scheduler.ts's doc comment).
+# Migrated straight onto GSI8 (never a base-table Scan) - gsi8_read_policy_json/
+# worker_transact_write_policy_json scoped to WORK#REPORT_SUBSCRIPTION/DLQ#REPORT_SUBSCRIPTION,
+# same pattern as core_user_data_purge_handler above.
+#
+# Cron cadence is DAILY (04:15 UTC, between requirement-reindex 04:00 and
+# document-request-recurrence 04:30), NOT literally weekly, despite D-204 decision 3's prose
+# saying "aws_scheduler_schedule único semanal": read here as describing the FEATURE's delivery
+# cadence (ReportSubscriptionCadence = "WEEKLY", decision 1 - each subscription fires ~once/week)
+# rather than the infra schedule's own polling frequency - "único" (one Lambda/one schedule
+# resource/one cross-tenant scan per execution, "mesmo padrão de requirement-reindex") is the load-
+# bearing part of that sentence. A daily poll is what actually honors decision 1's per-subscription
+# dayOfWeek/localTime/timeZone fields with real precision (bounded to ~24h drift, matching every
+# other GSI8-sparse-index worker's own precision bound) - a literally-weekly poll would desync
+# every subscriber's chosen delivery time toward whichever single instant the schedule happens to
+# fire at. Documented judgment call (decisions-log.md D-211) - open to being overridden if a
+# literal weekly cron was actually the intended reading.
+module "scheduled_reports_scheduler_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-scheduled-reports-scheduler-handler"
+  handler_name          = "scheduled-reports-scheduler-handler"
+  source_dir            = "${local.dist_dir}/scheduled-reports-scheduler-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [
+    module.table.gsi8_read_policy_json["report_subscription"],
+    module.table.worker_transact_write_policy_json["report_subscription"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "scheduled_reports_scheduler_schedule" {
+  name = "${module.scheduled_reports_scheduler_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "scheduled_reports_scheduler_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.scheduled_reports_scheduler_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeScheduledReportsScheduler"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.scheduled_reports_scheduler_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "scheduled_reports_scheduler" {
+  name                         = "${local.name_prefix}-scheduled-reports-scheduler"
+  schedule_expression          = "cron(15 4 * * ? *)" # daily 04:15 UTC, see module doc comment above.
+  schedule_expression_timezone = "UTC"
+  state                        = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 30
+  }
+
+  target {
+    arn      = module.scheduled_reports_scheduler_handler.live_alias_arn
+    role_arn = aws_iam_role.scheduled_reports_scheduler_schedule.arn
     # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
     # angle-bracket-escaping bug that rule exists to prevent.
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
