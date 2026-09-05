@@ -59,7 +59,8 @@ export type GlobalIndexComponent =
   | "security-audit-purge"
   | "transient-purge"
   | "delivery-record-purge"
-  | "core-user-data-purge";
+  | "core-user-data-purge"
+  | "scheduled-reports";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

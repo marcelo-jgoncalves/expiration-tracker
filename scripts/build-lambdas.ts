@@ -115,6 +115,9 @@ const HANDLERS = [
   // D-206/D-207 (bulk actions, Roadmap P1 item 17): dedicated Lambda, own timeout, see
   // bulk-actions-handler.ts.
   "bulk-actions-handler",
+  // D-211 fatia 2 (D-204 decisions 3-4, Roadmap P1 item 15): weekly EventBridge Scheduler job,
+  // claims due ReportSubscriptions and writes a durable outbox event per claim.
+  "scheduled-reports-scheduler-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

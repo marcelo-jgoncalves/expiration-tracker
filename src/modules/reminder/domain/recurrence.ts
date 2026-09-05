@@ -128,6 +128,14 @@ export function zonedTimeToUtc(requested: LocalDateTimeParts, timeZone: string):
   return { utcMillis: Math.max(candidateA, candidateB), kind: "NONEXISTENT" };
 }
 
+/** Instant -> local calendar date/time in `timeZone` (the inverse direction of `zonedTimeToUtc`)
+ * - exported for callers that need "what's today, locally" as their starting point for a
+ * forward search (e.g. D-204's weekly scheduled-report next-occurrence computation), not just
+ * "local wall clock -> UTC" for an already-known date. */
+export function instantToLocalParts(instantMillis: number, timeZone: string): LocalDateTimeParts {
+  return formatParts(instantMillis, timeZone);
+}
+
 /** Parses "YYYY-MM-DD" (date-only) or an ISO date-time, returning just the calendar date parts (UTC-anchored, no time-of-day). */
 export function toCalendarDate(isoDateOrDateTime: string): { year: number; month: number; day: number } {
   const datePart = isoDateOrDateTime.slice(0, 10);
