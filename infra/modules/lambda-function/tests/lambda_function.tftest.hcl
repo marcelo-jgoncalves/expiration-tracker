@@ -22,7 +22,7 @@ run "grants_exactly_the_capabilities_passed_in" {
     function_name  = "expiration-tracker-test-fn"
     handler_name   = "dummy-handler"
     source_dir     = "tests/fixtures/dummy-handler"
-    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
     policy_documents_json = [
       jsonencode({
         Version = "2012-10-17"
@@ -70,6 +70,13 @@ run "grants_exactly_the_capabilities_passed_in" {
     error_message = "Default runtime must be nodejs24.x"
   }
 
+  # roadmap-competitivo-2026-09-01.md §17.1 (Marcelo, 2026-09-05): default architecture is
+  # arm64 (Graviton2), not the provider's own x86_64 default.
+  assert {
+    condition     = aws_lambda_function.this.architectures == tolist(["arm64"])
+    error_message = "Default architecture must be arm64 (Graviton2), never the provider's implicit x86_64 default"
+  }
+
   assert {
     condition     = aws_lambda_function.this.handler == "index.handler"
     error_message = "Handler must be index.handler"
@@ -91,7 +98,7 @@ run "grants_exactly_the_capabilities_passed_in" {
   }
 
   assert {
-    condition     = contains(aws_lambda_function.this.layers, "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1")
+    condition     = contains(aws_lambda_function.this.layers, "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1")
     error_message = "ADOT layer ARN must be attached (m5-observability-design.md §3)"
   }
 
@@ -125,7 +132,7 @@ run "no_capabilities_means_no_capability_policies" {
     function_name  = "expiration-tracker-test-fn-nopolicy"
     handler_name   = "dummy-handler"
     source_dir     = "tests/fixtures/dummy-handler"
-    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
   }
 
   assert {
@@ -142,7 +149,7 @@ run "tracing_can_be_disabled" {
     handler_name   = "dummy-handler"
     source_dir     = "tests/fixtures/dummy-handler"
     tracing_active = false
-    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
   }
 
   assert {
@@ -154,4 +161,74 @@ run "tracing_can_be_disabled" {
     condition     = length(aws_lambda_function.this.tracing_config) == 0
     error_message = "tracing_config block must be absent when tracing_active is false"
   }
+}
+
+# roadmap-competitivo-2026-09-01.md §17.1: proves the variable is genuinely functional, not
+# just correctly defaulted - an explicit override to x86_64 must actually take effect.
+run "architectures_can_be_overridden_to_x86_64" {
+  command = apply
+
+  variables {
+    function_name  = "expiration-tracker-test-fn-x86"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+    architectures  = ["x86_64"]
+  }
+
+  assert {
+    condition     = aws_lambda_function.this.architectures == tolist(["x86_64"])
+    error_message = "Explicit architectures override must take effect (not silently forced to the arm64 default)"
+  }
+}
+
+# G-V3 adversarial: the validation block must fail-closed on both known-invalid shapes -
+# multiple values (Lambda functions are never multi-arch) and an unrecognized architecture
+# string - never silently accept either.
+run "architectures_rejects_more_than_one_value" {
+  command = plan
+
+  variables {
+    function_name  = "expiration-tracker-test-fn-multiarch"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
+    architectures  = ["arm64", "x86_64"]
+  }
+
+  expect_failures = [
+    var.architectures,
+  ]
+}
+
+run "architectures_rejects_an_unrecognized_value" {
+  command = plan
+
+  variables {
+    function_name  = "expiration-tracker-test-fn-badarch"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
+    architectures  = ["arm32"]
+  }
+
+  expect_failures = [
+    var.architectures,
+  ]
+}
+
+run "architectures_rejects_an_empty_list" {
+  command = plan
+
+  variables {
+    function_name  = "expiration-tracker-test-fn-noarch"
+    handler_name   = "dummy-handler"
+    source_dir     = "tests/fixtures/dummy-handler"
+    adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
+    architectures  = []
+  }
+
+  expect_failures = [
+    var.architectures,
+  ]
 }

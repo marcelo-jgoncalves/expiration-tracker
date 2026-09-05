@@ -40,6 +40,25 @@ variable "runtime" {
   default     = "nodejs24.x"
 }
 
+variable "architectures" {
+  description = <<-EOT
+    Instruction set architecture, exactly one value (AWS Lambda does not support multi-arch
+    functions). Default "arm64" (Graviton2) — roadmap-competitivo-2026-09-01.md §17.1
+    (Marcelo, 2026-09-05): ~20% lower duration cost, no binary-compatibility risk (this
+    project has zero native/prebuilt-binary dependencies — pure JS/TS + @aws-sdk/*, verified
+    against package.json), esbuild's `platform: "node"` bundling target is architecture-
+    agnostic (scripts/build-lambdas.ts), and nodejs24.x runs identically on both
+    architectures. The ADOT layer ARN (`adot_layer_arn` below) IS architecture-specific and
+    must match whatever value is set here.
+  EOT
+  type        = list(string)
+  default     = ["arm64"]
+  validation {
+    condition     = length(var.architectures) == 1 && contains(["x86_64", "arm64"], var.architectures[0])
+    error_message = "architectures must be exactly one of [\"x86_64\"] or [\"arm64\"] - AWS Lambda does not support multi-architecture functions."
+  }
+}
+
 variable "timeout_seconds" {
   description = "Function timeout in seconds. CDK default (ScopedLambdaFunction) is 10s."
   type        = number
