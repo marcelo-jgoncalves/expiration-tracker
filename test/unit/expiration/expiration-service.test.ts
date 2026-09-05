@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { InMemoryExpirationStore, activeLifecycleRecord, makeExpirationIdGenerator, allowAllMemberEligibilityChecker, fakeMemberEligibilityChecker } from "./in-memory-store.js";
 import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
-import { ConflictError, IneligibleAssigneeError, NotFoundError, TenantNotActiveError } from "../../../src/shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError, TenantNotActiveError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import { ConcurrentOperationError } from "../../../src/shared/idempotency/idempotency.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -699,6 +699,133 @@ describe("ExpirationService", () => {
 
       const events = await store.queryByPk("TENANT#tenant-1#TENANTAUDIT#202608");
       expect(events).toHaveLength(2);
+    });
+  });
+
+  describe("bulk actions (D-206, Roadmap P1 item 17)", () => {
+    it("bulkReassignItems: a partial failure on one item never aborts the others in the same batch", async () => {
+      const a = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      const b = await service.createItem(ctx(), { name: "B", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      const outcomes = await service.bulkReassignItems(ctx(), [
+        { itemId: a.itemId, expectedVersion: a.version, assigneeUserId: "user-2" },
+        { itemId: "does-not-exist", expectedVersion: 1, assigneeUserId: "user-2" },
+        { itemId: b.itemId, expectedVersion: b.version, assigneeUserId: "user-3" },
+      ]);
+
+      expect(outcomes).toEqual([
+        { itemId: a.itemId, outcome: "SUCCEEDED" },
+        { itemId: "does-not-exist", outcome: "NOT_FOUND" },
+        { itemId: b.itemId, outcome: "SUCCEEDED" },
+      ]);
+      expect((await service.getItem(ctx(), a.itemId)).assigneeUserId).toBe("user-2");
+      expect((await service.getItem(ctx(), b.itemId)).assigneeUserId).toBe("user-3");
+    });
+
+    it("bulkReassignItems: post-timeout retry reconciliation - if the target assignee is already set and version advanced by exactly one, returns TARGET_ALREADY_APPLIED rather than a false VERSION_CONFLICT", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      // Simulates the first attempt having actually succeeded before the client's connection
+      // dropped - the client retries with the SAME expectedVersion it originally sent.
+      await service.bulkReassignItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "user-2" }]);
+
+      const outcomes = await service.bulkReassignItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "user-2" }]);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "TARGET_ALREADY_APPLIED" }]);
+    });
+
+    it("bulkReassignItems: a genuine concurrent conflict (state does not match the requested target) is never masked as TARGET_ALREADY_APPLIED", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      // A different actor reassigned to a DIFFERENT user in between - version advanced by one,
+      // but the resulting assignee does NOT match what this stale request is asking for.
+      await service.updateItem(ctx(), item.itemId, { assigneeUserId: "someone-else" }, item.version);
+
+      const outcomes = await service.bulkReassignItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "user-2" }]);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "VERSION_CONFLICT" }]);
+      expect((await service.getItem(ctx(), item.itemId)).assigneeUserId).toBe("someone-else");
+    });
+
+    it("bulkReassignItems: an ineligible assignee is reported per-item, not thrown, and does not abort the batch", async () => {
+      const restrictedService = new ExpirationService({ store, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: fakeMemberEligibilityChecker(["member-user"]), now: () => "2026-08-19T12:00:00.000Z" });
+      const item = await restrictedService.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      const outcomes = await restrictedService.bulkReassignItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "not-a-member" }]);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "INELIGIBLE_ASSIGNEE" }]);
+    });
+
+    it("bulkReassignItems: RBAC is per-item item:update, never elevated - a VIEWER's whole batch is reported AUTHORIZATION_DENIED per item, not silently allowed", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      const outcomes = await service.bulkReassignItems(ctx({ tenant: { tenantId: "tenant-1", roles: ["VIEWER"] } }), [
+        { itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "user-2" },
+      ]);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "AUTHORIZATION_DENIED" }]);
+    });
+
+    it("bulkReassignItems: rejects the whole request (not a per-item outcome) when the batch is empty or exceeds the cap", async () => {
+      await expect(service.bulkReassignItems(ctx(), [])).rejects.toBeInstanceOf(ValidationError);
+      const tooMany = Array.from({ length: 101 }, (_, i) => ({ itemId: `item-${i}`, expectedVersion: 1, assigneeUserId: "user-2" }));
+      await expect(service.bulkReassignItems(ctx(), tooMany)).rejects.toBeInstanceOf(ValidationError);
+    });
+
+    it("bulkArchiveItems: requires explicit confirm=true, rejecting the whole request otherwise", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      await expect(
+        service.bulkArchiveItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version }], false),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect((await service.getItem(ctx(), item.itemId)).status).toBe("ACTIVE");
+    });
+
+    it("bulkArchiveItems: happy path archives multiple items and emits ItemDeactivated for each", async () => {
+      const a = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      const b = await service.createItem(ctx(), { name: "B", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+
+      const outcomes = await service.bulkArchiveItems(ctx(), [
+        { itemId: a.itemId, expectedVersion: a.version },
+        { itemId: b.itemId, expectedVersion: b.version },
+      ], true);
+
+      expect(outcomes).toEqual([
+        { itemId: a.itemId, outcome: "SUCCEEDED" },
+        { itemId: b.itemId, outcome: "SUCCEEDED" },
+      ]);
+      const deactivations = store.allItems().filter((i) => i["eventType"] === "expiration.item-deactivated.v1");
+      expect(deactivations).toHaveLength(2);
+    });
+
+    it("bulkArchiveItems: an already-ARCHIVED item in the batch is reported INELIGIBLE_STATE and never emits a duplicate ItemDeactivated", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      await service.archiveItem(ctx(), item.itemId, item.version);
+      const archived = await service.getItem(ctx(), item.itemId);
+
+      const outcomes = await service.bulkArchiveItems(ctx(), [{ itemId: item.itemId, expectedVersion: archived.version }], true);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "INELIGIBLE_STATE" }]);
+      const deactivations = store.allItems().filter((i) => i["eventType"] === "expiration.item-deactivated.v1");
+      expect(deactivations).toHaveLength(1); // only the direct archiveItem() call above, never a second one
+    });
+
+    it("bulkArchiveItems: post-timeout retry reconciliation mirrors the reassign case - already-ARCHIVED at version+1 returns TARGET_ALREADY_APPLIED, not a false VERSION_CONFLICT", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      await service.bulkArchiveItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version }], true);
+
+      // Retried with the ORIGINAL expectedVersion, as a client would after losing the response.
+      const outcomes = await service.bulkArchiveItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version }], true);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "TARGET_ALREADY_APPLIED" }]);
+    });
+
+    it("bulkArchiveItems/bulkReassignItems are rejected atomically once the tenant is DELETING, per item, without partial writes", async () => {
+      const item = await service.createItem(ctx(), { name: "A", category: "Cat", dueDate: "2026-09-10T00:00:00.000Z" });
+      const record = await store.get<TenantLifecycleRecord>(tenantLifecycleKey("tenant-1"));
+      await store.update({ ...record!, status: "DELETING" });
+
+      const outcomes = await service.bulkReassignItems(ctx(), [{ itemId: item.itemId, expectedVersion: item.version, assigneeUserId: "user-2" }]);
+
+      expect(outcomes).toEqual([{ itemId: item.itemId, outcome: "TENANT_NOT_ACTIVE" }]);
     });
   });
 });

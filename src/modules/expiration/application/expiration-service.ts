@@ -51,6 +51,47 @@ import { TenantNotActiveError } from "../../../shared/errors/app-error.js";
  * cap enforced at CSV-serialization time (src/modules/expiration/http/export-handler.ts). */
 export const EXPORT_ITEM_CAP = 2000;
 
+/** D-206 (Roadmap P1 item 17, `bulk-actions-scoping/estado-final-consolidado.md` decision 8):
+ * an engineering hypothesis, not a proven budget — validate against the real per-item cost
+ * (strong GetItem + TransactWriteItems with update+audit+outbox+tenant fence) via a smoke/
+ * integration test measuring wall-clock time before exposing the route in production; adjust
+ * down if the dedicated Lambda's `timeout_seconds=25` (same value as `export-handler`, D-123/
+ * D-126) budget doesn't cover it. */
+export const BULK_ACTION_ITEM_CAP = 100;
+
+export type BulkItemOutcomeKind =
+  | "SUCCEEDED"
+  /** D-206 decision 6: the target state is already observed after the version advanced by
+   * exactly one — does NOT imply this specific attempt is what wrote it (a different actor
+   * could have applied the identical change); only that retrying a lost response is safe. */
+  | "TARGET_ALREADY_APPLIED"
+  /** D-206 decision 3: bulk archive only, item is not `ACTIVE` at read time. */
+  | "INELIGIBLE_STATE"
+  | "NOT_FOUND"
+  | "VERSION_CONFLICT"
+  | "INELIGIBLE_ASSIGNEE"
+  | "AUTHORIZATION_DENIED"
+  | "TENANT_NOT_ACTIVE"
+  | "VALIDATION_FAILED"
+  | "UNKNOWN";
+
+export interface BulkItemOutcome {
+  itemId: string;
+  outcome: BulkItemOutcomeKind;
+}
+
+export interface BulkReassignItemInput {
+  itemId: string;
+  expectedVersion: number;
+  /** Empty string clears the assignee — same convention as `UpdateItemInput.assigneeUserId`. */
+  assigneeUserId: string;
+}
+
+export interface BulkArchiveItemInput {
+  itemId: string;
+  expectedVersion: number;
+}
+
 const ITEM_DUE_DATE_CHANGED = "expiration.item-due-date-changed.v1";
 /** BLOCKER-B (reminder-delivery-pipeline.md §4): fired for every terminal item transition
  * (archive, delete, renewal's old-item side) - tells the reminder-materialization-trigger
@@ -764,6 +805,138 @@ export class ExpirationService {
       }),
     );
     await this.commit(entries, ctx.tenant.tenantId);
+  }
+
+  /**
+   * D-206 (Roadmap P1 item 17, `docs/architecture/reviews/bulk-actions-scoping/
+   * estado-final-consolidado.md` decision 5): many small independently-fenced transactions
+   * (`import-commit-service.ts`'s precedent, D-192), never one giant transaction for the whole
+   * batch. Per-item `{itemId, expectedVersion}` preserves the same OCC guarantee a single-item
+   * caller already gets via `updateItem`'s expected-version parameter. RBAC stays `item:update`
+   * per item, checked individually - never elevated just because it's bulk (decision 9).
+   */
+  async bulkReassignItems(ctx: RequestContext, items: BulkReassignItemInput[]): Promise<BulkItemOutcome[]> {
+    if (items.length === 0 || items.length > BULK_ACTION_ITEM_CAP) {
+      throw new ValidationError(`items must contain between 1 and ${BULK_ACTION_ITEM_CAP} entries.`, { count: items.length });
+    }
+    const outcomes: BulkItemOutcome[] = [];
+    for (const entry of items) {
+      outcomes.push(await this.bulkReassignOne(ctx, entry));
+    }
+    return outcomes;
+  }
+
+  private async bulkReassignOne(ctx: RequestContext, entry: BulkReassignItemInput): Promise<BulkItemOutcome> {
+    const { itemId, expectedVersion, assigneeUserId } = entry;
+    try {
+      const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+      authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
+      await this.validateAssignee(ctx.tenant.tenantId, assigneeUserId);
+
+      const newVersion = expectedVersion + 1;
+      const entries: TransactWriteEntry[] = [
+        {
+          Update: buildVersionedUpdate({
+            tableName: this.tableName,
+            key: itemKey(item.tenantId, itemId),
+            tenantId: item.tenantId,
+            expectedVersion,
+            set: { assigneeUserId },
+          }),
+        },
+      ];
+      this.appendAudit(entries, ctx, {
+        itemId,
+        action: "UPDATE",
+        previousVersion: expectedVersion,
+        newVersion,
+        changes: { before: { assigneeUserId: item.assigneeUserId }, after: { assigneeUserId } },
+      });
+      await this.commit(entries, item.tenantId);
+      return { itemId, outcome: "SUCCEEDED" };
+    } catch (err) {
+      return { itemId, outcome: await this.classifyBulkError(err, ctx.tenant.tenantId, itemId, expectedVersion, (fresh) => fresh.assigneeUserId === assigneeUserId) };
+    }
+  }
+
+  /**
+   * D-206 decisions 2-3: bulk archive requires explicit confirmation (`confirm: true`) in the
+   * request - never inferred - because archive is more destructive than reassign (it emits
+   * `ItemDeactivated`, cancelling any live reminder occurrence, `transitionStatus` below). Only
+   * processes items currently `ACTIVE` - `archiveItem()` (single-item, untouched by this design)
+   * does not guard re-archiving an already-`ARCHIVED` item at a valid version, which would emit a
+   * duplicate `ItemDeactivated` with no real transition; bulk archive fences that explicitly
+   * instead of inheriting the gap.
+   */
+  async bulkArchiveItems(ctx: RequestContext, items: BulkArchiveItemInput[], confirm: boolean): Promise<BulkItemOutcome[]> {
+    if (!confirm) {
+      throw new ValidationError("Bulk archive requires explicit confirmation (confirm=true).");
+    }
+    if (items.length === 0 || items.length > BULK_ACTION_ITEM_CAP) {
+      throw new ValidationError(`items must contain between 1 and ${BULK_ACTION_ITEM_CAP} entries.`, { count: items.length });
+    }
+    const outcomes: BulkItemOutcome[] = [];
+    for (const entry of items) {
+      outcomes.push(await this.bulkArchiveOne(ctx, entry));
+    }
+    return outcomes;
+  }
+
+  private async bulkArchiveOne(ctx: RequestContext, entry: BulkArchiveItemInput): Promise<BulkItemOutcome> {
+    const { itemId, expectedVersion } = entry;
+    try {
+      const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+      authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
+      if (item.status !== "ACTIVE") {
+        // Same narrow reconciliation rule as classifyBulkError's VERSION_CONFLICT case, applied
+        // here because this item never reaches transitionStatus()/commit() to produce a
+        // ConflictError in the first place - the ACTIVE-only precondition intercepts it first.
+        // Without this check, a retry of an already-successful archive would always read
+        // ARCHIVED here and be misreported as INELIGIBLE_STATE instead of recognizing its own
+        // prior success.
+        if (item.status === "ARCHIVED" && item.version === expectedVersion + 1) {
+          return { itemId, outcome: "TARGET_ALREADY_APPLIED" };
+        }
+        return { itemId, outcome: "INELIGIBLE_STATE" };
+      }
+      await this.transitionStatus(ctx, item, expectedVersion, "ARCHIVED", "ARCHIVE");
+      return { itemId, outcome: "SUCCEEDED" };
+    } catch (err) {
+      return { itemId, outcome: await this.classifyBulkError(err, ctx.tenant.tenantId, itemId, expectedVersion, (fresh) => fresh.status === "ARCHIVED") };
+    }
+  }
+
+  /**
+   * D-206 decision 6: classifies a caught error into the bulk outcome taxonomy. A
+   * `ConflictError` gets one more check before being declared a genuine `VERSION_CONFLICT` - the
+   * narrow post-timeout-retry reconciliation rule: `TARGET_ALREADY_APPLIED` only when the
+   * current version advanced by EXACTLY one from what was expected AND the current state already
+   * matches this action's target exactly. This never claims which attempt caused it (could be a
+   * different actor applying the identical change) - it only recognizes that the desired end
+   * state already exists, so retrying a lost response is safe rather than a false conflict. Any
+   * other combination (version advanced by more than one, or the state doesn't match the target)
+   * is a genuine conflict, fail-closed.
+   */
+  private async classifyBulkError(
+    err: unknown,
+    tenantId: string,
+    itemId: string,
+    expectedVersion: number,
+    isTargetApplied: (item: ExpirationItem) => boolean,
+  ): Promise<BulkItemOutcomeKind> {
+    if (err instanceof NotFoundError) return "NOT_FOUND";
+    if (err instanceof IneligibleAssigneeError) return "INELIGIBLE_ASSIGNEE";
+    if (err instanceof TenantNotActiveError) return "TENANT_NOT_ACTIVE";
+    if (err instanceof Error && err.name === "AuthorizationDeniedError") return "AUTHORIZATION_DENIED";
+    if (err instanceof ValidationError) return "VALIDATION_FAILED";
+    if (err instanceof ConflictError) {
+      const fresh = await this.store.get<ExpirationItem>(itemKey(tenantId, itemId));
+      if (fresh && fresh.version === expectedVersion + 1 && isTargetApplied(fresh)) {
+        return "TARGET_ALREADY_APPLIED";
+      }
+      return "VERSION_CONFLICT";
+    }
+    return "UNKNOWN";
   }
 
   private async transitionStatus(
