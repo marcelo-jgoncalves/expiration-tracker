@@ -165,6 +165,13 @@ describe("routeNotificationIntent", () => {
     const updatedIntent = await store.get<NotificationIntent>({ PK: intent.PK, SK: intent.SK });
     expect(updatedIntent?.status).toBe("DISPATCHED");
     expect(updatedIntent?.routedChannels).toEqual(["EMAIL"]);
+    // Real bug found and fixed 2026-09-05: recipientUserId was computed by the resolver but
+    // never persisted onto the intent - email-delivery-workflow.ts reads it back from THIS
+    // field (never from an in-memory value) to resolve the send-to address, so every real
+    // routed email unconditionally failed with "no resolved address" before ever calling
+    // SES. Mutation this test now catches: comment out `recipientUserId:` in
+    // applyRoutedDecision's `set` and this assertion fails (undefined, not ASSIGNEE).
+    expect(updatedIntent?.recipientUserId).toBe(ASSIGNEE);
 
     const all = store.allItems();
     const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;

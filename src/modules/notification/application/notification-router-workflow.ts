@@ -83,7 +83,7 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
     now,
   });
 
-  return applyDecision(deps, intent, decision, now, item, policy);
+  return applyDecision(deps, intent, decision, now, item, policy, resolved?.userId);
 }
 
 async function applyDecision(
@@ -93,6 +93,7 @@ async function applyDecision(
   now: string,
   currentItem: ExpirationItem | undefined,
   currentPolicy: ReminderPolicy | undefined,
+  resolvedRecipientUserId: string | undefined,
 ): Promise<RouterWorkflowOutcome> {
   if (decision.kind === "RETRY") {
     // No write at all - let the caller (Streams handler) surface this as a batch item
@@ -137,7 +138,7 @@ async function applyDecision(
   }
 
   // ROUTED
-  return applyRoutedDecision(deps, intent, decision, now);
+  return applyRoutedDecision(deps, intent, decision, now, resolvedRecipientUserId);
 }
 
 /** Minimal shape applyStaleDecision needs - structurally satisfied by both
@@ -267,6 +268,7 @@ async function applyRoutedDecision(
   intent: NotificationIntent,
   decision: Extract<RouterDecision, { kind: "ROUTED" }>,
   now: string,
+  resolvedRecipientUserId: string | undefined,
 ): Promise<RouterWorkflowOutcome> {
   const entries: TransactWriteEntry[] = [
     {
@@ -281,6 +283,16 @@ async function applyRoutedDecision(
           routedChannels: decision.routedChannels,
           cancelledChannels: decision.cancelledChannels,
           routedAt: now,
+          // Real bug found and fixed 2026-09-05: `decideRouting()` only reaching ROUTED
+          // already proves a recipient resolved successfully (RouterDecision's ROUTED
+          // variant never reaches this branch otherwise - decideRouting's step 4 returns
+          // CANCELLED_ALL for every unresolved-recipient case) - but this field was never
+          // persisted, so email-delivery-workflow.ts's `intent?.recipientUserId` always
+          // read undefined, meaning `to` was always undefined for every EVER real routed
+          // email, unconditionally terminating as FAILED_TERMINAL before ever calling SES.
+          // Unit tests never caught this because they hand-construct `NotificationIntent`
+          // fixtures with `recipientUserId` already set, bypassing this write path entirely.
+          recipientUserId: resolvedRecipientUserId,
         },
       }),
     },
