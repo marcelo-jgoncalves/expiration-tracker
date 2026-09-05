@@ -7,10 +7,10 @@
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
-import { ConflictError, IneligibleAssigneeError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ConflictError, IneligibleAssigneeError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { itemKey } from "../domain/expiration-item.js";
-import { itemWatchKey, ITEM_WATCH_SK_PREFIX, type ItemWatch } from "../domain/item-watch.js";
+import { itemWatchKey, ITEM_WATCH_SK_PREFIX, MAX_ITEM_WATCHERS, type ItemWatch } from "../domain/item-watch.js";
 import { isTransactionCanceled, type ExpirationStore, type TransactWriteEntry } from "../ports/expiration-store.js";
 import type { MemberEligibilityChecker } from "../ports/member-eligibility.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
@@ -49,6 +49,14 @@ export class ItemWatchService {
     const key = itemWatchKey(ctx.tenant.tenantId, itemId, userId);
     const existing = await this.store.get<ItemWatch>(key);
     if (existing?.status === "ACTIVE") return existing; // idempotente
+
+    // D-200 (watcher notification fan-out): a NEW active watcher (fresh row or REMOVED->ACTIVE
+    // reactivation, both paths below) grows dispatchOccurrence()'s per-recipient transaction -
+    // capped here, at the write that actually increases the ACTIVE count, never after the fact.
+    const activeCount = (await this.store.queryByPk<ItemWatch>(itemKey(ctx.tenant.tenantId, itemId).PK, ITEM_WATCH_SK_PREFIX)).filter((w) => w.status === "ACTIVE").length;
+    if (activeCount >= MAX_ITEM_WATCHERS) {
+      throw new ValidationError(`An ExpirationItem may have at most ${MAX_ITEM_WATCHERS} active watchers.`, { itemId, count: activeCount });
+    }
 
     const now = this.now();
     if (!existing) {

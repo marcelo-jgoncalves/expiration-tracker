@@ -135,6 +135,74 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(true);
   });
 
+  it("accepts a valid notification.intent-created.v1 event targeting a WATCHER (D-200)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/events/notification-intent-created.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_int_02",
+        eventType: "notification.intent-created.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-09-10T12:00:01.120Z",
+        correlationId: "cor_02",
+        tenantId: "t_01",
+        actor: { type: "SYSTEM" },
+        aggregate: { type: "NotificationIntent", id: "int_02", version: 1 },
+        data: {
+          intentId: "int_02",
+          kind: "EXPIRATION_REMINDER",
+          itemId: "item_01",
+          occurrenceId: "occ_01",
+          itemVersion: 8,
+          policyId: "policy_01",
+          policyVersion: 4,
+          scheduledAt: "2026-09-10T12:00:00.000Z",
+          requestedChannels: ["EMAIL"],
+          status: "PENDING",
+          supersedesIntentId: null,
+          correctionReason: null,
+          targetKind: "WATCHER",
+          targetWatcherUserId: "user_watcher_01",
+        },
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a notification.intent-created.v1 event with an invalid targetKind enum value", () => {
+    const { valid } = registry.validate(
+      "https://expiration-tracker/schemas/events/notification-intent-created.v1.json",
+      {
+        specVersion: "1.0",
+        eventId: "evt_int_03",
+        eventType: "notification.intent-created.v1",
+        source: "expiration-tracker.reminder",
+        occurredAt: "2026-09-10T12:00:01.120Z",
+        correlationId: "cor_03",
+        tenantId: "t_01",
+        actor: { type: "SYSTEM" },
+        aggregate: { type: "NotificationIntent", id: "int_03", version: 1 },
+        data: {
+          intentId: "int_03",
+          kind: "EXPIRATION_REMINDER",
+          itemId: "item_01",
+          occurrenceId: "occ_01",
+          itemVersion: 8,
+          policyId: "policy_01",
+          policyVersion: 4,
+          scheduledAt: "2026-09-10T12:00:00.000Z",
+          requestedChannels: ["EMAIL"],
+          status: "PENDING",
+          supersedesIntentId: null,
+          correctionReason: null,
+          targetKind: "MANAGER",
+        },
+      },
+    );
+    expect(valid).toBe(false);
+  });
+
   it("rejects a notification intent event carrying a forbidden field like email", () => {
     const { valid } = registry.validate(
       "https://expiration-tracker/schemas/events/notification-intent-created.v1.json",

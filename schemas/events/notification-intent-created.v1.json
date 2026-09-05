@@ -40,7 +40,9 @@
         },
         "status": { "enum": ["PENDING", "CANCELLED", "CORRECTIVE"] },
         "supersedesIntentId": { "type": ["string", "null"] },
-        "correctionReason": { "type": ["string", "null"] }
+        "correctionReason": { "type": ["string", "null"] },
+        "targetKind": { "enum": ["ASSIGNEE", "WATCHER"] },
+        "targetWatcherUserId": { "type": "string", "minLength": 1 }
       }
     }
   }
