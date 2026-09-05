@@ -21,7 +21,7 @@ variables {
   aws_region       = "us-east-1"
   environment      = "dev"
   ses_from_address = "noreply@example.com"
-  adot_layer_arn   = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:1"
+  adot_layer_arn   = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:1"
   alert_email      = "ops@example.com"
 }
 

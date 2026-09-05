@@ -39,7 +39,11 @@ membership_invite_email_enabled = true
 # resource, distinct from the public resource-policy grant on 1-4). Pinned to the latest
 # confirmed version (4), never "latest" resolved implicitly - reverify before any future
 # `terraform apply` if the ADOT release train has moved on by then.
-adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-amd64-ver-1-30-0:4"
+# arm64 (Graviton2) variant, roadmap-competitivo-2026-09-01.md §17.1 (Marcelo, 2026-09-05) -
+# must match lambda-function module's `architectures` default. Verified live against the
+# publisher account (901920570463, --profile claude-dev): version :4 exists for both
+# amd64/arm64, published in the same release window (2025-01-03), confirming parity.
+adot_layer_arn = "arn:aws:lambda:us-east-1:901920570463:layer:aws-otel-nodejs-arm64-ver-1-30-0:4"
 
 # M5 (2026-08-21): real operator e-mail (Marcelo), confirmed for this environment. The SNS
 # subscription this creates on a real `apply` stays PendingConfirmation until Marcelo clicks

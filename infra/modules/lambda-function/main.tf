@@ -74,8 +74,9 @@ resource "aws_lambda_function" "this" {
   filename         = data.archive_file.this.output_path
   source_code_hash = data.archive_file.this.output_base64sha256
 
-  handler = "index.handler"
-  runtime = var.runtime
+  handler       = "index.handler"
+  runtime       = var.runtime
+  architectures = var.architectures
 
   # m5-observability-design.md §3: ADOT layer instrumenting the bundled @aws-sdk clients
   # (DynamoDB/SQS/SESv2) automatically via AWS_LAMBDA_EXEC_WRAPPER - no captureAWSv3Client
