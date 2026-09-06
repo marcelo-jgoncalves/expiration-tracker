@@ -1,11 +1,11 @@
-import type { EntityKey, TransactWriteEntry } from "../../../src/modules/reports/ports/report-subscription-store.js";
+import type { EntityKey, Gsi1Page, Gsi1PageInput, TransactWriteEntry } from "../../../src/modules/reports/ports/report-subscription-store.js";
 
 /**
- * In-memory fake of `ReportSubscriptionStore` (D-211 fatia 2), same conventions as
+ * In-memory fake of `ReportSubscriptionStore` (D-211/D-212/D-213), same conventions as
  * `test/unit/expiration/in-memory-store.ts`'s `InMemoryExpirationStore.transactWrite` -
- * evaluates only the two ConditionExpression shapes the scheduler's claim transaction actually
- * produces (`occ.ts`'s versioned-update condition, and the outbox record's
- * `attribute_not_exists(PK) AND attribute_not_exists(SK)` creation condition).
+ * evaluates the ConditionExpression shapes the scheduler's claim transaction and the D-213 CRUD
+ * service actually produce (`occ.ts`'s versioned-update/versioned-delete condition, and the
+ * outbox record's `attribute_not_exists(PK) AND attribute_not_exists(SK)` creation condition).
  */
 export class InMemoryReportSubscriptionStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
@@ -48,6 +48,19 @@ export class InMemoryReportSubscriptionStore {
             anyFailed = true;
           }
         }
+      } else if ("Delete" in entry) {
+        const existing = this.items.get(this.k(entry.Delete.Key));
+        if (!existing) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
+        const expectedVersion = entry.Delete.ExpressionAttributeValues?.[":expectedVersion"];
+        const expectedTenantId = entry.Delete.ExpressionAttributeValues?.[":tenantId"];
+        if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
       }
     });
 
@@ -73,8 +86,30 @@ export class InMemoryReportSubscriptionStore {
           }
         }
         this.items.set(this.k(key), next);
+      } else if ("Delete" in entry) {
+        this.items.delete(this.k(entry.Delete.Key));
       }
     }
+  }
+
+  async queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>> {
+    const ascending = input.ascending ?? true;
+    const matches = [...this.items.values()].filter((item) => item["GSI1PK"] === input.gsi1pk);
+    matches.sort((a, b) => {
+      const sa = String(a["GSI1SK"]);
+      const sb = String(b["GSI1SK"]);
+      return ascending ? sa.localeCompare(sb) : sb.localeCompare(sa);
+    });
+    const startAfter = input.exclusiveStartKey?.["GSI1SK"] as string | undefined;
+    const fromCursor = startAfter === undefined ? matches : matches.filter((item) => (ascending ? String(item["GSI1SK"]) > startAfter : String(item["GSI1SK"]) < startAfter));
+    const limit = input.limit ?? fromCursor.length;
+    const page = fromCursor.slice(0, limit);
+    const hasMore = fromCursor.length > page.length;
+    const last = page[page.length - 1];
+    return {
+      items: page as unknown as T[],
+      lastEvaluatedKey: hasMore && last ? { GSI1PK: last["GSI1PK"], GSI1SK: last["GSI1SK"] } : undefined,
+    };
   }
 
   allItems(): (Record<string, unknown> & EntityKey)[] {

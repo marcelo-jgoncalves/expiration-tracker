@@ -5,9 +5,9 @@
  * does not reconstruct OCC/outbox logic, only executes the SDK command, same split as
  * `expiration/persistence/dynamodb-expiration-store.ts`.
  */
-import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, ReportSubscriptionStore, TransactWriteEntry } from "../ports/report-subscription-store.js";
+import type { EntityKey, Gsi1Page, Gsi1PageInput, ReportSubscriptionStore, TransactWriteEntry } from "../ports/report-subscription-store.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 
 export class DynamoDbReportSubscriptionStore implements ReportSubscriptionStore {
@@ -34,5 +34,24 @@ export class DynamoDbReportSubscriptionStore implements ReportSubscriptionStore 
         TransactItems: entries as unknown as ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"],
       }),
     );
+  }
+
+  async queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>> {
+    try {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :pk",
+          ExpressionAttributeValues: { ":pk": input.gsi1pk },
+          ScanIndexForward: input.ascending ?? true,
+          Limit: input.limit,
+          ExclusiveStartKey: input.exclusiveStartKey,
+        }),
+      );
+      return { items: (result.Items ?? []) as T[], lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      throw mapDynamoError(err, "ReportSubscriptionStore.queryGsi1Page");
+    }
   }
 }

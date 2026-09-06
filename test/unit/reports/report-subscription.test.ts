@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_REPORT_SUBSCRIPTION_RECIPIENTS,
+  reportSubscriptionGsi1Keys,
   reportSubscriptionGsi8Keys,
   reportSubscriptionKey,
   validateReportSubscriptionInput,
@@ -25,6 +26,12 @@ describe("report-subscription domain (D-204)", () => {
 
   it("builds the ReportDeliveryAttempt key nested under a run-specific PK, one per recipient", () => {
     expect(reportDeliveryAttemptKey("t1", "sub1", "run1", "user-a")).toEqual({ PK: "TENANT#t1#REPORTSUB#sub1#RUN#run1", SK: "ATTEMPT#user-a" });
+  });
+
+  it("builds the GSI1 listing pointer (D-213), shared TENANT#<t>#REPORTSUB partition ordered by createdAt", () => {
+    const keys = reportSubscriptionGsi1Keys({ tenantId: "t1", createdAt: "2026-01-01T00:00:00.000Z", subscriptionId: "sub1" });
+    expect(keys.GSI1PK).toBe("TENANT#t1#REPORTSUB");
+    expect(keys.GSI1SK).toBe("2026-01-01T00:00:00.000Z#REPORTSUB#sub1");
   });
 
   describe("validateReportSubscriptionInput", () => {

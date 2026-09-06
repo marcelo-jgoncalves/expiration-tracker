@@ -218,6 +218,13 @@ locals {
     missing_requirements         = { method = "GET", path = "/reports/missing-requirements" }
     requirements_by_subject      = { method = "GET", path = "/reports/requirements-by-subject" }
     requirements_by_assignee     = { method = "GET", path = "/reports/requirements-by-assignee" }
+    # D-204 decision 1 (Roadmap P1 item 15), implemented D-213 — same Lambda/integration as the
+    # 7 CSV routes above (reports-handler.ts discriminates CSV vs JSON response shape), never a
+    # new Lambda for a JSON-envelope CRUD family this small.
+    subscription_create = { method = "POST", path = "/reports/subscriptions" }
+    subscription_list   = { method = "GET", path = "/reports/subscriptions" }
+    subscription_get    = { method = "GET", path = "/reports/subscriptions/{subscriptionId}" }
+    subscription_delete = { method = "POST", path = "/reports/subscriptions/{subscriptionId}/delete" }
   }
 }
 

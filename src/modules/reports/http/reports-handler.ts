@@ -13,10 +13,12 @@ import { AppError, AuthorizationError, toAppError, ValidationError } from "../..
 import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { serializeCsvRow } from "../../../shared/csv/csv-export-writer.js";
+import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { ReportsService, type RequirementReportRow } from "../application/reports-service.js";
+import type { CreateReportSubscriptionInput, ReportSubscriptionService } from "../application/report-subscription-service.js";
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
   VALIDATION: 400,
@@ -30,13 +32,14 @@ const STATUS_BY_CATEGORY: Record<string, number> = {
   BUSINESS_RULE: 422,
 };
 
-export interface HttpRequest {
+export interface HttpRequest<TBody = unknown> {
   requestId: string;
   correlationId: string;
   claims: ValidatedClaims;
   pathParameters?: Record<string, string | undefined>;
   queryStringParameters?: Record<string, string | undefined>;
   headers?: Record<string, string | undefined>;
+  body?: TBody;
 }
 
 export interface HttpResponse {
@@ -57,6 +60,7 @@ export interface ReportsHttpDeps {
   resolver: RequestContextResolver;
   reports: ReportsService;
   quota: TenantQuotaService;
+  subscriptions: ReportSubscriptionService;
 }
 
 const EXPIRATION_ITEM_CSV_COLUMNS = ["itemId", "name", "category", "dueDate", "assigneeUserId", "tags", "status", "renewedFromId", "updatedAt"] as const;
@@ -191,4 +195,87 @@ export async function handleReportsRoute(
     const appError = err instanceof AppError ? err : toAppError(err);
     return { statusCode: STATUS_BY_CATEGORY[appError.category] ?? 500, body: appError.toJSON() };
   }
+}
+
+// --- ReportSubscription CRUD (D-204 decision 1, implemented D-213) -------------------------
+// JSON-envelope routes (never CSV) - same pipeline as document-archive-handlers.ts (resolve
+// context -> schema validation -> service, which authorizes internally -> AppError -> status
+// mapping). The Lambda entrypoint (reports-handler.ts under runtime/aws/handlers) discriminates
+// CSV vs JSON responses via `"csv" in response`, so these can share the same Lambda/module as
+// the 7 CSV routes above without any response-shape ambiguity.
+
+const SUBSCRIPTION_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json";
+const SUBSCRIPTION_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/report-subscription-delete-request.v1.json";
+
+function validateAgainstSchema(schemaId: string, body: unknown): void {
+  const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
+  if (!valid) throw new ValidationError("Request body failed schema validation.", { errors });
+}
+
+function requireSubscriptionId(req: HttpRequest): string {
+  const subscriptionId = req.pathParameters?.["subscriptionId"];
+  if (!subscriptionId) throw new ValidationError("Missing subscriptionId path parameter.");
+  return subscriptionId;
+}
+
+async function resolveContext(deps: ReportsHttpDeps, req: HttpRequest) {
+  const context = await deps.resolver.resolve({
+    claims: req.claims,
+    requestId: req.requestId,
+    correlationId: req.correlationId,
+    organizationIdHint: req.headers?.["x-organization-id"],
+  });
+  await consumeApiRequestQuota(deps, context);
+  return context;
+}
+
+async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpResponse> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof AuthorizationDeniedError) {
+      auditAuthorizationDenied({ reason: err.reason, action: err.action });
+      return { statusCode: STATUS_BY_CATEGORY["AUTHORIZATION"] ?? 403, body: new AuthorizationError(err.message, { reason: err.reason }).toJSON() };
+    }
+    const appError = err instanceof AppError ? err : toAppError(err);
+    return { statusCode: STATUS_BY_CATEGORY[appError.category] ?? 500, body: appError.toJSON() };
+  }
+}
+
+export async function handleCreateReportSubscription(deps: ReportsHttpDeps, req: HttpRequest<CreateReportSubscriptionInput>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SUBSCRIPTION_CREATE_SCHEMA_ID, req.body);
+    const context = await resolveContext(deps, req);
+    const subscription = await deps.subscriptions.createSubscription(context, req.body);
+    return { statusCode: 201, body: { subscription } };
+  });
+}
+
+export async function handleGetReportSubscription(deps: ReportsHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subscriptionId = requireSubscriptionId(req);
+    const context = await resolveContext(deps, req);
+    const subscription = await deps.subscriptions.getSubscription(context, subscriptionId);
+    return { statusCode: 200, body: { subscription } };
+  });
+}
+
+export async function handleListReportSubscriptions(deps: ReportsHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const context = await resolveContext(deps, req);
+    const { items, lastEvaluatedKey } = await deps.subscriptions.listSubscriptions(context);
+    return { statusCode: 200, body: { subscriptions: items, ...(lastEvaluatedKey ? { lastEvaluatedKey } : {}) } };
+  });
+}
+
+export async function handleDeleteReportSubscription(deps: ReportsHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subscriptionId = requireSubscriptionId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SUBSCRIPTION_DELETE_SCHEMA_ID, req.body);
+    const context = await resolveContext(deps, req);
+    await deps.subscriptions.deleteSubscription(context, subscriptionId, req.body.expectedVersion);
+    return { statusCode: 204, body: {} };
+  });
 }

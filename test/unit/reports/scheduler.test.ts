@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runScheduledReportsTick, shouldAlarmScheduledReports } from "../../../src/workers/scheduled-reports/scheduler.js";
 import { InMemoryReportSubscriptionStore } from "./in-memory-store.js";
-import { reportSubscriptionGsi8Keys, reportSubscriptionKey, type ReportSubscription } from "../../../src/modules/reports/domain/report-subscription.js";
+import { reportSubscriptionGsi1Keys, reportSubscriptionGsi8Keys, reportSubscriptionKey, type ReportSubscription } from "../../../src/modules/reports/domain/report-subscription.js";
 import type { ReportSubscriptionGsi8Candidate, ReportSubscriptionGsi8Page, ScheduledReportsCandidateSource } from "../../../src/workers/scheduled-reports/candidate-source.js";
 import { buildVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
@@ -30,6 +30,7 @@ function makeSubscription(overrides: Partial<ReportSubscription> = {}): ReportSu
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...reportSubscriptionGsi8Keys({ dueAtIso: nextRunAt, tenantId, subscriptionId }),
+    ...reportSubscriptionGsi1Keys({ tenantId, createdAt: "2026-01-01T00:00:00.000Z", subscriptionId }),
     ...overrides,
   };
 }

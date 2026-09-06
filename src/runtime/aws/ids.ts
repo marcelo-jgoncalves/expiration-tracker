@@ -14,6 +14,7 @@ import type { SubjectIdGenerator } from "../../modules/subject/application/id-ge
 import type { ImportIdGenerator } from "../../modules/import/application/id-generator.js";
 import type { OrganizationIdGenerator } from "../../modules/organization/application/id-generator.js";
 import type { DocumentArchiveIdGenerator } from "../../modules/document-archive/application/id-generator.js";
+import type { ReportSubscriptionIdGenerator } from "../../modules/reports/application/id-generator.js";
 
 export class UlidIdGenerator
   implements
@@ -24,7 +25,8 @@ export class UlidIdGenerator
     SubjectIdGenerator,
     ImportIdGenerator,
     OrganizationIdGenerator,
-    DocumentArchiveIdGenerator
+    DocumentArchiveIdGenerator,
+    ReportSubscriptionIdGenerator
 {
   newItemId(): string {
     return `item_${ulid()}`;
@@ -90,6 +92,10 @@ export class UlidIdGenerator
   }
   newRequirementTemplateItemId(): string {
     return `reqtplitem_${ulid()}`;
+  }
+  /** D-213 (`ReportSubscription` CRUD) — opaque, immutable, never reused. */
+  newReportSubscriptionId(): string {
+    return `reportsub_${ulid()}`;
   }
   newSubjectId(): string {
     return `subject_${ulid()}`;

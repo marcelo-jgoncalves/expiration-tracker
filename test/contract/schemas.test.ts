@@ -1587,4 +1587,96 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     });
     expect(valid).toBe(false);
   });
+
+  // D-204 decision 1 (Roadmap P1 item 15, scheduled reports), implemented D-213.
+  it("accepts a valid report-subscription-create-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["EXPIRED_ITEMS", "MISSING_REQUIREMENTS"],
+      dayOfWeek: 3,
+      localTime: "09:00",
+      timeZone: "America/Sao_Paulo",
+      recipientUserIds: ["user-1"],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a report-subscription-create-request with an empty reportTypes array", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: [],
+      dayOfWeek: 3,
+      localTime: "09:00",
+      timeZone: "UTC",
+      recipientUserIds: ["user-1"],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a report-subscription-create-request with an unknown reportType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["NOT_A_REAL_REPORT"],
+      dayOfWeek: 3,
+      localTime: "09:00",
+      timeZone: "UTC",
+      recipientUserIds: ["user-1"],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a report-subscription-create-request with dayOfWeek out of the 1-7 ISO range", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["EXPIRED_ITEMS"],
+      dayOfWeek: 8,
+      localTime: "09:00",
+      timeZone: "UTC",
+      recipientUserIds: ["user-1"],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a report-subscription-create-request with a malformed localTime", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["EXPIRED_ITEMS"],
+      dayOfWeek: 3,
+      localTime: "9:00",
+      timeZone: "UTC",
+      recipientUserIds: ["user-1"],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a report-subscription-create-request with more than 10 recipientUserIds (MAX_REPORT_SUBSCRIPTION_RECIPIENTS)", () => {
+    const recipientUserIds = Array.from({ length: 11 }, (_, i) => `user-${i}`);
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["EXPIRED_ITEMS"],
+      dayOfWeek: 3,
+      localTime: "09:00",
+      timeZone: "UTC",
+      recipientUserIds,
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a report-subscription-create-request with an unknown extra property (additionalProperties:false)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-create-request.v1.json", {
+      reportTypes: ["EXPIRED_ITEMS"],
+      dayOfWeek: 3,
+      localTime: "09:00",
+      timeZone: "UTC",
+      recipientUserIds: ["user-1"],
+      extra: "nope",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid report-subscription-delete-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-delete-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a report-subscription-delete-request missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-delete-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
 });

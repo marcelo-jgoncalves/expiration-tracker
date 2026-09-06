@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/report-subscription-delete-request.v1.json",
+  "title": "ReportSubscriptionDeleteRequest v1",
+  "description": "POST /reports/subscriptions/{subscriptionId}/delete request body (D-213) - expectedVersion required, same OCC-on-mutation discipline every other business write in this codebase uses.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

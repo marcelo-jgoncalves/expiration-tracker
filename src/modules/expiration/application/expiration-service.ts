@@ -706,7 +706,7 @@ export class ExpirationService {
   async searchExpirationItems(ctx: RequestContext, query: ExpirationItemSearchQuery): Promise<ExpirationItemSearchPage> {
     authorize({ context: ctx, action: "item:read", resource: { tenantId: ctx.tenant.tenantId } });
     if (!query.status) throw new ValidationError("status is required for searchExpirationItems.");
-    const now = new Date();
+    const now = new Date(this.now());
     const namePrefix = query.namePrefix;
 
     const result = await runPagedSearch<ExpirationItem>({

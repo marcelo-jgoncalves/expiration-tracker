@@ -37,6 +37,8 @@ import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.jso
 import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
 import bulkReassignItemsRequestV1 from "../../../schemas/api/bulk-reassign-items-request.v1.json";
 import bulkArchiveItemsRequestV1 from "../../../schemas/api/bulk-archive-items-request.v1.json";
+import reportSubscriptionCreateRequestV1 from "../../../schemas/api/report-subscription-create-request.v1.json";
+import reportSubscriptionDeleteRequestV1 from "../../../schemas/api/report-subscription-delete-request.v1.json";
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 import updateProfileRequestV1 from "../../../schemas/api/update-profile-request.v1.json";
@@ -167,6 +169,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   renewItemRequestV1,
   bulkReassignItemsRequestV1,
   bulkArchiveItemsRequestV1,
+  reportSubscriptionCreateRequestV1,
+  reportSubscriptionDeleteRequestV1,
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
   updateProfileRequestV1,

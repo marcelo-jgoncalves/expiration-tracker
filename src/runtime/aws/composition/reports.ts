@@ -8,6 +8,7 @@ import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { DynamoDbExpirationStore } from "../../../modules/expiration/persistence/dynamodb-expiration-store.js";
 import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/persistence/dynamodb-document-archive-store.js";
 import { ReportsService } from "../../../modules/reports/application/reports-service.js";
+import { ReportSubscriptionService } from "../../../modules/reports/application/report-subscription-service.js";
 import { DynamoDbReportSubscriptionStore } from "../../../modules/reports/persistence/dynamodb-report-subscription-store.js";
 import { DynamoDbScheduledReportsCandidateSource } from "../../../workers/scheduled-reports/dynamodb-candidate-source.js";
 import { UlidIdGenerator, newCorrelationId } from "../ids.js";
@@ -16,7 +17,10 @@ export function buildReportsDeps(client: DynamoDBDocumentClient, tableName: stri
   const itemStore = new DynamoDbExpirationStore(client, tableName);
   const documentStore = new DynamoDbDocumentArchiveStore(client, tableName);
   const reports = new ReportsService({ documentStore, itemStore });
-  return { reports };
+  const ids = new UlidIdGenerator();
+  const subscriptionStore = new DynamoDbReportSubscriptionStore(client, tableName);
+  const subscriptions = new ReportSubscriptionService({ store: subscriptionStore, tableName, ids, now: () => new Date().toISOString() });
+  return { reports, subscriptions };
 }
 
 /** D-211 fatia 2 (D-204 decision 3): composition root for the ScheduledReportsScheduler Lambda
