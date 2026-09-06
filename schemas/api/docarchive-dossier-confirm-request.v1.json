@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json",
+  "title": "DossierExportConfirmRequest v1",
+  "description": "POST /document-archive/subjects/{subjectId}/dossier/{runId}/confirm request body (D-205 decision 3) - scopeHash required, must match the run's own preview-time value or the confirm is rejected (409).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeHash"],
+  "properties": {
+    "scopeHash": { "type": "string", "minLength": 1 }
+  }
+}

@@ -31,6 +31,7 @@ function makeIds(): DocumentArchiveIdGenerator {
     newDocumentTypeId: () => `doctype-${++n}`,
     newRequirementTemplateId: () => "reqtpl_test",
     newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
+    newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   };
 }
 

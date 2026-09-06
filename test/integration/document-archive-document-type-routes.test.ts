@@ -43,6 +43,7 @@ function makeIds() {
     newDocumentTypeId: () => `doctype-${++idCounter}`,
   newRequirementTemplateId: () => "reqtpl_test",
   newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
+  newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   };
 }
 

@@ -150,6 +150,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/unarchive" },
   { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/preview" },
   { method: "POST", pathTemplate: "/document-archive/requirement-templates/{templateId}/apply" },
+  // D-205 fatia 1 (Roadmap P1 item 16, dossier export) — JSON envelope, same reasoning.
+  { method: "POST", pathTemplate: "/document-archive/subjects/{subjectId}/dossier" },
+  { method: "POST", pathTemplate: "/document-archive/subjects/{subjectId}/dossier/{runId}/confirm" },
   // ReportSubscription CRUD (D-204 decision 1, Roadmap P1 item 15, implemented D-213) — JSON
   // envelope, no content-disposition/CSV gap the GET /reports/* report routes above have (those
   // are deliberately NOT proxied through the BFF, see reports-handler.ts's own comment).

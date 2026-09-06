@@ -170,7 +170,16 @@ export type Action =
   // export` already gate) - ADMIN_ROLES, same tier, single action for create/read/list/delete
   // (no separate read tier - unlike DocumentType/RequirementTemplate, a subscription has no
   // less-sensitive "browse the catalog" use case a MEMBER/VIEWER would legitimately need).
-  | "reports:subscription-manage";
+  | "reports:subscription-manage"
+  // D-205 decision 10 (Roadmap P1 item 16, dossier export): ADMIN_ROLES EXCLUSIVELY, no
+  // assignee tier - achado real do Codex (Rodada 1): `authorization.ts`'s own resource-ownership
+  // gate only applies when `ownerUserId` AND `assigneeUserId` both exist on the resource, and
+  // `Requirement` never has `ownerUserId`, so an "ADMIN_ROLES ou assignee" rule could never be
+  // expressed here structurally - closed by removing the assignee tier entirely rather than
+  // inventing a new resource-ownership shape for one route. Same disclosure profile as
+  // `docarchive:requirement-export`/`item:export` (a full-Subject export is the same bulk
+  // cross-Requirement disclosure those already gate), covers preview+confirm+download.
+  | "docarchive:dossier-export";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -265,6 +274,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:series-materialize": WRITE_ROLES,
   "activity:read": ADMIN_ROLES,
   "reports:subscription-manage": ADMIN_ROLES,
+  "docarchive:dossier-export": ADMIN_ROLES,
   "docarchive:documenttype-create": ADMIN_ROLES,
   "docarchive:documenttype-rename": ADMIN_ROLES,
   "docarchive:documenttype-deprecate": ADMIN_ROLES,

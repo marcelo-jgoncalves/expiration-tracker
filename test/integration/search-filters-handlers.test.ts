@@ -67,6 +67,7 @@ describe("D-194 Fatia 3 - search/filters HTTP handlers", () => {
         newDocumentTypeId: () => "doctype-1",
         newRequirementTemplateId: () => "reqtpl-1",
         newRequirementTemplateItemId: () => "reqtplitem-1",
+        newDossierExportRunId: () => "dossier_1",
       },
       quarantineBucket: "test-quarantine-bucket",
       signer: { presignUpload: async () => ({ uploadUrl: "https://s3.example/fake?sig=fake", requiredHeaders: {} }) },

@@ -56,7 +56,16 @@ export type OutboxDestination =
    * (not yet built — this destination value exists now so the outbox row already carries its
    * final routing discriminator, same "written before its consumer exists" pattern
    * `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1` above already established). */
-  | "SQS_REPORT_SUBSCRIPTION_DELIVERY_V1";
+  | "SQS_REPORT_SUBSCRIPTION_DELIVERY_V1"
+  /** D-205 (Roadmap P1 item 16, `document-dossier-scoping/estado-final-consolidado.md`
+   * decision 3): written in the SAME `TransactWriteItems` as `confirmDossierExport`'s
+   * `DossierExportRun` status Update (PREVIEW_READY -> CONFIRMED), only when the caller's
+   * `scopeHash` matched. Consumed by a new generation worker (fatia 2, not yet built - PDF via
+   * `pdf-lib`, XLSX via a new dependency) - this destination value exists now so the row already
+   * carries its final routing discriminator, same "written before its consumer exists" pattern
+   * `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1`/`SQS_REPORT_SUBSCRIPTION_DELIVERY_V1` above already
+   * established. */
+  | "SQS_DOSSIER_EXPORT_V1";
 
 export interface OutboxRecord {
   PK: string;
