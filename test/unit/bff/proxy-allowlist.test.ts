@@ -121,4 +121,11 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("PATCH", "/reports/subscriptions")).toBeUndefined();
     expect(matchAllowlistedRoute("DELETE", "/reports/subscriptions/sub-1")).toBeUndefined();
   });
+
+  // D-204 decision 7, implemented fatia 3: JSON envelope (`{downloadUrl}`), same reasoning as
+  // the 4 CRUD routes above.
+  it("matches the D-204 fatia 3 run-download route", () => {
+    expect(matchAllowlistedRoute("GET", "/reports/subscriptions/sub-1/runs/run-1/download")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/reports/subscriptions/sub-1/runs/run-1/download")).toBeUndefined();
+  });
 });

@@ -1,11 +1,23 @@
 import type { EntityKey, Gsi1Page, Gsi1PageInput, TransactWriteEntry } from "../../../src/modules/reports/ports/report-subscription-store.js";
+import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+
+/** D-204 fatia 3: same fixture `test/unit/expiration/in-memory-store.ts`'s
+ * `activeLifecycleRecord` already establishes - seeds a `TenantLifecycleRecord` so
+ * `executeTenantBusinessMutation`'s `ConditionCheck` (the delivery worker's SUBMITTING claim
+ * fence) has something real to evaluate against. */
+export function activeLifecycleRecord(tenantId: string, now = "2026-09-06T00:00:00.000Z"): Record<string, unknown> & EntityKey {
+  return { ...tenantLifecycleKey(tenantId), entityType: "TenantLifecycleRecord", tenantId, status: "ACTIVE", createdAt: now, updatedAt: now, version: 1 };
+}
 
 /**
- * In-memory fake of `ReportSubscriptionStore` (D-211/D-212/D-213), same conventions as
+ * In-memory fake of `ReportSubscriptionStore` (D-211/D-212/D-213/fatia 3), same conventions as
  * `test/unit/expiration/in-memory-store.ts`'s `InMemoryExpirationStore.transactWrite` -
  * evaluates the ConditionExpression shapes the scheduler's claim transaction and the D-213 CRUD
  * service actually produce (`occ.ts`'s versioned-update/versioned-delete condition, and the
- * outbox record's `attribute_not_exists(PK) AND attribute_not_exists(SK)` creation condition).
+ * outbox record's `attribute_not_exists(PK) AND attribute_not_exists(SK)` creation condition),
+ * plus (fatia 3) the `ConditionCheck` shape `executeTenantBusinessMutation` appends - same
+ * "ConditionCheck-blind fake would let a DELETING tenant claim succeed" concern
+ * `test/unit/notification/in-memory-store.ts`'s own identical addition already documents.
  */
 export class InMemoryReportSubscriptionStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
@@ -32,6 +44,26 @@ export class InMemoryReportSubscriptionStore {
         if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
+        }
+      } else if ("ConditionCheck" in entry) {
+        const check = entry.ConditionCheck;
+        const existing = this.items.get(this.k(check.Key));
+        if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
+        const names = check.ExpressionAttributeNames ?? {};
+        const values = check.ExpressionAttributeValues ?? {};
+        for (const [nameKey, fieldName] of Object.entries(names)) {
+          const valueKey = `:${nameKey.slice(1)}`;
+          if (!(valueKey in values)) continue;
+          const expected = values[valueKey];
+          if (!existing || existing[fieldName] !== expected) {
+            reasons[i] = { Code: "ConditionalCheckFailed" };
+            anyFailed = true;
+            return;
+          }
         }
       } else if ("Update" in entry) {
         const existing = this.items.get(this.k(entry.Update.Key));

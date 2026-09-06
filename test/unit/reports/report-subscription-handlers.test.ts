@@ -13,6 +13,7 @@ import type { ReportSubscriptionIdGenerator } from "../../../src/modules/reports
 import {
   handleCreateReportSubscription,
   handleDeleteReportSubscription,
+  handleDownloadReportSubscriptionRun,
   handleGetReportSubscription,
   handleListReportSubscriptions,
   type HttpRequest,
@@ -23,6 +24,9 @@ import type { RequestContextResolver, ValidatedClaims } from "../../../src/modul
 import type { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
+import { reportSubscriptionRunKey, type ReportSubscriptionRun } from "../../../src/modules/reports/domain/report-subscription-run.js";
+import { reportDeliveryAttemptKey, type ReportDeliveryAttempt } from "../../../src/modules/reports/domain/report-delivery-attempt.js";
+import type { ReportExportStore } from "../../../src/modules/reports/ports/report-export-store.js";
 
 const TENANT = "tenant-1";
 const NOW = "2026-09-09T10:00:00.000Z";
@@ -144,5 +148,90 @@ describe("handleDeleteReportSubscription (D-213 HTTP boundary)", () => {
 
     const response = await handleDeleteReportSubscription(deps, baseReq({ expectedVersion: subscription.version + 1 }, { subscriptionId: subscription.subscriptionId }));
     expect(response.statusCode).toBe(409);
+  });
+});
+
+describe("handleDownloadReportSubscriptionRun (D-204 decisions 6-7, fatia 3)", () => {
+  const RUN_ID = "run-1";
+  const SUBSCRIPTION_ID = "sub-1";
+
+  function fakeExportStore(): ReportExportStore & { presignCalls: number } {
+    return {
+      presignCalls: 0,
+      async putCsv(input) {
+        return { key: `k-${input.runId}` };
+      },
+      async presignDownload() {
+        this.presignCalls += 1;
+        return "https://example.com/presigned";
+      },
+    };
+  }
+
+  async function buildDepsWithRun(input: { principalUserId?: string; roles?: string[]; recipientUserId?: string } = {}) {
+    const store = new InMemoryReportSubscriptionStore([activeLifecycleRecord()]);
+    const run: ReportSubscriptionRun = {
+      ...reportSubscriptionRunKey(TENANT, SUBSCRIPTION_ID, RUN_ID),
+      entityType: "ReportSubscriptionRun",
+      runId: RUN_ID,
+      subscriptionId: SUBSCRIPTION_ID,
+      tenantId: TENANT,
+      scheduledFor: NOW,
+      reportTypes: ["EXPIRED_ITEMS"],
+      recipientUserIds: [input.recipientUserId ?? "user-b"],
+      createdAt: NOW,
+    };
+    const attempt: ReportDeliveryAttempt = {
+      ...reportDeliveryAttemptKey(TENANT, SUBSCRIPTION_ID, RUN_ID, input.recipientUserId ?? "user-b"),
+      entityType: "ReportDeliveryAttempt",
+      tenantId: TENANT,
+      subscriptionId: SUBSCRIPTION_ID,
+      runId: RUN_ID,
+      recipientUserId: input.recipientUserId ?? "user-b",
+      status: "ACCEPTED",
+      providerMessageId: "ses-1",
+      version: 2,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    await store.transactWrite([{ Put: { TableName: "test-table", Item: run as unknown as Record<string, unknown> & EntityKey, ConditionExpression: "attribute_not_exists(PK)" } }]);
+    await store.transactWrite([{ Put: { TableName: "test-table", Item: attempt as unknown as Record<string, unknown> & EntityKey, ConditionExpression: "attribute_not_exists(PK)" } }]);
+    const exportStore = fakeExportStore();
+    const principalCtx = ctx(input.roles ?? ["OWNER"]);
+    const contextWithUser: RequestContext = { ...principalCtx, principal: { ...principalCtx.principal, userId: input.principalUserId ?? principalCtx.principal.userId } };
+    const deps: ReportsHttpDeps = { resolver: fakeResolver(contextWithUser), reports: undefined as never, subscriptions: undefined as never, quota: fakeQuota(), subscriptionStore: store, exportStore };
+    return { deps, exportStore };
+  }
+
+  it("surfaces a loud 500 (never a silent success) when subscriptionStore/exportStore are not wired - a composition bug, not a client error", async () => {
+    const deps: ReportsHttpDeps = { resolver: fakeResolver(ctx()), reports: undefined as never, subscriptions: undefined as never, quota: fakeQuota() };
+    const response = await handleDownloadReportSubscriptionRun(deps, baseReq(undefined, { subscriptionId: SUBSCRIPTION_ID, runId: RUN_ID }));
+    expect(response.statusCode).toBe(500);
+  });
+
+  it("returns 404 when the run doesn't exist", async () => {
+    const { deps } = await buildDepsWithRun();
+    const response = await handleDownloadReportSubscriptionRun(deps, baseReq(undefined, { subscriptionId: SUBSCRIPTION_ID, runId: "nope" }));
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("ADMIN_ROLES principal can download even when NOT a recipient of the run", async () => {
+    const { deps, exportStore } = await buildDepsWithRun({ principalUserId: "admin-user", roles: ["OWNER"], recipientUserId: "user-b" });
+    const response = await handleDownloadReportSubscriptionRun(deps, baseReq(undefined, { subscriptionId: SUBSCRIPTION_ID, runId: RUN_ID }));
+    expect(response.statusCode).toBe(200);
+    expect(response.body["downloadUrl"]).toBe("https://example.com/presigned");
+    expect(exportStore.presignCalls).toBe(1);
+  });
+
+  it("a MEMBER who IS a real recipient of this run (per ReportDeliveryAttempt) can download", async () => {
+    const { deps } = await buildDepsWithRun({ principalUserId: "user-b", roles: ["MEMBER"], recipientUserId: "user-b" });
+    const response = await handleDownloadReportSubscriptionRun(deps, baseReq(undefined, { subscriptionId: SUBSCRIPTION_ID, runId: RUN_ID }));
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("a MEMBER who is NOT a recipient of this run is denied with 403 (never falls back to admin just because a run exists)", async () => {
+    const { deps } = await buildDepsWithRun({ principalUserId: "some-other-member", roles: ["MEMBER"], recipientUserId: "user-b" });
+    const response = await handleDownloadReportSubscriptionRun(deps, baseReq(undefined, { subscriptionId: SUBSCRIPTION_ID, runId: RUN_ID }));
+    expect(response.statusCode).toBe(403);
   });
 });

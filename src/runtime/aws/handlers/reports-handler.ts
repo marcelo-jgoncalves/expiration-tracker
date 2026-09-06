@@ -16,6 +16,7 @@ import { buildReportsDeps } from "../composition/reports.js";
 import {
   handleCreateReportSubscription,
   handleDeleteReportSubscription,
+  handleDownloadReportSubscriptionRun,
   handleGetReportSubscription,
   handleListReportSubscriptions,
   handleReportsRoute,
@@ -27,10 +28,15 @@ import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
+// D-204 fatia 3 (decision 7): only the download route needs this - required so a real
+// invocation of that route never silently falls back to the "not wired" throw in
+// handleDownloadReportSubscriptionRun.
+const reportExportsBucketName = process.env["REPORT_EXPORTS_BUCKET_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
+if (!reportExportsBucketName) throw new Error("REPORT_EXPORTS_BUCKET_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { reports, subscriptions } = buildReportsDeps(client, tableName);
-const deps = { resolver, reports, subscriptions, quota };
+const { reports, subscriptions, subscriptionStore, exportStore } = buildReportsDeps(client, tableName, reportExportsBucketName);
+const deps = { resolver, reports, subscriptions, quota, subscriptionStore, exportStore };
 
 function isCsvResponse(response: HttpResponse | CsvHttpResponse): response is CsvHttpResponse {
   return "csv" in response;
@@ -55,6 +61,8 @@ async function handleReportsRequest(event: APIGatewayProxyEventV2WithJWTAuthoriz
       return toApiGatewayResult(await handleGetReportSubscription(deps, base));
     case "POST /reports/subscriptions/{subscriptionId}/delete":
       return toApiGatewayResult(await handleDeleteReportSubscription(deps, { ...base, body: parseBody(event) }));
+    case "GET /reports/subscriptions/{subscriptionId}/runs/{runId}/download":
+      return toApiGatewayResult(await handleDownloadReportSubscriptionRun(deps, base));
     default: {
       const response = await handleReportsRoute(deps, event.routeKey, base);
       return isCsvResponse(response) ? toApiGatewayCsvResult(response) : toApiGatewayResult(response);

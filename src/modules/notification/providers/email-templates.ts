@@ -140,6 +140,33 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
+  // D-204 (Roadmap P1 item 15, scheduled-reports-scoping decision 6/7, fatia 3): the download
+  // LINK here is always the authenticated API route (`GET /reports/subscriptions/{subscriptionId}
+  // /runs/{runId}/download`), NEVER a raw S3 URL - decision 1's own closed finding is exactly
+  // that a long-TTL presigned S3 URL is physically invalid past ~7 days when signed by a Lambda
+  // role, so the e-mail only ever points at the route that mints a fresh 5-minute presign on
+  // demand. `reportTypesLabel`/`truncated` come straight from the worker's own run-scoped
+  // values, never re-derived here.
+  "scheduled-report-delivery": {
+    1: {
+      "pt-BR": (context) => {
+        const reportTypesLabel = String(context["reportTypesLabel"] ?? "relatórios");
+        const downloadLink = String(context["downloadLink"] ?? "");
+        const truncated = context["truncated"] === true;
+        const subject = `Relatórios agendados disponíveis: ${reportTypesLabel}`;
+        const truncatedNote = truncated ? "Atenção: um ou mais relatórios atingiram o limite de linhas e podem estar incompletos." : "";
+        const text = [`Seus relatórios agendados (${reportTypesLabel}) estão prontos.`, `Baixe pelo link: ${downloadLink}`, truncatedNote].filter(Boolean).join("\n");
+        const html = [
+          `<p>Seus relatórios agendados (<strong>${escapeHtml(reportTypesLabel)}</strong>) estão prontos.</p>`,
+          `<p><a href="${escapeHtml(downloadLink)}">Baixar relatórios</a></p>`,
+          truncated ? `<p><small>${escapeHtml(truncatedNote)}</small></p>` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        return { subject, html, text };
+      },
+    },
+  },
 };
 
 /** Sanitização de campo fornecido pelo tenant antes de interpolar num e-mail externo (D-049):
