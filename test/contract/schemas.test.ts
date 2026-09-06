@@ -1695,4 +1695,85 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json", { scopeHash: "abc123", extra: "nope" });
     expect(valid).toBe(false);
   });
+
+  // D-218 fatia 3 (Roadmap P1 "metadata configurável por Document Type").
+  it("accepts a valid docarchive-documenttype-metadata-field-create-request.v1 (TEXT, no options)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json", { expectedDocumentTypeVersion: 1, name: "Seguradora", valueType: "TEXT", required: false });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid docarchive-documenttype-metadata-field-create-request.v1 (SINGLE_SELECT with options)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json", { expectedDocumentTypeVersion: 1, name: "Categoria", valueType: "SINGLE_SELECT", required: false, options: ["A", "B"] });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-metadata-field-create-request.v1 missing valueType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json", { expectedDocumentTypeVersion: 1, name: "X", required: false });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-documenttype-metadata-field-create-request.v1 with an unknown valueType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json", { expectedDocumentTypeVersion: 1, name: "X", valueType: "MONEY", required: false });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-documenttype-metadata-field-update-request.v1 with optionsPatch", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json", {
+      expectedDocumentTypeVersion: 1,
+      name: "Nova Categoria",
+      status: "ARCHIVED",
+      optionsPatch: [{ op: "ADD", label: "Nova" }, { op: "RENAME", optionId: "opt-1", label: "Renomeada" }, { op: "ARCHIVE", optionId: "opt-2" }, { op: "REACTIVATE", optionId: "opt-3" }],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-documenttype-metadata-field-update-request.v1 missing expectedDocumentTypeVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json", { name: "X" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-documenttype-metadata-field-update-request.v1 optionsPatch RENAME missing label", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json", { expectedDocumentTypeVersion: 1, optionsPatch: [{ op: "RENAME", optionId: "opt-1" }] });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-documenttype-metadata-field-update-request.v1 carrying valueType (immutable, no such input field)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json", { expectedDocumentTypeVersion: 1, valueType: "NUMBER" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-document-metadata-values-update-request.v1 (mixed types + a null clear)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json", {
+      expectedDocumentVersion: 1,
+      values: {
+        "field-text": { valueType: "TEXT", value: "x" },
+        "field-number": { valueType: "NUMBER", value: 5 },
+        "field-decimal": { valueType: "DECIMAL", value: "12.50" },
+        "field-date": { valueType: "DATE", value: "2026-12-31" },
+        "field-bool": { valueType: "BOOLEAN", value: true },
+        "field-select": { valueType: "SINGLE_SELECT", optionId: "opt-1" },
+        "field-clear": null,
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-document-metadata-values-update-request.v1 missing expectedDocumentVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json", { values: {} });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-document-metadata-values-update-request.v1 value entry missing valueType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json", { expectedDocumentVersion: 1, values: { "field-x": { value: "x" } } });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-document-metadata-values-update-request.v1 TEXT entry carrying an optionId (variant mismatch)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json", { expectedDocumentVersion: 1, values: { "field-x": { valueType: "TEXT", optionId: "opt-1" } } });
+    expect(valid).toBe(false);
+  });
 });

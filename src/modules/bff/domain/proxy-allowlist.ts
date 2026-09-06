@@ -139,6 +139,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "PATCH", pathTemplate: "/document-archive/document-types/{documentTypeId}" },
   { method: "POST", pathTemplate: "/document-archive/document-types/{documentTypeId}/deprecate" },
   { method: "POST", pathTemplate: "/document-archive/document-types/{documentTypeId}/reactivate" },
+  // D-218 fatia 3 (Roadmap P1 "metadata configurável por Document Type") — same discipline.
+  { method: "POST", pathTemplate: "/document-archive/document-types/{documentTypeId}/metadata-fields" },
+  { method: "PATCH", pathTemplate: "/document-archive/document-types/{documentTypeId}/metadata-fields/{fieldId}" },
+  { method: "PATCH", pathTemplate: "/document-archive/documents/{documentId}/metadata-values" },
   // RequirementTemplate (P0.1) — D-117/D-120/D-178 discipline: a route wired in Terraform but
   // absent here is a Lambda nothing can reach through the BFF.
   { method: "POST", pathTemplate: "/document-archive/requirement-templates" },

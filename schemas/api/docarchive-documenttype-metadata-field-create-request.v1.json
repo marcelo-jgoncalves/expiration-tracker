@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json",
+  "title": "DocArchiveDocumentTypeMetadataFieldCreateRequest v1",
+  "description": "POST /document-archive/document-types/{documentTypeId}/metadata-fields request body (D-218 fatia 1, CreateDocumentTypeMetadataFieldInput + OCC guard on the DocumentType). `options` is only meaningful when valueType=SINGLE_SELECT - the service rejects it otherwise.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedDocumentTypeVersion", "name", "valueType", "required"],
+  "properties": {
+    "expectedDocumentTypeVersion": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "valueType": { "type": "string", "enum": ["TEXT", "NUMBER", "DECIMAL", "DATE", "BOOLEAN", "SINGLE_SELECT"] },
+    "required": { "type": "boolean" },
+    "options": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    }
+  }
+}

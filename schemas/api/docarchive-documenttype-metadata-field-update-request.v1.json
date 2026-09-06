@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json",
+  "title": "DocArchiveDocumentTypeMetadataFieldUpdateRequest v1",
+  "description": "PATCH /document-archive/document-types/{documentTypeId}/metadata-fields/{fieldId} request body (D-218 fatia 1, UpdateDocumentTypeMetadataFieldInput + OCC guard). `valueType` is deliberately absent - immutable once created (Decision 3), no input field even exists to change it. `optionsPatch` covers field-option mutations in the SAME OCC-fenced write (Decision 7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedDocumentTypeVersion"],
+  "properties": {
+    "expectedDocumentTypeVersion": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "required": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED"] },
+    "optionsPatch": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "label"],
+            "properties": { "op": { "const": "ADD" }, "label": { "type": "string", "minLength": 1, "maxLength": 200 } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "optionId", "label"],
+            "properties": { "op": { "const": "RENAME" }, "optionId": { "type": "string", "minLength": 1 }, "label": { "type": "string", "minLength": 1, "maxLength": 200 } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "optionId"],
+            "properties": { "op": { "const": "ARCHIVE" }, "optionId": { "type": "string", "minLength": 1 } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "optionId"],
+            "properties": { "op": { "const": "REACTIVATE" }, "optionId": { "type": "string", "minLength": 1 } }
+          }
+        ]
+      }
+    }
+  }
+}
