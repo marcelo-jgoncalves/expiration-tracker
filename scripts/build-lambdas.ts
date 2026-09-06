@@ -118,6 +118,10 @@ const HANDLERS = [
   // D-211 fatia 2 (D-204 decisions 3-4, Roadmap P1 item 15): weekly EventBridge Scheduler job,
   // claims due ReportSubscriptions and writes a durable outbox event per claim.
   "scheduled-reports-scheduler-handler",
+  // D-204 fatia 3 (Roadmap P1 item 15): SQS_REPORT_SUBSCRIPTION_DELIVERY_V1 consumer — generates
+  // the run's combined CSV, uploads it to S3, resolves recipients fresh, sends the delivery
+  // e-mail via SES.
+  "report-subscription-delivery-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

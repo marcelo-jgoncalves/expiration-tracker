@@ -157,6 +157,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/reports/subscriptions" },
   { method: "GET", pathTemplate: "/reports/subscriptions/{subscriptionId}" },
   { method: "POST", pathTemplate: "/reports/subscriptions/{subscriptionId}/delete" },
+  // D-204 decision 7 (fatia 3): also JSON envelope (`{downloadUrl}`), same reasoning as the 4
+  // CRUD routes above — never the file bytes themselves, so no content-disposition gap either.
+  { method: "GET", pathTemplate: "/reports/subscriptions/{subscriptionId}/runs/{runId}/download" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

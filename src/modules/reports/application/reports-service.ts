@@ -39,16 +39,15 @@ import { deriveExpirationItemValidityState, type ExpirationItem, type Expiration
 import type { DocumentArchiveStore } from "../../document-archive/ports/document-archive-store.js";
 import type { ExpirationStore } from "../../expiration/ports/expiration-store.js";
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import { buildExpirationItemCsv, buildRequirementCsv, type RequirementReportRow } from "./report-csv.js";
+import type { ReportSubscriptionReportType } from "../domain/report-subscription.js";
+
+export type { RequirementReportRow };
 
 export interface ReportsServiceDeps {
   documentStore: Pick<DocumentArchiveStore, "queryIndexPage" | "batchGet">;
   itemStore: Pick<ExpirationStore, "queryGsi1Page">;
   now?: () => Date;
-}
-
-export interface RequirementReportRow {
-  requirement: Requirement;
-  subjectDisplayName?: string;
 }
 
 export interface ReportPage<T> {
@@ -133,7 +132,10 @@ export class ReportsService {
   /** GET /reports/missing-requirements — Requirement.status === "MISSING". */
   async getMissingRequirements(ctx: RequestContext): Promise<ReportPage<RequirementReportRow>> {
     authorize({ context: ctx, action: "docarchive:requirement-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    return this.missingRequirementsUnchecked(ctx.tenant.tenantId);
+  }
+
+  private async missingRequirementsUnchecked(tenantId: string): Promise<ReportPage<RequirementReportRow>> {
     const result = await this.searchRequirementsByStatus(tenantId, "MISSING", () => true);
     const rows = await this.enrichSubjectDisplayNames(tenantId, result.items);
     return { rows, truncated: result.scanLimitReached };
@@ -144,7 +146,11 @@ export class ReportsService {
    * distinct from the open-renewal-workflow gap already registered in P0.6). */
   async getRenewedItems(ctx: RequestContext): Promise<ReportPage<ExpirationItem>> {
     authorize({ context: ctx, action: "item:export", resource: { tenantId: ctx.tenant.tenantId } });
-    const result = await this.searchItemsByStatus(ctx.tenant.tenantId, "RENEWED", () => true);
+    return this.renewedItemsUnchecked(ctx.tenant.tenantId);
+  }
+
+  private async renewedItemsUnchecked(tenantId: string): Promise<ReportPage<ExpirationItem>> {
+    const result = await this.searchItemsByStatus(tenantId, "RENEWED", () => true);
     return { rows: result.items, truncated: result.scanLimitReached };
   }
 
@@ -153,7 +159,10 @@ export class ReportsService {
    * precedent). */
   async getRequirementsBySubject(ctx: RequestContext): Promise<ReportPage<RequirementReportRow>> {
     authorize({ context: ctx, action: "docarchive:requirement-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    return this.requirementsBySubjectUnchecked(ctx.tenant.tenantId);
+  }
+
+  private async requirementsBySubjectUnchecked(tenantId: string): Promise<ReportPage<RequirementReportRow>> {
     let truncated = false;
     const all: Requirement[] = [];
     for (const status of REQUIREMENT_ALL_STATUSES) {
@@ -171,7 +180,10 @@ export class ReportsService {
    * placeholder row for them. */
   async getRequirementsByAssignee(ctx: RequestContext): Promise<ReportPage<RequirementReportRow>> {
     authorize({ context: ctx, action: "docarchive:requirement-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    return this.requirementsByAssigneeUnchecked(ctx.tenant.tenantId);
+  }
+
+  private async requirementsByAssigneeUnchecked(tenantId: string): Promise<ReportPage<RequirementReportRow>> {
     let truncated = false;
     const all: Requirement[] = [];
     for (const status of REQUIREMENT_ALL_STATUSES) {
@@ -187,7 +199,10 @@ export class ReportsService {
    * SET (D-122/D-125), across the same "actively tracked" status set `exportItems()` uses. */
   async getExpirationItemsByAssignee(ctx: RequestContext): Promise<ReportPage<ExpirationItem>> {
     authorize({ context: ctx, action: "item:export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    return this.expirationItemsByAssigneeUnchecked(ctx.tenant.tenantId);
+  }
+
+  private async expirationItemsByAssigneeUnchecked(tenantId: string): Promise<ReportPage<ExpirationItem>> {
     let truncated = false;
     const all: ExpirationItem[] = [];
     for (const status of EXPIRATION_ITEM_ACTIVE_STATUSES) {
@@ -196,5 +211,48 @@ export class ReportsService {
       truncated = truncated || result.scanLimitReached;
     }
     return { rows: all, truncated };
+  }
+
+  /**
+   * System-facing CSV generation for the scheduled-delivery worker (D-204 decision 6, fatia 3)
+   * - no `RequestContext`/`authorize()` here on purpose, same posture
+   * `findRequirementsByEvidenceVersion` (`document-archive-service.ts`) already established for
+   * an async worker that is never acting on behalf of an authenticated end-user request. The
+   * worker itself is what enforces "only a subscribed `reportType`" (it only ever calls this
+   * with types drawn from a `ReportSubscription`'s own `reportTypes`, ADMIN-gated at creation
+   * time via `ReportSubscriptionService`), so this method never re-authorizes - it is exactly
+   * as privileged as the private `*Unchecked` helpers it dispatches to.
+   */
+  async generateReportCsv(tenantId: string, reportType: ReportSubscriptionReportType): Promise<{ csv: string; truncated: boolean }> {
+    switch (reportType) {
+      case "EXPIRED_ITEMS": {
+        const page = await this.expirationItemsByValidity(tenantId, "VENCIDO");
+        return { csv: buildExpirationItemCsv(page.rows), truncated: page.truncated };
+      }
+      case "EXPIRING_SOON_ITEMS": {
+        const page = await this.expirationItemsByValidity(tenantId, "VENCENDO");
+        return { csv: buildExpirationItemCsv(page.rows), truncated: page.truncated };
+      }
+      case "RENEWED_ITEMS": {
+        const page = await this.renewedItemsUnchecked(tenantId);
+        return { csv: buildExpirationItemCsv(page.rows), truncated: page.truncated };
+      }
+      case "EXPIRATION_ITEMS_BY_ASSIGNEE": {
+        const page = await this.expirationItemsByAssigneeUnchecked(tenantId);
+        return { csv: buildExpirationItemCsv(page.rows), truncated: page.truncated };
+      }
+      case "MISSING_REQUIREMENTS": {
+        const page = await this.missingRequirementsUnchecked(tenantId);
+        return { csv: buildRequirementCsv(page.rows), truncated: page.truncated };
+      }
+      case "REQUIREMENTS_BY_SUBJECT": {
+        const page = await this.requirementsBySubjectUnchecked(tenantId);
+        return { csv: buildRequirementCsv(page.rows), truncated: page.truncated };
+      }
+      case "REQUIREMENTS_BY_ASSIGNEE": {
+        const page = await this.requirementsByAssigneeUnchecked(tenantId);
+        return { csv: buildRequirementCsv(page.rows), truncated: page.truncated };
+      }
+    }
   }
 }

@@ -27,6 +27,8 @@ const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRI
 const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
 // D-193 item 6/9: sixth destination, same reasoning.
 const requirementEvidenceRefreshQueueUrl = process.env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
+// D-204 fatia 3: seventh destination, same reasoning.
+const reportSubscriptionDeliveryQueueUrl = process.env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
@@ -34,6 +36,7 @@ if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is r
 if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
 if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
 if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
+if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
 const deps = buildOutboxRelayDeps(
   client,
   tableName,
@@ -44,6 +47,7 @@ const deps = buildOutboxRelayDeps(
   materializationTriggerQueueUrl,
   importParseQueueUrl,
   requirementEvidenceRefreshQueueUrl,
+  reportSubscriptionDeliveryQueueUrl,
 );
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 

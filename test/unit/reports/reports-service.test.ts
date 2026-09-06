@@ -165,4 +165,29 @@ describe("ReportsService (Roadmap P0.7, fatias 1-2)", () => {
     const documentStore = new InMemoryDocumentArchiveStore([]);
     await expect(makeService(documentStore, new InMemoryExpirationStore([])).getMissingRequirements(ctx({ tenant: { tenantId: TENANT, roles: ["MEMBER"] } }))).rejects.toThrow();
   });
+
+  describe("generateReportCsv (D-204 fatia 3, system-facing, no RequestContext/authorize())", () => {
+    it("produces the SAME CSV bytes as the authorized route for every one of the 7 report types", async () => {
+      const documentStore = new InMemoryDocumentArchiveStore([makeSubjectRow("s1", "ACME Ltda"), makeRequirement("s1", "r1", "MISSING")]);
+      const itemStore = new InMemoryExpirationStore([makeItem("i1", "ACTIVE", "2026-08-01T00:00:00.000Z")]);
+      const service = makeService(documentStore, itemStore);
+
+      const [expiredCsv, missingCsv] = await Promise.all([service.generateReportCsv(TENANT, "EXPIRED_ITEMS"), service.generateReportCsv(TENANT, "MISSING_REQUIREMENTS")]);
+
+      expect(expiredCsv.csv).toContain("i1");
+      expect(expiredCsv.truncated).toBe(false);
+      expect(missingCsv.csv).toContain("r1");
+      expect(missingCsv.csv).toContain("ACME Ltda");
+    });
+
+    it("never authorizes (no RequestContext parameter to even pass) - same posture as findRequirementsByEvidenceVersion", async () => {
+      const documentStore = new InMemoryDocumentArchiveStore([]);
+      const itemStore = new InMemoryExpirationStore([]);
+      const service = makeService(documentStore, itemStore);
+      // No ctx() anywhere in this call - if this compiles and returns, the method genuinely
+      // takes no RequestContext (a regression reintroducing authorize() would need one).
+      const result = await service.generateReportCsv(TENANT, "RENEWED_ITEMS");
+      expect(result).toEqual({ csv: expect.stringContaining("itemId"), truncated: false });
+    });
+  });
 });

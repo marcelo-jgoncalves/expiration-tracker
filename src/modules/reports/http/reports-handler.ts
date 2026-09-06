@@ -9,16 +9,19 @@
  * behavioral difference (unlike `/items/export`'s own dedicated `timeout_seconds=25`, which
  * exists for a REAL reason — a page budget no other route shares).
  */
-import { AppError, AuthorizationError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
+import { AppError, AuthorizationError, NotFoundError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AuthorizationDeniedError, authorize } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
-import { serializeCsvRow } from "../../../shared/csv/csv-export-writer.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
-import type { ExpirationItem } from "../../expiration/domain/expiration-item.js";
-import { ReportsService, type RequirementReportRow } from "../application/reports-service.js";
+import { buildExpirationItemCsv, buildRequirementCsv } from "../application/report-csv.js";
+import { ReportsService } from "../application/reports-service.js";
 import type { CreateReportSubscriptionInput, ReportSubscriptionService } from "../application/report-subscription-service.js";
+import { reportSubscriptionRunKey, type ReportSubscriptionRun } from "../domain/report-subscription-run.js";
+import { reportDeliveryAttemptKey, type ReportDeliveryAttempt } from "../domain/report-delivery-attempt.js";
+import type { ReportSubscriptionStore } from "../ports/report-subscription-store.js";
+import type { ReportExportStore } from "../ports/report-export-store.js";
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
   VALIDATION: 400,
@@ -61,31 +64,14 @@ export interface ReportsHttpDeps {
   reports: ReportsService;
   quota: TenantQuotaService;
   subscriptions: ReportSubscriptionService;
-}
-
-const EXPIRATION_ITEM_CSV_COLUMNS = ["itemId", "name", "category", "dueDate", "assigneeUserId", "tags", "status", "renewedFromId", "updatedAt"] as const;
-
-function expirationItemRowFields(item: ExpirationItem): string[] {
-  return [item.itemId, item.name, item.category, item.dueDate, item.assigneeUserId ?? "", item.tags.join(";"), item.status, item.renewedFromId ?? "", item.updatedAt];
-}
-
-function buildExpirationItemCsv(items: ExpirationItem[]): string {
-  let csv = serializeCsvRow([...EXPIRATION_ITEM_CSV_COLUMNS]);
-  for (const item of items) csv += serializeCsvRow(expirationItemRowFields(item));
-  return csv;
-}
-
-const REQUIREMENT_CSV_COLUMNS = ["requirementId", "subjectId", "subjectDisplayName", "name", "status", "assigneeUserId", "evidenceValidUntil", "updatedAt"] as const;
-
-function requirementRowFields(row: RequirementReportRow): string[] {
-  const r = row.requirement;
-  return [r.requirementId, r.subjectId, row.subjectDisplayName ?? "", r.name, r.status, r.assigneeUserId ?? "", r.evidenceValidUntil ?? "", r.updatedAt];
-}
-
-function buildRequirementCsv(rows: RequirementReportRow[]): string {
-  let csv = serializeCsvRow([...REQUIREMENT_CSV_COLUMNS]);
-  for (const row of rows) csv += serializeCsvRow(requirementRowFields(row));
-  return csv;
+  /** D-204 fatia 3 (decision 7): download route deps - subscription store to read the frozen
+   * `ReportSubscriptionRun`/`ReportDeliveryAttempt` rows the delivery worker writes, S3 store to
+   * mint the short-lived (5 min) presigned GET on demand. Both optional so this same
+   * `ReportsHttpDeps` shape keeps working for any test/composition that only exercises the CSV
+   * routes/subscription CRUD above - a route actually hitting the download handler without them
+   * wired is a composition bug, surfaced as a real throw, not a silent 500. */
+  subscriptionStore?: ReportSubscriptionStore;
+  exportStore?: ReportExportStore;
 }
 
 /** Filename built ENTIRELY from server-controlled values (report name literal, tenantId, a
@@ -277,5 +263,55 @@ export async function handleDeleteReportSubscription(deps: ReportsHttpDeps, req:
     const context = await resolveContext(deps, req);
     await deps.subscriptions.deleteSubscription(context, subscriptionId, req.body.expectedVersion);
     return { statusCode: 204, body: {} };
+  });
+}
+
+// --- Scheduled report run download (D-204 decisions 6-7, implemented fatia 3) ---------------
+
+const DOWNLOAD_PRESIGN_TTL_SECONDS = 5 * 60; // decision 7: short-lived, minted on demand.
+
+function requireRunId(req: HttpRequest): string {
+  const runId = req.pathParameters?.["runId"];
+  if (!runId) throw new ValidationError("Missing runId path parameter.");
+  return runId;
+}
+
+/** GET /reports/subscriptions/{subscriptionId}/runs/{runId}/download — never returns file bytes
+ * itself, only a freshly minted presigned S3 URL (decision 7's whole point: a long-TTL presign
+ * embedded directly in the delivery e-mail is physically invalid past the ~7 day SigV4
+ * credential ceiling when signed by a Lambda role, decision 1).
+ *
+ * RBAC (decision 6): `ADMIN_ROLES` OR `principal.userId` is one of THIS run's real recipients -
+ * checked via the `ReportDeliveryAttempt` row the delivery worker wrote for this exact
+ * `(subscriptionId, runId, recipientUserId)`, never the mutable/current
+ * `ReportSubscription.recipientUserIds` list (which may have moved on since - there is no
+ * update route in v1, but this is still the correct authority: "were you actually a recipient
+ * of THIS run", not "are you on the subscription's list right now"). */
+export async function handleDownloadReportSubscriptionRun(deps: ReportsHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.subscriptionStore || !deps.exportStore) {
+      throw new Error("handleDownloadReportSubscriptionRun requires subscriptionStore/exportStore to be wired.");
+    }
+    const subscriptionId = requireSubscriptionId(req);
+    const runId = requireRunId(req);
+    const context = await resolveContext(deps, req);
+    const tenantId = context.tenant.tenantId;
+
+    const run = await deps.subscriptionStore.get<ReportSubscriptionRun>(reportSubscriptionRunKey(tenantId, subscriptionId, runId));
+    if (!run) throw new NotFoundError("ReportSubscriptionRun not found.", { subscriptionId, runId });
+
+    try {
+      authorize({ context, action: "reports:subscription-manage", resource: { tenantId } });
+    } catch (err) {
+      if (!(err instanceof AuthorizationDeniedError)) throw err;
+      const attempt = await deps.subscriptionStore.get<ReportDeliveryAttempt>(reportDeliveryAttemptKey(tenantId, subscriptionId, runId, context.principal.userId));
+      if (!attempt) {
+        auditAuthorizationDenied({ reason: err.reason, action: err.action });
+        throw err;
+      }
+    }
+
+    const downloadUrl = await deps.exportStore.presignDownload({ tenantId, subscriptionId, runId, expiresInSeconds: DOWNLOAD_PRESIGN_TTL_SECONDS });
+    return { statusCode: 200, body: { downloadUrl, expiresInSeconds: DOWNLOAD_PRESIGN_TTL_SECONDS } };
   });
 }

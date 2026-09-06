@@ -116,6 +116,12 @@ export function buildOutboxRelayDeps(
   // payload's `validUntil` is a mere wake-up hint - requirement-evidence-refresh-handler.ts
   // never trusts it, always re-reads DocumentVersion+Requirement fresh.
   requirementEvidenceRefreshQueueUrl?: string,
+  // D-204 fatia 3 (Roadmap P1 item 15): SIXTH optional sender - the scheduled-reports
+  // scheduler (D-212) dispatches this destination in the same TWI as its claim `Update` on
+  // `ReportSubscription`. Same bare-event-data shape (`runId`/`subscriptionId`/`tenantId`/
+  // `scheduledFor`) as the other bare-payload destinations above -
+  // report-subscription-delivery-handler.ts never trusts anything beyond those four fields.
+  reportSubscriptionDeliveryQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -151,6 +157,7 @@ export function buildOutboxRelayDeps(
       ...(importCommitQueueUrl ? { SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl) } : {}),
       ...(importParseQueueUrl ? { SQS_IMPORT_PARSE_V1: send(importParseQueueUrl) } : {}),
       ...(requirementEvidenceRefreshQueueUrl ? { SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl) } : {}),
+      ...(reportSubscriptionDeliveryQueueUrl ? { SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: send(reportSubscriptionDeliveryQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
     },
   };

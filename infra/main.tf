@@ -103,13 +103,21 @@ module "export_handler" {
 module "reports_handler" {
   source = "./modules/lambda-function"
 
-  function_name         = "${local.name_prefix}-reports-handler"
-  handler_name          = "reports-handler"
-  source_dir            = "${local.dist_dir}/reports-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  function_name  = "${local.name_prefix}-reports-handler"
+  handler_name   = "reports-handler"
+  source_dir     = "${local.dist_dir}/reports-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # D-204 fatia 3 (decision 7): the download route presigns a GetObject against the SAME bucket
+  # report_subscription_delivery_handler (below) writes to - defined after this module in file
+  # order, but Terraform resolves the reference either way (no ordering requirement for
+  # non-count/for_each references).
+  environment_variables = merge(local.common_env, { REPORT_EXPORTS_BUCKET_NAME = aws_s3_bucket.report_exports.bucket })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi4_read_policy_json,
+    data.aws_iam_policy_document.report_exports_read.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 # D-206/D-207 (bulk actions, Roadmap P1 item 17): dedicated Lambda, not routes folded into
@@ -329,6 +337,8 @@ module "dispatch_outbox_relay" {
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
     REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
+    # D-204 fatia 3: seventh destination, same reasoning.
+    REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -339,6 +349,7 @@ module "dispatch_outbox_relay" {
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
     module.requirement_evidence_refresh_queue.send_policy_json,
+    module.report_subscription_delivery_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -363,6 +374,8 @@ module "outbox_sweeper" {
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
     REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
+    # D-204 fatia 3: eighth destination, same reasoning.
+    REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -371,8 +384,9 @@ module "outbox_sweeper" {
   # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
   # for document-chasing-dispatch, M11 (D-042) once more for import-commit, BLOCKER-B once
   # more for the reminder-materialization-trigger queue, D-192 slice 9 once more for the
-  # import-parse-dispatch queue, and D-193 item 6/9 once more for the
-  # requirement-evidence-refresh queue, same reasoning.
+  # import-parse-dispatch queue, D-193 item 6/9 once more for the
+  # requirement-evidence-refresh queue, and D-204 fatia 3 once more for the
+  # report-subscription-delivery queue, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
@@ -383,6 +397,7 @@ module "outbox_sweeper" {
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
     module.requirement_evidence_refresh_queue.send_policy_json,
+    module.report_subscription_delivery_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1963,6 +1978,135 @@ resource "aws_scheduler_schedule" "requirement_evidence_daily_sweep" {
     # angle-bracket-escaping bug that rule exists to prevent.
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
+}
+
+# --- ReportSubscriptionDeliveryWorker: SQS_REPORT_SUBSCRIPTION_DELIVERY_V1, fed by
+# dispatch_outbox_relay/outbox_sweeper (D-204 decision 6, Roadmap P1 item 15 fatia 3). Dedicated
+# bucket (SSE-S3, public access blocked, 30-day lifecycle - decision 6's own "classe de retenção
+# 30 dias nomeada") - same "no cross-service reader needs KMS" reasoning as extraction_transient
+# above, this bucket's only readers/writers are this Lambda (write) and reports_handler's
+# download route (read, presign-on-demand, decision 7).
+
+resource "aws_s3_bucket" "report_exports" {
+  bucket        = "${local.name_prefix}-report-exports"
+  force_destroy = false
+  tags          = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_s3_bucket_public_access_block" "report_exports" {
+  bucket                  = aws_s3_bucket.report_exports.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "report_exports" {
+  bucket = aws_s3_bucket.report_exports.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "report_exports" {
+  bucket = aws_s3_bucket.report_exports.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "report_exports" {
+  bucket = aws_s3_bucket.report_exports.id
+  rule {
+    id     = "expire-report-exports"
+    status = "Enabled"
+    filter {} # decision 6: named 30-day retention class for the whole bucket.
+    expiration {
+      days = 30
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "report_exports" {
+  bucket = aws_s3_bucket.report_exports.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.report_exports.arn, "${aws_s3_bucket.report_exports.arn}/*"]
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      }
+    ]
+  })
+}
+
+data "aws_iam_policy_document" "report_exports_write" {
+  statement {
+    sid       = "WriteReportExports"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.report_exports.arn}/*"]
+  }
+}
+
+data "aws_iam_policy_document" "report_exports_read" {
+  statement {
+    sid       = "ReadReportExports"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.report_exports.arn}/*"]
+  }
+}
+
+module "report_subscription_delivery_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-report-subscription-delivery"
+  consumer_timeout_seconds = 120 # up to 7 report-type CSV generations + up to MAX_REPORT_SUBSCRIPTION_RECIPIENTS=10 SES sends per invocation.
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "report_subscription_delivery_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-report-subscription-delivery-handler"
+  handler_name    = "report-subscription-delivery-handler"
+  source_dir      = "${local.dist_dir}/report-subscription-delivery-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 120
+  environment_variables = merge(local.common_env, {
+    REPORT_EXPORTS_BUCKET_NAME = aws_s3_bucket.report_exports.bucket
+    SES_FROM_ADDRESS           = var.ses_from_address
+    SES_CONFIGURATION_SET      = module.ses_notifications.configuration_set_name
+    API_BASE_URL               = module.api.api_endpoint
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.report_subscription_delivery_queue.consume_policy_json,
+    data.aws_iam_policy_document.report_exports_write.json,
+    data.aws_iam_policy_document.ses_send_email.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "report_subscription_delivery_from_queue" {
+  event_source_arn        = module.report_subscription_delivery_queue.queue_arn
+  function_name           = module.report_subscription_delivery_handler.live_alias_arn
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
 }
 
 # --- ImportCommitWorker: SQS_IMPORT_COMMIT_V1, fed by dispatch_outbox_relay/outbox_sweeper --
