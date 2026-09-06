@@ -5,7 +5,7 @@
  * -> AppError -> status-code mapping), so this module fails the same way as every other
  * route in the system.
  */
-import { AppError, AuthorizationError, ValidationError, toAppError } from "../../../shared/errors/app-error.js";
+import { AppError, AuthorizationError, ConflictError, ValidationError, toAppError } from "../../../shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
@@ -22,6 +22,7 @@ import type { CreateRequirementInput, RequirementStatus, UpdateRequirementInput 
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
 import type { CreateDocumentTypeInput, DocumentType } from "../domain/document-type.js";
 import type { CreateRequirementTemplateInput, RequirementTemplate, UpdateRequirementTemplateInput } from "../domain/requirement-template.js";
+import type { DossierExportFormat, DossierExportStore } from "../ports/dossier-export-store.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -79,6 +80,9 @@ export interface DocumentArchiveHttpDeps {
   documentArchive: DocumentArchiveService;
   recurrence: DocumentRequestRecurrenceService;
   quota: TenantQuotaService;
+  /** D-205 fatia 3 (decision 9): only the dossier download route needs this - optional so every
+   * OTHER caller of this Lambda/module (all the routes above) keeps working unchanged. */
+  dossierExportStore?: DossierExportStore;
 }
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
@@ -704,6 +708,38 @@ export async function handleConfirmDossierExport(deps: DocumentArchiveHttpDeps, 
     const context = await resolve(deps, req);
     const run = await deps.documentArchive.confirmDossierExport(context, subjectId, runId, req.body.scopeHash);
     return { statusCode: 200, body: { run } };
+  });
+}
+
+const DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS = 5 * 60; // decision 9: short-lived, minted on demand, same as D-204 decision 7.
+
+function requireDossierFormat(req: HttpRequest): DossierExportFormat {
+  const raw = req.queryStringParameters?.["format"];
+  if (raw !== "pdf" && raw !== "xlsx") throw new ValidationError("format query parameter must be 'pdf' or 'xlsx'.", { format: raw });
+  return raw;
+}
+
+/** GET /document-archive/subjects/{subjectId}/dossier/{runId}/download?format=pdf|xlsx (D-205
+ * decision 9, fatia 3) — never returns file bytes itself, only a freshly minted presigned S3
+ * URL (same "never a long-TTL presign in a durable record" posture as D-204 decision 7 - here
+ * there is no e-mail at all, but the same physical SigV4-credential-lifetime reasoning applies
+ * to any URL this route might otherwise persist). RBAC (decision 10): `ADMIN_ROLES` exclusively
+ * via `getDossierExportRun` — no assignee/recipient fallback tier for a full-Subject dossier. */
+export async function handleDownloadDossierExport(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.dossierExportStore) {
+      throw new Error("handleDownloadDossierExport requires dossierExportStore to be wired.");
+    }
+    const subjectId = requireSubjectId(req);
+    const runId = requireRunId(req);
+    const format = requireDossierFormat(req);
+    const context = await resolve(deps, req);
+    const run = await deps.documentArchive.getDossierExportRun(context, subjectId, runId);
+    if (run.status !== "READY") {
+      throw new ConflictError("Dossier export is not ready for download yet.", { subjectId, runId, status: run.status });
+    }
+    const downloadUrl = await deps.dossierExportStore.presignDownload({ tenantId: context.tenant.tenantId, subjectId, runId, format, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS });
+    return { statusCode: 200, body: { downloadUrl, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS } };
   });
 }
 

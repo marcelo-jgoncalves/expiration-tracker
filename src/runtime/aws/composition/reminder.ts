@@ -122,6 +122,11 @@ export function buildOutboxRelayDeps(
   // `scheduledFor`) as the other bare-payload destinations above -
   // report-subscription-delivery-handler.ts never trusts anything beyond those four fields.
   reportSubscriptionDeliveryQueueUrl?: string,
+  // D-205 fatia 2 (Roadmap P1 item 16): SEVENTH optional sender -
+  // `DocumentArchiveService.confirmDossierExport` dispatches this destination in the same TWI
+  // as its `DossierExportRun` status Update (CONFIRMED). Same bare-event-data shape
+  // (`runId`/`subjectId`/`tenantId`) as the other bare-payload destinations above.
+  dossierExportQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -158,6 +163,7 @@ export function buildOutboxRelayDeps(
       ...(importParseQueueUrl ? { SQS_IMPORT_PARSE_V1: send(importParseQueueUrl) } : {}),
       ...(requirementEvidenceRefreshQueueUrl ? { SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl) } : {}),
       ...(reportSubscriptionDeliveryQueueUrl ? { SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: send(reportSubscriptionDeliveryQueueUrl) } : {}),
+      ...(dossierExportQueueUrl ? { SQS_DOSSIER_EXPORT_V1: send(dossierExportQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
     },
   };

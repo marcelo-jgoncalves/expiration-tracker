@@ -31,6 +31,8 @@ const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
 const requirementEvidenceRefreshQueueUrl = process.env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
 // D-204 fatia 3: eighth destination, same reasoning.
 const reportSubscriptionDeliveryQueueUrl = process.env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
+// D-205 fatia 2: ninth destination, same reasoning.
+const dossierExportQueueUrl = process.env["DOSSIER_EXPORT_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
@@ -40,6 +42,7 @@ if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_T
 if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
 if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
 if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
+if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
 
 const sqsClient = new SQSClient({});
 const store = new DynamoDbOutboxRelayStore(client, tableName);
@@ -76,6 +79,7 @@ const deps = {
     SQS_IMPORT_PARSE_V1: send(importParseQueueUrl),
     SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl),
     SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: send(reportSubscriptionDeliveryQueueUrl),
+    SQS_DOSSIER_EXPORT_V1: send(dossierExportQueueUrl),
     SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
   },
 };

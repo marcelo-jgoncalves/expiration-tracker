@@ -136,4 +136,10 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("POST", "/document-archive/subjects/subj-1/dossier/run-1/confirm")).toBeDefined();
     expect(matchAllowlistedRoute("GET", "/document-archive/subjects/subj-1/dossier")).toBeUndefined();
   });
+
+  // D-205 fatia 3 — same gap class.
+  it("matches the D-205 fatia 3 dossier download route", () => {
+    expect(matchAllowlistedRoute("GET", "/document-archive/subjects/subj-1/dossier/run-1/download")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/subjects/subj-1/dossier/run-1/download")).toBeUndefined();
+  });
 });

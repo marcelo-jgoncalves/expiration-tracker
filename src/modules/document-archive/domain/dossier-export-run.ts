@@ -11,16 +11,23 @@
  * leaves an already-previewed run); `scopeHash` is what `confirm` re-checks against the CALLER's
  * echoed value, so a UI that fetched a preview and then waited (during which the scope could
  * have changed under a NEW preview call) can never confirm a scope it didn't actually see.
- * Field VALUES inside the generated documents are still read fresh at generation time (fatia 2,
- * not built yet) - only the "which Requirements" scope is frozen here.
+ * Field VALUES inside the generated documents are still read fresh at generation time (fatia 2)
+ * - only the "which Requirements" scope is frozen here.
+ *
+ * D-205 fatia 2: `GENERATING` is claimed with a lease (`generatingLeaseExpiresAt`), same
+ * concept as `NotificationAttempt.leaseExpiresAt`/the outbox relay lease - a redelivered
+ * `SQS_DOSSIER_EXPORT_V1` message while generation is still genuinely in flight is a no-op
+ * (`SKIP_IN_PROGRESS`); once the lease expires without the run reaching a terminal status, a
+ * later invocation is allowed to reclaim it (the crashed invocation's own eventual write, if
+ * any, loses the OCC race via `expectedVersion`).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { computeFingerprint } from "../../../shared/domain/fingerprint.js";
 
 export type DossierExportRunStatus =
   | "PREVIEW_READY"
-  | "CONFIRMED" // scopeHash matched, worker not yet built (fatia 2) - dispatched to SQS_DOSSIER_EXPORT_V1, no consumer wired yet.
-  | "GENERATING"
+  | "CONFIRMED" // scopeHash matched, dispatched to SQS_DOSSIER_EXPORT_V1.
+  | "GENERATING" // claimed by the fatia 2 worker, generatingLeaseExpiresAt set.
   | "READY"
   | "FAILED"
   | "TOO_LARGE"; // DossierTooLargeError (decision 5) - declared failure, never a silently-truncated artifact.
@@ -41,6 +48,9 @@ export interface DossierExportRun extends EntityKey {
   createdAt: string;
   updatedAt: string;
   confirmedAt?: string;
+  /** Set only while `status === "GENERATING"` - see the file's own header comment. */
+  generatingLeaseExpiresAt?: string;
+  generatedAt?: string;
   failureReason?: string;
 }
 

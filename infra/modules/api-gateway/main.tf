@@ -679,8 +679,9 @@ locals {
     apply_requirement_template     = { method = "POST", path = "/document-archive/requirement-templates/{templateId}/apply" }
 
     # D-205 fatia 1 (Roadmap P1 item 16, dossier export) - same Lambda, JSON envelope.
-    preview_dossier_export = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier" }
-    confirm_dossier_export = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier/{runId}/confirm" }
+    preview_dossier_export  = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier" }
+    confirm_dossier_export  = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier/{runId}/confirm" }
+    download_dossier_export = { method = "GET", path = "/document-archive/subjects/{subjectId}/dossier/{runId}/download" }
   }
 }
 

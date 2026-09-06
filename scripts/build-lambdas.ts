@@ -122,6 +122,9 @@ const HANDLERS = [
   // the run's combined CSV, uploads it to S3, resolves recipients fresh, sends the delivery
   // e-mail via SES.
   "report-subscription-delivery-handler",
+  // D-205 fatia 2 (Roadmap P1 item 16): SQS_DOSSIER_EXPORT_V1 consumer — generates the PDF+XLSX
+  // dossier for a confirmed run, uploads both to S3.
+  "dossier-export-generation-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

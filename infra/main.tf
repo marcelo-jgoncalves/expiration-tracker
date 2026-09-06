@@ -339,6 +339,8 @@ module "dispatch_outbox_relay" {
     REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
     # D-204 fatia 3: seventh destination, same reasoning.
     REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
+    # D-205 fatia 2: eighth destination, same reasoning.
+    DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -350,6 +352,7 @@ module "dispatch_outbox_relay" {
     module.import_parse_dispatch_queue.send_policy_json,
     module.requirement_evidence_refresh_queue.send_policy_json,
     module.report_subscription_delivery_queue.send_policy_json,
+    module.dossier_export_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -376,6 +379,8 @@ module "outbox_sweeper" {
     REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL     = module.requirement_evidence_refresh_queue.queue_url
     # D-204 fatia 3: eighth destination, same reasoning.
     REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
+    # D-205 fatia 2: ninth destination, same reasoning.
+    DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -385,8 +390,9 @@ module "outbox_sweeper" {
   # for document-chasing-dispatch, M11 (D-042) once more for import-commit, BLOCKER-B once
   # more for the reminder-materialization-trigger queue, D-192 slice 9 once more for the
   # import-parse-dispatch queue, D-193 item 6/9 once more for the
-  # requirement-evidence-refresh queue, and D-204 fatia 3 once more for the
-  # report-subscription-delivery queue, same reasoning.
+  # requirement-evidence-refresh queue, D-204 fatia 3 once more for the
+  # report-subscription-delivery queue, and D-205 fatia 2 once more for the dossier-export
+  # queue, same reasoning.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
@@ -398,6 +404,7 @@ module "outbox_sweeper" {
     module.import_parse_dispatch_queue.send_policy_json,
     module.requirement_evidence_refresh_queue.send_policy_json,
     module.report_subscription_delivery_queue.send_policy_json,
+    module.dossier_export_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -435,10 +442,16 @@ module "document_archive_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
+    # D-205 fatia 3 (decision 9): the dossier download route presigns a GetObject against the
+    # SAME bucket report_subscription_delivery_handler/dossier_export_generation_handler
+    # (below) write to - see report_exports_read's own comment (D-215) for why this reference
+    # works despite being defined later in file order.
+    REPORT_EXPORTS_BUCKET_NAME = aws_s3_bucket.report_exports.bucket
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.document_archive_presign_quarantine_put.json,
+    data.aws_iam_policy_document.report_exports_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -2106,6 +2119,48 @@ resource "aws_lambda_event_source_mapping" "report_subscription_delivery_from_qu
   event_source_arn        = module.report_subscription_delivery_queue.queue_arn
   function_name           = module.report_subscription_delivery_handler.live_alias_arn
   batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- DossierExportGenerationWorker: SQS_DOSSIER_EXPORT_V1, fed by dispatch_outbox_relay/
+# outbox_sweeper (D-205 decision 5/6/8, Roadmap P1 item 16 fatia 2). Reuses the SAME
+# report_exports bucket (write policy) - see that bucket's own header comment (D-215).
+
+module "dossier_export_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-dossier-export"
+  consumer_timeout_seconds = 120 # PDF+XLSX generation for up to MAX_DOSSIER_REQUIREMENTS=200 rows.
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "dossier_export_generation_handler" {
+  source = "./modules/lambda-function"
+
+  function_name   = "${local.name_prefix}-dossier-export-generation-handler"
+  handler_name    = "dossier-export-generation-handler"
+  source_dir      = "${local.dist_dir}/dossier-export-generation-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 120
+  environment_variables = merge(local.common_env, {
+    QUARANTINE_BUCKET_NAME     = module.document_buckets.quarantine_bucket_name
+    REPORT_EXPORTS_BUCKET_NAME = aws_s3_bucket.report_exports.bucket
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.dossier_export_queue.consume_policy_json,
+    data.aws_iam_policy_document.report_exports_write.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "dossier_export_generation_from_queue" {
+  event_source_arn        = module.dossier_export_queue.queue_arn
+  function_name           = module.dossier_export_generation_handler.live_alias_arn
+  batch_size              = 2
   function_response_types = ["ReportBatchItemFailures"]
 }
 
