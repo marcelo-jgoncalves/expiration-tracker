@@ -44,7 +44,16 @@ import { authorize } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
-import { type CreateDocumentInput, type Document, documentGsi1Keys, documentGsi2Keys, documentKey } from "../domain/document.js";
+import {
+  type CreateDocumentInput,
+  type Document,
+  type DocumentMetadataValue,
+  type DocumentMetadataValueInput,
+  describeMetadataValueFormatError,
+  documentGsi1Keys,
+  documentGsi2Keys,
+  documentKey,
+} from "../domain/document.js";
 import {
   assertTemplateItemNamesUnique,
   assertTemplateItemSizes,
@@ -1902,6 +1911,94 @@ export class DocumentArchiveService {
   private assertMetadataFieldOptionLabelSize(label: string): void {
     if (label.trim().length === 0) throw new ValidationError("DocumentType metadata field option label must not be empty.");
     if (label.length > MAX_METADATA_FIELD_OPTION_LABEL_CHARS) throw new ValidationError(`DocumentType metadata field option label exceeds ${MAX_METADATA_FIELD_OPTION_LABEL_CHARS} characters.`);
+  }
+
+  /**
+   * D-218 fatia 2 (Decisions 2/5/7) — `Document.metadataValues` is the only value-write path;
+   * `createDocument()` never touches it (Decision 5 — every Document starts sparse). One entry
+   * per `fieldId` in `values`: `null` CLEARS that field (removes the key entirely — blocked with
+   * a `ValidationError` when the field is currently ACTIVE and `required`, per Decision 5's exact
+   * semantics); a non-null entry VALIDATES against the field's current ACTIVE definition (unknown
+   * fieldId, archived field, `valueType` mismatch, malformed value, or an unknown/archived
+   * `SINGLE_SELECT` option all reject with `ValidationError` before any write is attempted) and
+   * then WRITES a fully self-describing `DocumentMetadataValue` (never partial).
+   *
+   * Concurrency (Decision 7 — closes the real TOCTOU the design names: a caller reads an ACTIVE
+   * field, a second request archives it, the first caller's write must still fail rather than
+   * silently attach a value under a now-archived field): the `DocumentType` is re-read fresh
+   * inside THIS call (never trusted from an earlier read the caller might be holding), and its
+   * `version` is pinned via `buildVersionConditionCheck` in the SAME `TransactWriteItems` as the
+   * `Document` update — the caller only ever needs to know/pass `expectedDocumentVersion` (plain
+   * OCC on the Document itself), never the DocumentType's version.
+   */
+  async updateDocumentMetadataValues(
+    ctx: RequestContext,
+    documentId: string,
+    expectedDocumentVersion: number,
+    values: Readonly<Record<string, DocumentMetadataValueInput>>,
+  ): Promise<Document> {
+    authorize({ context: ctx, action: "docarchive:document-metadata-update", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getDocumentUnchecked(tenantId, documentId);
+    const documentType = await this.getDocumentTypeUnchecked(tenantId, current.documentTypeId);
+    const now = this.now();
+    const updatedBy = ctx.principal.userId;
+    const fields = documentType.metadataFields ?? [];
+
+    const nextValues: Record<string, DocumentMetadataValue> = { ...(current.metadataValues ?? {}) };
+    for (const [fieldId, input] of Object.entries(values)) {
+      const field = fields.find((f) => f.fieldId === fieldId);
+
+      if (input === null) {
+        if (field?.status === "ACTIVE" && field.required) {
+          throw new ValidationError(`Field "${field.name}" is required and cannot be cleared.`, { fieldId });
+        }
+        delete nextValues[fieldId];
+        continue;
+      }
+
+      if (!field) throw new ValidationError("Unknown DocumentType metadata field.", { fieldId });
+      if (field.status !== "ACTIVE") throw new ValidationError(`Field "${field.name}" is archived and cannot receive a new value.`, { fieldId });
+      if (field.valueType !== input.valueType) {
+        throw new ValidationError(`Field "${field.name}" expects valueType ${field.valueType}, got ${input.valueType}.`, { fieldId, expected: field.valueType, actual: input.valueType });
+      }
+      const formatError = describeMetadataValueFormatError(input);
+      if (formatError) throw new ValidationError(formatError, { fieldId });
+
+      if (input.valueType === "SINGLE_SELECT") {
+        const option = (field.options ?? []).find((o) => o.optionId === input.optionId);
+        if (!option || option.status !== "ACTIVE") throw new ValidationError("Unknown or archived option.", { fieldId, optionId: input.optionId });
+        nextValues[fieldId] = { valueType: "SINGLE_SELECT", optionId: option.optionId, labelSnapshot: option.label, documentTypeVersionAtWrite: documentType.version, updatedAt: now, updatedBy };
+      } else {
+        nextValues[fieldId] = { ...input, documentTypeVersionAtWrite: documentType.version, updatedAt: now, updatedBy };
+      }
+    }
+
+    const hasValues = Object.keys(nextValues).length > 0;
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentKey(tenantId, documentId),
+      tenantId,
+      expectedVersion: expectedDocumentVersion,
+      set: hasValues ? { metadataValues: nextValues } : {},
+      remove: hasValues ? undefined : ["metadataValues"],
+      now,
+    });
+    const documentTypeFence = buildVersionConditionCheck({ tableName: this.tableName, key: documentTypeKey(tenantId, current.documentTypeId), expectedVersion: documentType.version });
+
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }, documentTypeFence] });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[1] === "ConditionalCheckFailed") {
+          throw new ConflictError("DocumentType was concurrently modified — re-read the current field definitions and retry.", { documentTypeId: current.documentTypeId });
+        }
+        throw new ConflictError("Document was concurrently modified.", { documentId });
+      }
+      throw err;
+    }
+    return { ...current, ...(hasValues ? { metadataValues: nextValues } : { metadataValues: undefined }), version: expectedDocumentVersion + 1, updatedAt: now };
   }
 
   // ---------------------------------------------------------------------------------------

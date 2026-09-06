@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveTrackedSubject } from "./in-memory-store.js";
+import { documentKey, type Document } from "../../../src/modules/document-archive/domain/document.js";
 import { ConflictError, DocumentTypeNameConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import {
   documentTypeKey,
   documentTypeNamePointerKey,
@@ -482,5 +484,207 @@ describe("DocumentArchiveService — DocumentType metadata fields (D-218, fatia 
     const fieldId = created.metadataFields![0]!.fieldId;
     await service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, fieldId, created.version, { name: "B" }); // version now 3, created.version stale
     await expect(service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, fieldId, created.version, { name: "C" })).rejects.toThrow(ConflictError);
+  });
+});
+
+// D-218 (Roadmap P1, "metadata configurável por Document Type"), fatia 2: Document.metadataValues
+// + transactional fencing — see docs/architecture/reviews/document-type-metadata-scoping/estado-final-consolidado.md.
+describe("DocumentArchiveService — Document metadata values (D-218, fatia 2)", () => {
+  async function seedDocumentWithType(store: InMemoryDocumentArchiveStore, service: DocumentArchiveService) {
+    await seedTenant(store);
+    await store.putIfAbsent(seedActiveTrackedSubject(TENANT, "subj-1"));
+    const dt = await service.createDocumentType(ctx(), { displayName: "Apólice de Seguro" });
+    const doc = await service.createDocument(ctx(), { subjectId: "subj-1", documentTypeId: dt.documentTypeId, hasValidity: false });
+    return { dt, doc };
+  }
+
+  it("createDocument never writes metadataValues — the key is entirely absent, not an empty object", async () => {
+    const { service, store } = makeService();
+    const { doc } = await seedDocumentWithType(store, service);
+    expect(doc.metadataValues).toBeUndefined();
+    const stored = await store.get<Document>(documentKey(TENANT, doc.documentId));
+    expect(stored && "metadataValues" in stored).toBe(false);
+  });
+
+  it("updateDocumentMetadataValues writes a TEXT value with provenance (updatedAt/updatedBy/documentTypeVersionAtWrite)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+
+    const updated = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "Porto Seguro" } });
+    const value = updated.metadataValues![fieldId]!;
+    expect(value).toMatchObject({ valueType: "TEXT", value: "Porto Seguro", documentTypeVersionAtWrite: withField.version, updatedBy: "user-1" });
+    expect(value.updatedAt).toBe(NOW);
+
+    const stored = await store.get<Document>(documentKey(TENANT, doc.documentId));
+    expect(stored?.metadataValues?.[fieldId]).toMatchObject({ value: "Porto Seguro" });
+  });
+
+  it("updateDocumentMetadataValues: SINGLE_SELECT stores optionId + a labelSnapshot, never the raw label alone", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Categoria", valueType: "SINGLE_SELECT", required: false, options: ["Residencial", "Automóvel"] });
+    const field = withField.metadataFields![0]!;
+    const optionId = field.options![0]!.optionId;
+
+    const updated = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [field.fieldId]: { valueType: "SINGLE_SELECT", optionId } });
+    const value = updated.metadataValues![field.fieldId]!;
+    expect(value).toMatchObject({ valueType: "SINGLE_SELECT", optionId, labelSnapshot: "Residencial" });
+  });
+
+  // G-V3: the label snapshot must survive the option being renamed AFTER the value was written —
+  // proves the value is self-describing (checklist criterion 2), never re-reads the live option.
+  it("a written SINGLE_SELECT value keeps its labelSnapshot even after the option is later renamed", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Categoria", valueType: "SINGLE_SELECT", required: false, options: ["Residencial"] });
+    const field = withField.metadataFields![0]!;
+    const optionId = field.options![0]!.optionId;
+    const updated = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [field.fieldId]: { valueType: "SINGLE_SELECT", optionId } });
+
+    await service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, field.fieldId, withField.version, { optionsPatch: [{ op: "RENAME", optionId, label: "Residencial Renomeado" }] });
+
+    expect(updated.metadataValues![field.fieldId]).toMatchObject({ labelSnapshot: "Residencial" });
+  });
+
+  it("rejects a value for an unknown fieldId, an archived field, or a valueType mismatch", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { "field-unknown": { valueType: "TEXT", value: "x" } })).rejects.toThrow(ValidationError);
+
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "NUMBER", value: 1 } })).rejects.toThrow(ValidationError);
+
+    const archived = await service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, fieldId, withField.version, { status: "ARCHIVED" });
+    expect(archived.metadataFields![0]!.status).toBe("ARCHIVED");
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } })).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a value for an unknown or archived SINGLE_SELECT option", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Categoria", valueType: "SINGLE_SELECT", required: false, options: ["A"] });
+    const field = withField.metadataFields![0]!;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [field.fieldId]: { valueType: "SINGLE_SELECT", optionId: "option-missing" } })).rejects.toThrow(ValidationError);
+
+    const archivedOption = await service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, field.fieldId, withField.version, { optionsPatch: [{ op: "ARCHIVE", optionId: field.options![0]!.optionId }] });
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [field.fieldId]: { valueType: "SINGLE_SELECT", optionId: field.options![0]!.optionId } })).rejects.toThrow(ValidationError);
+    expect(archivedOption.metadataFields![0]!.options![0]!.status).toBe("ARCHIVED");
+  });
+
+  it("rejects malformed values per type (TEXT too long, NUMBER non-integer, DECIMAL not normalized, DATE not a real calendar date)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+
+    const withText = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Nota", valueType: "TEXT", required: false });
+    const textField = withText.metadataFields![0]!;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [textField.fieldId]: { valueType: "TEXT", value: "x".repeat(501) } })).rejects.toThrow(ValidationError);
+
+    const withNumber = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, withText.version, { name: "Quantidade", valueType: "NUMBER", required: false });
+    const numberField = withNumber.metadataFields![1]!;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [numberField.fieldId]: { valueType: "NUMBER", value: 1.5 } })).rejects.toThrow(ValidationError);
+
+    const withDecimal = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, withNumber.version, { name: "Valor", valueType: "DECIMAL", required: false });
+    const decimalField = withDecimal.metadataFields![2]!;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [decimalField.fieldId]: { valueType: "DECIMAL", value: "12.5e3" } })).rejects.toThrow(ValidationError);
+
+    const withDate = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, withDecimal.version, { name: "Vencimento", valueType: "DATE", required: false });
+    const dateField = withDate.metadataFields![3]!;
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [dateField.fieldId]: { valueType: "DATE", value: "2026-02-30" } })).rejects.toThrow(ValidationError);
+  });
+
+  it("null clears an existing value entirely (key removed, not set to an empty/null placeholder)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    const withValue = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } });
+
+    const cleared = await service.updateDocumentMetadataValues(ctx(), doc.documentId, withValue.version, { [fieldId]: null });
+    expect(cleared.metadataValues).toBeUndefined();
+    const stored = await store.get<Document>(documentKey(TENANT, doc.documentId));
+    expect(stored && "metadataValues" in stored).toBe(false);
+  });
+
+  // G-V3: Decision 5's exact semantics — required blocks clearing an EXISTING value, but never
+  // blocks a field that was simply never set (createDocument() never writes required fields).
+  it("required blocks clearing an existing value, but a required field with no value was never blocked from existing in the first place", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    expect(doc.metadataValues).toBeUndefined(); // never blocked at createDocument(), even with a required field about to exist
+
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: true });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    const withValue = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } });
+
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, withValue.version, { [fieldId]: null })).rejects.toThrow(ValidationError);
+  });
+
+  it("null on an ARCHIVED required field is still allowed to clear (archiving relaxes the required block)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: true });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    const withValue = await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } });
+    const archived = await service.updateDocumentTypeMetadataField(ctx(), dt.documentTypeId, fieldId, withField.version, { status: "ARCHIVED" });
+
+    const cleared = await service.updateDocumentMetadataValues(ctx(), doc.documentId, withValue.version, { [fieldId]: null });
+    expect(cleared.metadataValues).toBeUndefined();
+    expect(archived.metadataFields![0]!.status).toBe("ARCHIVED");
+  });
+
+  it("VIEWER cannot update metadata values (WRITE_ROLES, below VIEWER's tier)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    await expect(service.updateDocumentMetadataValues(ctxAs(["VIEWER"]), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } })).rejects.toThrow(AuthorizationDeniedError);
+  });
+
+  it("updateDocumentMetadataValues: OCC fence rejects a stale expectedDocumentVersion", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+    await service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } }); // doc.version now stale
+    await expect(service.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "y" } })).rejects.toThrow(ConflictError);
+  });
+
+  // G-V3: the real TOCTOU the design names — proven with a genuinely injected race, not just a
+  // sequential mutation before the call (which the service's OWN fresh-read-at-call-start would
+  // trivially absorb without needing the ConditionCheck at all). This wraps the store so its
+  // FIRST `transactWrite` (which will be `updateDocumentMetadataValues`'s own commit) is preceded
+  // by an out-of-band version bump on the SAME DocumentType — simulating a second transaction
+  // that genuinely lands in the network-latency gap between this service's internal fresh read
+  // of DocumentType and its own transaction's commit. Without `buildVersionConditionCheck`
+  // fencing `DocumentType.version` inside the SAME `TransactWriteItems` as the Document update,
+  // this write would succeed anyway and silently attach a value under a definition that changed
+  // out from under it.
+  it("rejects a value write when the DocumentType is concurrently modified in the exact gap between this service's internal read and its own commit (injected race)", async () => {
+    const { service, store } = makeService();
+    const { dt, doc } = await seedDocumentWithType(store, service);
+    const withField = await service.createDocumentTypeMetadataField(ctx(), dt.documentTypeId, dt.version, { name: "Seguradora", valueType: "TEXT", required: false });
+    const fieldId = withField.metadataFields![0]!.fieldId;
+
+    let injected = false;
+    class RaceInjectingStore extends InMemoryDocumentArchiveStore {
+      override async transactWrite(entries: Parameters<InMemoryDocumentArchiveStore["transactWrite"]>[0]): Promise<void> {
+        if (!injected) {
+          injected = true;
+          // Out-of-band write, bypassing the service entirely — a second transaction landing
+          // between this call's internal DocumentType read and this call's own commit.
+          await super.transactWrite([
+            { Update: buildVersionedUpdate({ tableName: "test-table", key: documentTypeKey(TENANT, dt.documentTypeId), tenantId: TENANT, expectedVersion: withField.version, set: {} }) },
+          ]);
+        }
+        return super.transactWrite(entries);
+      }
+    }
+    const raceStore = new RaceInjectingStore(store.allItems());
+    const raceService = new DocumentArchiveService({ store: raceStore, tableName: "test-table", ids: makeIds(), quarantineBucket: "test-quarantine-bucket", signer: noopSigner, members: { isEligibleMember: async () => true }, now: () => NOW });
+
+    await expect(raceService.updateDocumentMetadataValues(ctx(), doc.documentId, doc.version, { [fieldId]: { valueType: "TEXT", value: "x" } })).rejects.toThrow(ConflictError);
   });
 });
