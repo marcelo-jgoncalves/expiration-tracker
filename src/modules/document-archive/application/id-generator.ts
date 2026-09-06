@@ -20,4 +20,8 @@ export interface DocumentArchiveIdGenerator {
   newRequirementTemplateItemId(): string;
   /** D-205 (`DossierExportRun`). */
   newDossierExportRunId(): string;
+  /** D-218 (`DocumentTypeMetadataFieldDefinition`, Roadmap P1 "metadata configurável"). */
+  newDocumentTypeFieldId(): string;
+  /** D-218 (`DocumentTypeFieldOption`, only for `SINGLE_SELECT` fields). */
+  newDocumentTypeFieldOptionId(): string;
 }
