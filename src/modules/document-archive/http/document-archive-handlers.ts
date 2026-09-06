@@ -20,7 +20,8 @@ import type { FileUploadSpec } from "../domain/document-file.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
 import type { CreateRequirementInput, RequirementStatus, UpdateRequirementInput } from "../domain/requirement.js";
 import type { CreateDocumentRequestSeriesInput } from "../domain/document-request-series.js";
-import type { CreateDocumentTypeInput, DocumentType } from "../domain/document-type.js";
+import type { CreateDocumentTypeInput, CreateDocumentTypeMetadataFieldInput, DocumentType, UpdateDocumentTypeMetadataFieldInput } from "../domain/document-type.js";
+import type { DocumentMetadataValueInput } from "../domain/document.js";
 import type { CreateRequirementTemplateInput, RequirementTemplate, UpdateRequirementTemplateInput } from "../domain/requirement-template.js";
 import type { DossierExportFormat, DossierExportStore } from "../ports/dossier-export-store.js";
 
@@ -59,6 +60,9 @@ const REQTEMPLATE_UNARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/
 const REQTEMPLATE_PREVIEW_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
 const REQTEMPLATE_APPLY_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
 const DOSSIER_CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json";
+const DOCUMENTTYPE_METADATA_FIELD_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json";
+const DOCUMENTTYPE_METADATA_FIELD_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json";
+const DOCUMENT_METADATA_VALUES_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -165,6 +169,12 @@ function requireRunId(req: HttpRequest): string {
   const runId = req.pathParameters?.["runId"];
   if (!runId) throw new ValidationError("Missing runId path parameter.");
   return runId;
+}
+
+function requireFieldId(req: HttpRequest): string {
+  const fieldId = req.pathParameters?.["fieldId"];
+  if (!fieldId) throw new ValidationError("Missing fieldId path parameter.");
+  return fieldId;
 }
 
 /** Defaults to ACTIVE (the catalog a document-create flow actually needs) rather than requiring
@@ -549,6 +559,57 @@ export async function handleReactivateDocumentType(deps: DocumentArchiveHttpDeps
     const context = await resolve(deps, req);
     const documentType = await deps.documentArchive.reactivateDocumentType(context, documentTypeId, req.body.expectedVersion);
     return { statusCode: 200, body: { documentType } };
+  });
+}
+
+// --- DocumentType metadata fields (D-218 fatia 3, Roadmap P1 "metadata configurável por
+// Document Type") — see docs/architecture/reviews/document-type-metadata-scoping/
+// estado-final-consolidado.md. Same pipeline as the catalog routes above. ------------------
+
+export async function handleCreateDocumentTypeMetadataField(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ expectedDocumentTypeVersion: number } & CreateDocumentTypeMetadataFieldInput>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_METADATA_FIELD_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const { expectedDocumentTypeVersion, ...input } = req.body;
+    const documentType = await deps.documentArchive.createDocumentTypeMetadataField(context, documentTypeId, expectedDocumentTypeVersion, input);
+    return { statusCode: 201, body: { documentType } };
+  });
+}
+
+export async function handleUpdateDocumentTypeMetadataField(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ expectedDocumentTypeVersion: number } & UpdateDocumentTypeMetadataFieldInput>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentTypeId = requireDocumentTypeId(req);
+    const fieldId = requireFieldId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENTTYPE_METADATA_FIELD_UPDATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const { expectedDocumentTypeVersion, ...input } = req.body;
+    const documentType = await deps.documentArchive.updateDocumentTypeMetadataField(context, documentTypeId, fieldId, expectedDocumentTypeVersion, input);
+    return { statusCode: 200, body: { documentType } };
+  });
+}
+
+// --- Document metadata values (D-218 fatia 3) ------------------------------------------------
+
+export async function handleUpdateDocumentMetadataValues(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ expectedDocumentVersion: number; values: Record<string, DocumentMetadataValueInput> }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentId = requireDocumentId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOCUMENT_METADATA_VALUES_UPDATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const document = await deps.documentArchive.updateDocumentMetadataValues(context, documentId, req.body.expectedDocumentVersion, req.body.values);
+    return { statusCode: 200, body: { document } };
   });
 }
 

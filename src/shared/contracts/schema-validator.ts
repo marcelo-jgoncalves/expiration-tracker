@@ -94,6 +94,10 @@ import docarchiveRequirementTemplateUnarchiveRequestV1 from "../../../schemas/ap
 import docarchiveRequirementTemplatePreviewRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
 import docarchiveRequirementTemplateApplyRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
 import docarchiveDossierConfirmRequestV1 from "../../../schemas/api/docarchive-dossier-confirm-request.v1.json";
+// D-218 fatia 3 (Roadmap P1, "metadata configurável por Document Type") — CRUD + value-write HTTP routes.
+import docarchiveDocumentTypeMetadataFieldCreateRequestV1 from "../../../schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json";
+import docarchiveDocumentTypeMetadataFieldUpdateRequestV1 from "../../../schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json";
+import docarchiveDocumentMetadataValuesUpdateRequestV1 from "../../../schemas/api/docarchive-document-metadata-values-update-request.v1.json";
 // D-149 (Admin Activity/Audit Log view).
 import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1.json";
 // D-194 Fatia 3 (search/filters) - GET /subjects/search, GET /document-archive/requirements/search, GET /items/search.
@@ -223,6 +227,9 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveRequirementTemplatePreviewRequestV1,
   docarchiveRequirementTemplateApplyRequestV1,
   docarchiveDossierConfirmRequestV1,
+  docarchiveDocumentTypeMetadataFieldCreateRequestV1,
+  docarchiveDocumentTypeMetadataFieldUpdateRequestV1,
+  docarchiveDocumentMetadataValuesUpdateRequestV1,
   listActivityRequestV1,
   subjectSearchRequestV1,
   docarchiveRequirementSearchRequestV1,

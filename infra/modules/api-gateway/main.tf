@@ -666,6 +666,11 @@ locals {
     deprecate_document_type  = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/deprecate" }
     reactivate_document_type = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/reactivate" }
 
+    # D-218 fatia 3 (Roadmap P1 "metadata configurável por Document Type") - same Lambda.
+    create_document_type_metadata_field = { method = "POST", path = "/document-archive/document-types/{documentTypeId}/metadata-fields" }
+    update_document_type_metadata_field = { method = "PATCH", path = "/document-archive/document-types/{documentTypeId}/metadata-fields/{fieldId}" }
+    update_document_metadata_values     = { method = "PATCH", path = "/document-archive/documents/{documentId}/metadata-values" }
+
     # P0.1 (RequirementTemplate) - same Lambda. preview/apply are POST because both carry a
     # subjectId body and are computations, not addressable resources.
     create_requirement_template    = { method = "POST", path = "/document-archive/requirement-templates" }

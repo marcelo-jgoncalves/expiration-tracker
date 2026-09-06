@@ -142,4 +142,18 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("GET", "/document-archive/subjects/subj-1/dossier/run-1/download")).toBeDefined();
     expect(matchAllowlistedRoute("POST", "/document-archive/subjects/subj-1/dossier/run-1/download")).toBeUndefined();
   });
+
+  // D-218 fatia 3 (Roadmap P1 "metadata configurável por Document Type") — same D-117/D-120/D-178
+  // gap class, asserted at the time of writing.
+  it("matches the D-218 fatia 3 metadata field/value routes", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/document-types/dt-1/metadata-fields")).toBeDefined();
+    expect(matchAllowlistedRoute("PATCH", "/document-archive/document-types/dt-1/metadata-fields/field-1")).toBeDefined();
+    expect(matchAllowlistedRoute("PATCH", "/document-archive/documents/doc-1/metadata-values")).toBeDefined();
+  });
+
+  it("does not match the D-218 metadata field/value routes with an unallowlisted method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("GET", "/document-archive/document-types/dt-1/metadata-fields")).toBeUndefined();
+    expect(matchAllowlistedRoute("DELETE", "/document-archive/document-types/dt-1/metadata-fields/field-1")).toBeUndefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/documents/doc-1/metadata-values")).toBeUndefined();
+  });
 });

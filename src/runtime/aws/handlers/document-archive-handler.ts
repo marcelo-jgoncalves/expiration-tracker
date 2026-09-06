@@ -38,6 +38,9 @@ import {
   handleRenameDocumentType,
   handleDeprecateDocumentType,
   handleReactivateDocumentType,
+  handleCreateDocumentTypeMetadataField,
+  handleUpdateDocumentTypeMetadataField,
+  handleUpdateDocumentMetadataValues,
   handleCreateRequirementTemplate,
   handleListRequirementTemplates,
   handleGetRequirementTemplate,
@@ -149,6 +152,13 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleDeprecateDocumentType(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/document-types/{documentTypeId}/reactivate":
           return await handleReactivateDocumentType(deps, { ...base, body: parseBody(event) });
+        // D-218 fatia 3 (Roadmap P1 "metadata configurável por Document Type").
+        case "POST /document-archive/document-types/{documentTypeId}/metadata-fields":
+          return await handleCreateDocumentTypeMetadataField(deps, { ...base, body: parseBody(event) });
+        case "PATCH /document-archive/document-types/{documentTypeId}/metadata-fields/{fieldId}":
+          return await handleUpdateDocumentTypeMetadataField(deps, { ...base, body: parseBody(event) });
+        case "PATCH /document-archive/documents/{documentId}/metadata-values":
+          return await handleUpdateDocumentMetadataValues(deps, { ...base, body: parseBody(event) });
         // P0.1 (RequirementTemplate) — tenant-facing catalog CRUD + preview/apply.
         case "POST /document-archive/requirement-templates":
           return await handleCreateRequirementTemplate(deps, { ...base, body: parseBody(event) });
