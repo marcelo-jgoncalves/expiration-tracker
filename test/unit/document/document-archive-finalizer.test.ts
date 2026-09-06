@@ -42,6 +42,7 @@ function ids(): DocumentArchiveIdGenerator {
     newDocumentTypeId: () => `doctype-${++n}`,
     newRequirementTemplateId: () => "reqtpl_test",
     newRequirementTemplateItemId: () => `reqtplitem_${++n}`,
+    newDossierExportRunId: () => `dossier_${++n}`,
   };
 }
 

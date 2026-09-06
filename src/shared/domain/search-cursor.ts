@@ -11,8 +11,8 @@
  * from `src/modules/**` (same posture as `validity-state.ts`) — each module's HTTP handler owns
  * its own concrete signature shape and calls these two functions.
  */
-import { createHash } from "node:crypto";
 import { ValidationError } from "../errors/app-error.js";
+import { computeFingerprint } from "./fingerprint.js";
 
 interface EncodedCursor {
   /** sha256 hex of the canonical (stable-key-order) JSON of the search signature this cursor was minted under. */
@@ -21,22 +21,9 @@ interface EncodedCursor {
   key: Record<string, unknown>;
 }
 
-/** Stable stringify — sorts object keys recursively so the same logical signature always hashes
- * identically regardless of the property insertion order the caller happened to build it in. */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function fingerprint(signature: Record<string, unknown>): string {
-  return createHash("sha256").update(canonicalJson(signature)).digest("hex");
-}
+/** D-205 (fingerprint.ts extraction): thin rename of the shared `computeFingerprint` for this
+ * file's own established local name, kept so the rest of this module reads unchanged. */
+const fingerprint = computeFingerprint;
 
 export function encodeSearchCursor(signature: Record<string, unknown>, lastEvaluatedKey: Record<string, unknown>): string {
   const payload: EncodedCursor = { sig: fingerprint(signature), key: lastEvaluatedKey };

@@ -57,6 +57,7 @@ const REQTEMPLATE_ARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/do
 const REQTEMPLATE_UNARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-unarchive-request.v1.json";
 const REQTEMPLATE_PREVIEW_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
 const REQTEMPLATE_APPLY_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
+const DOSSIER_CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -154,6 +155,12 @@ function requireDocumentTypeId(req: HttpRequest): string {
   const documentTypeId = req.pathParameters?.["documentTypeId"];
   if (!documentTypeId) throw new ValidationError("Missing documentTypeId path parameter.");
   return documentTypeId;
+}
+
+function requireRunId(req: HttpRequest): string {
+  const runId = req.pathParameters?.["runId"];
+  if (!runId) throw new ValidationError("Missing runId path parameter.");
+  return runId;
 }
 
 /** Defaults to ACTIVE (the catalog a document-create flow actually needs) rather than requiring
@@ -669,6 +676,34 @@ export async function handleApplyRequirementTemplate(
     // 200, not 201: an apply that creates nothing is a legitimate, idempotent success (re-applying
     // a template the Subject already satisfies), not a conflict.
     return { statusCode: 200, body: { ...result } };
+  });
+}
+
+// --- Dossier export (D-205, Roadmap P1 item 16, fatia 1) ------------------------------------
+// Preview/confirm two-step (decision 4, Journey J22): POST .../dossier creates a
+// PREVIEW_READY run + returns the preview rows in the SAME response (no separate GET needed for
+// this fatia); POST .../dossier/{runId}/confirm is idempotent given a matching scopeHash.
+// Generation itself (PDF/XLSX) is fatia 2, not built yet - confirm only dispatches the outbox
+// event that fatia 2's worker will eventually consume.
+
+export async function handlePreviewDossierExport(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const { run, rows } = await deps.documentArchive.previewDossierExport(context, subjectId);
+    return { statusCode: 201, body: { run, rows } };
+  });
+}
+
+export async function handleConfirmDossierExport(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ scopeHash: string }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const runId = requireRunId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DOSSIER_CONFIRM_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const run = await deps.documentArchive.confirmDossierExport(context, subjectId, runId, req.body.scopeHash);
+    return { statusCode: 200, body: { run } };
   });
 }
 

@@ -1679,4 +1679,20 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/report-subscription-delete-request.v1.json", {});
     expect(valid).toBe(false);
   });
+
+  it("accepts a valid docarchive-dossier-confirm-request", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json", { scopeHash: "abc123" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-dossier-confirm-request missing scopeHash", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-dossier-confirm-request with an unknown extra property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-dossier-confirm-request.v1.json", { scopeHash: "abc123", extra: "nope" });
+    expect(valid).toBe(false);
+  });
 });

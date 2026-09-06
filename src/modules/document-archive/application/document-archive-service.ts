@@ -123,6 +123,9 @@ import {
 } from "../domain/requirement.js";
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
+import { appendToTransaction } from "../../../shared/outbox/outbox.js";
+import type { DomainEvent } from "../../../shared/contracts/events.js";
+import { computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
  * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
@@ -386,6 +389,17 @@ export interface SubjectComplianceSummary {
   expiringSoonCount: number;
   missingCount: number;
   compliancePercent: number | null;
+}
+
+/** D-205 fatia 1 — one row per Requirement in a dossier preview response. Metadata-first
+ * (decision 1): no evidence bytes, no version history yet (fatia 2's actual generation reads
+ * that fresh). */
+export interface DossierExportPreviewRow {
+  requirementId: string;
+  name: string;
+  status: RequirementStatus;
+  evidenceValidUntil?: string;
+  assigneeUserId?: string;
 }
 
 export class DocumentArchiveService {
@@ -1041,6 +1055,106 @@ export class DocumentArchiveService {
     const expiringSoonCount = applicable.filter((r) => deriveRequirementValidityState(r, now) === "VENCENDO").length;
     const compliancePercent = totalRequirements === 0 ? null : Math.round((100 * satisfiedCount) / totalRequirements);
     return { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent };
+  }
+
+  /**
+   * D-205 fatia 1 (Roadmap P1 item 16, dossier export) — `POST .../subjects/{subjectId}/dossier`.
+   * Creates a `DossierExportRun` in `PREVIEW_READY`, freezing the Subject's CURRENT
+   * `requirementIds` (decision 4 — the generation, once built in fatia 2, iterates exactly this
+   * set, never re-derives it) and returns the same rows the caller would see confirming right
+   * now. `scopeHash` is what `confirmDossierExport` re-validates against the caller's echoed
+   * value before dispatching generation.
+   */
+  async previewDossierExport(ctx: RequestContext, subjectId: string): Promise<{ run: DossierExportRun; rows: DossierExportPreviewRow[] }> {
+    authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const subject = await this.store.get(trackedSubjectKeyForFence(tenantId, subjectId));
+    if (!subject) throw new NotFoundError("Subject not found.", { subjectId });
+
+    const requirements = await this.store.queryByPk<Requirement>(`TENANT#${tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
+    const requirementIds = requirements.map((r) => r.requirementId);
+    const now = this.now();
+    const runId = this.ids.newDossierExportRunId();
+    const run: DossierExportRun = {
+      ...dossierExportRunKey(tenantId, subjectId, runId),
+      entityType: "DossierExportRun",
+      runId,
+      subjectId,
+      tenantId,
+      status: "PREVIEW_READY",
+      requirementIds,
+      scopeHash: computeDossierScopeHash(subjectId, requirementIds),
+      createdBy: ctx.principal.userId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.store.transactWrite([{ Put: buildVersionedCreate(this.tableName, run as unknown as Record<string, unknown> & EntityKey) }]);
+
+    const rows: DossierExportPreviewRow[] = requirements.map((r) => ({
+      requirementId: r.requirementId,
+      name: r.name,
+      status: r.status,
+      ...(r.evidenceValidUntil !== undefined ? { evidenceValidUntil: r.evidenceValidUntil } : {}),
+      ...(r.assigneeUserId !== undefined ? { assigneeUserId: r.assigneeUserId } : {}),
+    }));
+    return { run, rows };
+  }
+
+  /**
+   * D-205 fatia 1 — `POST .../dossier/{runId}/confirm`. Idempotent (decision 3): a matching
+   * `scopeHash` on an ALREADY confirmed run is a no-op success (never a second dispatch, never a
+   * second `SQS_DOSSIER_EXPORT_V1` event once fatia 2's worker exists to consume it) — only a
+   * `PREVIEW_READY` run with a matching hash actually transitions + dispatches. A mismatched hash
+   * is ALWAYS a 409 regardless of current status (decision 3's own "força novo preview"), never
+   * silently accepted just because the run already moved on.
+   */
+  async confirmDossierExport(ctx: RequestContext, subjectId: string, runId: string, scopeHash: string): Promise<DossierExportRun> {
+    authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const run = await this.store.get<DossierExportRun>(dossierExportRunKey(tenantId, subjectId, runId));
+    if (!run) throw new NotFoundError("DossierExportRun not found.", { subjectId, runId });
+    if (run.scopeHash !== scopeHash) {
+      throw new ConflictError("Dossier scope has changed since preview - request a new preview.", { subjectId, runId });
+    }
+    if (run.status !== "PREVIEW_READY") {
+      return run; // idempotent replay - same scopeHash, already confirmed (or beyond).
+    }
+
+    const now = this.now();
+    const event: DomainEvent = {
+      specVersion: "1.0",
+      eventId: this.ids.newEventId(),
+      eventType: "DossierExportConfirmed",
+      source: "expiration-tracker.document-archive",
+      occurredAt: now,
+      correlationId: ctx.correlationId,
+      tenantId,
+      actor: { type: "USER", userId: ctx.principal.userId },
+      aggregate: { type: "DossierExportRun", id: runId, version: run.version + 1 },
+      data: { runId, subjectId, tenantId },
+    };
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key: dossierExportRunKey(tenantId, subjectId, runId),
+          tenantId,
+          expectedVersion: run.version,
+          now,
+          set: { status: "CONFIRMED", confirmedAt: now },
+        }),
+      },
+    ];
+    appendToTransaction(entries, this.tableName, event, "SQS_DOSSIER_EXPORT_V1");
+
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DossierExportRun was concurrently modified.", { subjectId, runId });
+      throw err;
+    }
+    return { ...run, status: "CONFIRMED", confirmedAt: now, version: run.version + 1, updatedAt: now };
   }
 
   /**

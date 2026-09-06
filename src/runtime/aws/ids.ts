@@ -97,6 +97,10 @@ export class UlidIdGenerator
   newReportSubscriptionId(): string {
     return `reportsub_${ulid()}`;
   }
+  /** D-205 (`DossierExportRun`) — opaque, immutable, never reused. */
+  newDossierExportRunId(): string {
+    return `dossier_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

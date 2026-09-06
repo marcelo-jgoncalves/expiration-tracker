@@ -47,6 +47,8 @@ import {
   handleUnarchiveRequirementTemplate,
   handlePreviewRequirementTemplate,
   handleApplyRequirementTemplate,
+  handlePreviewDossierExport,
+  handleConfirmDossierExport,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -160,6 +162,11 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handlePreviewRequirementTemplate(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/requirement-templates/{templateId}/apply":
           return await handleApplyRequirementTemplate(deps, { ...base, body: parseBody(event) });
+        // D-205 fatia 1 (Roadmap P1 item 16, dossier export) — preview/confirm.
+        case "POST /document-archive/subjects/{subjectId}/dossier":
+          return await handlePreviewDossierExport(deps, base);
+        case "POST /document-archive/subjects/{subjectId}/dossier/{runId}/confirm":
+          return await handleConfirmDossierExport(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

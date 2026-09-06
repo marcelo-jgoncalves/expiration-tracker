@@ -18,4 +18,6 @@ export interface DocumentArchiveIdGenerator {
   /** P0.1 — one per template item. A DUPLICATE mints fresh ones (a copy is an independent
    * template, never an alias). */
   newRequirementTemplateItemId(): string;
+  /** D-205 (`DossierExportRun`). */
+  newDossierExportRunId(): string;
 }

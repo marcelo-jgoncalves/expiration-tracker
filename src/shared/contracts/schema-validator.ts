@@ -93,6 +93,7 @@ import docarchiveRequirementTemplateArchiveRequestV1 from "../../../schemas/api/
 import docarchiveRequirementTemplateUnarchiveRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-unarchive-request.v1.json";
 import docarchiveRequirementTemplatePreviewRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-preview-request.v1.json";
 import docarchiveRequirementTemplateApplyRequestV1 from "../../../schemas/api/docarchive-requirementtemplate-apply-request.v1.json";
+import docarchiveDossierConfirmRequestV1 from "../../../schemas/api/docarchive-dossier-confirm-request.v1.json";
 // D-149 (Admin Activity/Audit Log view).
 import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1.json";
 // D-194 Fatia 3 (search/filters) - GET /subjects/search, GET /document-archive/requirements/search, GET /items/search.
@@ -221,6 +222,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveRequirementTemplateUnarchiveRequestV1,
   docarchiveRequirementTemplatePreviewRequestV1,
   docarchiveRequirementTemplateApplyRequestV1,
+  docarchiveDossierConfirmRequestV1,
   listActivityRequestV1,
   subjectSearchRequestV1,
   docarchiveRequirementSearchRequestV1,

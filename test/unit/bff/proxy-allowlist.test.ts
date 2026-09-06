@@ -128,4 +128,12 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("GET", "/reports/subscriptions/sub-1/runs/run-1/download")).toBeDefined();
     expect(matchAllowlistedRoute("POST", "/reports/subscriptions/sub-1/runs/run-1/download")).toBeUndefined();
   });
+
+  // D-205 fatia 1 (Roadmap P1 item 16, dossier export): preview/confirm, same D-117/D-120/D-178
+  // gap class.
+  it("matches the D-205 fatia 1 dossier preview/confirm routes", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/subjects/subj-1/dossier")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/document-archive/subjects/subj-1/dossier/run-1/confirm")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/document-archive/subjects/subj-1/dossier")).toBeUndefined();
+  });
 });
