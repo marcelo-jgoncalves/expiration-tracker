@@ -49,6 +49,7 @@ import {
   handleApplyRequirementTemplate,
   handlePreviewDossierExport,
   handleConfirmDossierExport,
+  handleDownloadDossierExport,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -60,9 +61,14 @@ const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const quarantineBucket = process.env["QUARANTINE_BUCKET_NAME"];
 if (!quarantineBucket) throw new Error("QUARANTINE_BUCKET_NAME env var is required.");
+// D-205 fatia 3 (decision 9): only the dossier download route needs this - required so a real
+// invocation of that route never silently falls back to the "not wired" throw in
+// handleDownloadDossierExport.
+const reportExportsBucketName = process.env["REPORT_EXPORTS_BUCKET_NAME"];
+if (!reportExportsBucketName) throw new Error("REPORT_EXPORTS_BUCKET_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { documentArchive, recurrence } = buildDocumentArchiveDeps(client, tableName, quarantineBucket);
-const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota };
+const { documentArchive, recurrence, dossierExportStore } = buildDocumentArchiveDeps(client, tableName, quarantineBucket, reportExportsBucketName);
+const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota, dossierExportStore };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentArchiveRoute(event));
@@ -167,6 +173,9 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handlePreviewDossierExport(deps, base);
         case "POST /document-archive/subjects/{subjectId}/dossier/{runId}/confirm":
           return await handleConfirmDossierExport(deps, { ...base, body: parseBody(event) });
+        // D-205 fatia 3 — download.
+        case "GET /document-archive/subjects/{subjectId}/dossier/{runId}/download":
+          return await handleDownloadDossierExport(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

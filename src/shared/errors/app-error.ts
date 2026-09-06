@@ -575,6 +575,19 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+/** D-205 decision 5 (Roadmap P1 item 16, dossier export, fatia 2): the generation worker never
+ * ships a silently-truncated artifact - if the frozen `requirementIds` scope exceeds the named
+ * proportional cap (`MAX_DOSSIER_REQUIREMENTS`, `dossier-export-generator.ts`), this is a
+ * declared, terminal failure (`DossierExportRun.status = "TOO_LARGE"`), never a PDF/XLSX that
+ * quietly omits rows. `retryable: false`: the scope itself would have to shrink (Requirements
+ * deleted) for a retry to ever succeed - retrying identically fails identically. */
+export class DossierTooLargeError extends AppError {
+  constructor(message = "Dossier export scope exceeds the maximum supported size.", details?: Record<string, unknown>) {
+    super({ code: "DossierTooLarge", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "DossierTooLargeError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

@@ -402,6 +402,19 @@ export interface DossierExportPreviewRow {
   assigneeUserId?: string;
 }
 
+/** D-205 fatia 2 — one row per Requirement fed to the PDF/XLSX builders. Same shape as
+ * `DossierExportPreviewRow` plus `updatedAt` (decision 1's "histórico" field, name notwithstanding
+ * - full version-event-log history is explicitly out of scope, decision 11's named limitation;
+ * `updatedAt` is the closest proportional signal this codebase already tracks per Requirement). */
+export interface DossierExportRow {
+  requirementId: string;
+  name: string;
+  status: RequirementStatus;
+  evidenceValidUntil?: string;
+  assigneeUserId?: string;
+  updatedAt: string;
+}
+
 export class DocumentArchiveService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
@@ -1155,6 +1168,43 @@ export class DocumentArchiveService {
       throw err;
     }
     return { ...run, status: "CONFIRMED", confirmedAt: now, version: run.version + 1, updatedAt: now };
+  }
+
+  /**
+   * D-205 fatia 2 — system-facing data retrieval for the dossier generation worker. No
+   * `RequestContext`/`authorize()` here on purpose, same posture `findRequirementsByEvidenceVersion`/
+   * `ReportsService.generateReportCsv` already establish for an async worker that never acts on
+   * behalf of an authenticated end-user request (the worker's OWN caller already enforced
+   * `docarchive:dossier-export` at confirm time). Re-reads the Subject displayName and EVERY
+   * Requirement in the frozen `requirementIds` set fresh (decision 4 - field VALUES are never
+   * stale, only the SET is frozen). A Requirement deleted since preview is silently omitted
+   * (never fabricated) - the generated document reflects what still exists NOW, not a snapshot
+   * of what existed at preview time.
+   */
+  async getDossierExportData(tenantId: string, subjectId: string, requirementIds: readonly string[]): Promise<{ subjectDisplayName?: string; rows: DossierExportRow[] }> {
+    const [subject, requirements] = await Promise.all([
+      this.store.get<EntityKey & { displayName?: string }>(trackedSubjectKeyForFence(tenantId, subjectId)),
+      Promise.all(requirementIds.map((requirementId) => this.store.get<Requirement>(requirementKey(tenantId, subjectId, requirementId)))),
+    ]);
+    const rows: DossierExportRow[] = requirements
+      .filter((r): r is Requirement => r !== undefined)
+      .map((r) => ({ requirementId: r.requirementId, name: r.name, status: r.status, evidenceValidUntil: r.evidenceValidUntil, assigneeUserId: r.assigneeUserId, updatedAt: r.updatedAt }));
+    return { subjectDisplayName: subject?.displayName, rows };
+  }
+
+  /**
+   * D-205 fatia 3 — `GET .../dossier/{runId}/download` reads the run through this (ADMIN_ROLES,
+   * decision 10 - no assignee/recipient fallback tier, unlike D-204's report download route:
+   * a full-Subject dossier is disclosure-sensitive enough that D-205's own Rodada 1 removed the
+   * assignee tier entirely). The route itself checks `status === "READY"` after this returns -
+   * kept there, not here, so a future caller wanting the run regardless of status (there is none
+   * yet) is not forced through a status gate this method doesn't own.
+   */
+  async getDossierExportRun(ctx: RequestContext, subjectId: string, runId: string): Promise<DossierExportRun> {
+    authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
+    const run = await this.store.get<DossierExportRun>(dossierExportRunKey(ctx.tenant.tenantId, subjectId, runId));
+    if (!run) throw new NotFoundError("DossierExportRun not found.", { subjectId, runId });
+    return run;
   }
 
   /**
