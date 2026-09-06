@@ -162,7 +162,15 @@ export type Action =
   // decisão 3): visibility into what OTHER members did (renewal/creation/export/etc.) is
   // disclosure-sensitive equivalent to bulk export (`item:export` above) - deliberately NOT the
   // more permissive precedent of reading one's own resource. ADMIN_ROLES, same tier as `item:export`.
-  | "activity:read";
+  | "activity:read"
+  // D-204 decision 1 (Roadmap P1 item 15, scheduled reports), D-213 fatia (HTTP CRUD):
+  // ReportSubscription creation/management is disclosure-sensitive by the same reasoning as
+  // `docarchive:requirement-export` above (a subscription names OTHER members as recipients,
+  // and its reports are the same bulk cross-member CSVs `item:export`/`docarchive:requirement-
+  // export` already gate) - ADMIN_ROLES, same tier, single action for create/read/list/delete
+  // (no separate read tier - unlike DocumentType/RequirementTemplate, a subscription has no
+  // less-sensitive "browse the catalog" use case a MEMBER/VIEWER would legitimately need).
+  | "reports:subscription-manage";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -256,6 +264,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:series-cancel": WRITE_ROLES,
   "docarchive:series-materialize": WRITE_ROLES,
   "activity:read": ADMIN_ROLES,
+  "reports:subscription-manage": ADMIN_ROLES,
   "docarchive:documenttype-create": ADMIN_ROLES,
   "docarchive:documenttype-rename": ADMIN_ROLES,
   "docarchive:documenttype-deprecate": ADMIN_ROLES,

@@ -108,4 +108,17 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("PATCH", "/items/bulk-reassign")).toBeUndefined();
     expect(matchAllowlistedRoute("PATCH", "/items/bulk-archive")).toBeUndefined();
   });
+
+  // D-204 decision 1 (Roadmap P1 item 15), implemented D-213: same D-117/D-120/D-178 gap class.
+  it("matches the D-213 ReportSubscription CRUD routes", () => {
+    expect(matchAllowlistedRoute("POST", "/reports/subscriptions")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/subscriptions")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/subscriptions/sub-1")).toBeDefined();
+    expect(matchAllowlistedRoute("POST", "/reports/subscriptions/sub-1/delete")).toBeDefined();
+  });
+
+  it("does not match the ReportSubscription routes with an unallowlisted method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("PATCH", "/reports/subscriptions")).toBeUndefined();
+    expect(matchAllowlistedRoute("DELETE", "/reports/subscriptions/sub-1")).toBeUndefined();
+  });
 });

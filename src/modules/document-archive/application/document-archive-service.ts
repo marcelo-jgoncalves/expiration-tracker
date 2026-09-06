@@ -1063,7 +1063,7 @@ export class DocumentArchiveService {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
     if (!query.status) throw new ValidationError("status is required for searchRequirements.");
     const tenantId = ctx.tenant.tenantId;
-    const now = new Date();
+    const now = new Date(this.now());
     const namePrefix = query.namePrefix;
 
     const result = await runPagedSearch<Requirement>({

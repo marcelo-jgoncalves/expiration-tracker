@@ -69,6 +69,14 @@ export interface ReportSubscription extends EntityKey {
    * never trusts the index query's projected attributes. */
   GSI8PK: string;
   GSI8SK: string;
+  /** GSI1 (discriminated by prefix — same shared physical GSI1 index Document/ExpirationItem/
+   * Requirement/DocumentType/RequirementTemplate already use, no new index): every
+   * ReportSubscription for a tenant, ordered by creation time — D-213 fatia (HTTP CRUD),
+   * needed because each subscription's own PK is per-entity (no natural "list all" query
+   * without an index), same reasoning `documentTypeGsi1Keys` already established for
+   * DocumentType's own catalog listing. */
+  GSI1PK: string;
+  GSI1SK: string;
 }
 
 export function reportSubscriptionKey(tenantId: string, subscriptionId: string): EntityKey {
@@ -81,6 +89,13 @@ export function reportSubscriptionGsi8Keys(input: { dueAtIso: string; tenantId: 
   return {
     GSI8PK: `WORK#${REPORT_SUBSCRIPTION_GSI8_WORKER_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.subscriptionId}`,
+  };
+}
+
+export function reportSubscriptionGsi1Keys(input: { tenantId: string; createdAt: string; subscriptionId: string }): { GSI1PK: string; GSI1SK: string } {
+  return {
+    GSI1PK: `TENANT#${input.tenantId}#REPORTSUB`,
+    GSI1SK: `${input.createdAt}#REPORTSUB#${input.subscriptionId}`,
   };
 }
 
