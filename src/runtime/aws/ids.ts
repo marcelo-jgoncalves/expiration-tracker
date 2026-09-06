@@ -101,6 +101,14 @@ export class UlidIdGenerator
   newDossierExportRunId(): string {
     return `dossier_${ulid()}`;
   }
+  /** D-218 (`DocumentTypeMetadataFieldDefinition`) — opaque, immutable, never reused. */
+  newDocumentTypeFieldId(): string {
+    return `doctypefield_${ulid()}`;
+  }
+  /** D-218 (`DocumentTypeFieldOption`) — opaque, immutable, never reused. */
+  newDocumentTypeFieldOptionId(): string {
+    return `doctypefieldopt_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

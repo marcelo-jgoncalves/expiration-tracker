@@ -179,7 +179,18 @@ export type Action =
   // inventing a new resource-ownership shape for one route. Same disclosure profile as
   // `docarchive:requirement-export`/`item:export` (a full-Subject export is the same bulk
   // cross-Requirement disclosure those already gate), covers preview+confirm+download.
-  | "docarchive:dossier-export";
+  | "docarchive:dossier-export"
+  // D-218 (Roadmap P1, "metadata configurável por Document Type"): field/option CATALOG
+  // mutation (create/rename/archive/reactivate a metadata field or one of its SINGLE_SELECT
+  // options) is ADMIN_ROLES, same tier as `docarchive:documenttype-*` above — a metadata field
+  // definition is shared, tenant-wide catalog configuration, not a per-item content resource.
+  // Editing the VALUE of an existing field on one Document is a separate, lower-sensitivity
+  // action — WRITE_ROLES, same tier as `docarchive:create`/`docarchive:upload` (day-to-day data
+  // entry on an already-existing Document, not catalog administration). `docarchive:update`
+  // (presumed to exist by an early draft of this decision) does not exist — `Document` has no
+  // generic edit action today, only `create`/`upload`/`review`.
+  | "docarchive:documenttype-metadata-manage"
+  | "docarchive:document-metadata-update";
 
 export interface AuthorizedResource {
   tenantId: string;
@@ -275,6 +286,8 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "activity:read": ADMIN_ROLES,
   "reports:subscription-manage": ADMIN_ROLES,
   "docarchive:dossier-export": ADMIN_ROLES,
+  "docarchive:documenttype-metadata-manage": ADMIN_ROLES,
+  "docarchive:document-metadata-update": WRITE_ROLES,
   "docarchive:documenttype-create": ADMIN_ROLES,
   "docarchive:documenttype-rename": ADMIN_ROLES,
   "docarchive:documenttype-deprecate": ADMIN_ROLES,

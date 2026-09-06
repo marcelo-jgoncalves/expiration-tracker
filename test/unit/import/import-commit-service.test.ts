@@ -25,6 +25,8 @@ function makeDocumentArchiveIds(): DocumentArchiveIdGenerator {
     newRequirementTemplateId: () => `reqtpl-${++n}`,
     newRequirementTemplateItemId: () => `reqtplitem-${++n}`,
     newDossierExportRunId: () => `dossier_${++n}`,
+    newDocumentTypeFieldId: () => `doctypefield_${++n}`,
+    newDocumentTypeFieldOptionId: () => `doctypefieldopt_${++n}`,
   };
 }
 

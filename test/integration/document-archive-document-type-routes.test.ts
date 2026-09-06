@@ -44,6 +44,8 @@ function makeIds() {
   newRequirementTemplateId: () => "reqtpl_test",
   newRequirementTemplateItemId: () => `reqtplitem_${crypto.randomUUID()}`,
   newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
+  newDocumentTypeFieldId: () => `doctypefield_${crypto.randomUUID()}`,
+  newDocumentTypeFieldOptionId: () => `doctypefieldopt_${crypto.randomUUID()}`,
   };
 }
 

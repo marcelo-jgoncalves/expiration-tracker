@@ -70,9 +70,20 @@ import {
   documentTypeGsi1Keys,
   documentTypeKey,
   documentTypeNamePointerKey,
+  MAX_ACTIVE_METADATA_FIELDS,
+  MAX_ACTIVE_OPTIONS_PER_FIELD,
+  MAX_METADATA_FIELD_NAME_CHARS,
+  MAX_METADATA_FIELD_OPTION_LABEL_CHARS,
+  MAX_TOTAL_METADATA_FIELD_DEFINITIONS,
+  MAX_TOTAL_OPTIONS_PER_FIELD,
   type CreateDocumentTypeInput,
+  type CreateDocumentTypeMetadataFieldInput,
   type DocumentType,
+  type DocumentTypeFieldOption,
+  type DocumentTypeFieldOptionPatchOp,
+  type DocumentTypeMetadataFieldDefinition,
   type DocumentTypeNamePointer,
+  type UpdateDocumentTypeMetadataFieldInput,
 } from "../domain/document-type.js";
 import {
   assertExactlyOnePrincipal,
@@ -1718,6 +1729,179 @@ export class DocumentArchiveService {
       throw err;
     }
     return { ...current, status: toStatus, ...gsi1, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // DocumentType metadata fields (D-218, Roadmap P1 "metadata configurável por Document
+  // Type") — design APPROVED in
+  // `docs/architecture/reviews/document-type-metadata-scoping/estado-final-consolidado.md`.
+  // Fatia 1: domain + catalog CRUD only (Decisions 1/3/4/6 partial) — no HTTP routes yet, no
+  // `Document.metadataValues` value-write path yet (fatia 2/3).
+  // ---------------------------------------------------------------------------------------
+
+  /** Decision 1/3 — whole-array replace of `DocumentType.metadataFields`, same idiom as
+   * `updateRequirementTemplate`'s `items` replace. `valueType` is fixed forever at creation
+   * (Decision 3) — there is no operation anywhere in this class that accepts a `valueType`
+   * change for an existing `fieldId`. */
+  async createDocumentTypeMetadataField(
+    ctx: RequestContext,
+    documentTypeId: string,
+    expectedVersion: number,
+    input: CreateDocumentTypeMetadataFieldInput,
+  ): Promise<DocumentType> {
+    authorize({ context: ctx, action: "docarchive:documenttype-metadata-manage", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
+    const now = this.now();
+
+    this.assertMetadataFieldNameSize(input.name);
+    if (input.valueType !== "SINGLE_SELECT" && input.options !== undefined && input.options.length > 0) {
+      throw new ValidationError("Only a SINGLE_SELECT field may declare options.", { valueType: input.valueType });
+    }
+
+    const existingFields = current.metadataFields ?? [];
+    const existingActive = existingFields.filter((f) => f.status === "ACTIVE").length;
+    if (existingActive + 1 > MAX_ACTIVE_METADATA_FIELDS) {
+      throw new ValidationError(`A DocumentType may hold at most ${MAX_ACTIVE_METADATA_FIELDS} ACTIVE metadata fields.`, { activeCount: existingActive });
+    }
+    if (existingFields.length + 1 > MAX_TOTAL_METADATA_FIELD_DEFINITIONS) {
+      throw new ValidationError(`A DocumentType may hold at most ${MAX_TOTAL_METADATA_FIELD_DEFINITIONS} metadata field definitions in total (active + archived).`, { totalCount: existingFields.length });
+    }
+
+    const options = (input.options ?? []).map((label): DocumentTypeFieldOption => {
+      this.assertMetadataFieldOptionLabelSize(label);
+      return { optionId: this.ids.newDocumentTypeFieldOptionId(), label, status: "ACTIVE" };
+    });
+    if (options.length > MAX_ACTIVE_OPTIONS_PER_FIELD) {
+      throw new ValidationError(`A field may hold at most ${MAX_ACTIVE_OPTIONS_PER_FIELD} ACTIVE options.`, { count: options.length });
+    }
+
+    const newField: DocumentTypeMetadataFieldDefinition = {
+      fieldId: this.ids.newDocumentTypeFieldId(),
+      name: input.name,
+      valueType: input.valueType,
+      required: input.required,
+      ...(input.valueType === "SINGLE_SELECT" ? { options } : {}),
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextFields = [...existingFields, newField];
+
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      tenantId,
+      expectedVersion,
+      set: { metadataFields: nextFields },
+      now,
+    });
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentType was concurrently modified.", { documentTypeId });
+      throw err;
+    }
+    return { ...current, metadataFields: nextFields, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  /** Decision 7 — one PATCH covers the field itself (name/required/status) AND its options
+   * (`optionsPatch`), one OCC-fenced write, because `options` is an array nested inside the
+   * same `DocumentTypeMetadataFieldDefinition` inside the same `DocumentType` item — never a
+   * second concurrency mechanism for options specifically. */
+  async updateDocumentTypeMetadataField(
+    ctx: RequestContext,
+    documentTypeId: string,
+    fieldId: string,
+    expectedVersion: number,
+    input: UpdateDocumentTypeMetadataFieldInput,
+  ): Promise<DocumentType> {
+    authorize({ context: ctx, action: "docarchive:documenttype-metadata-manage", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
+    const now = this.now();
+
+    const existingFields = current.metadataFields ?? [];
+    const fieldIndex = existingFields.findIndex((f) => f.fieldId === fieldId);
+    if (fieldIndex === -1) throw new NotFoundError("DocumentType metadata field not found.", { documentTypeId, fieldId });
+    const field = existingFields[fieldIndex]!;
+
+    if (input.name !== undefined) this.assertMetadataFieldNameSize(input.name);
+    if (input.optionsPatch !== undefined && input.optionsPatch.length > 0 && field.valueType !== "SINGLE_SELECT") {
+      throw new ValidationError("Only a SINGLE_SELECT field may have its options patched.", { fieldId, valueType: field.valueType });
+    }
+
+    const nextOptions = input.optionsPatch !== undefined ? this.applyDocumentTypeFieldOptionsPatch(field.options ?? [], input.optionsPatch) : field.options;
+    const nextField: DocumentTypeMetadataFieldDefinition = {
+      ...field,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.required !== undefined ? { required: input.required } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(nextOptions !== undefined ? { options: nextOptions } : {}),
+      updatedAt: now,
+    };
+    const nextFields = existingFields.map((f, i) => (i === fieldIndex ? nextField : f));
+
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentTypeKey(tenantId, documentTypeId),
+      tenantId,
+      expectedVersion,
+      set: { metadataFields: nextFields },
+      now,
+    });
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries: [{ Update: update }] });
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentType was concurrently modified.", { documentTypeId });
+      throw err;
+    }
+    return { ...current, metadataFields: nextFields, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  /** Decision 4/8 — applies each option patch op in order against a working copy, so a batch
+   * mixing e.g. ARCHIVE+ADD in the same call sees a consistent running ACTIVE count. Options
+   * are never removed from the array — ARCHIVE only flips `status`, same tombstone discipline
+   * as the field itself. */
+  private applyDocumentTypeFieldOptionsPatch(existingOptions: readonly DocumentTypeFieldOption[], patch: readonly DocumentTypeFieldOptionPatchOp[]): DocumentTypeFieldOption[] {
+    const working = [...existingOptions];
+    for (const op of patch) {
+      if (op.op === "ADD") {
+        this.assertMetadataFieldOptionLabelSize(op.label);
+        const activeCount = working.filter((o) => o.status === "ACTIVE").length;
+        if (activeCount + 1 > MAX_ACTIVE_OPTIONS_PER_FIELD) throw new ValidationError(`A field may hold at most ${MAX_ACTIVE_OPTIONS_PER_FIELD} ACTIVE options.`, { activeCount });
+        if (working.length + 1 > MAX_TOTAL_OPTIONS_PER_FIELD) throw new ValidationError(`A field may hold at most ${MAX_TOTAL_OPTIONS_PER_FIELD} options in total (active + archived).`, { totalCount: working.length });
+        working.push({ optionId: this.ids.newDocumentTypeFieldOptionId(), label: op.label, status: "ACTIVE" });
+        continue;
+      }
+      const index = working.findIndex((o) => o.optionId === op.optionId);
+      if (index === -1) throw new NotFoundError("DocumentType metadata field option not found.", { optionId: op.optionId });
+      const option = working[index]!;
+      if (op.op === "RENAME") {
+        this.assertMetadataFieldOptionLabelSize(op.label);
+        working[index] = { ...option, label: op.label };
+      } else if (op.op === "ARCHIVE") {
+        working[index] = { ...option, status: "ARCHIVED" };
+      } else {
+        const activeCount = working.filter((o) => o.status === "ACTIVE").length;
+        if (activeCount + 1 > MAX_ACTIVE_OPTIONS_PER_FIELD) throw new ValidationError(`A field may hold at most ${MAX_ACTIVE_OPTIONS_PER_FIELD} ACTIVE options.`, { activeCount });
+        working[index] = { ...option, status: "ACTIVE" };
+      }
+    }
+    return working;
+  }
+
+  /** D-218 Decision 1 uses character length (not `Buffer.byteLength` UTF-8 bytes like
+   * `MAX_NAME_BYTES` elsewhere in this file) — the approved design explicitly specifies "≤ 200
+   * caracteres", not bytes. */
+  private assertMetadataFieldNameSize(name: string): void {
+    if (name.trim().length === 0) throw new ValidationError("DocumentType metadata field name must not be empty.");
+    if (name.length > MAX_METADATA_FIELD_NAME_CHARS) throw new ValidationError(`DocumentType metadata field name exceeds ${MAX_METADATA_FIELD_NAME_CHARS} characters.`);
+  }
+
+  private assertMetadataFieldOptionLabelSize(label: string): void {
+    if (label.trim().length === 0) throw new ValidationError("DocumentType metadata field option label must not be empty.");
+    if (label.length > MAX_METADATA_FIELD_OPTION_LABEL_CHARS) throw new ValidationError(`DocumentType metadata field option label exceeds ${MAX_METADATA_FIELD_OPTION_LABEL_CHARS} characters.`);
   }
 
   // ---------------------------------------------------------------------------------------
