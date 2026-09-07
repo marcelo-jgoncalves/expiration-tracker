@@ -17,6 +17,7 @@
         "intervalDays": { "type": "integer", "minimum": 1, "maximum": 3650 }
       }
     },
-    "firstDueAt": { "type": "string", "format": "date-time" }
+    "firstDueAt": { "type": "string", "format": "date-time" },
+    "recipientEmail": { "type": "string", "format": "email", "maxLength": 254 }
   }
 }

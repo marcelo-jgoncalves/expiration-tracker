@@ -82,4 +82,18 @@ describe("runDocumentRequestRecurrenceMaterializer", () => {
     const requests = store.allItems().filter((i) => i["entityType"] === "DocumentRequest");
     expect(requests).toHaveLength(1);
   });
+
+  // D-230 — closes D-228's named pendency: proves the PERIODIC worker (not just the interactive
+  // materializeAttempt) copies series.recipientEmail onto the DocumentRequest it materializes.
+  it("copies series.recipientEmail onto the DocumentRequest it materializes", async () => {
+    const store = new InMemoryDocumentArchiveStore();
+    const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+
+    await runDocumentRequestRecurrenceMaterializer({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
+
+    const requests = store.allItems().filter((i) => i["entityType"] === "DocumentRequest" && i["seriesId"] === series.seriesId) as unknown as { recipientEmail?: string }[];
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.recipientEmail).toBe("guest@example.com");
+  });
 });

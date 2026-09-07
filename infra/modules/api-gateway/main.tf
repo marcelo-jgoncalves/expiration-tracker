@@ -657,6 +657,8 @@ locals {
     get_series         = { method = "GET", path = "/document-archive/series/{subjectId}/{seriesId}" }
     cancel_series      = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/cancel" }
     materialize_series = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/materialize" }
+    # D-230 - closes D-228's named pendency (recurrence path had no recipient contact).
+    update_series_recipient = { method = "POST", path = "/document-archive/series/{subjectId}/{seriesId}/recipient" }
 
     # D-173 (DocumentType catalog), item 5 - same Lambda, tenant-facing catalog CRUD routes.
     create_document_type     = { method = "POST", path = "/document-archive/document-types" }

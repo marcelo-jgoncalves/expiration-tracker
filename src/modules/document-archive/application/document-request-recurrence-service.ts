@@ -101,6 +101,7 @@ export function buildMaterializeAttemptEntries(input: {
     occurrenceId,
     attemptIndex,
     ...(parentRequestId !== undefined ? { parentRequestId } : {}),
+    ...(series.recipientEmail !== undefined ? { recipientEmail: series.recipientEmail } : {}),
     submissionCount: 0,
     issuanceGeneration: 1,
     createdAt: now,
@@ -167,6 +168,8 @@ export class DocumentRequestRecurrenceService {
       currentCycleStartAt: cycleStartAt,
       nextDueAt: cycleStartAt,
       latestAttemptIndex: 0,
+      // D-230 — trimmed only, never case-folded (see DocumentRequestSeries.recipientEmail doc).
+      ...(input.recipientEmail !== undefined ? { recipientEmail: input.recipientEmail.trim() } : {}),
       createdAt: now,
       updatedAt: now,
       version: 1,
@@ -214,6 +217,47 @@ export class DocumentRequestRecurrenceService {
       throw err;
     }
     return { ...current, ...set, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  /**
+   * D-230 — updates (or removes, when `recipientEmail` is `null`) the series-level recipient
+   * used by FUTURE materialized cycles only (snapshot semantics — see `DocumentRequestSeries.
+   * recipientEmail`'s doc comment; requests already materialized never get reendered). Reuses the
+   * `docarchive:series-update` action (pre-existing, previously only exercised by `advanceCycle`,
+   * which has no HTTP route of its own — no collision). Rejects a `CANCELLED` series with
+   * `ConflictError`: a cancelled series never materializes another cycle (the recurrence
+   * producer/`materializeAttempt` both only ever act on `ACTIVE` series, and
+   * `documentRequestSeriesGsi1Keys` partitions `ACTIVE`/`CANCELLED` separately), so mutating its
+   * recipient would have no observable effect — better to fail loudly than accept a silent no-op.
+   * `null` maps to a DynamoDB `REMOVE`, never a stored `null` — the domain type stays
+   * `recipientEmail?: string`, never `string | null`.
+   */
+  async updateSeriesRecipient(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number, recipientEmail: string | null): Promise<DocumentRequestSeries> {
+    authorize({ context: ctx, action: "docarchive:series-update", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const current = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
+    if (current.status !== "ACTIVE") throw new ConflictError("Cannot update the recipient of a cancelled series.", { seriesId });
+    const now = this.now();
+    const trimmed = recipientEmail === null ? null : recipientEmail.trim();
+    const update = buildVersionedUpdate({
+      tableName: this.tableName,
+      key: documentRequestSeriesKey(tenantId, subjectId, seriesId),
+      tenantId,
+      expectedVersion,
+      set: trimmed === null ? {} : { recipientEmail: trimmed },
+      ...(trimmed === null ? { remove: ["recipientEmail"] } : {}),
+      now,
+    });
+    try {
+      await this.store.transactWrite([{ Update: update }]);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentRequestSeries was concurrently modified.", { seriesId });
+      throw err;
+    }
+    const next: DocumentRequestSeries = { ...current, version: expectedVersion + 1, updatedAt: now };
+    if (trimmed === null) delete next.recipientEmail;
+    else next.recipientEmail = trimmed;
+    return next;
   }
 
   /** Interactive/manual-trigger entry point (authorize-gated). The periodic materializer worker

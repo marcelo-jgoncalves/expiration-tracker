@@ -32,6 +32,7 @@ import {
   handleListSeries,
   handleCancelSeries,
   handleMaterializeSeriesAttempt,
+  handleUpdateSeriesRecipient,
   handleCreateDocumentType,
   handleGetDocumentType,
   handleListDocumentTypes,
@@ -139,6 +140,9 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleCancelSeries(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/series/{subjectId}/{seriesId}/materialize":
           return await handleMaterializeSeriesAttempt(deps, { ...base, body: parseBody(event) });
+        // D-230 — closes D-228's named pendency (recurrence path had no recipient contact).
+        case "POST /document-archive/series/{subjectId}/{seriesId}/recipient":
+          return await handleUpdateSeriesRecipient(deps, { ...base, body: parseBody(event) });
         // D-173 (DocumentType catalog), item 5 — tenant-facing catalog CRUD routes.
         case "POST /document-archive/document-types":
           return await handleCreateDocumentType(deps, { ...base, body: parseBody(event) });

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-series-update-recipient-request.v1.json",
+  "title": "DocArchiveSeriesUpdateRecipientRequest v1",
+  "description": "POST /document-archive/series/{subjectId}/{seriesId}/recipient request body. D-230 (closes D-228's named pendency: DocumentRequestSeries.recipientEmail mutation). `recipientEmail: null` removes the series' recipient (never persisted as null — see document-request-series.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recipientEmail", "expectedVersion"],
+  "properties": {
+    "recipientEmail": { "type": ["string", "null"], "format": "email", "maxLength": 254 },
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}
