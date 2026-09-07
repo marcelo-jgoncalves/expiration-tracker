@@ -341,6 +341,8 @@ module "dispatch_outbox_relay" {
     REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
     # D-205 fatia 2: eighth destination, same reasoning.
     DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
+    # D-226: ninth destination, same reasoning.
+    GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL = module.guest_credential_issuance_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -353,6 +355,7 @@ module "dispatch_outbox_relay" {
     module.requirement_evidence_refresh_queue.send_policy_json,
     module.report_subscription_delivery_queue.send_policy_json,
     module.dossier_export_queue.send_policy_json,
+    module.guest_credential_issuance_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -381,6 +384,8 @@ module "outbox_sweeper" {
     REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL = module.report_subscription_delivery_queue.queue_url
     # D-205 fatia 2: ninth destination, same reasoning.
     DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
+    # D-226: tenth destination, same reasoning.
+    GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL = module.guest_credential_issuance_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -405,6 +410,7 @@ module "outbox_sweeper" {
     module.requirement_evidence_refresh_queue.send_policy_json,
     module.report_subscription_delivery_queue.send_policy_json,
     module.dossier_export_queue.send_policy_json,
+    module.guest_credential_issuance_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -478,6 +484,58 @@ module "document_archive_guest_handler" {
   })
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- DocumentRequestCredentialIssuance: SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1, fed by
+# dispatch_outbox_relay/outbox_sweeper (D-226, closes D-222 Achado 1/Roadmap P0 item 9). Runs on
+# the GUEST Lambda deployment unit alongside document_archive_guest_handler above (same pepper,
+# same isolation posture) but is a SEPARATE Lambda function/role - it needs PutItem on the new
+# dedicated table below, which document_archive_guest_handler's HTTP routes never touch.
+
+module "guest_credential_delivery_table" {
+  source = "./modules/guest-credential-delivery-table"
+
+  table_name     = "${local.name_prefix}-guest-credential-delivery"
+  aws_region     = var.aws_region
+  aws_account_id = var.aws_account_id
+  tags           = { Project = local.project_name, Environment = var.environment }
+}
+
+module "guest_credential_issuance_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-guest-credential-issuance"
+  consumer_timeout_seconds = 30 # one TransactWriteItems of 4 entries across 2 tables.
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+module "document_request_credential_issuance_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-document-request-credential-issuance-handler"
+  handler_name   = "document-request-credential-issuance-handler"
+  source_dir     = "${local.dist_dir}/document-request-credential-issuance-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    DOCARCHIVE_GUEST_ACCESS_PEPPER       = random_password.document_archive_guest_access_pepper.result
+    GUEST_CREDENTIAL_DELIVERY_TABLE_NAME = module.guest_credential_delivery_table.table_name
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.guest_credential_delivery_table.put_policy_json,
+    module.guest_credential_issuance_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "document_request_credential_issuance_from_queue" {
+  event_source_arn        = module.guest_credential_issuance_queue.queue_arn
+  function_name           = module.document_request_credential_issuance_handler.live_alias_arn
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
 }
 
 # --- API Gateway ---------------------------------------------------------------------------

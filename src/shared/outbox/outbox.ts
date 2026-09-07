@@ -65,7 +65,17 @@ export type OutboxDestination =
    * carries its final routing discriminator, same "written before its consumer exists" pattern
    * `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1`/`SQS_REPORT_SUBSCRIPTION_DELIVERY_V1` above already
    * established. */
-  | "SQS_DOSSIER_EXPORT_V1";
+  | "SQS_DOSSIER_EXPORT_V1"
+  /** D-226 (`guest-credential-issuance-scoping/estado-final-consolidado.md`, closes D-222's
+   * blocker finding): written in the SAME `TransactWriteItems` that creates a `DocumentRequest`
+   * (interactive `materializeAttempt`, the periodic materializer worker, or the future
+   * `createDocumentRequest` avulso slice) via `buildDocumentRequestCreatedOutboxEntry`. Consumed
+   * by a NEW handler on the document-archive GUEST Lambda (has the D-146 pepper) — the producer
+   * Lambda (`document-archive-handler`) deliberately never has it. Payload is the minimal
+   * `{tenantId, subjectId, documentRequestId, issuanceGeneration}` wake-up hint the design
+   * requires — the consumer always re-reads the authoritative `DocumentRequest` rather than
+   * trusting any business data carried here. */
+  | "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1";
 
 export interface OutboxRecord {
   PK: string;

@@ -7,6 +7,7 @@ import { DocumentArchiveService } from "../../../modules/document-archive/applic
 import { DocumentArchiveGuestRateLimiter } from "../../../modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import { GuestDocumentAccessService } from "../../../modules/document-archive/application/guest-document-access-service.js";
 import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
+import { DocumentRequestCredentialIssuanceService } from "../../../modules/document-archive/application/document-request-credential-issuance-service.js";
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
 import { S3DossierExportStore } from "../../../modules/document-archive/persistence/s3-dossier-export-store.js";
@@ -92,4 +93,15 @@ export function buildDocumentArchiveGuestDeps(client: DynamoDBDocumentClient, ta
   const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
   const guestAccess = new GuestDocumentAccessService({ store, tableName, ids, rateLimiter, pepper: guestAccessPepper });
   return { store, guestAccess };
+}
+
+/** D-226 — composition root for `document-request-credential-issuance-handler.ts`, the OTHER
+ * consumer running on the guest Lambda deployment unit alongside `buildDocumentArchiveGuestDeps`
+ * above. Kept as its own function (not folded into that one) because it needs a SECOND table
+ * name (`deliveryTableName`, the dedicated `guest-credential-delivery` table) that no other
+ * guest-surface consumer touches — same "separate composition per distinct dependency shape"
+ * reasoning `buildDossierExportGenerationDeps` already established for its own extra bucket arg. */
+export function buildDocumentRequestCredentialIssuanceDeps(client: DynamoDBDocumentClient, tableName: string, deliveryTableName: string, guestAccessPepper: string) {
+  const store = new DynamoDbDocumentArchiveStore(client, tableName);
+  return new DocumentRequestCredentialIssuanceService({ store, tableName, deliveryTableName, pepper: guestAccessPepper });
 }

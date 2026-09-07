@@ -19,6 +19,8 @@
  * containment is `Membership` revocation's job, not session logout's.
  */
 import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
+import { isValidE164 } from "../../../shared/text/phone-e164.js";
+import { ValidationError, NotFoundError } from "../../../shared/errors/app-error.js";
 
 export interface GlobalUser {
   PK: string;
@@ -40,6 +42,14 @@ export interface GlobalUser {
    * creation (`CreateOrganizationService.buildCreateEntries()` + this one extra entry) — never
    * check-then-act. */
   hasCreatedOrganization?: boolean;
+  /** D-6 (WhatsApp program, `docs/architecture/reviews/whatsapp-channel-scoping/
+   * estado-final-consolidado.md`): the user's current WhatsApp-reachable number, E.164 format,
+   * validated by `setPhoneNumber()` below before persisting — never written any other way in
+   * this codebase. Absent means "no number on file", never inferred from any other field.
+   * D-5's `WhatsAppOptIn` deliberately keys consent to a specific phone value, not to this
+   * field directly — a future router (fatia 2+) must always re-read this field fresh and check
+   * consent against ITS current value, never trust a stale copy. */
+  phoneE164?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -103,5 +113,25 @@ export class GlobalUserRepository {
     const user = await this.get(userId);
     if (!user) return;
     await this.store.update({ ...user, globalLogoutAfter: this.now(), updatedAt: this.now() });
+  }
+
+  /**
+   * D-6: validates E.164 shape BEFORE any read/write — a malformed value never reaches
+   * DynamoDB. Same unconditional read-then-`update()` pattern as `logoutAll` above (no OCC
+   * check on `version` here either — this repository has never done optimistic-concurrency
+   * writes on `GlobalUser`, a pre-existing property of this class, not introduced by this
+   * change). Not called from any HTTP route yet (fatia 1 is domain-only, per the design's
+   * named next action) — exists so the validation invariant is exercised by real,
+   * G-V3-tested code, not left in the type alone.
+   */
+  async setPhoneNumber(userId: string, phoneE164: string): Promise<GlobalUser> {
+    if (!isValidE164(phoneE164)) {
+      throw new ValidationError(`Invalid E.164 phone number: ${phoneE164}`, { phoneE164 });
+    }
+    const user = await this.get(userId);
+    if (!user) throw new NotFoundError(`GlobalUser not found: ${userId}`, { userId });
+    const updated: GlobalUser = { ...user, phoneE164, updatedAt: this.now() };
+    await this.store.update(updated);
+    return updated;
   }
 }

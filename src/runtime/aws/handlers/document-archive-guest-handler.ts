@@ -13,6 +13,7 @@ import {
   handleGetGuestRequest,
   handleStartGuestSession,
   handleSubmitEvidence,
+  handleListGuestDocumentTypes,
   type GuestArchiveHttpDeps,
   type GuestArchiveHttpRequest,
 } from "../../../modules/document-archive/http/document-archive-guest-handlers.js";
@@ -59,6 +60,8 @@ async function handleGuestArchiveRoute(event: APIGatewayProxyEventV2): Promise<A
           return await handleStartGuestSession(deps, base);
         case "POST /document-archive/guest/document-requests/{token}/uploads":
           return await handleSubmitEvidence(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/guest/document-requests/{token}/document-types":
+          return await handleListGuestDocumentTypes(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

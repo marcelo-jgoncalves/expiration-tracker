@@ -31,6 +31,8 @@ const requirementEvidenceRefreshQueueUrl = process.env["REQUIREMENT_EVIDENCE_REF
 const reportSubscriptionDeliveryQueueUrl = process.env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
 // D-205 fatia 2: eighth destination, same reasoning.
 const dossierExportQueueUrl = process.env["DOSSIER_EXPORT_QUEUE_URL"];
+// D-226 (Roadmap P0 item 9): ninth destination, same reasoning.
+const guestCredentialIssuanceQueueUrl = process.env["GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
 if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
@@ -40,6 +42,7 @@ if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is req
 if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
 if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
 if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
+if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
 const deps = buildOutboxRelayDeps(
   client,
   tableName,
@@ -52,6 +55,7 @@ const deps = buildOutboxRelayDeps(
   requirementEvidenceRefreshQueueUrl,
   reportSubscriptionDeliveryQueueUrl,
   dossierExportQueueUrl,
+  guestCredentialIssuanceQueueUrl,
 );
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 

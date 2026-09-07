@@ -151,6 +151,23 @@ export async function handleStartGuestSession(deps: GuestArchiveHttpDeps, req: G
 /** POST /document-archive/guest/document-requests/{token}/uploads — layer 3, idempotent
  * evidence submission. Reads the session token from the HttpOnly cookie (never from the request
  * body/path — the guest never re-types it), CSRF from the cookie+header double-submit pair. */
+/** GET /document-archive/guest/document-requests/{token}/document-types — discovery route,
+ * item 6 of D-173's estado-final-consolidado.md (engineering-only slice, see decisions-log for
+ * the full contradiction/pendency writeup). Same anti-enumeration posture as every other guest
+ * handler: token validation failures collapse into the identical `GuestAccessInvalidError`
+ * response as `handleGetGuestRequest`. */
+export async function handleListGuestDocumentTypes(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest): Promise<GuestArchiveHttpResponse> {
+  return withErrorMapping(async () => {
+    const token = requireToken(req);
+    const documentTypes = await deps.guestAccess.listActiveDocumentTypesForGuest(token, { ip: req.sourceIp });
+    return {
+      statusCode: 200,
+      headers: baseHeaders(),
+      body: { documentTypes },
+    };
+  });
+}
+
 export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest<SubmitEvidenceInput>): Promise<GuestArchiveHttpResponse> {
   return withErrorMapping(async () => {
     requireToken(req); // Presence-checked for route symmetry/observability; resolution is by session cookie, not the path token.

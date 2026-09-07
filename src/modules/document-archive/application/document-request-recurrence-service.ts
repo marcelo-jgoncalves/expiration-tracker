@@ -14,7 +14,10 @@
  * `buildVersionedUpdate` directly against the store rather than round-tripping through
  * `DocumentArchiveService`'s authorize-gated methods.
  */
+import { randomUUID } from "node:crypto";
 import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { appendToTransaction } from "../../../shared/outbox/outbox.js";
+import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
@@ -40,6 +43,33 @@ export interface DocumentRequestRecurrenceServiceDeps {
 export interface MaterializeAttemptResult {
   series: DocumentRequestSeries;
   request: DocumentRequest;
+}
+
+/**
+ * D-226 (`guest-credential-issuance-scoping/estado-final-consolidado.md`) — the SINGLE builder
+ * every `DocumentRequest`-creating call site (this file's `buildMaterializeAttemptEntries`, and
+ * the future `createDocumentRequest` avulso slice named in D-222 Achado 2) must go through,
+ * never duplicated ad hoc per call site (Round 1 of the protocol's critique, point 6). Appends
+ * the `DocumentRequestCredentialIssuanceRequested` outbox entry to `tx` — same
+ * `TransactWriteItems` that creates/mutates the `DocumentRequest` itself, never a separate write.
+ * Payload is the minimal wake-up hint the design requires: the guest-Lambda consumer (D-146's
+ * pepper holder, a follow-up slice) always re-reads the authoritative `DocumentRequest` rather
+ * than trusting `requirementId`/`deadline` carried here.
+ */
+export function buildDocumentRequestCreatedOutboxEntry(tx: TransactWriteEntry[], tableName: string, request: DocumentRequest, correlationId: string): void {
+  const event: DomainEvent<{ tenantId: string; subjectId: string; documentRequestId: string; issuanceGeneration: number }> = {
+    specVersion: "1.0",
+    eventId: randomUUID(),
+    eventType: "DocumentRequestCredentialIssuanceRequested",
+    source: "document-archive.documentRequestCreated",
+    occurredAt: request.updatedAt,
+    correlationId,
+    tenantId: request.tenantId,
+    actor: { type: "SYSTEM" },
+    aggregate: { type: "DocumentRequest", id: request.documentRequestId, version: request.version },
+    data: { tenantId: request.tenantId, subjectId: request.subjectId, documentRequestId: request.documentRequestId, issuanceGeneration: request.issuanceGeneration },
+  };
+  appendToTransaction(tx, tableName, event, "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1");
 }
 
 /**
@@ -72,6 +102,7 @@ export function buildMaterializeAttemptEntries(input: {
     attemptIndex,
     ...(parentRequestId !== undefined ? { parentRequestId } : {}),
     submissionCount: 0,
+    issuanceGeneration: 1,
     createdAt: now,
     updatedAt: now,
     version: 1,
@@ -96,6 +127,11 @@ export function buildMaterializeAttemptEntries(input: {
     // 2. Create the new DocumentRequest attempt — same transaction, never a separate call.
     { Put: buildVersionedCreate(tableName, request as unknown as Record<string, unknown> & EntityKey) },
   ];
+
+  // D-226: same transaction, never a separate write — see buildDocumentRequestCreatedOutboxEntry's
+  // doc comment. correlationId falls back to the new request's own id (no ambient request context
+  // exists for the scheduled-worker call path).
+  buildDocumentRequestCreatedOutboxEntry(entries, tableName, request, newRequestId);
 
   return { entries, request };
 }

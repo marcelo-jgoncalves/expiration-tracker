@@ -104,7 +104,7 @@ describe("DocumentRequestRecurrenceService.materializeAttempt — transactional 
     expect(persistedSeries.latestRequestId).toBe(persistedRequest.documentRequestId);
   });
 
-  it("MUTATION CHECK: if the series Update and the DocumentRequest Put were not in the same transaction, a rejected Update would still leave the Put un-guarded — verified by asserting transactWrite receives exactly 2 entries for one call", async () => {
+  it("MUTATION CHECK: if the series Update, the DocumentRequest Put, and the D-226 issuance outbox Put were not in the same transaction, a rejected Update would still leave the others un-guarded — verified by asserting transactWrite receives exactly 3 entries for one call", async () => {
     const { service, store } = makeService();
     const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
     let capturedEntryCount = -1;
@@ -114,7 +114,29 @@ describe("DocumentRequestRecurrenceService.materializeAttempt — transactional 
       return originalTransactWrite(entries);
     };
     await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
-    expect(capturedEntryCount).toBe(2);
+    expect(capturedEntryCount).toBe(3);
+  });
+
+  it("D-226: appends a DocumentRequestCredentialIssuanceRequested outbox entry, in the same transaction, with the minimal wake-up payload", async () => {
+    const { service, store } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const result = await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
+
+    const all = store.allItems();
+    const outboxRecord = all.find((i) => i["entityType"] === "OutboxEvent") as unknown as {
+      eventType: string;
+      destination: string;
+      payload: { tenantId: string; subjectId: string; documentRequestId: string; issuanceGeneration: number };
+    };
+    expect(outboxRecord).toBeDefined();
+    expect(outboxRecord.eventType).toBe("DocumentRequestCredentialIssuanceRequested");
+    expect(outboxRecord.destination).toBe("SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1");
+    expect(outboxRecord.payload).toEqual({
+      tenantId: "tenant-1",
+      subjectId: "subject-1",
+      documentRequestId: result.request.documentRequestId,
+      issuanceGeneration: 1,
+    });
   });
 
   it("rejects a stale expectedVersion (OCC) without partially applying either write", async () => {

@@ -98,7 +98,7 @@ Cada feature deve continuar sendo implementada com seus contratos, estados e nec
 | 6 | Dashboard operacional / compliance básico | P0 | Dá visão rápida de risco, pendências, vencimentos e requisitos |
 | 7 | Relatórios + exportação + audit trail utilizável | P0 | Necessário para gestão, auditoria e percepção de valor B2B |
 | 8 | Document Types configuráveis | P0 | Base para templates, IA, classificação e organização |
-| 9 | Consolidar Guest Upload + Requests + Review + Recurrence como produto completo | P0 | Backend já avançado; precisa funcionar como ciclo único e coerente |
+| 9 | Consolidar Guest Upload + Requests + Review + Recurrence como produto completo | P0 | **AUDITADO 2026-09-07 (D-222): ABERTO.** Peças individuais (Document/DocumentVersion, Requirement, guest access 3 camadas, DocumentRequestSeries/recorrência) corretas e deployadas, mas desconectadas no ponto central: `issueCredential()` nunca é chamado por `materializeAttempt`/worker — nenhum guest recebe link hoje. Gap é decisão nível 5 (fronteira de segurança Lambda/pepper), não mecânico. Ver `decisions-log.md` D-222. |
 | 10 | Consolidar Storage + Versioning + Renewal | P0 | Núcleo documental precisa estar funcionalmente fechado antes do frontend final |
 | 11 | Frontend completo do conjunto P0 | P0 — fechamento | Productização final após estabilização das capacidades acima |
 | 12 | Reminder sequences configuráveis | P1 | Automação avançada e bom diferencial Premium |
