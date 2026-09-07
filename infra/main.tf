@@ -386,6 +386,8 @@ module "outbox_sweeper" {
     DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
     # D-226: tenth destination, same reasoning.
     GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL = module.guest_credential_issuance_queue.queue_url
+    # D-229 fatia 2/5 (D-9): eleventh destination, same reasoning.
+    WHATSAPP_DELIVER_QUEUE_URL = module.whatsapp_deliver_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -411,6 +413,7 @@ module "outbox_sweeper" {
     module.report_subscription_delivery_queue.send_policy_json,
     module.dossier_export_queue.send_policy_json,
     module.guest_credential_issuance_queue.send_policy_json,
+    module.whatsapp_deliver_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -536,6 +539,97 @@ resource "aws_lambda_event_source_mapping" "document_request_credential_issuance
   function_name           = module.document_request_credential_issuance_handler.live_alias_arn
   batch_size              = 5
   function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- GuestCredentialDelivery: guest_credential_delivery_table's OWN DynamoDB Streams (D-226
+# decision central item 5), closes the gap D-222/D-227 named — this worker did not exist until
+# D-228. Runs on the RESOURCE (non-guest) Lambda deployment unit: it only ever reads
+# DocumentRequest (tenant_facing_read_write_policy_json, same read access every other
+# document-archive consumer already has) and sends email via SES — it never touches the D-146
+# pepper, so it does not need to run on the guest Lambda's isolated deployment unit.
+#
+# Failure queue carries ONLY the failed batch's metadata (Lambda's on_failure destination
+# payload for a Streams source is {requestContext, DDBStreamBatchInfo} - no record content),
+# never the delivery record/token itself - D-226 decision central item 5's "reclassificada
+# como alerta" correction (D-226/D-227). A plain queue (no consumer, no DLQ of its own) is
+# enough - a human/runbook drains it, same posture reminder-dispatch-queue's own DLQ already
+# has before this design existed.
+resource "aws_sqs_queue" "guest_credential_delivery_failures" {
+  name                      = "${local.name_prefix}-guest-credential-delivery-failures"
+  message_retention_seconds = 14 * 24 * 60 * 60 # 14 days
+  sqs_managed_sse_enabled   = true
+  tags                      = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_metric_alarm" "guest_credential_delivery_failures_not_empty" {
+  alarm_name          = "${local.name_prefix}-guest-credential-delivery-failures-not-empty"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.guest_credential_delivery_failures.name }
+  statistic           = "Maximum"
+  period              = 300 # 5 minutes
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  alarm_description   = "GuestCredentialDeliveryFailures has metadata for at least one failed batch - investigate via runbook (queue never carries the raw token/record, only batch metadata)."
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
+}
+
+data "aws_iam_policy_document" "guest_credential_delivery_failures_send" {
+  statement {
+    sid       = "GuestCredentialDeliveryFailuresSend"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.guest_credential_delivery_failures.arn]
+  }
+}
+
+module "guest_credential_delivery_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-guest-credential-delivery-handler"
+  handler_name   = "guest-credential-delivery-handler"
+  source_dir     = "${local.dist_dir}/guest-credential-delivery-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_CREDENTIAL_DELIVERY_TABLE_NAME = module.guest_credential_delivery_table.table_name
+    SES_FROM_ADDRESS                     = var.ses_from_address
+    SES_CONFIGURATION_SET                = module.ses_notifications.configuration_set_name
+    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado das
+    # outras Lambdas que montam guestLink (D-047: sem domínio de frontend ainda).
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.guest_credential_delivery_table.stream_read_policy_json,
+    data.aws_iam_policy_document.ses_send_email.json,
+    data.aws_iam_policy_document.guest_credential_delivery_failures_send.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "guest_credential_delivery_from_stream" {
+  event_source_arn               = module.guest_credential_delivery_table.stream_arn
+  function_name                  = module.guest_credential_delivery_handler.live_alias_arn
+  starting_position              = "LATEST"
+  batch_size                     = 5
+  function_response_types        = ["ReportBatchItemFailures"]
+  maximum_retry_attempts         = 3
+  maximum_record_age_in_seconds  = 3600 # 1h - abandons a poison record rather than blocking the shard forever.
+  bisect_batch_on_function_error = true
+
+  filter_criteria {
+    filter {
+      pattern = jsonencode({ eventName = ["INSERT"] })
+    }
+  }
+
+  destination_config {
+    on_failure {
+      destination_arn = aws_sqs_queue.guest_credential_delivery_failures.arn
+    }
+  }
 }
 
 # --- API Gateway ---------------------------------------------------------------------------
@@ -788,6 +882,20 @@ module "email_deliver_queue" {
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
+module "whatsapp_deliver_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  # D-9 (whatsapp-channel-scoping/estado-final-consolidado.md, D-229 fatia 2/5): a dedicated
+  # queue+DLQ, NEVER reusing email_deliver_queue (ADR-0008: each channel gets its own queue).
+  # maxReceiveCount=5 is the module's own fixed default (see modules/sqs-worker-queue/main.tf).
+  queue_name               = "${local.name_prefix}-whatsapp-deliver"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
 module "ses_callback_queue" {
   source = "./modules/sqs-worker-queue"
 
@@ -936,6 +1044,67 @@ module "email_delivery" {
 resource "aws_lambda_event_source_mapping" "email_delivery_from_queue" {
   event_source_arn        = module.email_deliver_queue.queue_arn
   function_name           = module.email_delivery.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# D-9/D-229 fatia 2/5: mirrors notification_email_outbox_relay above, routing ONLY
+# SQS_NOTIFICATION_WHATSAPP_V1 records to whatsapp_deliver_queue. Not yet reachable from the
+# real notification flow - notification-router-workflow.ts never writes this destination until
+# fatia 5/5 wires the router. Deployed now so the relay -> queue -> worker chain is testable
+# end-to-end ahead of that wiring.
+module "notification_whatsapp_outbox_relay" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-notification-whatsapp-outbox-relay"
+  handler_name          = "whatsapp-outbox-relay-handler"
+  source_dir            = "${local.dist_dir}/whatsapp-outbox-relay-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = merge(local.common_env, { WHATSAPP_DELIVER_QUEUE_URL = module.whatsapp_deliver_queue.queue_url })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.whatsapp_deliver_queue.send_policy_json,
+    data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "notification_whatsapp_outbox_relay_from_stream" {
+  event_source_arn        = module.table.stream_arn
+  function_name           = module.notification_whatsapp_outbox_relay.live_alias_arn
+  starting_position       = "LATEST"
+  batch_size              = 25
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+# D-2/D-229 fatia 2/5: WhatsAppDeliveryWorker. CREDENTIALS NOTE - fatia 2/5 boundary (see
+# whatsapp-cloud-api-adapter.ts's header comment and D-229): access token/phone number id are
+# plain environment variables here, NOT AWS Secrets Manager (that is fatia 3/5, D-10). Empty
+# defaults let this Lambda deploy before real Meta credentials are provisioned; nothing calls
+# it via the real flow yet (notification-router-workflow.ts wiring is fatia 5/5), so a send()
+# call failing on an empty token has no production impact today.
+module "whatsapp_delivery" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-whatsapp-delivery"
+  handler_name   = "whatsapp-delivery-handler"
+  source_dir     = "${local.dist_dir}/whatsapp-delivery-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    WHATSAPP_ACCESS_TOKEN    = var.whatsapp_access_token
+    WHATSAPP_PHONE_NUMBER_ID = var.whatsapp_phone_number_id
+    WHATSAPP_API_VERSION     = var.whatsapp_api_version
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.whatsapp_deliver_queue.consume_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "whatsapp_delivery_from_queue" {
+  event_source_arn        = module.whatsapp_deliver_queue.queue_arn
+  function_name           = module.whatsapp_delivery.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
 }

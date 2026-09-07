@@ -44,6 +44,8 @@ const HANDLERS = [
   "notification-router-handler",
   "notification-email-outbox-relay-handler",
   "email-delivery-handler",
+  "whatsapp-outbox-relay-handler",
+  "whatsapp-delivery-handler",
   "ses-callback-handler",
   "documents-handler",
   "upload-finalizer-handler",
@@ -129,6 +131,10 @@ const HANDLERS = [
   // deployment unit — mints a RequestAccessCredential and writes the delivery record to the
   // dedicated guest-credential-delivery table.
   "document-request-credential-issuance-handler",
+  // D-228 (Roadmap P0 item 9): guest-credential-delivery table's own DynamoDB Streams
+  // (INSERT-only) consumer — the delivery worker D-222/D-227 named as missing; emails the
+  // guest link, closing the end-to-end issuance-to-delivery cycle.
+  "guest-credential-delivery-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

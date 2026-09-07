@@ -34,13 +34,14 @@ run "twentyseven_lambda_functions_exist_no_placeholder" {
   # directory via data.archive_file - but we still assert the expected count and distinct
   # names to catch a wiring mistake).
   assert {
-    condition     = length(output.lambda_function_names) == 32
-    error_message = "Expected exactly 32 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035), PdfParserTaskHandler (M7 item 5, D-035), BedrockExtractionTaskHandler (M7 item 6, D-035), ExtractionValidationTaskHandler (M7 item 7-8, D-035), DocumentPurgeWorker (W3-06, D-061)"
+    # D-229 fatia 2/5 (D-9): +2 (NotificationWhatsAppOutboxRelay, WhatsAppDelivery).
+    condition     = length(output.lambda_function_names) == 34
+    error_message = "Expected exactly 34 Lambda functions: TestPing, Items, Reminders, Producer, Dispatch, Reconciliation, ReminderMaterializationTrigger (BLOCKER-B), Relay, Sweeper, NotificationRouter, NotificationEmailOutboxRelay, EmailDelivery, NotificationWhatsAppOutboxRelay (D-9), WhatsAppDelivery (D-9), SesCallback, NotificationsHandler, DocumentsHandler, UploadFinalizer, MalwareResult, UploadSlotReconciliation, ParserSandbox (M6), SubjectsHandler (M9), GuestDocumentsHandler (M10), DocumentChasingDispatch (M10 cluster 4), ImportsHandler, ImportParse, ImportCommit (M11), BffHandler (Full BFF, D-053/D-054), ExtractionStarterHandler (M7 item 2, D-035), TextractTaskHandler (M7 items 3/4, D-035), PdfParserTaskHandler (M7 item 5, D-035), BedrockExtractionTaskHandler (M7 item 6, D-035), ExtractionValidationTaskHandler (M7 item 7-8, D-035), DocumentPurgeWorker (W3-06, D-061)"
   }
 
   assert {
-    condition     = length(distinct(output.lambda_function_names)) == 32
-    error_message = "All 32 Lambda function names must be distinct"
+    condition     = length(distinct(output.lambda_function_names)) == 34
+    error_message = "All 34 Lambda function names must be distinct"
   }
 }
 
@@ -1043,8 +1044,9 @@ run "rollback_alias_wiring_and_deploy_manifest_bucket_exist" {
   # dedicated manifest bucket exists - both plan-time-known (map keys/bucket name are literal
   # config, not resource-computed attributes).
   assert {
-    condition     = length(output.lambda_published_versions) == 31
-    error_message = "Deploy manifest map must cover exactly the 30 real Lambda functions"
+    # D-229 fatia 2/5 (D-9): +2 (notification_whatsapp_outbox_relay, whatsapp_delivery).
+    condition     = length(output.lambda_published_versions) == 33
+    error_message = "Deploy manifest map must cover exactly the real Lambda functions"
   }
 
   assert {

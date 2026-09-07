@@ -8,6 +8,11 @@ import { DocumentArchiveGuestRateLimiter } from "../../../modules/document-archi
 import { GuestDocumentAccessService } from "../../../modules/document-archive/application/guest-document-access-service.js";
 import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
 import { DocumentRequestCredentialIssuanceService } from "../../../modules/document-archive/application/document-request-credential-issuance-service.js";
+import { DynamoDbGuestCredentialDeliveryMarkerStore } from "../../../modules/document-archive/persistence/dynamodb-guest-credential-delivery-marker-store.js";
+import type { GuestCredentialDeliveryDeps } from "../../../workers/guest-credential-delivery/deliver.js";
+import type { EmailProviderAdapter } from "../../../modules/notification/ports/email-provider.js";
+import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
+import { randomUUID } from "node:crypto";
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
 import { S3DossierExportStore } from "../../../modules/document-archive/persistence/s3-dossier-export-store.js";
@@ -104,4 +109,26 @@ export function buildDocumentArchiveGuestDeps(client: DynamoDBDocumentClient, ta
 export function buildDocumentRequestCredentialIssuanceDeps(client: DynamoDBDocumentClient, tableName: string, deliveryTableName: string, guestAccessPepper: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   return new DocumentRequestCredentialIssuanceService({ store, tableName, deliveryTableName, pepper: guestAccessPepper });
+}
+
+/**
+ * D-228 — composition root for `guest-credential-delivery-handler.ts`, the delivery worker
+ * D-222/D-227 named as missing. Reads `DocumentRequest` off the MAIN table (`tableName`, same
+ * store class as every other document-archive consumer) but claims/marks idempotency on the
+ * DEDICATED delivery table (`deliveryTableName`) — never the reverse, same table-isolation
+ * posture `buildDocumentRequestCredentialIssuanceDeps` above already establishes for the
+ * producer-adjacent consumer.
+ */
+export function buildGuestCredentialDeliveryDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  deliveryTableName: string,
+  sesFromAddress: string,
+  sesConfigurationSet: string,
+  guestUploadBaseUrl = "https://app.example.invalid/guest/document-requests",
+): GuestCredentialDeliveryDeps {
+  const store = new DynamoDbDocumentArchiveStore(client, tableName);
+  const markerStore = new DynamoDbGuestCredentialDeliveryMarkerStore(client, deliveryTableName);
+  const emailProvider: EmailProviderAdapter = new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet);
+  return { store, markerStore, emailProvider, guestUploadBaseUrl, now: () => new Date().toISOString(), newCorrelationId: () => randomUUID() };
 }

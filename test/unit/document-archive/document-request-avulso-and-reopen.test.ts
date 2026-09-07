@@ -98,6 +98,18 @@ describe("createDocumentRequest (D-226 Achado 2, avulso)", () => {
     expect(outboxRows[0]?.eventType).toBe("DocumentRequestCredentialIssuanceRequested");
   });
 
+  it("D-228: persists recipientEmail when supplied, and a replay with a DIFFERENT email is a ConflictError, never a silent overwrite", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const service = makeService(store);
+
+    const request = await service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-1", idempotencyKey: "idem-email-1", recipientEmail: "guest@example.com" });
+    expect(request.recipientEmail).toBe("guest@example.com");
+
+    await expect(
+      service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-1", idempotencyKey: "idem-email-1", recipientEmail: "someone-else@example.com" }),
+    ).rejects.toThrow(ConflictError);
+  });
+
   it("rejects a WRITE-ineligible caller (AuthorizationDeniedError) before touching the store", async () => {
     const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
     const service = makeService(store);

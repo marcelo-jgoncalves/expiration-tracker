@@ -32,6 +32,8 @@ output "lambda_function_names" {
     module.notification_router.function_name,
     module.notification_email_outbox_relay.function_name,
     module.email_delivery.function_name,
+    module.notification_whatsapp_outbox_relay.function_name,
+    module.whatsapp_delivery.function_name,
     module.ses_callback.function_name,
     module.notifications_handler.function_name,
     module.documents_handler.function_name,
@@ -72,6 +74,8 @@ output "lambda_published_versions" {
     (module.notification_router.function_name)                = module.notification_router.published_version
     (module.notification_email_outbox_relay.function_name)    = module.notification_email_outbox_relay.published_version
     (module.email_delivery.function_name)                     = module.email_delivery.published_version
+    (module.notification_whatsapp_outbox_relay.function_name) = module.notification_whatsapp_outbox_relay.published_version
+    (module.whatsapp_delivery.function_name)                  = module.whatsapp_delivery.published_version
     (module.ses_callback.function_name)                       = module.ses_callback.published_version
     (module.notifications_handler.function_name)              = module.notifications_handler.published_version
     (module.documents_handler.function_name)                  = module.documents_handler.published_version

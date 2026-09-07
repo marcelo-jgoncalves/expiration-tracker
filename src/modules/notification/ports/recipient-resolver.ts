@@ -39,6 +39,13 @@ export interface ResolvedRecipient {
    * validates a candidate (boolean only, for watchers/assignees) - different enough shapes that
    * unifying them would obscure more than it would share. */
   email?: string;
+  /** D-229 fatia 2/5 (`whatsapp-channel-scoping/estado-final-consolidado.md`): `GlobalUser.
+   * phoneE164` (D-6), same read this resolver already does for `email`. Meaningless when
+   * `active` is `false`, same rule as `email`. A resolved phone alone does NOT imply WhatsApp
+   * consent - callers must separately confirm a `WhatsAppOptIn` row exists for this EXACT
+   * phone (D-5) before using it as a delivery destination; this resolver only answers "is this
+   * the current phone on file", never "has this user opted in". */
+  phoneE164?: string;
 }
 
 export interface NotificationRecipientResolver {

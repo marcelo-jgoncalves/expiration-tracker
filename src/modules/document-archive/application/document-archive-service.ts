@@ -448,6 +448,11 @@ export interface CreateDocumentRequestInput {
   /** Absent means no deadline — the future guest-issuance consumer then applies
    * `DEFAULT_CREDENTIAL_TTL_DAYS` (D-226 decision central item 4), never a fabricated value here. */
   deadline?: string;
+  /** D-228: who the guest-credential-delivery worker emails the link to. Optional here for the
+   * same "no fabricated value" reason `DocumentRequest.recipientEmail` documents — a caller that
+   * omits it gets a `DocumentRequest` the delivery worker will skip (terminal, not retried) rather
+   * than one silently addressed to nobody. */
+  recipientEmail?: string;
   idempotencyKey: string;
 }
 
@@ -1069,7 +1074,7 @@ export class DocumentArchiveService {
     authorize({ context: ctx, action: "docarchive:request-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
     const now = this.now();
-    const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}`;
+    const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}:${input.recipientEmail ?? ""}`;
     const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${input.subjectId}`, SK: `DOCREQUESTCREATE#${input.idempotencyKey}` };
 
     const existing = await this.store.get<{ payloadHash: string; resultSnapshot: DocumentRequest } & EntityKey>(idempotencyKey);
@@ -1088,6 +1093,7 @@ export class DocumentArchiveService {
       requirementId: input.requirementId,
       status: "REQUESTED",
       ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
+      ...(input.recipientEmail !== undefined ? { recipientEmail: input.recipientEmail } : {}),
       submissionCount: 0,
       issuanceGeneration: 1,
       createdAt: now,
