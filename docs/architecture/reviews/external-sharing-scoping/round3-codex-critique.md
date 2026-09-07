@@ -5,7 +5,7 @@ Minha nota cega, porém, ainda não permite fechar o protocolo.
 
 **Pesquisa: 8,7/10**
 
-A leitura direta do código melhorou bastante a pesquisa de precedentes internos, especialmente o uso de [guest-document-access-service.ts](C:/Users/Usuario/Desktop/projects/expiration-tracker/.claude/worktrees/agent-ab51b87b6f0cca0ea/src/modules/document-archive/application/guest-document-access-service.ts). Permanecem abaixo do gate:
+A leitura direta do código melhorou bastante a pesquisa de precedentes internos, especialmente o uso de `src/modules/document-archive/application/guest-document-access-service.ts`. Permanecem abaixo do gate:
 
 - A janela residual de presign foi aceita por analogia interna, mas ainda falta fonte primária AWS sobre validade, revogabilidade e credenciais temporárias de URLs preassinadas. Isso sustenta diretamente o critério 4.
 - A evidência de mercado ainda depende parcialmente de fonte secundária para Google e não demonstra com a mesma qualidade as políticas de senha, expiração e revogação alegadas.
