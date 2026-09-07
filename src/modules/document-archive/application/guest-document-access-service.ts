@@ -26,7 +26,7 @@
  */
 import { AppError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
-import { documentTypeKey } from "../domain/document-type.js";
+import { documentTypeKey, type DocumentType } from "../domain/document-type.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import {
   epochSecondsFromIso,
@@ -115,6 +115,13 @@ export interface SubmitEvidenceResult {
   documentId: string;
   versionId: string;
   seq: number;
+}
+
+/** Deliberately minimal — never exposes `metadataFields`/`status`/timestamps/`version` to a
+ * guest, only what a submission UI needs to populate a `documentType` choice. */
+export interface GuestDocumentTypeSummary {
+  documentTypeId: string;
+  displayName: string;
 }
 
 export class GuestDocumentAccessService {
@@ -206,6 +213,63 @@ export class GuestDocumentAccessService {
     if (request.status === "REQUESTED") await this.markOpened(request);
 
     return { credential: pointer, request };
+  }
+
+  /**
+   * Discovery route (item 6 of D-173's estado-final-consolidado.md, engineering-only slice —
+   * see D-19x for the full contradiction/pendency writeup): lets a guest who has a valid
+   * credential token discover which `DocumentTypeId`s are currently valid to submit, WITHOUT any
+   * `authorize()`/`RequestContext` — same token-resolution discipline as `resolveCredential()`,
+   * reused here rather than duplicated. Only ACTIVE types are ever returned (never DRAFT/
+   * DEPRECATED) — a guest has no legitimate reason to see a type it cannot successfully submit
+   * against, since D-184's transactional ConditionCheck would reject anything else anyway.
+   * Read-only, no side effect (does NOT call `markOpened` — that is `resolveCredential`'s own
+   * concern and this route can be polled/refreshed by a guest UI without mutating Request state).
+   */
+  async listActiveDocumentTypesForGuest(rawToken: string, requestContext: { ip: string }): Promise<GuestDocumentTypeSummary[]> {
+    const parsed = parseRequestAccessToken(rawToken);
+    if (!parsed) throw new GuestAccessInvalidError();
+
+    const selectorHash = hmacRequestAccessCrypto.hash(this.pepper, parsed.selector);
+    try {
+      await this.rateLimiter.consumeBoth({ requestKey: selectorHash, ip: requestContext.ip, limit: RATE_LIMIT_PER_MINUTE, windowSeconds: RATE_LIMIT_WINDOW_SECONDS });
+    } catch {
+      throw new GuestAccessInvalidError();
+    }
+
+    const pointer = await this.store.get<RequestAccessCredential>(requestAccessCredentialKey(selectorHash));
+    const targetSecretHash = pointer?.secretHash ?? hmacRequestAccessCrypto.hash(this.pepper, `dummy:${selectorHash}`);
+    const secretOk = requestAccessSecretMatches(this.pepper, parsed.secret, targetSecretHash);
+    if (!pointer || !secretOk) throw new GuestAccessInvalidError();
+    if (pointer.revokedAt) throw new GuestAccessInvalidError();
+    if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
+
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(pointer.tenantId, pointer.subjectId, pointer.documentRequestId));
+    if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
+    if (request.deadline && request.deadline < this.now()) throw new GuestAccessInvalidError();
+
+    // Same GSI1 DOCTYPESTATUS namespace as DocumentArchiveService.listDocumentTypes, read
+    // directly against the store (never through that authorize()-gated method — this whole
+    // module never calls authorize()/RequestContextResolver, see file header). Catalogs are
+    // small (a handful to low hundreds of types per tenant), so — unlike the internal
+    // paginated-by-design admin listing — this accumulates every page here: a guest-facing
+    // discovery list has no caller-driven cursor to hand back, and a hard page cap (`MAX_PAGES`)
+    // bounds the cost of a pathological tenant rather than looping unbounded.
+    const MAX_PAGES = 20;
+    const items: DocumentType[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await this.store.queryIndexPage<DocumentType>({
+        indexName: "GSI1",
+        partitionKeyValue: `TENANT#${pointer.tenantId}#DOCTYPESTATUS#ACTIVE`,
+        exclusiveStartKey,
+      });
+      items.push(...result.items);
+      if (!result.lastEvaluatedKey) break;
+      exclusiveStartKey = result.lastEvaluatedKey;
+    }
+
+    return items.map((item) => ({ documentTypeId: item.documentTypeId, displayName: item.displayName }));
   }
 
   /** Layer 2: the ONLY way a GuestSession is minted — always an explicit call, never a side

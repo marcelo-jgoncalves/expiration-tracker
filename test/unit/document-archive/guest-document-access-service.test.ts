@@ -4,7 +4,7 @@ import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-a
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveDocumentType } from "./in-memory-store.js";
 import type { Document } from "../../../src/modules/document-archive/domain/document.js";
-import { documentTypeKey } from "../../../src/modules/document-archive/domain/document-type.js";
+import { documentTypeKey, documentTypeGsi1Keys } from "../../../src/modules/document-archive/domain/document-type.js";
 import { documentRequestKey, type DocumentRequest } from "../../../src/modules/document-archive/domain/document-request.js";
 import { epochSecondsFromIso, issueRequestAccessCredential, requestAccessCredentialKey, type RequestAccessCredential } from "../../../src/modules/document-archive/domain/request-access-credential.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -189,6 +189,99 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const result = await service.startGuestSession(issued.token, { ip: "1.1.1.1" });
     expect(result.session.token).toMatch(/^[a-f0-9]{32}\.[a-f0-9]{64}$/);
     expect(result.expiresAt).toBe(new Date(Date.parse(NOW) + 30 * 60 * 1000).toISOString());
+  });
+
+  describe("listActiveDocumentTypesForGuest (item 6 discovery route, engineering-only slice)", () => {
+    it("g1: valid token returns only ACTIVE DocumentTypes of the token's own tenant", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "CERTIDAO"));
+      const service = makeService(store);
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+
+      const types = await service.listActiveDocumentTypesForGuest(issued.token, { ip: "1.1.1.1" });
+      expect(types.map((t) => t.documentTypeId).sort()).toEqual(["ALVARA", "CERTIDAO"]);
+      for (const t of types) {
+        expect(Object.keys(t).sort()).toEqual(["displayName", "documentTypeId"]);
+      }
+    });
+
+    /** Mutation check: a naive implementation that queries by tenant-agnostic status alone (or
+     * hardcodes a tenant) would leak another tenant's catalog — this proves isolation for real,
+     * not merely "no other tenant seeded". */
+    it("g2: never returns another tenant's DocumentTypes, even when both tenants have ACTIVE types with colliding ids", async () => {
+      const OTHER_TENANT = "tenant-2";
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      await store.putIfAbsent(seedActiveDocumentType(OTHER_TENANT, "ALVARA"));
+      await store.putIfAbsent(seedActiveDocumentType(OTHER_TENANT, "SOMENTE_OUTRO_TENANT"));
+      const service = makeService(store);
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+
+      const types = await service.listActiveDocumentTypesForGuest(issued.token, { ip: "1.1.1.1" });
+      expect(types).toHaveLength(1);
+      expect(types[0]?.documentTypeId).toBe("ALVARA");
+      expect(types.some((t) => t.documentTypeId === "SOMENTE_OUTRO_TENANT")).toBe(false);
+    });
+
+    it("g3: a DEPRECATED DocumentType never appears in the list", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "CERTIDAO"));
+      await store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: "test-table",
+            key: documentTypeKey(TENANT, "CERTIDAO"),
+            tenantId: TENANT,
+            expectedVersion: 1,
+            // Mirrors flipDocumentTypeStatus()'s real transition: the GSI1 DOCTYPESTATUS
+            // namespace is keyed by status, so deprecating must also move the item out of the
+            // ACTIVE partition, not just flip the `status` attribute in place.
+            set: { status: "DEPRECATED", ...documentTypeGsi1Keys(TENANT, "DEPRECATED", "certidao", "CERTIDAO") },
+          }),
+        },
+      ]);
+      const service = makeService(store);
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+
+      const types = await service.listActiveDocumentTypesForGuest(issued.token, { ip: "1.1.1.1" });
+      expect(types.map((t) => t.documentTypeId)).toEqual(["ALVARA"]);
+    });
+
+    /** Anti-enumeration: an invalid/expired token must reject with the exact same generic error
+     * as every other guest entry point on this surface — never a distinct "route not found"/
+     * "no types" response that would let an attacker distinguish a bad token from an empty
+     * catalog. */
+    it("g4: invalid/expired token rejects with the same generic GuestAccessInvalidError as resolveCredential", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+
+      await expect(service.listActiveDocumentTypesForGuest("not-a-token", { ip: "1.1.1.1" })).rejects.toThrow(GuestAccessInvalidError);
+
+      const expiredIssued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2020-01-01T00:00:00.000Z" });
+      await expect(service.listActiveDocumentTypesForGuest(expiredIssued.token, { ip: "1.1.1.1" })).rejects.toThrow(GuestAccessInvalidError);
+    });
+
+    it("g5: DocumentRequest already CANCELLED rejects with the same generic error even for a well-formed credential", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store, { status: "CANCELLED" });
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+
+      await expect(service.listActiveDocumentTypesForGuest(issued.token, { ip: "1.1.1.1" })).rejects.toThrow(GuestAccessInvalidError);
+    });
   });
 
   it("submitEvidence: happy path creates a Document+DocumentVersion landing at RECEIVED (never auto-accepted, C2)", async () => {

@@ -724,9 +724,10 @@ resource "aws_apigatewayv2_integration" "document_archive_guest" {
 
 locals {
   document_archive_guest_routes = {
-    get_request   = { method = "GET", path = "/document-archive/guest/document-requests/{token}" }
-    start_session = { method = "POST", path = "/document-archive/guest/document-requests/{token}/session" }
-    submit        = { method = "POST", path = "/document-archive/guest/document-requests/{token}/uploads" }
+    get_request         = { method = "GET", path = "/document-archive/guest/document-requests/{token}" }
+    start_session       = { method = "POST", path = "/document-archive/guest/document-requests/{token}/session" }
+    submit              = { method = "POST", path = "/document-archive/guest/document-requests/{token}/uploads" }
+    list_document_types = { method = "GET", path = "/document-archive/guest/document-requests/{token}/document-types" }
   }
 }
 
