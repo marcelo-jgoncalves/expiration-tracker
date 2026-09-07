@@ -7,6 +7,20 @@
  * email-delivery.ts).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { NotificationChannel } from "../../reminder/domain/notification-intent.js";
+
+/**
+ * D-1 (`docs/architecture/reviews/whatsapp-channel-scoping/estado-final-consolidado.md`):
+ * widened from the literal `"SES"` to a union — additive, no data migration (every existing
+ * `NotificationAttempt`/`NotificationAttemptLookup` row still has `provider: "SES"`, a subset
+ * of the new type). `NotificationChannel` (`"EMAIL"|"WHATSAPP"`) already lived in
+ * `notification-intent.ts` since D-197/M4 scoping — reused here rather than redefined, so the
+ * attempt's channel and the intent's `requestedChannels`/`routedChannels` can never drift into
+ * two separate unions with the same names. Fatia 1 only widens the TYPE: `SUPPORTED_CHANNELS`
+ * in `notification-router.ts` still routes `EMAIL` alone — WhatsApp delivery itself (the
+ * adapter, the worker, the queue) is fatia 2+.
+ */
+export type NotificationProvider = "SES" | "META_CLOUD_API";
 
 export type NotificationAttemptStatus =
   | "PREPARED"
@@ -28,8 +42,8 @@ export interface NotificationAttempt extends EntityKey {
   attemptId: string;
   attemptNumber: number;
   redriveGeneration: number;
-  channel: "EMAIL";
-  provider: "SES";
+  channel: NotificationChannel;
+  provider: NotificationProvider;
   providerAccountId: string;
   providerMessageId?: string;
   status: NotificationAttemptStatus;
@@ -92,7 +106,7 @@ export interface NotificationAttemptLookup extends EntityKey {
   tenantId: string;
   intentId: string;
   attemptSk: string;
-  provider: "SES";
+  provider: NotificationProvider;
   providerAccountId: string;
 }
 
