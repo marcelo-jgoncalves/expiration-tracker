@@ -75,7 +75,16 @@ export type OutboxDestination =
    * `{tenantId, subjectId, documentRequestId, issuanceGeneration}` wake-up hint the design
    * requires — the consumer always re-reads the authoritative `DocumentRequest` rather than
    * trusting any business data carried here. */
-  | "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1";
+  | "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1"
+  /** D-9 (`whatsapp-channel-scoping/estado-final-consolidado.md`, D-229 fatia 2/5): dedicated
+   * destination for `notification.whatsapp-deliver.v1` commands, mirroring
+   * `SQS_NOTIFICATION_EMAIL_V1` exactly - NEVER reuses the email queue (ADR-0008: each channel
+   * gets its own queue). Produced by `buildWhatsAppOutboxRecord` (application/whatsapp-outbox.ts).
+   * Not yet written by `notification-router-workflow.ts` (router wiring is fatia 5/5) - this
+   * destination value exists now so the outbox row shape/relay/queue/worker chain can be built
+   * and tested end-to-end ahead of that wiring, same "written before its (real) producer is
+   * wired" pattern `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1` above already established. */
+  | "SQS_NOTIFICATION_WHATSAPP_V1";
 
 export interface OutboxRecord {
   PK: string;

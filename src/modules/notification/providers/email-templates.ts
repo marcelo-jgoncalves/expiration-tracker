@@ -167,6 +167,37 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
+  // D-228 (closes D-222/D-227/D-226: guest-credential-delivery worker). Distinct from
+  // "document-request-initial-invite" above (that one is the SUBJECT module's older,
+  // unrelated DocumentRequest) - this is the document-archive module's own guest link,
+  // delivered asynchronously off the dedicated guest-credential-delivery table's Streams
+  // rather than synchronously at creation time.
+  "guest-credential-delivery-invite": {
+    1: {
+      "pt-BR": (context) => {
+        const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
+        const guestLink = String(context["guestLink"] ?? "");
+        const subject = "Solicitação de envio de documento";
+        const text = [
+          "Foi solicitado o envio de um documento.",
+          deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
+          `Envie pelo link: ${guestLink}`,
+          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const html = [
+          "<p>Foi solicitado o envio de um documento.</p>",
+          deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
+          `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
+          "<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        return { subject, html, text };
+      },
+    },
+  },
 };
 
 /** Sanitização de campo fornecido pelo tenant antes de interpolar num e-mail externo (D-049):

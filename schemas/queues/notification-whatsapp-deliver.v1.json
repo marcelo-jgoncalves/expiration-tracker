@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/notification-whatsapp-deliver.v1.json",
+  "title": "notification.whatsapp-deliver.v1",
+  "description": "SQS command payload consumed by WhatsAppDeliveryWorker (D-9, whatsapp-channel-scoping/estado-final-consolidado.md, fatia 2/5). Same shape as notification-email-deliver.v1.json by design. No generic channelPayload field exists by design.",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "notification.whatsapp-deliver.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intentId",
+        "attemptId",
+        "itemId",
+        "expectedItemVersion",
+        "channelId",
+        "templateId",
+        "templateVersion",
+        "locale",
+        "deliverNotBefore",
+        "renderContextRef"
+      ],
+      "properties": {
+        "intentId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "minLength": 1 },
+        "itemId": { "type": "string", "minLength": 1 },
+        "expectedItemVersion": { "type": "integer", "minimum": 1 },
+        "channelId": { "type": "string", "minLength": 1 },
+        "templateId": { "type": "string", "minLength": 1 },
+        "templateVersion": { "type": "integer", "minimum": 1 },
+        "locale": { "type": "string", "minLength": 2 },
+        "deliverNotBefore": { "type": "string", "format": "date-time" },
+        "renderContextRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "const": "EXPIRATION_ITEM" },
+            "id": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

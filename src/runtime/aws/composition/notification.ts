@@ -5,6 +5,8 @@ import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { DynamoDbNotificationStore } from "../../../modules/notification/persistence/dynamodb-notification-store.js";
 import { DynamoDbNotificationRecipientResolver } from "../../../modules/notification/persistence/dynamodb-recipient-resolver.js";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
+import { WhatsAppCloudApiAdapter, type WhatsAppCloudApiConfig } from "../../../modules/notification/providers/whatsapp-cloud-api-adapter.js";
+import { whatsAppOptInKey, type WhatsAppOptIn } from "../../../modules/notification/domain/whatsapp-opt-in.js";
 import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { buildTenantManagerLookup } from "./reminder.js";
@@ -88,4 +90,71 @@ export function buildEmailDeliveryDeps(client: DynamoDBDocumentClient, tableName
 export function buildSesCallbackDeps(client: DynamoDBDocumentClient, tableName: string, providerAccountId: string) {
   const store = new DynamoDbNotificationStore(client, tableName);
   return { store, tableName, providerAccountId, now: () => new Date().toISOString() };
+}
+
+export function buildNotificationWhatsAppOutboxRelayDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  queueUrl: string,
+  sqsClient: SQSClient = new SQSClient({}),
+) {
+  // Same generic DynamoDbOutboxRelayStore/relay logic as buildNotificationEmailOutboxRelayDeps
+  // above - only the destination key and target queue differ (D-9: never the email queue).
+  return {
+    senders: {
+      SQS_NOTIFICATION_WHATSAPP_V1: async (payload: Record<string, unknown>, correlationId: string) => {
+        await sqsClient.send(
+          new SendMessageCommand({
+            QueueUrl: queueUrl,
+            MessageBody: JSON.stringify(payload),
+            MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+          }),
+        );
+      },
+    },
+  };
+}
+
+/**
+ * D-229 fatia 2/5 (`whatsapp-channel-scoping/estado-final-consolidado.md`, D-5): resolves the
+ * CURRENT E.164 phone for a recipient, gated by BOTH the same Membership/GlobalUser eligibility
+ * `resolveRecipientEmail` already enforces AND a `WhatsAppOptIn` row existing for that EXACT
+ * phone - a phone number change invalidates the prior opt-in by construction (the opt-in's SK
+ * embeds the phone, D-5), so this never trusts a stale opt-in for a superseded number.
+ */
+async function resolveRecipientPhone(client: DynamoDBDocumentClient, tableName: string, tenantId: string, userId: string): Promise<string | undefined> {
+  const resolver = new DynamoDbNotificationRecipientResolver(client, tableName);
+  const result = await resolver.resolve({ tenantId, candidateUserId: userId });
+  if (!result?.active || !result.phoneE164) return undefined;
+
+  const store = new DynamoDbNotificationStore(client, tableName);
+  const optIn = await store.get<WhatsAppOptIn>(whatsAppOptInKey(tenantId, userId, result.phoneE164), true);
+  return optIn ? result.phoneE164 : undefined;
+}
+
+/** Placeholder template rendering (see `renderTemplate` above's own note) - real,
+ * locale-aware, versioned WhatsApp templates (D-3: pre-provisioned in Meta Business Manager)
+ * are a follow-up; this only maps the fields the placeholder template's body params need. */
+function renderWhatsAppTemplate(item: ExpirationItem): { templateName: string; templateLanguage: string; templateParams: string[] } {
+  return { templateName: "expiration_reminder", templateLanguage: "pt_BR", templateParams: [item.name, item.dueDate.slice(0, 10)] };
+}
+
+/**
+ * D-229 fatia 2/5: builds `WhatsAppDeliveryWorkflowDeps` against the real Cloud API. Per this
+ * fatia's boundary (see `whatsapp-cloud-api-adapter.ts`'s header comment), credentials are
+ * sourced from plain env vars here (D-229) - fatia 3/5 (Secrets Manager, D-10) replaces ONLY
+ * this function's credential-sourcing lines with a Secrets Manager read; `WhatsAppCloudApiAdapter`
+ * itself does not change shape when that happens.
+ */
+export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableName: string, config: WhatsAppCloudApiConfig) {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  return {
+    store,
+    tableName,
+    whatsAppProvider: new WhatsAppCloudApiAdapter(config),
+    resolveRecipientPhone: (input: { tenantId: string; userId: string }) => resolveRecipientPhone(client, tableName, input.tenantId, input.userId),
+    renderTemplate: (input: { item: ExpirationItem }) => renderWhatsAppTemplate(input.item),
+    now: () => new Date().toISOString(),
+    newIntentId: () => new UlidIdGenerator().newIntentId(),
+  };
 }

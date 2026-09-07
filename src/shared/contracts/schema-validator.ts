@@ -30,6 +30,7 @@ import itemDeactivatedV1 from "../../../schemas/events/item-deactivated.v1.json"
 import reminderPolicyChangedV1 from "../../../schemas/events/reminder-policy-changed.v1.json";
 import reminderMaterializationTriggerV1 from "../../../schemas/queues/reminder-materialization-trigger.v1.json";
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
+import notificationWhatsAppDeliverV1 from "../../../schemas/queues/notification-whatsapp-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
 import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-dispatch.v1.json";
 import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
@@ -167,6 +168,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   reminderPolicyChangedV1,
   reminderMaterializationTriggerV1,
   notificationEmailDeliverV1,
+  notificationWhatsAppDeliverV1,
   reminderDispatchV1,
   documentChasingDispatchV1,
   createItemRequestV1,

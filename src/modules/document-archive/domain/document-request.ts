@@ -90,6 +90,22 @@ export interface DocumentRequest extends EntityKey {
    * submission it belonged to).
    */
   lastRejection?: { versionId: string; reason: string; occurredAt: string };
+  /**
+   * D-228 (closes D-222/D-227's named gap: this entity had no way to know WHO to deliver a
+   * guest link to). Optional/additive — same "no fabricated value" discipline as every other
+   * optional field here — following the exact precedent already established for the SAME
+   * problem (delivering a guest link to an external party) in the older, unrelated
+   * `src/modules/subject/domain/document-request.ts`'s `recipientEmail: string` (there
+   * required, because that entity's ONLY creation path — `CreateDocumentRequestInput` —
+   * already demands it; here optional, because a series-materialized attempt
+   * (`document-request-series.ts`'s `materializeAttempt`) has no recipient contact modeled at
+   * the series level yet — a genuine product gap named, not solved, by this decision; see
+   * decisions-log.md D-228). Populated only by `createDocumentRequest()`'s avulso path today.
+   * The delivery worker (`src/workers/guest-credential-delivery/deliver.ts`) treats its
+   * absence as a terminal, non-retryable skip rather than an error — a request with no
+   * recipient is a data gap, not a transient failure.
+   */
+  recipientEmail?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
