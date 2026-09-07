@@ -248,6 +248,20 @@ export class InMemoryDocumentArchiveStore implements DocumentArchiveStore {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
+        // D-226 Achado 3 (rejectVersion's idempotent credential-revoke): a hand-rolled Update
+        // whose UpdateExpression is the literal `SET <field> = if_not_exists(<field>, <valueKey>)`
+        // pattern (no ExpressionAttributeNames placeholder for the field, per real DynamoDB
+        // syntax allowing bare non-reserved attribute names) — never overwrite an
+        // already-present value, mirroring real DynamoDB's `if_not_exists` semantics exactly.
+        const ifNotExists = /^SET (\w+) = if_not_exists\(\1, (:\w+)\)$/.exec(entry.Update.UpdateExpression);
+        if (ifNotExists) {
+          const [, field, valueKey] = ifNotExists;
+          if (next[field as string] === undefined) {
+            next[field as string] = entry.Update.ExpressionAttributeValues[valueKey as string];
+          }
+          this.items.set(this.k(key), next);
+          continue;
+        }
         for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
           if (placeholder === "version") {
             next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;

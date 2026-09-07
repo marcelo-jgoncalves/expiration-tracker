@@ -133,6 +133,10 @@ export type Action =
   | "docarchive:series-update"
   | "docarchive:series-cancel"
   | "docarchive:series-materialize"
+  // D-226 Achado 2 (`guest-credential-issuance-scoping/estado-final-consolidado.md`): avulso/
+  // non-recurring DocumentRequest creation, outside any DocumentRequestSeries cycle — same
+  // WRITE_ROLES tier as series-create/materialize above (D-222 gap 2).
+  | "docarchive:request-create"
   // D-173 (`DocumentType` catalog): tenant-scoped, renamable-but-identity-stable catalog entry
   // closing item 8 of D-161's macro-order. Same tier as `document:delete`/`requirement:delete`
   // (ADMIN_ROLES for every mutation, READ_ONLY_ROLES for listing/reading) — a catalog entry is
@@ -283,6 +287,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:series-update": WRITE_ROLES,
   "docarchive:series-cancel": WRITE_ROLES,
   "docarchive:series-materialize": WRITE_ROLES,
+  "docarchive:request-create": WRITE_ROLES,
   "activity:read": ADMIN_ROLES,
   "reports:subscription-manage": ADMIN_ROLES,
   "docarchive:dossier-export": ADMIN_ROLES,

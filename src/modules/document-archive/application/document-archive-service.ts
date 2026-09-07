@@ -146,6 +146,9 @@ import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-s
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
+import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
+import { requestAccessCredentialKey } from "../domain/request-access-credential.js";
+import { buildDocumentRequestCreatedOutboxEntry } from "./document-request-recurrence-service.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
  * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
@@ -433,6 +436,19 @@ export interface DossierExportRow {
   evidenceValidUntil?: string;
   assigneeUserId?: string;
   updatedAt: string;
+}
+
+/** D-226 Achado 2 — `createDocumentRequest`'s input. `idempotencyKey` is the caller's OWN key
+ * (never the credential/session material this eventually issues) — same "idempotency key
+ * identifies one logical operation" discipline `GuestDocumentAccessService.submitEvidence`
+ * already documents for its own idempotency key. */
+export interface CreateDocumentRequestInput {
+  subjectId: string;
+  requirementId: string;
+  /** Absent means no deadline — the future guest-issuance consumer then applies
+   * `DEFAULT_CREDENTIAL_TTL_DAYS` (D-226 decision central item 4), never a fabricated value here. */
+  deadline?: string;
+  idempotencyKey: string;
 }
 
 export class DocumentArchiveService {
@@ -898,7 +914,20 @@ export class DocumentArchiveService {
   }
 
   /** RECEIVED | UNDER_REVIEW -> REJECTED. Terminal and never removable (D-143 Decision 7 — the
-   * exact contradiction with J9 a Rodada 1 proposal introduced and this design corrects). */
+   * exact contradiction with J9 a Rodada 1 proposal introduced and this design corrects).
+   *
+   * D-226 Achado 3 (`guest-credential-issuance-scoping/estado-final-consolidado.md`, closes
+   * D-222 gap 3): when this version is the one a `DocumentRequest` is currently waiting on
+   * (`version.requestId` present, `request.lastSubmissionId === version.versionId`,
+   * `request.status === "SUBMITTED"` — fencing against reopening a request whose submission was
+   * already superseded by a LATER one, e.g. a stale rejection racing a resubmission), the SAME
+   * transaction ALSO: reopens the `DocumentRequest` (`status: "REQUESTED"`, `issuanceGeneration`
+   * incremented, `lastRejection` recorded), revokes the old `RequestAccessCredential` if one was
+   * ever issued (idempotent `SET revokedAt = if_not_exists(revokedAt, :now)` — never compares
+   * timestamps), and appends a reissuance outbox entry via the SAME
+   * `buildDocumentRequestCreatedOutboxEntry` every other `DocumentRequest`-touching call site
+   * uses. A version with no live `DocumentRequest` to reopen (guest flow not used, or the
+   * request already moved past this submission) rejects exactly as before — purely additive. */
   async rejectVersion(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, reason: RejectionReason): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = ctx.tenant.tenantId;
@@ -919,10 +948,63 @@ export class DocumentArchiveService {
       now,
     });
     const event = this.buildEvent(tenantId, documentId, seq, current.versionId, "REJECTED", current.state, "REJECTED", actor, now);
+    const entries: TransactWriteEntry[] = [{ Update: update }, { Put: buildVersionedCreate(this.tableName, event) }];
+
+    // D-226 Achado 3: only reachable when this version actually originated from a guest-access
+    // DocumentRequest (`requestId` is only ever set by GuestDocumentAccessService.submitEvidence).
+    let reopenedRequest: DocumentRequest | undefined;
+    if (current.requestId) {
+      const document = await this.store.get<Document>(documentKey(tenantId, documentId));
+      if (document) {
+        const request = await this.store.get<DocumentRequest>(documentRequestKey(tenantId, document.subjectId, current.requestId));
+        // Fencing per the design: only a request still genuinely waiting on THIS submission
+        // reopens — a request that already moved on (resubmitted, cancelled, expired) must
+        // never be reset backwards by a late rejection of a superseded version.
+        if (request && request.lastSubmissionId === current.versionId && request.status === "SUBMITTED") {
+          const nextRequest: DocumentRequest = {
+            ...request,
+            status: "REQUESTED",
+            issuanceGeneration: request.issuanceGeneration + 1,
+            lastRejection: { versionId: current.versionId, reason, occurredAt: now },
+            updatedAt: now,
+            version: request.version + 1,
+          };
+          entries.push({
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key: documentRequestKey(tenantId, request.subjectId, request.documentRequestId),
+              tenantId,
+              expectedVersion: request.version,
+              set: { status: "REQUESTED", issuanceGeneration: request.issuanceGeneration + 1, lastRejection: nextRequest.lastRejection },
+              now,
+            }),
+          });
+          // Revoke the credential the guest actually submitted with, if the issuance consumer
+          // ever ran for it (activeCredentialSelectorHash is written ONLY by that consumer, D-226
+          // decision central item 2/3 — absent means no credential was ever minted, nothing to
+          // revoke). Idempotent: a second rejection racing the first never overwrites an
+          // already-set revokedAt with a later timestamp.
+          if (request.activeCredentialSelectorHash) {
+            entries.push({
+              Update: {
+                TableName: this.tableName,
+                Key: requestAccessCredentialKey(request.activeCredentialSelectorHash),
+                UpdateExpression: "SET revokedAt = if_not_exists(revokedAt, :now)",
+                ConditionExpression: "documentRequestId = :did AND selectorHash = :sel",
+                ExpressionAttributeValues: { ":now": now, ":did": request.documentRequestId, ":sel": request.activeCredentialSelectorHash },
+              },
+            });
+          }
+          buildDocumentRequestCreatedOutboxEntry(entries, this.tableName, nextRequest, current.versionId);
+          reopenedRequest = nextRequest;
+        }
+      }
+    }
+
     try {
-      await this.store.transactWrite([{ Update: update }, { Put: buildVersionedCreate(this.tableName, event) }]);
+      await this.store.transactWrite(entries);
     } catch (err) {
-      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion was concurrently modified.", { documentId, seq });
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion was concurrently modified.", { documentId, seq, reopenedDocumentRequest: reopenedRequest?.documentRequestId });
       throw err;
     }
     return { ...current, state: "REJECTED", decidedAt: now, reviewerId: actor, rejectionReason: reason, version: expectedVersion + 1, updatedAt: now };
@@ -968,6 +1050,80 @@ export class DocumentArchiveService {
       this.throwClassifiedCancellation(err, labels, { subjectId: input.subjectId, requirementId });
     }
     return requirement;
+  }
+
+  /**
+   * createDocumentRequest — D-226 Achado 2 (`guest-credential-issuance-scoping/
+   * estado-final-consolidado.md`, closes D-222 gap 2): creates a `DocumentRequest` OUTSIDE any
+   * `DocumentRequestSeries` cycle — every field the series-materialized shape (`document-request-
+   * recurrence-service.ts`'s `buildMaterializeAttemptEntries`) leaves optional (`seriesId`/
+   * `occurrenceId`/`attemptIndex`/`parentRequestId`) simply stays absent here, per that entity's
+   * own "no fabricated value" discipline. Idempotent via a caller-supplied key + `payloadHash`
+   * (a REPLAY with a DIFFERENT payload is a caller bug, not a safe retry — `ConflictError`,
+   * never silently returning the wrong snapshot). Writes `buildDocumentRequestCreatedOutboxEntry`
+   * in the SAME transaction (the ONE builder every DocumentRequest-creating call site must go
+   * through, per that function's own doc comment) — the guest Lambda's issuance consumer picks
+   * this DocumentRequest up exactly like a series-materialized one.
+   */
+  async createDocumentRequest(ctx: RequestContext, input: CreateDocumentRequestInput): Promise<DocumentRequest> {
+    authorize({ context: ctx, action: "docarchive:request-create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    const now = this.now();
+    const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}`;
+    const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${input.subjectId}`, SK: `DOCREQUESTCREATE#${input.idempotencyKey}` };
+
+    const existing = await this.store.get<{ payloadHash: string; resultSnapshot: DocumentRequest } & EntityKey>(idempotencyKey);
+    if (existing) {
+      if (existing.payloadHash !== payloadHash) throw new ConflictError("Idempotency key reused with a different DocumentRequest payload.", { idempotencyKey: input.idempotencyKey });
+      return existing.resultSnapshot;
+    }
+
+    const documentRequestId = this.ids.newDocumentRequestId();
+    const request: DocumentRequest = {
+      ...documentRequestKey(tenantId, input.subjectId, documentRequestId),
+      entityType: "DocumentRequest",
+      documentRequestId,
+      tenantId,
+      subjectId: input.subjectId,
+      requirementId: input.requirementId,
+      status: "REQUESTED",
+      ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
+      submissionCount: 0,
+      issuanceGeneration: 1,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    const idempotencyRecord = { ...idempotencyKey, entityType: "IdempotencyRecord" as const, tenantId, payloadHash, resultSnapshot: request, createdAt: now };
+
+    const entries: TransactWriteEntry[] = [
+      // Requirement must exist under this Subject/tenant — same posture as the series flow,
+      // which targets a Requirement copied from `series.requirementId` at series-creation time
+      // (never re-validated per attempt); this avulso path has no series to have validated it
+      // earlier, so it is checked here, once, at creation.
+      buildExistenceConditionCheck({ tableName: this.tableName, key: requirementKey(tenantId, input.subjectId, input.requirementId), extra: { tenantId } }),
+      { Put: buildVersionedCreate(this.tableName, idempotencyRecord as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, request as unknown as Record<string, unknown> & EntityKey) },
+    ];
+    buildDocumentRequestCreatedOutboxEntry(entries, this.tableName, request, input.idempotencyKey);
+
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const codes = getCancellationReasonCodes(err);
+        if (codes?.[0] === "ConditionalCheckFailed") throw new NotFoundError("Requirement not found.", { requirementId: input.requirementId });
+        if (codes?.[1] === "ConditionalCheckFailed") {
+          // Concurrent replay of the SAME idempotency key won the race — re-read and return its
+          // snapshot rather than treating this as a genuine failure.
+          const replay = await this.store.get<{ payloadHash: string; resultSnapshot: DocumentRequest } & EntityKey>(idempotencyKey);
+          if (replay) return replay.resultSnapshot;
+        }
+        throw new ConflictError("createDocumentRequest transaction was rejected (concurrent modification or invalid state).", { subjectId: input.subjectId });
+      }
+      throw err;
+    }
+    return request;
   }
 
   /** Shared by `createRequirement` and `applyTemplate` — the pointer row that makes the

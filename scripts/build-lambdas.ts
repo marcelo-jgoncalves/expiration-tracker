@@ -125,6 +125,10 @@ const HANDLERS = [
   // D-205 fatia 2 (Roadmap P1 item 16): SQS_DOSSIER_EXPORT_V1 consumer — generates the PDF+XLSX
   // dossier for a confirmed run, uploads both to S3.
   "dossier-export-generation-handler",
+  // D-226 (Roadmap P0 item 9): SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1 consumer, guest Lambda
+  // deployment unit — mints a RequestAccessCredential and writes the delivery record to the
+  // dedicated guest-credential-delivery table.
+  "document-request-credential-issuance-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
