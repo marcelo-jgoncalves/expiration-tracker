@@ -61,6 +61,24 @@ export interface DocumentRequestSeries extends EntityKey {
    * the next `materializeAttempt` call's `parentRequestId`. Absent when `latestAttemptIndex=0`
    * (no attempt yet) and reset to absent by `advanceCycle`. */
   latestRequestId?: string;
+  /**
+   * D-230 (closes D-228's named pendency: the recurrence path had no recipient contact modeled,
+   * so every series-materialized `DocumentRequest` was structurally unable to deliver a guest
+   * link). Optional/additive, same "no fabricated value" discipline as
+   * `DocumentRequest.recipientEmail` (D-228) — a series with no `recipientEmail` keeps behaving
+   * exactly as before this decision (the delivery worker's terminal skip, never an error).
+   * Provided once by the human at `createSeries()` time, mutable afterwards only via
+   * `updateSeriesRecipient()` (never in-place by any other mutation). `buildMaterializeAttemptEntries`
+   * copies this value onto EACH materialized `DocumentRequest` at the moment of materialization —
+   * a snapshot, never re-synced retroactively: changing a series' `recipientEmail` only affects
+   * cycles materialized AFTER the change, exactly like every other field a `DocumentRequest`
+   * copies from its series. Normalized with `.trim()` only (no case-folding — an email's local
+   * part is not universally case-insensitive; kept consistent with the avulso path, which also
+   * does not lower-case). Nível 5 per `change-risk-scale.md` (protocol round-tripped in
+   * `docs/architecture/reviews/document-request-series-recipient-scoping/`) because this also
+   * introduces the new `updateSeriesRecipient` mutation/HTTP surface, not just an additive field.
+   */
+  recipientEmail?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -106,4 +124,7 @@ export interface CreateDocumentRequestSeriesInput {
   cadence: DocumentRequestSeriesCadence;
   /** First due date; defaults to "now" (immediately due) when omitted. */
   firstDueAt?: string;
+  /** D-230 — see `DocumentRequestSeries.recipientEmail`'s doc comment. Optional; omit for a
+   * series with no guest-delivery recipient (unchanged from pre-D-230 behavior). */
+  recipientEmail?: string;
 }

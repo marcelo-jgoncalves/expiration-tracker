@@ -48,6 +48,7 @@ const REQUIREMENT_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/doc
 const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
 const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
 const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
+const SERIES_UPDATE_RECIPIENT_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-update-recipient-request.v1.json";
 const DOCUMENTTYPE_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-create-request.v1.json";
 const DOCUMENTTYPE_RENAME_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json";
 const DOCUMENTTYPE_DEPRECATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json";
@@ -483,6 +484,21 @@ export async function handleCancelSeries(deps: DocumentArchiveHttpDeps, req: Htt
     validateAgainstSchema(SERIES_CANCEL_SCHEMA_ID, req.body);
     const context = await resolve(deps, req);
     const series = await deps.recurrence.cancelSeries(context, subjectId, seriesId, req.body.expectedVersion);
+    return { statusCode: 200, body: { series } };
+  });
+}
+
+/** D-230 — closes D-228's named pendency: lets a tenant caller set/change/remove the series-level
+ * recipient used by future materialized cycles. `recipientEmail: null` removes it (never a stored
+ * `null` — see `DocumentRequestRecurrenceService.updateSeriesRecipient`'s doc comment). */
+export async function handleUpdateSeriesRecipient(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ recipientEmail: string | null; expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const seriesId = requireSeriesId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SERIES_UPDATE_RECIPIENT_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const series = await deps.recurrence.updateSeriesRecipient(context, subjectId, seriesId, req.body.expectedVersion, req.body.recipientEmail);
     return { statusCode: 200, body: { series } };
   });
 }

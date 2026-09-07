@@ -8,6 +8,7 @@ import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 import { DocumentRequestRecurrenceService } from "../../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import { computeSeriesOccurrenceId } from "../../../src/modules/document-archive/domain/document-request-series.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { ConflictError } from "../../../src/shared/errors/app-error.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 
@@ -199,5 +200,112 @@ describe("DocumentRequestRecurrenceService.cancelSeries", () => {
     const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
     const cancelled = await service.cancelSeries(ctx(), "subject-1", series.seriesId, series.version);
     expect(cancelled.status).toBe("CANCELLED");
+  });
+});
+
+// D-230 — closes D-228's named pendency: the recurrence path had no recipient contact modeled.
+describe("DocumentRequestRecurrenceService.createSeries — recipientEmail (D-230)", () => {
+  it("persists a trimmed recipientEmail when provided", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "  guest@example.com  " });
+    expect(series.recipientEmail).toBe("guest@example.com");
+  });
+
+  it("leaves recipientEmail absent when omitted — unchanged pre-D-230 behavior", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    expect(series.recipientEmail).toBeUndefined();
+  });
+});
+
+describe("DocumentRequestRecurrenceService.materializeAttempt — copies series.recipientEmail (D-230)", () => {
+  it("a series WITH recipientEmail produces a DocumentRequest carrying the same recipientEmail", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+    const result = await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
+    expect(result.request.recipientEmail).toBe("guest@example.com");
+  });
+
+  it("a series WITHOUT recipientEmail produces a DocumentRequest with no recipientEmail — non-regression (delivery worker's terminal skip)", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const result = await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
+    expect(result.request.recipientEmail).toBeUndefined();
+  });
+
+  it("a snapshot: changing the series' recipientEmail AFTER a request was materialized does not retroactively change that request", async () => {
+    const { service } = makeService();
+    let series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "old@example.com" });
+    const attempt1 = await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
+    expect(attempt1.request.recipientEmail).toBe("old@example.com");
+
+    series = await service.updateSeriesRecipient(ctx(), "subject-1", series.seriesId, attempt1.series.version, "new@example.com");
+    expect(attempt1.request.recipientEmail).toBe("old@example.com"); // unchanged snapshot
+
+    const attempt2 = await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
+    expect(attempt2.request.recipientEmail).toBe("new@example.com"); // next cycle uses the new value
+  });
+});
+
+describe("DocumentRequestRecurrenceService.updateSeriesRecipient (D-230)", () => {
+  it("sets a recipientEmail on a series created without one", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const updated = await service.updateSeriesRecipient(ctx(), "subject-1", series.seriesId, series.version, "guest@example.com");
+    expect(updated.recipientEmail).toBe("guest@example.com");
+  });
+
+  it("trims the recipientEmail on update", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const updated = await service.updateSeriesRecipient(ctx(), "subject-1", series.seriesId, series.version, "  guest@example.com  ");
+    expect(updated.recipientEmail).toBe("guest@example.com");
+  });
+
+  it("removes recipientEmail (never persists null) when passed null", async () => {
+    const { service, store } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+    const updated = await service.updateSeriesRecipient(ctx(), "subject-1", series.seriesId, series.version, null);
+    expect(updated.recipientEmail).toBeUndefined();
+    const persisted = store.allItems().find((i) => i["entityType"] === "DocumentRequestSeries") as unknown as { recipientEmail?: unknown };
+    expect("recipientEmail" in persisted).toBe(false);
+    expect(persisted.recipientEmail).not.toBeNull();
+  });
+
+  it("rejects a stale expectedVersion (OCC)", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    await expect(service.updateSeriesRecipient(ctx(), "subject-1", series.seriesId, series.version + 1, "guest@example.com")).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("rejects updating a CANCELLED series", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const cancelled = await service.cancelSeries(ctx(), "subject-1", series.seriesId, series.version);
+    await expect(service.updateSeriesRecipient(ctx(), "subject-1", cancelled.seriesId, cancelled.version, "guest@example.com")).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("denies a VIEWER", async () => {
+    const { service } = makeService();
+    const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+    await expect(
+      service.updateSeriesRecipient(ctx({ tenant: { tenantId: "tenant-1", roles: ["VIEWER"] } }), "subject-1", series.seriesId, series.version, "guest@example.com"),
+    ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+  });
+});
+
+describe("DocumentRequestRecurrenceService.getSeries/listSeries — expose recipientEmail (D-230)", () => {
+  it("getSeries returns the recipientEmail when present", async () => {
+    const { service } = makeService();
+    const created = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+    const fetched = await service.getSeries(ctx(), "subject-1", created.seriesId);
+    expect(fetched.recipientEmail).toBe("guest@example.com");
+  });
+
+  it("listSeries returns the recipientEmail when present", async () => {
+    const { service } = makeService();
+    await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+    const list = await service.listSeries(ctx(), "subject-1");
+    expect(list[0]?.recipientEmail).toBe("guest@example.com");
   });
 });

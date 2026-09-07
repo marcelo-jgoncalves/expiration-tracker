@@ -132,6 +132,7 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}" },
   { method: "POST", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}/cancel" },
   { method: "POST", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}/materialize" },
+  { method: "POST", pathTemplate: "/document-archive/series/{subjectId}/{seriesId}/recipient" },
   // D-173 (DocumentType catalog), item 5 - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/document-types" },
   { method: "GET", pathTemplate: "/document-archive/document-types" },

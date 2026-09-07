@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
+import { DocumentRequestRecurrenceService } from "../../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import { GuestDocumentAccessService } from "../../../src/modules/document-archive/application/guest-document-access-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import { DocumentRequestCredentialIssuanceService } from "../../../src/modules/document-archive/application/document-request-credential-issuance-service.js";
@@ -158,5 +159,80 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
     const guestAccess = new GuestDocumentAccessService({ store, tableName: MAIN_TABLE, ids, rateLimiter, pepper: PEPPER, now: () => "2026-01-01T00:10:00.000Z" });
     const resolved = await guestAccess.resolveCredential(token!, { ip: "203.0.113.1" });
     expect(resolved.credential.documentRequestId).toBe(request.documentRequestId);
+  });
+});
+
+// D-230 (closes D-228's named pendency): the SAME end-to-end chain, but for a DocumentRequest
+// materialized by a RECURRING series with a recipientEmail — before D-230, DocumentRequestSeries
+// had no recipient contact modeled, so every series-materialized DocumentRequest was structurally
+// unable to deliver a guest link (the delivery worker always skipped it, terminal, never an
+// error). This proves the recurrence path now closes ponta a ponta too.
+describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve", () => {
+  it("a series WITH recipientEmail: a materialized cycle delivers a real, usable guest link", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const ids = makeIds();
+    const recurrenceService = new DocumentRequestRecurrenceService({ store, tableName: MAIN_TABLE, ids, now: () => "2026-01-01T00:00:00.000Z" });
+
+    // 1. Producer: creates a DocumentRequestSeries with a real recipientEmail (D-230), then
+    // materializes cycle 1's attempt — same builder the interactive AND periodic worker paths
+    // both go through (buildMaterializeAttemptEntries).
+    const series = await recurrenceService.createSeries(ctx(), { subjectId: SUBJECT, requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
+    const { request } = await recurrenceService.materializeAttempt(ctx(), SUBJECT, series.seriesId, series.version);
+    expect(request.recipientEmail).toBe("guest@example.com");
+
+    // 2. Issuance consumer (D-226/D-227).
+    const issuanceService = new DocumentRequestCredentialIssuanceService({ store, tableName: MAIN_TABLE, deliveryTableName: DELIVERY_TABLE, pepper: PEPPER, now: () => "2026-01-01T00:05:00.000Z" });
+    const issuanceOutcome = await issuanceService.handle({ tenantId: TENANT, subjectId: SUBJECT, documentRequestId: request.documentRequestId, issuanceGeneration: request.issuanceGeneration });
+    expect(issuanceOutcome.kind).toBe("ISSUED");
+
+    const deliveryRecord = await store.get<GuestCredentialDeliveryRecord>(guestCredentialDeliveryKey(request.documentRequestId, request.issuanceGeneration));
+    expect(deliveryRecord).toBeDefined();
+
+    // 3. Delivery worker (D-228) — the piece this decision proves now reaches the recurrence path.
+    const emailProvider = new CapturingEmailProvider();
+    const deliveryDeps: GuestCredentialDeliveryDeps = {
+      store,
+      markerStore: new FakeMarkerStore(),
+      emailProvider,
+      guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+      now: () => "2026-01-01T00:06:00.000Z",
+      newCorrelationId: () => "corr-delivery-2",
+    };
+    const deliveryOutcome = await deliverGuestCredential(deliveryDeps, deliveryRecord!);
+    expect(deliveryOutcome.kind).toBe("SENT");
+    expect(emailProvider.sent).toHaveLength(1);
+    expect(emailProvider.sent[0]?.to).toBe("guest@example.com");
+
+    // 4. The guest clicks the link — resolveCredential() accepts it, exactly like the avulso path.
+    const guestLink = String(emailProvider.sent[0]?.renderContext["guestLink"]);
+    const token = new URL(guestLink).searchParams.get("token");
+    expect(token).toBe(deliveryRecord!.token);
+
+    const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+    const guestAccess = new GuestDocumentAccessService({ store, tableName: MAIN_TABLE, ids, rateLimiter, pepper: PEPPER, now: () => "2026-01-01T00:10:00.000Z" });
+    const resolved = await guestAccess.resolveCredential(token!, { ip: "203.0.113.1" });
+    expect(resolved.credential.documentRequestId).toBe(request.documentRequestId);
+  });
+
+  it("a series WITHOUT recipientEmail: the delivery worker keeps skipping (terminal, never an error) — non-regression", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const ids = makeIds();
+    const recurrenceService = new DocumentRequestRecurrenceService({ store, tableName: MAIN_TABLE, ids, now: () => "2026-01-01T00:00:00.000Z" });
+
+    const series = await recurrenceService.createSeries(ctx(), { subjectId: SUBJECT, requirementId: "req-1", cadence: { intervalDays: 90 } });
+    const { request } = await recurrenceService.materializeAttempt(ctx(), SUBJECT, series.seriesId, series.version);
+    expect(request.recipientEmail).toBeUndefined();
+
+    const issuanceService = new DocumentRequestCredentialIssuanceService({ store, tableName: MAIN_TABLE, deliveryTableName: DELIVERY_TABLE, pepper: PEPPER, now: () => "2026-01-01T00:05:00.000Z" });
+    await issuanceService.handle({ tenantId: TENANT, subjectId: SUBJECT, documentRequestId: request.documentRequestId, issuanceGeneration: request.issuanceGeneration });
+    const deliveryRecord = await store.get<GuestCredentialDeliveryRecord>(guestCredentialDeliveryKey(request.documentRequestId, request.issuanceGeneration));
+
+    const emailProvider = new CapturingEmailProvider();
+    const deliveryOutcome = await deliverGuestCredential(
+      { store, markerStore: new FakeMarkerStore(), emailProvider, guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-3" },
+      deliveryRecord!,
+    );
+    expect(deliveryOutcome.kind).toBe("SKIPPED_NO_RECIPIENT_EMAIL");
+    expect(emailProvider.sent).toHaveLength(0);
   });
 });
