@@ -60,6 +60,7 @@ async function seedRequest(store: InMemoryDocumentArchiveStore, overrides: Parti
     status: "REQUESTED",
     deadline: "2026-12-31T00:00:00.000Z",
     submissionCount: 0,
+    issuanceGeneration: 1,
     createdAt: NOW,
     updatedAt: NOW,
     version: 1,

@@ -64,6 +64,32 @@ export interface DocumentRequest extends EntityKey {
    * last attempt) — preserves causality within a cycle while `occurrenceId` preserves cycle
    * identity across attempts (D-147/Decision 8). Absent for attempt 1 of any cycle. */
   parentRequestId?: string;
+  /**
+   * D-226 (`guest-credential-issuance-scoping/estado-final-consolidado.md`): monotonic counter,
+   * starts at `1` at creation, incremented by `rejectVersion()` on every reissue-triggering
+   * rejection (Achado 3 of D-222). Identity for credential ISSUANCE is `documentRequestId` +
+   * `issuanceGeneration` together, never `documentRequestId` alone — this is what lets a
+   * post-rejection reissue avoid colliding with the original issuance's idempotency record on
+   * the guest Lambda's consumer, and what the consumer's `DocumentRequest` `Update` fences on
+   * (`ConditionExpression` includes `issuanceGeneration = :expected`) to reject a stale/obsolete
+   * issuance event without a TOCTOU window.
+   */
+  issuanceGeneration: number;
+  /**
+   * D-226: selector hash of the currently-active `RequestAccessCredential` for this request —
+   * written ONLY by the guest-Lambda issuance consumer (the one holding the D-146 pepper), never
+   * by this (authenticated, pepper-less) Lambda. Its purpose is to let THIS Lambda revoke a
+   * stale credential (`rejectVersion()`) by a known key, without ever needing to compute or
+   * verify a hash itself — revocation is a plain conditional `SET revokedAt`, no pepper required.
+   */
+  activeCredentialSelectorHash?: string;
+  /**
+   * D-226 (Achado 3 of D-222): set by `rejectVersion()` when it reopens this request — one
+   * object, never two loose fields, so the reason always stays correlated to the exact version
+   * and moment it was rejected (never an ambiguous "last reason" disconnected from which
+   * submission it belonged to).
+   */
+  lastRejection?: { versionId: string; reason: string; occurredAt: string };
   createdAt: string;
   updatedAt: string;
   version: number;
