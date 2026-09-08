@@ -66,12 +66,14 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 
 ## Próxima ação recomendada
 
-Nenhuma pendência bloqueante impede progresso autônomo. Em ordem de valor esperado, sem decisão de Marcelo pendente:
-1. Item 8 do backlog P1 (compartilhamento externo seguro) — design já `APPROVED` (D-225), implementar em fatias (nível 3-4, sem protocolo novo).
-2. Fechar a fatia 3/5 do WhatsApp (item 3 P0): `terraform plan` real contra `dev`, merge, CD, verificação ao vivo — nunca aplicada ainda.
-3. Fatia 4/5 do WhatsApp (quota 24h + IAM dedicada).
-4. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente).
-5. Ou uma nova frente que Marcelo trouxer.
+**Prioridade 1, pedido explícito de Marcelo (2026-09-08)**: propagar `AuthorizedTenantId` (branded type criado em D-234, `src/modules/identity/domain/authorization.ts`) aos key-builders de persistência de TODOS os módulos (document-archive/expiration/subject/organization) — hoje o tipo existe mas nenhum key-builder o exige, então a mitigação de isolamento de tenant continua dependendo só de `authorize()` + a suíte adversarial nova (`test/integration/tenant-isolation-matrix.test.ts`), nunca reforçada em tempo de compilação. Refactor GRANDE, tocando dezenas de arquivos de domínio espalhados pelo projeto — **risco real de efeito colateral se feito sem cuidado** (quebrar um call site que hoje passa uma string solta como tenantId, ou perder algum key-builder no meio do caminho). Antes de começar: releia D-234 inteiro (`docs/architecture/decisions-log.md`) e o achado original (E-018, `docs/engineering/reviews/full-audit-round2-seguranca-summary.md`) para o contexto completo. Avalie se isso merece nova rodada de protocolo Claude↔Codex (provável nível 4-5, mudança ampla de assinatura de função em módulos centrais) antes de tocar código — Marcelo pediu autonomia total aqui: "faça o que for necessário para evitar efeito colateral", incluindo rodar o protocolo se avaliar que é o caminho certo, sem esperar confirmação. Fatie o trabalho por módulo (document-archive primeiro, maior e mais crítico; depois os outros três) em vez de uma mudança monolítica — cada fatia com suíte completa verde antes de avançar para a próxima.
+
+Depois disso, ou em paralelo se a sessão preferir dividir o trabalho, sem decisão de Marcelo pendente:
+2. Item 8 do backlog P1 (compartilhamento externo seguro) — design já `APPROVED` (D-225), implementar em fatias (nível 3-4, sem protocolo novo).
+3. Fechar a fatia 3/5 do WhatsApp (item 3 P0): `terraform plan` real contra `dev`, merge, CD, verificação ao vivo — nunca aplicada ainda.
+4. Fatia 4/5 do WhatsApp (quota 24h + IAM dedicada).
+5. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente).
+6. Ou uma nova frente que Marcelo trouxer.
 
 ## Status de evidência (não presumir E2E sem checar)
 
