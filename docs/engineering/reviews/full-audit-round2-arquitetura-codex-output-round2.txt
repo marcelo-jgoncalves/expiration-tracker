@@ -1,0 +1,27 @@
+Concordo com o rebaixamento para Reliability = 7,8 e Event & Integration = 7,9.
+
+Não é convergência por média: a nota R1 do Codex ficou internamente inconsistente com o achado que
+o próprio Codex classificou como bloqueante. O ponto decisivo não é apenas a falha transitória do
+SES, mas a composição destas propriedades:
+- o estado durável afirma implicitamente que a entrega foi concluída antes do efeito externo;
+- o retry previsto pela integração é neutralizado pelo próprio claim;
+- o resultado do retry é falsamente classificado como ALREADY_DELIVERED;
+- não existe alarme dedicado nem recuperação automática;
+- o mesmo ordenamento claim→efeito externo tem precedente em outro fluxo (document-request-service.ts),
+  indicando risco de padrão, não mero typo isolado.
+
+O fato de ser um caminho lateral (guest upload avulso, não reminders) limita o blast radius —
+justifica 7,8/7,9 em vez de nota na faixa de 6 (outbox/DLQ/redrive/caminhos assíncronos centrais
+seguem comprovados). Mas não sustenta notas próximas de 9 nos dois critérios responsáveis por
+garantir recuperação e correção de entrega.
+
+Notas Codex revisadas (R2): Reliability & Fault Recovery 8,8→7,8; Event & Integration Correctness
+9,2→7,9. Mantidos todos os demais critérios da R1.
+
+Novo cálculo: 9,085 − (1,0×16%) − (1,3×11%) = 8,782.
+
+Nota ponderada Codex R2: 8,782/10 — eixo fica abaixo do gate de 9,0, com a correção de deliver.ts
+como bloqueador arquitetural objetivo, registrado como pendente para decisão/implementação futura
+(confirmado na Rodada 3, ver full-audit-round2-arquitetura-codex-output-round3.txt).
+
+(Transcrição fiel da resposta completa do `codex exec`, Rodada 2 — saída bruta arquivada em sessão.)

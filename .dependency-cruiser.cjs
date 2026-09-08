@@ -6,10 +6,11 @@
  * barrel file re-exporting a forbidden layer. dependency-cruiser resolves the actual module
  * graph (including transitively), so it closes that gap instead of just restating it.
  *
- * This is deliberately narrow — three rules, matching exactly the three boundaries already
- * enforced (imperfectly) by ESLint. Not a general-purpose architecture linter; adding more
- * rules here should require the same justification as any other engineering decision
- * (docs/engineering/decisions-log.md), not accumulate by default.
+ * This started deliberately narrow (three rules, matching exactly the three boundaries already
+ * enforced imperfectly by ESLint) and has grown to five as real bypass classes were found
+ * (shared-must-not-reach-modules, no-raw-dynamodb-writes-outside-lanes) — not a general-purpose
+ * architecture linter; adding more rules here should require the same justification as any
+ * other engineering decision (docs/engineering/decisions-log.md), not accumulate by default.
  */
 module.exports = {
   forbidden: [

@@ -1,0 +1,26 @@
+(ver arquivo completo bruto salvo pelo `codex exec`, reproduzido abaixo — tabela de notas Rodada 1, nota ponderada 9,085/10, achados)
+
+| # | Critério | Peso | Nota Codex R1 | Racional |
+|---:|---|---:|---:|---|
+| 1 | Domain Fit & Simplicity | 8% | 9.2 | Separação domínio/aplicação/ports/workers/handlers coerente apesar da expansão; DossierExportRun corretamente na partição do Subject. |
+| 2 | Reliability & Fault Recovery | 16% | 8.8 | Bloqueio IaC removido (Terraform/OIDC/DLQ/redrive/Scheduler testados reais). Achado real: worker de credencial guest reivindica (claim) ANTES do envio SES — falha entre claim e send suprime a entrega permanentemente. |
+| 3 | Event & Integration Correctness | 11% | 9.2 | Streams/SQS/EventBridge Scheduler/outbox/redrive com evidência real; bug de escaping do Scheduler achado e corrigido em AWS real. |
+| 4 | Data Model & Consistency | 13% | 9.3 | 9 GSIs com isolamento por política de índice/LeadingKeys; lifecycle incompleto em alguns registros novos de exportação. |
+| 5 | Security & Privacy | 13% | 9.2 | Achado AppConfig da Rodada 1 CORRIGIDO (construto real, ARN escopado). IAM negativo GSI3/GSI6 comprovado real. |
+| 6 | Modifiability & Evolvability | 7% | 9.2 | Ports finos, módulos Terraform reutilizáveis absorveram B2B+Document Archive sem colapsar fronteiras; pequena duplicação de hidratação GSI4. |
+| 7 | Observability & Operability | 8% | 8.5 | Alarmes/metric filters/SNS cresceram bem; EMF/dashboard ainda ausentes (achado Category B da Rodada 1 NÃO corrigido). |
+| 8 | Testability & Delivery Safety | 8% | 9.4 | ADR-0009 fechou o drift IaC; CI/CD real via OIDC; terraform test + suíte grande + drills reais. |
+| 9 | Cost & Resource Governance | 5% | 9.0 | Budget mensal real com alertas 80%/100%; depende de e-mail configurado para notificar. |
+| 10 | Performance & Scalability Fitness | 4% | 8.5 | Teste real de ~977 invocações/quotas/p99 mas não cobre toda superfície HTTP/BFF; fan-out sem cap em onboarding B2B. |
+| 11 | Architecture Governance & Traceability | 7% | 9.4 | D-084 a D-231+, ADR-0009, rastreabilidade excepcional decisão→implementação→verificação. |
+
+Nota ponderada Codex R1: **9.085/10**
+
+Achados não resolvidos (Codex R1):
+- BLOQUEANTE: perda silenciosa de entrega de credencial guest (claim antes do SES em `src/workers/guest-credential-delivery/deliver.ts`).
+- Não-bloqueante: observabilidade métrica incompleta (EMF/dashboard ausentes).
+- Não-bloqueante: lifecycle de artefatos de relatório/exportação sem TTL/purga (DossierExportRun/ReportSubscriptionRun).
+- Não-bloqueante: fan-out B2B sem cap em resolução de membership/onboarding.
+- Pendência de produto: DocumentRequestSeries sem recipientEmail para requests recorrentes (já era conhecida, D-228).
+
+(Saída bruta completa do `codex exec` desta rodada arquivada em sessão; texto acima é a transcrição fiel das seções relevantes.)

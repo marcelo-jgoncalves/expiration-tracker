@@ -24,6 +24,19 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
   tags        = var.tags
 
+  # D-231 incident: route_settings above is built from `local.*_routes` maps (plain strings),
+  # never a direct reference to the actual aws_apigatewayv2_route resources - Terraform cannot
+  # infer the real dependency from that, so on first-time creation of a new route the stage
+  # update can race ahead of the route actually existing in the API
+  # ("NotFoundException: Unable to find Route by key ... within the provided RouteSettings",
+  # observed in CD run 34181210135 for the brand-new whatsapp_webhook routes). Explicit
+  # depends_on on every *_routes resource referenced by a route_settings block below closes this
+  # for future additions too, not just this one.
+  depends_on = [
+    aws_apigatewayv2_route.guest_documents,
+    aws_apigatewayv2_route.whatsapp_webhook,
+  ]
+
   # D-051: throttling nativo do HTTP API nunca tinha sido configurado (nem para as rotas
   # JWT-protegidas) - default conservador aplicado a todo o stage; as 2 rotas públicas
   # /guest/* recebem um `route_settings` mais restritivo abaixo, já que são as únicas sem
