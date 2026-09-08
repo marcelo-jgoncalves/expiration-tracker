@@ -21,6 +21,18 @@
  *     tight one - it's allowed to grow with real session detail) specifically to catch
  *     unbounded reaccumulation of already-duplicated history before it reaches the ~1067
  *     lines this reconciliation found, not to enforce a tight target.
+ *  5. Byte/word-size guardrail on NEXT_SESSION_PROMPT.md (added full-audit round2, eixo
+ *     Engenharia de Contexto, E-022/D-236 - a REAL regression check #4 missed): the file had
+ *     reaccumulated ~134 KB / ~15,600 words while staying at 277-296 of the 300-line ceiling,
+ *     because each "Continuacao..."/"D-xxx..." entry had become one giant compacted paragraph
+ *     per line - few lines, each enormous, invisible to a split("\n").length count. The
+ *     2026-09-08 reconciliation (D-236) brought it down to ~12.3 KB / ~1,450 words / 87 lines.
+ *     NEXT_SESSION_PROMPT_MAX_BYTES is set to 30,000 - roughly 2.4x that reconciled size,
+ *     generous enough for real growth within a session before the next reconciliation, tight
+ *     enough to catch unbounded reaccumulation long before it reaches six figures again. Word
+ *     count is also checked (NEXT_SESSION_PROMPT_MAX_WORDS, 4,000 - roughly 2.75x the
+ *     reconciled ~1,450) as a second, density-independent signal: a file could stay under the
+ *     byte cap while still being wall-to-wall prose, which the byte check alone would miss.
  *
  * Built because AGENTS.md §6's checklist previously conditioned this kind of automation on
  * "CI real existe" OR "reincidência de drift documental" - both were true (CI has existed
@@ -42,6 +54,11 @@ export const ROOT_MD_ALLOWLIST = new Set(["AGENTS.md", "ARCHITECTURE.md", "CLAUD
 
 export const AGENTS_MD_MAX_LINES = 100; // matches AGENTS.md §8's own declared goal (60-100).
 export const NEXT_SESSION_PROMPT_MAX_LINES = 300; // generous ceiling, see file doc comment above.
+// Density guardrails added 2026-09-08 (E-022/D-236) - line count alone missed a real
+// regression (few lines, each an enormous compacted paragraph). See doc comment #5 above for
+// how these numbers were picked (~2.4x/~2.75x the reconciled size).
+export const NEXT_SESSION_PROMPT_MAX_BYTES = 30_000;
+export const NEXT_SESSION_PROMPT_MAX_WORDS = 4_000;
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist", "cdk.out", "coverage"]);
@@ -153,6 +170,33 @@ export function checkSizeGuardrail(fileBasename: string, lineCount: number, maxL
   }
 }
 
+// Density guardrail (E-022/D-236): line count alone can't detect a small number of enormous
+// lines, so this checks raw byte size and word count independently of line count.
+export function checkDensityGuardrail(
+  fileBasename: string,
+  content: string,
+  maxBytes: number,
+  maxWords: number,
+  violations: Violation[],
+): void {
+  const byteLength = Buffer.byteLength(content, "utf-8");
+  if (byteLength > maxBytes) {
+    violations.push({
+      file: fileBasename,
+      line: 1,
+      message: `${byteLength} bytes, over the ${maxBytes}-byte density guardrail - line count can look fine while content reaccumulates as a few enormous lines (this is exactly the E-022/D-236 regression); compact narrative history into decisions-log.md/session-log.md, keep only current state + next action`,
+    });
+  }
+  const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
+  if (wordCount > maxWords) {
+    violations.push({
+      file: fileBasename,
+      line: 1,
+      message: `${wordCount} words, over the ${maxWords}-word density guardrail - same class of issue as the byte guardrail (see that message); compact narrative history into decisions-log.md/session-log.md instead`,
+    });
+  }
+}
+
 function main(): void {
   const files = walkMarkdownFiles(REPO_ROOT);
   const validSections = loadAgentsMdSections();
@@ -169,8 +213,16 @@ function main(): void {
 
   const agentsMdLines = readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf-8").split("\n").length;
   checkSizeGuardrail("AGENTS.md", agentsMdLines, AGENTS_MD_MAX_LINES, violations);
-  const nextSessionPromptLines = readFileSync(path.join(REPO_ROOT, "NEXT_SESSION_PROMPT.md"), "utf-8").split("\n").length;
+  const nextSessionPromptContent = readFileSync(path.join(REPO_ROOT, "NEXT_SESSION_PROMPT.md"), "utf-8");
+  const nextSessionPromptLines = nextSessionPromptContent.split("\n").length;
   checkSizeGuardrail("NEXT_SESSION_PROMPT.md", nextSessionPromptLines, NEXT_SESSION_PROMPT_MAX_LINES, violations);
+  checkDensityGuardrail(
+    "NEXT_SESSION_PROMPT.md",
+    nextSessionPromptContent,
+    NEXT_SESSION_PROMPT_MAX_BYTES,
+    NEXT_SESSION_PROMPT_MAX_WORDS,
+    violations,
+  );
 
   if (violations.length > 0) {
     console.error(`Doc drift check found ${violations.length} issue(s):\n`);
