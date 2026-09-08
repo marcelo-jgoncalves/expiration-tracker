@@ -21,7 +21,9 @@
     "check-docs": "tsx scripts/check-doc-drift.ts",
     "check-dependency-freshness": "tsx scripts/check-dependency-freshness.ts",
     "check-spa-build-artifacts": "node scripts/check-spa-build-artifacts.mjs",
-    "build:lambdas": "tsx scripts/build-lambdas.ts"
+    "build:lambdas": "tsx scripts/build-lambdas.ts",
+    "generate:lambda-manifest": "tsx scripts/generate-lambda-manifest.ts",
+    "check:lambda-manifest": "tsx scripts/generate-lambda-manifest.ts --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

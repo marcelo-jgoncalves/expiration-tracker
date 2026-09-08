@@ -236,6 +236,16 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
+      - name: Check Lambda manifest is up to date (E-020/D-232)
+        # scripts/generate-lambda-manifest.ts derives infra/lambda-manifest.generated.tf from
+        # every module in infra/*.tf using the lambda-function source - this is the check that
+        # makes it structurally impossible for the deploy manifest / rollback mechanism
+        # (.github/workflows/rollback.yml) to silently fall behind infra/main.tf again, the way
+        # it did (34 covered vs. 61 real Lambdas) before this fix. Runs here (not in the
+        # `guardrails` job) because it shells out to `terraform fmt` to compare formatted output
+        # - the `guardrails` job doesn't install the Terraform CLI.
+        run: npm run check:lambda-manifest
+
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
 

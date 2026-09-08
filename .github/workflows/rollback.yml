@@ -17,6 +17,14 @@
 # `current-healthy` is only advanced to the restored deployment if the ENTIRE rollback
 # (alias updates + shallow post-check) succeeds. A partial failure triggers compensation
 # (reverting the aliases already changed) before the job fails.
+#
+# E-020/D-232 (full-audit-round2, Operações/SRE, 2026-09-08): this mechanism was completely broken
+# in practice - it hardcoded "manifest must have exactly 13 functions" long after infra/main.tf
+# grew to 61 real Lambdas, so every real rollback failed immediately at manifest validation before
+# touching a single alias. Fixed by (1) generating the deploy manifest's source outputs
+# (infra/lambda-manifest.generated.tf) from infra/*.tf instead of hand-maintaining them, so they
+# can never silently fall behind again, and (2) dropping the magic-number check below in favor of
+# a structural non-empty-object check - see the "Schema/environment/function-set validation" step.
 
 name: Emergency Rollback (dev)
 
@@ -114,8 +122,28 @@ jobs:
           # (Codex, round3 focused review): checking only fn_count == 13 would accept a
           # manifest with 13 functions that aren't the right 13 (wrong names) or with a
           # non-numeric version string - both closed below.
+          #
+          # E-020/D-232 (full-audit-round2, Operações/SRE): the "expected exactly 13 functions"
+          # literal below went stale the moment infra/main.tf grew past 13 Lambdas (it reached 61
+          # without this ever being updated) and made every real rollback fail before touching a
+          # single alias. Fixed by dropping the magic number entirely - the name-SET-equality
+          # check right below already implies count equality (two equal sets have equal
+          # cardinality), so a separate numeric literal added nothing but a second place to go
+          # stale. What remains is a structural sanity check that can never itself go stale:
+          # `.functions` must be a non-empty object, full stop.
+          #
+          # Transition note (D-232): in the window between the deploy that ships this fix and the
+          # SECOND healthy deploy after it, rollback is expected to be temporarily UNAVAILABLE -
+          # `current-healthy`'s function set (all 61 Lambdas, once every module is covered by the
+          # generated manifest) won't match any older manifest's smaller function set, so the
+          # equality check below correctly refuses that rollback rather than silently reverting an
+          # incomplete subset. This is expected/acceptable (AGENTS.md §1: no real users, `dev` is
+          # resettable at any time) - NOT a bug to route around with an explicit `deployment_id`
+          # input, which would still fail the same equality check for the same reason. Rollback
+          # returns to normal automatically starting with the second full-coverage healthy deploy.
           schema_version=$(echo "$manifest" | jq -r '.schemaVersion')
           environment=$(echo "$manifest" | jq -r '.environment')
+          functions_is_object=$(echo "$manifest" | jq '(.functions | type) == "object"')
           fn_count=$(echo "$manifest" | jq '.functions | length')
           if [ "$schema_version" != "1" ]; then
             echo "::error::Unsupported manifest schemaVersion: $schema_version"
@@ -125,8 +153,8 @@ jobs:
             echo "::error::Manifest environment ($environment) does not match dev"
             exit 1
           fi
-          if [ "$fn_count" != "13" ]; then
-            echo "::error::Manifest has $fn_count functions, expected exactly 13"
+          if [ "$functions_is_object" != "true" ] || [ "$fn_count" -eq 0 ]; then
+            echo "::error::Manifest .functions must be a non-empty object, got type/count: $(echo "$manifest" | jq -c '.functions | type'), $fn_count"
             exit 1
           fi
 
@@ -139,9 +167,9 @@ jobs:
             exit 1
           fi
 
-          non_numeric=$(echo "$manifest" | jq -r '.functions | to_entries[] | select(.value.version | test("^[0-9]+$") | not) | .key')
+          non_numeric=$(echo "$manifest" | jq -r '.functions | to_entries[] | select((.value.version // null) == null or (.value.version | type) != "string" or (.value.version | test("^[0-9]+$") | not)) | .key')
           if [ -n "$non_numeric" ]; then
-            echo "::error::Manifest has non-numeric version(s) for: $non_numeric"
+            echo "::error::Manifest has a missing/non-numeric version for: $non_numeric"
             exit 1
           fi
 
