@@ -29,6 +29,7 @@
  * share the "sparse, removed on transition" shape of).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { stableHash } from "../../reminder/domain/reminder-occurrence.js";
 
 export type DocumentRequestSeriesStatus = "ACTIVE" | "CANCELLED";
@@ -86,7 +87,7 @@ export interface DocumentRequestSeries extends EntityKey {
   GSI1SK: string;
 }
 
-export function documentRequestSeriesKey(tenantId: string, subjectId: string, seriesId: string): EntityKey {
+export function documentRequestSeriesKey(tenantId: AuthorizedTenantId, subjectId: string, seriesId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `SERIES#${seriesId}` };
 }
 
@@ -98,7 +99,7 @@ export const DOCUMENT_REQUEST_SERIES_SK_PREFIX = "SERIES#";
  * "what's due" query (`document-request-recurrence-producer.ts`) is a single bounded Query
  * against a status-scoped partition, same shape as `reviewQueueGsi5Keys`'s access pattern.
  */
-export function documentRequestSeriesGsi1Keys(tenantId: string, status: DocumentRequestSeriesStatus, nextDueAt: string, seriesId: string): { GSI1PK: string; GSI1SK: string } {
+export function documentRequestSeriesGsi1Keys(tenantId: AuthorizedTenantId, status: DocumentRequestSeriesStatus, nextDueAt: string, seriesId: string): { GSI1PK: string; GSI1SK: string } {
   return {
     GSI1PK: `TENANT#${tenantId}#SERIESDUE#${status}`,
     GSI1SK: `DUE#${nextDueAt}#SERIES#${seriesId}`,

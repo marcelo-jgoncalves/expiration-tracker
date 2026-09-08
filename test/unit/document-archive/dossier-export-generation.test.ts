@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
@@ -8,7 +9,7 @@ import { processDossierExportGeneration, MAX_DOSSIER_REQUIREMENTS, type DossierE
 import type { DossierExportStore } from "../../../src/modules/document-archive/ports/dossier-export-store.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subj-1";
 const RUN_ID = "run-1";
 const NOW = "2026-09-06T10:00:00.000Z";

@@ -21,6 +21,7 @@ import { dossierExportRunKey, type DossierExportRun } from "../../src/modules/do
 import type { DossierExportStore } from "../../src/modules/document-archive/ports/dossier-export-store.js";
 import type { UploadUrlSigner } from "../../src/modules/document/ports/upload-url-signer.js";
 import type { EntityKey } from "../../src/shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../src/modules/identity/domain/authorization.js";
 
 function claims(sub: string): ValidatedClaims {
   return { sub, tokenId: `jti-${sub}`, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
@@ -47,8 +48,9 @@ function makeIds() {
 
 const noopSigner: UploadUrlSigner = { presignUpload: async () => ({ uploadUrl: "https://s3.example/unused", requiredHeaders: {} }) };
 
-function makeRequirement(tenantId: string, subjectId: string, requirementId: string): Record<string, unknown> & EntityKey {
+function makeRequirement(rawTenantId: string, subjectId: string, requirementId: string): Record<string, unknown> & EntityKey {
   const now = "2026-09-06T00:00:00.000Z";
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: rawTenantId });
   return {
     ...requirementKey(tenantId, subjectId, requirementId),
     entityType: "Requirement",
@@ -147,7 +149,7 @@ describe("Dossier export HTTP routes (D-205 fatia 1/3)", () => {
     async function seedRun(status: DossierExportRun["status"]): Promise<string> {
       const runId = "run-download-1";
       const run: DossierExportRun = {
-        ...dossierExportRunKey(tenantId, "subj-1", runId),
+        ...dossierExportRunKey(authorizedTenantIdFromPersistedEntity({ tenantId }), "subj-1", runId),
         entityType: "DossierExportRun",
         runId,
         subjectId: "subj-1",

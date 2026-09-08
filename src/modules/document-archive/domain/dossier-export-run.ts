@@ -32,6 +32,7 @@
  * worker perform never touch this attribute, so it stays fixed at creation time.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { computeFingerprint } from "../../../shared/domain/fingerprint.js";
 
 export type DossierExportRunStatus =
@@ -67,7 +68,7 @@ export interface DossierExportRun extends EntityKey {
   purgeAfterTtl: number;
 }
 
-export function dossierExportRunKey(tenantId: string, subjectId: string, runId: string): EntityKey {
+export function dossierExportRunKey(tenantId: AuthorizedTenantId, subjectId: string, runId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `DOSSIER#${runId}` };
 }
 

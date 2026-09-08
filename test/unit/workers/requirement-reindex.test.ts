@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { runRequirementReindex } from "../../../src/workers/requirement-reindex/reindex.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
 import { requirementGsi1Keys, requirementGsi8Keys, requirementKey, type Requirement } from "../../../src/modules/document-archive/domain/requirement.js";
@@ -14,13 +15,13 @@ function seed(...requirements: Requirement[]): (Record<string, unknown> & Entity
 }
 
 const TABLE = "test-table";
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const NOW = "2026-09-01T00:00:00.000Z";
 
 function makeSatisfiedRequirement(overrides: Partial<Requirement> = {}): Requirement {
   const requirementId = overrides.requirementId ?? "req-1";
-  const tenantId = overrides.tenantId ?? TENANT;
+  const tenantId = overrides.tenantId ? authorizedTenantIdFromPersistedEntity({ tenantId: overrides.tenantId }) : TENANT;
   const status = "SATISFIED";
   const evidenceValidUntil = overrides.evidenceValidUntil !== undefined || "evidenceValidUntil" in overrides ? overrides.evidenceValidUntil : "2026-08-01T00:00:00.000Z"; // in the past relative to NOW, by default
   return {

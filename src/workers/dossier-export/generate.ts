@@ -18,6 +18,7 @@
  * uploaded to S3 before the run is marked `READY`.
  */
 import { buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import { dossierExportRunKey, type DossierExportRun } from "../../modules/document-archive/domain/dossier-export-run.js";
 import type { DocumentArchiveStore } from "../../modules/document-archive/ports/document-archive-store.js";
 import type { DossierExportStore } from "../../modules/document-archive/ports/dossier-export-store.js";
@@ -58,7 +59,11 @@ export type DossierExportGenerationResult =
 
 export async function processDossierExportGeneration(deps: DossierExportGenerationDeps, command: DossierExportGenerationCommand): Promise<DossierExportGenerationResult> {
   const now = deps.now();
-  const key = dossierExportRunKey(command.tenantId, command.subjectId, command.runId);
+  // `command.tenantId` is an SQS payload field written by `confirmDossierExport` from the
+  // `DossierExportRun` row it just persisted — never from client input, same one-hop-removed
+  // provenance as the other bare-`{tenantId}` outbox destinations in this codebase.
+  const tenantId = authorizedTenantIdFromPersistedEntity(command);
+  const key = dossierExportRunKey(tenantId, command.subjectId, command.runId);
   const run = await deps.store.get<DossierExportRun>(key);
   if (!run) return { kind: "RUN_NOT_FOUND" };
 
@@ -81,7 +86,7 @@ export async function processDossierExportGeneration(deps: DossierExportGenerati
   const claimed = await tryClaimGenerating(deps, run, leaseExpiresAt, now);
   if (!claimed) return { kind: "SKIPPED_LOST_CLAIM_RACE" };
 
-  const { rows, subjectDisplayName: resolvedSubjectDisplayName } = await deps.documentArchive.getDossierExportData(command.tenantId, command.subjectId, run.requirementIds);
+  const { rows, subjectDisplayName: resolvedSubjectDisplayName } = await deps.documentArchive.getDossierExportData(tenantId, command.subjectId, run.requirementIds);
   const subjectDisplayName = resolvedSubjectDisplayName ?? command.subjectId;
 
   if (rows.length > MAX_DOSSIER_REQUIREMENTS) {
@@ -98,8 +103,8 @@ export async function processDossierExportGeneration(deps: DossierExportGenerati
       buildDossierXlsx({ subjectDisplayName, rows, generatedAt: now, truncatedNote }),
     ]);
     await Promise.all([
-      deps.exportStore.putPdf({ tenantId: command.tenantId, subjectId: command.subjectId, runId: command.runId, body: pdfBytes }),
-      deps.exportStore.putXlsx({ tenantId: command.tenantId, subjectId: command.subjectId, runId: command.runId, body: xlsxBuffer }),
+      deps.exportStore.putPdf({ tenantId, subjectId: command.subjectId, runId: command.runId, body: pdfBytes }),
+      deps.exportStore.putXlsx({ tenantId, subjectId: command.subjectId, runId: command.runId, body: xlsxBuffer }),
     ]);
   } catch (err) {
     await forceUpdateStatus(deps, { ...run, version: claimed.version }, "FAILED", now, { failureReason: err instanceof Error ? err.message : "Unknown error during document generation." });

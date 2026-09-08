@@ -19,7 +19,7 @@ import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
@@ -90,7 +90,7 @@ export function buildMaterializeAttemptEntries(input: {
   const parentRequestId = series.latestRequestId;
 
   const request: DocumentRequest = {
-    ...documentRequestKey(series.tenantId, series.subjectId, newRequestId),
+    ...documentRequestKey(authorizedTenantIdFromPersistedEntity(series), series.subjectId, newRequestId),
     entityType: "DocumentRequest",
     documentRequestId: newRequestId,
     tenantId: series.tenantId,
@@ -118,7 +118,7 @@ export function buildMaterializeAttemptEntries(input: {
     {
       Update: buildVersionedUpdate({
         tableName,
-        key: documentRequestSeriesKey(series.tenantId, series.subjectId, series.seriesId),
+        key: documentRequestSeriesKey(authorizedTenantIdFromPersistedEntity(series), series.subjectId, series.seriesId),
         tenantId: series.tenantId,
         expectedVersion: series.version,
         set: { latestAttemptIndex: attemptIndex, latestRequestId: newRequestId },
@@ -152,7 +152,7 @@ export class DocumentRequestRecurrenceService {
 
   async createSeries(ctx: RequestContext, input: CreateDocumentRequestSeriesInput): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const seriesId = this.ids.newSeriesId();
     const now = this.now();
     const cycleStartAt = input.firstDueAt ?? now;
@@ -182,10 +182,10 @@ export class DocumentRequestRecurrenceService {
 
   async getSeries(ctx: RequestContext, subjectId: string, seriesId: string): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getSeriesUnchecked(ctx.tenant.tenantId, subjectId, seriesId);
+    return this.getSeriesUnchecked(authorizedTenantId(ctx), subjectId, seriesId);
   }
 
-  private async getSeriesUnchecked(tenantId: string, subjectId: string, seriesId: string): Promise<DocumentRequestSeries> {
+  private async getSeriesUnchecked(tenantId: AuthorizedTenantId, subjectId: string, seriesId: string): Promise<DocumentRequestSeries> {
     const series = await this.store.get<DocumentRequestSeries>(documentRequestSeriesKey(tenantId, subjectId, seriesId));
     if (!series) throw new NotFoundError("DocumentRequestSeries not found.", { seriesId });
     return series;
@@ -198,7 +198,7 @@ export class DocumentRequestRecurrenceService {
 
   async cancelSeries(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-cancel", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
     const now = this.now();
     const set = { status: "CANCELLED" as const, ...documentRequestSeriesGsi1Keys(tenantId, "CANCELLED", current.nextDueAt, seriesId) };
@@ -234,7 +234,7 @@ export class DocumentRequestRecurrenceService {
    */
   async updateSeriesRecipient(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number, recipientEmail: string | null): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
     if (current.status !== "ACTIVE") throw new ConflictError("Cannot update the recipient of a cancelled series.", { seriesId });
     const now = this.now();
@@ -266,7 +266,7 @@ export class DocumentRequestRecurrenceService {
    * attempt right now (e.g. "resend" in the product UI), not the scheduled path. */
   async materializeAttempt(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number): Promise<MaterializeAttemptResult> {
     authorize({ context: ctx, action: "docarchive:series-materialize", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const series = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
     if (series.version !== expectedVersion) throw new ConflictError("DocumentRequestSeries was concurrently modified.", { seriesId });
     const now = this.now();
@@ -288,7 +288,7 @@ export class DocumentRequestRecurrenceService {
    * `occurrenceId` (Decision 8: `occurrenceId` changes across cycles, stays stable within one). */
   async advanceCycle(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
     const now = this.now();
     const nextCycleStartAt = new Date(new Date(current.currentCycleStartAt).getTime() + current.cadence.intervalDays * 24 * 60 * 60 * 1000).toISOString();

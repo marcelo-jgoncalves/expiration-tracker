@@ -21,6 +21,7 @@ import { buildSubjectWorkerDeps } from "../composition/subject.js";
 import { parseDocumentArchiveQuarantineKey } from "../../../modules/document-archive/domain/document-archive-quarantine-key.js";
 import { finalizeDocumentArchiveUpload } from "../../../workers/upload-finalizer/document-archive-finalizer.js";
 import { buildDocumentArchiveWorkerDeps } from "../composition/document-archive.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -80,7 +81,9 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         if (parsedArchive) {
           await runWithContext({ correlationId: randomUUID(), tenantId: parsedArchive.tenantId }, async () => {
             const outcome = await finalizeDocumentArchiveUpload(documentArchiveDeps, {
-              tenantId: parsedArchive.tenantId,
+              // Same S3-object-key provenance as malware-result-handler.ts's own use of this
+              // helper — parsed from a key our own upload-reservation code wrote, not client input.
+              tenantId: authorizedTenantIdFromPersistedEntity(parsedArchive),
               documentId: parsedArchive.documentId,
               seq: parsedArchive.seq,
               fileId: parsedArchive.fileId,

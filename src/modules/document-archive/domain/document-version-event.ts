@@ -12,6 +12,7 @@
  * proving RECEIVED and UNDER_REVIEW were traversed, even though the Version item itself only
  * ever shows its terminal `ACCEPTED` state.
  */
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { DocumentFileScanStatus } from "./document-file.js";
 import type { DocumentVersionState } from "./document-version.js";
 
@@ -61,10 +62,10 @@ export interface IdempotencyRecord<TResult = unknown> {
   createdAt: string;
 }
 
-export function documentVersionEventKey(tenantId: string, documentId: string, seq: number, ulid: string): { PK: string; SK: string } {
+export function documentVersionEventKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, ulid: string): { PK: string; SK: string } {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${String(seq).padStart(6, "0")}#EVENT#${ulid}` };
 }
 
-export function idempotencyRecordKey(tenantId: string, documentId: string, seq: number, clientRequestToken: string): { PK: string; SK: string } {
+export function idempotencyRecordKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, clientRequestToken: string): { PK: string; SK: string } {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${String(seq).padStart(6, "0")}#IDEMPOTENCY#${clientRequestToken}` };
 }

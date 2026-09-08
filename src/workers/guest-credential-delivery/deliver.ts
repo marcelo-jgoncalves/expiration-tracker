@@ -53,6 +53,7 @@ import { EmailSendError, type EmailSendFailureKind, type EmailProviderAdapter } 
 import type { GuestCredentialDeliveryMarkerStore } from "../../modules/document-archive/ports/guest-credential-delivery-marker-store.js";
 import { documentRequestKey, type DocumentRequest } from "../../modules/document-archive/domain/document-request.js";
 import type { GuestCredentialDeliveryRecord } from "../../modules/document-archive/domain/guest-credential-delivery.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 
 export interface GuestCredentialDeliveryStore {
   get<T extends { PK: string; SK: string } = DocumentRequest & { PK: string; SK: string }>(key: { PK: string; SK: string }): Promise<T | undefined>;
@@ -99,7 +100,7 @@ export type GuestCredentialDeliveryOutcome =
   | { kind: "PREVIOUSLY_UNCERTAIN"; failureKind: string };
 
 export async function deliverGuestCredential(deps: GuestCredentialDeliveryDeps, record: GuestCredentialDeliveryRecord): Promise<GuestCredentialDeliveryOutcome> {
-  const request = await deps.store.get<DocumentRequest>(documentRequestKey(record.tenantId, record.subjectId, record.documentRequestId));
+  const request = await deps.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(record), record.subjectId, record.documentRequestId));
   if (!request) return { kind: "SKIPPED_REQUEST_NOT_FOUND" };
   if (request.issuanceGeneration !== record.issuanceGeneration) return { kind: "SKIPPED_STALE_GENERATION" };
   if (!request.recipientEmail) return { kind: "SKIPPED_NO_RECIPIENT_EMAIL" };

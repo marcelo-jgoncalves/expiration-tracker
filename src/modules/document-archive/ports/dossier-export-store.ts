@@ -7,12 +7,14 @@
  * export has the identical retention/security profile a scheduled report does, so this is
  * deliberate infrastructure reuse, not a new bucket resource.
  */
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
+
 export type DossierExportFormat = "pdf" | "xlsx";
 
 export interface DossierExportStore {
-  putPdf(input: { tenantId: string; subjectId: string; runId: string; body: Uint8Array }): Promise<void>;
-  putXlsx(input: { tenantId: string; subjectId: string; runId: string; body: Buffer }): Promise<void>;
+  putPdf(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; body: Uint8Array }): Promise<void>;
+  putXlsx(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; body: Buffer }): Promise<void>;
   /** Mints a short-lived (decision 9: 5 min, same as D-204 decision 7) presigned GET for an
    * already-uploaded artifact — never called until a real download request is authorized. */
-  presignDownload(input: { tenantId: string; subjectId: string; runId: string; format: DossierExportFormat; expiresInSeconds: number }): Promise<string>;
+  presignDownload(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; format: DossierExportFormat; expiresInSeconds: number }): Promise<string>;
 }

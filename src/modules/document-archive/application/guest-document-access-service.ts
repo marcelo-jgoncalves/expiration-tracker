@@ -25,6 +25,7 @@
  * populated (`AppError.toJSON()` serializes `details` into the HTTP response).
  */
 import { AppError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
 import { documentTypeKey, type DocumentType } from "../domain/document-type.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
@@ -203,7 +204,7 @@ export class GuestDocumentAccessService {
     if (pointer.revokedAt) throw new GuestAccessInvalidError();
     if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
 
-    const request = await this.store.get<DocumentRequest>(documentRequestKey(pointer.tenantId, pointer.subjectId, pointer.documentRequestId));
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
     if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
     // Re-validate against the live Request's deadline too (same "credential TTL OR deadline,
     // whichever is sooner, re-checked at resolve time" discipline as GuestTokenPointer's D-037
@@ -244,7 +245,7 @@ export class GuestDocumentAccessService {
     if (pointer.revokedAt) throw new GuestAccessInvalidError();
     if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
 
-    const request = await this.store.get<DocumentRequest>(documentRequestKey(pointer.tenantId, pointer.subjectId, pointer.documentRequestId));
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
     if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
     if (request.deadline && request.deadline < this.now()) throw new GuestAccessInvalidError();
 
@@ -320,7 +321,7 @@ export class GuestDocumentAccessService {
     if (!pointer || !secretOk) throw new GuestAccessInvalidError();
     if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
 
-    const request = await this.store.get<DocumentRequest>(documentRequestKey(pointer.tenantId, pointer.subjectId, pointer.documentRequestId));
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
     if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
 
     return { session: pointer, request };
@@ -347,7 +348,7 @@ export class GuestDocumentAccessService {
       throw new GuestAccessInvalidError();
     }
 
-    const tenantId = resolved.session.tenantId;
+    const tenantId = authorizedTenantIdFromPersistedEntity(resolved.session);
     const subjectId = resolved.session.subjectId;
     const requirementId = resolved.session.requirementId;
 
@@ -486,7 +487,7 @@ export class GuestDocumentAccessService {
         {
           Update: buildVersionedUpdate({
             tableName: this.tableName,
-            key: documentRequestKey(request.tenantId, request.subjectId, request.documentRequestId),
+            key: documentRequestKey(authorizedTenantIdFromPersistedEntity(request), request.subjectId, request.documentRequestId),
             tenantId: request.tenantId,
             expectedVersion: request.version,
             set: { status: "OPENED", lastOpenedAt: this.now() },

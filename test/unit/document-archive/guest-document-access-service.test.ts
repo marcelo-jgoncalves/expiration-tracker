@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { GuestDocumentAccessService, GuestAccessInvalidError } from "../../../src/modules/document-archive/application/guest-document-access-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
@@ -12,7 +13,7 @@ import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
 
 const PEPPER = "test-pepper-value";
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const REQUIREMENT = "requirement-1";
 const NOW = "2026-09-01T00:00:00.000Z";

@@ -8,6 +8,7 @@
  * adversarial case A10 from `document-domain-wireframes-validation-plan.md`).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { DocumentTypeFieldValueType } from "./document-type.js";
 
 export type DocumentStatus = "ACTIVE" | "ARCHIVED";
@@ -134,7 +135,7 @@ function isValidCalendarDate(value: string): boolean {
   return parsed.toISOString().slice(0, 10) === value;
 }
 
-export function documentKey(tenantId: string, documentId: string): { PK: string; SK: "METADATA" } {
+export function documentKey(tenantId: AuthorizedTenantId, documentId: string): { PK: string; SK: "METADATA" } {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: "METADATA" };
 }
 
@@ -142,7 +143,7 @@ export function documentKey(tenantId: string, documentId: string): { PK: string;
  * ITEMSTATUS/Requirement's REQSTATUS namespaces, never a new index): Documents by
  * Organization+status, ordered by most-recently-updated (AP4) — not by Subject, which is a
  * separate access pattern (AP3, GSI2). */
-export function documentGsi1Keys(tenantId: string, status: DocumentStatus, updatedAt: string, documentId: string): { GSI1PK: string; GSI1SK: string } {
+export function documentGsi1Keys(tenantId: AuthorizedTenantId, status: DocumentStatus, updatedAt: string, documentId: string): { GSI1PK: string; GSI1SK: string } {
   return {
     GSI1PK: `TENANT#${tenantId}#DOCSTATUS#${status}`,
     GSI1SK: `UPDATED#${updatedAt}#DOCUMENT#${documentId}`,
@@ -154,7 +155,7 @@ export function documentGsi1Keys(tenantId: string, status: DocumentStatus, updat
  * Documents by Subject, grouped by DocumentType (D-173 §5: keyed by the stable
  * documentTypeId, not the renamable displayName — renaming a DocumentType must never move
  * where an existing Document sits in this index). */
-export function documentGsi2Keys(tenantId: string, subjectId: string, documentTypeId: string, documentId: string): { GSI2PK: string; GSI2SK: string } {
+export function documentGsi2Keys(tenantId: AuthorizedTenantId, subjectId: string, documentTypeId: string, documentId: string): { GSI2PK: string; GSI2SK: string } {
   return {
     GSI2PK: `TENANT#${tenantId}#SUBJECT#${subjectId}#DOC`,
     GSI2SK: `DOCTYPE#${documentTypeId}#DOCUMENT#${documentId}`,

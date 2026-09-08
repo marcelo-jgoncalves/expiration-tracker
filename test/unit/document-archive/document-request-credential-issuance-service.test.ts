@@ -2,13 +2,14 @@
  * idempotency under a duplicate delivery (at-least-once SQS), dedicated-table isolation (never
  * leaks into the main tenant-facing table), stale-generation/status no-ops, expired deadline. */
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { DocumentRequestCredentialIssuanceService } from "../../../src/modules/document-archive/application/document-request-credential-issuance-service.js";
 import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 import { documentRequestKey, type DocumentRequest } from "../../../src/modules/document-archive/domain/document-request.js";
 import { guestCredentialDeliveryKey, type GuestCredentialDeliveryRecord } from "../../../src/modules/document-archive/domain/guest-credential-delivery.js";
 import type { RequestAccessCredential } from "../../../src/modules/document-archive/domain/request-access-credential.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const MAIN_TABLE = "main-table";
 const DELIVERY_TABLE = "guest-credential-delivery-table";

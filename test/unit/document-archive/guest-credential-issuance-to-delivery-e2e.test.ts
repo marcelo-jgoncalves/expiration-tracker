@@ -10,6 +10,7 @@
  * documented pendency, not silently glossed over here).
  */
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import { DocumentRequestRecurrenceService } from "../../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import { GuestDocumentAccessService } from "../../../src/modules/document-archive/application/guest-document-access-service.js";
@@ -24,7 +25,7 @@ import type { RequestContext } from "../../../src/modules/identity/domain/reques
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { requirementKey } from "../../../src/modules/document-archive/domain/requirement.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const MAIN_TABLE = "test-table";
 const DELIVERY_TABLE = "delivery-table";
@@ -62,7 +63,7 @@ function makeIds(): DocumentArchiveIdGenerator {
 
 function seedRequirement(tenantId: string, subjectId: string, requirementId: string): Record<string, unknown> & { PK: string; SK: string } {
   return {
-    ...(requirementKey(tenantId, subjectId, requirementId) as { PK: string; SK: string }),
+    ...(requirementKey(authorizedTenantIdFromPersistedEntity({ tenantId }), subjectId, requirementId) as { PK: string; SK: string }),
     entityType: "Requirement",
     requirementId,
     tenantId,

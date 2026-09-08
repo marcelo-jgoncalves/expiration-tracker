@@ -28,7 +28,7 @@
  */
 import { createHash } from "node:crypto";
 import { BusinessRuleError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { IdempotencyStore } from "../../../shared/idempotency/idempotency.js";
 import { documentVersionKey, type DocumentVersion } from "../../document-archive/domain/document-version.js";
@@ -77,7 +77,7 @@ export interface RejectFieldDocumentArchiveParams {
   idempotencyKey: string;
 }
 
-async function readField(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
+async function readField(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: AuthorizedTenantId, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
   const field = await deps.fields.get(extractedFieldKey(tenantId, documentId, fieldName, runId));
   if (!field || field.tenantId !== tenantId) {
     throw new NotFoundError("ExtractedField not found.", { documentId, fieldName, runId });
@@ -85,14 +85,14 @@ async function readField(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: 
   return field;
 }
 
-async function readRun(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, runId: string) {
+async function readRun(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: AuthorizedTenantId, documentId: string, runId: string) {
   const key = extractionRunKey(tenantId, documentId, runId);
   const run = await deps.runs.get<ExtractionRun>(key);
   if (!run || run.tenantId !== tenantId) throw new NotFoundError("ExtractionRun not found.", { documentId, runId });
   return { key, run };
 }
 
-async function readDocumentVersion(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: string, documentId: string, seq: number) {
+async function readDocumentVersion(deps: ConfirmRejectFieldDocumentArchiveDeps, tenantId: AuthorizedTenantId, documentId: string, seq: number) {
   const key = documentVersionKey(tenantId, documentId, seq);
   const version = await deps.archive.get<DocumentVersion>(key);
   if (!version || version.tenantId !== tenantId) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
@@ -112,7 +112,7 @@ export async function confirmFieldForDocumentArchive(
 ): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const operation = "extraction.confirmFieldForDocumentArchive";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
@@ -148,7 +148,7 @@ export async function confirmFieldForDocumentArchive(
 
 async function doConfirmFieldForDocumentArchive(
   deps: ConfirmRejectFieldDocumentArchiveDeps,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   confirmedBy: string,
   params: ConfirmFieldDocumentArchiveParams,
 ): Promise<ExtractedField> {
@@ -216,7 +216,7 @@ export async function rejectFieldForDocumentArchive(
 ): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const operation = "extraction.rejectFieldForDocumentArchive";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
@@ -250,7 +250,7 @@ export async function rejectFieldForDocumentArchive(
 
 async function doRejectFieldForDocumentArchive(
   deps: ConfirmRejectFieldDocumentArchiveDeps,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   params: RejectFieldDocumentArchiveParams,
 ): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);

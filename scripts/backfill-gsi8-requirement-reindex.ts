@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { deriveRequirementMaintenanceDue, requirementGsi8Keys, type Requirement } from "../src/modules/document-archive/domain/requirement.js";
+import { authorizedTenantIdFromPersistedEntity } from "../src/modules/identity/domain/authorization.js";
 
 interface Args {
   table: string;
@@ -84,7 +85,7 @@ export async function processPage(
     }
     if (dryRun) continue;
 
-    const gsi8 = requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: requirement.tenantId, requirementId: requirement.requirementId });
+    const gsi8 = requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity(requirement), requirementId: requirement.requirementId });
     const written = await writePointer(requirement, gsi8);
     if (written) pointersWritten += 1;
   }

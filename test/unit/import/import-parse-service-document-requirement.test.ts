@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryImportStore, FakeImportObjectStore } from "./in-memory-store.js";
 import { InMemorySubjectStore } from "../subject/in-memory-store.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
@@ -13,7 +14,7 @@ import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 type SeedItem = Record<string, unknown> & EntityKey;
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const RAW_BUCKET = "raw-bucket";
 const PLAN_BUCKET = "plan-bucket";
 const NOW = "2026-09-03T12:00:00.000Z";

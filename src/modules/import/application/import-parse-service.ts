@@ -36,6 +36,7 @@ import type { DocumentArchiveStore } from "../../document-archive/ports/document
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import { resolveSubjectReferences } from "./resolve-subject-references.js";
 import { resolveDocumentTypeReferences } from "./resolve-document-type-references.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export interface ImportParseDeps {
   store: ImportStore;
@@ -211,7 +212,10 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
       const distinctSubjectRefs = [...new Set([...validatedByRow.values()].map((r) => r.subjectRef))];
       const distinctDocumentTypeRefs = [...new Set([...validatedByRow.values()].map((r) => r.documentTypeRef))];
       const subjectResolutions = await resolveSubjectReferences(deps.subjectStore, tenantId, columns.subjectRefKind, distinctSubjectRefs);
-      const documentTypeResolutions = await resolveDocumentTypeReferences(documentArchiveStore, tenantId, columns.documentTypeRefKind, distinctDocumentTypeRefs);
+      // `tenantId` here is this worker's own SQS-derived parameter, server-authored (never
+      // client input) same as the rest of this file's writes — see this module's other
+      // document-archive call sites for the same provenance discipline.
+      const documentTypeResolutions = await resolveDocumentTypeReferences(documentArchiveStore, authorizedTenantIdFromPersistedEntity({ tenantId }), columns.documentTypeRefKind, distinctDocumentTypeRefs);
 
       for (const row of validatedByRow.values()) {
         const subjectResolution = subjectResolutions.get(row.subjectRef);

@@ -37,6 +37,7 @@
  * `start-extraction-run.ts` documents.
  */
 import { documentFileKey, type DocumentFile } from "../../document-archive/domain/document-file.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { documentVersionKey, type DocumentVersion, type DocumentVersionState } from "../../document-archive/domain/document-version.js";
 import type { DocumentArchiveStore } from "../../document-archive/ports/document-archive-store.js";
 import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
@@ -144,7 +145,10 @@ export async function startExtractionRunForDocumentArchive(
 
   // Precondition 1: fresh, strongly consistent re-read of DocumentFile - never the event
   // payload, never a value read by an earlier step in this same invocation.
-  const file = await deps.archive.get<DocumentFile>(documentFileKey(input.tenantId, input.documentId, seq, input.fileId));
+  // `input.tenantId` is this Starter's own event-derived input — same one-hop-removed,
+  // server-authored provenance discipline as the sibling document-archive workers.
+  const tenantId = authorizedTenantIdFromPersistedEntity(input);
+  const file = await deps.archive.get<DocumentFile>(documentFileKey(tenantId, input.documentId, seq, input.fileId));
   if (!file) return { outcome: "REFUSED", reason: "FILE_NOT_FOUND" };
   if (file.scanStatus !== "CLEAN") return { outcome: "REFUSED", reason: "FILE_NOT_CLEAN" };
 
@@ -158,7 +162,7 @@ export async function startExtractionRunForDocumentArchive(
   if (file.role !== "PRINCIPAL") return { outcome: "REFUSED", reason: "NOT_PRINCIPAL" };
 
   // Precondition 4: DocumentVersion in an eligible state - fresh read, same discipline.
-  const version = await deps.archive.get<DocumentVersion>(documentVersionKey(input.tenantId, input.documentId, seq));
+  const version = await deps.archive.get<DocumentVersion>(documentVersionKey(tenantId, input.documentId, seq));
   if (!version) return { outcome: "REFUSED", reason: "VERSION_NOT_FOUND" };
   if (!ELIGIBLE_VERSION_STATES.includes(version.state)) return { outcome: "REFUSED", reason: "VERSION_NOT_ELIGIBLE" };
 

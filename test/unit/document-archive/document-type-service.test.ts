@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveTrackedSubject } from "./in-memory-store.js";
@@ -21,7 +22,7 @@ import {
 import { ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { UploadUrlSigner } from "../../../src/modules/document/ports/upload-url-signer.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-02T00:00:00.000Z";
 
 function makeIds(): DocumentArchiveIdGenerator {

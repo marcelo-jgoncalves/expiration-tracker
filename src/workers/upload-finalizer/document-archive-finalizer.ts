@@ -13,9 +13,10 @@ import {
 import { documentFileKey, type DocumentFile } from "../../modules/document-archive/domain/document-file.js";
 import { isDocumentArchivePromotionEnabled } from "../../modules/extraction/application/document-archive-activation.js";
 import type { FeatureFlagsReader } from "../../modules/extraction/ports/feature-flags-reader.js";
+import type { AuthorizedTenantId } from "../../modules/identity/domain/authorization.js";
 
 export interface FinalizeDocumentArchiveUploadInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   seq: number;
   fileId: string;

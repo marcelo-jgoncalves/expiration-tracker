@@ -9,8 +9,10 @@ import {
   requirementGsi9PartitionKey,
   REQUIREMENT_SK_PREFIX,
 } from "../../../src/modules/document-archive/domain/requirement.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const NOW = new Date("2026-09-01T00:00:00.000Z");
+const T1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 
 describe("deriveRequirementStatus (D-143 Decision 5)", () => {
   it("NOT_APPLICABLE always wins, regardless of evidence", () => {
@@ -73,12 +75,12 @@ describe("isRequirementExpiringSoon (D9: read-time subdivision of SATISFIED, nev
 
 describe("key builders", () => {
   it("requirementKey co-locates under the Subject partition", () => {
-    expect(requirementKey("t1", "s1", "r1")).toEqual({ PK: "TENANT#t1#SUBJECT#s1", SK: "REQUIREMENT#r1" });
+    expect(requirementKey(T1, "s1", "r1")).toEqual({ PK: "TENANT#t1#SUBJECT#s1", SK: "REQUIREMENT#r1" });
     expect("REQUIREMENT#r1".startsWith(REQUIREMENT_SK_PREFIX)).toBe(true);
   });
 
   it("requirementGsi1Keys namespaces REQSTATUS on the shared GSI1 index", () => {
-    expect(requirementGsi1Keys("t1", "SATISFIED", "2026-09-01T00:00:00.000Z", "r1")).toEqual({
+    expect(requirementGsi1Keys(T1, "SATISFIED", "2026-09-01T00:00:00.000Z", "r1")).toEqual({
       GSI1PK: "TENANT#t1#REQSTATUS#SATISFIED",
       GSI1SK: "UPDATED#2026-09-01T00:00:00.000Z#REQUIREMENT#r1",
     });
@@ -87,20 +89,20 @@ describe("key builders", () => {
 
 describe("GSI_EVIDENCE (GSI9, D-193 slice 5) key builders", () => {
   it("requirementGsi9Keys builds a partition keyed by DocumentVersion, sorted by Requirement", () => {
-    expect(requirementGsi9Keys({ tenantId: "t1", evidenceVersionId: "v1", requirementId: "r1" })).toEqual({
+    expect(requirementGsi9Keys({ tenantId: T1, evidenceVersionId: "v1", requirementId: "r1" })).toEqual({
       GSI9PK: "TENANT#t1#DOCVERSION#v1",
       GSI9SK: "REQUIREMENT#r1",
     });
   });
 
   it("requirementGsi9PartitionKey matches the PK half of requirementGsi9Keys exactly (query/write stay in lockstep)", () => {
-    const full = requirementGsi9Keys({ tenantId: "t1", evidenceVersionId: "v1", requirementId: "r1" });
-    expect(requirementGsi9PartitionKey("t1", "v1")).toBe(full.GSI9PK);
+    const full = requirementGsi9Keys({ tenantId: T1, evidenceVersionId: "v1", requirementId: "r1" });
+    expect(requirementGsi9PartitionKey(T1, "v1")).toBe(full.GSI9PK);
   });
 
   it("two different Requirements referencing the same evidence DocumentVersion share GSI9PK but get distinct GSI9SK", () => {
-    const a = requirementGsi9Keys({ tenantId: "t1", evidenceVersionId: "v1", requirementId: "r1" });
-    const b = requirementGsi9Keys({ tenantId: "t1", evidenceVersionId: "v1", requirementId: "r2" });
+    const a = requirementGsi9Keys({ tenantId: T1, evidenceVersionId: "v1", requirementId: "r1" });
+    const b = requirementGsi9Keys({ tenantId: T1, evidenceVersionId: "v1", requirementId: "r2" });
     expect(a.GSI9PK).toBe(b.GSI9PK);
     expect(a.GSI9SK).not.toBe(b.GSI9SK);
   });

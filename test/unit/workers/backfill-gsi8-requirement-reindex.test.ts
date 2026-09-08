@@ -8,10 +8,11 @@
 import { describe, expect, it } from "vitest";
 import { decodeKey, encodeKey, parseArgs, processPage } from "../../../scripts/backfill-gsi8-requirement-reindex.js";
 import { requirementKey, type Requirement } from "../../../src/modules/document-archive/domain/requirement.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
   return {
-    ...requirementKey("t1", "subject-1", "req-1"),
+    ...requirementKey(authorizedTenantIdFromPersistedEntity({ tenantId: "t1" }), "subject-1", "req-1"),
     entityType: "Requirement",
     requirementId: "req-1",
     tenantId: "t1",

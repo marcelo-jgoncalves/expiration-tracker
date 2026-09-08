@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { applyFileScanResult, applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
 import { documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
@@ -39,7 +40,7 @@ function ids(): DocumentArchiveIdGenerator {
 }
 
 const TABLE = "MainTable";
-const TENANT = "t1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 const DOC = "doc1";
 const SEQ = 1;
 const FILE = "file1";

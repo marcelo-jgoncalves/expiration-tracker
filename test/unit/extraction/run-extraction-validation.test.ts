@@ -22,6 +22,9 @@ import { gsi1Keys, itemKey, type ExpirationItem } from "../../../src/modules/exp
 import { PIPELINE_VERSION_V1 } from "../../../src/modules/extraction/domain/field-schema.js";
 import { ExtractionCommitFailedError } from "../../../src/shared/errors/app-error.js";
 import { SYSTEM_AUTO_CONFIRM_ACTOR } from "../../../src/modules/extraction/application/confirm-reject-field-document-archive.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const T1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 
 function makeDocument(overrides: Partial<Document> = {}): Document {
   return {
@@ -47,7 +50,7 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
 
 function makeDocumentVersion(overrides: Partial<DocumentVersion> = {}): DocumentVersion {
   return {
-    ...documentVersionKey("t1", "doc1", 3),
+    ...documentVersionKey(T1, "doc1", 3),
     entityType: "DocumentVersion",
     versionId: "v1",
     documentId: "doc1",
@@ -88,7 +91,7 @@ class FakeDocumentReader implements DocumentReader {
  * single-table reuse), never a second port. */
 function makeArchiveDocument(overrides: Partial<ArchiveDocument> = {}): ArchiveDocument {
   return {
-    ...documentArchiveKey("t1", "doc1"),
+    ...documentArchiveKey(T1, "doc1"),
     entityType: "Document",
     documentId: "doc1",
     tenantId: "t1",
@@ -453,14 +456,14 @@ describe("commitOrDiscard — document-archive source (D-193 item 3/9 slice 3)",
 
     expect(out.runOutcome).toBe("COMPLETED");
     expect(fields.commitCalls).toHaveLength(1);
-    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey("t1", "doc1"));
+    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey(T1, "doc1"));
     expect(fields.commitCalls[0]?.documentExpectedVersion).toBe(5);
     expect(fields.commitCalls[0]?.itemUpdate).toBeUndefined();
     // The OLD path's per-item-attribute lookup never runs for a document-archive-sourced run.
     expect(items.getCalls).toHaveLength(0);
-    expect(documents.getCalls).toEqual([documentVersionKey("t1", "doc1", 3), documentArchiveKey("t1", "doc1")]);
+    expect(documents.getCalls).toEqual([documentVersionKey(T1, "doc1", 3), documentArchiveKey(T1, "doc1")]);
     expect(fields.commitCalls[0]?.documentVersionUpdate).toEqual({
-      key: documentVersionKey("t1", "doc1", 3),
+      key: documentVersionKey(T1, "doc1", 3),
       tenantId: "t1",
       expectedVersion: 4,
       effect: { kind: "SET", validUntil: "2027-03-31" },
@@ -513,7 +516,7 @@ describe("commitOrDiscard — document-archive source (D-193 item 3/9 slice 3)",
     const { deps, fields, artifacts } = makeDeps({ doc: makeArchiveDocument() });
     const out = await markPendingConfirmationStage(deps, { ...archiveCompared, artifact: { bucket: "b", key: "k" } });
     expect(out.runOutcome).toBe("FAILED");
-    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey("t1", "doc1"));
+    expect(fields.commitCalls[0]?.documentKey).toEqual(documentArchiveKey(T1, "doc1"));
     expect(artifacts.deleteCalls).toEqual([{ bucket: "b", key: "k" }]);
   });
 

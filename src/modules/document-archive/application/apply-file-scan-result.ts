@@ -22,6 +22,7 @@
  * equivalent writes (W3-07). Before this, these two functions (with zero real call sites) had
  * never been fenced at all — the design's explicit closing item.
  */
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { decideNextAction } from "../../document/domain/document-state-machine.js";
@@ -42,7 +43,7 @@ export interface ApplyFileScanResultDeps {
 }
 
 export interface ApplyFileScanResultInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   seq: number;
   fileId: string;
@@ -201,7 +202,7 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
 export type ConfirmFileScanCleanOutcome = "CONFIRMED" | "IGNORED_STALE" | "IGNORED_TENANT_NOT_ACTIVE";
 
 export interface ConfirmFileScanCleanInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   seq: number;
   fileId: string;
@@ -264,7 +265,7 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
 export type ApplyFileScanTimeoutOutcome = "TIMED_OUT" | "IGNORED_STALE";
 
 export interface ApplyFileScanTimeoutInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   seq: number;
   fileId: string;
@@ -343,7 +344,7 @@ export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input:
 
 function buildFileRejectedEvent(
   deps: ApplyFileScanResultDeps,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   documentId: string,
   seq: number,
   versionId: string,

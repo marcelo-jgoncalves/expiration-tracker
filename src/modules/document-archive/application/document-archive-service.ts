@@ -40,7 +40,7 @@ import {
 import type { MemberEligibilityChecker } from "../../expiration/ports/member-eligibility.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
@@ -192,7 +192,7 @@ export interface AcceptVersionResult {
  * function is deliberately never the place that does an externalId lookup itself). */
 export interface BuildCreateDocumentEntriesInput {
   tableName: string;
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   subjectId: string;
   documentTypeId: string;
@@ -259,7 +259,7 @@ export function buildCreateDocumentEntries(input: BuildCreateDocumentEntriesInpu
  * uniqueness rule transactional rather than a read-then-write. Module-level (not a class method)
  * so the pure planner below can build the identical row with no `DocumentArchiveService`
  * instance in scope. */
-function buildRequirementNamePointer(tenantId: string, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
+function buildRequirementNamePointer(tenantId: AuthorizedTenantId, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
   const normalizedName = normalizeDisplayName(name);
   return {
     ...requirementNamePointerKey(tenantId, subjectId, normalizedName),
@@ -278,7 +278,7 @@ function buildRequirementNamePointer(tenantId: string, subjectId: string, name: 
  * which would let an ARCHIVED Subject through (`TrackedSubjectStatus` is
  * `ACTIVE | ARCHIVED | DELETED`). Module-level for the same reason as `buildRequirementNamePointer`
  * above — shared by `createDocument`/`createRequirement`/`applyTemplate` and the pure planners. */
-function buildSubjectFence(tableName: string, tenantId: string, subjectId: string) {
+function buildSubjectFence(tableName: string, tenantId: AuthorizedTenantId, subjectId: string) {
   return buildExistenceConditionCheck({
     tableName,
     key: trackedSubjectKeyForFence(tenantId, subjectId),
@@ -291,7 +291,7 @@ function buildSubjectFence(tableName: string, tenantId: string, subjectId: strin
  * meaning "remove instead" (every other case), keeping `deriveRequirementMaintenanceDue` the
  * single source of truth for eligibility rather than re-deriving it at each call site. Module-level
  * for the same "pure planner needs no class instance" reason as the two helpers above. */
-function buildRequirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: string, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
+function buildRequirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: AuthorizedTenantId, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
   const due = deriveRequirementMaintenanceDue(status, evidenceValidUntil);
   return due ? requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, requirementId }) : {};
 }
@@ -302,7 +302,7 @@ function buildRequirementGsi8Fields(status: RequirementStatus, evidenceValidUnti
  * batched phase before ever calling this pure function. */
 export interface BuildCreateRequirementEntriesInput {
   tableName: string;
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   requirementId: string;
   subjectId: string;
   name: string;
@@ -478,7 +478,7 @@ export class DocumentArchiveService {
   /** D-194 Fatia 2 - same "empty string clears, undefined means not provided (never reaches
    * here), any other value must be a real eligible member" convention as
    * `ExpirationService.validateAssignee`. */
-  private async validateAssignee(tenantId: string, assigneeUserId: string | undefined): Promise<void> {
+  private async validateAssignee(tenantId: AuthorizedTenantId, assigneeUserId: string | undefined): Promise<void> {
     if (!assigneeUserId) return;
     if (!(await this.members.isEligibleMember(tenantId, assigneeUserId))) {
       throw new IneligibleAssigneeError("assigneeUserId is not an eligible member of this organization.", { assigneeUserId });
@@ -515,7 +515,7 @@ export class DocumentArchiveService {
    */
   async createDocument(ctx: RequestContext, input: CreateDocumentInput): Promise<Document> {
     authorize({ context: ctx, action: "docarchive:create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const documentId = this.ids.newDocumentId();
     const now = this.now();
     const { document, entries, labels } = buildCreateDocumentEntries({
@@ -537,10 +537,10 @@ export class DocumentArchiveService {
 
   async getDocument(ctx: RequestContext, documentId: string): Promise<Document> {
     authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getDocumentUnchecked(ctx.tenant.tenantId, documentId);
+    return this.getDocumentUnchecked(authorizedTenantId(ctx), documentId);
   }
 
-  private async getDocumentUnchecked(tenantId: string, documentId: string): Promise<Document> {
+  private async getDocumentUnchecked(tenantId: AuthorizedTenantId, documentId: string): Promise<Document> {
     const document = await this.store.get<Document>(documentKey(tenantId, documentId));
     if (!document) throw new NotFoundError("Document not found.", { documentId });
     return document;
@@ -548,10 +548,10 @@ export class DocumentArchiveService {
 
   async listVersions(ctx: RequestContext, documentId: string): Promise<DocumentVersion[]> {
     authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.listVersionsUnchecked(ctx.tenant.tenantId, documentId);
+    return this.listVersionsUnchecked(authorizedTenantId(ctx), documentId);
   }
 
-  private async listVersionsUnchecked(tenantId: string, documentId: string): Promise<DocumentVersion[]> {
+  private async listVersionsUnchecked(tenantId: AuthorizedTenantId, documentId: string): Promise<DocumentVersion[]> {
     const items = await this.store.queryByPk<DocumentVersion>(`TENANT#${tenantId}#DOCUMENT#${documentId}`, "VERSION#");
     // DocumentVersionEvent rows share the "VERSION#" SK prefix (VERSION#<seq>#EVENT#...) —
     // filter to rows whose SK is exactly "VERSION#<seq>" (no further "#" segment).
@@ -561,7 +561,7 @@ export class DocumentArchiveService {
   /** DRAFT creation (`reserveUpload`) — seq is 1 + the highest existing seq for this Document. */
   async reserveUpload(ctx: RequestContext, documentId: string, origin: DocumentVersionOrigin): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     await this.getDocumentUnchecked(tenantId, documentId); // 404s if the Document doesn't exist
     const existingVersions = await this.listVersionsUnchecked(tenantId, documentId);
     const seq = existingVersions.reduce((max, v) => Math.max(max, v.seq), 0) + 1;
@@ -608,7 +608,7 @@ export class DocumentArchiveService {
     if (files.length > MAX_FILES_PER_VERSION) {
       throw new ValidationError(`At most ${MAX_FILES_PER_VERSION} files per DocumentVersion.`, { documentId, seq, count: files.length });
     }
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
@@ -696,7 +696,7 @@ export class DocumentArchiveService {
    * so the two key formats coexist in the same physical bucket without ever colliding — the S3
    * event handler routes on this prefix to pick the right parser (D-163 §7, deferred). Never
    * encodes the original file name (PII) — only internal identifiers. */
-  private buildQuarantineKey(tenantId: string, documentId: string, seq: number, fileId: string): string {
+  private buildQuarantineKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): string {
     return `document-archive/tenant/${tenantId}/document/${documentId}/version/${seq}/file/${fileId}`;
   }
 
@@ -713,7 +713,7 @@ export class DocumentArchiveService {
    * that seals the set between the read and the write can never be missed. */
   async commitUpload(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:upload", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
     if (!current) throw new NotFoundError("DocumentVersion not found.", { documentId, seq });
@@ -744,7 +744,7 @@ export class DocumentArchiveService {
    * reviewer's claim (D-143 Decision 1). */
   async claimReview(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const reviewerId = ctx.principal.userId;
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
@@ -780,7 +780,7 @@ export class DocumentArchiveService {
    */
   async acceptVersion(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, clientRequestToken: string): Promise<AcceptVersionResult> {
     authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const actor = ctx.principal.userId;
 
     // Idempotency check FIRST, before any state-transition validation: a legitimate replay of
@@ -935,7 +935,7 @@ export class DocumentArchiveService {
    * request already moved past this submission) rejects exactly as before — purely additive. */
   async rejectVersion(ctx: RequestContext, documentId: string, seq: number, expectedVersion: number, reason: RejectionReason): Promise<DocumentVersion> {
     authorize({ context: ctx, action: "docarchive:review", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const actor = ctx.principal.userId;
     const key = documentVersionKey(tenantId, documentId, seq);
     const current = await this.store.get<DocumentVersion>(key);
@@ -1024,7 +1024,7 @@ export class DocumentArchiveService {
    */
   async createRequirement(ctx: RequestContext, input: CreateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     // D-194 Fatia 2 - validated BEFORE any transactional write is attempted, same "reject early,
     // never burn a write attempt on a request that will never succeed" posture as
     // `ExpirationService.createItem`.
@@ -1072,7 +1072,7 @@ export class DocumentArchiveService {
    */
   async createDocumentRequest(ctx: RequestContext, input: CreateDocumentRequestInput): Promise<DocumentRequest> {
     authorize({ context: ctx, action: "docarchive:request-create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const now = this.now();
     const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}:${input.recipientEmail ?? ""}`;
     const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${input.subjectId}`, SK: `DOCREQUESTCREATE#${input.idempotencyKey}` };
@@ -1134,7 +1134,7 @@ export class DocumentArchiveService {
 
   /** Shared by `createRequirement` and `applyTemplate` — the pointer row that makes the
    * per-Subject name uniqueness rule transactional rather than a read-then-write. */
-  private buildRequirementNamePointer(tenantId: string, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
+  private buildRequirementNamePointer(tenantId: AuthorizedTenantId, subjectId: string, name: string, requirementId: string, now: string): RequirementNamePointer {
     const normalizedName = normalizeDisplayName(name);
     return {
       ...requirementNamePointerKey(tenantId, subjectId, normalizedName),
@@ -1152,7 +1152,7 @@ export class DocumentArchiveService {
   /** `attribute_exists(PK) AND status = ACTIVE` — the status is ENUMERATED, never `<> DELETED`,
    * which would let an ARCHIVED Subject through (`TrackedSubjectStatus` is
    * `ACTIVE | ARCHIVED | DELETED`). */
-  private buildSubjectFence(tenantId: string, subjectId: string) {
+  private buildSubjectFence(tenantId: AuthorizedTenantId, subjectId: string) {
     return buildExistenceConditionCheck({
       tableName: this.tableName,
       key: trackedSubjectKeyForFence(tenantId, subjectId),
@@ -1206,17 +1206,17 @@ export class DocumentArchiveService {
    * to `set` (SATISFIED + `evidenceValidUntil`) or the sentinel meaning "remove instead" (every
    * other case), keeping `deriveRequirementMaintenanceDue` the single source of truth for
    * eligibility rather than re-deriving it at each call site. */
-  private requirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: string, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
+  private requirementGsi8Fields(status: RequirementStatus, evidenceValidUntil: string | undefined, tenantId: AuthorizedTenantId, requirementId: string): { GSI8PK: string; GSI8SK: string } | Record<string, never> {
     const due = deriveRequirementMaintenanceDue(status, evidenceValidUntil);
     return due ? requirementGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, requirementId }) : {};
   }
 
   async getRequirement(ctx: RequestContext, subjectId: string, requirementId: string): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getRequirementUnchecked(ctx.tenant.tenantId, subjectId, requirementId);
+    return this.getRequirementUnchecked(authorizedTenantId(ctx), subjectId, requirementId);
   }
 
-  private async getRequirementUnchecked(tenantId: string, subjectId: string, requirementId: string): Promise<Requirement> {
+  private async getRequirementUnchecked(tenantId: AuthorizedTenantId, subjectId: string, requirementId: string): Promise<Requirement> {
     const requirement = await this.store.get<Requirement>(requirementKey(tenantId, subjectId, requirementId));
     if (!requirement) throw new NotFoundError("Requirement not found.", { requirementId });
     return requirement;
@@ -1240,7 +1240,7 @@ export class DocumentArchiveService {
    */
   async getSubjectCompliance(ctx: RequestContext, subjectId: string): Promise<SubjectComplianceSummary> {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const requirements = await this.store.queryByPk<Requirement>(`TENANT#${tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
     const now = new Date(this.now());
     const applicable = requirements.filter((r) => r.status !== "NOT_APPLICABLE");
@@ -1262,7 +1262,7 @@ export class DocumentArchiveService {
    */
   async previewDossierExport(ctx: RequestContext, subjectId: string): Promise<{ run: DossierExportRun; rows: DossierExportPreviewRow[] }> {
     authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const subject = await this.store.get(trackedSubjectKeyForFence(tenantId, subjectId));
     if (!subject) throw new NotFoundError("Subject not found.", { subjectId });
 
@@ -1307,7 +1307,7 @@ export class DocumentArchiveService {
    */
   async confirmDossierExport(ctx: RequestContext, subjectId: string, runId: string, scopeHash: string): Promise<DossierExportRun> {
     authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const run = await this.store.get<DossierExportRun>(dossierExportRunKey(tenantId, subjectId, runId));
     if (!run) throw new NotFoundError("DossierExportRun not found.", { subjectId, runId });
     if (run.scopeHash !== scopeHash) {
@@ -1364,7 +1364,7 @@ export class DocumentArchiveService {
    * (never fabricated) - the generated document reflects what still exists NOW, not a snapshot
    * of what existed at preview time.
    */
-  async getDossierExportData(tenantId: string, subjectId: string, requirementIds: readonly string[]): Promise<{ subjectDisplayName?: string; rows: DossierExportRow[] }> {
+  async getDossierExportData(tenantId: AuthorizedTenantId, subjectId: string, requirementIds: readonly string[]): Promise<{ subjectDisplayName?: string; rows: DossierExportRow[] }> {
     const [subject, requirements] = await Promise.all([
       this.store.get<EntityKey & { displayName?: string }>(trackedSubjectKeyForFence(tenantId, subjectId)),
       Promise.all(requirementIds.map((requirementId) => this.store.get<Requirement>(requirementKey(tenantId, subjectId, requirementId)))),
@@ -1385,7 +1385,7 @@ export class DocumentArchiveService {
    */
   async getDossierExportRun(ctx: RequestContext, subjectId: string, runId: string): Promise<DossierExportRun> {
     authorize({ context: ctx, action: "docarchive:dossier-export", resource: { tenantId: ctx.tenant.tenantId } });
-    const run = await this.store.get<DossierExportRun>(dossierExportRunKey(ctx.tenant.tenantId, subjectId, runId));
+    const run = await this.store.get<DossierExportRun>(dossierExportRunKey(authorizedTenantId(ctx), subjectId, runId));
     if (!run) throw new NotFoundError("DossierExportRun not found.", { subjectId, runId });
     return run;
   }
@@ -1409,7 +1409,7 @@ export class DocumentArchiveService {
   async searchRequirements(ctx: RequestContext, query: RequirementSearchQuery): Promise<RequirementSearchPage> {
     authorize({ context: ctx, action: "docarchive:requirement-read", resource: { tenantId: ctx.tenant.tenantId } });
     if (!query.status) throw new ValidationError("status is required for searchRequirements.");
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const now = new Date(this.now());
     const namePrefix = query.namePrefix;
 
@@ -1461,7 +1461,7 @@ export class DocumentArchiveService {
    * REQSTATUS namespace, not wait for the next unrelated mutation or the daily reindex). */
   async updateRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number, input: UpdateRequirementInput): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     // D-194 Fatia 2 - only validated when actually CHANGING (same "unrelated-field update never
     // re-validates" posture as `ExpirationService.updateItem`).
     if (input.assigneeUserId !== undefined) {
@@ -1559,7 +1559,7 @@ export class DocumentArchiveService {
    */
   async linkEvidence(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number, documentId: string, versionId: string): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId);
     const evidenceVersion = await this.findVersionById(tenantId, documentId, versionId);
     if (!evidenceVersion) throw new NotFoundError("DocumentVersion not found.", { documentId, versionId });
@@ -1609,7 +1609,7 @@ export class DocumentArchiveService {
    * returns one of those two, by construction). */
   async unlinkEvidence(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number): Promise<Requirement> {
     authorize({ context: ctx, action: "docarchive:requirement-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId);
     const now = this.now();
     const status = deriveRequirementStatus(current.applicability, undefined, new Date(now));
@@ -1652,7 +1652,7 @@ export class DocumentArchiveService {
    * before acting — this index is discovery-only, never a source of eligibility (same posture
    * every GSI8 consumer already holds, D-179/D-180).
    */
-  async findRequirementsByEvidenceVersion(tenantId: string, evidenceVersionId: string): Promise<Requirement[]> {
+  async findRequirementsByEvidenceVersion(tenantId: AuthorizedTenantId, evidenceVersionId: string): Promise<Requirement[]> {
     const items: Requirement[] = [];
     let exclusiveStartKey: Record<string, unknown> | undefined;
     do {
@@ -1669,7 +1669,7 @@ export class DocumentArchiveService {
 
   async deleteRequirement(ctx: RequestContext, subjectId: string, requirementId: string, expectedVersion: number): Promise<void> {
     authorize({ context: ctx, action: "docarchive:requirement-delete", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getRequirementUnchecked(tenantId, subjectId, requirementId); // 404s if absent
     const key = requirementKey(tenantId, subjectId, requirementId);
     const del = buildVersionedDelete({ tableName: this.tableName, key, tenantId, expectedVersion });
@@ -1706,7 +1706,7 @@ export class DocumentArchiveService {
    */
   async createDocumentType(ctx: RequestContext, input: CreateDocumentTypeInput): Promise<DocumentType> {
     authorize({ context: ctx, action: "docarchive:documenttype-create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const documentTypeId = this.ids.newDocumentTypeId();
     const normalizedName = normalizeDisplayName(input.displayName);
     const now = this.now();
@@ -1753,10 +1753,10 @@ export class DocumentArchiveService {
 
   async getDocumentType(ctx: RequestContext, documentTypeId: string): Promise<DocumentType> {
     authorize({ context: ctx, action: "docarchive:documenttype-read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getDocumentTypeUnchecked(ctx.tenant.tenantId, documentTypeId);
+    return this.getDocumentTypeUnchecked(authorizedTenantId(ctx), documentTypeId);
   }
 
-  private async getDocumentTypeUnchecked(tenantId: string, documentTypeId: string): Promise<DocumentType> {
+  private async getDocumentTypeUnchecked(tenantId: AuthorizedTenantId, documentTypeId: string): Promise<DocumentType> {
     const documentType = await this.store.get<DocumentType>(documentTypeKey(tenantId, documentTypeId));
     if (!documentType) throw new NotFoundError("DocumentType not found.", { documentTypeId });
     return documentType;
@@ -1771,7 +1771,7 @@ export class DocumentArchiveService {
    */
   async listDocumentTypes(ctx: RequestContext, status: DocumentType["status"], exclusiveStartKey?: Record<string, unknown>): Promise<{ items: DocumentType[]; lastEvaluatedKey?: Record<string, unknown> }> {
     authorize({ context: ctx, action: "docarchive:documenttype-read", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     return this.store.queryIndexPage<DocumentType>({ indexName: "GSI1", partitionKeyValue: `TENANT#${tenantId}#DOCTYPESTATUS#${status}`, exclusiveStartKey });
   }
 
@@ -1791,7 +1791,7 @@ export class DocumentArchiveService {
    */
   async renameDocumentType(ctx: RequestContext, documentTypeId: string, expectedVersion: number, newDisplayName: string): Promise<DocumentType> {
     authorize({ context: ctx, action: "docarchive:documenttype-rename", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
     const oldNormalizedName = normalizeDisplayName(current.displayName);
     const newNormalizedName = normalizeDisplayName(newDisplayName);
@@ -1880,7 +1880,7 @@ export class DocumentArchiveService {
     toStatus: DocumentType["status"],
   ): Promise<DocumentType> {
     authorize({ context: ctx, action, resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
     const now = this.now();
     const normalizedName = normalizeDisplayName(current.displayName);
@@ -1922,7 +1922,7 @@ export class DocumentArchiveService {
     input: CreateDocumentTypeMetadataFieldInput,
   ): Promise<DocumentType> {
     authorize({ context: ctx, action: "docarchive:documenttype-metadata-manage", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
     const now = this.now();
 
@@ -1989,7 +1989,7 @@ export class DocumentArchiveService {
     input: UpdateDocumentTypeMetadataFieldInput,
   ): Promise<DocumentType> {
     authorize({ context: ctx, action: "docarchive:documenttype-metadata-manage", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getDocumentTypeUnchecked(tenantId, documentTypeId);
     const now = this.now();
 
@@ -2101,7 +2101,7 @@ export class DocumentArchiveService {
     values: Readonly<Record<string, DocumentMetadataValueInput>>,
   ): Promise<Document> {
     authorize({ context: ctx, action: "docarchive:document-metadata-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getDocumentUnchecked(tenantId, documentId);
     const documentType = await this.getDocumentTypeUnchecked(tenantId, current.documentTypeId);
     const now = this.now();
@@ -2174,7 +2174,7 @@ export class DocumentArchiveService {
    * the race between two concurrent creators supplying the same normalized name. */
   async createRequirementTemplate(ctx: RequestContext, input: CreateRequirementTemplateInput): Promise<RequirementTemplate> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-create", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const now = this.now();
     const templateId = this.ids.newRequirementTemplateId();
     const items = this.buildTemplateItems(input.items);
@@ -2201,7 +2201,7 @@ export class DocumentArchiveService {
 
   async getRequirementTemplate(ctx: RequestContext, templateId: string): Promise<RequirementTemplate> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-read", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getRequirementTemplateUnchecked(ctx.tenant.tenantId, templateId);
+    return this.getRequirementTemplateUnchecked(authorizedTenantId(ctx), templateId);
   }
 
   /** One physical GSI page per call, same discipline as `listDocumentTypes` — the caller drives
@@ -2230,7 +2230,7 @@ export class DocumentArchiveService {
     input: UpdateRequirementTemplateInput,
   ): Promise<RequirementTemplate> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-update", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getRequirementTemplateUnchecked(tenantId, templateId);
     const now = this.now();
     this.assertTemplateEnvelopeSizes(input.displayName ?? current.displayName, input.description ?? current.description);
@@ -2292,7 +2292,7 @@ export class DocumentArchiveService {
    */
   async duplicateRequirementTemplate(ctx: RequestContext, templateId: string, newDisplayName: string): Promise<RequirementTemplate> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-duplicate", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const source = await this.getRequirementTemplateUnchecked(tenantId, templateId);
     this.assertTemplateEnvelopeSizes(newDisplayName, source.description);
     const now = this.now();
@@ -2341,7 +2341,7 @@ export class DocumentArchiveService {
     subjectId: string,
   ): Promise<TemplateApplicationPlan & { templateVersion: number }> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-read", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const template = await this.getRequirementTemplateUnchecked(tenantId, templateId);
     const existing = await this.readExistingForPlan(tenantId, subjectId);
     return { ...planTemplateApplication(template.items, existing), templateVersion: template.version };
@@ -2376,7 +2376,7 @@ export class DocumentArchiveService {
     expectedTemplateVersion?: number,
   ): Promise<{ created: Array<{ templateItemId: string; requirementId: string; name: string }>; skipped: TemplateApplicationPlan["skip"]; templateVersion: number }> {
     authorize({ context: ctx, action: "docarchive:requirementtemplate-apply", resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const template = await this.getRequirementTemplateUnchecked(tenantId, templateId);
     const fencedVersion = expectedTemplateVersion ?? template.version;
     const existing = await this.readExistingForPlan(tenantId, subjectId);
@@ -2446,7 +2446,7 @@ export class DocumentArchiveService {
     return { created, skipped: plan.skip, templateVersion: fencedVersion };
   }
 
-  private async getRequirementTemplateUnchecked(tenantId: string, templateId: string): Promise<RequirementTemplate> {
+  private async getRequirementTemplateUnchecked(tenantId: AuthorizedTenantId, templateId: string): Promise<RequirementTemplate> {
     const template = await this.store.get<RequirementTemplate>(requirementTemplateKey(tenantId, templateId));
     if (!template) throw new NotFoundError("RequirementTemplate not found.", { templateId });
     return template;
@@ -2455,7 +2455,7 @@ export class DocumentArchiveService {
   /** `queryByPk` exhausts `LastEvaluatedKey` internally (verified in
    * `dynamodb-document-archive-store.ts`), so the plan always sees EVERY Requirement of the
    * Subject — an incomplete plan would silently under-report skips. */
-  private async readExistingForPlan(tenantId: string, subjectId: string) {
+  private async readExistingForPlan(tenantId: AuthorizedTenantId, subjectId: string) {
     const rows = await this.store.queryByPk<Requirement>(`TENANT#${tenantId}#SUBJECT#${subjectId}`, REQUIREMENT_SK_PREFIX);
     return rows.map((row) => ({ requirementId: row.requirementId, name: row.name, sourceTemplateItemId: row.sourceTemplateItemId }));
   }
@@ -2484,7 +2484,7 @@ export class DocumentArchiveService {
     }
   }
 
-  private buildTemplateNamePointer(tenantId: string, normalizedName: string, templateId: string, now: string): RequirementTemplateNamePointer {
+  private buildTemplateNamePointer(tenantId: AuthorizedTenantId, normalizedName: string, templateId: string, now: string): RequirementTemplateNamePointer {
     return {
       ...requirementTemplateNamePointerKey(tenantId, normalizedName),
       entityType: "RequirementTemplateNamePointer",
@@ -2497,7 +2497,7 @@ export class DocumentArchiveService {
     };
   }
 
-  private async commitTemplateCreate(tenantId: string, template: RequirementTemplate, normalizedName: string, now: string, displayName: string): Promise<void> {
+  private async commitTemplateCreate(tenantId: AuthorizedTenantId, template: RequirementTemplate, normalizedName: string, now: string, displayName: string): Promise<void> {
     const entries = [
       { Put: buildVersionedCreate(this.tableName, template as unknown as Record<string, unknown> & EntityKey) },
       { Put: buildVersionedCreate(this.tableName, this.buildTemplateNamePointer(tenantId, normalizedName, template.templateId, now) as unknown as Record<string, unknown> & EntityKey) },
@@ -2525,7 +2525,7 @@ export class DocumentArchiveService {
     toStatus: RequirementTemplate["status"],
   ): Promise<RequirementTemplate> {
     authorize({ context: ctx, action, resource: { tenantId: ctx.tenant.tenantId } });
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const current = await this.getRequirementTemplateUnchecked(tenantId, templateId);
     const now = this.now();
     const gsi1 = requirementTemplateGsi1Keys(tenantId, toStatus, normalizeDisplayName(current.displayName), templateId);
@@ -2578,7 +2578,7 @@ export class DocumentArchiveService {
     }
   }
 
-  private async findVersionById(tenantId: string, documentId: string, versionId: string): Promise<DocumentVersion | undefined> {
+  private async findVersionById(tenantId: AuthorizedTenantId, documentId: string, versionId: string): Promise<DocumentVersion | undefined> {
     const versions = await this.listVersionsUnchecked(tenantId, documentId);
     return versions.find((v) => v.versionId === versionId);
   }
@@ -2600,7 +2600,7 @@ export class DocumentArchiveService {
   }
 
   private buildEvent(
-    tenantId: string,
+    tenantId: AuthorizedTenantId,
     documentId: string,
     seq: number,
     versionId: string,

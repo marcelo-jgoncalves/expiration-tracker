@@ -20,6 +20,7 @@
  * (via WITHDRAWN, before it ever became evidence).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
 
@@ -79,14 +80,14 @@ export function formatVersionSeq(seq: number): string {
   return String(seq).padStart(SEQ_WIDTH, "0");
 }
 
-export function documentVersionKey(tenantId: string, documentId: string, seq: number): { PK: string; SK: string } {
+export function documentVersionKey(tenantId: AuthorizedTenantId, documentId: string, seq: number): { PK: string; SK: string } {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}` };
 }
 
 /** AP5 sparse review-queue index — separate buckets per real state (never a fixed `RECEIVED`
  * literal for both RECEIVED and UNDER_REVIEW, the exact bug the Rodada 2 proposal had). */
 export function reviewQueueGsi5Keys(
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   state: "RECEIVED" | "UNDER_REVIEW",
   orderingTimestamp: string,
   versionId: string,
@@ -99,7 +100,7 @@ export function reviewQueueGsi5Keys(
 
 /** AP11 — Version lookup by id alone (Decision 5's relink needs to resolve a `versionId` to
  * its owning `documentId` without knowing the Document upfront). */
-export function versionLookupGsi5Keys(tenantId: string, versionId: string): { GSI5PK: string; GSI5SK: string } {
+export function versionLookupGsi5Keys(tenantId: AuthorizedTenantId, versionId: string): { GSI5PK: string; GSI5SK: string } {
   return { GSI5PK: `TENANT#${tenantId}#VERSIONLOOKUP`, GSI5SK: `VERSION#${versionId}` };
 }
 

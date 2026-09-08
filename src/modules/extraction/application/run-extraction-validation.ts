@@ -31,6 +31,7 @@ import { documentKey, type Document } from "../../document/domain/document.js";
 // second port.
 import { documentKey as documentArchiveKey, type Document as ArchiveDocument } from "../../document-archive/domain/document.js";
 import { documentVersionKey, type DocumentVersion } from "../../document-archive/domain/document-version.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { buildItemAttributeUpdate, ITEM_ATTRIBUTE_BY_FIELD_NAME } from "./item-field-mapping.js";
 import { planDocumentVersionValidityEffect, DOCUMENT_VERSION_VALIDITY_FIELD_NAME } from "../domain/document-version-validity-effect.js";
@@ -182,7 +183,13 @@ async function commitOrDiscard(
   // the OLD `document`-module `Document` (by `itemId`) or the `document-archive` `Document` (by
   // `documentId` alone, no `itemId` concept). `undefined` (any execution started before this
   // slice) resolves to the OLD path, unchanged.
-  const docKey = ctx.documentSource === "DOCUMENT_ARCHIVE" ? documentArchiveKey(ctx.tenantId, ctx.documentId) : documentKey(ctx.tenantId, ctx.itemId, ctx.documentId);
+  // `ctx.tenantId` is the pipeline's own `ValidationContext` field, populated by the caller from
+  // an authenticated `RequestContext`/persisted `ExtractionRun`, never from client input — same
+  // one-hop-removed-but-server-authored provenance as an SQS wake-up hint.
+  const docKey =
+    ctx.documentSource === "DOCUMENT_ARCHIVE"
+      ? documentArchiveKey(authorizedTenantIdFromPersistedEntity(ctx), ctx.documentId)
+      : documentKey(ctx.tenantId, ctx.itemId, ctx.documentId);
 
   // D-193 item 3/9 slice 3: unlike the OLD path's `status === "DELETED"` (a genuine hard-delete
   // taxonomy value), `document-archive`'s `Document.status` only ever flips ACTIVE/ARCHIVED
@@ -297,7 +304,7 @@ async function buildAutoConfirmDocumentVersionUpdate(
   const confirmed = fields.find((f) => f.state === "CONFIRMED" && f.confirmedValue !== undefined && f.fieldName === DOCUMENT_VERSION_VALIDITY_FIELD_NAME);
   if (!confirmed || confirmed.confirmedValue === undefined) return undefined;
 
-  const key = documentVersionKey(ctx.tenantId, ctx.documentId, ctx.documentVersion);
+  const key = documentVersionKey(authorizedTenantIdFromPersistedEntity(ctx), ctx.documentId, ctx.documentVersion);
   const version = await deps.documents.get<DocumentVersion>(key, true);
   if (!version || version.tenantId !== ctx.tenantId) return undefined;
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { refreshRequirementsForEvidenceVersion, type RequirementEvidenceRefreshDeps } from "../../../src/workers/requirement-evidence-refresh/refresh.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
 import {
@@ -18,7 +19,7 @@ function seed(...items: (Requirement | DocumentVersion)[]): (Record<string, unkn
 }
 
 const TABLE = "test-table";
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const DOCUMENT_ID = "doc-1";
 const VERSION_ID = "ver-1";
@@ -45,7 +46,7 @@ function makeDocumentVersion(overrides: Partial<DocumentVersion> = {}): Document
 
 function makeLinkedRequirement(overrides: Partial<Requirement> = {}): Requirement {
   const requirementId = overrides.requirementId ?? "req-1";
-  const tenantId = overrides.tenantId ?? TENANT;
+  const tenantId = overrides.tenantId ? authorizedTenantIdFromPersistedEntity({ tenantId: overrides.tenantId }) : TENANT;
   const status = overrides.status ?? "SATISFIED";
   const evidenceValidUntil = "evidenceValidUntil" in overrides ? overrides.evidenceValidUntil : "2026-08-01T00:00:00.000Z";
   return {
@@ -79,7 +80,7 @@ function makeLinkedRequirement(overrides: Partial<Requirement> = {}): Requiremen
 function fakeDocumentArchive(store: InMemoryDocumentArchiveStore): RequirementEvidenceRefreshDeps["documentArchive"] {
   return {
     async findRequirementsByEvidenceVersion(tenantId: string, evidenceVersionId: string) {
-      const partitionKey = requirementGsi9PartitionKey(tenantId, evidenceVersionId);
+      const partitionKey = requirementGsi9PartitionKey(authorizedTenantIdFromPersistedEntity({ tenantId }), evidenceVersionId);
       return store.allItems().filter((item) => item["entityType"] === "Requirement" && item["GSI9PK"] === partitionKey) as unknown as Requirement[];
     },
   };

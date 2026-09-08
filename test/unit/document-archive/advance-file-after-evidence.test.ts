@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { advanceDocumentArchiveFileAfterEvidence, buildDocumentArchiveCleanKey } from "../../../src/modules/document-archive/application/advance-file-after-evidence.js";
 import { documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
@@ -28,7 +29,7 @@ function ids(): DocumentArchiveIdGenerator {
 
 const TABLE = "MainTable";
 const CLEAN_BUCKET = "clean-bucket";
-const TENANT = "t1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 const DOC = "doc1";
 const SEQ = 1;
 const FILE = "file1";
@@ -94,7 +95,7 @@ function seededStore(items: readonly (EntityKey & object)[]): InMemoryDocumentAr
 
 describe("buildDocumentArchiveCleanKey — D-193 closed clean-key shape (versionId-based, never seq)", () => {
   it("builds document-archive/clean/<tenantId>/<documentId>/<versionId>/<fileId>", () => {
-    expect(buildDocumentArchiveCleanKey("t1", "doc1", "ver-5", "file1")).toBe("document-archive/clean/t1/doc1/ver-5/file1");
+    expect(buildDocumentArchiveCleanKey(TENANT, "doc1", "ver-5", "file1")).toBe("document-archive/clean/t1/doc1/ver-5/file1");
   });
 });
 

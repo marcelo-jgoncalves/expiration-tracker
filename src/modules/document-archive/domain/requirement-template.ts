@@ -17,6 +17,7 @@
  * `version` do próprio template já é o OCC da lista inteira.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
 import { ValidationError } from "../../../shared/errors/app-error.js";
 import type { RequirementApplicability } from "./requirement.js";
@@ -70,7 +71,7 @@ export interface RequirementTemplate extends EntityKey {
   GSI1SK: string;
 }
 
-export function requirementTemplateKey(tenantId: string, templateId: string): { PK: string; SK: "METADATA" } {
+export function requirementTemplateKey(tenantId: AuthorizedTenantId, templateId: string): { PK: string; SK: "METADATA" } {
   return { PK: `TENANT#${tenantId}#REQTEMPLATE#${templateId}`, SK: "METADATA" };
 }
 
@@ -78,7 +79,7 @@ export function requirementTemplateKey(tenantId: string, templateId: string): { 
  * (`DOCSTATUS`), Requirement (`REQSTATUS`) e DocumentType (`DOCTYPESTATUS`). Nenhum índice novo.
  * Ordenado por nome normalizado, então uma listagem de catálogo sai alfabética de graça. */
 export function requirementTemplateGsi1Keys(
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   status: RequirementTemplateStatus,
   normalizedName: string,
   templateId: string,
@@ -102,7 +103,7 @@ export interface RequirementTemplateNamePointer extends EntityKey {
   version: number;
 }
 
-export function requirementTemplateNamePointerKey(tenantId: string, normalizedName: string): { PK: string; SK: "POINTER" } {
+export function requirementTemplateNamePointerKey(tenantId: AuthorizedTenantId, normalizedName: string): { PK: string; SK: "POINTER" } {
   return { PK: `TENANT#${tenantId}#REQTEMPLATENAME#${normalizedName}`, SK: "POINTER" };
 }
 
@@ -131,7 +132,7 @@ export interface RequirementNamePointer extends EntityKey {
   version: number;
 }
 
-export function requirementNamePointerKey(tenantId: string, subjectId: string, normalizedName: string): { PK: string; SK: "POINTER" } {
+export function requirementNamePointerKey(tenantId: AuthorizedTenantId, subjectId: string, normalizedName: string): { PK: string; SK: "POINTER" } {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}#REQNAME#${normalizedName}`, SK: "POINTER" };
 }
 
@@ -144,7 +145,7 @@ export function requirementNamePointerKey(tenantId: string, subjectId: string, n
  * acima, que constrói a MESMA `PK` — duplicar só o sufixo `SK: "META"` é mais barato e mais
  * honesto que inverter a fronteira de módulo por uma constante.
  */
-export function trackedSubjectKeyForFence(tenantId: string, subjectId: string): { PK: string; SK: "META" } {
+export function trackedSubjectKeyForFence(tenantId: AuthorizedTenantId, subjectId: string): { PK: string; SK: "META" } {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: "META" };
 }
 

@@ -24,6 +24,7 @@
  * 7-day window means the same thing across both domains, without a second persisted state.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
 import type { DocumentVersionState } from "./document-version.js";
@@ -127,7 +128,7 @@ export interface Requirement extends EntityKey {
  * Requirement's lifecycle is owned by the Subject, not by whichever Document currently
  * satisfies it; `evidenceVersionId` is the only pointer across that boundary.
  */
-export function requirementKey(tenantId: string, subjectId: string, requirementId: string): EntityKey {
+export function requirementKey(tenantId: AuthorizedTenantId, subjectId: string, requirementId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQUIREMENT#${requirementId}` };
 }
 
@@ -141,7 +142,7 @@ export const REQUIREMENT_SK_PREFIX = "REQUIREMENT#";
  * Decision 5/`document.ts`'s `documentGsi1Keys` precedent): Requirements by Organization+status,
  * ordered by most-recently-updated — mirrors `documentGsi1Keys` exactly.
  */
-export function requirementGsi1Keys(tenantId: string, status: RequirementStatus, updatedAt: string, requirementId: string): { GSI1PK: string; GSI1SK: string } {
+export function requirementGsi1Keys(tenantId: AuthorizedTenantId, status: RequirementStatus, updatedAt: string, requirementId: string): { GSI1PK: string; GSI1SK: string } {
   return {
     GSI1PK: `TENANT#${tenantId}#REQSTATUS#${status}`,
     GSI1SK: `UPDATED#${updatedAt}#REQUIREMENT#${requirementId}`,
@@ -276,7 +277,7 @@ export function deriveRequirementMaintenanceDue(status: RequirementStatus, evide
  * recovers `tenantId`/`subjectId`/`requirementId` from the base table's own `PK`/`SK`
  * (`requirementKey()`'s shape), same "KEYS_ONLY already returns them for free" posture as
  * `documentFileGsi8Keys()`. */
-export function requirementGsi8Keys(input: { dueAtIso: string; tenantId: string; requirementId: string }): { GSI8PK: string; GSI8SK: string } {
+export function requirementGsi8Keys(input: { dueAtIso: string; tenantId: AuthorizedTenantId; requirementId: string }): { GSI8PK: string; GSI8SK: string } {
   return {
     GSI8PK: `WORK#${REQUIREMENT_REINDEX_WORK_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#REQUIREMENT#${input.requirementId}`,
@@ -300,11 +301,11 @@ export function requirementGsi8Keys(input: { dueAtIso: string; tenantId: string;
  * that's the whole point of the query) — `Query(GSI9PK = requirementGsi9PartitionKey(...))`
  * returns every `Requirement` currently linking that DocumentVersion, no `requirementId` needed
  * up front. `requirementGsi9Keys()` below reuses this rather than duplicating the template. */
-export function requirementGsi9PartitionKey(tenantId: string, evidenceVersionId: string): string {
+export function requirementGsi9PartitionKey(tenantId: AuthorizedTenantId, evidenceVersionId: string): string {
   return `TENANT#${tenantId}#DOCVERSION#${evidenceVersionId}`;
 }
 
-export function requirementGsi9Keys(input: { tenantId: string; evidenceVersionId: string; requirementId: string }): { GSI9PK: string; GSI9SK: string } {
+export function requirementGsi9Keys(input: { tenantId: AuthorizedTenantId; evidenceVersionId: string; requirementId: string }): { GSI9PK: string; GSI9SK: string } {
   return {
     GSI9PK: requirementGsi9PartitionKey(input.tenantId, input.evidenceVersionId),
     GSI9SK: `REQUIREMENT#${input.requirementId}`,

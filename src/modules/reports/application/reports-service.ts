@@ -29,7 +29,7 @@
  * real gap left pending (two distinct `DocumentRequest` entities coexist today, neither has a
  * tenant-wide GSI by status), registered in the commit introducing this file, not built here.
  */
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
@@ -94,7 +94,11 @@ export class ReportsService {
   /** D-194 Fatia 3's `searchRequirements()` own `subjectDisplayName` enrichment step, verbatim
    * (never reimplemented) — at most 125 evaluated Requirements per underlying status query here
    * too, so `batchGet`'s 100-key chunking is never exceeded per call. */
-  private async enrichSubjectDisplayNames(tenantId: string, requirements: Requirement[]): Promise<RequirementReportRow[]> {
+  private async enrichSubjectDisplayNames(rawTenantId: string, requirements: Requirement[]): Promise<RequirementReportRow[]> {
+    // This private helper is only ever reached via an `authorize()`-gated public method above,
+    // whose `ctx.tenant.tenantId` is the sole source of `rawTenantId` threaded through the
+    // `*Unchecked` chain — never client input at this point, just not itself branded yet.
+    const tenantId: AuthorizedTenantId = authorizedTenantIdFromPersistedEntity({ tenantId: rawTenantId });
     const subjectIds = [...new Set(requirements.map((r) => r.subjectId))];
     const subjectRows =
       subjectIds.length > 0
