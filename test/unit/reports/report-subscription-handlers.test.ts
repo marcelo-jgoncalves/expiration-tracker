@@ -180,6 +180,7 @@ describe("handleDownloadReportSubscriptionRun (D-204 decisions 6-7, fatia 3)", (
       reportTypes: ["EXPIRED_ITEMS"],
       recipientUserIds: [input.recipientUserId ?? "user-b"],
       createdAt: NOW,
+      purgeAfterTtl: Math.floor(Date.parse(NOW) / 1000) + 30 * 24 * 60 * 60,
     };
     const attempt: ReportDeliveryAttempt = {
       ...reportDeliveryAttemptKey(TENANT, SUBSCRIPTION_ID, RUN_ID, input.recipientUserId ?? "user-b"),
@@ -193,6 +194,7 @@ describe("handleDownloadReportSubscriptionRun (D-204 decisions 6-7, fatia 3)", (
       version: 2,
       createdAt: NOW,
       updatedAt: NOW,
+      purgeAfterTtl: Math.floor(Date.parse(NOW) / 1000) + 30 * 24 * 60 * 60,
     };
     await store.transactWrite([{ Put: { TableName: "test-table", Item: run as unknown as Record<string, unknown> & EntityKey, ConditionExpression: "attribute_not_exists(PK)" } }]);
     await store.transactWrite([{ Put: { TableName: "test-table", Item: attempt as unknown as Record<string, unknown> & EntityKey, ConditionExpression: "attribute_not_exists(PK)" } }]);

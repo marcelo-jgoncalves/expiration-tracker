@@ -31,8 +31,8 @@ import { EmailSendError, type EmailProviderAdapter } from "../../modules/notific
 import type { NotificationRecipientResolver } from "../../modules/notification/ports/recipient-resolver.js";
 import type { ReportsService } from "../../modules/reports/application/reports-service.js";
 import { reportSubscriptionKey, type ReportSubscription, type ReportSubscriptionReportType } from "../../modules/reports/domain/report-subscription.js";
-import { reportSubscriptionRunKey, type ReportSubscriptionRun } from "../../modules/reports/domain/report-subscription-run.js";
-import { reportDeliveryAttemptKey, type ReportDeliveryAttempt } from "../../modules/reports/domain/report-delivery-attempt.js";
+import { computeReportSubscriptionRunPurgeAfterTtl, reportSubscriptionRunKey, type ReportSubscriptionRun } from "../../modules/reports/domain/report-subscription-run.js";
+import { computeReportDeliveryAttemptPurgeAfterTtl, reportDeliveryAttemptKey, type ReportDeliveryAttempt } from "../../modules/reports/domain/report-delivery-attempt.js";
 import { isTransactionCanceled, type ReportSubscriptionStore } from "../../modules/reports/ports/report-subscription-store.js";
 import type { ReportExportStore } from "../../modules/reports/ports/report-export-store.js";
 
@@ -131,6 +131,7 @@ async function getOrCreateRun(
     reportTypes: subscription.reportTypes,
     recipientUserIds: subscription.recipientUserIds,
     createdAt: now,
+    purgeAfterTtl: computeReportSubscriptionRunPurgeAfterTtl(now),
   };
   try {
     await deps.store.transactWrite([{ Put: buildVersionedCreate(deps.tableName, run as unknown as Record<string, unknown> & { PK: string; SK: string }) }]);
@@ -164,6 +165,7 @@ async function deliverToRecipient(
       version: 1,
       createdAt: now,
       updatedAt: now,
+      purgeAfterTtl: computeReportDeliveryAttemptPurgeAfterTtl(now),
     };
     try {
       await deps.store.transactWrite([{ Put: buildVersionedCreate(deps.tableName, created as unknown as Record<string, unknown> & { PK: string; SK: string }) }]);

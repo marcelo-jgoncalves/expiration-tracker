@@ -20,6 +20,16 @@
  * (`SKIP_IN_PROGRESS`); once the lease expires without the run reaching a terminal status, a
  * later invocation is allowed to reclaim it (the crashed invocation's own eventual write, if
  * any, loses the OCC race via `expectedVersion`).
+ *
+ * D-235 (full-audit-round2 privacy finding E-015): `purgeAfterTtl` set once at preview/creation
+ * time, same DynamoDB-native TTL mechanism (no custom purge worker) every other TTL'd entity in
+ * this codebase already uses. Retention reuses the SAME 30-day window
+ * `aws_s3_bucket_lifecycle_configuration.report_exports` already established (D-215 decision 6,
+ * `infra/main.tf`) for the actual dense personal data (the generated PDF/Excel object in S3) -
+ * this row is only metadata ABOUT that export (a Subject id, a Requirement id set, a scope hash),
+ * so once the S3 object itself is gone there is no reason for the row describing it to outlive
+ * it. Never re-set on update - the partial `SET` updates `confirmDossierExport`/the fatia 2
+ * worker perform never touch this attribute, so it stays fixed at creation time.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { computeFingerprint } from "../../../shared/domain/fingerprint.js";
@@ -52,6 +62,9 @@ export interface DossierExportRun extends EntityKey {
   generatingLeaseExpiresAt?: string;
   generatedAt?: string;
   failureReason?: string;
+  /** DynamoDB TTL attribute (epoch seconds) — see the file header's D-235 note. Set once at
+   * `previewDossierExport` time, 30 days out; never re-set on update. */
+  purgeAfterTtl: number;
 }
 
 export function dossierExportRunKey(tenantId: string, subjectId: string, runId: string): EntityKey {
@@ -59,6 +72,15 @@ export function dossierExportRunKey(tenantId: string, subjectId: string, runId: 
 }
 
 export const DOSSIER_EXPORT_RUN_SK_PREFIX = "DOSSIER#";
+
+/** Same 30-day figure as `aws_s3_bucket_lifecycle_configuration.report_exports` (D-215 decision
+ * 6, `infra/main.tf`) — see D-235 note above for why this metadata row reuses that number rather
+ * than inventing a new retention class. */
+export const DOSSIER_EXPORT_RUN_RETENTION_DAYS = 30;
+
+export function computeDossierExportRunPurgeAfterTtl(createdAtIso: string): number {
+  return Math.floor(Date.parse(createdAtIso) / 1000) + DOSSIER_EXPORT_RUN_RETENTION_DAYS * 24 * 60 * 60;
+}
 
 /** `scopeHash` input: `subjectId` (a run confirmed under one Subject can never validate against
  * another) + the requirementId SET, sorted (order-independent - the API response may list them
