@@ -2257,7 +2257,8 @@ resource "aws_lambda_event_source_mapping" "requirement_evidence_refresh_from_qu
 # SQS_REQUIREMENT_EVIDENCE_REFRESH_V1 queue item 6/9 already consumes - this handler never writes
 # a Requirement itself (no worker_transact_write_policy_json grant needed, unlike
 # document_file_reconciliation_handler/requirement_reindex_handler above), so its only privileges
-# beyond the general tenant-facing Scan/read grant are `sqs:SendMessage` on that one queue.
+# are `cross_tenant_scan_policy_json["requirement_evidence_daily_sweep"]` (Scan-only, D-234/E-018)
+# plus `sqs:SendMessage` on that one queue.
 module "requirement_evidence_daily_sweep_handler" {
   source = "./modules/lambda-function"
 
@@ -2269,8 +2270,11 @@ module "requirement_evidence_daily_sweep_handler" {
   environment_variables = merge(local.common_env, {
     REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL = module.requirement_evidence_refresh_queue.queue_url
   })
+  # D-234 (E-018): dedicated Scan-only policy, not the general tenant_facing_read_write_policy_json
+  # - this handler never writes to DynamoDB (see cross_tenant_scan_workers.requirement_evidence_
+  # daily_sweep in dynamo-table/main.tf).
   policy_documents_json = [
-    module.table.tenant_facing_read_write_policy_json,
+    module.table.cross_tenant_scan_policy_json["requirement_evidence_daily_sweep"],
     module.requirement_evidence_refresh_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -3472,6 +3476,18 @@ data "aws_iam_policy_document" "tenant_purge_worker_session_table" {
   }
 }
 
+# D-234 (E-018, Codex Rodada 3): the sweeper re-runs the SAME read passes as the worker above but
+# never deletes a session row - it was incorrectly inheriting tenant_purge_worker_session_table's
+# DeleteItem grant. This Scan-only variant closes that excess.
+data "aws_iam_policy_document" "tenant_purge_sweeper_session_table" {
+  statement {
+    sid       = "ScanTenantSessionsReadOnly"
+    effect    = "Allow"
+    actions   = ["dynamodb:Scan"]
+    resources = [module.bff_session_table.table_arn]
+  }
+}
+
 module "tenant_purge_worker_handler" {
   source = "./modules/lambda-function"
 
@@ -3485,8 +3501,10 @@ module "tenant_purge_worker_handler" {
   # needs to make real progress per attempt before the loop resumes it.
   timeout_seconds       = 300
   environment_variables = merge(local.common_env, local.tenant_purge_bucket_env)
+  # D-234 (E-018): dedicated Scan+GetItem+TransactWriteItems policy on the main table (base table
+  # only, no GSI), not the general tenant_facing_read_write_policy_json.
   policy_documents_json = [
-    module.table.tenant_facing_read_write_policy_json,
+    module.table.cross_tenant_scan_policy_json["tenant_purge_worker"],
     data.aws_iam_policy_document.tenant_purge_worker_s3.json,
     data.aws_iam_policy_document.tenant_purge_worker_session_table.json,
   ]
@@ -3637,15 +3655,18 @@ module "tenant_purge_sweeper_handler" {
     TENANT_PURGE_STATE_MACHINE_ARN = local.tenant_purge_state_machine_arn
   })
   # The sweeper re-runs the SAME verifyTenant*Empty() passes the purge worker does, so it needs the
-  # same read surface - but it never deletes anything, which is why it reuses the worker's S3/
-  # session policies rather than getting a broader one of its own. (Both policies do include the
-  # delete actions; narrowing them further would mean a second near-duplicate policy pair for a
-  # worker whose code paths provably never call delete - a tradeoff recorded here rather than
-  # hidden, and revisitable if the sweeper ever grows a remediation half.)
+  # same read surface - but it never deletes anything. D-234 (E-018, Codex Rodada 3): it now gets
+  # its OWN read-only DynamoDB policies (main table Scan+GetItem via cross_tenant_scan_policy_json
+  # ["tenant_purge_sweeper"]; session table Scan-only via tenant_purge_sweeper_session_table) rather
+  # than inheriting the worker's read/write grants (which included DeleteItem on both tables - the
+  # exact class of excess this finding closes). S3 policy is still shared with the worker
+  # (tenant_purge_worker_s3, which includes DeleteObject) - Codex Rodada 3 flagged this as a real
+  # but non-blocking follow-up for E-018 (scope is DynamoDB least-privilege); tracked as a nominal
+  # cleanup, not a new numbered finding.
   policy_documents_json = [
-    module.table.tenant_facing_read_write_policy_json,
+    module.table.cross_tenant_scan_policy_json["tenant_purge_sweeper"],
     data.aws_iam_policy_document.tenant_purge_worker_s3.json,
-    data.aws_iam_policy_document.tenant_purge_worker_session_table.json,
+    data.aws_iam_policy_document.tenant_purge_sweeper_session_table.json,
     data.aws_iam_policy_document.tenant_purge_start_execution.json,
     # D-127: states:DescribeExecution for the HELD_FOR_RECOVERY reconciliation branch.
     data.aws_iam_policy_document.tenant_purge_describe_execution.json,
@@ -3785,10 +3806,9 @@ resource "aws_scheduler_schedule" "requirement_reindex" {
 # --- DocumentRequestRecurrenceMaterializerHandler: daily EventBridge Scheduler job (D-143
 # Nucleus 2, entity 3/3, Decision 8 / D-147) - materializes attempt 1 of any DocumentRequestSeries
 # cycle that has come due, via the SAME buildMaterializeAttemptEntries transaction the interactive
-# route uses - see src/workers/document-request-recurrence/materializer.ts's doc comment. No
-# dedicated IAM policy beyond the general tenant-facing grant (same reasoning as
-# requirement_reindex_handler above: this worker's Scan is a base-table operation, not a new
-# index).
+# route uses - see src/workers/document-request-recurrence/materializer.ts's doc comment.
+# D-234 (E-018): dedicated Scan+TransactWriteItems policy (base table only, no GSI - the real call
+# graph never queries an index), not the general tenant_facing_read_write_policy_json.
 module "document_request_recurrence_handler" {
   source = "./modules/lambda-function"
 
@@ -3798,7 +3818,7 @@ module "document_request_recurrence_handler" {
   adot_layer_arn        = var.adot_layer_arn
   timeout_seconds       = 300
   environment_variables = local.common_env
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
+  policy_documents_json = [module.table.cross_tenant_scan_policy_json["document_request_recurrence"]]
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 

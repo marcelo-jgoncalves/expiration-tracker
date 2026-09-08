@@ -263,6 +263,26 @@ locals {
 
 # General read/write policy on the base table + GSI1/GSI2/GSI4/GSI5 (tenant-scoped
 # indexes). Never includes GSI3/GSI6 — see locals above.
+#
+# D-234 (E-018, full-audit-round2 Seguranca criterio 2): `dynamodb:Scan` deliberately EXCLUDED
+# from both general policies below since 2026-09-08. Exhaustive grep of every real ScanCommand/
+# .scan( call site in src/ found exactly 4 consumers, ALL background workers (never an HTTP
+# tenant-facing route): requirement_evidence_daily_sweep_handler, document_request_recurrence_handler,
+# tenant_purge_worker_handler, tenant_purge_sweeper_handler (infra/main.tf). Each of those 4 now
+# gets its own minimal dedicated policy (Scan + only the other actions its adapter actually sends -
+# see the policies near those 4 modules in infra/main.tf) instead of this general grant. Protocol
+# Claude<->Codex, 4 rounds (Claude 7.5->9.2, Codex 8.2->8.7->8.9->9.2, both >=9.0 Round 4).
+# `dynamodb:LeadingKeys` was considered and rejected for this general grant (unlike GSI3/GSI4/GSI6/
+# GSI8's dedicated policies): those work because each consumer is a fixed-namespace worker known at
+# deploy time; the ~44 remaining HTTP tenant-facing Lambdas share ONE static execution role across
+# EVERY tenant's requests, and the tenantId of a given request only exists at runtime - IAM cannot
+# express "this call's tenantId" against a static role's credential without per-tenant STS
+# AssumeRole (a much larger architectural change, disproportionate at this project's stage,
+# see decisions-log.md D-234). Residual risk (Query/GetItem/etc. can still, in principle, reach
+# another tenant's row if a caller supplies its key) is accepted and mitigated by application-layer
+# enforcement (authorize(), AuthorizedTenantId, adversarial isolation tests -
+# test/integration/tenant-isolation/), not by IAM - documented explicitly rather than pretending an
+# IAM fix that this architecture cannot support.
 data "aws_iam_policy_document" "tenant_facing_read_write" {
   statement {
     sid = "TenantFacingReadWrite"
@@ -270,7 +290,6 @@ data "aws_iam_policy_document" "tenant_facing_read_write" {
       "dynamodb:BatchGetItem",
       "dynamodb:GetItem",
       "dynamodb:Query",
-      "dynamodb:Scan",
       "dynamodb:BatchWriteItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
@@ -289,12 +308,50 @@ data "aws_iam_policy_document" "tenant_facing_read" {
       "dynamodb:BatchGetItem",
       "dynamodb:GetItem",
       "dynamodb:Query",
-      "dynamodb:Scan",
       "dynamodb:DescribeTable",
     ]
     resources = local.tenant_facing_resources
   }
 }
+
+# D-234 (E-018): the ONLY 4 Lambdas that genuinely need `dynamodb:Scan` on the base table today
+# (see the comment on tenant_facing_read_write above for the full inventory). Table-resource-only,
+# NEVER a GSI ARN - none of the 4 consumers query an index. Each of the 4 gets its OWN minimal
+# action set (not a shared blanket Scan grant) via for_each below, named so a future audit can see
+# exactly who holds Scan and why, mirroring the gsi8_read_policy_json per-worker pattern.
+locals {
+  cross_tenant_scan_workers = {
+    # requirement-evidence-daily-sweep-handler: scanRequirementsWithEvidence() only, no write.
+    requirement_evidence_daily_sweep = { actions = ["dynamodb:Scan"] }
+    # document-request-recurrence-handler: scanActiveSeries() + DocumentArchiveStore.transactWrite()
+    # (TransactWriteCommand) via buildMaterializeAttemptEntries - no other DynamoDB action reachable
+    # from materializer.ts's real call graph.
+    document_request_recurrence = { actions = ["dynamodb:Scan", "dynamodb:TransactWriteItems"] }
+    # tenant-purge-worker-handler: DynamoDbTenantPurgeCandidateSource.scanTenantItems() (Scan),
+    # DynamoDbTenantLifecycleReader.read() (GetItem), DynamoDbSystemMutationStore.transactWrite()
+    # (TransactWriteItems) - all base-table. Session-table Scan/Delete is a SEPARATE policy
+    # (tenant_purge_worker_session_table, unchanged).
+    tenant_purge_worker = { actions = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:TransactWriteItems"] }
+    # tenant-purge-sweeper-handler: DynamoDbTenantLifecycleScanSource.scanLifecycleRecords() (Scan)
+    # + DynamoDbTenantLifecycleReader.read() (GetItem) only - it re-runs the SAME verifyTenant*Empty()
+    # read passes the worker does but never deletes/writes anything (infra/main.tf's own comment on
+    # tenant_purge_sweeper_handler already documented this read-only intent; this policy now actually
+    # enforces it instead of inheriting the worker's read/write grant).
+    tenant_purge_sweeper = { actions = ["dynamodb:Scan", "dynamodb:GetItem"] }
+  }
+}
+
+data "aws_iam_policy_document" "cross_tenant_scan" {
+  for_each = local.cross_tenant_scan_workers
+
+  statement {
+    sid       = "CrossTenantScan${join("", [for part in split("_", each.key) : title(part)])}"
+    actions   = each.value.actions
+    resources = [local.table_arn]
+  }
+}
+
+
 
 # The ONLY sanctioned way to read GSI3 - resource is the GSI3 index ARN exclusively
 # (never the table or any other index), intended solely for the M3 ReminderProducer.
