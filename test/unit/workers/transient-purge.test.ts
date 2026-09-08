@@ -2,18 +2,37 @@ import { describe, expect, it } from "vitest";
 import { runTransientPurge, isWebhookInboxPurgeEligible, isUploadSlotPurgeEligible, WEBHOOK_INBOX_RETENTION_DAYS } from "../../../src/workers/transient-purge/purge.js";
 import { transientPurgeGsi8Keys } from "../../../src/shared/transient-purge-gsi8.js";
 import { FakeTransientPurgeCandidateSource } from "./transient-purge-fakes.js";
-import type { WebhookInboxPurgeCandidate, UploadSlotPurgeCandidate } from "../../../src/workers/transient-purge/candidate-source.js";
+import type {
+  UploadSlotPurgeCandidate,
+  TenantScopedWebhookInboxPurgeCandidate,
+  AccountScopedWebhookInboxPurgeCandidate,
+} from "../../../src/workers/transient-purge/candidate-source.js";
 
 const TABLE = "test-table";
 const NOW = "2026-09-01T00:00:00.000Z";
 
-function makeWebhookInbox(overrides: Partial<WebhookInboxPurgeCandidate> = {}): WebhookInboxPurgeCandidate {
+function makeWebhookInbox(overrides: Partial<TenantScopedWebhookInboxPurgeCandidate> = {}): TenantScopedWebhookInboxPurgeCandidate {
   const tenantId = overrides.tenantId ?? "tenant-1";
   return {
     PK: `TENANT#${tenantId}#WEBHOOK#SES#acct-1`,
     SK: "EVENT#sns-1",
     entityType: "WebhookInbox",
+    purgeScope: "TENANT",
     tenantId,
+    createdAt: "2026-08-01T00:00:00.000Z", // well over 7 days before NOW - eligible
+    version: 1,
+    ...overrides,
+  };
+}
+
+function makeWhatsAppWebhookInbox(overrides: Partial<AccountScopedWebhookInboxPurgeCandidate> = {}): AccountScopedWebhookInboxPurgeCandidate {
+  const accountId = overrides.accountId ?? "waba-1";
+  return {
+    PK: `WEBHOOK#WHATSAPP#${accountId}`,
+    SK: "EVENT#wamid-1#DELIVERED",
+    entityType: "WebhookInbox",
+    purgeScope: "ACCOUNT",
+    accountId,
     createdAt: "2026-08-01T00:00:00.000Z", // well over 7 days before NOW - eligible
     version: 1,
     ...overrides,
@@ -26,6 +45,7 @@ function makeUploadSlot(overrides: Partial<UploadSlotPurgeCandidate> = {}): Uplo
     PK: `TENANT#${tenantId}#UPLOAD`,
     SK: "SLOT#slot-1",
     entityType: "UploadSlot",
+    purgeScope: "TENANT",
     tenantId,
     reservedAt: "2026-08-01T00:00:00.000Z", // well over both windows before NOW
     status: "EXPIRED",
@@ -348,6 +368,7 @@ describe("runTransientPurge (D-156: WebhookInbox createdAt+7d, UploadSlot reserv
       PK: `TENANT#${tenantId}#UPLOAD`,
       SK: "SLOT#slot-stale",
       entityType: "UploadSlot",
+      purgeScope: "TENANT",
       tenantId,
       reservedAt: "2020-01-01T00:00:00.000Z",
       status: "RESERVED",
@@ -366,5 +387,73 @@ describe("runTransientPurge (D-156: WebhookInbox createdAt+7d, UploadSlot reserv
     expect(stored).toBeDefined();
     expect(stored?.["GSI8PK"]).toBeUndefined();
     expect(stored?.["GSI8SK"]).toBeUndefined();
+  });
+});
+
+describe("runTransientPurge - purgeScope=ACCOUNT (D-197 fatia 3/5, WhatsApp WebhookInbox: account-owned permanently, never tenant-fenced)", () => {
+  it("purges an account-scoped WebhookInbox row older than 7 days with NO tenant lifecycle record at all - never fenced by tenant", async () => {
+    const candidates = new FakeTransientPurgeCandidateSource();
+    const candidate = makeWhatsAppWebhookInbox();
+    candidates.seed(candidate);
+    // Deliberately never call setTenantStatus - an account-scoped row has no tenant to fence
+    // against, and must still purge (this is the exact bug the Claude<->Codex protocol closed:
+    // a tenant-fenced delete would leave every UNMATCHED WhatsApp inbox row stuck forever).
+
+    const result = await runTransientPurge({ candidates, tableName: TABLE, now: () => NOW });
+
+    expect(result.purged).toBe(1);
+    expect(result.skippedTenantNotActive).toBe(0);
+    expect(result.quarantinedCount).toBe(0);
+    expect(candidates.get({ PK: candidate.PK, SK: candidate.SK })).toBeUndefined();
+  });
+
+  it("purges an account-scoped row even when a row with the SAME accountId as a coincidental tenantId string is BLOCKED - no cross-talk with the tenant fence", async () => {
+    const candidates = new FakeTransientPurgeCandidateSource();
+    const candidate = makeWhatsAppWebhookInbox({ accountId: "tenant-blocked" });
+    candidates.seed(candidate);
+    candidates.setTenantStatus("tenant-blocked", "BLOCKED"); // must never be consulted for this row
+
+    const result = await runTransientPurge({ candidates, tableName: TABLE, now: () => NOW });
+
+    expect(result.purged).toBe(1);
+    expect(result.skippedTenantNotActive).toBe(0);
+  });
+
+  it("version collision on an ACCOUNT row: skipped as concurrent modification, never purged, never a tenant-quarantine path", async () => {
+    const candidates = new FakeTransientPurgeCandidateSource();
+    const candidate = makeWhatsAppWebhookInbox();
+    candidates.seed(candidate);
+
+    const realTransactWrite = candidates.transactWrite.bind(candidates);
+    candidates.transactWrite = (entries) => {
+      const stored = candidates.get({ PK: candidate.PK, SK: candidate.SK })!;
+      (stored as Record<string, unknown>)["version"] = 2;
+      return realTransactWrite(entries);
+    };
+
+    const result = await runTransientPurge({ candidates, tableName: TABLE, now: () => NOW });
+
+    expect(result.purged).toBe(0);
+    expect(result.skippedConcurrentlyModified).toBe(1);
+    expect(result.skippedTenantNotActive).toBe(0);
+    expect(result.quarantinedCount).toBe(0);
+    expect(candidates.get({ PK: candidate.PK, SK: candidate.SK })).toBeDefined();
+  });
+
+  it("an unrecognized cancellation reason on an ACCOUNT delete is never swallowed as concurrency - it is rethrown (fail-closed)", async () => {
+    const candidates = new FakeTransientPurgeCandidateSource();
+    const candidate = makeWhatsAppWebhookInbox();
+    candidates.seed(candidate);
+
+    candidates.transactWrite = () => {
+      const err = {
+        name: "TransactionCanceledException",
+        message: "Transaction cancelled",
+        CancellationReasons: [{ Code: "TransactionConflict" }],
+      };
+      return Promise.reject(err);
+    };
+
+    await expect(runTransientPurge({ candidates, tableName: TABLE, now: () => NOW })).rejects.toMatchObject({ name: "TransactionCanceledException" });
   });
 });

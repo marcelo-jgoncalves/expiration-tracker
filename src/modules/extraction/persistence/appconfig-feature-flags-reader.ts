@@ -72,6 +72,8 @@ export class AppConfigFeatureFlagsReader implements FeatureFlagsReader {
         // resolves to `false`, never "unknown, assume enabled".
         EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: features.EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED === true,
         DOCUMENT_ARCHIVE_PROMOTION_ENABLED: features.DOCUMENT_ARCHIVE_PROMOTION_ENABLED === true,
+        // D-197 fatia 3/5: same fail-closed "=== true" parsing - absent/malformed resolves false.
+        WHATSAPP_DELIVERY_WORKER_ENABLED: features.WHATSAPP_DELIVERY_WORKER_ENABLED === true,
       };
     }
 

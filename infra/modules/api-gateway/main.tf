@@ -42,6 +42,18 @@ resource "aws_apigatewayv2_stage" "default" {
       throttling_rate_limit  = 5
     }
   }
+
+  # D-197 fatia 3/5: same restrictive throttling as the other public (authorization_type = NONE)
+  # routes above - this one is additionally the ONLY route reachable by an unauthenticated third
+  # party (Meta) that we cannot rate-limit at their end, so it gets the same conservative posture.
+  dynamic "route_settings" {
+    for_each = local.whatsapp_webhook_routes
+    content {
+      route_key              = "${route_settings.value.method} ${route_settings.value.path}"
+      throttling_burst_limit = 10
+      throttling_rate_limit  = 5
+    }
+  }
 }
 
 resource "aws_apigatewayv2_authorizer" "jwt" {
@@ -522,6 +534,45 @@ resource "aws_lambda_permission" "guest_documents" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/guest/document-requests*"
+}
+
+# --- WhatsAppWebhookHandler: /webhooks/whatsapp (D-197 fatia 3/5, D-7) ---------------------
+# Second PUBLIC route of the project (authorization_type = NONE), same rationale as
+# guest_documents above: Meta Cloud API calls this endpoint directly with no user session.
+# Auth is entirely in application code (X-Hub-Signature-256 HMAC verification BEFORE any
+# processing for POST; hub.verify_token match for the one-time GET handshake) - never a Lambda
+# authorizer, same reasoning guest_documents already established for this project.
+
+resource "aws_apigatewayv2_integration" "whatsapp_webhook" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.whatsapp_webhook_invoke_arn
+  payload_format_version = "2.0"
+}
+
+locals {
+  whatsapp_webhook_routes = {
+    verify = { method = "GET", path = "/webhooks/whatsapp" }
+    status = { method = "POST", path = "/webhooks/whatsapp" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "whatsapp_webhook" {
+  for_each = local.whatsapp_webhook_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.whatsapp_webhook.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "whatsapp_webhook" {
+  statement_id  = "AllowApiGatewayInvokeWhatsAppWebhook"
+  action        = "lambda:InvokeFunction"
+  function_name = var.whatsapp_webhook_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/webhooks/whatsapp"
 }
 
 # --- NotificationsHandler: /notifications/preferences (M4 backlog item) -----------------

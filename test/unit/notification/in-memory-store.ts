@@ -75,11 +75,24 @@ export class InMemoryNotificationStore implements NotificationStore {
             return;
           }
           const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
-          const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
-          if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
+          if (existing["version"] !== expectedVersion) {
             reasons[i] = { Code: "ConditionalCheckFailed" };
             anyFailed = true;
             return;
+          }
+          // Generic scope fence check - `buildVersionedUpdate()` uses `#tenantId`/`:tenantId`,
+          // `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5) uses `#accountId`/`:accountId`
+          // instead - whichever is present in this entry's own placeholders is the one asserted,
+          // same generic behavior real DynamoDB gives any ConditionExpression.
+          const names = entry.Update.ExpressionAttributeNames ?? {};
+          for (const [nameKey, attrName] of Object.entries(names)) {
+            if (attrName !== "tenantId" && attrName !== "accountId") continue;
+            const valueKey = `:${nameKey.slice(1)}`;
+            if (existing[attrName] !== entry.Update.ExpressionAttributeValues[valueKey]) {
+              reasons[i] = { Code: "ConditionalCheckFailed" };
+              anyFailed = true;
+              return;
+            }
           }
         }
       }

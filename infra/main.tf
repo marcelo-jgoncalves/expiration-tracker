@@ -671,6 +671,8 @@ module "api" {
   document_archive_function_name       = module.document_archive_handler.function_name
   document_archive_guest_invoke_arn    = module.document_archive_guest_handler.live_alias_invoke_arn
   document_archive_guest_function_name = module.document_archive_guest_handler.function_name
+  whatsapp_webhook_invoke_arn          = module.whatsapp_webhook_handler.live_alias_invoke_arn
+  whatsapp_webhook_function_name       = module.whatsapp_webhook_handler.function_name
   tags                                 = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -1077,12 +1079,49 @@ resource "aws_lambda_event_source_mapping" "notification_whatsapp_outbox_relay_f
   function_response_types = ["ReportBatchItemFailures"]
 }
 
-# D-2/D-229 fatia 2/5: WhatsAppDeliveryWorker. CREDENTIALS NOTE - fatia 2/5 boundary (see
-# whatsapp-cloud-api-adapter.ts's header comment and D-229): access token/phone number id are
-# plain environment variables here, NOT AWS Secrets Manager (that is fatia 3/5, D-10). Empty
-# defaults let this Lambda deploy before real Meta credentials are provisioned; nothing calls
-# it via the real flow yet (notification-router-workflow.ts wiring is fatia 5/5), so a send()
-# call failing on an empty token has no production impact today.
+# D-197 fatia 3/5 (D-10): first external-vendor secret in this repo. One JSON secret (access
+# token, app secret, phone number id, WABA id, verify token) - see
+# secrets-manager-whatsapp-config.ts's header comment for why not five separate secrets.
+# Terraform manages the secret's EXISTENCE and IAM access, never its real value - the
+# placeholder version below (all-empty-string JSON, matching D-229's own "safe to deploy before
+# real credentials exist" posture) is protected by `ignore_changes` so setting the real value
+# out-of-band (console/CLI, by Marcelo) is never clobbered by a later `terraform apply`.
+resource "aws_secretsmanager_secret" "whatsapp_cloud_api" {
+  name        = "${local.name_prefix}-whatsapp-cloud-api"
+  description = "D-197 fatia 3/5 (D-10) - Meta WhatsApp Cloud API credentials (accessToken/appSecret/phoneNumberId/wabaId/verifyToken), one JSON secret. Real value set out-of-band, never via terraform apply."
+  tags        = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_secretsmanager_secret_version" "whatsapp_cloud_api_placeholder" {
+  secret_id = aws_secretsmanager_secret.whatsapp_cloud_api.id
+  secret_string = jsonencode({
+    accessToken   = ""
+    appSecret     = ""
+    phoneNumberId = ""
+    wabaId        = ""
+    verifyToken   = ""
+  })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
+# IAM scoped to ONLY this secret's ARN, attached ONLY to the 2 Lambdas that need it
+# (WhatsAppDeliveryWorker, WhatsAppWebhookHandler) - D-10's explicit requirement.
+data "aws_iam_policy_document" "whatsapp_secret_read" {
+  statement {
+    sid       = "ReadWhatsAppCloudApiSecret"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.whatsapp_cloud_api.arn]
+  }
+}
+
+# D-2/D-229 fatia 2/5 + D-197 fatia 3/5 (D-10): WhatsAppDeliveryWorker. Credentials now come
+# from the Secrets Manager secret above (fatia 2/5's own env-var placeholder is gone) - kill
+# switch (D-10) fail-closed via the shared feature-flags module, same trio every AppConfig-gated
+# Lambda uses.
 module "whatsapp_delivery" {
   source = "./modules/lambda-function"
 
@@ -1091,13 +1130,17 @@ module "whatsapp_delivery" {
   source_dir     = "${local.dist_dir}/whatsapp-delivery-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    WHATSAPP_ACCESS_TOKEN    = var.whatsapp_access_token
-    WHATSAPP_PHONE_NUMBER_ID = var.whatsapp_phone_number_id
-    WHATSAPP_API_VERSION     = var.whatsapp_api_version
+    WHATSAPP_SECRET_ID                 = aws_secretsmanager_secret.whatsapp_cloud_api.id
+    WHATSAPP_API_VERSION               = var.whatsapp_api_version
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.whatsapp_deliver_queue.consume_policy_json,
+    data.aws_iam_policy_document.whatsapp_secret_read.json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1107,6 +1150,31 @@ resource "aws_lambda_event_source_mapping" "whatsapp_delivery_from_queue" {
   function_name           = module.whatsapp_delivery.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
+}
+
+# D-197 fatia 3/5 (D-7): WhatsAppWebhookHandler - public (authorization_type = NONE) API Gateway
+# route (see modules/api-gateway/main.tf's whatsapp_webhook block). Needs the SAME secret as the
+# delivery worker (appSecret/verifyToken for signature/challenge verification - never the access
+# token in practice, but the secret is one JSON blob per D-10) and the same kill switch trio.
+module "whatsapp_webhook_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-whatsapp-webhook"
+  handler_name   = "whatsapp-webhook-handler"
+  source_dir     = "${local.dist_dir}/whatsapp-webhook-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    WHATSAPP_SECRET_ID                 = aws_secretsmanager_secret.whatsapp_cloud_api.id
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.whatsapp_secret_read.json,
+    module.feature_flags.feature_flags_read_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 module "ses_callback" {

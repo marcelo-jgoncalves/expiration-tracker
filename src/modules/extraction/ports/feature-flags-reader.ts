@@ -36,6 +36,14 @@ export interface FeatureFlags {
    * that reaches a CLEAN `document-archive` object while the Starter that would consume it is
    * still off. */
   DOCUMENT_ARCHIVE_PROMOTION_ENABLED: boolean;
+  /** D-197 fatia 3/5 (`whatsapp-channel-scoping/estado-final-consolidado.md` D-10) - the second
+   * half of the same mandatory-order two-flag activation mechanism as
+   * `EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED` above
+   * (D-193 slice 8/9 precedent). Gates whether `WhatsAppDeliveryWorker` (`whatsapp-delivery-
+   * handler.ts`) may actually send - meaningless unless `WHATSAPP` is ALSO on (see
+   * `notification/application/whatsapp-activation.ts#isWhatsAppDeliveryWorkerEnabled()`, the
+   * mandatory-order gate itself, mirroring `isDocumentArchivePromotionEnabled()`'s shape). */
+  WHATSAPP_DELIVERY_WORKER_ENABLED: boolean;
 }
 
 export interface FeatureFlagsReader {

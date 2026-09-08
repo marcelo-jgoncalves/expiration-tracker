@@ -1,4 +1,9 @@
-import { deriveWebhookInboxMaintenanceDue, deriveUploadSlotMaintenanceDue, transientPurgeGsi8Keys } from "../../../src/shared/transient-purge-gsi8.js";
+import {
+  deriveWebhookInboxMaintenanceDue,
+  deriveUploadSlotMaintenanceDue,
+  transientPurgeGsi8Keys,
+  accountScopedTransientPurgeGsi8Keys,
+} from "../../../src/shared/transient-purge-gsi8.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { EntityKey, TransactWriteEntry } from "../../../src/shared/dynamodb/occ.js";
 import type {
@@ -56,7 +61,11 @@ export class FakeTransientPurgeCandidateSource implements TransientPurgeCandidat
    * directly. */
   seed(item: TransientPurgeCandidate): void {
     const due = item.entityType === "WebhookInbox" ? deriveWebhookInboxMaintenanceDue(item) : deriveUploadSlotMaintenanceDue(item);
-    const gsi8 = due ? transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.tenantId, entityType: item.entityType, sk: item.SK }) : {};
+    const gsi8 = due
+      ? item.purgeScope === "ACCOUNT"
+        ? accountScopedTransientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, accountId: item.accountId, entityType: item.entityType, sk: item.SK })
+        : transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.tenantId, entityType: item.entityType, sk: item.SK })
+      : {};
     this.items.set(k(item), { ...gsi8, ...item });
   }
 
@@ -88,13 +97,13 @@ export class FakeTransientPurgeCandidateSource implements TransientPurgeCandidat
     const page = all.slice(startIndex, startIndex + this.pageSize);
     const lastEvaluatedKey = startIndex + this.pageSize < all.length ? { PK: page[page.length - 1]!.PK, SK: page[page.length - 1]!.SK } : undefined;
     return Promise.resolve({
-      items: page.map((i) => ({
-        PK: i.PK,
-        SK: i.SK,
-        dueAtIso: (i["GSI8SK"] as string).split("#TENANT#")[0]!,
-        tenantId: i["tenantId"] as string,
-        entityType: i["entityType"] as TransientPurgeCandidate["entityType"],
-      })),
+      items: page.map((i) => {
+        const gsi8sk = i["GSI8SK"] as string;
+        const dueAtIso = gsi8sk.split("#TENANT#")[0]!.split("#ACCOUNT#")[0]!;
+        const scope =
+          i["purgeScope"] === "ACCOUNT" ? { purgeScope: "ACCOUNT" as const, accountId: i["accountId"] as string } : { purgeScope: "TENANT" as const, tenantId: i["tenantId"] as string };
+        return { PK: i.PK, SK: i.SK, dueAtIso, entityType: i["entityType"] as TransientPurgeCandidate["entityType"], ...scope };
+      }),
       lastEvaluatedKey,
     });
   }

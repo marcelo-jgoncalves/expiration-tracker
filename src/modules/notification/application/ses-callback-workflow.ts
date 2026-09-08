@@ -73,6 +73,11 @@ export async function processSesCallback(deps: SesCallbackWorkflowDeps, event: P
   const inboxCreated = await deps.store.putIfAbsent({
     ...inboxKey,
     entityType: "WebhookInbox",
+    // D-197 fatia 3/5 (Claude<->Codex protocol, 4 rounds, both final notes >=9.0): `purgeScope`
+    // is the row's own immutable, written-once-at-creation source of truth for which fencing
+    // modality `transient-purge/purge.ts` uses - SES's WebhookInbox is genuinely tenant-owned
+    // (PK embeds TENANT#<t>#), so this is always "TENANT", never inferred from GSI8.
+    purgeScope: "TENANT",
     tenantId,
     provider: "SES",
     providerAccountId: deps.providerAccountId,

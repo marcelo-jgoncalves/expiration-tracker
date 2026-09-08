@@ -140,6 +140,16 @@ variable "guest_documents_function_name" {
   type        = string
 }
 
+variable "whatsapp_webhook_invoke_arn" {
+  description = "Invoke ARN of the WhatsAppWebhookHandler Lambda (D-197 fatia 3/5, D-7) — backs GET+POST /webhooks/whatsapp, a PUBLIC (authorization_type = NONE) route, same posture as guest_documents above: Meta calls this endpoint directly (no user session), so JWT is not applicable — auth is X-Hub-Signature-256 verification entirely in application code, before any persistence."
+  type        = string
+}
+
+variable "whatsapp_webhook_function_name" {
+  description = "Function name of the WhatsAppWebhookHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "imports_invoke_arn" {
   description = "Invoke ARN of the ImportsHandler Lambda (M11, D-042) — backs every /imports* route (CSV import reserve/get/commit)."
   type        = string
