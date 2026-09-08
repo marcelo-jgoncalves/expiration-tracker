@@ -196,6 +196,25 @@ export type Action =
   | "docarchive:documenttype-metadata-manage"
   | "docarchive:document-metadata-update";
 
+/**
+ * D-234 (E-018, full-audit-round2 Seguranca criterio 2, protocolo Claude<->Codex 4 rodadas):
+ * branded provenance marker for a tenantId that came from an authenticated `RequestContext`, not
+ * from arbitrary client input. This does NOT prove `authorize()` was called (Codex Rodada 2
+ * finding) - it only proves the value traces back to `RequestContext.tenant.tenantId`, which
+ * itself is resolved server-side from the caller's identity (`resolve-request-context.ts`), never
+ * from a request body/path/query parameter. Persistence-layer functions that build a PK's tenant
+ * segment should prefer accepting `AuthorizedTenantId` over a raw `tenantId: string` where the
+ * call site already has a `RequestContext` - the type system then rejects a client-supplied string
+ * being threaded straight into a key builder without going through this function first. No `as
+ * AuthorizedTenantId` cast is permitted outside this file (grep-able convention, same discipline
+ * as `TRANSACTION_CANCELED`'s single-producer pattern in `shared/dynamodb/occ.ts`).
+ */
+export type AuthorizedTenantId = string & { readonly __brand: "AuthorizedTenantId" };
+
+export function authorizedTenantId(context: RequestContext): AuthorizedTenantId {
+  return context.tenant.tenantId as AuthorizedTenantId;
+}
+
 export interface AuthorizedResource {
   tenantId: string;
   ownerUserId?: string;
@@ -307,6 +326,17 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "docarchive:requirementtemplate-apply": WRITE_ROLES,
   "docarchive:requirement-export": ADMIN_ROLES,
 };
+
+/**
+ * D-234 (E-018, Rodada 3/4): every real `Action` this matrix knows about, derived directly from
+ * `ACTION_ROLES`'s own keys - never a hand-maintained parallel list. `test/integration/
+ * tenant-isolation-matrix.test.ts` iterates this array to assert the TENANT_MISMATCH check applies
+ * uniformly; because it is derived (not duplicated), a new `Action` added to the union above
+ * cannot silently escape that test - `ACTION_ROLES` is a `Record<Action, ...>`, so TypeScript
+ * itself already forces every new Action to get an entry before this compiles, and this array
+ * picks it up automatically at runtime with zero maintenance.
+ */
+export const ALL_ACTIONS: readonly Action[] = Object.keys(ACTION_ROLES) as Action[];
 
 export type AuthorizationDenialReason = "TENANT_MISMATCH" | "NO_MEMBERSHIP" | "INSUFFICIENT_ROLE" | "RESOURCE_OWNERSHIP_MISMATCH";
 

@@ -49,6 +49,15 @@ output "worker_transact_write_policy_json" {
   value = { for k, v in data.aws_iam_policy_document.worker_transact_write : k => v.json }
 }
 
+# D-234 (E-018): one minimal Scan(+other real actions) policy per key in
+# `local.cross_tenant_scan_workers` (`main.tf`) - the ONLY 4 Lambdas allowed `dynamodb:Scan` on the
+# base table. Attach `cross_tenant_scan_policy_json[<key>]` INSTEAD OF `tenant_facing_read_write_
+# policy_json`/`tenant_facing_read_policy_json` on those 4 roles, never in addition to a general
+# grant that already excludes Scan - see the comment on `tenant_facing_read_write` above.
+output "cross_tenant_scan_policy_json" {
+  value = { for k, v in data.aws_iam_policy_document.cross_tenant_scan : k => v.json }
+}
+
 # Passthrough for root-level acceptance-test assertions (module internals aren't
 # addressable from a caller's .tftest.hcl). Literal values, not read off
 # aws_dynamodb_table.this.global_secondary_index - that computed attribute is only known

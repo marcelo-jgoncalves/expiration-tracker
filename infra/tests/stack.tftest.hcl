@@ -1348,3 +1348,86 @@ run "requirement_evidence_daily_sweep_schedule_exists_daily_after_reindex" {
     error_message = "RequirementEvidenceDailySweepHandler must never be granted TransactWriteItems - it only re-enqueues, per D-193 item 7/9's single-writer constraint"
   }
 }
+
+# D-234 (E-018, full-audit-round2 Seguranca criterio 2, protocolo Claude<->Codex 4 rodadas,
+# ambos 9.2/10): dynamodb:Scan removed from the two general tenant-facing policies; exactly 4
+# named Lambdas (the only real ScanCommand/.scan() consumers found in src/) get a dedicated
+# minimal policy instead. These assertions are the enforcement half of that decision - a 5th
+# module gaining Scan, or the general policies regaining it, fails CI immediately.
+run "dynamodb_scan_removed_from_general_tenant_facing_policies" {
+  command = plan
+
+  assert {
+    condition     = !contains(jsondecode(module.table.tenant_facing_read_write_policy_json).Statement[0].Action, "dynamodb:Scan")
+    error_message = "tenant_facing_read_write_policy_json must never grant dynamodb:Scan again (D-234/E-018) - the ~44 remaining HTTP tenant-facing Lambdas have no real Scan call site in src/"
+  }
+
+  assert {
+    condition     = !contains(jsondecode(module.table.tenant_facing_read_policy_json).Statement[0].Action, "dynamodb:Scan")
+    error_message = "tenant_facing_read_policy_json must never grant dynamodb:Scan again (D-234/E-018)"
+  }
+}
+
+run "cross_tenant_scan_exception_scoped_to_exactly_four_named_lambdas" {
+  command = plan
+
+  # The 4 named workers - and ONLY these 4 - must receive a policy containing dynamodb:Scan.
+  # This is the "who holds the capability" proof (distinct from the code-level guard in
+  # scripts/check-dynamodb-scan-allowlist.ts, which proves "where the SDK command can be
+  # imported from").
+  assert {
+    condition     = anytrue([for p in module.requirement_evidence_daily_sweep_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "RequirementEvidenceDailySweepHandler must retain its dedicated Scan policy"
+  }
+  assert {
+    condition     = anytrue([for p in module.document_request_recurrence_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "DocumentRequestRecurrenceMaterializerHandler must retain its dedicated Scan policy"
+  }
+  assert {
+    condition     = anytrue([for p in module.tenant_purge_worker_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "TenantPurgeWorkerHandler must retain its dedicated Scan policy"
+  }
+  assert {
+    condition     = anytrue([for p in module.tenant_purge_sweeper_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "TenantPurgeSweeperHandler must retain its dedicated Scan policy"
+  }
+
+  # Negative check on a representative sample of ordinary HTTP tenant-facing Lambdas - none of
+  # them may hold Scan on the main table.
+  assert {
+    condition     = !anytrue([for p in module.items_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "ItemsHandler (ordinary HTTP tenant-facing route) must never be granted dynamodb:Scan"
+  }
+  assert {
+    condition     = !anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "dynamodb:Scan")])
+    error_message = "TestPingHandler must never be granted dynamodb:Scan"
+  }
+
+  # None of the 4 dedicated Scan policies may reference a GSI ARN - all 4 real call graphs only
+  # ever touch the base table.
+  assert {
+    condition     = alltrue([for k, v in module.table.cross_tenant_scan_policy_json : !strcontains(v, "/index/")])
+    error_message = "cross_tenant_scan_policy_json must never reference a GSI ARN - all 4 legitimate Scan consumers only Scan the base table"
+  }
+}
+
+run "tenant_purge_sweeper_is_actually_read_only_on_dynamodb" {
+  command = plan
+
+  # Codex Rodada 3 finding: the sweeper was inheriting DeleteItem via the worker's session-table
+  # policy despite never deleting a session row. Asserted directly against the two DynamoDB policy
+  # documents it holds (not the full capability_policy_documents list, which also includes Step
+  # Functions policies with plan-time-unknown execution ARNs).
+  assert {
+    condition     = !contains(tolist(data.aws_iam_policy_document.tenant_purge_sweeper_session_table.statement[0].actions), "dynamodb:DeleteItem")
+    error_message = "TenantPurgeSweeperHandler's session-table policy must never grant DeleteItem - it re-verifies emptiness but never deletes a session row"
+  }
+  assert {
+    condition     = contains(data.aws_iam_policy_document.tenant_purge_sweeper_session_table.statement[0].actions, "dynamodb:Scan") && length(data.aws_iam_policy_document.tenant_purge_sweeper_session_table.statement[0].actions) == 1
+    error_message = "TenantPurgeSweeperHandler's session-table policy must grant Scan and ONLY Scan"
+  }
+  assert {
+    condition     = alltrue([for a in jsondecode(module.table.cross_tenant_scan_policy_json["tenant_purge_sweeper"]).Statement[0].Action : contains(["dynamodb:Scan", "dynamodb:GetItem"], a)])
+    error_message = "TenantPurgeSweeperHandler's main-table policy must only grant Scan/GetItem - no write action"
+  }
+}

@@ -82,6 +82,13 @@ jobs:
         # not relying on a 4th human pass to catch the next one.
         run: npm run check-docs
 
+      - name: Check dynamodb:Scan allowlist (D-2xx/E-018)
+        # full-audit-round2 (eixo Seguranca, criterio 2, protocolo Claude<->Codex 4 rodadas): the
+        # general tenant-facing IAM policies no longer grant Scan - only 2 files in src/ may import
+        # ScanCommand at all, both allowlisted with a documented reason. This is the code-level half
+        # of that finding; infra/tests/stack.tftest.hcl's cross_tenant_scan_* runs are the IAM half.
+        run: npm run check-dynamodb-scan-allowlist
+
       - name: Check dependency freshness (D-139/D-148)
         # docs/engineering/dependency-freshness-standard.md - closes the exact gap that let
         # D-137 pass unnoticed (Lambda runtime pinned past AWS's own deprecation date, found
