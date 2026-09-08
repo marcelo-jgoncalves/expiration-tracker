@@ -17,8 +17,10 @@ import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/re
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { policyKey, type PolicyRef } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const TABLE = "MainTable";
 const NOW = "2026-08-01T00:00:00.000Z";
 const RULE = { name: "7 days before", triggers: [{ triggerId: "trig1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL" as const] };
@@ -174,7 +176,7 @@ describe("reminder-materialization-trigger", () => {
     it("skips (does not crash on) an orphaned pointer whose policy no longer exists/matches", async () => {
       const item = await expirationService.createItem(ctx, { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
       // Write an orphaned pointer directly - no real policy behind it.
-      await store.putIfAbsent({ PK: itemKey(TENANT, item.itemId).PK, SK: "POLICYREF#ghost-policy", entityType: "ReminderPolicyRef", policyId: "ghost-policy" });
+      await store.putIfAbsent({ PK: itemKey(AUTH_TENANT, item.itemId).PK, SK: "POLICYREF#ghost-policy", entityType: "ReminderPolicyRef", policyId: "ghost-policy" });
 
       const result = await handleTriggerEvent(deps, { kind: "ITEM_DUE_DATE_CHANGED", tenantId: TENANT, itemId: item.itemId });
 
@@ -235,7 +237,7 @@ describe("reminder-materialization-trigger", () => {
       // fires it explicitly the same way the other scenarios in this file do.
       expect(renewed.copiedReminderPolicyIds).toHaveLength(1);
       const copiedPointer = await store.get<PolicyRef>({
-        PK: itemKey(TENANT, renewed.item.itemId).PK,
+        PK: itemKey(AUTH_TENANT, renewed.item.itemId).PK,
         SK: `POLICYREF#${renewed.copiedReminderPolicyIds[0]}`,
       });
       expect(copiedPointer?.tenantId).toBe(TENANT);
@@ -251,7 +253,7 @@ describe("reminder-materialization-trigger", () => {
       // An orphaned pointer under `source`'s own partition (never a real production shape,
       // same defensive scenario "orphaned pointers" above exercises for the due-date-changed
       // path) - must be skipped by the copy, not dereferenced blindly.
-      await store.putIfAbsent({ PK: itemKey(TENANT, source.itemId).PK, SK: "POLICYREF#ghost-policy", entityType: "ReminderPolicyRef", policyId: "ghost-policy" });
+      await store.putIfAbsent({ PK: itemKey(AUTH_TENANT, source.itemId).PK, SK: "POLICYREF#ghost-policy", entityType: "ReminderPolicyRef", policyId: "ghost-policy" });
 
       const renewed = await expirationService.renewItem(ctx, source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version);
 

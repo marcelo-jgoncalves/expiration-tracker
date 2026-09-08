@@ -26,6 +26,7 @@ import { correctiveIdempotencyKey } from "./corrective-intent-service.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -59,7 +60,7 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
 
   const now = deps.now();
 
-  const item = await deps.store.get<ExpirationItem>(itemKey(intent.tenantId, intent.itemId), true);
+  const item = await deps.store.get<ExpirationItem>(itemKey(authorizedTenantIdFromPersistedEntity(intent), intent.itemId), true);
   const policy = await deps.store.get<ReminderPolicy>(policyKey(intent.tenantId, intent.policyId), true);
 
   // D-200/D-201: a WATCHER/MANAGER-targeted intent never trusts the value it was created
@@ -69,7 +70,7 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
   // same RECIPIENT_NOT_FOUND/RECIPIENT_NOT_ELIGIBLE path the assignee case uses.
   let candidateUserId = "";
   if (intent.targetKind === "WATCHER" && intent.targetUserId) {
-    const watch = await deps.store.get<ItemWatch>(itemWatchKey(intent.tenantId, intent.itemId, intent.targetUserId), true);
+    const watch = await deps.store.get<ItemWatch>(itemWatchKey(authorizedTenantIdFromPersistedEntity(intent), intent.itemId, intent.targetUserId), true);
     if (watch?.status === "ACTIVE") candidateUserId = intent.targetUserId;
   } else if (intent.targetKind === "MANAGER" && intent.targetUserId) {
     if (await deps.managerLookup.isActiveManager(intent.tenantId, intent.targetUserId)) candidateUserId = intent.targetUserId;

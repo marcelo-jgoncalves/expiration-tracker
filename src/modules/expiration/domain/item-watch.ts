@@ -6,6 +6,7 @@
  * ExpirationItem (já em produção, versionado) para adicionar/remover watcher.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type ItemWatchStatus = "ACTIVE" | "REMOVED";
 
@@ -20,7 +21,7 @@ export interface ItemWatch extends EntityKey {
   version: number;
 }
 
-export function itemWatchKey(tenantId: string, itemId: string, userId: string): EntityKey {
+export function itemWatchKey(tenantId: AuthorizedTenantId, itemId: string, userId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#ITEM#${itemId}`, SK: `WATCH#USER#${userId}` };
 }
 

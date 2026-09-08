@@ -264,14 +264,14 @@ async function buildAutoConfirmItemUpdate(
   const autoConfirmed = fields.filter((f) => f.state === "CONFIRMED" && f.confirmedValue !== undefined && ITEM_ATTRIBUTE_BY_FIELD_NAME[f.fieldName] !== undefined);
   if (autoConfirmed.length === 0) return undefined;
 
-  const key = itemKey(ctx.tenantId, ctx.itemId);
+  const key = itemKey(authorizedTenantIdFromPersistedEntity(ctx), ctx.itemId);
   const item = await deps.items.get<ExpirationItem>(key, true);
   if (!item || item.tenantId !== ctx.tenantId || item.status === "DELETED") return undefined;
 
   const set: Record<string, unknown> = {};
   for (const field of autoConfirmed) {
     const attributeUpdate = buildItemAttributeUpdate({
-      tenantId: ctx.tenantId,
+      tenantId: authorizedTenantIdFromPersistedEntity(ctx),
       itemId: ctx.itemId,
       itemStatus: item.status,
       fieldName: field.fieldName,

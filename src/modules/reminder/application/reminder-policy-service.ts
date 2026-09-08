@@ -19,7 +19,7 @@
  *     partition no longer discoverable via its pointer.
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isConditionalCheckFailed } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
@@ -55,7 +55,7 @@ export class ReminderPolicyService {
     authorize({ context: ctx, action: "reminder:manage", resource: { tenantId: ctx.tenant.tenantId } });
     validatePolicyScope(input);
 
-    const tenantId = ctx.tenant.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const policyId = this.ids.newPolicyId();
     const now = this.now();
     const policy: ReminderPolicy = {
@@ -108,7 +108,7 @@ export class ReminderPolicyService {
     authorize({ context: ctx, action: "reminder:manage", resource: { tenantId: policy.tenantId } });
     validatePolicyScope(input);
 
-    const tenantId = policy.tenantId;
+    const tenantId = authorizedTenantId(ctx);
     const set: Record<string, unknown> = {
       scope: input.scope,
       itemId: input.itemId,
@@ -222,7 +222,7 @@ export class ReminderPolicyService {
   /** Appends the ITEM-existence ConditionCheck + (unless `skipPointerWrite`) the new pointer Put, when `itemId` is present. */
   private appendItemLinkage(
     entries: TransactWriteEntry[],
-    input: { tenantId: string; itemId: string | undefined; scope: PutPolicyInput["scope"]; policyId: string; skipPointerWrite?: boolean },
+    input: { tenantId: AuthorizedTenantId; itemId: string | undefined; scope: PutPolicyInput["scope"]; policyId: string; skipPointerWrite?: boolean },
   ): void {
     if (input.scope !== "ITEM" || !input.itemId) return;
     entries.push(

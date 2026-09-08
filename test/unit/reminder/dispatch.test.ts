@@ -20,8 +20,10 @@ import { itemWatchKey, type ItemWatch } from "../../../src/modules/expiration/do
 import { policyKey } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { buildVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const ITEM_ID = "item1";
 const TABLE = "MainTable";
 const NOW = "2026-08-01T00:00:00.000Z";
@@ -77,7 +79,7 @@ async function setupScheduled(
   opts: { assigneeUserId?: string; watcherUserIds?: string[]; managerUserIds?: string[]; triggerAudience?: "MANAGER" } = {},
 ): Promise<{ command: DispatchCommand; dispatchDeps: DispatchDeps; policyPk: string; managerLookup: FakeTenantManagerLookup }> {
   await store.putIfAbsent({
-    ...itemKey(TENANT, ITEM_ID),
+    ...itemKey(AUTH_TENANT, ITEM_ID),
     entityType: "ExpirationItem",
     itemId: ITEM_ID,
     tenantId: TENANT,
@@ -89,7 +91,7 @@ async function setupScheduled(
 
   for (const userId of opts.watcherUserIds ?? []) {
     await store.putIfAbsent({
-      ...itemWatchKey(TENANT, ITEM_ID, userId),
+      ...itemWatchKey(AUTH_TENANT, ITEM_ID, userId),
       entityType: "ItemWatch",
       itemId: ITEM_ID,
       tenantId: TENANT,
@@ -202,7 +204,7 @@ describe("dispatchOccurrence — freshness fence under a genuine read/commit rac
 
   it("aborts (ABORTED_FRESHNESS_RACE) and creates no NotificationIntent when the item is archived in the window between dispatch's read and its commit", async () => {
     const store: InMemoryReminderStore = new RacingStore(async () => {
-      const row = await store.get<{ PK: string; SK: string; version: number }>(itemKey(TENANT, ITEM_ID));
+      const row = await store.get<{ PK: string; SK: string; version: number }>(itemKey(AUTH_TENANT, ITEM_ID));
       if (row) await store.update({ ...row, status: "ARCHIVED" });
     });
 
@@ -343,7 +345,7 @@ describe("dispatchOccurrence — D-200 watcher notification fan-out", () => {
   it("ignores REMOVED watchers - only ACTIVE ones are fanned out to", async () => {
     const store = new InMemoryReminderStore();
     const { command, dispatchDeps } = await setupScheduled(store, { assigneeUserId: "assignee-1", watcherUserIds: ["watcher-a"] });
-    await store.update<ItemWatch>({ ...(await store.get<ItemWatch>(itemWatchKey(TENANT, ITEM_ID, "watcher-a")))!, status: "REMOVED", version: 2 });
+    await store.update<ItemWatch>({ ...(await store.get<ItemWatch>(itemWatchKey(AUTH_TENANT, ITEM_ID, "watcher-a")))!, status: "REMOVED", version: 2 });
 
     const outcome = await dispatchOccurrence(dispatchDeps, command);
 

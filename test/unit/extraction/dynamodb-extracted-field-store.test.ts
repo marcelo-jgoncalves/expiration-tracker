@@ -14,6 +14,9 @@ import { extractionRunKey } from "../../../src/modules/extraction/domain/extract
 import { documentKey } from "../../../src/modules/document/domain/document.js";
 import { itemKey, gsi1Keys } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { PIPELINE_VERSION_V1 } from "../../../src/modules/extraction/domain/field-schema.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const T1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 
 interface CapturedTransactItem {
   Put?: { Item: Record<string, unknown>; ConditionExpression: string };
@@ -75,7 +78,7 @@ describe("DynamoDbExtractedFieldStore.commitRunOutcome", () => {
     expect(result).toBe("COMMITTED");
     expect(sent).toHaveLength(1);
     expect(sent[0]).toHaveLength(3);
-    expect(sent[0]?.some((entry) => entry.Update?.Key.PK === itemKey("t1", "item1").PK)).toBe(false);
+    expect(sent[0]?.some((entry) => entry.Update?.Key.PK === itemKey(T1, "item1").PK)).toBe(false);
   });
 
   it("adds the ExpirationItem versioned Update to the SAME transaction when itemUpdate is supplied (W2-01-DECISION)", async () => {
@@ -83,10 +86,10 @@ describe("DynamoDbExtractedFieldStore.commitRunOutcome", () => {
     const result = await new DynamoDbExtractedFieldStore(client, "T").commitRunOutcome(
       baseInput({
         itemUpdate: {
-          key: itemKey("t1", "item1"),
+          key: itemKey(T1, "item1"),
           tenantId: "t1",
           expectedVersion: 7,
-          set: { dueDate: "2027-03-31", ...gsi1Keys("t1", "ACTIVE", "2027-03-31", "item1") },
+          set: { dueDate: "2027-03-31", ...gsi1Keys(T1, "ACTIVE", "2027-03-31", "item1") },
         },
       }),
     );
@@ -95,10 +98,10 @@ describe("DynamoDbExtractedFieldStore.commitRunOutcome", () => {
     expect(sent).toHaveLength(1); // one transaction, never a follow-up write
     expect(sent[0]).toHaveLength(4);
 
-    const itemEntry = sent[0]?.find((entry) => entry.Update?.Key.PK === itemKey("t1", "item1").PK)?.Update;
+    const itemEntry = sent[0]?.find((entry) => entry.Update?.Key.PK === itemKey(T1, "item1").PK)?.Update;
     expect(itemEntry).toBeDefined();
     // Bare {PK,SK} key only - the exact defect that broke the manual confirm route against a real table.
-    expect(itemEntry?.Key).toEqual(itemKey("t1", "item1"));
+    expect(itemEntry?.Key).toEqual(itemKey(T1, "item1"));
     expect(itemEntry?.ConditionExpression).toContain("#version = :expectedVersion");
     expect(itemEntry?.ExpressionAttributeValues[":expectedVersion"]).toBe(7);
     expect(Object.values(itemEntry?.ExpressionAttributeValues ?? {})).toContain("2027-03-31");

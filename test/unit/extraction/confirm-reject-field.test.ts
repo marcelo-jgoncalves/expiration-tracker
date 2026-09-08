@@ -12,7 +12,9 @@ import type { ExtractionRunStore } from "../../../src/modules/extraction/ports/e
 import type { ConfirmFieldInput, ExtractedFieldStore, RejectFieldInput } from "../../../src/modules/extraction/ports/extracted-field-store.js";
 import { IdempotencyStore, type DynamoLike } from "../../../src/shared/idempotency/idempotency.js";
 import { BusinessRuleError, ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const T1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -158,7 +160,7 @@ function makeDeps(table: InMemoryTable): ConfirmRejectFieldDeps {
 
 function seedFixture(table: InMemoryTable) {
   const item: ExpirationItem = {
-    ...itemKey("t1", "item1"),
+    ...itemKey(T1, "item1"),
     entityType: "ExpirationItem",
     itemId: "item1",
     tenantId: "t1",
@@ -276,7 +278,7 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
     expect(field.confirmedValue).toBe("2027-03-31");
     expect(field.version).toBe(2);
 
-    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    const item = table.read<ExpirationItem>(itemKey(T1, "item1"));
     expect(item?.dueDate).toBe("2027-03-31");
     expect(item?.version).toBe(6);
   });
@@ -286,7 +288,7 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
     expect(field.state).toBe("REJECTED");
     expect(field.correctionReason).toBe("Wrong date read.");
 
-    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    const item = table.read<ExpirationItem>(itemKey(T1, "item1"));
     expect(item?.version).toBe(5); // unchanged
     expect(item?.dueDate).toBe("2026-01-01T00:00:00.000Z"); // unchanged
   });
@@ -295,7 +297,7 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
     const first = await confirmField(deps, ctx(), CONFIRM_PARAMS);
     const second = await confirmField(deps, ctx(), CONFIRM_PARAMS);
     expect(second).toEqual(first);
-    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    const item = table.read<ExpirationItem>(itemKey(T1, "item1"));
     expect(item?.version).toBe(6); // only bumped once, not twice
   });
 
@@ -336,7 +338,7 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
   it("confirming a field that is not PENDING_CONFIRMATION is a 422 BusinessRuleError, never touching the item", async () => {
     table.write(extractedFieldKey("t1", "doc1", "expirationDate", "run1"), { state: "CONFIRMED" }, 1);
     await expect(confirmField(deps, ctx(), { ...CONFIRM_PARAMS, expectedFieldVersion: 2, idempotencyKey: "k-state" })).rejects.toThrow(BusinessRuleError);
-    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    const item = table.read<ExpirationItem>(itemKey(T1, "item1"));
     expect(item?.version).toBe(5);
   });
 
@@ -381,7 +383,7 @@ describe("confirmField / rejectField (M7 item 8, §1.7)", () => {
 
     const field = table.read<ExtractedField>(extractedFieldKey("t1", "doc1", "expirationDate", "run1"));
     expect(field?.state).toBe("PENDING_CONFIRMATION");
-    const item = table.read<ExpirationItem>(itemKey("t1", "item1"));
+    const item = table.read<ExpirationItem>(itemKey(T1, "item1"));
     expect(item?.version).toBe(5); // unchanged
   });
 });

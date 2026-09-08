@@ -21,6 +21,7 @@ import { appendToTransaction } from "../../shared/outbox/outbox.js";
 import { buildIdempotencyKey } from "../../shared/idempotency/idempotency.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
 import { itemKey } from "../../modules/expiration/domain/expiration-item.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import { ITEM_WATCH_SK_PREFIX, type ItemWatch } from "../../modules/expiration/domain/item-watch.js";
 import { policyKey, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import { occurrenceKey, type ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
@@ -186,7 +187,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
 
   // D-170: independent reads (item, policy), fetched concurrently rather than sequentially.
   const [item, policy] = await Promise.all([
-    deps.store.get<{ PK: string; SK: string; status: string; version: number; assigneeUserId?: string }>(itemKey(tenantId, itemId)),
+    deps.store.get<{ PK: string; SK: string; status: string; version: number; assigneeUserId?: string }>(itemKey(authorizedTenantIdFromPersistedEntity(command), itemId)),
     deps.store.get<ReminderPolicy>(policyKey(tenantId, occurrence.policyId)),
   ]);
 
@@ -317,7 +318,7 @@ export async function dispatchOccurrence(deps: DispatchDeps, command: DispatchCo
     // longer current by the time this transaction is durable. Re-asserted as ConditionChecks
     // (not re-reads) so the whole transaction, including the NotificationIntent Put, is
     // atomically gated on both still holding.
-    buildVersionConditionCheck({ tableName: deps.tableName, key: itemKey(tenantId, itemId), expectedVersion: itemVersion, extra: { status: "ACTIVE" } }),
+    buildVersionConditionCheck({ tableName: deps.tableName, key: itemKey(authorizedTenantIdFromPersistedEntity(command), itemId), expectedVersion: itemVersion, extra: { status: "ACTIVE" } }),
     buildVersionConditionCheck({
       tableName: deps.tableName,
       key: policyKey(tenantId, occurrence.policyId),

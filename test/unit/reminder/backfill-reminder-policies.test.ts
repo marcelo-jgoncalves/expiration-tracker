@@ -11,8 +11,10 @@ import { policyRefKey } from "../../../src/modules/reminder/domain/reminder-poli
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 import { decodeKey, encodeKey, parseArgs, processPage } from "../../../scripts/backfill-reminder-policies.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const TABLE = "MainTable";
 const NOW = "2026-08-01T00:00:00.000Z";
 
@@ -51,7 +53,7 @@ describe("backfill-reminder-policies: processPage", () => {
   it("creates the pointer and materializes for a pre-existing ITEM-scoped enabled policy", async () => {
     const store = new InMemoryReminderStore();
     const materializer = new ReminderMaterializer(store, TABLE, () => NOW);
-    await store.putIfAbsent({ ...itemKey(TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
+    await store.putIfAbsent({ ...itemKey(AUTH_TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
     // Simulates a policy saved BEFORE BLOCKER-B deployed: no pointer exists for it.
     const policy = {
       PK: "TENANT#t1#POLICY#p1",
@@ -83,7 +85,7 @@ describe("backfill-reminder-policies: processPage", () => {
   it("is idempotent: running the same page twice does not duplicate the pointer or the occurrence", async () => {
     const store = new InMemoryReminderStore();
     const materializer = new ReminderMaterializer(store, TABLE, () => NOW);
-    await store.putIfAbsent({ ...itemKey(TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
+    await store.putIfAbsent({ ...itemKey(AUTH_TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
     const policy = {
       PK: "TENANT#t1#POLICY#p1",
       SK: "META" as const,
@@ -147,7 +149,7 @@ describe("backfill-reminder-policies: processPage", () => {
   it("skips a disabled policy's materialization but still creates its pointer (discoverable for future re-enable)", async () => {
     const store = new InMemoryReminderStore();
     const materializer = new ReminderMaterializer(store, TABLE, () => NOW);
-    await store.putIfAbsent({ ...itemKey(TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
+    await store.putIfAbsent({ ...itemKey(AUTH_TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
     const policy = {
       PK: "TENANT#t1#POLICY#p1",
       SK: "META" as const,
@@ -201,7 +203,7 @@ describe("backfill-reminder-policies: processPage", () => {
   it("dry-run mode reports what it found but writes nothing", async () => {
     const store = new InMemoryReminderStore();
     const materializer = new ReminderMaterializer(store, TABLE, () => NOW);
-    await store.putIfAbsent({ ...itemKey(TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
+    await store.putIfAbsent({ ...itemKey(AUTH_TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ACTIVE", dueDate: "2026-09-10T00:00:00.000Z", version: 1 });
     const policy = {
       PK: "TENANT#t1#POLICY#p1",
       SK: "META" as const,

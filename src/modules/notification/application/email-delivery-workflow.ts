@@ -10,6 +10,7 @@
  * reused here rather than inventing a second correlation mechanism for the same problem.
  */
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import type { NotificationIntent } from "../../reminder/domain/notification-intent.js";
 import {
   notificationAttemptLookupKey,
@@ -95,7 +96,7 @@ export async function processEmailDelivery(deps: EmailDeliveryWorkflowDeps, comm
   }
 
   // action.action === "SEND" from here.
-  const item = await deps.store.get<ExpirationItem>(itemKey(command.tenantId, command.itemId), true);
+  const item = await deps.store.get<ExpirationItem>(itemKey(authorizedTenantIdFromPersistedEntity(command), command.itemId), true);
   const intent = await deps.store.get<NotificationIntent>({ PK: intentPk, SK: "META" }, true);
 
   const isStale = !item || item.status !== "ACTIVE" || item.version !== command.expectedItemVersion;

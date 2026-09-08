@@ -112,7 +112,7 @@ function makeArchiveDocument(overrides: Partial<ArchiveDocument> = {}): ArchiveD
 
 function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
   return {
-    ...itemKey("t1", "item1"),
+    ...itemKey(T1, "item1"),
     SK: "META",
     entityType: "ExpirationItem",
     itemId: "item1",
@@ -126,7 +126,7 @@ function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     version: 7,
-    ...gsi1Keys("t1", "ACTIVE", "2030-01-01", "item1"),
+    ...gsi1Keys(T1, "ACTIVE", "2030-01-01", "item1"),
     ...overrides,
   };
 }
@@ -321,15 +321,15 @@ describe("persistExtractedFieldsStage (PERSIST_EXTRACTED_FIELDS)", () => {
       const out = await persistExtractedFieldsStage(deps, compared);
 
       expect(out.runOutcome).toBe("COMPLETED");
-      expect(items.getCalls).toEqual([{ key: itemKey("t1", "item1"), consistentRead: true }]);
+      expect(items.getCalls).toEqual([{ key: itemKey(T1, "item1"), consistentRead: true }]);
       expect(fields.commitCalls).toHaveLength(1); // one transaction, not a follow-up write
       expect(fields.commitCalls[0]?.itemUpdate).toEqual({
-        key: itemKey("t1", "item1"),
+        key: itemKey(T1, "item1"),
         tenantId: "t1",
         expectedVersion: 7, // the version just read - OCC guard, same as the manual confirm path
         set: {
           dueDate: "2027-03-31",
-          ...gsi1Keys("t1", "ACTIVE", "2027-03-31", "item1"),
+          ...gsi1Keys(T1, "ACTIVE", "2027-03-31", "item1"),
         },
       });
     });

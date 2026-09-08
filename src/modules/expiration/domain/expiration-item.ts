@@ -9,6 +9,7 @@
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import { deriveValidityStateFromExpiry } from "../../../shared/domain/validity-state.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type ExpirationItemStatus = "ACTIVE" | "ARCHIVED" | "RENEWED" | "DELETED";
 
@@ -39,12 +40,12 @@ export interface ExpirationItem extends EntityKey {
   GSI1SK: string;
 }
 
-export function itemKey(tenantId: string, itemId: string): { PK: string; SK: "META" } {
+export function itemKey(tenantId: AuthorizedTenantId, itemId: string): { PK: string; SK: "META" } {
   return { PK: `TENANT#${tenantId}#ITEM#${itemId}`, SK: "META" };
 }
 
 /** GSI1 - vencimentos/dashboard: PK=TENANT#t#ITEMSTATUS#<status>, SK=DUE#<dueDate>#ITEM#i (data-model.md §3). No shard: MVP volume doesn't justify it (data-model.md "Governança do single-table"). */
-export function gsi1Keys(tenantId: string, status: ExpirationItemStatus, dueDate: string, itemId: string): { GSI1PK: string; GSI1SK: string } {
+export function gsi1Keys(tenantId: AuthorizedTenantId, status: ExpirationItemStatus, dueDate: string, itemId: string): { GSI1PK: string; GSI1SK: string } {
   return {
     GSI1PK: `TENANT#${tenantId}#ITEMSTATUS#${status}`,
     GSI1SK: `DUE#${dueDate}#ITEM#${itemId}`,
