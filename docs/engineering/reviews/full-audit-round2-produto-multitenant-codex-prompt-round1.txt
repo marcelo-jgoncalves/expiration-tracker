@@ -1,0 +1,20 @@
+Você é o revisor independente (Codex) no protocolo Claude<->Codex deste repositório (AGENTS.md secao 4, nota cega: nao peca nem receba a nota do Claude antes de registrar a sua).
+
+Repositorio: expiration-tracker (C:\Users\Usuario\Desktop\projects\expiration-tracker), branch develop, micro-SaaS multi-tenant B2B serverless AWS.
+
+TAREFA: auditoria (nao implementacao) do eixo formal "Governanca de Produto e Servico Multi-tenant" (docs/engineering/joint-review-criteria.md, secao no final do arquivo, 8 criterios pesados, criterio 5 tratado como N/A por falta de escopo de UX nesta auditoria). Ja existe uma Rodada 1 anterior (mes passado) documentada em docs/engineering/reviews/full-audit-round1-produto-*.md — nota final 4,65/10, abaixo do gate de 9.0. Esta e uma NOVA rodada (chamada round2 no nome de arquivo) reauditando o eixo apos mudanca real de escopo desde entao: Document Archive completo (D-143 a D-226 em docs/architecture/decisions-log.md), canal WhatsApp, compartilhamento externo (guest upload, dossier export, scheduled reports), e as waves B2B-7 a B2B-14 (RBAC, convite, troca de organizacao, ultimo-OWNER, cutover de dev D-110/D-111).
+
+Leia primeiro, na integra: AGENTS.md, docs/engineering/joint-review-criteria.md (secao final, "Eixo: Governanca de Produto e Servico Multi-tenant"), docs/architecture/decisions-log.md (linhas relevantes D-1xx em diante — o arquivo e enorme, procure por palavras-chave: cross-tenant, RBAC, ACTION_ROLES, isolamento, D-110, D-111, D-120, D-124, D-127, D-143, D-197), src/modules/identity/domain/authorization.ts (a matriz RBAC inteira, ACTION_ROLES + authorize()).
+
+PERGUNTA CENTRAL desta rodada: procure especificamente por UMA rota ou acao de negocio nova (desde agosto/D-140 em diante) que NAO tenha RBAC real (authorize() nunca chamado no caminho, ou Action ausente da matriz ACTION_ROLES) OU que nao tenha tenant-fencing real (resource.tenantId nao verificado contra o tenant autenticado antes de agir). Confirme por leitura de codigo real, nao suposicao — cite arquivo:linha. Se nao encontrar nenhuma, diga isso explicitamente e explique por que a garantia estrutural (ACTION_ROLES tipado como Record<Action, ...> — o TypeScript nao compila se faltar uma entrada) e suficiente ou insuficiente como prova.
+
+Verifique tambem:
+1. Isolamento multi-tenant: e so por convencao (PK/tenantId em toda chave) ou ha prova real (aws iam simulate-principal-policy, testes terraform de isolamento GSI3/GSI6/GSI8)? Procure em decisions-log.md por "simulate-principal-policy" e "gsi8_worker_isolation".
+2. Historico de vazamento cross-tenant: procure decisions-log.md por "cross-tenant", "vazamento", "leak", "IDOR" — confirme se ha algum achado historico (D-16x a D-19x citado no round1 anterior) que nunca foi fechado, ou se tudo que aparece sao provas positivas de isolamento (nao vazamentos).
+3. FinOps/economia unitaria: ha visibilidade real de custo por tenant em runtime, ou e so estimativa agregada de design (docs/architecture/cost-model.md)? Isso conta como criterio 7 deste eixo (nao ha eixo FinOps formal ainda).
+4. Onboarding/cutover de tenant (D-110/D-111, scripts/reset-dev-data.ts): continua coerente com o schema atual, ou ha sinal de drift?
+5. Lifecycle de tenant (criterio 1): organization:close / organization:cancel-close / HELD_FOR_RECOVERY (D-124/D-127) — sao estados reais testados ou so declarados?
+
+ENTREGAVEL: nota de 0 a 10 (uma decimal, sem arredondar para 9 se for 8.9) por criterio aplicavel (1,2,3,4,6,7,8 — criterio 5 excluido/N/A), nota ponderada final normalizada sobre os pesos dos criterios aplicaveis, e a lista de achados com severidade (destaque com MAIUSCULAS qualquer achado real de vazamento cross-tenant ou rota sem RBAC/fencing, por menor que seja). Se nao rodar comandos de shell (aws cli etc.), deixe explicito que a avaliacao e por leitura de codigo/decisions-log, nao verificacao ao vivo.
+
+Responda em portugues, formato markdown, comece com "## Nota da Rodada 1 (Codex)".
