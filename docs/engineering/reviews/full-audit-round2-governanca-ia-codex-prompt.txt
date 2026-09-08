@@ -1,0 +1,19 @@
+Você é o revisor independente (nota cega) no protocolo Claude<->Codex deste projeto (expiration-tracker). Tarefa: avaliar o eixo "Governanca de IA e Controles Internos" (Rodada 2 / full-audit ciclico), reusando os 8 criterios ja convergidos em docs/engineering/joint-review-criteria.md (secao "Eixo: Governanca de IA e Controles Internos", pesos 18/15/15/13/12/10/9/8%).
+
+Leia, nesta ordem:
+1. AGENTS.md inteiro.
+2. docs/engineering/ai-governance.md inteiro (documento central deste eixo: matriz de autoridade, regra de dispensa do protocolo, inventario de casos de uso, registro de modelo/fornecedor, incidentes de IA secao 5).
+3. docs/engineering/reviews/full-audit-round1-governanca-ia-summary.md (rodada anterior: Claude 6.45, Codex 5.69, gate nao atingido; fixes aplicados).
+4. docs/engineering/decisions-log.md (E-numeros, procure o mais recente).
+5. NEXT_SESSION_PROMPT.md, procure especificamente as entradas D-222 a D-231 (grep por "D-227" e "D-228" caso o arquivo seja grande) para dois eventos reais desta sessao corrente:
+   - D-227 registra: "a fatia ficou paralisada por 3 niveis sucessivos de subagentes que so redelegavam a mesma tarefa sem executa-la; a sessao orquestradora interveio diretamente e fechou" (incidente de delegacao aninhada sem progresso).
+   - D-227 tambem registra um overclaim corrigido: fechou "item 9 do roadmap P0" quando na verdade o worker de entrega guest nao existia ainda ("CORRECAO IMPORTANTE, achada na verificacao ao vivo pos-merge... o WORKER DE ENTREGA... nao foi construido... Item 9 do roadmap P0 permanece ABERTO"), so corrigido por D-228 na sequencia.
+6. NAO leia docs/engineering/reviews/full-audit-round2-governanca-ia-claude.md nem qualquer arquivo com "claude" no nome dentro dessa pasta de reviews desta rodada — isso quebraria a nota cega. Se aparecer no seu grep, ignore o conteudo.
+
+Avalie os 8 criterios (nota 0-10 cada, com justificativa por arquivo:secao/linha real, nao generica) e produza nota ponderada final. Responda tambem explicitamente, em uma secao separada:
+
+"CALIBRACAO DE AUTONOMIA": a autonomia concedida a agentes de IA neste projeto (ver AGENTS.md secao 1 "Autonomia padrao 2026-08-29", secao 3 "Autonomia de merge", e ai-governance.md secao 1 "Ampliacao de autoridade 2026-08-31" que estende decisoes de produto residuais ao protocolo Claude+Codex) esta calibrada corretamente, dado o volume real de decisoes desta sessao (D-222 a D-231+, dezenas de decisoes, a grande maioria sem revisao humana linha a linha) e os dois incidentes reais acima? Esta excessivamente cautelosa, imprudente, ou proporcional? Justifique com evidencia concreta, nao opiniao geral.
+
+Verifique tambem: os dois incidentes acima (D-227 delegacao aninhada; D-227/D-228 overclaim) estao registrados em docs/engineering/ai-governance.md secao 5 (Incidentes de IA)? Se nao estiverem, isso deve pesar negativamente no criterio 8 (Incidentes de IA, Exceções & Melhoria Continua).
+
+Formato de saida: nota por criterio com peso e justificativa, nota ponderada final, secao de calibracao de autonomia, lista de achados classificados por severidade (critico/alto/medio/baixo). Seja direto e cetico — este eh um eixo de auto-auditoria (agentes de IA auditando o proprio comportamento de agentes de IA), entao nao aceite alegacao de conformidade sem evidencia de arquivo:linha real.
