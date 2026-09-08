@@ -2400,3 +2400,489 @@ test/architecture/system-mutation-allowlist.test.ts:167:    "control: a fixture 
 test/architecture/system-mutation-allowlist.test.ts:172:          'import type { SystemMutationOperation } from "../../../src/shared/tenant-lifecycle/system-mutation.js";',
 test/architecture/system-mutation-allowlist.test.ts:184:      expect(failed, `unexpected typecheck failure on a fixture using only real allowlisted kinds:\n${output}`).toBe(false);
 
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$ranges=@(@('"'.github/workflows/ci.yml',20,110),@('docs/engineering/test-engineering-standard.md',23,95),@('src/shared/observability/context.ts',1,45),@('src/shared/observability/logger.ts',88,108),@('scripts/check-doc-drift.ts',1,80)); foreach("'$x in $ranges){$f=$x[0];$a=[int]$x[1];$b=[int]$x[2]; Write-Output "===== $f $a-$b ====="; $c=Get-Content -LiteralPath $f; for($i=$a;$i -le [Math]::Min($b,$c.Count);$i++){"${i}:$($c[$i-1])"}}; Write-Output '"'===== STANDARDS INDEX ====='; rg -n 'test-engineering-standard|logging-observability-standard' docs/engineering/README.md; Write-Output '===== CI/SBOM PIN ====='; rg -n 'cyclonedx|npm ci|Node|node-version|terraform test|test:dynamodb' .github/workflows/ci.yml" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 660ms:
+===== .github/workflows/ci.yml 20-110 =====
+20:name: CI
+21:
+22:on:
+23:  push:
+24:    branches: [main, develop]
+25:  pull_request:
+26:
+27:permissions:
+28:  contents: read
+29:
+30:concurrency:
+31:  group: ci-${{ github.ref }}
+32:  cancel-in-progress: true
+33:
+34:# D-148 / dependency-freshness-standard.md #4 (terraform-cli): single source of truth for
+35:# the pinned Terraform CLI version, mirrored by cd.yml's own top-level env block - before
+36:# this fix each workflow hardcoded "1.15.8" independently, and scripts/check-dependency-
+37:# freshness.ts has no way to prove two independently-hardcoded strings are the same value
+38:# instead of two values that happen to currently match. Bump this AND cd.yml's together.
+39:env:
+40:  TERRAFORM_VERSION: "1.15.8"
+41:
+42:jobs:
+43:  guardrails:
+44:    runs-on: ubuntu-latest
+45:    permissions:
+46:      contents: read
+47:    steps:
+48:      - name: Checkout
+49:        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+50:        with:
+51:          persist-credentials: false
+52:
+53:      - name: Setup Node
+54:        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+55:        with:
+56:          node-version-file: ".nvmrc"
+57:          cache: "npm"
+58:
+59:      - name: Install (immutable, scripts disabled)
+60:        run: npm ci
+61:
+62:      - name: Typecheck
+63:        run: npm run typecheck
+64:
+65:      - name: Lint
+66:        run: npm run lint
+67:
+68:      - name: Check architecture boundaries (transitive dependency graph)
+69:        # dependency-cruiser resolves the real module graph, closing a gap ESLint's
+70:        # no-restricted-imports can't: it only matches literal import-specifier text, so it
+71:        # never catches a transitive re-export or a same-module domain->ports import written
+72:        # as a relative path (found and fixed for real 2026-08-19, see decisions-log.md).
+73:        run: npm run check-boundaries
+74:
+75:      - name: Validate JSON schemas
+76:        run: npm run validate-schemas
+77:
+78:      - name: Check doc drift (broken links, stale AGENTS.md section refs)
+79:        # full-audit round1 (eixo Engenharia de Contexto, criterio "Auditabilidade &
+80:        # Enforcement"): manual review found 10+ broken AGENTS.md section references across
+81:        # three separate audit rounds before this check existed - deterministic enforcement,
+82:        # not relying on a 4th human pass to catch the next one.
+83:        run: npm run check-docs
+84:
+85:      - name: Check dependency freshness (D-139/D-148)
+86:        # docs/engineering/dependency-freshness-standard.md - closes the exact gap that let
+87:        # D-137 pass unnoticed (Lambda runtime pinned past AWS's own deprecation date, found
+88:        # only by an unrelated ad-hoc audit). Runs on every PR/push, not just when an audit
+89:        # happens to be touching this code.
+90:        run: npm run check-dependency-freshness
+91:
+92:      - name: Unit + contract tests
+93:        run: npm test
+94:
+95:      - name: Dependency audit (production - blocking)
+96:        run: npm audit --omit=dev --audit-level=high
+97:
+98:      - name: Dependency audit (dev - informational, known exceptions in docs/engineering/exceptions.md)
+99:        run: npm audit --audit-level=high || echo "::warning::npm audit found dev-dependency findings - cross-check against docs/engineering/exceptions.md; anything not listed there is a new finding and must be triaged"
+100:
+101:      - name: Generate SBOM (CycloneDX)
+102:        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+103:        env:
+104:          # npx still respects ignore-scripts from .npmrc for the resolved package itself.
+105:          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+106:
+107:      - name: Upload SBOM artifact
+108:        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+109:        with:
+110:          name: sbom
+===== docs/engineering/test-engineering-standard.md 23-95 =====
+23:**Eixo B â€” Ambiente de execuÃ§Ã£o**: Fake in-memory Â· Emulado (LocalStack/similar â€” nÃ£o usado hoje neste projeto) Â· AWS real (`dev`).
+24:
+25:**Eixo C â€” TÃ©cnica/propÃ³sito**: Funcional (happy path + erro esperado) Â· Baseado em propriedade/fuzz (nÃ£o usado hoje, candidato futuro) Â· SeguranÃ§a/abuso (cross-tenant, IDOR â€” `test/unit/identity/authorization.test.ts` e a suÃ­te cross-tenant) Â· Performance/carga (W2-07) Â· Chaos/drill operacional (W2-03 a W2-08) Â· RegressÃ£o visual/acessibilidade (`frontend/e2e/*.spec.ts`, fora do escopo deste documento â€” cobertos por `docs/frontend/visual-language-and-design-system.md`, este documento trata do backend).
+26:
+27:**Contagem real neste repositÃ³rio (fonte: saÃ­da literal de `npm test`/`vitest run`, nÃ£o estimada nem recontada por outro mÃ©todo â€” a Rodada 2 apontou corretamente que uma contagem por `find`/`rg` pode divergir da execuÃ§Ã£o real por incluir/excluir helpers; a autoridade aqui Ã© a prÃ³pria ferramenta de teste, nÃ£o uma contagem derivada)**: **103 arquivos `*.test.ts` sob `test/unit/**`** (mais arquivos de fixture/helper nÃ£o-`.test.ts` no mesmo diretÃ³rio, ex. `in-memory-store.ts`, que nÃ£o sÃ£o testes e nÃ£o entram nesta contagem), 3 arquivos `test/integration/**`, 1 arquivo `test/contract/**` â€” **107 arquivos de teste e 928 casos de teste no total**, exatamente como reportado por `vitest run` em 2026-08-28 (mesma execuÃ§Ã£o citada em `pilot-readiness-program.md`/`NEXT_SESSION_PROMPT.md` desta sessÃ£o). **CorreÃ§Ã£o da Rodada 3**: a Rodada 1 tinha "929 arquivos" (confundindo arquivo com caso); a Rodada 2 corrigiu para "103 arquivos" mas manteve a contagem de casos em 929 sem citar a fonte, e o Codex encontrou que a fonte corrente do prÃ³prio repo registra 928, nÃ£o 929 â€” o nÃºmero correto e citÃ¡vel Ã© 928, da saÃ­da real de `vitest run`, nÃ£o de uma estimativa. Mais os drills reais de `dev` (Eixo B = AWS real) descritos em `pilot-readiness-program.md`. As primeiras 4 combinaÃ§Ãµes de Eixo A tÃªm literatura madura (ISO/IEC/IEEE 29119; Meszaros, *xUnit Test Patterns*; contract testing via Pact). Sistema/E2E contra AWS real e drills seguem os Principles of Chaos Engineering (Basiri et al.) e a prÃ¡tica de disaster/recovery testing do Google SRE Book (ver Â§7 para a citaÃ§Ã£o corrigida).
+28:
+29:## 3. Gates de validade (binÃ¡rios â€” falhar qualquer um invalida o teste/drill como evidÃªncia, independente da nota de qualidade)
+30:
+31:A Rodada 1 (achados #1-3, #6, #13) mostrou que a v1 misturava trÃªs coisas distintas sob "gate binÃ¡rio": (a) uma propriedade realmente verificÃ¡vel por inspeÃ§Ã£o direta; (b) um julgamento de qualidade disfarÃ§ado de binÃ¡rio; (c) validade do teste individual vs. suficiÃªncia de um conjunto de evidÃªncias para uma claim mais ampla. Corrigido separando essas trÃªs explicitamente.
+32:
+33:### 3.1 Gates aplicÃ¡veis a todo teste/drill (verificÃ¡veis por inspeÃ§Ã£o direta de um artefato, nÃ£o por julgamento de qualidade)
+34:
+35:| Gate | DefiniÃ§Ã£o | Como se verifica (o que torna isto binÃ¡rio, nÃ£o graduado) |
+36:|---|---|---|
+37:| **G-V1 â€” Reprodutibilidade do veredito** | TrÃªs ramos explÃ­citos, nunca misturados livremente (achado real da Rodada 3, apontado pela prÃ³pria Rodada 3 do Codex: os dois ramos da v3 anterior ainda usavam "reprodutibilidade" com dois sentidos, e a exceÃ§Ã£o de custo usada em W2-06/Â§5 nÃ£o tinha correspondÃªncia formal aqui): **(a) RegressÃ£o/unitÃ¡rio/integraÃ§Ã£o/contrato** â€” mesmo input produz o mesmo resultado, sempre; verificado por pelo menos 2 execuÃ§Ãµes em condiÃ§Ãµes ambientais equivalentes produzindo o mesmo pass/fail. **(b) Performance/carga/chaos repetÃ­vel a baixo custo** â€” o **veredito** (passou/falhou contra um limiar prÃ©-declarado) Ã© reproduzÃ­vel sob as mesmas condiÃ§Ãµes, mesmo que o valor bruto varie; verificado por pelo menos 2 execuÃ§Ãµes reais confirmando o mesmo veredito contra o limiar prÃ©-declarado (nÃ£o Ã© suficiente declarar o limiar sem nunca ter rodado 2x â€” isso Ã© sÃ³ metade do gate). **(c) OperaÃ§Ã£o de custo real proibitivo para repetir, e cujo veredito INTEIRO Ã© decidido por lÃ³gica local sem I/O externo variÃ¡vel** â€” aplica-se sÃ³ quando a citaÃ§Ã£o de cÃ³digo cobre a decisÃ£o completa do veredito ANTES de qualquer chamada a um provider externo (ex. `OcrDisabledError` do W2-03: o `if (!flags.OCR) throw` decide o veredito "chamada real ao Textract nunca acontece" sozinho, sem depender de timing/comportamento da AWS). **Nunca se aplica** quando o veredito depende, mesmo em parte, do comportamento real de um provider externo (duraÃ§Ã£o de um restore, entrega de uma notificaÃ§Ã£o, timing de um alarme) â€” nesses casos (ex. W2-06, W2-08) nÃ£o existe ramo (c): G-V1 sÃ³ pode ser satisfeito por (a)/(b), nunca por inspeÃ§Ã£o de cÃ³digo, porque inspecionar o mecanismo LOCAL nÃ£o prova nada sobre o comportamento REAL do provider. Achado real da Rodada 4 (Codex): a formulaÃ§Ã£o anterior deste ramo permitia citar qualquer trecho determinÃ­stico do sistema, mesmo quando esse trecho nÃ£o determinava o veredito inteiro (ex. citar que o harness de restore Ã© determinÃ­stico nÃ£o prova que a duraÃ§Ã£o/disponibilidade real da AWS seria a mesma numa repetiÃ§Ã£o) â€” corrigido restringindo o ramo (c) Ã  classe especÃ­fica de veredito puramente local prÃ©-I/O. **A citaÃ§Ã£o e a justificativa de (c) precisam ter sido feitas no momento do drill/revisÃ£o (contemporÃ¢neas), nunca reconstruÃ­das depois** â€” mesma disciplina de G-V4/G-V5: reconstruir agora, apÃ³s o fato, "por que isso sempre foi determinÃ­stico" Ã© exatamente o tipo de racionalizaÃ§Ã£o post-hoc que G-C1 jÃ¡ proÃ­be para claims, e G-V1(c) herda a mesma proibiÃ§Ã£o. | (a)/(b): pelo menos 2 execuÃ§Ãµes reais registradas com o mesmo veredito. (c): existe uma citaÃ§Ã£o especÃ­fica (arquivo:linha), feita CONTEMPORANEAMENTE ao drill, mostrando que o veredito INTEIRO Ã© decidido antes de qualquer I/O externo variÃ¡vel, e uma justificativa explÃ­cita de por que reexecutar seria desproporcional? Se o veredito depende de comportamento real de provider externo, (c) nÃ£o se aplica â€” o gate sÃ³ pode ser satisfeito por (a)/(b). |
+38:| **G-V2 â€” Isolamento de dado** | Dado sintÃ©tico/de teste vive em tenant/recurso isolado, nunca em tenant real. NÃ£o depende de estado deixado por execuÃ§Ã£o anterior nem deixa estado que afete a prÃ³xima execuÃ§Ã£o do MESMO teste. **NÃ£o exige que configuraÃ§Ã£o global/compartilhada nunca seja tocada** (ver G-V5, Â§3.3, para essa dimensÃ£o, separada por causa do achado #5 da Rodada 1) â€” sÃ³ que o *dado de domÃ­nio* usado como fixture/evidÃªncia seja isolado. | O tenantId/itemId/recurso usado Ã© um valor sintÃ©tico nomeado como tal (ex. `w2-04-drill-tenant`), nunca um ID de tenant real observado em produÃ§Ã£o ou em outra sessÃ£o? **CorreÃ§Ã£o da Rodada 3**: a Rodada 2 referenciava "G-V7" aqui, um resÃ­duo Ã³rfÃ£o da renumeraÃ§Ã£o anterior (achado novo #1 da Rodada 2) â€” corrigido para apontar ao gate real, G-V5. |
+39:| **G-V3 â€” ExistÃªncia de mutaÃ§Ã£o nomeada (existÃªncia, nÃ£o qualidade da mutaÃ§Ã£o)** | O revisor registra por escrito, no ato da revisÃ£o, pelo menos uma mutaÃ§Ã£o concreta que faria a asserÃ§Ã£o/orÃ¡culo falhar. Para teste automatizado: uma mutaÃ§Ã£o de cÃ³digo. Para drill operacional: o equivalente Ã© uma mudanÃ§a concreta no mecanismo/configuraÃ§Ã£o/IaC/comando/condiÃ§Ã£o de alarme que o drill exercita (ex. para W2-08, "se o `AlarmActions` do Terraform estivesse vazio, a notificaÃ§Ã£o SNS nÃ£o dispararia" Ã© uma mutaÃ§Ã£o nomeada vÃ¡lida, mesmo sem "cÃ³digo sob teste" no sentido de teste automatizado â€” achado real da Rodada 4, Codex: a formulaÃ§Ã£o anterior falava sÃ³ em "cÃ³digo sob teste", ambÃ­guo para drills de infraestrutura/alarme/IAM que nÃ£o tÃªm uma funÃ§Ã£o isolada sendo testada). Este gate verifica sÃ³ a **existÃªncia** desse registro escrito â€” se a mutaÃ§Ã£o escolhida Ã© a mais representativa ou a mais severa Ã© avaliado em Â§4 critÃ©rio 1 (Poder de detecÃ§Ã£o do orÃ¡culo), nÃ£o aqui. **CorreÃ§Ã£o da Rodada 3** (achado #2 da Rodada 2, que apontou que "declarar a mutaÃ§Ã£o" nÃ£o torna binÃ¡rio "se a mutaÃ§Ã£o Ã© plausÃ­vel"): resolvido pelo mesmo padrÃ£o jÃ¡ usado em G-V4 â€” o gate binÃ¡rio Ã© a EXISTÃŠNCIA do registro escrito, nunca um julgamento sobre a qualidade/representatividade da mutaÃ§Ã£o escolhida, que passa a viver inteiramente em Â§4. Isto Ã© anÃ¡logo, nÃ£o uma exceÃ§Ã£o: G-V4 jÃ¡ separava "existe declaraÃ§Ã£o de intenÃ§Ã£o" (binÃ¡rio) de "a declaraÃ§Ã£o Ã© boa" (Â§4 crit. 3); G-V3 agora aplica a mesma separaÃ§Ã£o a "existe mutaÃ§Ã£o nomeada" (binÃ¡rio) vs. "a mutaÃ§Ã£o nomeada Ã© a certa" (Â§4 crit. 1). | Existe, por escrito, uma mutaÃ§Ã£o nomeada associada a este teste no registro de revisÃ£o? |
+40:| **G-V4 â€” IntenÃ§Ã£o declarada (existÃªncia, nÃ£o qualidade)** | Todo teste tem um nome ou comentÃ¡rio que declara qual comportamento/invariante estÃ¡ sendo provado. Todo drill tem uma pergunta operacional registrada por escrito ANTES da execuÃ§Ã£o. Este gate verifica sÃ³ a **existÃªncia** da declaraÃ§Ã£o â€” se ela expressa comportamento (bom) ou detalhe de implementaÃ§Ã£o (fraco, mas ainda existe) Ã© avaliado em Â§4 critÃ©rio 3, nÃ£o aqui. | A declaraÃ§Ã£o de intenÃ§Ã£o existe, em texto, no teste ou no registro do drill? (Pergunta binÃ¡ria de existÃªncia, nÃ£o de qualidade â€” achado #2 da Rodada 1 corrigido separando existÃªncia de qualidade.) |
+41:
+42:### 3.2 Gate de adequaÃ§Ã£o de claim (aplica-se Ã  ALEGAÃ‡ÃƒO feita sobre um teste/conjunto de testes, nÃ£o ao teste individual)
+43:
+44:A Rodada 1 (achado #3) identificou corretamente que a v1 confundia "este teste Ã© vÃ¡lido" com "esta claim sobre comportamento real Ã© suficientemente evidenciada". SÃ£o perguntas diferentes, avaliadas em momentos diferentes:
+45:
+46:| Gate | DefiniÃ§Ã£o |
+47:|---|---|
+48:| **G-C1 â€” AdequaÃ§Ã£o claimâ†’evidÃªncia** | Um teste baseado em fake Ã© vÃ¡lido por si sÃ³ (prova que o cÃ³digo PRÃ“PRIO estÃ¡ correto contra o contrato assumido) mesmo sem nenhuma execuÃ§Ã£o real. O que este gate proÃ­be Ã© a CLAIM â€” nunca o teste: nenhuma afirmaÃ§Ã£o sobre comportamento de sistema externo real (AWS IAM, DynamoDB, Textract, SES, agendamento, quota) pode ser feita citando sÃ³ testes fake como evidÃªncia. Toda claim desse tipo cita pelo menos uma execuÃ§Ã£o Sistema/E2E contra AWS real (Eixo B = AWS real) como evidÃªncia, com link/timestamp verificÃ¡vel. | VerificaÃ§Ã£o: para cada claim de comportamento externo real neste documento ou em relatÃ³rios de sessÃ£o, existe uma citaÃ§Ã£o de execuÃ§Ã£o Eixo B=AWS real associada? Se nÃ£o, a claim deve ser reescrita como hipÃ³tese nÃ£o verificada ("os fakes assumem X, ainda nÃ£o confirmado contra o provider real"), nunca apresentada como fato. |
+49:
+50:### 3.3 Gates aplicÃ¡veis sÃ³ a drills operacionais (chaos/game-day contra ambiente real)
+51:
+52:| Gate | DefiniÃ§Ã£o | Como se verifica |
+53:|---|---|---|
+54:| **G-V5 â€” Blast radius declarado por escrito, antes da execuÃ§Ã£o** | Existe um documento/registro (pode ser tÃ£o simples quanto um comentÃ¡rio no plano do drill) declarando: pior caso realista de efeito colateral; se toca sÃ³ recurso/tenant sintÃ©tico isolado ou tambÃ©m configuraÃ§Ã£o compartilhada (feature flag global, alarme compartilhado); e, se toca compartilhado, a janela de exposiÃ§Ã£o prevista. Achado real da Rodada 1 (#5): W2-03/W2-07 tocaram a flag `OCR` (compartilhada) e W2-08 forÃ§ou o estado de um alarme compartilhado â€” isso Ã© PERMITIDO por este gate desde que declarado e com janela medida, nunca proibido; a v1 alegava incorretamente "isolado por tenant/recurso sintÃ©tico" para todos os 6 drills, o que era factualmente falso para 3 deles. | O documento/plano do drill, escrito antes da execuÃ§Ã£o, declara explicitamente se toca recurso compartilhado? (ExistÃªncia do artefato, nÃ£o julgamento sobre se a decisÃ£o foi sensata â€” isso Ã© avaliado em Â§4.) |
+55:| **G-V6 â€” Plano de reversÃ£o tentado e seu resultado registrado (nunca silenciosamente ignorado)** | Todo drill que muta estado real declara um plano de reversÃ£o e o EXECUTA ao final. Se a reversÃ£o bem-sucede, estÃ¡ confirmada e documentada. **Se a reversÃ£o falha, isso nÃ£o invalida o drill** (pode ser o achado mais importante â€” ex. "o rollback documentado nÃ£o funciona de verdade") â€” mas exige escalonamento explÃ­cito e registro do estado residual, nunca ficar em silÃªncio. Achado real da Rodada 1 (#13): a v1 exigia reversÃ£o bem-sucedida como condiÃ§Ã£o de validade, o que teria o efeito perverso de descartar como "invÃ¡lida" justamente a descoberta mais valiosa (mecanismo de recuperaÃ§Ã£o que nÃ£o funciona). Corrigido: o gate Ã© sobre o PROCESSO (tentar + registrar o resultado, sucesso ou falha), nunca sobre o resultado da reversÃ£o em si. | Existe registro do resultado da tentativa de reversÃ£o, seja sucesso confirmado ou falha escalada? |
+56:
+57:**Nota de nomenclatura**: a v1 tinha G-V1 a G-V7; a Rodada 2 renumerou/reparticionou para G-V1 a G-V4 (Â§3.1) + G-C1 (Â§3.2) + G-V5/G-V6 (Â§3.3) â€” 7 gates no total, mesma contagem substantiva, agrupamento corrigido pela causa raiz que a Rodada 1 identificou (misturar unidade de avaliaÃ§Ã£o). ReferÃªncias a "G-V8" na v1 (seÃ§Ã£o 5) eram erro de digitaÃ§Ã£o sem gate correspondente â€” nÃ£o existe G-V8, corrigido na Rodada 2 (achado #6 da Rodada 1).
+58:
+59:## 4. CritÃ©rios de qualidade (ponderados, 0-10 â€” sÃ³ avaliados depois que Â§3 passa por completo)
+60:
+61:A Rodada 1 (achados #10-12) encontrou sobreposiÃ§Ã£o material entre critÃ©rios e ausÃªncia de Ã¢ncoras de pontuaÃ§Ã£o. Corrigido: critÃ©rios fundidos onde havia dupla contagem, unidade de avaliaÃ§Ã£o declarada por critÃ©rio (teste individual, suÃ­te/componente, ou claim â€” Â§4.1), e uma tabela de Ã¢ncoras (Â§4.2) abaixo da tabela de pesos.
+62:
+63:| # | CritÃ©rio | Peso | Unidade de avaliaÃ§Ã£o | DefiniÃ§Ã£o |
+64:|---:|---|---:|---|---|
+65:| 1 | Poder de detecÃ§Ã£o do orÃ¡culo (oracle strength) | 20% | Teste individual | G-V3 confirma que existe uma mutaÃ§Ã£o nomeada por escrito; este critÃ©rio pontua se ELA Ã‰ a mutaÃ§Ã£o certa â€” representativa do defeito real mais provÃ¡vel, nÃ£o a mais conveniente de nomear â€” e se a asserÃ§Ã£o de fato a detectaria (asserÃ§Ã£o especÃ­fica sobre o valor certo, nÃ£o uma verificaÃ§Ã£o frouxa que passaria mesmo com um bug real no caminho testado). **CorreÃ§Ã£o da Rodada 3**: antes G-V3 tentava ser binÃ¡rio sobre "a mutaÃ§Ã£o Ã© plausÃ­vel", o que a Rodada 2 apontou ser inerentemente graduado; a qualidade/representatividade da mutaÃ§Ã£o nomeada migrou inteiramente para cÃ¡. |
+66:| 2 | Cobertura de risco real da suÃ­te | 15% | SuÃ­te/componente (nunca teste individual â€” achado #10 da Rodada 1: penalizar um teste de happy-path vÃ¡lido porque OUTRO teste do componente nÃ£o existe Ã© um erro de unidade de avaliaÃ§Ã£o) | O conjunto de testes de um componente cobre os caminhos que podem realmente falhar em produÃ§Ã£o â€” invariante de negÃ³cio, condiÃ§Ã£o de corrida, fronteira de falha assÃ­ncrona, limite de quota/IAM â€” incluindo caminho de falha, nÃ£o sÃ³ o caminho feliz. Testado no nÃ­vel do componente/PR, nÃ£o penaliza um teste individual isolado. |
+67:| 3 | IndependÃªncia de implementaÃ§Ã£o | 15% | Teste individual | Testa comportamento observÃ¡vel (contrato/output/efeito), nÃ£o detalhe interno que pode mudar sem quebrar a garantia real. Inclui a avaliaÃ§Ã£o qualitativa de G-V4 (a declaraÃ§Ã£o de intenÃ§Ã£o expressa comportamento, nÃ£o implementaÃ§Ã£o). |
+68:| 4 | EvidÃªncia & honestidade | 20% | Teste individual ou drill | FusÃ£o dos trÃªs critÃ©rios sobrepostos da v1 (legibilidade da falha + registro auditÃ¡vel + declaraÃ§Ã£o de lacuna â€” achado #11 da Rodada 1). Quando falha, aponta a causa provÃ¡vel sem precisar de debugger. Resultado fica registrado com timestamp/comando/ferramenta, reproduzÃ­vel por outra pessoa. Declara explicitamente o que NÃƒO foi provado (ex. "credential-compromise em si nÃ£o exercitado", W2-08 desta sessÃ£o) em vez de deixar implÃ­cito escopo maior do que o real. |
+69:| 5 | Custo de manutenÃ§Ã£o proporcional | 10% | Teste individual | Setup/fixtures/mocks proporcionais ao que estÃ¡ sendo provado â€” nem subdimensionado nem sobre-dimensionado (`docs/engineering/principles.md` #1 aplicado a teste). |
+70:| 6 | Velocidade proporcional | 8% | Teste individual ou suÃ­te | UnitÃ¡rio em milissegundos, suÃ­te completa em segundos (piso aceito hoje: 928 casos em ~7-10s, saÃ­da real de `vitest run`). Drills/E2E podem ser lentos por natureza â€” o tempo gasto deve ser proporcional Ã  confianÃ§a que a execuÃ§Ã£o real adiciona sobre o que fakes jÃ¡ provaram, nunca redundante. |
+71:| 7 | AdequaÃ§Ã£o de claim (G-C1 aplicado com nuance) | 12% | Claim especÃ­fica feita no relatÃ³rio/PR, nÃ£o o teste em si | Toda claim sobre comportamento de sistema externo real cita evidÃªncia Eixo B=AWS real; nota reduzida proporcionalmente a quantas claims relevantes no relatÃ³rio carecem dessa citaÃ§Ã£o. |
+72:
+73:### 4.1 Unidade de avaliaÃ§Ã£o e algoritmo de agregaÃ§Ã£o
+74:
+75:A Rodada 3 do Codex (achado #7, bloqueante) mostrou que a versÃ£o anterior desta seÃ§Ã£o declarava categorias em prosa sem fÃ³rmula executÃ¡vel â€” dois revisores aplicando o mesmo texto podiam chegar a nÃºmeros diferentes. Corrigido com uma fÃ³rmula explÃ­cita e uma tabela fechada de "quem participa de qual escopo", sem omissÃ£o (critÃ©rio 4 tinha sido esquecido do escopo "teste individual" na Rodada 3) e sem dupla contagem (critÃ©rio 6 aparecia em dois escopos com o mesmo valor).
+76:
+77:**FÃ³rmula Ãºnica, para qualquer escopo** (o que muda entre escopos Ã© sÃ³ QUAIS critÃ©rios sÃ£o `applicable`, nunca a fÃ³rmula em si):
+78:
+79:```
+80:nota_do_escopo = Î£ (peso_i Ã— nota_critÃ©rio_i) / Î£ (peso_i)   para todo i em applicable
+81:```
+82:
+83:onde `applicable` exclui todo critÃ©rio `N/A` naquele escopo (nunca conta como 0 no numerador nem no denominador â€” Ã© isso que torna a exclusÃ£o proporcional, nÃ£o oportunista).
+84:
+85:**Tabela fechada de participaÃ§Ã£o por escopo** â€” 4 colunas, nÃ£o 3 (**correÃ§Ã£o da Rodada 6**: achado real do Codex â€” a Rodada 5 introduziu "nota de 1 claim individual" em Â§4.2 sem essa coluna existir aqui, deixando indeterminado como uma claim de drill Ã© pontuada quando o relatÃ³rio tem mais de uma; um relatÃ³rio de 1 claim sÃ³ disfarÃ§ava o problema por coincidir com a coluna "relatÃ³rio"):
+86:
+87:| CritÃ©rio | Nota de 1 teste individual | Nota de 1 claim individual (drill sem teste automatizado) | Nota de 1 suÃ­te/componente | Nota de 1 relatÃ³rio/PR/drill report |
+88:|---|---|---|---|---|
+89:| 1. Oracle strength | Valor do prÃ³prio teste | `N/A` (nÃ£o hÃ¡ teste automatizado nem mutaÃ§Ã£o de cÃ³digo associada a uma claim de drill pura) | MÃ©dia aritmÃ©tica simples sobre os testes vÃ¡lidos do componente (testes `INVALID` por Â§3 sÃ£o excluÃ­dos do cÃ¡lculo, nunca contados como 0) | MÃ©dia aritmÃ©tica simples sobre todos os testes vÃ¡lidos citados no relatÃ³rio |
+90:| 2. Cobertura de risco da suÃ­te | `N/A` (Ã© definido no nÃ­vel de suÃ­te, nÃ£o existe "valor" para 1 teste isolado) | `N/A` | Valor direto (Ã© a prÃ³pria definiÃ§Ã£o do critÃ©rio, avaliado uma vez para o componente inteiro) | Valor direto por componente tocado pelo PR, mÃ©dia simples entre componentes se houver mais de um |
+91:| 3. IndependÃªncia de implementaÃ§Ã£o | Valor do prÃ³prio teste | `N/A` (nÃ£o hÃ¡ implementaÃ§Ã£o de teste da qual ser independente) | MÃ©dia sobre os testes vÃ¡lidos do componente | MÃ©dia sobre todos os testes vÃ¡lidos citados |
+92:| 4. EvidÃªncia & honestidade | Valor do prÃ³prio teste (**correÃ§Ã£o da Rodada 4**: a Rodada 3 omitiu este critÃ©rio da lista de "teste individual" por engano de transcriÃ§Ã£o â€” a unidade declarada na tabela de Â§4 sempre foi "Teste individual ou drill", nunca sÃ³ suÃ­te) | Valor direto â€” avaliaÃ§Ã£o do registro DESSA claim especificamente (legibilidade do resultado, timestamp/comando/ferramenta citados, lacuna declarada) | MÃ©dia sobre os testes vÃ¡lidos do componente | MÃ©dia sobre todos os testes vÃ¡lidos citados, MAIS a avaliaÃ§Ã£o do relatÃ³rio como um todo (2 sub-notas mÃ©dias, nÃ£o somadas nem duplicadas) |
+93:| 5. Custo de manutenÃ§Ã£o proporcional | Valor do prÃ³prio teste | `N/A` (Ã© sobre fixture/setup de teste automatizado, nÃ£o se aplica a uma claim de drill isolada) | MÃ©dia sobre os testes vÃ¡lidos do componente | MÃ©dia sobre todos os testes vÃ¡lidos citados |
+94:| 6. Velocidade proporcional | Valor do prÃ³prio teste (tempo de execuÃ§Ã£o dele isolado) | `N/A` | Valor da suÃ­te do componente como um todo (tempo agregado â€” **correÃ§Ã£o da Rodada 4**: a Rodada 3 media este critÃ©rio duas vezes, uma por teste e de novo por suÃ­te com o mesmo significado; agora sÃ£o duas mediÃ§Ãµes DISTINTAS â€” tempo individual vs. tempo agregado â€” nunca o mesmo nÃºmero contado duas vezes) | `N/A` (tempo agregado de todo o PR nÃ£o Ã© um critÃ©rio de qualidade Ãºtil no nÃ­vel de relatÃ³rio â€” jÃ¡ capturado no nÃ­vel de suÃ­te) |
+95:| 7. AdequaÃ§Ã£o de claim (G-C1) | `N/A` (nÃ£o hÃ¡ claim externa de um teste isolado por definiÃ§Ã£o) | Valor direto â€” Ã© a prÃ³pria definiÃ§Ã£o do critÃ©rio, aplicada a ESSA claim especificamente | `N/A` a menos que a suÃ­te sustente uma claim externa citada explicitamente | Valor direto por claim feita no relatÃ³rio, mÃ©dia simples se houver mais de uma claim |
+===== src/shared/observability/context.ts 1-45 =====
+1:/**
+2: * Request-scoped correlation context via AsyncLocalStorage (m5-observability-design.md #2).
+3: * runWithContext is called once per record for batch handlers (SQS, DynamoDB Streams, sweeper) -
+4: * never once per invocation for those - so context never leaks across records in the same batch.
+5: */
+6:import { AsyncLocalStorage } from "node:async_hooks";
+7:
+8:export interface RequestContext {
+9:  correlationId: string;
+10:  tenantId?: string;
+11:  requestId?: string;
+12:}
+13:
+14:const storage = new AsyncLocalStorage<RequestContext>();
+15:
+16:export function runWithContext<T>(context: RequestContext, fn: () => T): T {
+17:  return storage.run(context, fn);
+18:}
+19:
+20:export function getContext(): RequestContext | undefined {
+21:  return storage.getStore();
+22:}
+23:
+24:/**
+25: * m5-observability-design.md #2: correlationId for an SQS record whose sender (relay/
+26: * sweeper's composition-root senders, src/runtime/aws/composition/*.ts) propagates the
+27: * original business correlationId via this exact MessageAttribute name - see
+28: * outboxRecordCorrelationId (src/shared/outbox/outbox.ts) for the sender side of this same
+29: * contract. Falls back to the SQS messageId only for a message that never got the
+30: * attribute (pre-M5 in-flight, or a queue whose producer has no upstream correlationId to
+31: * propagate, e.g. SES/SNS-sourced messages) - pulled out as its own pure function so the
+32: * extraction itself is unit-testable without a handler module's side-effecting top-level
+33: * AWS client construction.
+34: */
+35:export function correlationIdFromSqsRecord(record: { messageAttributes?: Record<string, { stringValue?: string }>; messageId: string }): string {
+36:  return record.messageAttributes?.["correlationId"]?.stringValue ?? record.messageId;
+37:}
+===== src/shared/observability/logger.ts 88-108 =====
+88:
+89:  error(event: string, context: LogContext = {}): void {
+90:    this.write("error", event, context);
+91:  }
+92:
+93:  private write(level: LogLevel, event: string, context: LogContext): void {
+94:    // Precedence least -> most trusted (a field undefined at a given layer never overwrites a
+95:    // value already set by a more trusted one - see xray-trace-header.ts doc comment for why):
+96:    // per-call context (caller-supplied metadata) < baseContext < getContext() (AsyncLocalStorage,
+97:    // never forgeable from outside the process) < xray* fields derived from the Lambda runtime env.
+98:    const merged = mergeDefined(
+99:      context,
+100:      this.baseContext,
+101:      getContext() ?? {},
+102:      parseXrayTraceHeader(process.env["_X_AMZN_TRACE_ID"]) ?? {},
+103:    );
+104:    const redacted = this.redactor.redact(merged) as Record<string, unknown>;
+105:    const line = JSON.stringify({
+106:      timestamp: this.now(),
+107:      level,
+108:      event,
+===== scripts/check-doc-drift.ts 1-80 =====
+1:/**
+2: * Deterministic doc-drift checker â€” full-audit round1, eixo Engenharia de Contexto,
+3: * critÃ©rio "Auditabilidade & Enforcement do Sistema de Contexto". Four checks:
+4: *
+5: *  1. Every inline-style relative markdown link (`[text](path/to/file.md)`) in every `.md`
+6: *     file on disk (not just git-tracked ones, so it also catches a doc you're about to
+7: *     commit) resolves to a file that actually exists. Scope note, found in round3 of the
+8: *     same audit that produced this script: reference-style links (`[text][ref]` +
+9: *     `[ref]: path`) are NOT checked - none exist in this repo today, but a new one would
+10: *     silently bypass this check.
+11: *  2. Every `AGENTS.md Â§N` citation refers to a section that actually exists as a `## N.`
+12: *     heading in AGENTS.md right now (not the section number that existed when the citing
+13: *     doc was written). This only proves the section number exists, not that the citation
+14: *     is topically correct - that still needs a human/reviewer.
+15: *  3. Root allowlist (added 2026-08-29, context-engineering reconciliation): every `.md`
+16: *     file directly in the repo root must be in `ROOT_MD_ALLOWLIST` - prevents the exact
+17: *     regression this reconciliation fixed (21 stray handoff/mission-brief/prompt files
+18: *     accumulated in root over several sessions, none of them indexed anywhere).
+19: *  4. Size guardrail (same reconciliation): `AGENTS.md` must stay within the line-count goal
+20: *     it declares for itself (Â§8); `NEXT_SESSION_PROMPT.md` gets a generous ceiling (not a
+21: *     tight one - it's allowed to grow with real session detail) specifically to catch
+22: *     unbounded reaccumulation of already-duplicated history before it reaches the ~1067
+23: *     lines this reconciliation found, not to enforce a tight target.
+24: *
+25: * Built because AGENTS.md Â§6's checklist previously conditioned this kind of automation on
+26: * "CI real existe" OR "reincidÃªncia de drift documental" - both were true (CI has existed
+27: * since M0; this was the second audit in a row, out of three run so far, to find the same
+28: * class of drift that manual review missed), so the condition was acted on instead of left
+29: * open-ended. AGENTS.md Â§6 now documents what this script covers directly (not the old
+30: * conditional) - see it there, not here, for the current wording. Run via `npm run
+31: * check-docs`; wired into CI as a blocking `guardrails` step (same tier as
+32: * typecheck/lint/check-boundaries).
+33: */
+34:import { readFileSync, readdirSync, statSync } from "node:fs";
+35:import path from "node:path";
+36:import { pathToFileURL } from "node:url";
+37:
+38:// Every .md file allowed directly in the repo root - anything else is a stray handoff/
+39:// prompt/mission-brief that belongs in docs/ somewhere (see docs/architecture/README.md's
+40:// precedence table for where). Update this set deliberately, not by exception-creep.
+41:export const ROOT_MD_ALLOWLIST = new Set(["AGENTS.md", "ARCHITECTURE.md", "CLAUDE.md", "ENGINEERING.md", "NEXT_SESSION_PROMPT.md", "README.md"]);
+42:
+43:export const AGENTS_MD_MAX_LINES = 100; // matches AGENTS.md Â§8's own declared goal (60-100).
+44:export const NEXT_SESSION_PROMPT_MAX_LINES = 300; // generous ceiling, see file doc comment above.
+45:
+46:const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+47:const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist", "cdk.out", "coverage"]);
+48:
+49:function walkMarkdownFiles(dir: string): string[] {
+50:  const out: string[] = [];
+51:  for (const entry of readdirSync(dir)) {
+52:    if (EXCLUDED_DIRS.has(entry)) continue;
+53:    const full = path.join(dir, entry);
+54:    const stat = statSync(full);
+55:    if (stat.isDirectory()) {
+56:      out.push(...walkMarkdownFiles(full));
+57:    } else if (entry.endsWith(".md")) {
+58:      out.push(full);
+59:    }
+60:  }
+61:  return out;
+62:}
+63:
+64:interface Violation {
+65:  file: string;
+66:  line: number;
+67:  message: string;
+68:}
+69:
+70:const MARKDOWN_LINK = /\[[^\]]*\]\(([^)]+)\)/g;
+71:const AGENTS_SECTION_REF = /AGENTS\.md[`'"]?\s*Â§\s*(\d+)/g;
+72:
+73:function isExternalOrAnchorOnly(target: string): boolean {
+74:  return (
+75:    target.startsWith("http://") ||
+76:    target.startsWith("https://") ||
+77:    target.startsWith("mailto:") ||
+78:    target.startsWith("#")
+79:  );
+80:}
+===== STANDARDS INDEX =====
+7:Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), definition-of-done.md (E-012, APPROVED — gate por item de todo list; emenda E-013 tornando a aplicação de test-engineering-standard.md operacional, não só referencial), research-protocol.md (E-014, APPROVED — pesquisa externa exigida/checklist de nota antes de decisões Type 1 que dependem de padrão de mercado), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
+23:| Julgar se um teste automatizado ou drill operacional é válido/de qualidade suficiente (gate binário, critério ponderado, nota mínima) | `test-engineering-standard.md` — régua concreta que `joint-review-criteria.md`'s critério "Test Effectiveness & Coverage Discipline" passa a referenciar |
+44:| `definition-of-done.md` | normativo atual (APPROVED, protocolo Claude↔Codex 3 rodadas, Claude 9,1/Codex 9,2, E-012; emenda E-013) | Definition of Done por item de todo list — granularidade ("unidade de conclusão"), gate por nível de risco, classificação de risco na prática, registro mínimo de evidência; complementa `quality-gate-tiers.md`/`change-risk-scale.md` sem substituí-los. E-013 tornou a aplicação de `test-engineering-standard.md` operacional (G-V3 mutação nomeada por escrito), não só referencial |
+47:| `test-engineering-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 8 rodadas, gate elevado 9,5/10) | Padrão de validade/qualidade para teste automatizado e drill operacional (chaos/DiRT) — gates binários (G-V1..G-V6, G-C1), critérios ponderados, fórmula de agregação, auditoria retroativa da Wave 2 (2026-08-28) |
+48:| `logging-observability-standard.md` | normativo atual (APPROVED, protocolo Claude↔Codex 3 rodadas, gate elevado 9,5/10) | Régua concreta de qualidade para logging/tracing/taxonomia de erro (`src/shared/observability/**`, `app-error.ts`, wiring Terraform de detecção) — 8 critérios ponderados, âncoras de pontuação, gate de auditoria 9,0/10, escrita em resposta a achados reais de uma rodada Codex de 2026-08-29 |
+===== CI/SBOM PIN =====
+4:#   - lockfile-pinned, immutable installs (npm ci)
+5:#   - Node version fixed (.nvmrc)
+53:      - name: Setup Node
+56:          node-version-file: ".nvmrc"
+60:        run: npm ci
+102:        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+128:      - name: Setup Node
+131:          node-version-file: ".nvmrc"
+135:        run: npm ci
+138:        run: npm run test:dynamodb
+156:      - name: Setup Node
+159:          node-version-file: "frontend/.nvmrc"
+164:        run: npm ci
+221:      - name: Setup Node
+224:          node-version-file: ".nvmrc"
+228:        run: npm ci
+288:        run: terraform test -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
+
+codex
+AUDITORIA CEGA — RODADA 2 — QUALIDADE DE ENGENHARIA
+
+Não li o arquivo full-audit-round2-qualidade-claude.md nem qualquer conteúdo de arquivo com “qualidade-claude” no nome antes de fechar esta nota.
+
+Data de referência para exceções: 2026-09-07.
+
+TABELA DE NOTAS
+
+Nº | Critério | Peso | Nota | Evidência principal
+1 | Code Correctness & Defensive Design | 11% | 9.2 | typecheck e lint passaram; src/shared/observability/context.ts:14-21; src/shared/observability/logger.ts:93-104; gates estruturais de mutação em test/architecture/system-mutation-allowlist.test.ts:105-184.
+2 | Test Effectiveness & Coverage Discipline | 15% | 8.3 | 238 arquivos *.test.ts encontrados; CI executa suíte, DynamoDB Local e terraform test em .github/workflows/ci.yml:92-96,116-138,287-288. Sem coverage.thresholds em vitest.config.ts:22-26. Há falha intermitente informada no teste estrutural e a suíte não pôde ser reexecutada neste sandbox.
+3 | CI Quality Gates & Merge Safety | 11% | 9.2 | CI em push para main/develop e PR: .github/workflows/ci.yml:22-32; typecheck, lint, boundaries, schemas, docs, freshness, testes e audit bloqueante: linhas 62-99.
+4 | Type Safety, Static Analysis & Automated Enforcement | 9% | 9.2 | TypeScript estrito validado por typecheck; lint sem warnings; check-boundaries passou sobre 630 módulos/2.400 dependências; cinco fitness functions reais em .dependency-cruiser.cjs:17-68.
+5 | Readability, Consistency & Implementation Maintainability | 8% | 8.9 | organização e comentários de invariantes consistentes; observabilidade centralizada. A escala atual — 469 arquivos TypeScript em src — amplia o custo de manutenção, sem evidência suficiente nesta rodada para nota acima de 9.
+6 | Delivery, Release & Recovery Discipline | 11% | 9.1 | CD aplica plano Terraform salvo e verifica recursos/aliases: .github/workflows/cd.yml:141-197; manifesto de deploy saudável: linhas 250-283; rollback compensável e auditável em .github/workflows/rollback.yml:160-188,241-300.
+7 | Dependency & Supply-Chain Hygiene | 7% | 8.3 | npm ci, lockfile, scripts desabilitados e actions pinadas; audit de produção bloqueante: .github/workflows/ci.yml:48-60,95-108. Vulnerabilidades conhecidas formalizadas, mas SBOM ainda resolve CycloneDX sem versão explícita em ci.yml:101-105. Audits locais não alcançaram o registry.
+8 | Debuggability & Operational Feedback | 7% | 9.2 | achado da Rodada 1 corrigido: AsyncLocalStorage real em context.ts:6-21; logger injeta contexto automaticamente em logger.ts:93-104; standard ativo cobre correlação e wiring em logging-observability-standard.md:31-38.
+9 | Developer Experience & Reproducibility | 5% | 8.6 | Node fixado em .nvmrc e package.json:8-10; comandos centralizados em package.json:11-24; npm ci no CI. Nesta sessão, Vitest/esbuild e tsx não funcionaram sob o sandbox, reduzindo a evidência local de checkout reproduzível.
+10 | Documentation Quality & Process Discipline | 5% | 8.6 | standards novos continuam ativos, normativos e indexados em docs/engineering/README.md:47-48. O test-engineering-standard contém contagem e duração materialmente desatualizadas.
+11 | Documentation–Implementation Drift Control | 6% | 8.3 | checker determinístico existe e é bloqueante: scripts/check-doc-drift.ts:1-47 e ci.yml:78-83. Ele não detectou preventivamente o drift de contagem/duração do standard de testes nem o comentário desatualizado do dependency-cruiser.
+12 | Technical-Debt & Continuous-Improvement Practice | 5% | 9.0 | exceções têm owner, risco, compensação e prazo; EX-001 revisa em 2026-09-24, EX-003 em 2026-11-06 e EX-002 herda o prazo de EX-001. Nenhuma estava vencida em 2026-09-07.
+
+CÁLCULO PONDERADO
+
+(9.2×11 + 8.3×15 + 9.2×11 + 9.2×9 + 8.9×8 + 9.1×11 + 8.3×7 + 9.2×7 + 8.6×5 + 8.6×5 + 8.3×6 + 9.0×5) / 100
+
+NOTA PONDERADA FINAL: 8.843/10
+
+Resultado: abaixo do gate de 9.0, sem arredondamento.
+
+EXECUÇÕES DESTA SESSÃO
+
+- npm run typecheck: PASS.
+- npm run lint: PASS.
+- npm test: NÃO EXECUTOU TESTES. Vitest/esbuild foi bloqueado antes da coleta por “Cannot read directory ../../..: Access is denied” e não conseguiu carregar vitest.config.ts.
+- Reexecução isolada de system-mutation-allowlist.test.ts: mesmo bloqueio ambiental antes da coleta.
+- npm run check-boundaries: PASS — 630 módulos e 2.400 dependências, zero violações.
+- npm run check-docs: INCONCLUSIVO — tsx abortou em uv_os_get_passwd com ERR_SYSTEM_ERROR/ENOMEM provocado pelo ambiente.
+- npm audit --omit=dev: INCONCLUSIVO — registry inacessível neste ambiente.
+- npm audit completo: INCONCLUSIVO pela mesma razão.
+- Nenhuma exceção vencida.
+- coverage.thresholds: inexistente.
+- Fitness functions reais do dependency-cruiser: cinco.
+- AsyncLocalStorage: implementado; achado da Rodada 1 está corrigido.
+- test-engineering-standard.md e logging-observability-standard.md: continuam ativos, normativos e não superados.
+
+ACHADOS NOVOS DESDE A RODADA 1
+
+Q2-QE-01 — Confiança não determinística no teste de garantia estrutural  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — correção de infraestrutura de teste.  
+Evidência: falha intermitente informada em test/architecture/system-mutation-allowlist.test.ts, seguida de execução isolada 5/5 verde. vitest.config.ts:7-15 já serializa arquivos, e system-mutation-allowlist.test.ts:56-61 afirma que suas fixtures foram movidas para test/ justamente para evitar a corrida com tenant-fence-boundary.test.ts. Portanto, a explicação documentada não explica integralmente a flake atual. Um gate que prova fechamento estrutural de mutações não é totalmente confiável enquanto a causa remanescente não for identificada.
+
+Q2-QE-02 — Standard normativo de testes está materialmente desatualizado  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — documentação factual.  
+Evidência: docs/engineering/test-engineering-standard.md:27 declara 107 arquivos/928 casos; a árvore atual contém 238 arquivos *.test.ts. A linha 70 ainda declara aproximadamente 7–10 segundos para a suíte, enquanto a duração corrente informada é próxima de nove minutos. O documento continua classificado como normativo atual em docs/engineering/README.md:47. Isso prejudica critérios 9, 10 e 11.
+
+Q2-QE-03 — Comentário da configuração de boundaries diverge da configuração real  
+Severidade: baixa  
+Risco de mudança para corrigir: Nível 1 — cosmético/documental.  
+Evidência: .dependency-cruiser.cjs:9 diz “three rules”, mas existem cinco regras reais nas linhas 17-68. O enforcement funciona e passou; o defeito é de documentação interna.
+
+Q2-QE-04 — Coverage continua sem threshold bloqueante  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 3 — alteração de gate já prevista, deve permanecer PENDENTE.  
+Evidência: vitest.config.ts:22-26 configura provider, reporter e include, mas não thresholds; package.json:18 oferece test:coverage, porém .github/workflows/ci.yml:92-93 executa apenas npm test. É uma lacuna conhecida da Rodada 1, reavaliada e ainda aberta — não é descoberta inédita, mas permanece material para o critério de maior peso.
+
+Q2-QE-05 — Ferramenta de geração do SBOM continua sem versão explícita  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — pin mecânico de ferramenta.  
+Evidência: .github/workflows/ci.yml:101-105 usa npx --yes @cyclonedx/cyclonedx-npm sem versão. Também é pendência reavaliada da Rodada 1, não achado inédito.
+
+Nenhum achado foi implementado nesta auditoria.
+tokens used
+126.590
+AUDITORIA CEGA — RODADA 2 — QUALIDADE DE ENGENHARIA
+
+Não li o arquivo full-audit-round2-qualidade-claude.md nem qualquer conteúdo de arquivo com “qualidade-claude” no nome antes de fechar esta nota.
+
+Data de referência para exceções: 2026-09-07.
+
+TABELA DE NOTAS
+
+Nº | Critério | Peso | Nota | Evidência principal
+1 | Code Correctness & Defensive Design | 11% | 9.2 | typecheck e lint passaram; src/shared/observability/context.ts:14-21; src/shared/observability/logger.ts:93-104; gates estruturais de mutação em test/architecture/system-mutation-allowlist.test.ts:105-184.
+2 | Test Effectiveness & Coverage Discipline | 15% | 8.3 | 238 arquivos *.test.ts encontrados; CI executa suíte, DynamoDB Local e terraform test em .github/workflows/ci.yml:92-96,116-138,287-288. Sem coverage.thresholds em vitest.config.ts:22-26. Há falha intermitente informada no teste estrutural e a suíte não pôde ser reexecutada neste sandbox.
+3 | CI Quality Gates & Merge Safety | 11% | 9.2 | CI em push para main/develop e PR: .github/workflows/ci.yml:22-32; typecheck, lint, boundaries, schemas, docs, freshness, testes e audit bloqueante: linhas 62-99.
+4 | Type Safety, Static Analysis & Automated Enforcement | 9% | 9.2 | TypeScript estrito validado por typecheck; lint sem warnings; check-boundaries passou sobre 630 módulos/2.400 dependências; cinco fitness functions reais em .dependency-cruiser.cjs:17-68.
+5 | Readability, Consistency & Implementation Maintainability | 8% | 8.9 | organização e comentários de invariantes consistentes; observabilidade centralizada. A escala atual — 469 arquivos TypeScript em src — amplia o custo de manutenção, sem evidência suficiente nesta rodada para nota acima de 9.
+6 | Delivery, Release & Recovery Discipline | 11% | 9.1 | CD aplica plano Terraform salvo e verifica recursos/aliases: .github/workflows/cd.yml:141-197; manifesto de deploy saudável: linhas 250-283; rollback compensável e auditável em .github/workflows/rollback.yml:160-188,241-300.
+7 | Dependency & Supply-Chain Hygiene | 7% | 8.3 | npm ci, lockfile, scripts desabilitados e actions pinadas; audit de produção bloqueante: .github/workflows/ci.yml:48-60,95-108. Vulnerabilidades conhecidas formalizadas, mas SBOM ainda resolve CycloneDX sem versão explícita em ci.yml:101-105. Audits locais não alcançaram o registry.
+8 | Debuggability & Operational Feedback | 7% | 9.2 | achado da Rodada 1 corrigido: AsyncLocalStorage real em context.ts:6-21; logger injeta contexto automaticamente em logger.ts:93-104; standard ativo cobre correlação e wiring em logging-observability-standard.md:31-38.
+9 | Developer Experience & Reproducibility | 5% | 8.6 | Node fixado em .nvmrc e package.json:8-10; comandos centralizados em package.json:11-24; npm ci no CI. Nesta sessão, Vitest/esbuild e tsx não funcionaram sob o sandbox, reduzindo a evidência local de checkout reproduzível.
+10 | Documentation Quality & Process Discipline | 5% | 8.6 | standards novos continuam ativos, normativos e indexados em docs/engineering/README.md:47-48. O test-engineering-standard contém contagem e duração materialmente desatualizadas.
+11 | Documentation–Implementation Drift Control | 6% | 8.3 | checker determinístico existe e é bloqueante: scripts/check-doc-drift.ts:1-47 e ci.yml:78-83. Ele não detectou preventivamente o drift de contagem/duração do standard de testes nem o comentário desatualizado do dependency-cruiser.
+12 | Technical-Debt & Continuous-Improvement Practice | 5% | 9.0 | exceções têm owner, risco, compensação e prazo; EX-001 revisa em 2026-09-24, EX-003 em 2026-11-06 e EX-002 herda o prazo de EX-001. Nenhuma estava vencida em 2026-09-07.
+
+CÁLCULO PONDERADO
+
+(9.2×11 + 8.3×15 + 9.2×11 + 9.2×9 + 8.9×8 + 9.1×11 + 8.3×7 + 9.2×7 + 8.6×5 + 8.6×5 + 8.3×6 + 9.0×5) / 100
+
+NOTA PONDERADA FINAL: 8.843/10
+
+Resultado: abaixo do gate de 9.0, sem arredondamento.
+
+EXECUÇÕES DESTA SESSÃO
+
+- npm run typecheck: PASS.
+- npm run lint: PASS.
+- npm test: NÃO EXECUTOU TESTES. Vitest/esbuild foi bloqueado antes da coleta por “Cannot read directory ../../..: Access is denied” e não conseguiu carregar vitest.config.ts.
+- Reexecução isolada de system-mutation-allowlist.test.ts: mesmo bloqueio ambiental antes da coleta.
+- npm run check-boundaries: PASS — 630 módulos e 2.400 dependências, zero violações.
+- npm run check-docs: INCONCLUSIVO — tsx abortou em uv_os_get_passwd com ERR_SYSTEM_ERROR/ENOMEM provocado pelo ambiente.
+- npm audit --omit=dev: INCONCLUSIVO — registry inacessível neste ambiente.
+- npm audit completo: INCONCLUSIVO pela mesma razão.
+- Nenhuma exceção vencida.
+- coverage.thresholds: inexistente.
+- Fitness functions reais do dependency-cruiser: cinco.
+- AsyncLocalStorage: implementado; achado da Rodada 1 está corrigido.
+- test-engineering-standard.md e logging-observability-standard.md: continuam ativos, normativos e não superados.
+
+ACHADOS NOVOS DESDE A RODADA 1
+
+Q2-QE-01 — Confiança não determinística no teste de garantia estrutural  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — correção de infraestrutura de teste.  
+Evidência: falha intermitente informada em test/architecture/system-mutation-allowlist.test.ts, seguida de execução isolada 5/5 verde. vitest.config.ts:7-15 já serializa arquivos, e system-mutation-allowlist.test.ts:56-61 afirma que suas fixtures foram movidas para test/ justamente para evitar a corrida com tenant-fence-boundary.test.ts. Portanto, a explicação documentada não explica integralmente a flake atual. Um gate que prova fechamento estrutural de mutações não é totalmente confiável enquanto a causa remanescente não for identificada.
+
+Q2-QE-02 — Standard normativo de testes está materialmente desatualizado  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — documentação factual.  
+Evidência: docs/engineering/test-engineering-standard.md:27 declara 107 arquivos/928 casos; a árvore atual contém 238 arquivos *.test.ts. A linha 70 ainda declara aproximadamente 7–10 segundos para a suíte, enquanto a duração corrente informada é próxima de nove minutos. O documento continua classificado como normativo atual em docs/engineering/README.md:47. Isso prejudica critérios 9, 10 e 11.
+
+Q2-QE-03 — Comentário da configuração de boundaries diverge da configuração real  
+Severidade: baixa  
+Risco de mudança para corrigir: Nível 1 — cosmético/documental.  
+Evidência: .dependency-cruiser.cjs:9 diz “three rules”, mas existem cinco regras reais nas linhas 17-68. O enforcement funciona e passou; o defeito é de documentação interna.
+
+Q2-QE-04 — Coverage continua sem threshold bloqueante  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 3 — alteração de gate já prevista, deve permanecer PENDENTE.  
+Evidência: vitest.config.ts:22-26 configura provider, reporter e include, mas não thresholds; package.json:18 oferece test:coverage, porém .github/workflows/ci.yml:92-93 executa apenas npm test. É uma lacuna conhecida da Rodada 1, reavaliada e ainda aberta — não é descoberta inédita, mas permanece material para o critério de maior peso.
+
+Q2-QE-05 — Ferramenta de geração do SBOM continua sem versão explícita  
+Severidade: moderada  
+Risco de mudança para corrigir: Nível 2 — pin mecânico de ferramenta.  
+Evidência: .github/workflows/ci.yml:101-105 usa npx --yes @cyclonedx/cyclonedx-npm sem versão. Também é pendência reavaliada da Rodada 1, não achado inédito.
+
+Nenhum achado foi implementado nesta auditoria.

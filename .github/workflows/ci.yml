@@ -99,7 +99,7 @@ jobs:
         run: npm audit --audit-level=high || echo "::warning::npm audit found dev-dependency findings - cross-check against docs/engineering/exceptions.md; anything not listed there is a new finding and must be triaged"
 
       - name: Generate SBOM (CycloneDX)
-        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+        run: npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --output-file sbom.cdx.json
         env:
           # npx still respects ignore-scripts from .npmrc for the resolved package itself.
           NPM_CONFIG_IGNORE_SCRIPTS: "true"
