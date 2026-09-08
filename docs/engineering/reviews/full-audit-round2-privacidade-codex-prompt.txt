@@ -1,0 +1,26 @@
+Você é o revisor independente (nota cega) no protocolo Claude<->Codex deste repositório (AGENTS.md §4).
+
+Eixo: Privacidade e Governança de Dados. Critérios e pesos exatos estão em
+docs/engineering/joint-review-criteria.md, seção "Eixo: Privacidade e Governança de Dados" (8 critérios).
+
+Contexto: este eixo teve uma Rodada 1 fechada em 2026-08-19 (docs/engineering/reviews/full-audit-round1-privacidade-summary.md),
+nota final Claude 4.885/10, Codex 3.82/10, sem atingir o gate de 9.0. O fechamento recomendava reabrir quando M4+ implementasse
+DSR endpoints e/ou purge worker real. Desde então, docs/architecture/decisions-log.md registra D-179 a D-190 (nove workers de
+purga reais sobre GSI8) e D-205/D-217/D-225 (dossier export, report subscriptions, external share link design).
+
+Tarefa: avalie os 8 critérios do zero, com evidência real do código (não confie no resumo acima, verifique você mesmo):
+- grep em src/workers/*purge*/ e src/runtime/aws/handlers/*purge*.ts para confirmar quais entidades têm purga real.
+- Verifique se DossierExportRun (src/modules/document-archive/domain/dossier-export-run.ts) e ReportSubscription/
+  ReportSubscriptionRun (src/modules/reports/domain/report-subscription*.ts) têm campo de TTL/purgeAfter/retentionClass,
+  e se existe algum worker de purga para esses artefatos (dossiê PDF/XLSX e exports de relatório em S3).
+- grep -rn "console.log" src/ --include=*.ts (excluindo testes) para confirmar se SecureLogger (src/shared/observability/logger.ts)
+  e Redactor (src/shared/observability/redactor.ts) são o único caminho de log.
+- Verifique se D-170 (docs/architecture/decisions-log.md) já documentou um problema de Scan-sem-cursor-persistido em 9/10
+  workers de manutenção/purga, e se isso foi corrigido em código desde então.
+- Verifique guest-credential-delivery.ts (D-143) e a ausência de código para ExternalShareLink (D-225, design-only) para
+  avaliar cobertura de terceiros/guests externos.
+
+Produza, por escrito, para cada um dos 8 critérios: nota 0-10 e evidência (arquivo:linha ou grep exato). Calcule a nota
+ponderada final pelos pesos do arquivo de critérios. Não arredonde. Não leia docs/engineering/reviews/full-audit-round2-privacidade-claude.md
+nem qualquer outro arquivo round2-privacidade-claude* antes de terminar sua própria nota — isto é avaliação cega independente.
+Ao final, diga explicitamente se o critério de gate (>=9.0 sem arredondar) foi atingido ou não, eixo a eixo e no total.
