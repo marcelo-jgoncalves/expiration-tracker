@@ -65,6 +65,7 @@ function makeRun(overrides: Partial<DossierExportRun> = {}): DossierExportRun {
     createdAt: NOW,
     updatedAt: NOW,
     confirmedAt: NOW,
+    purgeAfterTtl: Math.floor(Date.parse(NOW) / 1000) + 30 * 24 * 60 * 60,
     ...overrides,
   };
 }

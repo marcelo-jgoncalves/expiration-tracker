@@ -148,6 +148,7 @@ describe("processReportSubscriptionDelivery", () => {
       reportTypes: ["RENEWED_ITEMS"],
       recipientUserIds: ["user-9"],
       createdAt: "2026-09-06T09:00:01.000Z",
+      purgeAfterTtl: Math.floor(Date.parse("2026-09-06T09:00:01.000Z") / 1000) + 30 * 24 * 60 * 60,
     };
     // Subscription (if re-read) would disagree with the frozen run - proves the frozen row wins.
     const store = seed(makeSubscription({ reportTypes: ["EXPIRED_ITEMS"], recipientUserIds: ["user-1"] }), frozenRun);
@@ -194,6 +195,7 @@ describe("processReportSubscriptionDelivery", () => {
       version: 2,
       createdAt: NOW,
       updatedAt: NOW,
+      purgeAfterTtl: Math.floor(Date.parse(NOW) / 1000) + 30 * 24 * 60 * 60,
     };
     await store.transactWrite([{ Put: { TableName: TABLE, Item: alreadyAccepted as unknown as Record<string, unknown> & EntityKey, ConditionExpression: "attribute_not_exists(PK)" } }]);
     let sendCount = 0;

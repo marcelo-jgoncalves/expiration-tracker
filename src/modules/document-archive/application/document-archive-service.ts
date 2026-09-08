@@ -145,7 +145,7 @@ import type { UnifiedValidityState } from "../../../shared/domain/validity-state
 import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
-import { computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
+import { computeDossierExportRunPurgeAfterTtl, computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
 import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
 import { requestAccessCredentialKey } from "../domain/request-access-credential.js";
 import { buildDocumentRequestCreatedOutboxEntry } from "./document-request-recurrence-service.js";
@@ -1283,6 +1283,7 @@ export class DocumentArchiveService {
       version: 1,
       createdAt: now,
       updatedAt: now,
+      purgeAfterTtl: computeDossierExportRunPurgeAfterTtl(now),
     };
     await this.store.transactWrite([{ Put: buildVersionedCreate(this.tableName, run as unknown as Record<string, unknown> & EntityKey) }]);
 

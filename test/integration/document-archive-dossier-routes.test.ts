@@ -159,6 +159,7 @@ describe("Dossier export HTTP routes (D-205 fatia 1/3)", () => {
         version: 1,
         createdAt: "2026-09-06T00:00:00.000Z",
         updatedAt: "2026-09-06T00:00:00.000Z",
+        purgeAfterTtl: Math.floor(Date.parse("2026-09-06T00:00:00.000Z") / 1000) + 30 * 24 * 60 * 60,
       };
       await store.putIfAbsent(run as unknown as Record<string, unknown> & EntityKey);
       return runId;
