@@ -1,0 +1,12 @@
+Rodada 3 (fechamento), full-audit round2, eixo Arquitetura. Convergência já alcançada na Rodada 2:
+Claude 8.55/10 ponderado, Codex 8.782/10 ponderado, ambos concordam que Reliability=7.8/Event-
+Integration=7.9 refletem corretamente a severidade do achado real em
+src/workers/guest-credential-delivery/deliver.ts (claim do marcador idempotente ANTES do envio SES;
+falha de SES entre claim e send suprime a entrega permanentemente e silenciosamente; retry via
+DynamoDB Streams redrive é neutralizado pelo próprio claim). Pergunta de fechamento: você concorda
+que (a) nenhum outro critério dos 11 precisa de rodada extra (nenhuma divergência de FATO
+remanescente, só um debate de severidade já resolvido), e (b) o achado de deliver.ts deve ser
+registrado como PENDENTE para decisão/implementação futura de Marcelo (não corrigido nesta sessão,
+que é de auditoria, não de implementação) em vez de forçar uma correção agora? Responda só SIM/NÃO
+por pergunta com uma frase de justificativa cada, e confirme os números finais ponderados dos dois
+lados para o registro oficial.

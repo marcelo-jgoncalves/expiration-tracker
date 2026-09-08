@@ -1,0 +1,22 @@
+Voce e o revisor independente (Codex) no protocolo de nota cega Claude-Codex deste repositorio (AGENTS.md secao 4). Esta e uma AUDITORIA (nao implementacao) do eixo "Seguranca da Informacao e AppSec" do repositorio expiration-tracker, em C:\Users\Usuario\Desktop\projects\expiration-tracker (branch develop). Esta e a RODADA 2 do full-audit deste eixo (a rodada 1 fechou em docs/engineering/reviews/full-audit-round1-seguranca-summary.md com Claude 7.895/10 e Codex 7.315/10 - abaixo do gate 9.0 - e listou lacunas nao corrigidas: IAM least-privilege com grant amplo de tabela inteira, sessao/refresh token nao implementado, pipeline assincrono sem schema no envelope interno de 2 handlers, alarmes sem alvo de notificacao).
+
+Leia primeiro, sem pular:
+1. docs/engineering/joint-review-criteria.md secao "Eixo: Seguranca da Informacao e AppSec" (10 criterios com pesos exatos).
+2. docs/engineering/reviews/full-audit-round1-seguranca-summary.md (baseline da rodada anterior).
+3. AGENTS.md inteiro (contexto de processo, layout de modulos, RBAC, IAM).
+4. docs/architecture/decisions-log.md - procure D-146 (guest access pepper isolation), D-217 (formula injection XLSX), D-225 (ExternalShareLink - CONFIRME se e so design ou se foi implementado), D-226/D-227/D-228 (guest credential issuance), D-231 (webhook WhatsApp assinatura X-Hub-Signature-256, Secrets Manager).
+5. docs/engineering/exceptions.md (registro de excecoes de dependencia).
+6. src/modules/identity/domain/authorization.ts (RBAC real, ACTION_ROLES, authorize()).
+7. infra/modules/dynamo-table/main.tf (politicas IAM reais - confirme se o achado do round1 sobre grant amplo de tabela inteira ainda existe).
+8. src/modules/notification/application/whatsapp-webhook-processor.ts e src/runtime/aws/handlers/whatsapp-webhook-handler.ts (verificacao de assinatura de webhook).
+9. src/modules/document-archive/ (guest access - domain/request-access-credential.ts, domain/guest-session.ts, application/guest-document-access-service.ts, application/document-archive-guest-rate-limiter.ts).
+10. Rode: npm audit --omit=dev (raiz e frontend/), npm run check-boundaries.
+
+Procure especificamente por VULNERABILIDADES REAIS, nao formatacao ou estilo: falha de isolamento multi-tenant/IDOR, escalonamento de privilegio, bypass de autenticacao/autorizacao, injecao (SQL/NoSQL/comando/formula/log), segredo hardcoded ou logado em texto claro, falha de verificacao de assinatura/timing attack, race condition explorável em fluxo de autorizacao/pagamento/credencial, CORS/CSRF mal configurado, exposicao de dado sensivel em erro/log, IAM com privilegio excessivo real (nao apenas teorico), rate-limit ausente em rota sensivel, dependencia com CVE critico em producao.
+
+Depois de investigar por si mesmo (nao confie cegamente no que eu disser), atribua uma nota de 0 a 10 para CADA um dos 10 criterios do eixo (com peso), calcule a nota ponderada final, e liste:
+(a) achados REAIS de seguranca com severidade (critico/alto/medio/baixo) e evidencia precisa (arquivo:linha ou trecho),
+(b) o que mudou desde a rodada 1 (corrigido, regrediu, ou novo),
+(c) se algum achado exige decisao de design do dono do produto (marque como PENDENTE, nao invente a decisao).
+
+Responda em formato de markdown com uma tabela de notas por criterio + nota ponderada final + lista de achados. Nao me diga sua nota antes de eu revelar a minha - isto e uma rodada de nota cega, entao apenas registre sua avaliacao independente, sem tentar adivinhar ou concordar com uma nota que voce nao viu.

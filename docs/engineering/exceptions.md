@@ -6,7 +6,7 @@ Registro de violações conscientes de regra, com justificativa, risco, owner e 
 
 - **Regra violada**: G5 (sem vulnerabilidade crítica não tratada).
 - **Reavaliado em 2026-08-25** (achado real: a entrada estava desatualizada em dois eixos — a contagem de `npm audit` e o próprio prazo de revisão, que expirava "antes de M4" e M4 já foi implementado e revisado 9,1/10 desde então sem que esta entrada fosse reavaliada, violando a regra do próprio registro no topo deste arquivo). Números e escopo abaixo são os reais, confirmados via `npm audit`/`npm audit --omit=dev` nesta data, não os originais de 2026-08-19.
-- **Achado**: `npm audit` reporta 9 vulnerabilidades (2 critical, 5 high, 2 moderate) — duas cadeias transitivas distintas, não uma só:
+- **Achado**: `npm audit` reportava 9 vulnerabilidades nesta data (2 critical, 5 high, 2 moderate). **Recontado em 2026-09-07 (full-audit round2 eixo Segurança)**: hoje são 11 (2 critical, 5 high, 4 moderate) — as 2 moderate adicionais são a cadeia de PRODUÇÃO `exceljs→uuid`, nunca coberta por esta entrada (dev-only); registrada separadamente em [[EX-003]] em vez de inflar esta entrada com uma cadeia de risco/escopo diferente. As 9 originais (2 cadeias dev-only abaixo) permanecem sem mudança de composição.
   1. `vitest`→`vite`/`vite-node`→`esbuild` (a cadeia original registrada em 2026-08-19). A mais severa (CVSS 9.8, GHSA-5xrq-8626-4rwp) é sobre o servidor de UI do Vitest permitir leitura/execução arbitrária de arquivo quando exposto — este projeto nunca inicia esse servidor (não há `vitest --ui` em nenhum script/workflow).
   2. **Nova, não documentada até agora**: `testcontainers`→`dockerode`→`tar-fs`/`undici` (2 high + 1 high adicionais: tar-fs symlink/path-traversal em extração de tarball, undici — múltiplos CVEs de smuggling/CRLF/DoS). `testcontainers` é usado só por `npm run test:dynamodb` (integração real contra DynamoDB local via container Docker) — nunca em produção, mas roda de fato em CI real (`.github/workflows/ci.yml` linha ~123), não é hipotético.
 - **Justificativa**: risco real é de dev-server local (cadeia 1) / ambiente de CI controlado rodando containers Docker confiáveis (cadeia 2), não de runtime de produção; `npm audit --omit=dev` (produção) mostra 0 vulnerabilidades, confirmado nesta reavaliação.
@@ -16,6 +16,17 @@ Registro de violações conscientes de regra, com justificativa, risco, owner e 
 - **Data de registro**: 2026-08-19. **Reavaliado**: 2026-08-25.
 - **Prazo de revisão**: 30 dias a partir da reavaliação (2026-09-24) — reavaliar upgrade do Vitest quando o bug de optional dependencies cross-platform estiver resolvido upstream, e reavaliar `testcontainers`/`dockerode` separadamente (cadeia independente, pode ter correção disponível antes da cadeia do Vitest).
 - **Compensating control**: gate de CI `Dependency audit (production - blocking)` bloqueia qualquer vulnerabilidade real em `dependencies` (não `devDependencies`); o job separado de dev-audit é informacional e referencia esta entrada.
+
+## EX-003 — `exceljs`→`uuid@8.3.2` (missing buffer bounds check), dependência de PRODUÇÃO
+
+- **Regra violada**: nenhuma regra de bloqueio de CI (moderate não atinge `--audit-level=high`), mas registro exigido por disciplina de rastreabilidade — full-audit round2 do eixo Segurança (`docs/engineering/reviews/full-audit-round2-seguranca-claude.md`) encontrou que EX-001 estava desatualizada (contava 9 vulnerabilidades reais quando `npm audit` já reportava 11) e que as 2 moderate adicionais nunca foram registradas nem triadas.
+- **Achado**: `exceljs@4.4.0` (dependência de produção real, D-217, usada por `dossier-xlsx-builder.ts` para gerar XLSX do dossiê documental) depende transitivamente de `uuid@8.3.2`, que tem uma vulnerabilidade moderate (missing buffer bounds check em `v3`/`v5`/`v6` quando um `buf` é fornecido pelo chamador). `npm ls uuid --omit=dev` confirma a cadeia única: `exceljs@4.4.0 → uuid@8.3.2`.
+- **Justificativa**: `dossier-xlsx-builder.ts` nunca chama a API de `uuid` diretamente nem repassa um `buf` controlado por usuário para dentro de `exceljs` — o uso interno de `uuid` pelo `exceljs` (geração de IDs de relacionamento OOXML) não expõe o parâmetro vulnerável a entrada externa neste projeto. Risco real de exploração é baixo, mas a dependência é de produção — diferente de EX-001/EX-002 (dev-only), não pode ser justificada só por "não roda em produção".
+- **Risco residual**: baixo (vetor de exploração não alcançável pelo uso real deste projeto), mas não zero — uma versão futura de `exceljs` ou uma mudança de uso interno poderia mudar isso sem que este registro seja revisitado automaticamente.
+- **Owner**: Marcelo.
+- **Data de registro**: 2026-09-07 (full-audit round2 eixo Segurança).
+- **Prazo de revisão**: 60 dias (2026-11-06) — reavaliar se `exceljs` publicou uma versão que atualiza `uuid` para uma versão corrigida; se sim, fazer o upgrade em vez de renovar a exceção.
+- **Compensating control**: nenhum call site do projeto passa `buf` controlado externamente para `uuid`; `npm audit --omit=dev --audit-level=high` (gate de CI) não bloqueia por ser moderate, mas esta entrada garante que a vulnerabilidade está triada, não esquecida.
 
 ## EX-002 — Vulnerabilidades transitivas em devDependencies do `frontend/` (vitest/vite/esbuild)
 

@@ -1,0 +1,27 @@
+Você é revisor independente (nota cega) no protocolo Claude<->Codex deste repositório (AGENTS.md secao 4).
+
+Eixo em auditoria: OPERACOES/SRE E CONTINUIDADE DE NEGOCIO.
+Criterios formais e pesos: docs/engineering/joint-review-criteria.md, secao "Eixo: Operações, SRE e Continuidade de Negócio" (8 criterios, pesos 16/11/15/14/18/10/9/7%).
+
+Baseline da Rodada 1 (2026-08-20): docs/engineering/reviews/full-audit-round1-operacoes-summary.md (Claude 5.11/10, Codex 3.92/10, ambos abaixo de 9.0 em todos os 8 criterios).
+
+Esta e a Rodada 2. O projeto cresceu desde entao: confirme por si mesmo (nao confie cegamente no meu relato) rodando:
+- grep -c "source = \"./modules/lambda-function\"" infra/main.tf   (contagem real de Lambdas)
+- grep -rn "resource \"aws_sqs_queue\"" infra/                      (filas reais, incluindo modulo sqs-worker-queue)
+- grep -rn "resource \"aws_cloudwatch_metric_alarm\"" infra/        (alarmes reais)
+- infra/modules/sqs-worker-queue/main.tf                            (toda fila deste modulo ganha DLQ+alarme automaticamente?)
+- infra/main.tf linhas ~550-580 (fila guest_credential_delivery_failures, D-228)
+- docs/architecture/incident-runbooks.md inteiro (runbook operacional; note a data da ultima atualizacao e se cobre os alarmes/filas novos)
+- .github/workflows/rollback.yml inteiro (existe rollback real? de que camada?)
+- .github/workflows/cd.yml (grep -n "rollback\|manifest\|current-healthy")
+- infra/tests/stack.tftest.hcl linhas ~35-45 (assercao de contagem de lambda_function_names — compare com a contagem real acima)
+- docs/architecture/decisions-log.md, entradas D-208, D-227, D-228, D-229, D-230 (grep -n "D-208\|D-227\|D-228\|D-229\|D-230")
+
+Minha avaliacao (Claude, nota cega, ja escrita antes de ver a sua) esta em:
+docs/engineering/reviews/full-audit-round2-operacoes-claude.md
+
+NAO leia esse arquivo antes de terminar sua propria analise independente. Produza sua propria nota por criterio (0-10, sem arredondar para 9.0 artificialmente) com evidencia real (comandos rodados, arquivos/linhas citados), e uma nota ponderada final pelos pesos do criterio.
+
+Foque especialmente em: (1) se a cobertura DLQ+alarme e realmente sistematica ou tem furos reais; (2) se o rollback.yml cobre so frontend ou tambem infra/lambdas; (3) se os alarmes novos (D-228/229) tem runbook de fato ou so existem tecnicamente; (4) severidade real do drift entre stack.tftest.hcl e a contagem real de Lambdas — isso e so cosmetico ou indica um teste que nao valida nada.
+
+Responda em portugues, formato markdown, com uma tabela de notas por criterio (8 linhas) + nota ponderada final + lista de achados com severidade (nivel 1-6 conforme docs/engineering/change-risk-scale.md) e caminho/linha de evidencia para cada achado. Seja direto, sem preambulo longo.

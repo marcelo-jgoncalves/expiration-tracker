@@ -1,0 +1,61 @@
+---
+status: draft
+owner: claude
+authority: audit-record
+---
+
+# Full-audit Round 2 — Eixo Engenharia de Contexto — proposta Claude (Rodada 1)
+
+Baseline: `full-audit-round1-contexto-summary.md` (fechado 2026-08-20, Claude 9.078/Codex 9.092). Desde então: D-084 a D-231+ (~150 decisões novas), `docs/architecture/reviews/` cresceu para 62 entradas, `docs/engineering/reviews/` para ~30 arquivos/pastas de topo (mais subpastas), Multi-User B2B inteiro, Domínio Documental inteiro, WhatsApp, Dossiê, Metadata configurável, etc. Reavaliação completa dos 9 critérios contra o estado real de 2026-09-07.
+
+## Metodologia desta rodada
+
+1. Releitura de `AGENTS.md` inteiro, `NEXT_SESSION_PROMPT.md` inteiro (278 linhas, lido em 2 blocos por limite de tooling — ver achado 1), `docs/architecture/README.md`, `docs/engineering/README.md`, `joint-review-criteria.md` §Engenharia de contexto.
+2. `npm run check-docs` rodado ao vivo: **"2060 markdown files scanned, root allowlist and size guardrails clean, no broken links or stale AGENTS.md §N references found."** — zero drift determinístico.
+3. Contagem real: `docs/architecture/reviews/` = 62 entradas (pastas+arquivos soltos); `docs/engineering/reviews/` = ~30 no nível raiz (mais 2 subpastas `research-protocol/`, `test-engineering-standard/`). `NEXT_SESSION_PROMPT.md` = 277 linhas; `AGENTS.md` = 84 linhas.
+4. Inspeção direta de amostras de nomenclatura D-2xx recentes: `document-request-series-recipient-scoping/`, `document-type-metadata-scoping/`, `external-sharing-scoping/`, `whatsapp-channel-scoping/` (com subpasta aninhada `webhook-inbox-purge-scoping/`) — todas seguem `<tema-kebab-case>-scoping/`.
+
+## Achado principal (severidade ALTA) — o guardrail de 300 linhas do `NEXT_SESSION_PROMPT.md` está sendo satisfeito na letra, não no espírito
+
+`NEXT_SESSION_PROMPT.md` tem 277 linhas — dentro do guardrail de `scripts/check-doc-drift.ts`, que `check-docs` confirma "clean". Mas o guardrail mede **linhas**, não densidade. Ao tentar carregar o arquivo inteiro nesta sessão, a ferramenta de leitura reportou o arquivo inteiro como **~59.477 tokens** para 278 linhas — uma média de ~214 tokens/linha, com parágrafos individuais (uma única linha Markdown, sem quebra) ultrapassando 1.500-2.000 tokens cada (ex.: linhas 12, 14, 28, 63, 230 — cada uma narra uma fatia de implementação inteira com detalhe de nível `decisions-log.md`, não um resumo de estado). Isso é, na prática, **o mesmo problema que a reconciliação de 2026-08-29 corrigiu no arquivo de 1067 linhas** (`docs/architecture/reviews/context-engineering-reconciliation/`) — narrativa sessão-a-sessão acumulada, já duplicada em `decisions-log.md` — só que reencarnado numa forma que o guardrail de contagem de linhas não detecta: menos linhas, cada uma imensamente mais densa.
+
+Consequência real medida nesta própria sessão de auditoria: o `Read` do arquivo precisou ser feito em 2 chamadas (offset/limit) porque a primeira tentativa de ler o arquivo inteiro excedeu o cap de 25.000 tokens da ferramenta ao tentar cobrir só as primeiras 69 das 278 linhas. Um agente novo que siga literalmente `AGENTS.md` §2.1 ("Ler `NEXT_SESSION_PROMPT.md`") paga um custo de contexto desproporcional para "estado atual + próxima ação" — o critério #3 (Context Routing & Progressive Disclosure, peso 15%, já a lacuna mais cara identificada no Round 1) piora, não sana essa lacuna.
+
+Isto **não é um achado mecânico corrigível no ato** (§ instrução da tarefa) — decidir o que cortar/resumir de ~150 decisões (D-084 a D-231) numa nova compactação é uma decisão editorial substantiva (qual fatia vira 1 linha, qual referência a `decisions-log.md` basta, qual contexto ainda é "estado atual" vs. já é história) — mesma classe de trabalho que a reconciliação de 2026-08-29 foi (registrada como rodada própria do protocolo). Fica **PENDENTE**, registrado explicitamente abaixo e em `NEXT_SESSION_PROMPT.md`.
+
+**Recomendação de gap para o guardrail em si** (achado de processo, não de conteúdo): `scripts/check-doc-drift.ts` deveria medir também um proxy de densidade (contagem de caracteres/palavras total do arquivo, não só linhas) — uma linha Markdown sem quebra de parágrafo pode conter narrativa arbitrariamente longa sem nunca acionar um guardrail baseado em `wc -l`. Sem essa mudança, o guardrail é gameable por construção (não por má-fé — o formato "uma atualização = um parágrafo longo, uma linha" é o padrão natural de como cada sessão anexa sua entrada).
+
+## Achado secundário (severidade MÉDIA) — o mesmo padrão de acréscimo de narrativa reapareceu no bloco de status de `docs/architecture/README.md`
+
+A linha 7 de `docs/architecture/README.md` (bloco ```text``` de status, dentro do próprio router) é um único parágrafo cobrindo do estado M6/M7 até Multi-User B2B inteiro — não tem guardrail de tamanho algum (o script só audita `AGENTS.md`/`NEXT_SESSION_PROMPT.md`), e cresceu por acréscimo ao longo de ~2 semanas de sessões sem nunca ser recompactado desde 2026-08-29. Não é tão grave quanto o achado principal (é um bloco, não o documento inteiro, e o router ainda cumpre seu papel de índice abaixo dele), mas é o mesmo padrão de acréscimo sem poda que motivou a reconciliação original, desta vez sem cobertura de guardrail nenhuma. PENDENTE — mesma classe de decisão editorial, não mecânica.
+
+## Notas por critério (Rodada 1, nota cega Claude)
+
+| # | Critério | Peso | Nota | Evidência |
+|---:|---|---:|---:|---|
+| 1 | Canonicalidade, Autoridade & Não-Duplicação | 15% | 8.6 | Regra de precedência (`AGENTS.md` §5, ambos os READMEs) continua clara e sem contradição encontrada. Risco real: o bloco de status de `architecture/README.md` (achado secundário) começa a duplicar conteúdo que já vive em `decisions-log.md`/`NEXT_SESSION_PROMPT.md`, mesma classe de falha que motivou a reconciliação original — ainda não virou duplicação factual contraditória, mas a tendência é a mesma. |
+| 2 | Clareza de Papéis & Proporcionalidade | 9% | 9.0 | `AGENTS.md`/`docs/architecture/README.md`/`docs/engineering/README.md` continuam com escopo mutuamente exclusivo e bem verbalizado ("o quê" vs. "que nota isso tira"); nenhuma sobreposição semântica nova encontrada apesar do volume; `docs/frontend/README.md` como terceiro router especializado (UX) mantém a mesma disciplina. |
+| 3 | Context Routing & Progressive Disclosure | 15% | 6.3 | Achado principal. O router `AGENTS.md` §2 continua estruturalmente correto (ordem de leitura, roteamento condicional por tipo de tarefa), e `docs/engineering/README.md` tem uma tabela de roteamento por tipo de tarefa exemplar (linha 17-35) — mas o artefato central que esse roteamento aponta para primeiro (`NEXT_SESSION_PROMPT.md`) tornou-se caro demais de carregar por completo, na prática forçando leitura parcial/paginada mesmo para "estado atual + próxima ação". A promessa do critério ("menor conjunto suficiente de contexto") já não se sustenta para esse artefato específico. |
+| 4 | Correspondência com a Realidade & Controle de Drift | 16% | 8.8 | `check-docs` limpo (0 links quebrados, 0 referência `§N` obsoleta, guardrails de tamanho "clean" — mas ver achado 1 sobre o que esse guardrail não mede). Nenhuma contradição de status encontrada por amostragem entre `NEXT_SESSION_PROMPT.md`/`decisions-log.md`/routers (ex. item 9 do roadmap consistentemente "FECHADO POR INTEIRO" nos 3 lugares que o citam). D-227 é evidência de saúde do sistema, não de drift: uma sessão encontrou e **corrigiu por escrito** um fechamento prematuro anterior ("D-228... correção de um registro anterior que fechou isso prematuramente"), preservando o registro incorreto como histórico em vez de apagá-lo. |
+| 5 | Lifecycle, Proveniência & Evolução do Conhecimento | 12% | 8.9 | Convenção de 3 gerações de `reviews/` (checkpoints → convergência de critérios → full-audit por eixo) continua documentada e coerente; frontmatter em resumos mantido; pastas `-scoping/` recentes (D-218, D-225, D-230, D-231) seguem a mesma forma de `estado-final-consolidado.md` do baseline. Nenhuma versão concorrente de documento normativo encontrada. |
+| 6 | Rastreabilidade de Decisões, Trabalho & Triggers | 10% | 9.0 | Pendências nomeadas com gatilho concreto continuam a norma, não exceção: D-224 ("decisão de PRODUTO... pendência explícita para Marcelo"), fatias 2/3 do dossiê nomeadas e depois fechadas (D-216→D-217), gap do `DocumentRequestSeries.recipientEmail` nomeado em D-228 e fechado em D-230 via protocolo completo por pedido explícito de Marcelo (mudança de processo registrada, não silenciosa). Mesmo padrão do Round 1 (8.8-9.0), sem regressão. |
+| 7 | Higiene de Contexto & Sinal-Ruído | 8% | 6.8 | Mesma causa raiz do achado principal: a "higiene" formal (frontmatter, sem versões concorrentes, sem arquivo órfão) está ok, mas o critério também cobre "ausência de ruído" — um parágrafo de 2.000 tokens por entrada de sessão é sinal-ruído desfavorável para quem precisa extrair "o que fazer agora" de `NEXT_SESSION_PROMPT.md`. |
+| 8 | Portabilidade Agnóstica entre Agentes de IA | 6% | 9.1 | `AGENTS.md` §4 mantém a demarcação explícita de regras específicas do ambiente Windows (achado do Round 1) intacta e agora estendida (item 3 sobre polling de CI/CD, adicionado depois do Round 1, já nasce demarcado como achado real de ambiente, não regra universal). Sem regressão. |
+| 9 | Auditabilidade & Enforcement do Sistema de Contexto | 9% | 7.4 | `check-docs` continua determinístico, reproduzível e bloqueante no CI — mas o achado principal desta rodada é, em si, um gap de enforcement: o guardrail existente audita a métrica errada (linhas) para a propriedade que importa (custo de carregamento de contexto), dando falso sinal verde ("guardrails clean") para um arquivo que uma leitura real mostrou ser caro. Um sistema de auditabilidade que certifica saúde onde há um problema real e mensurável tem uma lacuna de enforcement, não só de conteúdo. |
+
+**Nota ponderada Claude (Rodada 1): 7.94/10** — cálculo: 0.15×8.6 + 0.09×9.0 + 0.15×6.3 + 0.16×8.8 + 0.12×8.9 + 0.10×9.0 + 0.08×6.8 + 0.06×9.1 + 0.09×7.4 = 1.29+0.81+0.945+1.408+1.068+0.90+0.544+0.546+0.666 = **8.177/10**.
+
+(Recalculando à mão: 1.29+0.81=2.10; +0.945=3.045; +1.408=4.453; +1.068=5.521; +0.90=6.421; +0.544=6.965; +0.546=7.511; +0.666=8.177.) **Nota ponderada Claude (Rodada 1): 8.18/10.**
+
+## Achados classificados
+
+| Achado | Severidade | Critério(s) afetado(s) | Status |
+|---|---:|---|---|
+| `NEXT_SESSION_PROMPT.md` satisfaz guardrail de linhas mas não a intenção (densidade ~214 tokens/linha, ~59K tokens totais) | ALTA | #3, #7, #9 | **PENDENTE** — decisão editorial de recompactação, fora do escopo de fix mecânico desta auditoria |
+| Guardrail `check-doc-drift.ts` audita só contagem de linhas, não densidade/tamanho total | ALTA (causa raiz do achado acima) | #9 | **PENDENTE** — mudança de ferramenta, não mecânica (decide limiar/métrica nova) |
+| Bloco de status de `docs/architecture/README.md` (linha 7) acumulando narrativa sem poda desde 2026-08-29, sem guardrail cobrindo esse arquivo | MÉDIA | #1, #5 | **PENDENTE** |
+| Crescimento de `docs/architecture/reviews/` (62) e `docs/engineering/reviews/` (~30+subpastas) desde Round 1 sem índice dedicado além das tabelas dos 2 READMEs (que continuam manuais, linha a linha) | BAIXA/observação | #3 | Não é achado de defeito — é um risco de escala a monitorar; os 2 READMEs ainda cobrem o volume atual, mas cada nova pasta exige uma linha manual nova em ambos, sem checagem automática de completude (ex.: pasta em `reviews/` sem entrada em nenhum README) |
+
+## Gap de escopo/design identificado (não decidido nesta auditoria)
+
+O achado de densidade acima expõe uma pergunta de design que esta auditoria não deve decidir sozinha (instrução da tarefa): **o guardrail de tamanho de `NEXT_SESSION_PROMPT.md`/`AGENTS.md` deveria medir tokens/caracteres em vez de (ou além de) linhas?** Pesquisa rápida de precedente: ferramentas de linting de documentação (`markdownlint`, `vale`) tipicamente oferecem regras de "line length" mas não "arquivo inteiro em tokens"; o padrão mais próximo é o guardrail de contexto de agentes de IA (`CLAUDE.md`/`AGENTS.md` de projetos abertos) recomendar um teto de tamanho de arquivo em KB, não em linhas, precisamente por esse motivo. Registrado como gap real para rodada futura de decisão (possível candidato a E-01x), não decidido aqui.

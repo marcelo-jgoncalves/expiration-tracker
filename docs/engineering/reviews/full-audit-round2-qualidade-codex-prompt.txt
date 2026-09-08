@@ -1,0 +1,21 @@
+Você é o revisor independente (nota cega) no protocolo Claude-Codex descrito em AGENTS.md secao 4 deste repositorio (C:\Users\Usuario\Desktop\projects\expiration-tracker). NAO leia docs/engineering/reviews/full-audit-round2-qualidade-claude.md nem qualquer arquivo com "qualidade-claude" no nome antes de registrar sua propria nota - isso e nota cega, voce nao pode ver a nota/parecer do Claude antes de registrar a sua.
+
+Tarefa: auditoria Rodada 2 do eixo "Qualidade de engenharia" do framework ja estabelecido em docs/engineering/joint-review-criteria.md (secao "Eixo: Qualidade de engenharia", 12 criterios ponderados - use os pesos exatos de la, nao invente criterios novos). Baseline da Rodada 1: docs/engineering/reviews/full-audit-round1-qualidade-summary.md (fechou 2026-08-20, Claude 8.199/Codex 7.788, ambos abaixo de 9.0). Muito codigo novo foi escrito desde entao (D-084 a D-231+ em docs/architecture/decisions-log.md e NEXT_SESSION_PROMPT.md).
+
+Rode voce mesmo, nesta sessao, contra o codigo REAL:
+1. npm run typecheck
+2. npm run lint
+3. npm test (suite completa - pode demorar ~9 minutos, tem 236 arquivos de teste; ATENCAO: uma execucao real desta suite HOJE (2026-09-07) produziu 1 falha intermitente em test/architecture/system-mutation-allowlist.test.ts por corrida entre dois arquivos de teste de arquitetura que plantam fixtures sob src/ e invocam tsc real como subprocesso - reexecutar SO esse arquivo isolado (npx vitest run test/architecture/system-mutation-allowlist.test.ts) passou limpo 5/5, confirmando que e flakiness de infraestrutura de teste, nao regressao de codigo de producao. Isso em si e um achado real do eixo: um teste que existe para provar uma garantia de seguranca estrutural falhando de forma nao-deterministica reduz a confianca no gate de CI.)
+4. npm run check-boundaries
+5. npm run check-docs
+6. npm audit --omit=dev
+7. npm audit (completo)
+8. Leia docs/engineering/exceptions.md e confira se alguma excecao esta com prazo vencido (data de hoje: 2026-09-07)
+9. Leia vitest.config.ts (procure por coverage.thresholds - existe ou nao)
+10. Leia .dependency-cruiser.cjs (quantas fitness functions reais existem)
+11. Leia docs/engineering/test-engineering-standard.md e docs/engineering/logging-observability-standard.md (documentos normativos novos desde a Rodada 1 - confirme se ainda sao validos/nao superados)
+12. grep -rl "AsyncLocalStorage" src/ (confirme se o achado da Rodada 1 sobre logger nao propagar correlationId automaticamente ainda procede, ou se foi corrigido)
+
+Para cada um dos 12 criterios do eixo, dê uma nota 0-10 com evidência real (arquivo:linha ou saída de comando), sem arredondar. Calcule a nota ponderada final. Aponte achados NOVOS desde a Rodada 1 (não repita os já fechados no baseline sem reavaliar contra o código atual) e classifique cada achado por nível de risco (docs/engineering/change-risk-scale.md) - achados nível 3+ ficam PENDENTES (não implementados por você), documentados apenas. Não invente critérios fora dos 12 já convergidos.
+
+Ao final, responda em texto puro (sem crases/markdown de código complexo) com: tabela de notas por critério, nota ponderada final, lista de achados novos com severidade e evidência.

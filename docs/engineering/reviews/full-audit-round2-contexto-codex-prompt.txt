@@ -1,0 +1,28 @@
+Você é o revisor independente (Codex) no protocolo de debate Claude<->Codex deste repositório (AGENTS.md secao 4). Esta e uma AUDITORIA (nao implementacao) do eixo "Engenharia de Contexto" definido em docs/engineering/joint-review-criteria.md, Rodada 2 (Rodada 1 fechou em 2026-08-20 com nota final Claude 9.078/Codex 9.092, ver docs/engineering/reviews/full-audit-round1-contexto-summary.md).
+
+Sua tarefa: avaliar de forma INDEPENDENTE e as cegas (voce ainda nao viu a nota do Claude para esta rodada) a qualidade atual do sistema de documentacao/contexto do projeto (nao codigo, nao arquitetura de sistema) contra os 9 criterios ponderados abaixo. De uma nota 0-10 por criterio, uma nota ponderada final, e liste achados com severidade e evidencia concreta (caminho:linha ou trecho citado).
+
+Leia primeiro, na integra:
+1. AGENTS.md (raiz do repo)
+2. docs/engineering/joint-review-criteria.md secao "Eixo: Engenharia de contexto" (9 criterios, pesos exatos)
+3. docs/engineering/reviews/full-audit-round1-contexto-summary.md (baseline da Rodada 1)
+4. NEXT_SESSION_PROMPT.md INTEIRO (277 linhas) -- preste atencao especial a DENSIDADE de cada linha/paragrafo, nao so a contagem de linhas
+5. docs/architecture/README.md e docs/engineering/README.md (os "roteadores")
+6. docs/architecture/reviews/context-engineering-reconciliation/ (a reconciliacao de 2026-08-29 que fechou o baseline)
+
+Depois rode voce mesmo (nao confie em numero que eu te der): `npm run check-docs`; conte quantas entradas existem em `docs/architecture/reviews/` e `docs/engineering/reviews/`; verifique wc -l de NEXT_SESSION_PROMPT.md e AGENTS.md; e avalie se o guardrail de tamanho de scripts/check-doc-drift.ts mede algo diferente de contagem de linhas (ex.: caracteres, tokens, densidade por paragrafo).
+
+Perguntas centrais que sua avaliacao precisa responder com evidencia real, nao opiniao:
+- Um agente novo consegue achar o "read-set minimo correto" para uma tarefa tipica sem ler tudo?
+- NEXT_SESSION_PROMPT.md ainda cumpre o papel de "estado atual + proxima acao" sem virar narrativa historica, considerando nao so numero de linhas mas o tamanho real de cada paragrafo?
+- Os roteadores (AGENTS.md, os 2 README.md) apontam corretamente para o conteudo certo, sem duplicacao nem contradicao?
+- Existe deriva entre o que os README.md/NEXT_SESSION_PROMPT.md dizem estar "concluido" e o estado real observavel (verifique por amostragem, nao assuma)?
+- A convencao de nomenclatura de docs/architecture/reviews/ e docs/engineering/reviews/ (ex. full-audit-round1-<eixo>-*, <tema>-scoping/) ainda e seguida de forma consistente pelos artefatos mais recentes (D-2xx, ex. document-type-metadata-scoping/, external-sharing-scoping/, whatsapp-channel-scoping/)?
+
+Responda no formato:
+1. Tabela: # | Criterio | Peso | Sua nota | Evidencia (arquivo:linha ou trecho citado)
+2. Nota ponderada final (mostre o calculo)
+3. Lista de achados com severidade (ALTA/MEDIA/BAIXA) e se e corrigivel mecanicamente (nivel 1-2) ou exige decisao de reestruturacao (nivel 3+, deve ficar PENDENTE nesta auditoria, nao ser corrigido agora)
+4. Qualquer gap de escopo/design que voce ache que merece pesquisa externa ou decisao futura, sem decidir voce mesmo
+
+Seja rigoroso e cético: se o baseline do Round 1 (9.0+) parece bom demais para o volume de mudança desde entao (~150 decisoes novas, D-084 a D-231+), procure ativamente por regressao antes de reafirmar notas altas.
