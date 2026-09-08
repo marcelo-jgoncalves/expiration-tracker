@@ -84,3 +84,17 @@ data "aws_iam_policy_document" "guest_credential_delivery_stream_read" {
     resources = [aws_dynamodb_table.guest_credential_delivery.arn, aws_dynamodb_table.guest_credential_delivery.stream_arn]
   }
 }
+
+# D-233: the delivery worker's lease-based marker (claim/markDelivered/releaseClaim/
+# markUncertain) needs write access on this table too - the ORIGINAL claim() already issued a
+# PutItem with no grant at all (stream_read_policy_json above never included it), a latent gap
+# found while fixing SEC-R2-02. Separate statement/output (never merged into stream_read) so the
+# module's own "declared per capability, attach when consumed" discipline stays legible.
+data "aws_iam_policy_document" "guest_credential_delivery_marker_write" {
+  statement {
+    sid       = "GuestCredentialDeliveryMarkerWrite"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.guest_credential_delivery.arn]
+  }
+}

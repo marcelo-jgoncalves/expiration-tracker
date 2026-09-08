@@ -328,6 +328,56 @@ run "gsi4_access_granted_only_to_identity_context_lambdas" {
   }
 }
 
+run "guest_credential_delivery_d233_lease_fix" {
+  command = plan
+
+  # D-233 (SEC-R2-02 fix): unlimited retry/age on the mapping - a bounded count/age could
+  # exhaust before the marker's 30s claim lease ever expires, stranding SKIPPED_LEASE_ACTIVE
+  # retries with no path to the SEND_UNCERTAIN reconciliation deliver.ts relies on.
+  assert {
+    condition     = aws_lambda_event_source_mapping.guest_credential_delivery_from_stream.maximum_retry_attempts == -1
+    error_message = "guest-credential-delivery mapping must retry without a count limit (bounded by the marker lease reconciliation and IteratorAge alarm instead)"
+  }
+
+  assert {
+    condition     = aws_lambda_event_source_mapping.guest_credential_delivery_from_stream.maximum_record_age_in_seconds == -1
+    error_message = "guest-credential-delivery mapping must retry without an age limit (bounded by DynamoDB Streams' own 24h native retention instead)"
+  }
+
+  # D-233: the marker's own Put/Update/Delete writes must never re-trigger the handler - only a
+  # real GuestCredentialDelivery INSERT should. filter_criteria/filter are sets (no addressable
+  # index), so flatten via a for-expression to reach the single pattern string.
+  assert {
+    condition = anytrue([
+      for f in aws_lambda_event_source_mapping.guest_credential_delivery_from_stream.filter_criteria :
+      anytrue([for c in f.filter : try(jsondecode(c.pattern).dynamodb.NewImage.entityType.S[0], "") == "GuestCredentialDelivery"])
+    ])
+    error_message = "guest-credential-delivery mapping's filter must scope to entityType=GuestCredentialDelivery, excluding the marker's own stream events"
+  }
+
+  # D-233: real-time backstop - IteratorAge, not the Lambda Errors metric (ReportBatchItemFailures
+  # means a retried invocation still returns successfully, so Errors never fires for this class
+  # of stuck record).
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.guest_credential_delivery_iterator_age.metric_name == "IteratorAge"
+    error_message = "guest-credential-delivery must have an IteratorAge alarm - ReportBatchItemFailures never surfaces a stuck record as a Lambda Errors metric"
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.guest_credential_delivery_iterator_age.threshold == 300000
+    error_message = "guest-credential-delivery IteratorAge alarm threshold must stay far below the stream's 24h native retention"
+  }
+
+  # alarm_actions itself is unknown at plan time here (it embeds module.alert_topic.topic_arn, a
+  # computed attribute for a topic not yet created in this workspace) - same posture this suite's
+  # header establishes (plan-only, never apply): asserted on the comparison_operator/threshold
+  # config instead, which are plan-time-known, never on the computed action list.
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.guest_credential_delivery_iterator_age.comparison_operator == "GreaterThanThreshold"
+    error_message = "guest-credential-delivery IteratorAge alarm must fire on GreaterThanThreshold, matching its stated 5-minute threshold"
+  }
+}
+
 run "dlq_max_receive_count_5_and_age_alarm_exists" {
   command = plan
 
