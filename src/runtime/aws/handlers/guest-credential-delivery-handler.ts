@@ -20,11 +20,13 @@ const deliveryTableName = process.env["GUEST_CREDENTIAL_DELIVERY_TABLE_NAME"];
 const sesFromAddress = process.env["SES_FROM_ADDRESS"];
 const sesConfigurationSet = process.env["SES_CONFIGURATION_SET"];
 const guestUploadBaseUrl = process.env["GUEST_UPLOAD_BASE_URL"];
+const failuresQueueUrl = process.env["GUEST_CREDENTIAL_DELIVERY_FAILURES_QUEUE_URL"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!deliveryTableName) throw new Error("GUEST_CREDENTIAL_DELIVERY_TABLE_NAME env var is required.");
 if (!sesFromAddress) throw new Error("SES_FROM_ADDRESS env var is required.");
 if (!sesConfigurationSet) throw new Error("SES_CONFIGURATION_SET env var is required.");
-const deps = buildGuestCredentialDeliveryDeps(client, tableName, deliveryTableName, sesFromAddress, sesConfigurationSet, guestUploadBaseUrl);
+if (!failuresQueueUrl) throw new Error("GUEST_CREDENTIAL_DELIVERY_FAILURES_QUEUE_URL env var is required.");
+const deps = buildGuestCredentialDeliveryDeps(client, tableName, deliveryTableName, sesFromAddress, sesConfigurationSet, failuresQueueUrl, guestUploadBaseUrl);
 const logger = new SecureLogger({ baseContext: { service: "guest-credential-delivery" } });
 
 function isDeliveryRecord(value: unknown): value is GuestCredentialDeliveryRecord {
@@ -51,7 +53,12 @@ export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatch
         await runWithContext({ correlationId: streamRecord.eventID ?? "unknown", tenantId: record.tenantId }, async () => {
           const outcome = await deliverGuestCredential(deps, record);
           logger.info("guest-credential-delivery outcome", { documentRequestId: record.documentRequestId, outcome: outcome.kind });
-          if (outcome.kind === "SEND_FAILED") batchItemFailures.push({ itemIdentifier: streamRecord.eventID ?? "" });
+          // D-233: SKIPPED_LEASE_ACTIVE must be retried like SEND_FAILED, never treated as a
+          // completed/successful invocation - it's how a redelivery keeps happening until the
+          // claim's lease expires and reconciles (see deliver.ts's header comment).
+          if (outcome.kind === "SEND_FAILED" || outcome.kind === "SKIPPED_LEASE_ACTIVE") {
+            batchItemFailures.push({ itemIdentifier: streamRecord.eventID ?? "" });
+          }
         });
       } catch (err) {
         logger.error("guest-credential-delivery failed", { eventID: streamRecord.eventID, error: err instanceof Error ? err.message : String(err) });

@@ -17,7 +17,7 @@ import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-a
 import { DocumentRequestCredentialIssuanceService } from "../../../src/modules/document-archive/application/document-request-credential-issuance-service.js";
 import { deliverGuestCredential, type GuestCredentialDeliveryDeps } from "../../../src/workers/guest-credential-delivery/deliver.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
-import type { GuestCredentialDeliveryMarkerStore } from "../../../src/modules/document-archive/ports/guest-credential-delivery-marker-store.js";
+import type { GuestCredentialDeliveryClaimResult, GuestCredentialDeliveryMarkerStore } from "../../../src/modules/document-archive/ports/guest-credential-delivery-marker-store.js";
 import type { EmailProviderAdapter, EmailSendInput } from "../../../src/modules/notification/ports/email-provider.js";
 import { guestCredentialDeliveryKey, type GuestCredentialDeliveryRecord } from "../../../src/modules/document-archive/domain/guest-credential-delivery.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -90,13 +90,29 @@ function makeArchiveService(store: InMemoryDocumentArchiveStore, ids: DocumentAr
   });
 }
 
+/** Minimal fake, sufficient for this e2e test's single-happy-path claim -> deliver flow (the
+ * full lease/reconciliation state machine has its own dedicated coverage in
+ * guest-credential-delivery-worker.test.ts, D-233). */
 class FakeMarkerStore implements GuestCredentialDeliveryMarkerStore {
-  private readonly claimed = new Set<string>();
-  async claim(documentRequestId: string, issuanceGeneration: number): Promise<boolean> {
+  private readonly claimed = new Map<string, "CLAIMED" | "DELIVERED">();
+  private nextClaimId = 0;
+  async claim(documentRequestId: string, issuanceGeneration: number): Promise<GuestCredentialDeliveryClaimResult> {
     const key = `${documentRequestId}#${issuanceGeneration}`;
-    if (this.claimed.has(key)) return false;
-    this.claimed.add(key);
-    return true;
+    const existing = this.claimed.get(key);
+    if (existing === "DELIVERED") return { outcome: "ALREADY_DELIVERED" };
+    if (existing === "CLAIMED") return { outcome: "LEASE_ACTIVE" };
+    const claimId = `claim-${++this.nextClaimId}`;
+    this.claimed.set(key, "CLAIMED");
+    return { outcome: "CLAIMED", claimId };
+  }
+  async markDelivered(documentRequestId: string, issuanceGeneration: number): Promise<void> {
+    this.claimed.set(`${documentRequestId}#${issuanceGeneration}`, "DELIVERED");
+  }
+  async releaseClaim(documentRequestId: string, issuanceGeneration: number): Promise<void> {
+    this.claimed.delete(`${documentRequestId}#${issuanceGeneration}`);
+  }
+  async markUncertain(): Promise<void> {
+    // Not exercised by this happy-path e2e test.
   }
 }
 
@@ -139,6 +155,7 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
       store,
       markerStore: new FakeMarkerStore(),
       emailProvider,
+      notifyUncertainDelivery: async () => {},
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
       now: () => "2026-01-01T00:06:00.000Z",
       newCorrelationId: () => "corr-delivery-1",
@@ -194,6 +211,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
       store,
       markerStore: new FakeMarkerStore(),
       emailProvider,
+      notifyUncertainDelivery: async () => {},
       guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
       now: () => "2026-01-01T00:06:00.000Z",
       newCorrelationId: () => "corr-delivery-2",
@@ -229,7 +247,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
 
     const emailProvider = new CapturingEmailProvider();
     const deliveryOutcome = await deliverGuestCredential(
-      { store, markerStore: new FakeMarkerStore(), emailProvider, guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-3" },
+      { store, markerStore: new FakeMarkerStore(), emailProvider, notifyUncertainDelivery: async () => {}, guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-3" },
       deliveryRecord!,
     );
     expect(deliveryOutcome.kind).toBe("SKIPPED_NO_RECIPIENT_EMAIL");

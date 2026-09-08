@@ -1,6 +1,7 @@
 /** Composition root for the document-archive module against real DynamoDB (D-143 Nucleus 1/2). */
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/persistence/dynamodb-document-archive-store.js";
 import { DocumentArchiveService } from "../../../modules/document-archive/application/document-archive-service.js";
@@ -125,10 +126,23 @@ export function buildGuestCredentialDeliveryDeps(
   deliveryTableName: string,
   sesFromAddress: string,
   sesConfigurationSet: string,
+  failuresQueueUrl: string,
   guestUploadBaseUrl = "https://app.example.invalid/guest/document-requests",
 ): GuestCredentialDeliveryDeps {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const markerStore = new DynamoDbGuestCredentialDeliveryMarkerStore(client, deliveryTableName);
   const emailProvider: EmailProviderAdapter = new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet);
-  return { store, markerStore, emailProvider, guestUploadBaseUrl, now: () => new Date().toISOString(), newCorrelationId: () => randomUUID() };
+  const sqs = new SQSClient({});
+  // D-233: alert-only channel for SEND_UNCERTAIN outcomes - reuses the SAME queue the Event
+  // Source Mapping's own on_failure destination already targets (infra/main.tf), metadata only,
+  // NEVER the raw token (mirrors that queue's own documented posture).
+  const notifyUncertainDelivery: GuestCredentialDeliveryDeps["notifyUncertainDelivery"] = async (alert) => {
+    await sqs.send(
+      new SendMessageCommand({
+        QueueUrl: failuresQueueUrl,
+        MessageBody: JSON.stringify({ reason: "SEND_UNCERTAIN", ...alert }),
+      }),
+    );
+  };
+  return { store, markerStore, emailProvider, notifyUncertainDelivery, guestUploadBaseUrl, now: () => new Date().toISOString(), newCorrelationId: () => randomUUID() };
 }

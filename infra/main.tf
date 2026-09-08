@@ -594,34 +594,55 @@ module "guest_credential_delivery_handler" {
   source_dir     = "${local.dist_dir}/guest-credential-delivery-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    GUEST_CREDENTIAL_DELIVERY_TABLE_NAME = module.guest_credential_delivery_table.table_name
-    SES_FROM_ADDRESS                     = var.ses_from_address
-    SES_CONFIGURATION_SET                = module.ses_notifications.configuration_set_name
+    GUEST_CREDENTIAL_DELIVERY_TABLE_NAME         = module.guest_credential_delivery_table.table_name
+    SES_FROM_ADDRESS                             = var.ses_from_address
+    SES_CONFIGURATION_SET                        = module.ses_notifications.configuration_set_name
+    GUEST_CREDENTIAL_DELIVERY_FAILURES_QUEUE_URL = aws_sqs_queue.guest_credential_delivery_failures.url
     # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado das
     # outras Lambdas que montam guestLink (D-047: sem domínio de frontend ainda).
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.guest_credential_delivery_table.stream_read_policy_json,
+    module.guest_credential_delivery_table.marker_write_policy_json, # D-233: claim/markDelivered/releaseClaim/markUncertain.
     data.aws_iam_policy_document.ses_send_email.json,
     data.aws_iam_policy_document.guest_credential_delivery_failures_send.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
 
+# D-233: SEC-R2-02 fix. Two changes from the original mapping:
+#  - filter_criteria now also matches on entityType - the marker's OWN Put/Update/Delete writes
+#    (D-233's new claim/lease mechanism) already generate stream INSERT/MODIFY events on this
+#    same table; without this filter they'd reach the handler, get classified "malformed" by
+#    isDeliveryRecord(), and inflate batchItemFailures/the failure queue with pure noise (a latent
+#    bug that predates D-233 too, since claim()'s original PutItem already wrote a marker row).
+#  - maximum_retry_attempts/maximum_record_age_in_seconds set to -1 (unlimited, bounded only by
+#    DynamoDB Streams' own native 24h retention) - a bounded retry count/age (the previous
+#    3/3600) could exhaust BEFORE the marker's 30s claim lease ever expires, leaving
+#    SKIPPED_LEASE_ACTIVE retries stuck with no path to the SEND_UNCERTAIN reconciliation
+#    deliver.ts relies on. The IteratorAge alarm below is the real backstop for a genuinely
+#    stuck/poison record - it fires in minutes, not after the 24h native retention discards it.
 resource "aws_lambda_event_source_mapping" "guest_credential_delivery_from_stream" {
   event_source_arn               = module.guest_credential_delivery_table.stream_arn
   function_name                  = module.guest_credential_delivery_handler.live_alias_arn
   starting_position              = "LATEST"
   batch_size                     = 5
   function_response_types        = ["ReportBatchItemFailures"]
-  maximum_retry_attempts         = 3
-  maximum_record_age_in_seconds  = 3600 # 1h - abandons a poison record rather than blocking the shard forever.
+  maximum_retry_attempts         = -1
+  maximum_record_age_in_seconds  = -1
   bisect_batch_on_function_error = true
 
   filter_criteria {
     filter {
-      pattern = jsonencode({ eventName = ["INSERT"] })
+      pattern = jsonencode({
+        eventName = ["INSERT"]
+        dynamodb = {
+          NewImage = {
+            entityType = { S = ["GuestCredentialDelivery"] }
+          }
+        }
+      })
     }
   }
 
@@ -630,6 +651,27 @@ resource "aws_lambda_event_source_mapping" "guest_credential_delivery_from_strea
       destination_arn = aws_sqs_queue.guest_credential_delivery_failures.arn
     }
   }
+}
+
+# D-233: real-time backstop replacing the "Errors alarm gives visibility" assumption that turned
+# out to be false - ReportBatchItemFailures means a retried record never surfaces as a Lambda
+# Errors metric, the invocation returns normally. IteratorAge is the correct signal: a record
+# stuck retrying (SKIPPED_LEASE_ACTIVE/SEND_FAILED looping) delays the shard's cursor immediately,
+# well before the stream's native 24h retention would silently discard it.
+resource "aws_cloudwatch_metric_alarm" "guest_credential_delivery_iterator_age" {
+  alarm_name          = "${local.name_prefix}-guest-credential-delivery-iterator-age"
+  namespace           = "AWS/Lambda"
+  metric_name         = "IteratorAge"
+  dimensions          = { FunctionName = module.guest_credential_delivery_handler.function_name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 300000 # 5 minutes in ms - far below the stream's 24h native retention.
+  comparison_operator = "GreaterThanThreshold"
+  alarm_description   = "guest-credential-delivery: stream cursor is falling behind - a record is being retried repeatedly (SKIPPED_LEASE_ACTIVE/SEND_FAILED) without converging to SENT/SEND_UNCERTAIN. Investigate before the stream's native 24h retention silently discards it."
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- API Gateway ---------------------------------------------------------------------------
