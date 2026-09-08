@@ -7,7 +7,7 @@
  * esses estados é exercida por este serviço.
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { subjectKey, type TrackedSubject } from "../domain/tracked-subject.js";
@@ -48,13 +48,14 @@ export class RequirementService {
   }
 
   async assignRequirement(ctx: RequestContext, subjectId: string, input: AssignRequirementInput): Promise<RequirementAssignment> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const tenantId = authorizedTenantId(ctx);
+    const subject = await this.readActiveSubject(tenantId, subjectId);
     authorize({ context: ctx, action: "requirement:assign", resource: { tenantId: subject.tenantId } });
 
     const assignmentId = this.ids.newAssignmentId();
     const now = this.now();
     const assignment: RequirementAssignment = {
-      ...requirementAssignmentKey(subject.tenantId, subjectId, assignmentId),
+      ...requirementAssignmentKey(tenantId, subjectId, assignmentId),
       entityType: "RequirementAssignment",
       assignmentId,
       subjectId,
@@ -85,16 +86,17 @@ export class RequirementService {
   }
 
   async getRequirementAssignment(ctx: RequestContext, subjectId: string, assignmentId: string): Promise<RequirementAssignment> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const assignment = await this.readActiveAssignment(authorizedTenantId(ctx), subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
     return assignment;
   }
 
   /** Query pela partição do subject (SK begins_with REQASSIGN#) — sem GSI novo. */
   async listRequirementAssignments(ctx: RequestContext, subjectId: string): Promise<RequirementAssignment[]> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const tenantId = authorizedTenantId(ctx);
+    const subject = await this.readActiveSubject(tenantId, subjectId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: subject.tenantId } });
-    const rows = await this.store.queryByPk<RequirementAssignment>(subjectKey(subject.tenantId, subjectId).PK, REQUIREMENT_ASSIGNMENT_SK_PREFIX);
+    const rows = await this.store.queryByPk<RequirementAssignment>(subjectKey(tenantId, subjectId).PK, REQUIREMENT_ASSIGNMENT_SK_PREFIX);
     return rows.filter((row) => !row.deletedAt);
   }
 
@@ -105,7 +107,8 @@ export class RequirementService {
     input: UpdateRequirementAssignmentInput,
     expectedVersion: number,
   ): Promise<RequirementAssignment> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:update", resource: { tenantId: assignment.tenantId } });
 
     const set: Record<string, unknown> = {};
@@ -126,7 +129,7 @@ export class RequirementService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: requirementAssignmentKey(assignment.tenantId, subjectId, assignmentId),
+          key: requirementAssignmentKey(tenantId, subjectId, assignmentId),
           tenantId: assignment.tenantId,
           expectedVersion,
           set,
@@ -149,7 +152,8 @@ export class RequirementService {
   /** MISSING -> SATISFIED, vinculando um ExpirationItem já existente (confirmado via
    * ExpirationItemLookup - nunca aceito só pelo itemId informado no request). */
   async linkExpirationItem(ctx: RequestContext, subjectId: string, assignmentId: string, itemId: string, expectedVersion: number): Promise<RequirementAssignment> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:review", resource: { tenantId: assignment.tenantId } });
 
     const exists = await this.itemLookup.itemExists(assignment.tenantId, itemId);
@@ -163,7 +167,7 @@ export class RequirementService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: requirementAssignmentKey(assignment.tenantId, subjectId, assignmentId),
+          key: requirementAssignmentKey(tenantId, subjectId, assignmentId),
           tenantId: assignment.tenantId,
           expectedVersion,
           set,
@@ -185,7 +189,8 @@ export class RequirementService {
 
   /** SATISFIED -> MISSING, desfazendo o vínculo (ex. item foi excluído/renovado incorretamente). */
   async unlinkExpirationItem(ctx: RequestContext, subjectId: string, assignmentId: string, expectedVersion: number): Promise<RequirementAssignment> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:review", resource: { tenantId: assignment.tenantId } });
 
     const set = { status: "MISSING" as const };
@@ -193,7 +198,7 @@ export class RequirementService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: requirementAssignmentKey(assignment.tenantId, subjectId, assignmentId),
+          key: requirementAssignmentKey(tenantId, subjectId, assignmentId),
           tenantId: assignment.tenantId,
           expectedVersion,
           set,
@@ -220,9 +225,10 @@ export class RequirementService {
    * `requirement:read` já que a submissão é evidência do próprio assignment, sem action
    * dedicada reservada de antemão (diferente de `document:read`, que já existia na matriz). */
   async getDocumentSubmission(ctx: RequestContext, subjectId: string, assignmentId: string, submissionId: string): Promise<DocumentSubmission> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
-    const submission = await this.store.get<DocumentSubmission>(documentSubmissionKey(assignment.tenantId, subjectId, assignmentId, submissionId));
+    const submission = await this.store.get<DocumentSubmission>(documentSubmissionKey(tenantId, subjectId, assignmentId, submissionId));
     if (!submission || submission.deletedAt) {
       throw new NotFoundError("DocumentSubmission not found.", { subjectId, assignmentId, submissionId });
     }
@@ -232,17 +238,19 @@ export class RequirementService {
   /** Query pela partição do subject (SK begins_with REQASSIGN#assignmentId#SUBMISSION#) —
    * sem GSI novo, mesmo padrão de listRequirementAssignments. */
   async listDocumentSubmissions(ctx: RequestContext, subjectId: string, assignmentId: string): Promise<DocumentSubmission[]> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
     const rows = await this.store.queryByPk<DocumentSubmission>(
-      subjectKey(assignment.tenantId, subjectId).PK,
+      subjectKey(tenantId, subjectId).PK,
       `${REQUIREMENT_ASSIGNMENT_SK_PREFIX}${assignmentId}#SUBMISSION#`,
     );
     return rows.filter((row) => !row.deletedAt);
   }
 
   async deleteRequirementAssignment(ctx: RequestContext, subjectId: string, assignmentId: string, expectedVersion: number): Promise<void> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:delete", resource: { tenantId: assignment.tenantId } });
 
     const now = this.now();
@@ -250,7 +258,7 @@ export class RequirementService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: requirementAssignmentKey(assignment.tenantId, subjectId, assignmentId),
+          key: requirementAssignmentKey(tenantId, subjectId, assignmentId),
           tenantId: assignment.tenantId,
           expectedVersion,
           set: { deletedAt: now },
@@ -284,7 +292,7 @@ export class RequirementService {
   ): void {
     const event = buildSubjectAuditEvent({
       auditEventId: this.ids.newAuditEventId(),
-      tenantId: ctx.tenant.tenantId,
+      tenantId: authorizedTenantId(ctx),
       resourceType: input.resourceType,
       resourceId: input.resourceId,
       subjectId: input.subjectId,
@@ -299,7 +307,7 @@ export class RequirementService {
     appendSubjectAuditToTransaction(entries, this.tableName, event);
   }
 
-  private async readActiveSubject(tenantId: string, subjectId: string): Promise<TrackedSubject> {
+  private async readActiveSubject(tenantId: AuthorizedTenantId, subjectId: string): Promise<TrackedSubject> {
     const subject = await this.store.get<TrackedSubject>(subjectKey(tenantId, subjectId));
     if (!subject || subject.status === "DELETED") {
       throw new NotFoundError("TrackedSubject not found.", { subjectId });
@@ -307,7 +315,7 @@ export class RequirementService {
     return subject;
   }
 
-  private async readActiveAssignment(tenantId: string, subjectId: string, assignmentId: string): Promise<RequirementAssignment> {
+  private async readActiveAssignment(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string): Promise<RequirementAssignment> {
     const assignment = await this.store.get<RequirementAssignment>(requirementAssignmentKey(tenantId, subjectId, assignmentId));
     if (!assignment || assignment.deletedAt) {
       throw new NotFoundError("RequirementAssignment not found.", { subjectId, assignmentId });

@@ -19,6 +19,7 @@
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { stableHash } from "../../reminder/domain/reminder-occurrence.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type DocumentChasingTier = "T7" | "T3" | "EXPIRED";
 export type DocumentChasingOccurrenceStatus = "SCHEDULED" | "CLAIMED" | "CANCELLED" | "TRIGGERED";
@@ -47,7 +48,7 @@ export interface DocumentChasingOccurrence extends EntityKey {
   GSI6SK?: string;
 }
 
-export function documentChasingOccurrenceKey(tenantId: string, subjectId: string, assignmentId: string, documentRequestId: string, scheduledAt: string, occurrenceId: string): EntityKey {
+export function documentChasingOccurrenceKey(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string, documentRequestId: string, scheduledAt: string, occurrenceId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQASSIGN#${assignmentId}#DOCREQ#${documentRequestId}#CHASING#${scheduledAt}#${occurrenceId}` };
 }
 
@@ -60,7 +61,7 @@ function minuteBucket(scheduledAtUtcIso: string): string {
 /** Mesma fórmula de shard/minuto de `reminder-occurrence.ts#gsi3Keys` (reaproveita `stableHash`,
  * nunca reimplementa) — só a forma da GSI3SK muda (`CHASING#` em vez de `OCCURRENCE#`), o
  * discriminador real que o producer usa para rotear cada linha lida do GSI3. */
-export function chasingGsi3Keys(input: { tenantId: string; occurrenceId: string; scheduledAt: string; shardCount: number }): { GSI3PK: string; GSI3SK: string; shard: string } {
+export function chasingGsi3Keys(input: { tenantId: AuthorizedTenantId; occurrenceId: string; scheduledAt: string; shardCount: number }): { GSI3PK: string; GSI3SK: string; shard: string } {
   const shardNum = stableHash(input.occurrenceId) % input.shardCount;
   const shard = String(shardNum).padStart(2, "0");
   return {
@@ -84,7 +85,7 @@ export function parseChasingGsi3Sk(gsi3sk: string): { tenantId: string; occurren
 /** WORKSTATE#CLAIMED é a MESMA constante global de `reconciliation-candidate-source.ts` —
  * reconciliação de claim-expiry já lê esse workstate para qualquer entityType (D-048/D-046: só
  * o tipo TypeScript de `reconcileExpiredClaims` precisa alargar, o mecanismo é idêntico). */
-export function buildChasingClaimGsi6Sk(claimExpiresAt: string, tenantId: string, occurrenceId: string): string {
+export function buildChasingClaimGsi6Sk(claimExpiresAt: string, tenantId: AuthorizedTenantId, occurrenceId: string): string {
   return `${claimExpiresAt}#TENANT#${tenantId}#CHASING#${occurrenceId}`;
 }
 
@@ -118,6 +119,6 @@ export interface DocumentChasingIntent extends EntityKey {
   updatedAt: string;
 }
 
-export function documentChasingIntentKey(tenantId: string, subjectId: string, assignmentId: string, documentRequestId: string, intentId: string): EntityKey {
+export function documentChasingIntentKey(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string, documentRequestId: string, intentId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQASSIGN#${assignmentId}#DOCREQ#${documentRequestId}#CHASINGINTENT#${intentId}` };
 }

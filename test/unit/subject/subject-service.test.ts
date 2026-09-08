@@ -2,9 +2,11 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemorySubjectStore, makeSubjectIdGenerator } from "./in-memory-store.js";
 import { SubjectService } from "../../../src/modules/subject/application/subject-service.js";
 import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError } from "../../../src/shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { DEFAULT_ACTIVE_TRACKED_SUBJECTS_LIMIT, entitlementKey } from "../../../src/modules/subject/domain/entitlement.js";
+
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -35,7 +37,7 @@ describe("SubjectService", () => {
     expect(subject.GSI7PK).toBe("TENANT#tenant-1#SUBJECTSTATUS#ACTIVE");
 
     const entitlement = await store.get<{ PK: string; SK: string; activeTrackedSubjectsCount: number; activeTrackedSubjectsLimit: number }>(
-      entitlementKey("tenant-1"),
+      entitlementKey(AUTH_TENANT),
     );
     expect(entitlement?.activeTrackedSubjectsCount).toBe(1);
     expect(entitlement?.activeTrackedSubjectsLimit).toBe(DEFAULT_ACTIVE_TRACKED_SUBJECTS_LIMIT);
@@ -78,12 +80,12 @@ describe("SubjectService", () => {
 
   it("archiveSubject releases 1 entitlement slot in the same transaction as the status change", async () => {
     const subject = await service.createSubject(ctx(), { type: "VENDOR", displayName: "a" });
-    let entitlement = await store.get<{ PK: string; SK: string; activeTrackedSubjectsCount: number }>(entitlementKey("tenant-1"));
+    let entitlement = await store.get<{ PK: string; SK: string; activeTrackedSubjectsCount: number }>(entitlementKey(AUTH_TENANT));
     expect(entitlement?.activeTrackedSubjectsCount).toBe(1);
 
     await service.archiveSubject(ctx(), subject.subjectId, subject.version);
 
-    entitlement = await store.get<{ PK: string; SK: string; activeTrackedSubjectsCount: number }>(entitlementKey("tenant-1"));
+    entitlement = await store.get<{ PK: string; SK: string; activeTrackedSubjectsCount: number }>(entitlementKey(AUTH_TENANT));
     expect(entitlement?.activeTrackedSubjectsCount).toBe(0);
 
     const archived = await store.get<{ PK: string; SK: string; status: string }>({ PK: `TENANT#tenant-1#SUBJECT#${subject.subjectId}`, SK: "META" });

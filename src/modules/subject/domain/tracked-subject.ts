@@ -19,6 +19,7 @@
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { normalizeDisplayName } from "../../../shared/text/normalize-display-name.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export { normalizeDisplayName };
 
@@ -54,14 +55,14 @@ export interface TrackedSubject extends EntityKey {
   GSI7SK: string;
 }
 
-export function subjectKey(tenantId: string, subjectId: string): { PK: string; SK: "META" } {
+export function subjectKey(tenantId: AuthorizedTenantId, subjectId: string): { PK: string; SK: "META" } {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: "META" };
 }
 
 /** GSI7 — listagem de subjects por status/tipo/nome (03-domain-model-...md, cluster 1,
  * rodada 2: escopo único, não misturado com nenhum outro access pattern). */
 export function gsi7Keys(
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   status: TrackedSubjectStatus,
   type: TrackedSubjectType,
   displayNameNormalized: string,
@@ -89,7 +90,7 @@ export interface SubjectExternalIdPointer extends EntityKey {
   version: number;
 }
 
-export function subjectExternalIdPointerKey(tenantId: string, externalId: string): { PK: string; SK: "POINTER" } {
+export function subjectExternalIdPointerKey(tenantId: AuthorizedTenantId, externalId: string): { PK: string; SK: "POINTER" } {
   return { PK: `TENANT#${tenantId}#SUBJECTEXTID#${externalId}`, SK: "POINTER" };
 }
 

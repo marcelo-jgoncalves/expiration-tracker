@@ -26,6 +26,7 @@
  */
 import { subjectExternalIdPointerKey, subjectKey, type SubjectExternalIdPointer, type TrackedSubject } from "../../subject/domain/tracked-subject.js";
 import type { SubjectStore } from "../../subject/ports/subject-store.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type SubjectReferenceKind = "EXTERNAL_ID" | "SUBJECT_ID";
 
@@ -47,7 +48,7 @@ export type SubjectReferenceResolution =
  */
 export async function resolveSubjectReferences(
   subjectStore: SubjectStore,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   refKind: SubjectReferenceKind,
   rawValues: readonly string[],
 ): Promise<Map<string, SubjectReferenceResolution>> {

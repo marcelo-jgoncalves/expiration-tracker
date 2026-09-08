@@ -8,8 +8,10 @@ import { importJobKey, buildImportJobClaim, DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPI
 import { importDedupKey, type ImportDedupRecord } from "../../../src/modules/import/domain/import-dedup.js";
 import { gsi7Keys } from "../../../src/modules/subject/domain/tracked-subject.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "tenant-1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const JOB_ID = "job-1";
 const RAW_BUCKET = "raw-bucket";
 const PLAN_BUCKET = "plan-bucket";
@@ -125,7 +127,7 @@ describe("parseImportJob (M11, D-042)", () => {
       createdAt: NOW,
       updatedAt: NOW,
       version: 1,
-      ...gsi7Keys(TENANT, "ACTIVE", "VENDOR", "acme ltda", "existing-1"),
+      ...gsi7Keys(AUTH_TENANT, "ACTIVE", "VENDOR", "acme ltda", "existing-1"),
     });
     objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, "displayName,type\nACME Ltda,VENDOR\n");
 

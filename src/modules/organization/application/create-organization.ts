@@ -37,6 +37,7 @@ import { organizationKey, type Organization } from "../domain/organization.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export interface CreateOrganizationInput {
   creatorUserId: string;
@@ -118,7 +119,10 @@ export class CreateOrganizationService {
       version: 1,
     };
 
-    const entitlement = defaultEntitlement(organizationId, now);
+    // `organizationId` here is a fresh, server-generated id (this.ids.newOrganizationId()) - never
+    // client-supplied - the same trust provenance authorizedTenantIdFromPersistedEntity() exists
+    // for, even though this call site constructs the entity rather than reading one back.
+    const entitlement = defaultEntitlement(authorizedTenantIdFromPersistedEntity({ tenantId: organizationId }), now);
 
     const entries: TransactWriteEntry[] = [
       { Put: buildVersionedCreate(this.tableName, organization as unknown as Record<string, unknown> & { PK: string; SK: string }) },

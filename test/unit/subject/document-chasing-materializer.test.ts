@@ -3,12 +3,14 @@ import { InMemorySubjectStore } from "./in-memory-store.js";
 import { DocumentChasingMaterializer } from "../../../src/modules/subject/application/document-chasing-materializer.js";
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import type { DocumentChasingOccurrence } from "../../../src/modules/subject/domain/document-chasing.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const NOW = "2026-08-23T12:00:00.000Z";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 
 function baseInput(overrides: Partial<Parameters<DocumentChasingMaterializer["materialize"]>[0]> = {}) {
   return {
-    tenantId: "tenant-1",
+    tenantId: AUTH_TENANT,
     subjectId: "subject-1",
     assignmentId: "assignment-1",
     documentRequestId: "docreq-1",

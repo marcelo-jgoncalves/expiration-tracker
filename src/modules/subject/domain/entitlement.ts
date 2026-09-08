@@ -11,6 +11,7 @@
  * SEMPRE mudam juntos ou nenhum muda.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export const DEFAULT_PLAN_ID = "free";
 /** Referência de mercado real (02-market-research.md): bcs oferece 25 vendors grátis, sem
@@ -30,11 +31,11 @@ export interface TenantEntitlement extends EntityKey {
   version: number;
 }
 
-export function entitlementKey(tenantId: string): { PK: string; SK: "PLAN" } {
+export function entitlementKey(tenantId: AuthorizedTenantId): { PK: string; SK: "PLAN" } {
   return { PK: `TENANT#${tenantId}#ENTITLEMENT`, SK: "PLAN" };
 }
 
-export function defaultEntitlement(tenantId: string, now: string): TenantEntitlement {
+export function defaultEntitlement(tenantId: AuthorizedTenantId, now: string): TenantEntitlement {
   return {
     ...entitlementKey(tenantId),
     entityType: "TenantEntitlement",

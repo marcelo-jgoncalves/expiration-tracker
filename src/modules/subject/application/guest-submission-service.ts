@@ -19,6 +19,7 @@ import type { GuestRateLimiter } from "./guest-rate-limiter.js";
 import { MAX_UPLOAD_BYTES } from "../../document/application/upload-validation.js";
 import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
 import { sanitizeTenantText } from "../../notification/providers/email-templates.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 const ALLOWED_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const PRESIGN_TTL_SECONDS = 600;
@@ -109,7 +110,7 @@ export class GuestSubmissionService {
   async getRequestInfo(rawToken: string): Promise<GuestRequestInfo> {
     const resolved = await this.resolveToken(rawToken);
     const assignment = await this.store.get<RequirementAssignment>(
-      requirementAssignmentKey(resolved.request.tenantId, resolved.request.subjectId, resolved.request.assignmentId),
+      requirementAssignmentKey(authorizedTenantIdFromPersistedEntity(resolved.request), resolved.request.subjectId, resolved.request.assignmentId),
     );
     if (!assignment || assignment.deletedAt) throw new GuestTokenInvalidError();
 
@@ -141,7 +142,8 @@ export class GuestSubmissionService {
       throw new ValidationError("checksumSha256 must be a 64-character hex SHA-256 digest.");
     }
 
-    const { tenantId, subjectId, assignmentId, documentRequestId } = resolved.pointer;
+    const { subjectId, assignmentId, documentRequestId } = resolved.pointer;
+    const tenantId = authorizedTenantIdFromPersistedEntity(resolved.pointer);
     const submissionId = this.ids.newSubmissionId();
     const now = this.now();
     const expiresAt = new Date(Date.parse(now) + PRESIGN_TTL_SECONDS * 1000).toISOString();
@@ -249,7 +251,7 @@ export class GuestSubmissionService {
     if (pointer.revokedAt) throw new GuestTokenInvalidError();
     if (pointer.expiresAt < this.now()) throw new GuestTokenInvalidError();
 
-    const request = await this.store.get<DocumentRequest>(documentRequestKey(pointer.tenantId, pointer.subjectId, pointer.assignmentId, pointer.documentRequestId));
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.assignmentId, pointer.documentRequestId));
     if (!request || request.status === "CANCELLED" || request.status === "REVOKED" || request.status === "EXPIRED") {
       throw new GuestTokenInvalidError();
     }
@@ -267,7 +269,7 @@ export class GuestSubmissionService {
         {
           Update: buildVersionedUpdate({
             tableName: this.tableName,
-            key: documentRequestKey(request.tenantId, request.subjectId, request.assignmentId, request.documentRequestId),
+            key: documentRequestKey(authorizedTenantIdFromPersistedEntity(request), request.subjectId, request.assignmentId, request.documentRequestId),
             tenantId: request.tenantId,
             expectedVersion: request.version,
             set: { status: "OPENED", lastOpenedAt: this.now() },

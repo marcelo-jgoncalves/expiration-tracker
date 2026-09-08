@@ -10,6 +10,7 @@ import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportR
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { defaultEntitlement, type TenantEntitlement } from "../../../src/modules/subject/domain/entitlement.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function makeDocumentArchiveIds(): DocumentArchiveIdGenerator {
   let n = 0;
@@ -31,6 +32,7 @@ function makeDocumentArchiveIds(): DocumentArchiveIdGenerator {
 }
 
 const TENANT = "tenant-1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const JOB_ID = "job-1";
 const PLAN_BUCKET = "plan-bucket";
 const NOW = "2026-08-23T12:00:00.000Z";
@@ -164,7 +166,7 @@ describe("commitImportJob (M11, D-042)", () => {
   });
 
   it("stops fail-fast on entitlement exceeded, without processing the remaining rows", async () => {
-    await subjectStore.putIfAbsent<TenantEntitlement>({ ...defaultEntitlement(TENANT, NOW), activeTrackedSubjectsLimit: 1 });
+    await subjectStore.putIfAbsent<TenantEntitlement>({ ...defaultEntitlement(AUTH_TENANT, NOW), activeTrackedSubjectsLimit: 1 });
     await seedPlan([planEntry(1), planEntry(2), planEntry(3)]);
 
     const outcome = await commitImportJob(deps(), ctx(), JOB_ID);

@@ -13,6 +13,7 @@ import type { DocumentObjectStore } from "../../document/ports/document-object-s
 import { documentSubmissionKey, type DocumentSubmission } from "../domain/document-submission.js";
 import type { SubjectStore, TransactWriteEntry } from "../ports/subject-store.js";
 import { tryTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export interface AdvanceAfterSubmissionEvidenceDeps {
   store: SubjectStore;
@@ -27,7 +28,7 @@ const MAX_OCC_RETRIES = 10;
 
 export async function advanceAfterSubmissionEvidence(
   deps: AdvanceAfterSubmissionEvidenceDeps,
-  input: { tenantId: string; subjectId: string; assignmentId: string; submissionId: string; expectedObject: { bucket: string; key: string; versionId: string } },
+  input: { tenantId: AuthorizedTenantId; subjectId: string; assignmentId: string; submissionId: string; expectedObject: { bucket: string; key: string; versionId: string } },
 ): Promise<AdvanceSubmissionOutcome> {
   for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
     const key = documentSubmissionKey(input.tenantId, input.subjectId, input.assignmentId, input.submissionId);

@@ -211,7 +211,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
 
       const distinctSubjectRefs = [...new Set([...validatedByRow.values()].map((r) => r.subjectRef))];
       const distinctDocumentTypeRefs = [...new Set([...validatedByRow.values()].map((r) => r.documentTypeRef))];
-      const subjectResolutions = await resolveSubjectReferences(deps.subjectStore, tenantId, columns.subjectRefKind, distinctSubjectRefs);
+      const subjectResolutions = await resolveSubjectReferences(deps.subjectStore, authorizedTenantIdFromPersistedEntity({ tenantId }), columns.subjectRefKind, distinctSubjectRefs);
       // `tenantId` here is this worker's own SQS-derived parameter, server-authored (never
       // client input) same as the rest of this file's writes — see this module's other
       // document-archive call sites for the same provenance discipline.
@@ -269,7 +269,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
       }
 
       const distinctSubjectRefs = [...new Set([...validatedByRow.values()].map((r) => r.subjectRef))];
-      const subjectResolutions = await resolveSubjectReferences(deps.subjectStore, tenantId, columns.subjectRefKind, distinctSubjectRefs);
+      const subjectResolutions = await resolveSubjectReferences(deps.subjectStore, authorizedTenantIdFromPersistedEntity({ tenantId }), columns.subjectRefKind, distinctSubjectRefs);
 
       for (const row of validatedByRow.values()) {
         const subjectResolution = subjectResolutions.get(row.subjectRef);

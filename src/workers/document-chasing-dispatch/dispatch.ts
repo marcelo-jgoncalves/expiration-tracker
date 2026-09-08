@@ -34,6 +34,7 @@ import type { SubjectStore } from "../../modules/subject/ports/subject-store.js"
 import type { EmailProviderAdapter } from "../../modules/notification/ports/email-provider.js";
 import { sanitizeTenantText } from "../../modules/notification/providers/email-templates.js";
 import type { ChasingDispatchCommand } from "../../modules/subject/application/document-chasing-producer.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 
 const ACTIVE_REQUEST_STATUSES = new Set(["REQUESTED", "OPENED"]);
 
@@ -77,7 +78,10 @@ async function markIntentOutcome(store: SubjectStore, intent: DocumentChasingInt
 }
 
 export async function dispatchChasingOccurrence(deps: ChasingDispatchDeps, command: ChasingDispatchCommand): Promise<ChasingDispatchOutcome> {
-  const { tenantId } = command;
+  // command.tenantId is server-authored - the sole producer is claimChasingOccurrence()
+  // (document-chasing-producer.ts), never client input - same provenance discipline as the
+  // reminder-dispatch worker's own command.tenantId handling (D-238).
+  const tenantId = authorizedTenantIdFromPersistedEntity(command);
   // occurrenceVersion não é revalidado aqui - mesma convenção de reminder-dispatch/dispatch.ts,
   // que também nunca usa esse campo do comando; a staleness real da OCORRÊNCIA em si já é
   // coberta pela checagem de status (CLAIMED) e pela condição OCC do próprio buildVersionedUpdate

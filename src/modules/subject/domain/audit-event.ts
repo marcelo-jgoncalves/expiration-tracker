@@ -9,6 +9,7 @@ import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type SubjectAuditAction =
   | "CREATE"
@@ -53,13 +54,13 @@ function monthShard(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 7).replace("-", "");
 }
 
-export function subjectAuditKey(tenantId: string, occurredAt: string, auditEventId: string): EntityKey {
+export function subjectAuditKey(tenantId: AuthorizedTenantId, occurredAt: string, auditEventId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECTAUDIT#${monthShard(occurredAt)}`, SK: `EVT#${occurredAt}#${auditEventId}` };
 }
 
 export interface BuildSubjectAuditEventInput {
   auditEventId: string;
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   resourceType: SubjectAuditResourceType;
   resourceId: string;
   subjectId: string;

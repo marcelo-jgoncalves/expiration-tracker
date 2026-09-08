@@ -6,14 +6,16 @@ import { documentSubmissionKey, type DocumentSubmission } from "../../../src/mod
 import type { DocumentObjectStore } from "../../../src/modules/document/ports/document-object-store.js";
 import type { SubjectStore } from "../../../src/modules/subject/ports/subject-store.js";
 import type { PdfParser } from "../../../src/modules/document/ports/pdf-parser.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 const TABLE = "MainTable";
 const CLEAN_BUCKET = "clean-bucket";
 const OBJECT = { bucket: "quarantine-bucket", key: "quarantine/sub1/slot1/abc", versionId: "v1" };
 
 function baseSubmission(overrides: Partial<DocumentSubmission> = {}): DocumentSubmission {
   return {
-    ...documentSubmissionKey("t1", "subject1", "assign1", "sub1"),
+    ...documentSubmissionKey(AUTH_TENANT, "subject1", "assign1", "sub1"),
     entityType: "DocumentSubmission",
     submissionId: "sub1",
     tenantId: "t1",
@@ -46,7 +48,7 @@ function fakeObjects(overrides: Partial<DocumentObjectStore> = {}): DocumentObje
   };
 }
 
-const INPUT_BASE = { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", object: OBJECT };
+const INPUT_BASE = { tenantId: AUTH_TENANT, subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", object: OBJECT };
 
 describe("finalizeSubmissionUpload", () => {
   it("confirms and transitions to SCANNING on a valid matching object", async () => {
@@ -57,7 +59,7 @@ describe("finalizeSubmissionUpload", () => {
       INPUT_BASE,
     );
     expect(outcome).toBe("CONFIRMED");
-    const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+    const submission = (await store.get(documentSubmissionKey(AUTH_TENANT, "subject1", "assign1", "sub1"))) as DocumentSubmission;
     expect(submission.status).toBe("SCANNING");
     expect(submission.uploadEvidence?.valid).toBe(true);
   });
@@ -68,7 +70,7 @@ describe("finalizeSubmissionUpload", () => {
     const badObjects = fakeObjects({ headObject: async () => ({ contentLength: 999, mediaType: "application/pdf", checksumSha256: "a".repeat(64) }) });
     const outcome = await finalizeSubmissionUpload({ store, objects: badObjects, parser: fakeParser(), tableName: TABLE, cleanBucket: CLEAN_BUCKET }, INPUT_BASE);
     expect(outcome).toBe("REJECTED_INVALID");
-    const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+    const submission = (await store.get(documentSubmissionKey(AUTH_TENANT, "subject1", "assign1", "sub1"))) as DocumentSubmission;
     expect(submission.status).toBe("REJECTED");
   });
 
@@ -150,7 +152,7 @@ describe("finalizeSubmissionUpload", () => {
         INPUT_BASE,
       );
       expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
-      const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+      const submission = (await store.get(documentSubmissionKey(AUTH_TENANT, "subject1", "assign1", "sub1"))) as DocumentSubmission;
       expect(submission.status).toBe("PENDING_UPLOAD");
       expect(submission.version).toBe(1);
       expect(submission.uploadEvidence).toBeUndefined();
@@ -169,7 +171,7 @@ describe("finalizeSubmissionUpload", () => {
       );
       const outcome = await advanceAfterSubmissionEvidence(
         { store, objects: fakeObjects(), tableName: TABLE, cleanBucket: CLEAN_BUCKET },
-        { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+        { tenantId: AUTH_TENANT, subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
       );
       expect(outcome).toBe("PROMOTED");
     });
@@ -191,10 +193,10 @@ describe("finalizeSubmissionUpload", () => {
           tableName: TABLE,
           cleanBucket: CLEAN_BUCKET,
         },
-        { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+        { tenantId: AUTH_TENANT, subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
       );
       expect(outcome).toBe("IGNORED_TENANT_NOT_ACTIVE");
-      const submission = (await store.get(documentSubmissionKey("t1", "subject1", "assign1", "sub1"))) as DocumentSubmission;
+      const submission = (await store.get(documentSubmissionKey(AUTH_TENANT, "subject1", "assign1", "sub1"))) as DocumentSubmission;
       expect(submission.status).toBe("SCANNING");
       expect(submission.version).toBe(1);
       expect(submission.cleanObject).toBeUndefined();
@@ -225,7 +227,7 @@ describe("finalizeSubmissionUpload", () => {
             tableName: TABLE,
             cleanBucket: CLEAN_BUCKET,
           },
-          { tenantId: "t1", subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
+          { tenantId: AUTH_TENANT, subjectId: "subject1", assignmentId: "assign1", submissionId: "sub1", expectedObject: OBJECT },
         ),
       ).rejects.toThrow(/verification failed/);
       expect(deletedVersions).toHaveLength(1);

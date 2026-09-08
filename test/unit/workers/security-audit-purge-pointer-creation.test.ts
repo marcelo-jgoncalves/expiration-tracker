@@ -53,7 +53,7 @@ describe("GSI8 pointer written at creation for every AuditEvent-family entity (D
   it("buildSubjectAuditEvent stamps the pointer", () => {
     const event = buildSubjectAuditEvent({
       auditEventId: "evt-3",
-      tenantId: "tenant-1",
+      tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" }),
       resourceType: "TrackedSubject",
       resourceId: "subject-1",
       subjectId: "subject-1",

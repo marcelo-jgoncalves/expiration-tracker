@@ -38,7 +38,7 @@ function ctx(): RequestContext {
 async function materializeOneChasingOccurrence(store: InMemoryReminderStore, now: () => string, tokenExpiresAt: string): Promise<DocumentChasingOccurrence> {
   const materializer = new DocumentChasingMaterializer(store, now);
   const result = await materializer.materialize({
-    tenantId: TENANT,
+    tenantId: AUTH_TENANT,
     subjectId: "subject-1",
     assignmentId: "assignment-1",
     documentRequestId: "docreq-1",

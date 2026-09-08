@@ -6,6 +6,7 @@ import { membershipKey, type Membership } from "../../../src/modules/organizatio
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { entitlementKey, type TenantEntitlement } from "../../../src/modules/subject/domain/entitlement.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 let counter = 0;
 function makeIds() {
@@ -44,7 +45,7 @@ describe("CreateOrganizationService", () => {
     const lifecycle = await store.get<TenantLifecycleRecord>(tenantLifecycleKey(organization.organizationId));
     expect(lifecycle?.status).toBe("ACTIVE");
 
-    const entitlement = await store.get<TenantEntitlement>(entitlementKey(organization.organizationId));
+    const entitlement = await store.get<TenantEntitlement>(entitlementKey(authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId })));
     expect(entitlement).toBeDefined();
     expect(entitlement?.planId).toBe("free");
   });

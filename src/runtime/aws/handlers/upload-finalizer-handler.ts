@@ -120,7 +120,9 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
 
         await runWithContext({ correlationId: randomUUID(), tenantId: parsedSubmission.tenantId }, async () => {
           const outcome = await finalizeSubmissionUpload(submissionDeps, {
-            tenantId: parsedSubmission.tenantId,
+            // Same S3-object-key provenance as the document-archive branch above -
+            // parsed from a key our own upload-reservation code wrote, not client input.
+            tenantId: authorizedTenantIdFromPersistedEntity(parsedSubmission),
             subjectId: parsedSubmission.subjectId,
             assignmentId: parsedSubmission.assignmentId,
             submissionId: parsedSubmission.submissionId,
