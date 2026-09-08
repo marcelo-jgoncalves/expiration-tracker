@@ -18,85 +18,15 @@ output "dispatch_queue_dlq_url" {
   value = module.dispatch_queue.dlq_url
 }
 
-output "lambda_function_names" {
-  value = [
-    module.test_ping_handler.function_name,
-    module.items_handler.function_name,
-    module.reminders_handler.function_name,
-    module.reminder_producer.function_name,
-    module.reminder_dispatch.function_name,
-    module.reminder_reconciliation.function_name,
-    module.reminder_materialization_trigger.function_name,
-    module.dispatch_outbox_relay.function_name,
-    module.outbox_sweeper.function_name,
-    module.notification_router.function_name,
-    module.notification_email_outbox_relay.function_name,
-    module.email_delivery.function_name,
-    module.notification_whatsapp_outbox_relay.function_name,
-    module.whatsapp_delivery.function_name,
-    module.ses_callback.function_name,
-    module.notifications_handler.function_name,
-    module.documents_handler.function_name,
-    module.upload_finalizer_handler.function_name,
-    module.malware_result_handler.function_name,
-    module.upload_slot_reconciliation_handler.function_name,
-    module.parser_sandbox.function_name,
-    module.subjects_handler.function_name,
-    module.guest_documents_handler.function_name,
-    module.document_chasing_dispatch_handler.function_name,
-    module.imports_handler.function_name,
-    module.import_parse_handler.function_name,
-    module.import_commit_handler.function_name,
-    module.bff_handler.function_name,
-    module.extraction_starter_handler.function_name,
-    module.textract_task_handler.function_name,
-    module.pdf_parser_task_handler.function_name,
-    module.bedrock_extraction_task_handler.function_name,
-    module.extraction_validation_task_handler.function_name,
-    module.document_purge_handler.function_name,
-  ]
-}
-
-# Rollback design entrega 1 (docs/architecture/reviews/rollback-mechanism-design/
-# codex-round2-final-design.md): `cd.yml` reads this map to build the deploy manifest
-# (function_name -> published version + live alias name) - not sensitive, no PII/secrets.
-output "lambda_published_versions" {
-  value = {
-    (module.test_ping_handler.function_name)                  = module.test_ping_handler.published_version
-    (module.items_handler.function_name)                      = module.items_handler.published_version
-    (module.reminders_handler.function_name)                  = module.reminders_handler.published_version
-    (module.reminder_producer.function_name)                  = module.reminder_producer.published_version
-    (module.reminder_dispatch.function_name)                  = module.reminder_dispatch.published_version
-    (module.reminder_reconciliation.function_name)            = module.reminder_reconciliation.published_version
-    (module.reminder_materialization_trigger.function_name)   = module.reminder_materialization_trigger.published_version
-    (module.dispatch_outbox_relay.function_name)              = module.dispatch_outbox_relay.published_version
-    (module.outbox_sweeper.function_name)                     = module.outbox_sweeper.published_version
-    (module.notification_router.function_name)                = module.notification_router.published_version
-    (module.notification_email_outbox_relay.function_name)    = module.notification_email_outbox_relay.published_version
-    (module.email_delivery.function_name)                     = module.email_delivery.published_version
-    (module.notification_whatsapp_outbox_relay.function_name) = module.notification_whatsapp_outbox_relay.published_version
-    (module.whatsapp_delivery.function_name)                  = module.whatsapp_delivery.published_version
-    (module.ses_callback.function_name)                       = module.ses_callback.published_version
-    (module.notifications_handler.function_name)              = module.notifications_handler.published_version
-    (module.documents_handler.function_name)                  = module.documents_handler.published_version
-    (module.upload_finalizer_handler.function_name)           = module.upload_finalizer_handler.published_version
-    (module.malware_result_handler.function_name)             = module.malware_result_handler.published_version
-    (module.upload_slot_reconciliation_handler.function_name) = module.upload_slot_reconciliation_handler.published_version
-    (module.parser_sandbox.function_name)                     = module.parser_sandbox.published_version
-    (module.subjects_handler.function_name)                   = module.subjects_handler.published_version
-    (module.guest_documents_handler.function_name)            = module.guest_documents_handler.published_version
-    (module.document_chasing_dispatch_handler.function_name)  = module.document_chasing_dispatch_handler.published_version
-    (module.imports_handler.function_name)                    = module.imports_handler.published_version
-    (module.import_parse_handler.function_name)               = module.import_parse_handler.published_version
-    (module.import_commit_handler.function_name)              = module.import_commit_handler.published_version
-    (module.bff_handler.function_name)                        = module.bff_handler.published_version
-    (module.extraction_starter_handler.function_name)         = module.extraction_starter_handler.published_version
-    (module.textract_task_handler.function_name)              = module.textract_task_handler.published_version
-    (module.pdf_parser_task_handler.function_name)            = module.pdf_parser_task_handler.published_version
-    (module.bedrock_extraction_task_handler.function_name)    = module.bedrock_extraction_task_handler.published_version
-    (module.extraction_validation_task_handler.function_name) = module.extraction_validation_task_handler.published_version
-  }
-}
+# `lambda_function_names` and `lambda_published_versions` (rollback design entrega 1 - docs/
+# architecture/reviews/rollback-mechanism-design/codex-round2-final-design.md; `cd.yml` reads the
+# latter to build the deploy manifest, function_name -> published version + live alias name - not
+# sensitive, no PII/secrets) moved to infra/lambda-manifest.generated.tf (E-020/D-232): they used to
+# be hand-maintained here and silently fell behind as infra/main.tf grew (61 real Lambda modules
+# today, only 33-34 ever made it into these two lists). That file is generated by `npm run
+# generate:lambda-manifest` from every `module "*" { source = "./modules/lambda-function" }` block
+# across infra/*.tf - never edit it by hand, `npm run check:lambda-manifest` (CI-blocking) enforces
+# that it can never drift again.
 
 output "textract_task_handler_function_arn" {
   description = "Live-alias ARN of TextractTaskHandler - item 3's infra/modules/extraction-workflow module needs this once it's finally instantiated (currently still uninstantiated from infra/main.tf, see NEXT_SESSION_PROMPT.md)."

@@ -82,6 +82,14 @@ jobs:
         # not relying on a 4th human pass to catch the next one.
         run: npm run check-docs
 
+      - name: Check Lambda manifest is up to date (E-020/D-232)
+        # scripts/generate-lambda-manifest.ts derives infra/lambda-manifest.generated.tf from
+        # every module in infra/*.tf using the lambda-function source - this is the check that
+        # makes it structurally impossible for the deploy manifest / rollback mechanism
+        # (.github/workflows/rollback.yml) to silently fall behind infra/main.tf again, the way
+        # it did (34 covered vs. 61 real Lambdas) before this fix.
+        run: npm run check:lambda-manifest
+
       - name: Check dependency freshness (D-139/D-148)
         # docs/engineering/dependency-freshness-standard.md - closes the exact gap that let
         # D-137 pass unnoticed (Lambda runtime pinned past AWS's own deprecation date, found
