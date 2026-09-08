@@ -3,6 +3,7 @@
   "$id": "https://expiration-tracker/schemas/api/webhook-inbox.v1.json",
   "title": "WebhookInbox v1",
   "description": "Persisted shape for provider webhook callbacks (implementation-blueprint.md #11.1, data-model.md). PK+SK is the idempotency key.",
+  "$comment": "KNOWN PRE-EXISTING DRIFT (found during D-197 fatia 3/5, not introduced by it, not resolved by it - out of scope for that fatia, a separate follow-up item): this schema does not match the real shape `ses-callback-workflow.ts` persists today (that code writes tenantId/attemptId/intentId/providerMessageId/occurredAt/createdAt/GSI8PK/GSI8SK directly, with processingStatus in {PROCESSING,PROCESSED,UNMATCHED} - not the signatureVerified/nonceHash/normalizedPayload envelope or the PENDING/PROCESSED/FAILED enum this file declares), and nothing on the real write path calls schema-validator against this $id (verified: no `defaultSchemaRegistry.validate` call references webhook-inbox.v1.json outside `test/contract/schemas.test.ts`). Only the `purgeScope`/`tenantId`/`accountId` union added below is asserted to be accurate for D-197 fatia 3/5's own new field.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,6 +18,7 @@
     "receivedAt",
     "normalizedPayload",
     "processingStatus",
+    "purgeScope",
     "version"
   ],
   "properties": {
@@ -42,6 +44,24 @@
       }
     },
     "processingStatus": { "enum": ["PENDING", "PROCESSED", "FAILED"] },
+    "purgeScope": {
+      "description": "D-197 fatia 3/5 (Claude<->Codex protocol, 4 rounds, both final notes >=9.0). Immutable, written once at creation - transient-purge/purge.ts's ONLY source of truth for which fencing modality applies (never inferred from the GSI8 pointer/namespace, which is discovery-only and eventually consistent).",
+      "enum": ["TENANT", "ACCOUNT"]
+    },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
     "version": { "type": "integer", "minimum": 1 }
-  }
+  },
+  "oneOf": [
+    {
+      "properties": { "purgeScope": { "const": "TENANT" }, "tenantId": { "type": "string" } },
+      "required": ["tenantId"],
+      "not": { "properties": { "accountId": { "type": "string" } }, "required": ["accountId"] }
+    },
+    {
+      "properties": { "purgeScope": { "const": "ACCOUNT" }, "accountId": { "type": "string" } },
+      "required": ["accountId"],
+      "not": { "properties": { "tenantId": { "type": "string" } }, "required": ["tenantId"] }
+    }
+  ]
 }

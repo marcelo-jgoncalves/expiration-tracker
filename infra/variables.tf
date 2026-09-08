@@ -110,27 +110,6 @@ variable "ses_from_address" {
   type        = string
 }
 
-variable "whatsapp_access_token" {
-  description = <<-EOT
-    D-229 fatia 2/5 (whatsapp-channel-scoping/estado-final-consolidado.md, D-2/D-9) PLACEHOLDER
-    credential source for WhatsAppDeliveryWorker's Meta Cloud API access token. Defaults to ""
-    deliberately - this fatia's boundary explicitly excludes AWS Secrets Manager (D-10, fatia
-    3/5); nothing calls this worker via the real notification flow yet (router wiring is
-    fatia 5/5), so an empty token has no production impact today. Fatia 3/5 replaces this
-    variable + its env var wiring with a Secrets Manager read; WhatsAppCloudApiAdapter's own
-    shape does not change when that happens.
-  EOT
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "whatsapp_phone_number_id" {
-  description = "D-229 fatia 2/5 PLACEHOLDER: Meta Cloud API phone number id. See whatsapp_access_token's description for the fatia 2/5 -> fatia 3/5 (Secrets Manager) migration plan."
-  type        = string
-  default     = ""
-}
-
 variable "whatsapp_api_version" {
   description = "Meta Graph API version used by WhatsAppCloudApiAdapter, e.g. \"v21.0\"."
   type        = string

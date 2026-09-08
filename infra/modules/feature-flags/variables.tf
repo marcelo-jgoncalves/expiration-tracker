@@ -76,6 +76,21 @@ variable "document_archive_promotion_enabled" {
   default     = false
 }
 
+variable "whatsapp_delivery_worker_enabled" {
+  description = <<-EOT
+    D-197 fatia 3/5 (D-10, whatsapp-channel-scoping/estado-final-consolidado.md) - second flag
+    of the same mandatory-order two-flag activation mechanism as
+    extraction_document_archive_trigger_enabled/document_archive_promotion_enabled (D-193 slice
+    8/9 precedent). Gates whether WhatsAppDeliveryWorker may actually call send() - meaningless
+    unless whatsapp_enabled is ALSO true (application code:
+    notification/application/whatsapp-activation.ts#isWhatsAppDeliveryWorkerEnabled()). Default
+    false - WhatsApp delivery is not wired into the real notification flow yet (router wiring is
+    fatia 5/5).
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags applied to the AppConfig application/environment/deployment resources."
   type        = map(string)

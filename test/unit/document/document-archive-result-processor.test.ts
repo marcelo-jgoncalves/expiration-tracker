@@ -23,6 +23,7 @@ class FakeFeatureFlagsReader implements FeatureFlagsReader {
       WHATSAPP: false,
       EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: this.enabled,
       DOCUMENT_ARCHIVE_PROMOTION_ENABLED: this.enabled,
+      WHATSAPP_DELIVERY_WORKER_ENABLED: false,
     };
   }
 }

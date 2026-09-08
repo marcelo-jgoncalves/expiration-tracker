@@ -38,7 +38,7 @@ describe("AppConfigFeatureFlagsReader", () => {
       }),
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false, WHATSAPP_DELIVERY_WORKER_ENABLED: false });
     expect(client.calls.map((c) => c.commandName)).toEqual(["StartConfigurationSessionCommand", "GetLatestConfigurationCommand"]);
   });
 
@@ -68,7 +68,7 @@ describe("AppConfigFeatureFlagsReader", () => {
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
     await reader.getFlags();
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: true, OCR: true, WHATSAPP: true, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false, WHATSAPP_DELIVERY_WORKER_ENABLED: false });
   });
 
   /** Regression for the 2026-08-27 M7 E2E verification finding: this adapter read the three
@@ -85,7 +85,7 @@ describe("AppConfigFeatureFlagsReader", () => {
       }),
     });
     const reader = new AppConfigFeatureFlagsReader(client as never, CONFIG);
-    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false });
+    await expect(reader.getFlags()).resolves.toEqual({ AI_EXTRACTION: false, OCR: true, WHATSAPP: false, EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false, DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false, WHATSAPP_DELIVERY_WORKER_ENABLED: false });
   });
 
   it("throws (never resolves 'unknown, proceed') when the session cannot be started", async () => {
@@ -119,6 +119,7 @@ describe("AppConfigFeatureFlagsReader", () => {
       WHATSAPP: false,
       EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: true,
       DOCUMENT_ARCHIVE_PROMOTION_ENABLED: true,
+      WHATSAPP_DELIVERY_WORKER_ENABLED: false,
     });
   });
 
@@ -136,6 +137,7 @@ describe("AppConfigFeatureFlagsReader", () => {
       WHATSAPP: true,
       EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false,
       DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false,
+      WHATSAPP_DELIVERY_WORKER_ENABLED: false,
     });
   });
 });

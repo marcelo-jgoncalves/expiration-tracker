@@ -15,6 +15,7 @@ function flags(overrides: Partial<FeatureFlags> = {}): FeatureFlags {
     WHATSAPP: false,
     EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED: false,
     DOCUMENT_ARCHIVE_PROMOTION_ENABLED: false,
+    WHATSAPP_DELIVERY_WORKER_ENABLED: false,
     ...overrides,
   };
 }

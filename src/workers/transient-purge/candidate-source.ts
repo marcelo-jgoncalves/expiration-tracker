@@ -26,9 +26,8 @@ import type { EntityKey, TransactWriteEntry } from "../../shared/dynamodb/occ.js
 import type { UploadSlotStatus } from "../../modules/document/domain/upload-slot.js";
 import type { TransientGsi8EntityType } from "../../shared/transient-purge-gsi8.js";
 
-export interface WebhookInboxPurgeCandidate extends EntityKey {
+interface WebhookInboxPurgeCandidateBase extends EntityKey {
   entityType: "WebhookInbox";
-  tenantId: string;
   createdAt: string;
   version: number;
   maintenanceAttemptCount?: number;
@@ -36,9 +35,8 @@ export interface WebhookInboxPurgeCandidate extends EntityKey {
   GSI8SK?: string;
 }
 
-export interface UploadSlotPurgeCandidate extends EntityKey {
+interface UploadSlotPurgeCandidateBase extends EntityKey {
   entityType: "UploadSlot";
-  tenantId: string;
   reservedAt: string;
   status: UploadSlotStatus;
   version: number;
@@ -47,16 +45,32 @@ export interface UploadSlotPurgeCandidate extends EntityKey {
   GSI8SK?: string;
 }
 
+/** `purgeScope` is read from the base row's own (immutable, written-once-at-creation) attribute —
+ * NEVER inferred from the GSI8 pointer/namespace, which is discovery-only and eventually
+ * consistent (D-197 fatia 3/5 Claude<->Codex protocol round 1: deciding the fencing modality from
+ * an eventual index would let a just-correlated row's delete skip a fence it should still have,
+ * or vice versa). `TENANT` is the only scope `UploadSlot` ever has today — a `WebhookInbox` may be
+ * either, depending on which provider created it (SES: always `TENANT`; WhatsApp: always
+ * `ACCOUNT`, permanently, regardless of whether `biz_opaque_callback_data` ever correlates). */
+export type TenantScopedWebhookInboxPurgeCandidate = WebhookInboxPurgeCandidateBase & { purgeScope: "TENANT"; tenantId: string };
+export type AccountScopedWebhookInboxPurgeCandidate = WebhookInboxPurgeCandidateBase & { purgeScope: "ACCOUNT"; accountId: string };
+
+export type WebhookInboxPurgeCandidate = TenantScopedWebhookInboxPurgeCandidate | AccountScopedWebhookInboxPurgeCandidate;
+
+export type UploadSlotPurgeCandidate = UploadSlotPurgeCandidateBase & { purgeScope: "TENANT"; tenantId: string };
+
 export type TransientPurgeCandidate = WebhookInboxPurgeCandidate | UploadSlotPurgeCandidate;
 
-/** One `KEYS_ONLY` GSI8 result row — `tenantId`/`entityType` are parsed out of `GSI8SK` (embedded
- * in the sort key by `transientPurgeGsi8Keys()` precisely so a `KEYS_ONLY` projection is enough to
- * build the tenant-ACTIVE `ConditionCheck` without a second read). */
-export interface TransientGsi8Candidate extends EntityKey {
-  dueAtIso: string;
-  tenantId: string;
-  entityType: TransientGsi8EntityType;
-}
+/** One `KEYS_ONLY` GSI8 result row — `purgeScope`+`tenantId`/`accountId`/`entityType` are parsed
+ * out of `GSI8SK` (embedded in the sort key by `transientPurgeGsi8Keys()`/
+ * `accountScopedTransientPurgeGsi8Keys()`). Discovery-only: never used to decide the real fencing
+ * modality for a write, only to build the base-table key for the mandatory `getCandidate()`
+ * re-read (D-179 §4) that IS the source of truth. */
+export type TransientGsi8Candidate = EntityKey &
+  { dueAtIso: string; entityType: TransientGsi8EntityType } & (
+    | { purgeScope: "TENANT"; tenantId: string }
+    | { purgeScope: "ACCOUNT"; accountId: string }
+  );
 
 export interface TransientGsi8Page {
   items: TransientGsi8Candidate[];

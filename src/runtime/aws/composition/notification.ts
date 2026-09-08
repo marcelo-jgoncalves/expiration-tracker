@@ -158,3 +158,10 @@ export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableN
     newIntentId: () => new UlidIdGenerator().newIntentId(),
   };
 }
+
+/** D-197 fatia 3/5 (D-7): builds `WhatsAppWebhookWorkflowDeps` for the webhook handler - same
+ * `DynamoDbNotificationStore` every other notification composition function here uses. */
+export function buildWhatsAppWebhookDeps(client: DynamoDBDocumentClient, tableName: string) {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  return { store, tableName, now: () => new Date().toISOString() };
+}

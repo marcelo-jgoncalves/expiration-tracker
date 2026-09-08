@@ -53,6 +53,8 @@ run "jwt_authorizer_attached_to_every_route" {
     document_archive_guest_function_name = "document-archive-guest"
     bulk_actions_invoke_arn              = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:bulk-actions/invocations"
     bulk_actions_function_name           = "bulk-actions"
+    whatsapp_webhook_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:whatsapp-webhook/invocations"
+    whatsapp_webhook_function_name       = "whatsapp-webhook"
   }
 
   assert {

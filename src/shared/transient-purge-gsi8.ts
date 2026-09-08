@@ -73,3 +73,33 @@ export function transientPurgeGsi8Keys(input: {
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.entityType}#${input.sk}`,
   };
 }
+
+/**
+ * Account-scoped sibling of `transientPurgeGsi8Keys()` — SAME `GSI8PK` namespace (a single Query
+ * still discovers both families; the discriminator lives after `<dueAtIso>` in the sort key, so
+ * `GSI8SK < :before` keeps working unmodified), `#ACCOUNT#<accountId>#` instead of
+ * `#TENANT#<tenantId>#`.
+ *
+ * Exists for exactly one case today (D-197 fatia 3/5, WhatsApp webhook inbox): a WhatsApp
+ * `WebhookInbox` row (`PK=WEBHOOK#WHATSAPP#<wabaId>`) is account-owned PERMANENTLY —
+ * correlating it to a `tenantId` (when `biz_opaque_callback_data` resolves) is metadata for
+ * observability only and NEVER changes who is responsible for purging the row. A tenant-fenced
+ * delete would leave every `UNMATCHED` (never-correlated) row stuck forever, since no real
+ * `TenantLifecycleRecord` exists to satisfy an invented tenant id — closed by construction here:
+ * an account-scoped row's delete carries no tenant `ConditionCheck` at all
+ * (`workers/transient-purge/purge.ts`'s `purgeScope === "ACCOUNT"` branch), only the row's own
+ * `version` re-assertion. Decided via the full 4-round Claude<->Codex protocol (both final notes
+ * >=9.0, blind-note discipline, `AGENTS.md` §4) — see `decisions-log.md` for the D-number and
+ * `docs/architecture/reviews/whatsapp-channel-scoping/` for the round-by-round transcript.
+ */
+export function accountScopedTransientPurgeGsi8Keys(input: {
+  dueAtIso: string;
+  accountId: string;
+  entityType: TransientGsi8EntityType;
+  sk: string;
+}): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${TRANSIENT_PURGE_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#ACCOUNT#${input.accountId}#${input.entityType}#${input.sk}`,
+  };
+}

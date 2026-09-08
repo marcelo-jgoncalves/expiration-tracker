@@ -171,25 +171,55 @@ export async function runTransientPurge(deps: TransientPurgeDeps): Promise<Trans
         continue;
       }
 
+      const deleteEntry: TransactWriteEntry = {
+        Delete: {
+          TableName: deps.tableName,
+          Key: { PK: candidate.PK, SK: candidate.SK },
+          ConditionExpression: "attribute_exists(PK) AND attribute_exists(SK) AND #version = :version",
+          ExpressionAttributeNames: { "#version": "version" },
+          ExpressionAttributeValues: { ":version": row.version },
+        },
+      };
+
+      // D-197 fatia 3/5 (Claude<->Codex protocol, 4 rounds, both final notes >=9.0): a
+      // `purgeScope: "ACCOUNT"` row (WhatsApp WebhookInbox, permanently account-owned even after
+      // correlating a `tenantId` for observability) has no real tenant to fence against - a
+      // `ConditionCheck` here would either need a fabricated tenant id (always fails, the row
+      // never purges) or would fence against the WRONG concept entirely. Only `TENANT` rows keep
+      // the tenant-ACTIVE fence + backoff/DLQ poison-record handling below.
+      if (row.purgeScope === "ACCOUNT") {
+        try {
+          await deps.candidates.transactWrite([deleteEntry]);
+          result.purged += 1;
+        } catch (err) {
+          if (!isTransactionCanceled(err)) throw err;
+          const reasons = getCancellationReasonCodes(err);
+          const deleteCheckFailed = reasons?.[0] === "ConditionalCheckFailed";
+          // Single-item transaction: reasons[0] is the ONLY entry. Anything other than the
+          // version ConditionCheck failing (TransactionConflict, throttling, an unrecognized
+          // cancellation shape) is never silently swallowed as "concurrency" - relaunched as a
+          // real failure, same fail-closed discipline as the TENANT branch below.
+          if (!deleteCheckFailed) throw err;
+          // A version collision here resolves at the NEXT getCandidate() re-read - it does not
+          // guarantee no further collision under sustained concurrent writers, only that this
+          // specific observation is stale, not permanently stuck (no tenant lifecycle can ever
+          // block this row the way TENANT rows can go to DLQ#TRANSIENT).
+          result.skippedConcurrentlyModified += 1;
+        }
+        continue;
+      }
+
       const claimEntries: TransactWriteEntry[] = [
         {
           ConditionCheck: {
             TableName: deps.tableName,
-            Key: tenantLifecycleKey(candidate.tenantId),
+            Key: tenantLifecycleKey(row.tenantId),
             ConditionExpression: "#status = :active",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: { ":active": TENANT_ACTIVE_STATUS },
           },
         },
-        {
-          Delete: {
-            TableName: deps.tableName,
-            Key: { PK: candidate.PK, SK: candidate.SK },
-            ConditionExpression: "attribute_exists(PK) AND attribute_exists(SK) AND #version = :version",
-            ExpressionAttributeNames: { "#version": "version" },
-            ExpressionAttributeValues: { ":version": row.version },
-          },
-        },
+        deleteEntry,
       ];
 
       try {
@@ -224,7 +254,7 @@ export async function runTransientPurge(deps: TransientPurgeDeps): Promise<Trans
                   ":dlq": DLQ_GSI8PK,
                   ":attempt": nextAttempt,
                   ":v": row.version,
-                  ":work": transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: candidate.tenantId, entityType: row.entityType, sk: candidate.SK }).GSI8PK,
+                  ":work": transientPurgeGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: row.tenantId, entityType: row.entityType, sk: candidate.SK }).GSI8PK,
                 },
               },
             }
@@ -237,7 +267,7 @@ export async function runTransientPurge(deps: TransientPurgeDeps): Promise<Trans
                 ExpressionAttributeValues: {
                   ":sk": transientPurgeGsi8Keys({
                     dueAtIso: backoffDueAtIso(nextAttempt, nowIso),
-                    tenantId: candidate.tenantId,
+                    tenantId: row.tenantId,
                     entityType: row.entityType,
                     sk: candidate.SK,
                   }).GSI8SK,

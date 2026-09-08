@@ -381,11 +381,83 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
           failureCode: null,
         },
         processingStatus: "PENDING",
+        purgeScope: "TENANT",
+        tenantId: "tenant_01",
         version: 1,
       },
     );
     expect(errors).toEqual([]);
     expect(valid).toBe(true);
+  });
+
+  it("accepts a valid account-scoped WebhookInbox record (D-197 fatia 3/5, WhatsApp: purgeScope=ACCOUNT, no tenantId)", () => {
+    const { valid, errors } = registry.validate(
+      "https://expiration-tracker/schemas/api/webhook-inbox.v1.json",
+      {
+        entityType: "WebhookInbox",
+        provider: "META_CLOUD_API",
+        providerAccountId: "waba_01",
+        providerEventId: "wamid_987",
+        eventKind: "DELIVERY_STATUS",
+        signatureVerified: true,
+        signatureTimestamp: "2026-09-10T12:01:00Z",
+        nonceHash: "sha256:" + "a".repeat(64),
+        receivedAt: "2026-09-10T12:01:02Z",
+        payloadObjectKey: null,
+        normalizedPayload: {
+          providerMessageId: "pm_01",
+          status: "DELIVERED",
+          occurredAt: "2026-09-10T12:00:58Z",
+          failureCode: null,
+        },
+        processingStatus: "PENDING",
+        purgeScope: "ACCOUNT",
+        accountId: "waba_01",
+        version: 1,
+      },
+    );
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a WebhookInbox record with purgeScope=TENANT but no tenantId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/webhook-inbox.v1.json", {
+      entityType: "WebhookInbox",
+      provider: "provider_a",
+      providerAccountId: "acct_01",
+      providerEventId: "provider_event_987",
+      eventKind: "DELIVERY_STATUS",
+      signatureVerified: true,
+      signatureTimestamp: "2026-09-10T12:01:00Z",
+      nonceHash: "sha256:" + "a".repeat(64),
+      receivedAt: "2026-09-10T12:01:02Z",
+      normalizedPayload: { providerMessageId: "pm_01", status: "DELIVERED", occurredAt: "2026-09-10T12:00:58Z", failureCode: null },
+      processingStatus: "PENDING",
+      purgeScope: "TENANT",
+      version: 1,
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a WebhookInbox record carrying BOTH tenantId and accountId (scope union must be exclusive)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/webhook-inbox.v1.json", {
+      entityType: "WebhookInbox",
+      provider: "provider_a",
+      providerAccountId: "acct_01",
+      providerEventId: "provider_event_987",
+      eventKind: "DELIVERY_STATUS",
+      signatureVerified: true,
+      signatureTimestamp: "2026-09-10T12:01:00Z",
+      nonceHash: "sha256:" + "a".repeat(64),
+      receivedAt: "2026-09-10T12:01:02Z",
+      normalizedPayload: { providerMessageId: "pm_01", status: "DELIVERED", occurredAt: "2026-09-10T12:00:58Z", failureCode: null },
+      processingStatus: "PENDING",
+      purgeScope: "TENANT",
+      tenantId: "tenant_01",
+      accountId: "waba_01",
+      version: 1,
+    });
+    expect(valid).toBe(false);
   });
 
   it("accepts a valid expiration.item-due-date-changed.v1 event (M2's outbox event)", () => {
@@ -650,6 +722,8 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
           failureCode: null,
         },
         processingStatus: "PENDING",
+        purgeScope: "TENANT",
+        tenantId: "tenant_01",
         version: 1,
       },
     );

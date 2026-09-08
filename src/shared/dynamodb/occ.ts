@@ -53,22 +53,45 @@ export interface DynamoUpdateCommandInput {
   ExpressionAttributeValues: Record<string, unknown>;
 }
 
+interface ScopeCondition {
+  namePlaceholder: string;
+  attributeName: string;
+  valuePlaceholder: string;
+  value: string;
+}
+
+interface ScopedVersionedUpdateInput {
+  tableName: string;
+  key: EntityKey;
+  expectedVersion: number;
+  set: Record<string, unknown>;
+  remove?: string[];
+  now?: string;
+  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+}
+
 /**
- * Builds an UpdateItem input enforcing implementation-blueprint.md #5.2's exact
- * ConditionExpression: attribute_exists(PK) AND attribute_exists(SK) AND
- * #version = :expectedVersion AND #tenantId = :tenantId, and increments version atomically.
+ * Private core shared by `buildVersionedUpdate()` (tenant-fenced, every ordinary business
+ * entity) and `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5: WhatsApp `WebhookInbox`,
+ * the first entity in this repo with no tenant at all - see
+ * `docs/architecture/reviews/whatsapp-channel-scoping/webhook-inbox-purge-scoping/` for the
+ * 3-round Claude<->Codex protocol, both final notes >=9.0, that decided this shape). The ONLY
+ * difference between the two public builders is which attribute anchors the scope fence
+ * (`tenantId` vs `accountId`) - version increment, `updatedAt`, SET/REMOVE generation,
+ * `extraConditions` composition and placeholder-collision detection are a single implementation,
+ * never duplicated, so the two builders can never drift apart on anything but their fence.
  */
-export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateCommandInput {
+function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: ScopeCondition): DynamoUpdateCommandInput {
   const now = input.now ?? new Date().toISOString();
 
   const names: Record<string, string> = {
     "#version": "version",
-    "#tenantId": "tenantId",
+    [scope.namePlaceholder]: scope.attributeName,
     "#updatedAt": "updatedAt",
   };
   const values: Record<string, unknown> = {
     ":expectedVersion": input.expectedVersion,
-    ":tenantId": input.tenantId,
+    [scope.valuePlaceholder]: scope.value,
     ":one": 1,
     ":now": now,
   };
@@ -98,7 +121,7 @@ export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateC
       ? `SET ${setClauses.join(", ")} REMOVE ${removeClauses.join(", ")}`
       : `SET ${setClauses.join(", ")}`;
 
-  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", "#tenantId = :tenantId"];
+  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", `${scope.namePlaceholder} = ${scope.valuePlaceholder}`];
   for (const extra of input.extraConditions ?? []) {
     for (const [nameKey, name] of Object.entries(extra.names ?? {})) {
       if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved/generated key: ${nameKey}`);
@@ -119,6 +142,36 @@ export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateC
     ExpressionAttributeNames: names,
     ExpressionAttributeValues: values,
   };
+}
+
+/**
+ * Builds an UpdateItem input enforcing implementation-blueprint.md #5.2's exact
+ * ConditionExpression: attribute_exists(PK) AND attribute_exists(SK) AND
+ * #version = :expectedVersion AND #tenantId = :tenantId, and increments version atomically.
+ * Contractually unchanged by the account-scoped sibling below - same signature, same generated
+ * expression, byte-for-byte, for every one of this repo's ~40 existing call sites.
+ */
+export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateCommandInput {
+  return buildScopedVersionedUpdate(input, { namePlaceholder: "#tenantId", attributeName: "tenantId", valuePlaceholder: ":tenantId", value: input.tenantId });
+}
+
+export interface AccountScopedVersionedUpdateInput extends ScopedVersionedUpdateInput {
+  /** External vendor account id (e.g. a WhatsApp Business Account id) - NEVER a tenant id, real
+   * or fabricated. Fences the update to the row's own account, same OCC-plus-scope-fence
+   * structure as `buildVersionedUpdate()`, for an entity that genuinely has no tenant. */
+  accountId: string;
+}
+
+/**
+ * Account-scoped sibling of `buildVersionedUpdate()` (D-197 fatia 3/5) - identical
+ * ConditionExpression shape, `#accountId = :accountId` in place of `#tenantId = :tenantId`. Exists
+ * for exactly one entity today: WhatsApp `WebhookInbox` (`purgeScope: "ACCOUNT"`, permanently
+ * account-owned - see the purge-scoping decision this sibling builder itself depends on). Never
+ * use this for an entity that has (or could ever have) a real tenant - `buildVersionedUpdate()`
+ * is the only builder any tenant-scoped entity may use.
+ */
+export function buildAccountScopedVersionedUpdate(input: AccountScopedVersionedUpdateInput): DynamoUpdateCommandInput {
+  return buildScopedVersionedUpdate(input, { namePlaceholder: "#accountId", attributeName: "accountId", valuePlaceholder: ":accountId", value: input.accountId });
 }
 
 export interface DynamoPutCommandInput {

@@ -21,18 +21,21 @@ import type {
   TransientPurgeCandidateSource,
   TenantLifecycleStatusSource,
   UploadSlotPurgeCandidate,
-  WebhookInboxPurgeCandidate,
 } from "./candidate-source.js";
 
 const PER_INVOCATION_LIMIT = 100;
 const GSI8PK_TRANSIENT_PURGE = "WORK#TRANSIENT";
 
-/** Raw scanned/gotten row shape before normalization — covers both entities' distinct fields. */
+/** Raw scanned/gotten row shape before normalization — covers both entities' distinct fields.
+ * `purgeScope` is the row's own immutable, written-once attribute (D-197 fatia 3/5) — the only
+ * source of truth for which fencing modality applies, never inferred from GSI8. */
 interface RawTransientRow {
   PK: string;
   SK: string;
   entityType: TransientGsi8EntityType;
-  tenantId: string;
+  purgeScope?: "TENANT" | "ACCOUNT";
+  tenantId?: string;
+  accountId?: string;
   createdAt?: string;
   reservedAt?: string;
   status?: string;
@@ -43,14 +46,26 @@ interface RawTransientRow {
 }
 
 function normalizeCandidate(row: RawTransientRow): TransientPurgeCandidate {
-  if (row.entityType === "WebhookInbox") {
-    if (!row.createdAt) throw new Error(`TransientPurgeCandidateSource: WebhookInbox row ${row.PK}/${row.SK} missing createdAt.`);
-    const candidate: WebhookInboxPurgeCandidate = {
+  // Rows written before D-197 fatia 3/5 (every WebhookInbox/UploadSlot in `dev` today, all SES/
+  // tenant-scoped) never had `purgeScope` — treated as `TENANT` for backward compatibility,
+  // never as `ACCOUNT` (never invent an account-scoped delete for a row that never declared one).
+  const purgeScope = row.purgeScope ?? "TENANT";
+
+  if (row.entityType === "UploadSlot") {
+    if (purgeScope !== "TENANT") {
+      throw new Error(`TransientPurgeCandidateSource: UploadSlot row ${row.PK}/${row.SK} has purgeScope=${purgeScope}, only TENANT is valid.`);
+    }
+    if (!row.reservedAt || !row.status || !row.tenantId) {
+      throw new Error(`TransientPurgeCandidateSource: UploadSlot row ${row.PK}/${row.SK} missing reservedAt/status/tenantId.`);
+    }
+    const candidate: UploadSlotPurgeCandidate = {
       PK: row.PK,
       SK: row.SK,
-      entityType: "WebhookInbox",
+      entityType: "UploadSlot",
+      purgeScope: "TENANT",
       tenantId: row.tenantId,
-      createdAt: row.createdAt,
+      reservedAt: row.reservedAt,
+      status: row.status as UploadSlotStatus,
       version: row.version,
       maintenanceAttemptCount: row.maintenanceAttemptCount,
       GSI8PK: row.GSI8PK,
@@ -58,41 +73,44 @@ function normalizeCandidate(row: RawTransientRow): TransientPurgeCandidate {
     };
     return candidate;
   }
-  if (!row.reservedAt || !row.status) {
-    throw new Error(`TransientPurgeCandidateSource: UploadSlot row ${row.PK}/${row.SK} missing reservedAt/status.`);
-  }
-  const candidate: UploadSlotPurgeCandidate = {
+
+  if (!row.createdAt) throw new Error(`TransientPurgeCandidateSource: WebhookInbox row ${row.PK}/${row.SK} missing createdAt.`);
+  const base = {
     PK: row.PK,
     SK: row.SK,
-    entityType: "UploadSlot",
-    tenantId: row.tenantId,
-    reservedAt: row.reservedAt,
-    status: row.status as UploadSlotStatus,
+    entityType: "WebhookInbox" as const,
+    createdAt: row.createdAt,
     version: row.version,
     maintenanceAttemptCount: row.maintenanceAttemptCount,
     GSI8PK: row.GSI8PK,
     GSI8SK: row.GSI8SK,
   };
-  return candidate;
+  if (purgeScope === "ACCOUNT") {
+    if (!row.accountId) throw new Error(`TransientPurgeCandidateSource: WebhookInbox row ${row.PK}/${row.SK} has purgeScope=ACCOUNT but no accountId.`);
+    return { ...base, purgeScope: "ACCOUNT", accountId: row.accountId };
+  }
+  if (!row.tenantId) throw new Error(`TransientPurgeCandidateSource: WebhookInbox row ${row.PK}/${row.SK} has purgeScope=TENANT but no tenantId.`);
+  return { ...base, purgeScope: "TENANT", tenantId: row.tenantId };
 }
 
-/** `GSI8SK` shape is `<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>` (`transientPurgeGsi8Keys()`,
+/** `GSI8SK` shape is `<dueAtIso>#TENANT#<tenantId>#<entityType>#<sk>` (`transientPurgeGsi8Keys()`)
+ * or `<dueAtIso>#ACCOUNT#<accountId>#<entityType>#<sk>` (`accountScopedTransientPurgeGsi8Keys()`,
  * `shared/transient-purge-gsi8.ts`) — parsed here, not re-exported from the shared module, since
  * only this adapter ever sees a raw GSI8 row (same discipline as `security-audit-purge`'s own
- * adapter). `sk` itself may contain further `#` (e.g. `EVENT#<snsMessageId>`), so only the first
- * two segments after `#TENANT#` are consumed as tenantId/entityType; the remainder is ignored here
- * (the adapter already has the raw `SK` from the same GSI8 result row). */
-function parseGsi8Sk(gsi8sk: string): { tenantId: string; entityType: TransientGsi8EntityType } {
-  const parts = gsi8sk.split("#TENANT#");
-  const tenantSegment = parts[1];
-  if (parts.length !== 2 || !tenantSegment) {
-    throw new Error(`Malformed GSI8SK for transient-purge: ${gsi8sk}`);
+ * adapter). Discovery-only (D-179 §4/D-197 fatia 3/5 protocol round 1) — never used to decide the
+ * real fencing modality, only to build the base-table key for the mandatory consistent re-read. */
+function parseGsi8Sk(gsi8sk: string): { entityType: TransientGsi8EntityType } & ({ purgeScope: "TENANT"; tenantId: string } | { purgeScope: "ACCOUNT"; accountId: string }) {
+  const tenantParts = gsi8sk.split("#TENANT#");
+  if (tenantParts.length === 2 && tenantParts[1]) {
+    const [tenantId, entityType] = tenantParts[1]!.split("#");
+    if (tenantId && entityType) return { purgeScope: "TENANT", tenantId, entityType: entityType as TransientGsi8EntityType };
   }
-  const [tenantId, entityType] = tenantSegment.split("#");
-  if (!tenantId || !entityType) {
-    throw new Error(`Malformed GSI8SK for transient-purge: ${gsi8sk}`);
+  const accountParts = gsi8sk.split("#ACCOUNT#");
+  if (accountParts.length === 2 && accountParts[1]) {
+    const [accountId, entityType] = accountParts[1]!.split("#");
+    if (accountId && entityType) return { purgeScope: "ACCOUNT", accountId, entityType: entityType as TransientGsi8EntityType };
   }
-  return { tenantId, entityType: entityType as TransientGsi8EntityType };
+  throw new Error(`Malformed GSI8SK for transient-purge: ${gsi8sk}`);
 }
 
 export class DynamoDbTransientPurgeCandidateSource implements TransientPurgeCandidateSource {
@@ -115,8 +133,9 @@ export class DynamoDbTransientPurgeCandidateSource implements TransientPurgeCand
       );
       const items: TransientGsi8Candidate[] = (result.Items ?? []).map((raw) => {
         const row = raw as { PK: string; SK: string; GSI8SK: string };
-        const { tenantId, entityType } = parseGsi8Sk(row.GSI8SK);
-        return { PK: row.PK, SK: row.SK, dueAtIso: row.GSI8SK.split("#TENANT#")[0]!, tenantId, entityType };
+        const parsed = parseGsi8Sk(row.GSI8SK);
+        const dueAtIso = row.GSI8SK.split("#TENANT#")[0]!.split("#ACCOUNT#")[0]!;
+        return { PK: row.PK, SK: row.SK, dueAtIso, ...parsed };
       });
       auditGlobalIndexAccess({ indexName: "GSI8", operation: "Query", component: "transient-purge", pageCount: 1, resultCount: items.length });
       return { items, lastEvaluatedKey: result.LastEvaluatedKey };

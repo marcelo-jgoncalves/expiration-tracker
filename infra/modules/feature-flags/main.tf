@@ -36,6 +36,7 @@ resource "aws_appconfig_hosted_configuration_version" "kill_switches" {
       WHATSAPP                                    = var.whatsapp_enabled
       EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED = var.extraction_document_archive_trigger_enabled
       DOCUMENT_ARCHIVE_PROMOTION_ENABLED          = var.document_archive_promotion_enabled
+      WHATSAPP_DELIVERY_WORKER_ENABLED            = var.whatsapp_delivery_worker_enabled
     }
   })
 }

@@ -46,6 +46,7 @@ const HANDLERS = [
   "email-delivery-handler",
   "whatsapp-outbox-relay-handler",
   "whatsapp-delivery-handler",
+  "whatsapp-webhook-handler",
   "ses-callback-handler",
   "documents-handler",
   "upload-finalizer-handler",

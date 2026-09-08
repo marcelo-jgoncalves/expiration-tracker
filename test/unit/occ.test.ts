@@ -3,6 +3,7 @@ import {
   buildConditionalDelete,
   buildVersionedCreate,
   buildVersionedUpdate,
+  buildAccountScopedVersionedUpdate,
   isConditionalCheckFailed,
 } from "../../src/shared/dynamodb/occ.js";
 
@@ -93,6 +94,57 @@ describe("buildVersionedUpdate", () => {
         expectedVersion: 1,
         set: { status: "X" },
         extraConditions: [{ expression: "#set0 = :other", names: { "#set0": "status" }, values: { ":other": "Y" } }],
+      }),
+    ).toThrow(/collides/);
+  });
+});
+
+describe("buildAccountScopedVersionedUpdate (D-197 fatia 3/5: WhatsApp WebhookInbox has no tenant - shared private core with buildVersionedUpdate, only the scope fence differs)", () => {
+  it("builds the exact ConditionExpression with an accountId fence instead of tenantId", () => {
+    const cmd = buildAccountScopedVersionedUpdate({
+      tableName: "MainTable",
+      key: { PK: "WEBHOOK#WHATSAPP#waba_01", SK: "EVENT#wamid_01#DELIVERED" },
+      accountId: "waba_01",
+      expectedVersion: 1,
+      set: { processingStatus: "PROCESSED" },
+    });
+    expect(cmd.ConditionExpression).toBe("attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion AND #accountId = :accountId");
+    expect(cmd.ExpressionAttributeValues[":accountId"]).toBe("waba_01");
+    expect(cmd.ExpressionAttributeNames!["#accountId"]).toBe("accountId");
+    expect(cmd.ExpressionAttributeValues["#tenantId" as never]).toBeUndefined();
+    expect(cmd.ExpressionAttributeNames!["#tenantId"]).toBeUndefined();
+  });
+
+  it("produces the SAME UpdateExpression/SET/REMOVE/extraConditions machinery as buildVersionedUpdate for equivalent inputs - only the fence differs", () => {
+    const shared = {
+      tableName: "MainTable",
+      key: { PK: "PK1", SK: "SK1" },
+      expectedVersion: 3,
+      set: { a: "x", b: "y" },
+      remove: ["stalePointer"],
+      now: "2026-09-07T00:00:00.000Z",
+      extraConditions: [{ expression: "purgeAfter <= :cutoff", values: { ":cutoff": "2026-09-08T00:00:00.000Z" } }],
+    };
+    const tenantCmd = buildVersionedUpdate({ ...shared, tenantId: "t_01" });
+    const accountCmd = buildAccountScopedVersionedUpdate({ ...shared, accountId: "waba_01" });
+
+    expect(accountCmd.UpdateExpression).toBe(tenantCmd.UpdateExpression);
+    expect(accountCmd.ExpressionAttributeValues[":one"]).toBe(1);
+    expect(accountCmd.ExpressionAttributeValues[":now"]).toBe("2026-09-07T00:00:00.000Z");
+    expect(accountCmd.ExpressionAttributeValues[":set0"]).toBe("x");
+    expect(accountCmd.ExpressionAttributeValues[":cutoff"]).toBe("2026-09-08T00:00:00.000Z");
+    expect(accountCmd.ConditionExpression.replace("#accountId = :accountId", "#tenantId = :tenantId")).toBe(tenantCmd.ConditionExpression);
+  });
+
+  it("throws if an extraConditions placeholder collides with #accountId/:accountId", () => {
+    expect(() =>
+      buildAccountScopedVersionedUpdate({
+        tableName: "MainTable",
+        key: { PK: "PK1", SK: "SK1" },
+        accountId: "waba_01",
+        expectedVersion: 1,
+        set: {},
+        extraConditions: [{ expression: "x = :accountId", values: { ":accountId": "other" } }],
       }),
     ).toThrow(/collides/);
   });
