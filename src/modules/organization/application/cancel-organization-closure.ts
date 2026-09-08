@@ -21,7 +21,7 @@
  * the lifecycle record for this attempt, so the OCC-fenced `HELD_FOR_RECOVERY -> ACTIVE` write
  * that follows is racing nothing but a already-lost cause (see `close()` re-read handling below).
  */
-import { authorizeCancelClosure } from "../../identity/domain/authorization.js";
+import { authorizeCancelClosure, authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { AuthenticationError, NotFoundError, OrganizationClosureUnavailableError } from "../../../shared/errors/app-error.js";
 import {
   SystemMutationConflictError,
@@ -71,7 +71,17 @@ export class CancelOrganizationClosureService {
   ) {}
 
   async cancel(input: CancelOrganizationClosureInput): Promise<CancelOrganizationClosureResult> {
-    const { cognitoSub, tenantId } = input;
+    const { cognitoSub } = input;
+    // This service IS the RequestContext-resolution substitute for this one path (file header) -
+    // there is no upstream authenticated context to derive an AuthorizedTenantId from the normal
+    // way (authorizedTenantId(context)), and input.tenantId isn't yet a repository read result
+    // either (authorizedTenantIdFromPersistedEntity()'s usual precondition) - it is the very value
+    // this function's job is to verify. Treated as the tenant-resolution step itself (same role
+    // resolve-request-context.ts's own tenantId derivation plays elsewhere): the Membership row
+    // read immediately below, and authorizeCancelClosure()'s fail-closed identity/membership/role
+    // checks on it, are what actually establish trust - nothing downstream of that point ever sees
+    // this value before it clears those checks.
+    const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: input.tenantId });
 
     // 1. Dedicated identity resolution — IdentityMapping -> GlobalUser -> Membership, never
     // RequestContextResolver (see file header).

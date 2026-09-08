@@ -3,7 +3,7 @@
  * InvitationDedupPointer` (libera o (org, e-mail) para um convite novo) + audit, na mesma
  * transação.
  */
-import { authorize } from "../../../modules/identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { NotFoundError } from "../../../shared/errors/app-error.js";
 import { isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
@@ -22,8 +22,9 @@ export class RevokeInvitationService {
 
   async revoke(ctx: RequestContext, invitationId: string): Promise<void> {
     authorize({ context: ctx, action: "membership:revoke-invitation", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
 
-    const invitation = await this.store.get<Invitation>(invitationKey(ctx.tenant.tenantId, invitationId));
+    const invitation = await this.store.get<Invitation>(invitationKey(tenantId, invitationId));
     if (!invitation || invitation.status !== "PENDING") {
       throw new NotFoundError("No pending invitation with this id.", { invitationId });
     }
@@ -34,12 +35,12 @@ export class RevokeInvitationService {
     // date from the original expiresAt-based one to revokedAt + retention (revocation can make a
     // row eligible sooner than its natural PENDING expiry would have).
     const due = deriveInvitationMaintenanceDue({ status: "REVOKED", revokedAt: now, expiresAt: invitation.expiresAt });
-    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId: ctx.tenant.tenantId, invitationId });
+    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId, invitationId });
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
-          Key: invitationKey(ctx.tenant.tenantId, invitationId),
+          Key: invitationKey(tenantId, invitationId),
           UpdateExpression: "SET #status = :revoked, revokedAt = :now, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :pending",
           ExpressionAttributeNames: { "#status": "status" },
@@ -52,14 +53,14 @@ export class RevokeInvitationService {
           },
         },
       },
-      { Delete: { TableName: this.tableName, Key: invitationDedupKey(ctx.tenant.tenantId, invitation.emailNormalized) } },
+      { Delete: { TableName: this.tableName, Key: invitationDedupKey(tenantId, invitation.emailNormalized) } },
     ];
     appendMembershipAuditToTransaction(
       entries,
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Invitation",
         resourceId: invitationId,
         action: "INVITATION_REVOKED",

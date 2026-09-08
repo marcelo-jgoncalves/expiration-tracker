@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { deriveMembershipMaintenanceDue, membershipGsi8Keys, type Membership } from "../src/modules/organization/domain/membership.js";
+import { authorizedTenantIdFromPersistedEntity } from "../src/modules/identity/domain/authorization.js";
 
 interface Args {
   table: string;
@@ -91,7 +92,7 @@ export async function processPage(
     }
     if (dryRun) continue;
 
-    const gsi8 = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: membership.organizationId, membershipId: membership.membershipId });
+    const gsi8 = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: membership.organizationId }), membershipId: membership.membershipId });
     const written = await writePointer(membership, gsi8);
     if (written) pointersWritten += 1;
   }

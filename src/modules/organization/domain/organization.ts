@@ -14,6 +14,7 @@
  * docs/architecture/multi-user-b2b-wave-tracker.md B2B-3).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export interface Organization extends EntityKey {
   SK: "META";
@@ -28,6 +29,6 @@ export interface Organization extends EntityKey {
   version: number;
 }
 
-export function organizationKey(organizationId: string): { PK: string; SK: "META" } {
+export function organizationKey(organizationId: AuthorizedTenantId): { PK: string; SK: "META" } {
   return { PK: `TENANT#${organizationId}#ORG#${organizationId}`, SK: "META" };
 }

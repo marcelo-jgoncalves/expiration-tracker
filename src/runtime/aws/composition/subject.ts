@@ -135,7 +135,7 @@ async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableNam
  * por completo, ver `docs/architecture/reviews/gtr-01-supersession-scoping/`). Assinatura só
  * `tenantId` - nenhum call site real precisava do `userId` além de endereçar o mesmo tenant. */
 async function resolveOrganizationDisplayName(client: DynamoDBDocumentClient, tableName: string, tenantId: string): Promise<string | undefined> {
-  const result = await client.send(new GetCommand({ TableName: tableName, Key: organizationKey(tenantId), ConsistentRead: true }));
+  const result = await client.send(new GetCommand({ TableName: tableName, Key: organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId })), ConsistentRead: true }));
   const organization = result.Item as Organization | undefined;
   return organization?.displayName;
 }

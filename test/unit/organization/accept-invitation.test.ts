@@ -9,7 +9,9 @@ import type { InvitationTokenPointer } from "../../../src/modules/organization/d
 import { invitationKey, type Invitation } from "../../../src/modules/organization/domain/invitation.js";
 import { ConflictError, InvitationTokenUnavailableError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
 const TABLE = "MainTable";
 const PEPPER = "test-pepper";
 let counter = 0;
@@ -33,8 +35,9 @@ function ownerCtx(organizationId = "org-1"): RequestContext {
 }
 
 async function seedOrganization(store: InMemoryOrganizationStore, organizationId = "org-1"): Promise<void> {
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
   const org: Organization = {
-    ...organizationKey(organizationId),
+    ...organizationKey(tenantId),
     entityType: "Organization",
     organizationId,
     displayName: "Acme",
@@ -46,7 +49,7 @@ async function seedOrganization(store: InMemoryOrganizationStore, organizationId
   };
   store.forceUpdate(org);
   const membership: Membership = {
-    ...membershipKey(organizationId, "user-owner"),
+    ...membershipKey(tenantId, "user-owner"),
     entityType: "Membership",
     membershipId: "membership-owner",
     organizationId,
@@ -80,7 +83,7 @@ describe("AcceptInvitationService", () => {
     const result = await service.accept({ token, userId: "user-new", callerVerifiedEmail: "new@example.com" });
 
     expect(result.role).toBe("MEMBER");
-    const membership = await store.get<Membership>(membershipKey("org-1", "user-new"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"user-new"));
     expect(membership?.status).toBe("ACTIVE");
   });
 
@@ -95,7 +98,7 @@ describe("AcceptInvitationService", () => {
 
     await service.accept({ token, userId: "user-co-owner", callerVerifiedEmail: "co-owner@example.com" });
 
-    const org = await store.get<Organization>(organizationKey("org-1"));
+    const org = await store.get<Organization>(organizationKey(ORG_1));
     expect(org?.ownerCount).toBe(2);
   });
 
@@ -110,7 +113,7 @@ describe("AcceptInvitationService", () => {
     const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
 
     await expect(service.accept({ token, userId: "attacker", callerVerifiedEmail: "attacker@example.com" })).rejects.toBeInstanceOf(InvitationTokenUnavailableError);
-    const membership = await store.get<Membership>(membershipKey("org-1", "attacker"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"attacker"));
     expect(membership).toBeUndefined();
   });
 
@@ -164,7 +167,7 @@ describe("AcceptInvitationService", () => {
     const store = new InMemoryOrganizationStore();
     await seedOrganization(store);
     store.forceUpdate({
-      ...membershipKey("org-1", "user-returning"),
+      ...membershipKey(ORG_1,"user-returning"),
       entityType: "Membership",
       membershipId: "membership-returning",
       organizationId: "org-1",
@@ -187,7 +190,7 @@ describe("AcceptInvitationService", () => {
 
     await service.accept({ token, userId: "user-returning", callerVerifiedEmail: "returning@example.com" });
 
-    const membership = await store.get<Membership>(membershipKey("org-1", "user-returning"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"user-returning"));
     expect(membership?.status).toBe("ACTIVE");
     expect(membership?.removedAt).toBeUndefined();
     expect(membership?.GSI8PK).toBeUndefined();
@@ -212,13 +215,13 @@ describe("AcceptInvitationService", () => {
     const store = new InMemoryOrganizationStore();
     await seedOrganization(store);
     const { token, invitation } = await issueInvite(store, "clear-gsi8@example.com", "MEMBER");
-    const preAccept = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    const preAccept = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
     expect(preAccept?.GSI8PK).toBe("WORK#INVITATION_PURGE"); // sanity: creation stamped it
 
     const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
     await service.accept({ token, userId: "user-cleared", callerVerifiedEmail: "clear-gsi8@example.com" });
 
-    const accepted = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    const accepted = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
     expect(accepted?.status).toBe("ACCEPTED");
     expect(accepted?.GSI8PK).toBeUndefined();
     expect(accepted?.GSI8SK).toBeUndefined();

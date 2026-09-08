@@ -5,7 +5,9 @@ import { organizationKey, type Organization } from "../../../src/modules/organiz
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
 const TABLE = "MainTable";
 
 function ctx(userId: string, roles: string[]): RequestContext {
@@ -20,7 +22,7 @@ function ctx(userId: string, roles: string[]): RequestContext {
 
 function seedOrganization(store: InMemoryOrganizationStore): void {
   store.forceUpdate({
-    ...organizationKey("org-1"),
+    ...organizationKey(ORG_1),
     entityType: "Organization",
     organizationId: "org-1",
     displayName: "Acme",
@@ -53,7 +55,7 @@ describe("UpdateOrganizationSettingsService", () => {
 
     expect(result.displayName).toBe("Acme Corp");
     expect(result.timezone).toBe("America/Sao_Paulo");
-    const stored = await store.get<Organization>(organizationKey("org-1"));
+    const stored = await store.get<Organization>(organizationKey(ORG_1));
     expect(stored?.displayName).toBe("Acme Corp");
     expect(stored?.version).toBe(2);
   });

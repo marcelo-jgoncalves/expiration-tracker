@@ -34,10 +34,10 @@ describe("CreateOrganizationService", () => {
       timezone: "America/Sao_Paulo",
     });
 
-    const orgRow = await store.get<Organization>(organizationKey(organization.organizationId));
+    const orgRow = await store.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId })));
     expect(orgRow).toEqual(organization);
 
-    const membershipRow = await store.get<Membership>(membershipKey(organization.organizationId, "user-1"));
+    const membershipRow = await store.get<Membership>(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId }), "user-1"));
     expect(membershipRow).toEqual(membership);
     expect(membershipRow?.role).toBe("OWNER");
     expect(membershipRow?.status).toBe("ACTIVE");
@@ -85,8 +85,8 @@ describe("CreateOrganizationService", () => {
     const second = await service.createOrganization({ creatorUserId: "user-1", displayName: "Org B", timezone: "UTC" });
 
     expect(first.organization.organizationId).not.toBe(second.organization.organizationId);
-    const firstRow = await store.get<Organization>(organizationKey(first.organization.organizationId));
-    const secondRow = await store.get<Organization>(organizationKey(second.organization.organizationId));
+    const firstRow = await store.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: first.organization.organizationId })));
+    const secondRow = await store.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: second.organization.organizationId })));
     expect(firstRow?.displayName).toBe("Org A");
     expect(secondRow?.displayName).toBe("Org B");
   });
@@ -119,7 +119,7 @@ describe("CreateOrganizationService", () => {
     const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "  Empresa Alfa  ", timezone: "UTC" });
     expect(organization.displayName).toBe("Empresa Alfa");
 
-    const row = await store.get<Organization>(organizationKey(organization.organizationId));
+    const row = await store.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId })));
     expect(row?.displayName).toBe("Empresa Alfa");
   });
 

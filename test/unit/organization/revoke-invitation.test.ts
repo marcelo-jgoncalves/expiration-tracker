@@ -8,7 +8,9 @@ import { membershipKey, type Membership } from "../../../src/modules/organizatio
 import { invitationDedupKey, invitationKey, type Invitation } from "../../../src/modules/organization/domain/invitation.js";
 import { NotFoundError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
 const TABLE = "MainTable";
 let counter = 0;
 function ids() {
@@ -32,7 +34,7 @@ function ownerCtx(): RequestContext {
 
 async function seedOrganization(store: InMemoryOrganizationStore): Promise<void> {
   store.forceUpdate({
-    ...organizationKey("org-1"),
+    ...organizationKey(ORG_1),
     entityType: "Organization",
     organizationId: "org-1",
     displayName: "Acme",
@@ -43,7 +45,7 @@ async function seedOrganization(store: InMemoryOrganizationStore): Promise<void>
     version: 1,
   } satisfies Organization);
   store.forceUpdate({
-    ...membershipKey("org-1", "user-owner"),
+    ...membershipKey(ORG_1,"user-owner"),
     entityType: "Membership",
     membershipId: "membership-owner",
     organizationId: "org-1",
@@ -71,9 +73,9 @@ describe("RevokeInvitationService", () => {
     const revokeService = new RevokeInvitationService(store, TABLE, ids());
     await revokeService.revoke(ownerCtx(), invitation.invitationId);
 
-    const revoked = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    const revoked = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
     expect(revoked?.status).toBe("REVOKED");
-    const dedup = await store.get(invitationDedupKey("org-1", "revoke-me@example.com"));
+    const dedup = await store.get(invitationDedupKey(ORG_1,"revoke-me@example.com"));
     expect(dedup).toBeUndefined();
 
     // Reaproveita o e-mail liberado para um convite novo - prova que o dedup foi realmente
@@ -108,7 +110,7 @@ describe("RevokeInvitationService", () => {
     const revokeService = new RevokeInvitationService(store, TABLE, ids(), () => "2026-02-01T00:00:00.000Z");
     await revokeService.revoke(ownerCtx(), invitation.invitationId);
 
-    const revoked = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    const revoked = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
     expect(revoked?.GSI8PK).toBe("WORK#INVITATION_PURGE");
     const expectedDueAt = new Date(Date.parse("2026-02-01T00:00:00.000Z") + 30 * 24 * 60 * 60 * 1000).toISOString();
     expect(revoked?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${invitation.invitationId}`);

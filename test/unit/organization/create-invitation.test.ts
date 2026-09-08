@@ -7,7 +7,9 @@ import { invitationDedupKey, invitationKey, type Invitation } from "../../../src
 import { MembershipInviteRateLimiter } from "../../../src/modules/organization/application/membership-invite-rate-limiter.js";
 import { OwnerTierChangeRequiresOwnerError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
 const TABLE = "MainTable";
 let counter = 0;
 function ids() {
@@ -30,8 +32,9 @@ function ctx(roles: string[] = ["OWNER"], organizationId = "org-1"): RequestCont
 }
 
 async function seedOrganization(store: InMemoryOrganizationStore, organizationId = "org-1"): Promise<void> {
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
   const org: Organization = {
-    ...organizationKey(organizationId),
+    ...organizationKey(tenantId),
     entityType: "Organization",
     organizationId,
     displayName: "Acme",
@@ -43,7 +46,7 @@ async function seedOrganization(store: InMemoryOrganizationStore, organizationId
   };
   store.forceUpdate(org);
   const membership: Membership = {
-    ...membershipKey(organizationId, "user-owner"),
+    ...membershipKey(tenantId, "user-owner"),
     entityType: "Membership",
     membershipId: "membership-owner",
     organizationId,
@@ -78,7 +81,7 @@ describe("CreateInvitationService", () => {
     expect(invitation.status).toBe("PENDING");
     expect(invitation.emailNormalized).toBe("new.member@example.com");
     expect(token).toContain(".");
-    const dedup = await store.get(invitationDedupKey("org-1", "new.member@example.com"));
+    const dedup = await store.get(invitationDedupKey(ORG_1,"new.member@example.com"));
     expect(dedup).toBeDefined();
   });
 
@@ -141,7 +144,7 @@ describe("CreateInvitationService", () => {
 
     const { invitation } = await service.invite(ctx(), { email: "gsi8@example.com", role: "MEMBER" });
 
-    const stored = await store.get<Invitation>(invitationKey("org-1", invitation.invitationId));
+    const stored = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
     expect(stored?.GSI8PK).toBe("WORK#INVITATION_PURGE");
     const expectedDueAt = new Date(Date.parse(invitation.expiresAt) + 30 * 24 * 60 * 60 * 1000).toISOString();
     expect(stored?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${invitation.invitationId}`);
@@ -157,7 +160,7 @@ describe("CreateInvitationService", () => {
     const first = await service.invite(ctx(), { email: "resend-gsi8@example.com", role: "MEMBER" });
     const second = await service.invite(ctx(), { email: "resend-gsi8@example.com", role: "MEMBER" });
 
-    const stored = await store.get<Invitation>(invitationKey("org-1", second.invitation.invitationId));
+    const stored = await store.get<Invitation>(invitationKey(ORG_1,second.invitation.invitationId));
     expect(stored?.GSI8SK).not.toBe(undefined);
     const expectedDueAt = new Date(Date.parse(second.invitation.expiresAt) + 30 * 24 * 60 * 60 * 1000).toISOString();
     expect(stored?.GSI8SK).toBe(`${expectedDueAt}#TENANT#org-1#${first.invitation.invitationId}`);

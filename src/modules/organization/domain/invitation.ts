@@ -8,6 +8,7 @@
  * `IdentityMapping` (physical model §1) — nunca reimplementada aqui.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { MembershipRole } from "./membership.js";
 
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
@@ -42,7 +43,7 @@ export interface Invitation extends EntityKey {
   maintenanceAttemptCount?: number;
 }
 
-export function invitationKey(organizationId: string, invitationId: string): { PK: string; SK: string } {
+export function invitationKey(organizationId: AuthorizedTenantId, invitationId: string): { PK: string; SK: string } {
   return { PK: `TENANT#${organizationId}#ORG#${organizationId}`, SK: `INVITATION#${invitationId}` };
 }
 
@@ -59,7 +60,7 @@ export interface InvitationDedupPointer extends EntityKey {
   expiresAt: string;
 }
 
-export function invitationDedupKey(organizationId: string, emailNormalized: string): { PK: string; SK: string } {
+export function invitationDedupKey(organizationId: AuthorizedTenantId, emailNormalized: string): { PK: string; SK: string } {
   return { PK: `TENANT#${organizationId}#ORG#${organizationId}`, SK: `INVITE_DEDUP#${emailNormalized}` };
 }
 
@@ -111,7 +112,7 @@ export function deriveInvitationMaintenanceDue(invitation: Pick<Invitation, "sta
 
 /** `GSI8PK=WORK#INVITATION_PURGE` / `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<invitationId>` (D-179's
  * exact key spec, same shape as `membershipGsi8Keys()`). */
-export function invitationGsi8Keys(input: { dueAtIso: string; tenantId: string; invitationId: string }): { GSI8PK: string; GSI8SK: string } {
+export function invitationGsi8Keys(input: { dueAtIso: string; tenantId: AuthorizedTenantId; invitationId: string }): { GSI8PK: string; GSI8SK: string } {
   return {
     GSI8PK: `WORK#${INVITATION_PURGE_WORK_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.invitationId}`,

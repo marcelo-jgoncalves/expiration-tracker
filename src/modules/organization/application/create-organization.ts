@@ -79,11 +79,15 @@ export class CreateOrganizationService {
     }
 
     const organizationId = this.ids.newOrganizationId();
+    // Fresh, server-generated id (this.ids.newOrganizationId()) - never client-supplied - same
+    // trust provenance authorizedTenantIdFromPersistedEntity() already requires below for
+    // defaultEntitlement(), applied here to every other key-builder this method calls.
+    const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
     const membershipId = this.ids.newMembershipId();
     const now = this.now();
 
     const organization: Organization = {
-      ...organizationKey(organizationId),
+      ...organizationKey(tenantId),
       entityType: "Organization",
       organizationId,
       displayName,
@@ -95,7 +99,7 @@ export class CreateOrganizationService {
     };
 
     const membership: Membership = {
-      ...membershipKey(organizationId, input.creatorUserId),
+      ...membershipKey(tenantId, input.creatorUserId),
       entityType: "Membership",
       membershipId,
       organizationId,
@@ -105,7 +109,7 @@ export class CreateOrganizationService {
       joinedAt: now,
       createdBy: input.creatorUserId,
       version: 1,
-      ...membershipGsi4Keys(input.creatorUserId, organizationId, membershipId),
+      ...membershipGsi4Keys(input.creatorUserId, tenantId, membershipId),
     };
 
     const lifecycle: TenantLifecycleRecord = {
@@ -119,10 +123,7 @@ export class CreateOrganizationService {
       version: 1,
     };
 
-    // `organizationId` here is a fresh, server-generated id (this.ids.newOrganizationId()) - never
-    // client-supplied - the same trust provenance authorizedTenantIdFromPersistedEntity() exists
-    // for, even though this call site constructs the entity rather than reading one back.
-    const entitlement = defaultEntitlement(authorizedTenantIdFromPersistedEntity({ tenantId: organizationId }), now);
+    const entitlement = defaultEntitlement(tenantId, now);
 
     const entries: TransactWriteEntry[] = [
       { Put: buildVersionedCreate(this.tableName, organization as unknown as Record<string, unknown> & { PK: string; SK: string }) },

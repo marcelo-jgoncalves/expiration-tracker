@@ -7,7 +7,7 @@ import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { membershipKey, type Membership, type MembershipRole } from "../../../src/modules/organization/domain/membership.js";
 import { LastOwnerError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassignmentRequiredError } from "../../../src/shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { AssignedActiveItemsLookup } from "../../../src/modules/organization/ports/assigned-active-items-lookup.js";
 import type { AssignedActiveRequirementsLookup } from "../../../src/modules/organization/ports/assigned-active-requirements-lookup.js";
@@ -35,6 +35,7 @@ function fakeAssignedRequirements(assignments: Record<string, string[]> = {}): A
   };
 }
 
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
 const TABLE = "MainTable";
 let counter = 0;
 function ids() {
@@ -58,7 +59,7 @@ function ctx(userId: string, roles: string[]): RequestContext {
 
 function seedMembership(store: InMemoryOrganizationStore, userId: string, role: MembershipRole, status: Membership["status"] = "ACTIVE"): void {
   store.forceUpdate({
-    ...membershipKey("org-1", userId),
+    ...membershipKey(ORG_1,userId),
     entityType: "Membership",
     membershipId: `membership-${userId}`,
     organizationId: "org-1",
@@ -75,7 +76,7 @@ function seedMembership(store: InMemoryOrganizationStore, userId: string, role: 
 
 function seedOrganization(store: InMemoryOrganizationStore, ownerCount: number): void {
   store.forceUpdate({
-    ...organizationKey("org-1"),
+    ...organizationKey(ORG_1),
     entityType: "Organization",
     organizationId: "org-1",
     displayName: "Acme",
@@ -152,7 +153,7 @@ describe("ChangeMembershipRoleService", () => {
     const service = new ChangeMembershipRoleService(store, TABLE, ids());
 
     await service.changeRole(ctx("user-admin", ["ADMIN"]), "user-member", "VIEWER", 1);
-    const updated = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const updated = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(updated?.role).toBe("VIEWER");
   });
 });
@@ -191,7 +192,7 @@ describe("RemoveMembershipService", () => {
     const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
-    const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const removed = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(removed?.status).toBe("REMOVED");
   });
 
@@ -206,7 +207,7 @@ describe("RemoveMembershipService", () => {
     const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
-    const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const removed = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(removed?.removedAt).toBe("2026-06-15T10:00:00.000Z");
   });
 
@@ -223,7 +224,7 @@ describe("RemoveMembershipService", () => {
     const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1);
-    const removed = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const removed = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(removed?.GSI8PK).toBe("WORK#MEMBERSHIP_PURGE");
     expect(removed?.GSI8SK).toBe(`2026-07-15T10:00:00.000Z#TENANT#org-1#membership-user-member`);
   });
@@ -239,7 +240,7 @@ describe("RemoveMembershipService", () => {
     const service = new RemoveMembershipService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await expect(service.remove(ctx("user-owner", ["OWNER"]), "user-member", 999)).rejects.toThrow();
-    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const stillActive = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(stillActive?.status).toBe("ACTIVE");
     expect(stillActive?.removedAt).toBeUndefined();
   });
@@ -258,7 +259,7 @@ describe("RemoveMembershipService", () => {
     const err = await service.remove(ctx("user-owner", ["OWNER"]), "user-member", 1).catch((e) => e);
     expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
     expect(err.details).toMatchObject({ targetUserId: "user-member", itemIds: ["item-1"], totalKnown: 1, truncated: false });
-    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const stillActive = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(stillActive?.status).toBe("ACTIVE");
   });
 
@@ -283,7 +284,7 @@ describe("RemoveMembershipService", () => {
       truncated: false,
       requirements: { requirementIds: ["req-1", "req-2"], totalKnownRequirements: 2, truncatedRequirements: false },
     });
-    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const stillActive = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(stillActive?.status).toBe("ACTIVE");
   });
 
@@ -342,7 +343,7 @@ describe("LeaveOrganizationService", () => {
     const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements());
 
     await service.leave(ctx("user-member", ["MEMBER"]));
-    const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(membership?.status).toBe("REMOVED");
   });
 
@@ -356,7 +357,7 @@ describe("LeaveOrganizationService", () => {
     const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.leave(ctx("user-member", ["MEMBER"]));
-    const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(membership?.removedAt).toBe("2026-06-15T10:00:00.000Z");
   });
 
@@ -369,7 +370,7 @@ describe("LeaveOrganizationService", () => {
     const service = new LeaveOrganizationService(store, TABLE, ids(), fakeAssignedItems(), fakeAssignedRequirements(), () => "2026-06-15T10:00:00.000Z");
 
     await service.leave(ctx("user-member", ["MEMBER"]));
-    const membership = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const membership = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(membership?.GSI8PK).toBe("WORK#MEMBERSHIP_PURGE");
     expect(membership?.GSI8SK).toBe(`2026-07-15T10:00:00.000Z#TENANT#org-1#membership-user-member`);
   });
@@ -386,7 +387,7 @@ describe("LeaveOrganizationService", () => {
     const err = await service.leave(ctx("user-member", ["MEMBER"])).catch((e) => e);
     expect(err).toBeInstanceOf(ResponsibilityReassignmentRequiredError);
     expect(err.details).toMatchObject({ targetUserId: "user-member", totalKnown: 2, truncated: false });
-    const stillActive = await store.get<Membership>(membershipKey("org-1", "user-member"));
+    const stillActive = await store.get<Membership>(membershipKey(ORG_1,"user-member"));
     expect(stillActive?.status).toBe("ACTIVE");
   });
 });

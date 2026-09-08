@@ -26,6 +26,7 @@
  */
 import { isTransactionCanceled, getCancellationReasonCodes, type TransactWriteEntry } from "../../shared/dynamodb/occ.js";
 import { tenantLifecycleKey } from "../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import {
   INVITATION_RETENTION_DAYS,
   deriveInvitationMaintenanceDue,
@@ -194,7 +195,10 @@ export async function runInvitationPurge(deps: InvitationPurgeDeps): Promise<Inv
                   ":dlq": DLQ_GSI8PK,
                   ":attempt": nextAttempt,
                   ":v": invitation.version,
-                  ":work": invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: candidate.tenantId, invitationId: invitation.invitationId }).GSI8PK,
+                  // Same repository-read provenance as membership-purge/purge.ts's identical fix:
+                  // `invitation` is the strongly-consistent base-item re-read, never the untrusted
+                  // GSI8-parsed `candidate.tenantId`.
+                  ":work": invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: invitation.organizationId }), invitationId: invitation.invitationId }).GSI8PK,
                 },
               },
             }
@@ -205,7 +209,7 @@ export async function runInvitationPurge(deps: InvitationPurgeDeps): Promise<Inv
                 UpdateExpression: "SET GSI8SK = :sk, maintenanceAttemptCount = :attempt",
                 ConditionExpression: "version = :v",
                 ExpressionAttributeValues: {
-                  ":sk": invitationGsi8Keys({ dueAtIso: backoffDueAtIso(nextAttempt, nowIso), tenantId: candidate.tenantId, invitationId: invitation.invitationId }).GSI8SK,
+                  ":sk": invitationGsi8Keys({ dueAtIso: backoffDueAtIso(nextAttempt, nowIso), tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: invitation.organizationId }), invitationId: invitation.invitationId }).GSI8SK,
                   ":attempt": nextAttempt,
                   ":v": invitation.version,
                 },

@@ -7,7 +7,7 @@ import { identityMappingKey } from "../../../src/modules/identity/persistence/id
 import { globalUserKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { membershipKey } from "../../../src/modules/organization/domain/membership.js";
 import { AuthenticationError, NotFoundError, OrganizationClosureUnavailableError } from "../../../src/shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 
 const TABLE = "MainTable";
@@ -57,7 +57,7 @@ async function seedIdentity(store: InMemoryIdentityStore, opts: { identityStatus
     version: 1,
   });
   await store.putIfAbsent({
-    ...membershipKey(TENANT_ID, USER_ID),
+    ...membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT_ID }), USER_ID),
     entityType: "Membership",
     membershipId: "membership-1",
     organizationId: TENANT_ID,

@@ -17,10 +17,14 @@ import { membershipKey, type Membership } from "../domain/membership.js";
 import { organizationKey, type Organization } from "../domain/organization.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export async function resolveActiveMembership(organizations: OrganizationStore, userId: string): Promise<Membership[]> {
   const pointers = await organizations.queryGsi4<Membership>({ gsi4pk: `USER#${userId}` });
-  const hydrated = await Promise.all(pointers.map((pointer) => organizations.get<Membership>(membershipKey(pointer.organizationId, userId))));
+  // Same GSI4-hydration provenance as onboarding-state.ts's resolver above.
+  const hydrated = await Promise.all(
+    pointers.map((pointer) => organizations.get<Membership>(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: pointer.organizationId }), userId))),
+  );
   return hydrated.filter((membership): membership is Membership => membership !== undefined && membership.status === "ACTIVE");
 }
 
@@ -47,7 +51,9 @@ export async function listUsableOrganizations(organizations: OrganizationStore, 
     memberships.map(async (membership): Promise<UsableOrganization | undefined> => {
       const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(membership.organizationId));
       if (!lifecycle || lifecycle.status !== TENANT_ACTIVE_STATUS) return undefined;
-      const organization = await organizations.get<Organization>(organizationKey(membership.organizationId));
+      // `membership` here is itself already an ACTIVE row read back from the repository above
+      // (resolveActiveMembership) - same provenance, one hop further.
+      const organization = await organizations.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: membership.organizationId })));
       if (!organization) return undefined;
       return { organizationId: membership.organizationId, displayName: organization.displayName, role: membership.role, version: organization.version };
     }),

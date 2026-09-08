@@ -36,7 +36,7 @@ describe("GSI8 pointer written at creation for every AuditEvent-family entity (D
   it("buildMembershipAuditEvent normalizes organizationId into the GSI8SK's tenant segment", () => {
     const event = buildMembershipAuditEvent({
       auditEventId: "evt-2",
-      organizationId: "org-1",
+      organizationId: authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }),
       resourceType: "Membership",
       resourceId: "membership-1",
       action: "MEMBER_REMOVED",

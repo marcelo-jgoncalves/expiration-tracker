@@ -9,6 +9,7 @@ import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type MembershipAuditAction =
   | "INVITATION_CREATED"
@@ -46,13 +47,13 @@ function monthShard(isoTimestamp: string): string {
  * (`subject/domain/audit-event.ts`), nunca a partição de `Organization`/`Membership`/
  * `Invitation` diretamente (evitaria crescimento ilimitado da partição do agregado para uma
  * organização com alta rotatividade de membros). */
-export function membershipAuditKey(organizationId: string, occurredAt: string, auditEventId: string): EntityKey {
+export function membershipAuditKey(organizationId: AuthorizedTenantId, occurredAt: string, auditEventId: string): EntityKey {
   return { PK: `TENANT#${organizationId}#MEMBERSHIPAUDIT#${monthShard(occurredAt)}`, SK: `EVT#${occurredAt}#${auditEventId}` };
 }
 
 export interface BuildMembershipAuditEventInput {
   auditEventId: string;
-  organizationId: string;
+  organizationId: AuthorizedTenantId;
   resourceType: MembershipAuditResourceType;
   resourceId: string;
   action: MembershipAuditAction;
