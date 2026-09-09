@@ -712,6 +712,13 @@ locals {
     link_evidence          = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" }
     unlink_evidence        = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" }
     delete_requirement     = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/delete" }
+    # G4 (D-247/D-24x) - one-off ("avulso") DocumentRequest, outside any series; Action +
+    # service (createDocumentRequest, D-226 Achado 2) already existed, only this route was
+    # missing.
+    create_document_request = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" }
+    # G2 (D-247/D-24x) - review-queue listing (A13); the sparse GSI5 index and RBAC action
+    # already existed, only this route was missing.
+    list_review_queue = { method = "GET", path = "/document-archive/reviews" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate

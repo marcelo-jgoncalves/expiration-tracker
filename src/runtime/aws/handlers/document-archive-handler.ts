@@ -23,10 +23,12 @@ import {
   handleGetSubjectCompliance,
   handleListRequirements,
   handleSearchRequirements,
+  handleListReviewQueue,
   handleUpdateRequirement,
   handleLinkEvidence,
   handleUnlinkEvidence,
   handleDeleteRequirement,
+  handleCreateDocumentRequest,
   handleCreateSeries,
   handleGetSeries,
   handleListSeries,
@@ -127,6 +129,13 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleUnlinkEvidence(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/requirements/{subjectId}/{requirementId}/delete":
           return await handleDeleteRequirement(deps, { ...base, body: parseBody(event) });
+        // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest, outside any series.
+        case "POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests":
+          return await handleCreateDocumentRequest(deps, { ...base, body: parseBody(event) });
+        // G2 (D-247/D-24x): review-queue listing (A13) - literal segment under /document-archive,
+        // same Lambda, no path-parameter collision with anything above.
+        case "GET /document-archive/reviews":
+          return await handleListReviewQueue(deps, base);
         // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147) — subject-scoped series
         // routes. Tenant-facing only — the guest-facing surface stays on
         // document-archive-guest-handlers.ts, unchanged by this task.

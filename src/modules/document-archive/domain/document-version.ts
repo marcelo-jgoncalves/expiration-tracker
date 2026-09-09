@@ -85,7 +85,14 @@ export function documentVersionKey(tenantId: AuthorizedTenantId, documentId: str
 }
 
 /** AP5 sparse review-queue index — separate buckets per real state (never a fixed `RECEIVED`
- * literal for both RECEIVED and UNDER_REVIEW, the exact bug the Rodada 2 proposal had). */
+ * literal for both RECEIVED and UNDER_REVIEW, the exact bug the Rodada 2 proposal had).
+ * `reviewQueueGsi5PartitionKey` is split out (same precedent as `requirementGsi9PartitionKey`
+ * in `requirement.ts`) so the G2 listing route (`listReviewQueue`, D-24x) can build the exact
+ * same partition key a caller queries by, without duplicating the literal template. */
+export function reviewQueueGsi5PartitionKey(tenantId: AuthorizedTenantId, state: "RECEIVED" | "UNDER_REVIEW"): string {
+  return `TENANT#${tenantId}#REVIEWQUEUE#${state}`;
+}
+
 export function reviewQueueGsi5Keys(
   tenantId: AuthorizedTenantId,
   state: "RECEIVED" | "UNDER_REVIEW",
@@ -93,7 +100,7 @@ export function reviewQueueGsi5Keys(
   versionId: string,
 ): { GSI5PK: string; GSI5SK: string } {
   return {
-    GSI5PK: `TENANT#${tenantId}#REVIEWQUEUE#${state}`,
+    GSI5PK: reviewQueueGsi5PartitionKey(tenantId, state),
     GSI5SK: `${orderingTimestamp}#VERSION#${versionId}`,
   };
 }

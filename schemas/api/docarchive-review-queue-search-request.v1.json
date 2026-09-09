@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json",
+  "title": "DocArchiveReviewQueueSearchRequest v1",
+  "description": "GET /document-archive/reviews query parameters (G2, D-247/D-24x, src/modules/document-archive/application/document-archive-service.ts ReviewQueueQuery). `state` is required and singular — mirrors the GSI5 sparse review-queue index's own per-state partitioning (reviewQueueGsi5PartitionKey), there is no server-side 'ALL' mode.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["state"],
+  "properties": {
+    "state": { "type": "string", "enum": ["RECEIVED", "UNDER_REVIEW"] },
+    "cursor": { "type": "string", "minLength": 1 }
+  }
+}

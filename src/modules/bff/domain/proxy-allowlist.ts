@@ -126,6 +126,11 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/link-evidence" },
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/unlink-evidence" },
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/delete" },
+  // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest — JSON envelope, no content-disposition
+  // gap (that's the /reports/* CSV routes below), safe to proxy like any other mutation.
+  { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" },
+  // G2 (D-247/D-24x): review-queue listing (A13) — JSON envelope, same reasoning.
+  { method: "GET", pathTemplate: "/document-archive/reviews" },
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/series" },
   { method: "GET", pathTemplate: "/document-archive/series/{subjectId}" },
@@ -170,6 +175,19 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // D-204 decision 7 (fatia 3): also JSON envelope (`{downloadUrl}`), same reasoning as the 4
   // CRUD routes above — never the file bytes themselves, so no content-disposition gap either.
   { method: "GET", pathTemplate: "/reports/subscriptions/{subscriptionId}/runs/{runId}/download" },
+  // G3 (D-247/D-24x): the 7 raw-CSV report routes (reports-handler.ts) — deliberately excluded
+  // until now because `ProxyService.forward()`'s `FORWARDED_RESPONSE_HEADERS` dropped
+  // `content-disposition`/`x-report-truncated` (see that file's own comment, and
+  // reports-handler.ts's doc comment which named this exact gap). Both fixed together: this
+  // allowlist entry and the header-forwarding fix in proxy-service.ts are the two halves of
+  // closing G3, one is useless without the other.
+  { method: "GET", pathTemplate: "/reports/expired-items" },
+  { method: "GET", pathTemplate: "/reports/expiring-soon-items" },
+  { method: "GET", pathTemplate: "/reports/renewed-items" },
+  { method: "GET", pathTemplate: "/reports/expiration-items-by-assignee" },
+  { method: "GET", pathTemplate: "/reports/missing-requirements" },
+  { method: "GET", pathTemplate: "/reports/requirements-by-subject" },
+  { method: "GET", pathTemplate: "/reports/requirements-by-assignee" },
 ];
 
 function pathMatchesTemplate(path: string, template: string): boolean {

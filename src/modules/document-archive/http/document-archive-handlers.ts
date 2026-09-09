@@ -13,7 +13,7 @@ import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/s
 import type { UnifiedValidityState } from "../../../shared/domain/validity-state.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
-import type { DocumentArchiveService } from "../application/document-archive-service.js";
+import type { CreateDocumentRequestInput, DocumentArchiveService } from "../application/document-archive-service.js";
 import type { DocumentRequestRecurrenceService } from "../application/document-request-recurrence-service.js";
 import type { CreateDocumentInput } from "../domain/document.js";
 import type { FileUploadSpec } from "../domain/document-file.js";
@@ -45,6 +45,8 @@ const REQUIREMENT_LINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/
 const REQUIREMENT_UNLINK_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-unlink-evidence-request.v1.json";
 const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-delete-request.v1.json";
 const REQUIREMENT_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json";
+const REVIEW_QUEUE_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json";
+const REQUEST_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json";
 const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
 const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
 const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
@@ -391,6 +393,37 @@ export async function handleSearchRequirements(deps: DocumentArchiveHttpDeps, re
   });
 }
 
+/** G2 (D-247/D-24x) — GET /document-archive/reviews. Closes the named A13 blocker: the sparse
+ * GSI5 review-queue index and the RBAC action (`docarchive:read`) already existed, only the
+ * route/handler/query wiring was missing. `state` is required (see the schema's own comment for
+ * why there is no server-side "ALL" mode). */
+export async function handleListReviewQueue(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const qs = req.queryStringParameters ?? {};
+    const queryObject: Record<string, string> = {};
+    for (const key of ["state", "cursor"] as const) {
+      const value = qs[key];
+      if (value !== undefined) queryObject[key] = value;
+    }
+    const { valid, errors } = defaultSchemaRegistry.validate(REVIEW_QUEUE_SEARCH_SCHEMA_ID, queryObject);
+    if (!valid) throw new ValidationError("Query parameters failed schema validation.", { errors });
+
+    const state = queryObject["state"] as "RECEIVED" | "UNDER_REVIEW";
+    const signature = { mode: "REVIEW_QUEUE", state };
+    const exclusiveStartKey = queryObject["cursor"] !== undefined ? decodeSearchCursor(queryObject["cursor"], signature) : undefined;
+
+    const context = await resolve(deps, req);
+    const page = await deps.documentArchive.listReviewQueue(context, { state, exclusiveStartKey });
+    return {
+      statusCode: 200,
+      body: {
+        items: page.items,
+        cursor: page.lastEvaluatedKey ? encodeSearchCursor(signature, page.lastEvaluatedKey) : null,
+      },
+    };
+  });
+}
+
 export async function handleUpdateRequirement(deps: DocumentArchiveHttpDeps, req: HttpRequest<UpdateRequirementInput & { expectedVersion: number }>): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
@@ -440,6 +473,25 @@ export async function handleDeleteRequirement(deps: DocumentArchiveHttpDeps, req
     const context = await resolve(deps, req);
     await deps.documentArchive.deleteRequirement(context, subjectId, requirementId, req.body.expectedVersion);
     return { statusCode: 204, body: {} };
+  });
+}
+
+/** G4 (D-247/D-24x) — POST /document-archive/requirements/{subjectId}/{requirementId}/document-
+ * requests. Closes the named A14 blocker: `docarchive:request-create`'s Action and the
+ * `createDocumentRequest` application service already existed (D-226 Achado 2), only the
+ * tenant-facing route/handler was missing (the guest-facing surface this produces a link for
+ * was never affected). `subjectId`/`requirementId` come from the path, matching every sibling
+ * requirement-scoped route above — never duplicated into the body. */
+export async function handleCreateDocumentRequest(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ deadline?: string; recipientEmail?: string; idempotencyKey: string }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const requirementId = requireRequirementId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REQUEST_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    const input: CreateDocumentRequestInput = { subjectId, requirementId, ...req.body };
+    const documentRequest = await deps.documentArchive.createDocumentRequest(context, input);
+    return { statusCode: 201, body: { documentRequest } };
   });
 }
 

@@ -1,0 +1,70 @@
+Round 2 (reconciliation) of the same Claude<->Codex protocol. In Round 1 you (Codex) and Claude
+independently (blind) proposed a weighted rubric for grading a B2B SaaS P0 screen-inventory plan.
+Both proposals are pasted below in full. Your task now: reconcile them into ONE converged final
+rubric, note points of actual disagreement (if any) and how you resolved them, and give a final
+self-score (out of 10) for the RECONCILED rubric's rigor. The gate is convergence >= 9.0/10 on
+both sides without rounding (this repo's AGENTS.md paragraph 4 standard) - if you cannot honestly
+reach 9.0, say so and name exactly what's missing rather than inflating the score.
+
+=== CLAUDE'S ROUND 1 PROPOSAL (verbatim) ===
+
+# Stage 1, Round 1 — Claude's BLIND independent proposal
+
+Proposed rubric — 7 weighted axes, 100 points total:
+1. IA completeness / no orphan features — 20 — every Action in authorization.ts maps to a screen
+   or is explicitly named as deliberately deferred with a reason.
+2. RBAC-aware navigation — 15 — per screen, states which of OWNER/ADMIN/MEMBER/VIEWER can see it
+   and what each can actually do there; no dangling affordance for an action a role cannot invoke.
+3. State coverage per screen — 15 — loading/empty/error/success plus domain-specific states
+   (guest link expired/revoked, OCC conflict, anti-enumeration collapse, import partial failure),
+   not generic "handle errors."
+4. Multi-tenant & guest/authenticated surface separation — 15 — org switcher/tenant-context
+   handling, structural (not just visual) separation between authenticated app and guest surface.
+5. Screen-to-screen coherence (entry/exit graph) — 15 — every screen names entry points and
+   exits; no orphan screens, no dead-ends; cross-references consistent both directions.
+6. Mobile/responsive & accessibility expectations — 10 — per-screen responsive expectation
+   (full parity / degraded / desktop-only-with-reason), not a generic "must be responsive."
+7. Self-contained buildability for a downstream tool — 10 — zero-session-context reader (Claude
+   Design) can build each screen without a clarifying question, because backend facts are
+   restated inline per screen.
+
+Sources cited: Pencil & Paper (SaaS nav UX), WorkOS (RBAC 2025), NN/g (heuristics for complex
+apps x2), Orbix (multi-tenant dashboard principles), Logto/Medium (org switcher), Jenny
+Choi/Medium + DeveloperUX (design handoff checklists - states must be explicit not inferred).
+Honesty note: no single authoritative source found that scores an entire pre-build screen-
+inventory PLAN end-to-end (as opposed to a shipped UI via heuristic evaluation) - this rubric is
+a synthesis applied to this specific artifact type.
+Self-score: 8.6/10. Named weakness: weighting is Claude's own judgment, not independently
+corroborated; hadn't stress-tested the "no orphan feature" axis against legitimately-DEFERRED
+roadmap items (e.g. P0.5 search fatias 4-5 deferred with a named quantitative trigger) - does the
+rubric wrongly penalize a deliberate deferral as an orphan?
+
+=== YOUR (CODEX'S) ROUND 1 PROPOSAL ===
+
+[Your own full Round 1 answer from the previous invocation - reproduce your reasoning about it
+from memory of what you generated: 8 axes summing to 100 - Backend-to-interface completeness and
+traceability (18), Journey and navigation coherence (14), RBAC-aware visibility and action model
+(14), State/feedback/recovery coverage (14), Multi-tenant organization context and isolation UX
+(10), Guest/authenticated surface separation (8), Responsive/mobile/accessibility planning (12),
+Zero-context handoff quality and consistency (10) - grounded in NN/g ten-usability-heuristics,
+W3C WCAG 2.2 (Recommendation 2023-10-05, Reflow 1.4.10/Focus Not Obscured 2.4.11/Dragging
+Movements 2.5.7/Target Size 2.5.8/Status Messages 4.1.3), AWS SaaS Architecture Fundamentals
+whitepaper (tenant isolation, SaaS identity) - plus a "required grading artifacts" list (10
+items: capability traceability matrix, reverse map, role x surface x action matrix, route
+hierarchy, journey x surface matrix, state matrix, org-switch rules, guest boundary spec,
+responsive transformation notes, assumption/gap register) and self-score 9.2/10, naming as
+weaknesses: weights are reasoned judgment not empirically validated: no comparative study of
+Box/Notion/Figma/Vanta done; "lower roles shouldn't see unusable actions" may need a narrow
+discoverability exception left to Stage 2.]
+
+=== YOUR TASK ===
+
+Produce the RECONCILED final rubric (one merged set of weighted axes summing to 100), explicitly
+resolving: (a) Claude split guest-separation into the multi-tenant axis (combined 15pts) while you
+kept them as two axes (10+8=18pts) - decide which structure is better and why; (b) whether the
+"required grading artifacts" checklist you added in Round 1 should be folded into the final
+rubric as a gating requirement; (c) Claude's open question about deliberately-deferred roadmap
+items not counting as "orphan features" - resolve this explicitly with a rule.
+Give the final converged weighted axis list, the resolution of each disagreement above, and a
+final self-score out of 10 for the reconciled rubric (state plainly whether it reaches the >=9.0
+gate). Write plain text/markdown to stdout.

@@ -111,6 +111,7 @@ import {
   hasCleanFileScans,
   InvalidDocumentVersionTransitionError,
   reviewQueueGsi5Keys,
+  reviewQueueGsi5PartitionKey,
   type DocumentVersion,
   type DocumentVersionOrigin,
   type DocumentVersionState,
@@ -403,6 +404,26 @@ export interface RequirementSearchPage {
   items: RequirementSearchHit[];
   lastEvaluatedKey?: Record<string, unknown>;
   scanLimitReached: boolean;
+}
+
+/** G2 (D-247/D-24x) — see `listReviewQueue`'s doc comment. `state` mirrors the GSI5 sparse
+ * index's own per-state partitioning; there is no "ALL" mode server-side. */
+export interface ReviewQueueQuery {
+  state: "RECEIVED" | "UNDER_REVIEW";
+  exclusiveStartKey?: Record<string, unknown>;
+}
+
+export interface ReviewQueueHit {
+  version: DocumentVersion;
+  /** Absent only if the parent `Document` row vanished between the GSI5 query and the
+   * `batchGet` (never expected in steady state — a `DocumentVersion` never outlives its
+   * `Document`) — callers must treat this as optional, not assume it's always present. */
+  document?: Document;
+}
+
+export interface ReviewQueuePage {
+  items: ReviewQueueHit[];
+  lastEvaluatedKey?: Record<string, unknown>;
 }
 
 /** Roadmap P0.6, fatia 2 — see `getSubjectCompliance`'s doc comment for the exact formula. */
@@ -737,6 +758,34 @@ export class DocumentArchiveService {
       throw err;
     }
     return { ...current, state: "RECEIVED", receivedAt: now, version: expectedVersion + 1, updatedAt: now };
+  }
+
+  /**
+   * G2 (D-247/D-24x) — the tenant-facing review-queue listing route this module was missing:
+   * `commitUpload`/`claimReview` above already maintain the sparse AP5/GSI5 index
+   * (`reviewQueueGsi5Keys`), removed the instant a Version leaves RECEIVED/UNDER_REVIEW, but
+   * nothing ever queried it back out. One state per call (never both merged server-side) —
+   * `state` is the GSI5 partition discriminator itself (`reviewQueueGsi5PartitionKey`), the
+   * same "one required discriminator per call" shape `searchRequirements`' `status` already
+   * uses, not a new pattern. `docarchive:read` (not `docarchive:review`) — this is a read of
+   * queue membership, same tier A13's plan entry documents ("Actions: docarchive:read (all)"),
+   * distinct from `docarchive:review`'s claim/accept/reject actions on an item once opened. */
+  async listReviewQueue(ctx: RequestContext, query: ReviewQueueQuery): Promise<ReviewQueuePage> {
+    authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
+    const page = await this.store.queryIndexPage<DocumentVersion>({
+      indexName: "GSI5",
+      partitionKeyValue: reviewQueueGsi5PartitionKey(tenantId, query.state),
+      limit: SEARCH_PAGE_SIZE,
+      exclusiveStartKey: query.exclusiveStartKey,
+    });
+    const documentIds = [...new Set(page.items.map((v) => v.documentId))];
+    const documentRows = documentIds.length > 0 ? await this.store.batchGet<Document>(documentIds.map((documentId) => documentKey(tenantId, documentId))) : [];
+    const documentById = new Map(documentRows.map((d) => [d.documentId, d]));
+    return {
+      items: page.items.map((version) => ({ version, document: documentById.get(version.documentId) })),
+      lastEvaluatedKey: page.lastEvaluatedKey,
+    };
   }
 
   /** RECEIVED -> UNDER_REVIEW. Serializes concurrent reviewers: a second claim attempt fails

@@ -1,0 +1,34 @@
+Round 2 (reconciliation) of the same protocol, Stage 2. You (Codex) produced an independent BLIND
+screen inventory (23 authenticated screens A01-A23 + 2 guest screens G01-G02, self-scored 9.1/10,
+with 8 real backend gaps G1-G8 including two you flagged as genuine P0 BLOCKERS not mere
+deferrals: G2 - no HTTP route exists for listReviewQueue/listDocuments/searchDocuments despite the
+GSI/dashboard counter existing; G3 - the 7 CSV report endpoints aren't proxied by the BFF
+allowlist (Content-Disposition handling gap); G4 - docarchive:request-create (avulso request) has
+no tenant-facing HTTP route). Claude independently (blind) proposed a smaller 19-screen inventory
+(A1-A19 authenticated, B1-B3 guest) covering the same domain with a different screen-grouping
+choice (Claude split Expiration and Document-Archive into fully separate collection/detail pairs
+without a combined Subject-tracking screen; Codex kept a Subject hub A09 as the canonical
+aggregation point with A10 as a distinct "legacy RequirementAssignment" tracking screen under it),
+self-scored 8.4/10, and explicitly flagged that it had NOT verified whether ACTUAL HTTP routes
+exist for review-queue listing / documents listing / avulso request-create (the same 3 gaps you
+found by actually grepping the codebase) - Claude's draft optimistically assumed a "Review Queue"
+and "Documents Collection" screen were buildable today without confirming the backend route.
+
+Your task: produce the FINAL RECONCILED screen inventory. Use your own A01-A23+G01-G02 structure
+as the base (it is grounded in verified grep evidence of what HTTP routes actually exist, which
+Claude's was not) but confirm/adjust anything Claude's framing usefully adds: (1) Claude used a
+6-condition DEFERRED rule from Stage 1's reconciled rubric explicitly on each gap - confirm your
+G1-G8 register satisfies all 6 conditions each, fix any that don't; (2) Claude proposed folding
+Document Type guest-visibility (which types are exposed to the anonymous guest catalog) explicitly
+into the Document Types screen (A20) - confirm this is worth adding; (3) Claude's guest screens
+split "link unavailable" into its own terminal screen (B3) separate from the request view (B1) -
+decide whether your G01/G02 should do the same or keep it as a state within G01/G02, and justify
+briefly.
+
+Give: the final screen count (authenticated + guest), a short list of what changed from your
+Round 1 draft (if anything), confirmation that G2/G3/G4 remain real BLOCKING gaps for their
+respective P0 items (not just soft deferrals) versus which of G1/G5/G6/G7/G8 are legitimate
+non-blocking deferrals under the 6-condition rule, and a final self-score out of 10 for the
+RECONCILED inventory against Stage 1's 8-axis rubric (state plainly whether it reaches >=9.0).
+Write plain text/markdown to stdout, and be concise - you do not need to re-print every screen's
+full spec again, just the delta/decisions and final score.

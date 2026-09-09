@@ -146,6 +146,31 @@ vezes — gate combinado quando ambos aplicáveis é `FrontendOverall >= 9.0 AND
 - `document-domain-wireframes.md` — wireframes de baixa fidelidade das telas/jornadas críticas (`WIREFRAMES FUNCIONAIS v0.1`), explicitamente sem identidade visual final.
 - `document-domain-wireframes-validation-plan.md` — plano para validar os wireframes antes de virarem protótipo de alta fidelidade, baseado em `interface-quality-standard.md` + `frontend-engineering-quality-standard.md`.
 
+## P0 Screen Inventory Plan (2026-09-09, D-247) — insumo direto para o Claude Design
+
+`docs/frontend/p0-screen-inventory-plan.md` — plano final de 25 telas (23 autenticadas + 2 guest)
+para o item 11 do roadmap P0 (frontend completo), único item P0 ainda em aberto após D-246 fechar
+o item 3. Produzido via protocolo Claude↔Codex em DUAS ETAPAS (instrução permanente de Marcelo,
+2026-09-08): Etapa 1 convergiu um rubric de 8 eixos/100 pontos (Codex 9,4/Claude 9,3 retrospectivo)
+para avaliar planos de screen-inventory pré-lançamento; Etapa 2 usou esse rubric para convergir o
+inventário de telas em si (Codex 9,4/Claude 9,3 retrospectivo), grounded em grep real do código
+(`authorization.ts` como fonte única de verdade de RBAC, survey de `organization`/
+`document-archive`/`subject`/`expiration`/`notification`). Documento autocontido — não assume
+contexto de nenhuma outra sessão, restabelece papéis/entidades/glossário inline. **Substitui em
+escopo** `interface-screen-and-state-inventory.md` (17 `SURF-xxx`, datado de antes dos domínios
+document-archive/organization/multi-tenant-B2B existirem) — esse documento é preservado como
+histórico, sua disciplina de taxonomia de estado foi reaproveitada, não sua lista de telas.
+**Achado real**: 3 gaps de backend/BFF nomeados como bloqueantes (não meros adiamentos) para telas
+específicas — G2 (sem rota HTTP de Review Queue, bloqueava a tela A13), G3 (7 endpoints CSV fora
+do allowlist do BFF, bloqueava download real da tela A16), G4 (`docarchive:request-create` avulso
+sem rota HTTP, bloqueava esse controle na tela A14). **Todos os 3 fechados em D-248
+(2026-09-09)** — route-wiring mecânico de Actions/serviços já existentes, protocolo Claude↔Codex
+dispensado (nível 2-3). Ver D-247/D-248 (`decisions-log.md`) e
+`docs/architecture/reviews/p0-frontend-screens-scoping/` para o trilho completo. **Implementação
+do frontend continua NÃO INICIADA** — este documento é só o planejamento, aguardando sinal de
+Marcelo; os 3 blockers que a impediam de começar pelas telas A13/A14/A16 especificamente já não
+existem mais.
+
 ## Próxima etapa
 
 **User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
