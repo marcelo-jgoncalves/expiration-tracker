@@ -12,7 +12,11 @@ import type { Session } from "../domain/session.js";
  * forwarded back to the browser (D-054: "allowlist de headers", never implicit passthrough -
  * same discipline as toApiGatewayResult() only ever setting a fixed header set). */
 const FORWARDED_REQUEST_HEADERS = ["content-type", "if-match", "idempotency-key"];
-const FORWARDED_RESPONSE_HEADERS = ["content-type", "etag"];
+// G3 (D-247/D-24x): content-disposition/x-report-truncated added so the 7 CSV report routes
+// (reports-handler.ts) can actually be proxied — their filename/truncation signal was silently
+// dropped before this fix (named gap in that file's own doc comment), the reason those routes
+// were excluded from proxy-allowlist.ts in the first place.
+const FORWARDED_RESPONSE_HEADERS = ["content-type", "etag", "content-disposition", "x-report-truncated"];
 
 export interface ProxyRequest {
   method: string;

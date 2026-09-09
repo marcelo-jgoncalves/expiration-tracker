@@ -105,6 +105,23 @@ describe("ProxyService", () => {
     expect(result.headers["x-amzn-requestid"]).toBeUndefined();
   });
 
+  // G3 (D-247/D-24x): content-disposition/x-report-truncated must now be forwarded — this is
+  // the exact header-forwarding gap named in reports-handler.ts's old doc comment, closed by
+  // adding both to FORWARDED_RESPONSE_HEADERS so the 7 CSV report routes actually download.
+  it("forwards content-disposition and x-report-truncated so CSV report downloads work through the BFF (G3)", async () => {
+    const backend: BackendFetcher = {
+      fetch: async () => ({
+        statusCode: 200,
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="expired-items-tenant-1-2026-09-09.csv"', "x-report-truncated": "true" },
+        body: "col1,col2\n1,2\n",
+      }),
+    };
+    const proxy = new ProxyService(backend, "https://api.example.com");
+    const result = await proxy.forward(fakeSession(), { method: "GET", path: "/reports/expired-items", headers: {} });
+    expect(result.headers["content-disposition"]).toBe('attachment; filename="expired-items-tenant-1-2026-09-09.csv"');
+    expect(result.headers["x-report-truncated"]).toBe("true");
+  });
+
   it("builds the backend URL from apiBaseUrl + path + query string", async () => {
     let seenUrl = "";
     const backend: BackendFetcher = {

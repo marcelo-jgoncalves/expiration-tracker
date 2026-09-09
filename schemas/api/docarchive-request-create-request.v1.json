@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json",
+  "title": "DocArchiveRequestCreateRequest v1",
+  "description": "POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests request body (G4, D-247/D-24x, src/modules/document-archive/application/document-archive-service.ts CreateDocumentRequestInput — createDocumentRequest, D-226 Achado 2). One-off ('avulso') request outside any DocumentRequestSeries; subjectId/requirementId come from the path, never the body (D-143 Nucleus 2 path-param discipline).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["idempotencyKey"],
+  "properties": {
+    "deadline": { "type": "string", "format": "date-time" },
+    "recipientEmail": { "type": "string", "format": "email", "maxLength": 320 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}

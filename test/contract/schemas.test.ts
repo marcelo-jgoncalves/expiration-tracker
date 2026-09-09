@@ -1300,6 +1300,54 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // G2 (D-247/D-24x): GET /document-archive/reviews query parameters.
+  it("accepts a valid docarchive-review-queue-search-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json", { state: "RECEIVED" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a docarchive-review-queue-search-request.v1 with a cursor", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json", { state: "UNDER_REVIEW", cursor: "abc123" });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-review-queue-search-request.v1 missing state", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-review-queue-search-request.v1 with an invalid state value", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json", { state: "ACCEPTED" });
+    expect(valid).toBe(false);
+  });
+
+  // G4 (D-247/D-24x): POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests.
+  it("accepts a valid docarchive-request-create-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", { idempotencyKey: "idem-1" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a docarchive-request-create-request.v1 with deadline and recipientEmail", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", {
+      idempotencyKey: "idem-1",
+      deadline: "2026-12-31T23:59:59.000Z",
+      recipientEmail: "recipient@example.com",
+    });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-request-create-request.v1 missing idempotencyKey", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-request-create-request.v1 with subjectId/requirementId in the body (path-only, D-143 discipline)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", { idempotencyKey: "idem-1", subjectId: "subj-1" });
+    expect(valid).toBe(false);
+  });
+
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147).
   it("accepts a valid docarchive-series-create-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json", {

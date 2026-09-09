@@ -156,4 +156,40 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("DELETE", "/document-archive/document-types/dt-1/metadata-fields/field-1")).toBeUndefined();
     expect(matchAllowlistedRoute("POST", "/document-archive/documents/doc-1/metadata-values")).toBeUndefined();
   });
+
+  // G2 (D-247/D-24x, p0-screen-inventory-plan.md §9): the review-queue listing route (A13) —
+  // GSI5/RBAC already existed, only the route+allowlist entry were missing.
+  it("matches the G2 review-queue listing route", () => {
+    expect(matchAllowlistedRoute("GET", "/document-archive/reviews")).toBeDefined();
+  });
+
+  it("does not match the G2 review-queue route with an unallowlisted method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/reviews")).toBeUndefined();
+  });
+
+  // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest — Action+service already existed, only
+  // the route+allowlist entry were missing.
+  it("matches the G4 one-off document-request route", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/requirements/subj-1/req-1/document-requests")).toBeDefined();
+  });
+
+  it("does not match the G4 route with an unallowlisted method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("GET", "/document-archive/requirements/subj-1/req-1/document-requests")).toBeUndefined();
+  });
+
+  // G3 (D-247/D-24x): the 7 CSV report routes, previously deliberately excluded pending the
+  // content-disposition header-forwarding fix (see proxy-service.test.ts for that half).
+  it("matches all 7 G3 CSV report routes", () => {
+    expect(matchAllowlistedRoute("GET", "/reports/expired-items")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/expiring-soon-items")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/renewed-items")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/expiration-items-by-assignee")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/missing-requirements")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/requirements-by-subject")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/reports/requirements-by-assignee")).toBeDefined();
+  });
+
+  it("does not match the G3 report routes with an unallowlisted method (fails without the fix)", () => {
+    expect(matchAllowlistedRoute("POST", "/reports/expired-items")).toBeUndefined();
+  });
 });

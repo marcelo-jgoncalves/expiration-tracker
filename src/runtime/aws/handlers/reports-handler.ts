@@ -2,11 +2,13 @@
  * Roadmap P0.7 ("Relatórios, Exportação e Audit Trail"), fatias 1-3. Dedicated Lambda serving
  * all 7 `GET /reports/*` routes — same reasoning as `export-handler.ts` (D-123/D-126): a raw
  * CSV body/`Content-Disposition` response never belongs behind `items_handler`'s generic JSON
- * `toApiGatewayResult()` pipeline. Deliberately NOT proxied through the BFF (`proxy-allowlist.ts`)
- * — same as `/items/export` today: `ProxyService.forward()`'s `FORWARDED_RESPONSE_HEADERS`
- * (`content-type`/`etag`) would silently drop `content-disposition`/`x-report-truncated`,
- * breaking the download filename/truncation signal. Solving that (or an alternative delivery
- * mechanism) is the same open gap already registered for `/items/export`, not reopened here.
+ * `toApiGatewayResult()` pipeline. G3 (D-247/D-24x): NOW proxied through the BFF
+ * (`proxy-allowlist.ts`) — `ProxyService.forward()`'s `FORWARDED_RESPONSE_HEADERS` used to drop
+ * `content-disposition`/`x-report-truncated` (the gap this comment used to name), fixed by
+ * adding both headers to that forwarding allowlist. `/items/export` is a SEPARATE, still-open
+ * instance of the same header-forwarding gap class (own route, own decision whether to proxy
+ * it — not reopened here; see `proxy-allowlist.ts`'s `bulk-reassign`/`bulk-archive` comment,
+ * which still names that gap as open for that route).
  */
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";

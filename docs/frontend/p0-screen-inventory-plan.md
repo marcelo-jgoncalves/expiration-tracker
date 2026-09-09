@@ -310,7 +310,9 @@ states, connections (entry points / links to-from), responsive treatment.
 - **Route**: `/app/:orgId/documents/:documentId`
 - **Purpose**: the document-archive aggregate — versions, review, metadata. Reached from a
   Subject, a Requirement, or a direct link — there is currently no standalone tenant-wide
-  "Documents Collection" screen (§9, G2 — the backend route this would need does not exist yet).
+  "Documents Collection" screen. G2 (§9) closed the narrower A13 review-queue listing route
+  (D-248); a general `listDocuments`/`searchDocuments` route for a standalone collection screen
+  was explicitly out of scope for that fix and still does not exist.
 - **Data**: `Document` (Subject, DocumentType, ACTIVE/ARCHIVED, `hasValidity`, current accepted
   version, custom metadata); each `DocumentVersion` (sequence, status DRAFT/RECEIVED/
   UNDER_REVIEW/ACCEPTED/REJECTED/SUPERSEDED/WITHDRAWN, origin, issued/valid dates, reviewer,
@@ -337,11 +339,13 @@ states, connections (entry points / links to-from), responsive treatment.
 - **Route**: `/app/:orgId/reviews`
 - **Purpose**: operator inbox to discover and decide on `DocumentVersion`s in RECEIVED/
   UNDER_REVIEW state.
-- **⚠ NAMED BACKEND GAP — see §9, G2 (BLOCKING)**: the dashboard counter and a GSI for this data
-  exist, but **no HTTP route to list this queue exists yet**. This screen cannot be built
-  end-to-end until that route ships. Do not build a fake/static version of this screen.
-- **Data** (once unblocked): version, document, Subject, submission origin, receipt time,
-  reviewer, scan counters, proposed validity.
+- **G2 CLOSED (D-248, 2026-09-09)**: `GET /document-archive/reviews?state=RECEIVED|UNDER_REVIEW`
+  now exists (`DocumentArchiveService.listReviewQueue`, `docarchive:read`) — this screen can be
+  built end-to-end. One `state` per call (never a merged "ALL" mode server-side, since the GSI5
+  index partitions by state) — the frontend calls it per tab/filter, same shape every other
+  paginated search route in this codebase already uses.
+- **Data**: version, document, Subject, submission origin, receipt time, reviewer, scan
+  counters, proposed validity.
 - **Actions**: `docarchive:read` (all); `docarchive:review` (WRITE_ROLES, subject to the
   reviewer-or-admin service gate).
 - **States**: already claimed by someone else; claim expired; scan still pending; scan infected;
@@ -358,11 +362,10 @@ states, connections (entry points / links to-from), responsive treatment.
   run, recipient, known materialization attempts.
 - **Actions**: `docarchive:series-read` (all); `docarchive:series-create`/`-update`/`-cancel`
   (WRITE_ROLES); `docarchive:series-materialize` (WRITE_ROLES — an explicit "generate now" control,
-  distinct from the automated schedule); `docarchive:request-create` (WRITE_ROLES) — **⚠ NAMED
-  BACKEND GAP, §9 G4 (BLOCKING)**: this Action and its service exist, but there is no tenant-facing
-  HTTP route yet. The one-off ("avulso") request control described in the roadmap (item 9) cannot
-  be built end-to-end until that route ships; the recurring/series flow is unaffected and fully
-  buildable.
+  distinct from the automated schedule); `docarchive:request-create` (WRITE_ROLES) — **G4 CLOSED
+  (D-248, 2026-09-09)**: `POST /document-archive/requirements/{subjectId}/{requirementId}/
+  document-requests` now exists. The one-off ("avulso") request control described in the roadmap
+  (item 9) can be built end-to-end, same as the recurring/series flow.
 - **States**: no recipient set yet; an attempt not yet materialized; generation is idempotent
   (retrying "generate now" never double-issues); credential issuance/delivery uncertain (mirrors
   the SEND_UNCERTAIN discipline used elsewhere in this codebase — never claim delivery succeeded
@@ -396,11 +399,10 @@ states, connections (entry points / links to-from), responsive treatment.
 - **Purpose**: 7 real CSV reports (expired-items, expiring-soon-items, renewed-items,
   expiration-items-by-assignee, missing-requirements, requirements-by-subject,
   requirements-by-assignee) + scheduled `ReportSubscription` management.
-- **⚠ NAMED BACKEND/BFF GAP — see §9, G3 (BLOCKING)**: none of these 7 endpoints are currently
-  proxied through the BFF (a named `Content-Disposition`/download-header handling gap). This
-  screen cannot deliver working downloads through the browser until that's fixed. Build the
-  screen's shell/catalog/subscription-management UI now if useful, but the actual "download CSV"
-  action has no working backend path today — do not fake it with a client-side stub.
+- **G3 CLOSED (D-248, 2026-09-09)**: all 7 `GET /reports/*` endpoints are now proxied through the
+  BFF (`content-disposition`/`x-report-truncated` added to `ProxyService`'s forwarded response
+  headers, plus the 7 routes added to the proxy allowlist). Downloads work end-to-end through the
+  browser.
 - **Data**: the 7 report definitions; subscriptions (recipients, periodicity, run history,
   download links).
 - **Actions**: item-based reports → `item:export` (ADMIN_ROLES); requirement-based reports →
@@ -551,7 +553,7 @@ states, connections (entry points / links to-from), responsive treatment.
 | `docarchive:review` | A13, A12 |
 | `docarchive:requirement-*` | A11, with detail surfaced in A09 |
 | `docarchive:series-*` | A14 |
-| `docarchive:request-create` | A14 — **blocked, see §9 G4** |
+| `docarchive:request-create` | A14 — G4 closed, D-248 |
 | `docarchive:documenttype-*` + metadata-manage | A20 |
 | `docarchive:requirementtemplate-*` | A21, apply surfaced in A09/A11 |
 | `docarchive:requirement-export` | A16, A11 |
@@ -642,27 +644,29 @@ Role-based anything — validated purely by an opaque token/credential in the UR
 
 ## 9. Named gaps and deferrals (Stage 1's 6-condition rule applied — nothing silently dropped)
 
-### Real P0 blockers (a named screen cannot be built end-to-end without these)
+### Former P0 blockers — ALL 3 CLOSED (D-248, 2026-09-09)
 
-- **G2 — no tenant-facing HTTP route for review-queue listing / document listing / document
-  search.** The dashboard counter and a GSI exist; the listing route does not. **Blocks A13
-  entirely** and the "browse all documents" concept implicit in A11/A12's connections. Destination:
-  must close before A13 can be considered P0-complete; needs a paginated, filterable endpoint plus
-  `docarchive:read` RBAC wiring, BFF allowlist entry, and Terraform if a new Lambda route is
-  needed.
-- **G3 — the 7 CSV report endpoints are not in the BFF's proxy allowlist** (a named
-  `Content-Disposition`/streaming-header handling gap in the code). **Blocks A16's actual download
-  action.** The catalog/subscription-management UI can be built now; the download button has
-  nothing working behind it until this closes.
-- **G4 — `docarchive:request-create` (one-off/"avulso" request, outside any recurring series) has
-  no tenant-facing HTTP route**, despite the `Action` and application service existing. **Blocks
-  the one-off request control inside A14** (recurring series creation/materialization is
-  unaffected). Destination: before this is offered as a P0 control, needs schema + handler + API
-  Gateway route + BFF allowlist entry + the credential issuance/delivery contract wired through.
+The three gaps below were confirmed as real (Codex's original grep-based finding), then fixed as
+pure route-wiring of already-decided capabilities (level 2-3, Claude↔Codex protocol dispensed per
+`AGENTS.md` §4 — no new Action, no new RBAC tier, no new architecture decision). Full detail:
+`docs/architecture/decisions-log.md` D-248.
 
-These three fail condition 5 of the deferral rule (a current P0 journey depends on them) and are
-therefore genuine blockers, not legitimate deferrals — recommend closing them before or during
-frontend implementation of A13/A14/A16, not treating them as post-launch cleanup.
+- **G2 (was: no tenant-facing HTTP route for review-queue listing) — CLOSED.** The GSI5 sparse
+  index and `docarchive:read` RBAC already existed; only the query method
+  (`DocumentArchiveService.listReviewQueue`) and route (`GET /document-archive/reviews`) were
+  missing. Both now exist, wired through the BFF allowlist and Terraform. **A13 is unblocked.**
+  (The broader "browse all documents"/`listDocuments`/`searchDocuments` concept implicit in
+  A11/A12's connections was NOT built — only the named A13 review-queue blocker was in scope.)
+- **G3 (was: the 7 CSV report endpoints missing from the BFF's proxy allowlist) — CLOSED.** Root
+  cause was `ProxyService.forward()`'s response-header allowlist dropping
+  `content-disposition`/`x-report-truncated` (not a missing route — the Lambda/Terraform routes
+  already existed). Both the header-forwarding fix and the 7 allowlist entries are in place.
+  **A16's download action is unblocked.**
+- **G4 (was: `docarchive:request-create` had no tenant-facing HTTP route) — CLOSED.** The Action
+  and application service (`DocumentArchiveService.createDocumentRequest`, D-226) already
+  existed; only the route was missing. `POST /document-archive/requirements/{subjectId}/
+  {requirementId}/document-requests` now exists, wired through the BFF allowlist and Terraform.
+  **The one-off request control inside A14 is unblocked.**
 
 ### Legitimate non-blocking deferrals (all 6 conditions satisfied — safe to launch without)
 

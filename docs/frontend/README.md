@@ -161,12 +161,15 @@ escopo** `interface-screen-and-state-inventory.md` (17 `SURF-xxx`, datado de ant
 document-archive/organization/multi-tenant-B2B existirem) — esse documento é preservado como
 histórico, sua disciplina de taxonomia de estado foi reaproveitada, não sua lista de telas.
 **Achado real**: 3 gaps de backend/BFF nomeados como bloqueantes (não meros adiamentos) para telas
-específicas — G2 (sem rota HTTP de Review Queue/Documents, bloqueia a tela A13), G3 (7 endpoints
-CSV fora do allowlist do BFF, bloqueia download real da tela A16), G4 (`docarchive:request-create`
-avulso sem rota HTTP, bloqueia esse controle na tela A14). Ver D-247 (`decisions-log.md`) e
+específicas — G2 (sem rota HTTP de Review Queue, bloqueava a tela A13), G3 (7 endpoints CSV fora
+do allowlist do BFF, bloqueava download real da tela A16), G4 (`docarchive:request-create` avulso
+sem rota HTTP, bloqueava esse controle na tela A14). **Todos os 3 fechados em D-248
+(2026-09-09)** — route-wiring mecânico de Actions/serviços já existentes, protocolo Claude↔Codex
+dispensado (nível 2-3). Ver D-247/D-248 (`decisions-log.md`) e
 `docs/architecture/reviews/p0-frontend-screens-scoping/` para o trilho completo. **Implementação
 do frontend continua NÃO INICIADA** — este documento é só o planejamento, aguardando sinal de
-Marcelo.
+Marcelo; os 3 blockers que a impediam de começar pelas telas A13/A14/A16 especificamente já não
+existem mais.
 
 ## Próxima etapa
 
