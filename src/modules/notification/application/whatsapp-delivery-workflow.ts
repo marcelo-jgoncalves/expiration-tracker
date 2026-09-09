@@ -5,11 +5,13 @@
  * fenced-SUBMITTING-claim discipline, same staleness handling via `applyStaleDeliveryDecision`
  * (already generic over `CorrectiveIntentDeps`, reused verbatim, not duplicated).
  *
- * NOT wired to the router yet (`notification-router.ts`'s `SUPPORTED_CHANNELS` still routes
- * `EMAIL` alone - that wiring is fatia 5/5, D-197's "próxima ação real"). This worker is
- * reachable today only via a direct SQS message on `whatsapp-deliver-queue` or a direct unit/
- * integration-test call - never by the real notification flow, by design of this fatia's
- * boundary.
+ * Wired to the router as of D-197 fatia 5/5 - `notification-router-workflow.ts`'s
+ * `applyRoutedDecision` now writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record whenever a
+ * WHATSAPP-requesting intent routes (kill switch + entitlement both pass), which the outbox
+ * relay delivers to `whatsapp-deliver-queue`, invoking this worker for real. Still gated by
+ * `WHATSAPP_DELIVERY_WORKER_ENABLED` (this worker's own kill switch, checked in the handler)
+ * independently of the router's `WHATSAPP` flag - both must be on for a message to actually
+ * reach `WhatsAppProviderAdapter.send()`.
  */
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
@@ -27,6 +29,7 @@ import { WhatsAppSendError } from "../ports/whatsapp-provider.js";
 import { decideSendAction, nextWhatsAppStatusAfterSendAttempt } from "./whatsapp-delivery.js";
 import { applyStaleDeliveryDecision } from "./notification-router-workflow.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { checkAndRecordWhatsAppPortfolioQuota } from "./whatsapp-portfolio-quota-service.js";
 
 export interface WhatsAppDeliverCommandData {
   tenantId: string;
@@ -59,6 +62,9 @@ export interface WhatsAppDeliveryWorkflowDeps {
   now: () => string;
   newIntentId: () => string;
   leaseDurationMs?: number;
+  /** D-8 (fatia 4/5) — Meta's real 24h unique-recipient tier ceiling for this portfolio's
+   * phone number, checked/recorded right before the external `send()` call. */
+  portfolioQuotaTierLimit: number;
 }
 
 export type WhatsAppDeliveryOutcome =
@@ -136,6 +142,19 @@ export async function processWhatsAppDelivery(deps: WhatsAppDeliveryWorkflowDeps
   if (!to || !item) {
     // No resolved/opted-in phone - conclusive terminal failure, not ambiguous.
     const nextStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "FAILURE", failureKind: "CONCLUSIVE_TERMINAL" });
+    await forceUpdateAttemptStatus(deps, { ...attempt, status: "SUBMITTING", version: attempt.version + 1 }, nextStatus, now);
+    return { kind: "SEND_FAILED", nextStatus };
+  }
+
+  // D-8 (fatia 4/5): the real Cloud API 24h unique-recipient tier ceiling. Checked/recorded
+  // here, right before the external call - same "admit before the external call" discipline as
+  // the SUBMITTING lease claim above. A quota refusal (tier reached, or the quota read itself
+  // failed - fail-closed) is a CONCLUSIVE_RETRYABLE failure: no external call was ever attempted,
+  // so there is no ambiguity about whether Meta saw anything, and the rolling window means a
+  // later retry can genuinely succeed once it advances.
+  const quota = await checkAndRecordWhatsAppPortfolioQuota({ store: deps.store, tierLimit: deps.portfolioQuotaTierLimit, now: deps.now }, to);
+  if (!quota.allowed) {
+    const nextStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "FAILURE", failureKind: "CONCLUSIVE_RETRYABLE" });
     await forceUpdateAttemptStatus(deps, { ...attempt, status: "SUBMITTING", version: attempt.version + 1 }, nextStatus, now);
     return { kind: "SEND_FAILED", nextStatus };
   }

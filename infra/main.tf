@@ -1022,14 +1022,22 @@ data "aws_iam_policy_document" "ses_send_email" {
 module "notification_router" {
   source = "./modules/lambda-function"
 
-  function_name         = "${local.name_prefix}-notification-router"
-  handler_name          = "notification-router-handler"
-  source_dir            = "${local.dist_dir}/notification-router-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
+  function_name  = "${local.name_prefix}-notification-router"
+  handler_name   = "notification-router-handler"
+  source_dir     = "${local.dist_dir}/notification-router-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # D-197 fatia 5/5: AppConfig env vars added so the handler can read the WHATSAPP kill switch
+  # once per Streams batch (`isWhatsAppChannelEnabled`) - same trio every other flag-reading
+  # Lambda already gets (whatsapp_delivery/whatsapp_webhook_handler/extraction_starter_handler).
+  environment_variables = merge(local.common_env, {
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
+  })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1172,17 +1180,22 @@ module "whatsapp_delivery" {
   source_dir     = "${local.dist_dir}/whatsapp-delivery-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    WHATSAPP_SECRET_ID                 = aws_secretsmanager_secret.whatsapp_cloud_api.id
-    WHATSAPP_API_VERSION               = var.whatsapp_api_version
-    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
-    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
-    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
+    WHATSAPP_SECRET_ID                  = aws_secretsmanager_secret.whatsapp_cloud_api.id
+    WHATSAPP_API_VERSION                = var.whatsapp_api_version
+    WHATSAPP_PORTFOLIO_QUOTA_TIER_LIMIT = tostring(var.whatsapp_portfolio_quota_tier_limit)
+    APPCONFIG_APPLICATION_ID            = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID            = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID  = module.feature_flags.configuration_profile_id
   })
+  # D-8 (fatia 4/5): whatsapp_portfolio_quota_policy_json is the dedicated, LeadingKeys-scoped
+  # grant for the WHATSAPP#PORTFOLIO quota partition - attached ONLY here, never to
+  # whatsapp_webhook_handler below (design's explicit "só no WhatsAppDeliveryWorker").
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.whatsapp_deliver_queue.consume_policy_json,
     data.aws_iam_policy_document.whatsapp_secret_read.json,
     module.feature_flags.feature_flags_read_policy_json,
+    module.table.whatsapp_portfolio_quota_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

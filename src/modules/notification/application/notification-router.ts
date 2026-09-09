@@ -40,6 +40,15 @@ export interface RouterEntitlementState {
   /** undefined = entitlement record technically unavailable (storage error) - fail-closed
    * WITH RETRY, distinct from `enabled: false` (plan genuinely denies the channel). */
   emailEnabled: boolean | undefined;
+  /** D-197 fatia 5/5: mirrors `emailEnabled` but for the WHATSAPP channel
+   * (`NotificationEntitlements.whatsapp.enabled` - a field that has existed on the entity
+   * since the design's Rodada 1 but had no reader until this fatia). Optional (not
+   * `boolean | undefined` like emailEnabled) so every EMAIL-only fixture/call site that
+   * predates WhatsApp keeps compiling unchanged - `undefined`/absent is treated the same as
+   * `false` (not entitled), never fail-open, since a missing entitlement record already fails
+   * the whole intent closed via the EMAIL branch below whenever EMAIL is also requested; when
+   * WHATSAPP is the ONLY requested channel this per-channel check is what fails it closed. */
+  whatsappEnabled?: boolean;
 }
 
 export interface RouterPreferenceState {
@@ -67,6 +76,13 @@ export interface RouterInput {
    * evaluated for staleness - only consulted when item/policy version mismatches, to decide
    * REPLACEMENT vs CORRECTIVE via corrective-intent-service.ts. */
   latestAttemptStatus?: NotificationAttemptStatus;
+  /** D-197 fatia 5/5: `isWhatsAppChannelEnabled(flags)` (`whatsapp-activation.ts`) - the
+   * `WHATSAPP` kill-switch flag, evaluated by the composition root once per batch and passed
+   * in here so this function stays pure/I-O-free. `false` (including the default when the
+   * caller omits it) means WHATSAPP is never routable regardless of entitlement - the
+   * kill-switch gate is checked BEFORE entitlement, same "flag off = mechanism fully inert"
+   * discipline as `document-archive-activation.ts` (D-193 slice 8/9). */
+  whatsappChannelEnabled?: boolean;
   now: string;
 }
 
@@ -81,7 +97,18 @@ export type RouterDecision =
       deliverNotBefore?: string;
     };
 
-const SUPPORTED_CHANNELS: readonly NotificationChannel[] = ["EMAIL"]; // WhatsApp is a later submilestone (kill switch AppConfig WHATSAPP)
+/** D-197 fatia 5/5: EMAIL is unconditionally supported once steps 2-6 above already passed
+ * (those steps gate the EMAIL-specific entitlement/preference records that predate WhatsApp).
+ * WHATSAPP requires BOTH the kill switch (`whatsappChannelEnabled`) AND its own entitlement
+ * flag (`entitlement.whatsappEnabled`) - a tenant whose plan denies WhatsApp never routes to
+ * it even with the global kill switch on, same per-tenant-plan semantics EMAIL already has via
+ * `entitlement.emailEnabled` above. WhatsApp consent itself (`WhatsAppOptIn`, D-5) is checked
+ * downstream by the delivery worker's `resolveRecipientPhone` (D-8/fatia 2-4), never here -
+ * the router only decides CHANNEL availability, not per-recipient consent. */
+function isChannelRoutable(channel: NotificationChannel, input: RouterInput): boolean {
+  if (channel === "EMAIL") return true;
+  return input.whatsappChannelEnabled === true && input.entitlement.whatsappEnabled === true;
+}
 
 export function decideRouting(input: RouterInput): RouterDecision {
   // 1. Tenant/resource validation is the composition root's job (it only loads entities
@@ -138,12 +165,13 @@ export function decideRouting(input: RouterInput): RouterDecision {
     return { kind: "CANCELLED_ALL", reason: "OPTED_OUT" };
   }
 
-  // Per-channel: only EMAIL is implemented in M4; any other requested channel is cancelled
-  // individually (CHANNEL_UNAVAILABLE), never blocking EMAIL.
+  // Per-channel: EMAIL always routable past this point; WHATSAPP only when the kill switch AND
+  // its own entitlement flag both pass. Any other requested channel is cancelled individually
+  // (CHANNEL_UNAVAILABLE), never blocking a sibling channel in the same intent.
   const cancelledChannels: { channel: NotificationChannel; reason: NotificationChannelCancellationReason }[] = [];
   const routedChannels: NotificationChannel[] = [];
   for (const channel of input.intent.requestedChannels) {
-    if (SUPPORTED_CHANNELS.includes(channel)) {
+    if (isChannelRoutable(channel, input)) {
       routedChannels.push(channel);
     } else {
       cancelledChannels.push({ channel, reason: "CHANNEL_UNAVAILABLE" });

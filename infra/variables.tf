@@ -116,6 +116,16 @@ variable "whatsapp_api_version" {
   default     = "v21.0"
 }
 
+# D-8 (WhatsApp fatia 4/5, `whatsapp-portfolio-quota.ts`): Meta's own tier ceiling for this
+# portfolio's phone number, in unique recipients reached per rolling 24h (250/2.000/10.000/
+# 100.000/Unlimited - a Meta account property, not something this repo can derive). Defaults to
+# the lowest real tier so a forgotten override fails toward the most restrictive real ceiling.
+variable "whatsapp_portfolio_quota_tier_limit" {
+  description = "Meta Cloud API messaging-limits tier ceiling (unique recipients/24h) for the WhatsApp portfolio quota check (D-8)."
+  type        = number
+  default     = 250
+}
+
 variable "adot_layer_arn" {
   description = <<-EOT
     ARN of the AWS Distro for OpenTelemetry (ADOT) Lambda layer for Node.js, attached to

@@ -291,6 +291,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const store = new InMemoryDocumentArchiveStore();
     await seedTenant(store);
     await seedRequest(store);
+    await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
     const service = makeService(store);
     const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
@@ -298,7 +299,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const result = await service.submitEvidence(
       session.session.token,
       { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken },
-      { fileName: "certidao.pdf", idempotencyKey: "idem-1" },
+      { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-1" },
     );
     expect(result.seq).toBe(1);
 
@@ -311,17 +312,18 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     expect(request?.submissionCount).toBe(1);
   });
 
-  it("submitEvidence: replaying the same idempotencyKey never double-creates a DocumentVersion", async () => {
+  it("submitEvidence: replaying the same idempotencyKey (same payload) never double-creates a DocumentVersion, returns original snapshot", async () => {
     const store = new InMemoryDocumentArchiveStore();
     await seedTenant(store);
     await seedRequest(store);
+    await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
     const service = makeService(store);
     const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
     const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-    const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-replay" });
-    const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-replay" });
+    const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-replay" });
+    const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-replay" });
     expect(second).toEqual(first);
 
     const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
@@ -332,6 +334,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const store = new InMemoryDocumentArchiveStore();
     await seedTenant(store);
     await seedRequest(store);
+    await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
     const service = makeService(store);
     const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
@@ -340,7 +343,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       service.submitEvidence(
         session.session.token,
         { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: "attacker-supplied-value" },
-        { fileName: "certidao.pdf", idempotencyKey: "idem-2" },
+        { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-2" },
       ),
     ).rejects.toThrow(GuestAccessInvalidError);
   });
@@ -349,39 +352,24 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const store = new InMemoryDocumentArchiveStore();
     await seedTenant(store);
     await seedRequest(store);
+    await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
     const service = makeService(store);
     const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
 
     await expect(
-      service.submitEvidence(session.session.token, { ip: "1.1.1.1", csrfCookieValue: undefined, csrfHeaderValue: undefined }, { fileName: "certidao.pdf", idempotencyKey: "idem-3" }),
+      service.submitEvidence(session.session.token, { ip: "1.1.1.1", csrfCookieValue: undefined, csrfHeaderValue: undefined }, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-3" }),
     ).rejects.toThrow(GuestAccessInvalidError);
   });
 
-  /** D-184 (resolves D-175's option (b)): the guard is on PRESENCE of `input.documentType`, never
-   * on the post-fallback value — proves the majority-today path (no documentType supplied) is
-   * byte-identical to before this change: no ConditionCheck runs, requirementId is never
-   * validated against the DocumentType catalog. Mutation check: making the guard unconditional
-   * (always add the ConditionCheck) makes this test fail, since requirementId never names a real
-   * DocumentType. */
-  describe("submitEvidence: D-184 DocumentType validation only when explicitly supplied", () => {
-    it("t1: documentType absent falls back to requirementId, no catalog validation, succeeds exactly as before", async () => {
-      const store = new InMemoryDocumentArchiveStore();
-      await seedTenant(store);
-      await seedRequest(store);
-      const service = makeService(store);
-      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
-      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
-      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
-
-      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-t1" });
-      const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
-      expect(document?.documentTypeId).toBe(REQUIREMENT);
-    });
-
-    /** Mutation check: removing the `documentTypeSupplied` guard's ConditionCheck entirely (or
-     * always applying it) makes this test fail — proves the check genuinely runs and blocks. */
-    it("t2: documentType explicitly supplied and ACTIVE in the catalog succeeds, Document records that id", async () => {
+  /** D-243 (supersedes D-184's conditional guard): `documentTypeId` is now mandatory end to end,
+   * always validated against the tenant's DocumentType catalog via the unconditional
+   * ConditionCheck at entries[0] — no free-text fallback to `requirementId` remains anywhere.
+   * Implements the 9-item checklist from `round2-reconciliation.md` §4 (items 1-2, HTTP-schema
+   * shaped, live in `test/contract/schemas.test.ts`; items 3-9 here). */
+  describe("submitEvidence: D-243 documentTypeId mandatory + catalog validation", () => {
+    /** Checklist item 3: ACTIVE documentTypeId creates the Document and composes GSI2 correctly. */
+    it("t2: documentTypeId ACTIVE in the catalog succeeds, Document records that id and GSI2 uses it", async () => {
       const store = new InMemoryDocumentArchiveStore();
       await seedTenant(store);
       await seedRequest(store);
@@ -391,14 +379,17 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "ALVARA", idempotencyKey: "idem-t2" });
+      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-t2" });
       const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
       expect(document?.documentTypeId).toBe("ALVARA");
+      expect((document as unknown as Record<string, unknown>)["GSI2SK"]).toBe(`DOCTYPE#ALVARA#DOCUMENT#${result.documentId}`);
     });
 
-    /** Anti-enumeration: a nonexistent DocumentType must reject with the SAME generic error as
-     * every other failure mode on this surface, never a distinct "DocumentType not found". */
-    it("t3: documentType explicitly supplied but nonexistent in the catalog rejects with the generic guest error", async () => {
+    /** Checklist item 4 (nonexistent half) + item 5 (G-V3 mutation check): anti-enumeration — a
+     * nonexistent DocumentType must reject with the SAME generic error as every other failure mode
+     * on this surface, never a distinct "DocumentType not found". Removing/inverting the
+     * ConditionCheck at entries[0] makes this test fail, proving it genuinely runs and blocks. */
+    it("t3: documentTypeId nonexistent in the catalog rejects with the generic guest error", async () => {
       const store = new InMemoryDocumentArchiveStore();
       await seedTenant(store);
       await seedRequest(store);
@@ -408,14 +399,15 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
       await expect(
-        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "NAO_EXISTE", idempotencyKey: "idem-t3" }),
+        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", idempotencyKey: "idem-t3" }),
       ).rejects.toThrow(GuestAccessInvalidError);
     });
 
-    /** Same anti-enumeration collapse for a real-but-inactive DocumentType, TOCTOU-safe (the
-     * ConditionCheck runs inside the same TransactWriteItems as the Document Put, never a
-     * separate read-before-write) — mirrors createDocument()'s D-175 DEPRECATED case. */
-    it("t4: documentType explicitly supplied but DEPRECATED rejects with the generic guest error", async () => {
+    /** Checklist item 4 (DEPRECATED half): same anti-enumeration collapse for a real-but-inactive
+     * DocumentType, TOCTOU-safe (the ConditionCheck runs inside the same TransactWriteItems as the
+     * Document Put, never a separate read-before-write) — mirrors createDocument()'s D-175
+     * DEPRECATED case. */
+    it("t4: documentTypeId DEPRECATED rejects with the generic guest error", async () => {
       const store = new InMemoryDocumentArchiveStore();
       await seedTenant(store);
       await seedRequest(store);
@@ -437,27 +429,96 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
       await expect(
-        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "ALVARA", idempotencyKey: "idem-t4" }),
+        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-t4" }),
       ).rejects.toThrow(GuestAccessInvalidError);
     });
 
-    /** D-184 explicit decision: idempotencyKey replay is payload-agnostic (pre-existing property
-     * of the `existingReplay` short-circuit, D-143 Decision 4 — `fileName` was never re-validated
-     * on replay either) — a second call reusing the same key returns the FIRST call's snapshot
-     * even when its own `documentType` would have failed the new guard. Not a gap this change
-     * introduces; documented here so it is not silently rediscovered later. */
-    it("t_replay: replaying an idempotencyKey returns the original snapshot, ignoring a differing (even invalid) documentType on the retry", async () => {
+    /** Checklist item 6: replay with the same key AND the same payload returns the original
+     * snapshot — covered structurally by the "replaying the same idempotencyKey" test above; kept
+     * as a named checklist alias so the 9-item mapping is traceable one-to-one. */
+    it("t_replay_same: replay with same key and same documentTypeId returns the original snapshot", async () => {
       const store = new InMemoryDocumentArchiveStore();
       await seedTenant(store);
       await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
       const service = makeService(store);
       const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", idempotencyKey: "idem-replay-2" });
-      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentType: "NAO_EXISTE", idempotencyKey: "idem-replay-2" });
+      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-replay-same" });
+      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-replay-same" });
       expect(second).toEqual(first);
+    });
+
+    /** Checklist item 7 (D-243 replay policy, payload-agnostic first-write-wins): a replay with
+     * the SAME key but a DIFFERENT (even invalid/nonexistent) `documentTypeId` still returns the
+     * original snapshot untouched — the second `documentTypeId` is never consulted or validated,
+     * and no second version is created. Pre-existing property of the `existingReplay`
+     * short-circuit (D-143 Decision 4), explicitly reaffirmed as part of D-243's design. */
+    it("t_replay_diff: replay with same key but a different (invalid) documentTypeId still returns the original snapshot, no second version", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-replay-diff" });
+      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", idempotencyKey: "idem-replay-diff" });
+      expect(second).toEqual(first);
+
+      const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
+      expect(allVersions).toHaveLength(1);
+    });
+
+    /** Checklist item 8: a NEW idempotencyKey with a different (valid) documentTypeId executes a
+     * genuinely new submission and validates that type normally — proves the replay short-circuit
+     * is keyed correctly and does not over-suppress unrelated submissions. */
+    it("t_new_key: a new idempotencyKey with a different valid documentTypeId performs a fresh submission", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "CERTIDAO"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-new-1" });
+      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao2.pdf", documentTypeId: "CERTIDAO", idempotencyKey: "idem-new-2" });
+      expect(second.documentId).not.toBe(first.documentId);
+
+      const secondDocument = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${second.documentId}`, SK: "METADATA" });
+      expect(secondDocument?.documentTypeId).toBe("CERTIDAO");
+
+      const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
+      expect(allVersions).toHaveLength(2);
+    });
+
+    /** Checklist item 9: no code path writes `requirementId` (or any value other than the caller's
+     * own `documentTypeId`) into `Document.documentTypeId` anymore — the old D-184 fallback test
+     * ("documentType absent falls back to requirementId") is removed by design, since the field is
+     * mandatory now and a missing `documentTypeId` never reaches the service (rejected at the HTTP
+     * schema layer, see `test/contract/schemas.test.ts`). This test proves the positive: the
+     * catalog-validated id, never `requirementId`, ends up on the row. */
+    it("t9: Document.documentTypeId always equals the validated input, never requirementId", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+      const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
+
+      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", idempotencyKey: "idem-t9" });
+      const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
+      expect(document?.documentTypeId).toBe("ALVARA");
+      expect(document?.documentTypeId).not.toBe(REQUIREMENT);
     });
   });
 });

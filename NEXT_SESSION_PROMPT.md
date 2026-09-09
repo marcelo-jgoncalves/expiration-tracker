@@ -16,12 +16,12 @@
 
 1. **Requirement Templates** — 🟢 IMPLEMENTADO (D-191).
 2. **Bulk import (Documents+Requirements+column mapping)** — 🟢 IMPLEMENTADO (D-192).
-3. **WhatsApp operacional** — 🟡 design `APPROVED` (D-197/ADR-0012) + fatias 1-3/5 implementadas (D-223/D-229/D-231). **Pendente real**: revisar `terraform plan` real contra `dev` e completar merge/CD/verificação ao vivo da fatia 3 (nunca aplicada); fatia 4/5 (quota 24h + IAM dedicada) não iniciada. Bloqueante adicional para uso com usuário real (E-019): aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito ainda.
+3. **WhatsApp operacional** — 🟢 **IMPLEMENTADO POR COMPLETO do lado de engenharia, D-197/ADR-0012, TODAS as 5/5 fatias (D-246 fecha a fatia 5/5 — router wiring `notification-router.ts`'s `SUPPORTED_CHANNELS`→`isChannelRoutable()` + kill switch no handler + RBAC confirmado sem gap + terraform completo)**. Fatia 3/5 **VERIFICADA AO VIVO em `dev`** (D-242). Fatias 4/5 (D-245) e 5/5 (D-246) implementadas/testadas em `develop`, **terraform de AMBAS ainda NÃO mergeado em `main`/aplicado em `dev`** — próxima sessão decide quando (varredura coordenada única para as duas). **Restam só**: (1) o `terraform apply`/merge-para-`main` pendente das fatias 4/5+5/5; (2) o bloqueio de produto/jurídico E-019 (aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito ainda, fora do controle de engenharia; as credenciais reais da Meta no secret também dependem disso); (3) pendência nomeada não bloqueante — nenhuma rota HTTP existe ainda para `WhatsAppOptInService.recordOptIn()`, então nenhum usuário real consegue opt-in hoje mesmo com tudo mais pronto (nunca esteve no escopo de nenhuma das 5 fatias do design, D-246). Nenhuma fatia de engenharia resta.
 4. **IA/OCR no Document Lifecycle** — 🟢 IMPLEMENTADO por completo (D-193). Flags `EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED` deliberadamente OFF (ativação é decisão futura reversível).
 5. **Busca e filtros documentais** — 🟢 IMPLEMENTADO fatias 1-3 (D-194/D-196). Fatias 4-5 (projeção materializada+GSI10, índice por assignee) DEFERIDAS com gatilho quantitativo nomeado em D-194 — não bloqueante.
 6. **Dashboard operacional/compliance** — 🟢 IMPLEMENTADO (D-196).
 7. **Relatórios + exportação + audit trail** — 🟢 IMPLEMENTADO fatias 1-4 (D-195). Fora de escopo, nomeado: "solicitações pendentes" (sem GSI tenant-wide por status) e audit trail legível para negócio.
-8. **Document Types configuráveis** — 🟡 quase completo (D-173 a D-186, D-221, D-224): CRUD, RBAC, metadata configurável e leitura pública para guest todos implementados. **Pendente real, decisão de Marcelo**: tornar `documentTypeId` obrigatório no schema HTTP do guest submit (quebraria integrações existentes) — ver `decisions-log.md` D-224.
+8. **Document Types configuráveis** — 🟢 IMPLEMENTADO (D-173 a D-186, D-221, D-224, D-243, D-244): CRUD, RBAC, metadata configurável, leitura pública para guest, e `documentTypeId` agora OBRIGATÓRIO no schema HTTP do guest submit-evidence (corte único, `documentType` livre removido por completo) — D-244 codou o desenho `APPROVED` de D-243 por inteiro (schema+serviço+9/9 testes do checklist), gate local completo verde.
 9. **Consolidar Guest Upload + Requests + Review + Recurrence** — 🟢 FECHADO POR INTEIRO (D-222/D-226 a D-230). Ciclo completo (criar→emitir credencial→entregar→resolver) funciona nos dois caminhos (avulso e recorrência), provado por teste e2e real.
 10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechado por completo (D-163 a D-168).
 11. **Frontend completo do P0** — ❌ explicitamente adiado por Marcelo (2026-09-04) — não iniciar.
@@ -56,13 +56,12 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
-2. Item 8 do roadmap P0 (Document Types) — tornar `documentTypeId` obrigatório no guest submit? (D-224).
-3. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
-4. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
-5. WhatsApp com usuário real (item 3 P0) — aviso de privacidade, DPA Meta, residência de dados (E-019).
-6. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
-7. User Validation (planejamento de interface) — aguarda sinal explícito dele.
-8. Frontend completo do P0 (item 11) — adiado para depois do P0 fechar.
+2. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
+3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
+4. WhatsApp com usuário real (item 3 P0, engenharia 100% fechada desde D-246) — aviso de privacidade, DPA Meta, residência de dados (E-019); mais rota HTTP de opt-in ainda não construída (nomeada em D-246, não bloqueante para o resto).
+5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
+6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
+7. Frontend completo do P0 (item 11) — adiado para depois do P0 fechar.
 
 ## Próxima ação recomendada
 
@@ -71,12 +70,14 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 **Mudança de prioridade (Marcelo, 2026-09-08)**: fechar o P0 (roadmap de lançamento, 11 itens acima) por inteiro ANTES de qualquer item novo do backlog P1. `ExternalShareLink` (item 8/19 do P1) foi pausado de propósito em ponto limpo — slice 1/3 implementado e testado (D-241: domínio, persistência, `ExternalShareLinkService` completo — create/resolve-anônimo/revoke/list —, gate local verde), slices 2/3 (rota HTTP anônima `GET /external-share/{shareId}/{token}`, rotas autenticadas+RBAC `docarchive:share-link-*`+schemas, terraform se necessário) **NÃO iniciadas** — não retomar até o P0 fechar.
 
 Por ordem sugerida, tudo dentro do P0 (itens ainda não 🟢 na lista acima):
-1. Item 3 do P0 (WhatsApp operacional) — fechar fatia 3/5: `terraform plan` real contra `dev`, merge, CD, verificação ao vivo (nunca aplicada ainda); depois fatia 4/5 (quota 24h + IAM dedicada). Bloqueante à parte para uso com usuário real (E-019, item 5 da lista de pendências acima) segue fora do controle de engenharia pura.
-2. Item 8 do P0 (Document Types) — pendência de decisão de Marcelo (`documentTypeId` obrigatório no guest submit, D-224), não bloqueia o resto do P0.
+1. Item 3 do P0 (WhatsApp operacional) — 🟢 **TODAS as 5/5 fatias de engenharia FECHADAS** (D-246 fecha a última). Fatia 3/5 **verificada ao vivo (D-242)**. Fatias 4/5 (D-245) e 5/5 (D-246) implementadas/testadas em `develop`, **terraform de ambas ainda não mergeado em `main`/aplicado em `dev`** — uma varredura coordenada única cobre as duas. Bloqueante à parte para uso com usuário real (E-019) e a rota HTTP de opt-in ainda não construída seguem fora do escopo de engenharia pura desta fatia.
+2. Item 8 do P0 (Document Types) — 🟢 FECHADO (D-244 implementou o desenho `APPROVED` de D-243 por inteiro). Nada pendente.
 3. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente) — não é P0 formalmente, mas é qualidade de engenharia do que já foi entregue.
 4. Ou uma nova frente que Marcelo trouxer.
 
-Quando o P0 fechar por inteiro: retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
+**Instrução permanente para quando o item 11 (Frontend completo do P0) for o único item do P0 restante** (Marcelo, 2026-09-08): antes de prototipar qualquer tela, fazer um levantamento minucioso de quais telas são necessárias para o lançamento, via protocolo Claude↔Codex EM DUAS ETAPAS — (1) pesquisa na web + protocolo para estabelecer os critérios de avaliação dessa engenharia/arquitetura de telas; (2) só depois, protocolo para definir o conjunto de telas em si, usando os critérios convergidos na etapa 1. Ao convergir, salvar o planejamento final em um documento dedicado (`docs/frontend/` — nome a definir na hora) cujo objetivo explícito é dar ao Claude Design informação suficiente para construir o protótipo das telas com assertividade e coerência com o restante do projeto. Não iniciar isso enquanto outros itens do P0 ainda estiverem abertos.
+
+Quando o P0 fechar por inteiro (exceto o item 11, tratado pela instrução acima): retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
 
 ## Status de evidência (não presumir E2E sem checar)
 

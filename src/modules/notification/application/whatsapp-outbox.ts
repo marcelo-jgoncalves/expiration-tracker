@@ -1,10 +1,11 @@
 /**
  * `buildWhatsAppOutboxRecord` (D-9, `whatsapp-channel-scoping/estado-final-consolidado.md`,
  * fatia 2/5). Analogous to `notification-router-workflow.ts`'s own (private)
- * `buildEmailOutboxRecord` - split into its own file (rather than inlined in the router) since
- * fatia 2/5 does NOT wire the router to call this yet (fatia 5/5, "próxima ação real" in the
- * design doc) - this function exists standalone so it is directly unit-testable ahead of that
- * wiring, without touching `notification-router-workflow.ts` at all in this fatia.
+ * `buildEmailOutboxRecord`. Originally split into its own file so it could be unit-tested ahead
+ * of the router wiring (fatia 2/5 did not call it yet); as of D-197 fatia 5/5,
+ * `notification-router-workflow.ts`'s `applyRoutedDecision` imports and calls this directly for
+ * every routed WHATSAPP channel - kept as its own file (not inlined) since it's still reused
+ * standalone by this module's own unit tests.
  *
  * `destination: "SQS_NOTIFICATION_WHATSAPP_V1"` routes through the SAME generic
  * `DynamoDbOutboxRelayStore`/`relayStreamRecord` mechanism the email outbox relay already uses

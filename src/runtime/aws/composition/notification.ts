@@ -18,7 +18,13 @@ export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableN
   return { store, preferences };
 }
 
-export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tableName: string) {
+/**
+ * `whatsappChannelEnabled` (D-197 fatia 5/5): read ONCE per Streams batch by the handler (same
+ * discipline as `whatsapp-delivery-handler.ts`'s own kill-switch read) via
+ * `isWhatsAppChannelEnabled(flags)`, then threaded in here rather than re-read per intent -
+ * `notification-router-handler.ts` calls this once per invocation, not per record.
+ */
+export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tableName: string, whatsappChannelEnabled = false) {
   const store = new DynamoDbNotificationStore(client, tableName);
   const recipientResolver = new DynamoDbNotificationRecipientResolver(client, tableName);
   const ids = new UlidIdGenerator();
@@ -30,6 +36,7 @@ export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tabl
     now: () => new Date().toISOString(),
     newAttemptId: () => ids.newAttemptId(),
     newIntentId: () => ids.newIntentId(),
+    whatsappChannelEnabled,
   };
 }
 
@@ -146,7 +153,12 @@ function renderWhatsAppTemplate(item: ExpirationItem): { templateName: string; t
  * this function's credential-sourcing lines with a Secrets Manager read; `WhatsAppCloudApiAdapter`
  * itself does not change shape when that happens.
  */
-export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableName: string, config: WhatsAppCloudApiConfig) {
+export function buildWhatsAppDeliveryDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  config: WhatsAppCloudApiConfig,
+  portfolioQuotaTierLimit: number,
+) {
   const store = new DynamoDbNotificationStore(client, tableName);
   return {
     store,
@@ -156,6 +168,7 @@ export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableN
     renderTemplate: (input: { item: ExpirationItem }) => renderWhatsAppTemplate(input.item),
     now: () => new Date().toISOString(),
     newIntentId: () => new UlidIdGenerator().newIntentId(),
+    portfolioQuotaTierLimit,
   };
 }
 

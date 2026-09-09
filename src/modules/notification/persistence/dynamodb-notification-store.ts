@@ -88,4 +88,33 @@ export class DynamoDbNotificationStore implements NotificationStore {
       throw mapDynamoError(err, "NotificationStore.queryAttemptsByIntent");
     }
   }
+
+  async queryWhatsAppPortfolioQuotaWindow<T extends EntityKey = Record<string, unknown> & EntityKey>(
+    startSkInclusive: string,
+    endSkInclusive: string,
+  ): Promise<T[]> {
+    try {
+      const items: T[] = [];
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const result = await this.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: "PK = :pk AND SK BETWEEN :startSk AND :endSk",
+            ExpressionAttributeValues: {
+              ":pk": "WHATSAPP#PORTFOLIO",
+              ":startSk": startSkInclusive,
+              ":endSk": endSkInclusive,
+            },
+            ExclusiveStartKey: exclusiveStartKey,
+          }),
+        );
+        items.push(...((result.Items ?? []) as T[]));
+        exclusiveStartKey = result.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+      return items;
+    } catch (err) {
+      throw mapDynamoError(err, "NotificationStore.queryWhatsAppPortfolioQuotaWindow");
+    }
+  }
 }

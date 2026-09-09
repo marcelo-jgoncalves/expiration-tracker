@@ -95,9 +95,55 @@ describe("NotificationRouter.decideRouting", () => {
     });
   });
 
-  it("only WHATSAPP requested -> CANCELLED_ALL CHANNEL_UNAVAILABLE", () => {
+  it("only WHATSAPP requested, kill switch off (default) -> CANCELLED_ALL CHANNEL_UNAVAILABLE", () => {
     const result = decideRouting(baseInput({ intent: { itemVersion: 3, policyVersion: 2, requestedChannels: ["WHATSAPP"] } }));
     expect(result).toEqual({ kind: "CANCELLED_ALL", reason: "CHANNEL_UNAVAILABLE" });
+  });
+
+  // D-197 fatia 5/5: router wiring - WhatsApp needs BOTH the kill switch AND its own
+  // per-tenant entitlement flag before it is ever routable.
+  it("WHATSAPP requested, kill switch ON but entitlement denies it -> CANCELLED_ALL CHANNEL_UNAVAILABLE", () => {
+    const result = decideRouting(
+      baseInput({
+        intent: { itemVersion: 3, policyVersion: 2, requestedChannels: ["WHATSAPP"] },
+        whatsappChannelEnabled: true,
+        entitlement: { emailEnabled: true, whatsappEnabled: false },
+      }),
+    );
+    expect(result).toEqual({ kind: "CANCELLED_ALL", reason: "CHANNEL_UNAVAILABLE" });
+  });
+
+  it("WHATSAPP requested, kill switch ON but entitlement record missing (whatsappEnabled undefined) -> CANCELLED_ALL CHANNEL_UNAVAILABLE (fail-closed, never fail-open)", () => {
+    const result = decideRouting(
+      baseInput({
+        intent: { itemVersion: 3, policyVersion: 2, requestedChannels: ["WHATSAPP"] },
+        whatsappChannelEnabled: true,
+        entitlement: { emailEnabled: true, whatsappEnabled: undefined },
+      }),
+    );
+    expect(result).toEqual({ kind: "CANCELLED_ALL", reason: "CHANNEL_UNAVAILABLE" });
+  });
+
+  it("WHATSAPP requested, kill switch ON and entitled -> ROUTED", () => {
+    const result = decideRouting(
+      baseInput({
+        intent: { itemVersion: 3, policyVersion: 2, requestedChannels: ["WHATSAPP"] },
+        whatsappChannelEnabled: true,
+        entitlement: { emailEnabled: true, whatsappEnabled: true },
+      }),
+    );
+    expect(result).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"], cancelledChannels: [], deliverNotBefore: undefined });
+  });
+
+  it("EMAIL+WHATSAPP both requested, kill switch ON and entitled -> both ROUTED together", () => {
+    const result = decideRouting(
+      baseInput({
+        intent: { itemVersion: 3, policyVersion: 2, requestedChannels: ["EMAIL", "WHATSAPP"] },
+        whatsappChannelEnabled: true,
+        entitlement: { emailEnabled: true, whatsappEnabled: true },
+      }),
+    );
+    expect(result).toEqual({ kind: "ROUTED", routedChannels: ["EMAIL", "WHATSAPP"], cancelledChannels: [], deliverNotBefore: undefined });
   });
 
   it("quiet hours active -> ROUTED with deliverNotBefore set, never cancelled", () => {

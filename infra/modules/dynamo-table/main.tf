@@ -341,6 +341,31 @@ locals {
   }
 }
 
+# D-8 (WhatsApp fatia 4/5, `whatsapp-portfolio-quota.ts`): dedicated, narrow policy for the
+# tenantless `PK=WHATSAPP#PORTFOLIO` partition on the BASE table (not a GSI, unlike GSI3/GSI6/
+# GSI8's isolation - this quota is deliberately a base-table item per the design's physical-shape
+# decision). `dynamodb:LeadingKeys` scopes every Query/PutItem this policy allows to exactly that
+# one partition key, same isolation discipline as gsi8_read above applied to the base table
+# instead of an index - attached ONLY to WhatsAppDeliveryWorker's role (`infra/main.tf`), never
+# to the webhook handler or any other Lambda. `tenant_facing_read_write` above already grants
+# unconditioned Query/PutItem on the base table (IAM cannot express "this call's tenantId" for a
+# shared static role, per that policy's own comment) - this dedicated policy exists for
+# least-privilege auditability of this ONE non-tenant-scoped access pattern, not because the
+# general grant would otherwise be insufficient.
+data "aws_iam_policy_document" "whatsapp_portfolio_quota" {
+  statement {
+    sid       = "WhatsAppPortfolioQuota"
+    actions   = ["dynamodb:Query", "dynamodb:PutItem"]
+    resources = [local.table_arn]
+
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["WHATSAPP#PORTFOLIO"]
+    }
+  }
+}
+
 data "aws_iam_policy_document" "cross_tenant_scan" {
   for_each = local.cross_tenant_scan_workers
 

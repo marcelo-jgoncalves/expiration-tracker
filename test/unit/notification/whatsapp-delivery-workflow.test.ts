@@ -129,6 +129,7 @@ describe("processWhatsAppDelivery", () => {
       renderTemplate: () => ({ templateName: "expiration_reminder", templateLanguage: "pt_BR", templateParams: ["Passport", "2026-12-01"] }),
       now: () => NOW,
       newIntentId: () => "newintent-1",
+      portfolioQuotaTierLimit: 250,
     };
   });
 
@@ -246,6 +247,80 @@ describe("processWhatsAppDelivery", () => {
     const outcome = await processWhatsAppDelivery(deps, makeCommand());
     expect(outcome).toEqual({ kind: "SEND_FAILED", nextStatus: "FAILED_TERMINAL" });
     expect(sendCalls).toHaveLength(0);
+  });
+
+  describe("D-8 portfolio quota (fatia 4/5) - checked/recorded right before the Cloud API call", () => {
+    it("under the tier limit: quota entry recorded, send proceeds normally", async () => {
+      await seed({});
+      const outcome = await processWhatsAppDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SENT", providerMessageId: "wamid.123" });
+      const quotaEntries = store.allItems().filter((i) => i["PK"] === "WHATSAPP#PORTFOLIO");
+      expect(quotaEntries).toHaveLength(1);
+      expect(quotaEntries[0]?.["phoneE164"]).toBe("+15551234567");
+    });
+
+    it("tier limit already reached by OTHER distinct recipients in the window -> conclusive retryable failure, no Cloud API call, no new quota entry", async () => {
+      deps.portfolioQuotaTierLimit = 1;
+      await store.putIfAbsent({
+        PK: "WHATSAPP#PORTFOLIO",
+        SK: "SENT#2026-09-10T11:59:00.000Z#+15559999999",
+        entityType: "WhatsAppPortfolioQuotaEntry",
+        phoneE164: "+15559999999",
+        sentAt: "2026-09-10T11:59:00.000Z",
+        purgeAfterTtl: 9999999999,
+      });
+      await seed({});
+      const outcome = await processWhatsAppDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SEND_FAILED", nextStatus: "FAILED_RETRYABLE" });
+      expect(sendCalls).toHaveLength(0);
+      const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+      expect(attempt?.status).toBe("FAILED_RETRYABLE");
+      const newEntries = store.allItems().filter((i) => i["PK"] === "WHATSAPP#PORTFOLIO" && i["phoneE164"] === "+15551234567");
+      expect(newEntries).toHaveLength(0);
+    });
+
+    it("tier limit reached, but THIS recipient was already reached in the window -> still allowed (already counted, not a new unique recipient)", async () => {
+      deps.portfolioQuotaTierLimit = 1;
+      await store.putIfAbsent({
+        PK: "WHATSAPP#PORTFOLIO",
+        SK: "SENT#2026-09-10T11:59:00.000Z#+15551234567",
+        entityType: "WhatsAppPortfolioQuotaEntry",
+        phoneE164: "+15551234567",
+        sentAt: "2026-09-10T11:59:00.000Z",
+        purgeAfterTtl: 9999999999,
+      });
+      await seed({});
+      const outcome = await processWhatsAppDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SENT", providerMessageId: "wamid.123" });
+      expect(sendCalls).toHaveLength(1);
+    });
+
+    it("a quota entry older than the 24h window does not count toward the limit", async () => {
+      deps.portfolioQuotaTierLimit = 1;
+      await store.putIfAbsent({
+        PK: "WHATSAPP#PORTFOLIO",
+        SK: "SENT#2026-09-09T11:00:00.000Z#+15559999999",
+        entityType: "WhatsAppPortfolioQuotaEntry",
+        phoneE164: "+15559999999",
+        sentAt: "2026-09-09T11:00:00.000Z",
+        purgeAfterTtl: 9999999999,
+      });
+      await seed({});
+      const outcome = await processWhatsAppDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SENT", providerMessageId: "wamid.123" });
+    });
+
+    it("quota read failure -> fail-closed, conclusive retryable failure, no Cloud API call", async () => {
+      const originalQuery = store.queryWhatsAppPortfolioQuotaWindow.bind(store);
+      store.queryWhatsAppPortfolioQuotaWindow = async () => {
+        throw new Error("DynamoDB unavailable");
+      };
+      await seed({});
+      const outcome = await processWhatsAppDelivery(deps, makeCommand());
+      expect(outcome).toEqual({ kind: "SEND_FAILED", nextStatus: "FAILED_RETRYABLE" });
+      expect(sendCalls).toHaveLength(0);
+      store.queryWhatsAppPortfolioQuotaWindow = originalQuery;
+    });
   });
 
   describe("W3-07 tenant deletion fence (D-067) - SUBMITTING claim admission, same discipline as email", () => {

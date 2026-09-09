@@ -205,6 +205,49 @@ describe("routeNotificationIntent", () => {
     expect(outboxEvent?.["destination"]).toBe("SQS_NOTIFICATION_EMAIL_V1");
   });
 
+  // D-197 fatia 5/5: router wiring - a WHATSAPP-requesting intent, with the kill switch on
+  // (deps.whatsappChannelEnabled) and the tenant entitled (NotificationEntitlements.whatsapp.
+  // enabled), now reaches the WhatsApp outbox destination for the first time (previously this
+  // outcome was mechanically impossible - SUPPORTED_CHANNELS was EMAIL-only).
+  it("happy path: routes WHATSAPP when kill switch on + entitled, creates attempt + lookup + outbox event on the WhatsApp destination", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"] });
+
+    const all = store.allItems();
+    const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;
+    expect(attempt).toBeDefined();
+    expect(attempt.channel).toBe("WHATSAPP");
+    expect(attempt.provider).toBe("META_CLOUD_API");
+
+    const outboxEvent = all.find((i) => i["entityType"] === "OutboxEvent");
+    expect(outboxEvent).toBeDefined();
+    expect(outboxEvent?.["destination"]).toBe("SQS_NOTIFICATION_WHATSAPP_V1");
+  });
+
+  it("WHATSAPP requested but kill switch off (deps.whatsappChannelEnabled left false/default) -> CANCELLED CHANNEL_UNAVAILABLE, no attempt/outbox created", async () => {
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } }, // entitled, but kill switch is the gate under test
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "CANCELLED", reason: "CHANNEL_UNAVAILABLE" });
+
+    const all = store.allItems();
+    expect(all.some((i) => i["entityType"] === "NotificationAttempt")).toBe(false);
+    expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(false);
+  });
+
   it("intent no longer PENDING (duplicate Streams delivery) -> NOOP_NOT_PENDING, no writes", async () => {
     await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(ASSIGNEE) });
     const intent = makeIntent({ status: "DISPATCHED" });

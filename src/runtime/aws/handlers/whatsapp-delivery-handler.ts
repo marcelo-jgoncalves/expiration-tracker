@@ -5,10 +5,9 @@
  * deterministic poison message, still retried/redriven under the uniform native SQS policy -
  * D-128, no branching on retryable).
  *
- * NOT reachable from the real notification flow yet - `notification-router-workflow.ts` never
- * writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record (router wiring is fatia 5/5). This
- * handler exists so the queue -> worker -> Cloud API mechanism is deployable and testable ahead
- * of that wiring.
+ * Reachable from the real notification flow as of D-197 fatia 5/5 -
+ * `notification-router-workflow.ts` now writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record
+ * whenever a WHATSAPP-requesting intent routes; the outbox relay delivers it to this queue.
  *
  * Credentials now come from AWS Secrets Manager (D-10, fatia 3/5) - `whatsapp-cloud-api-
  * adapter.ts`'s `WhatsAppCloudApiConfig` shape is UNCHANGED, exactly as fatia 2/5's own comment
@@ -33,6 +32,13 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const whatsAppSecretId = process.env["WHATSAPP_SECRET_ID"];
 const whatsAppApiVersion = process.env["WHATSAPP_API_VERSION"] ?? "v21.0";
+// D-8 (fatia 4/5): Meta's own tier ceiling for this portfolio's phone number (unique
+// recipients/24h - 250/2.000/10.000/100.000), operator-configured because it is a Meta account
+// property, never a value this repo can hardcode or infer. Defaults to the lowest real tier
+// (250) so a missing env var fails toward the MOST restrictive real ceiling, never toward
+// "unlimited" - the same "fail-closed, never fail-open toward laxer" posture the quota check
+// itself uses on a read error.
+const whatsAppPortfolioQuotaTierLimit = Number(process.env["WHATSAPP_PORTFOLIO_QUOTA_TIER_LIMIT"] ?? "250");
 const appConfigApplicationId = process.env["APPCONFIG_APPLICATION_ID"];
 const appConfigEnvironmentId = process.env["APPCONFIG_ENVIRONMENT_ID"];
 const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PROFILE_ID"];
@@ -55,11 +61,16 @@ async function getDeps(): Promise<WhatsAppDeliveryDeps> {
   if (!depsPromise) {
     depsPromise = (async () => {
       const secrets = await loadWhatsAppSecrets(secretsClient, whatsAppSecretId!);
-      return buildWhatsAppDeliveryDeps(client, tableName!, {
-        accessToken: secrets.accessToken,
-        phoneNumberId: secrets.phoneNumberId,
-        apiVersion: whatsAppApiVersion,
-      });
+      return buildWhatsAppDeliveryDeps(
+        client,
+        tableName!,
+        {
+          accessToken: secrets.accessToken,
+          phoneNumberId: secrets.phoneNumberId,
+          apiVersion: whatsAppApiVersion,
+        },
+        whatsAppPortfolioQuotaTierLimit,
+      );
     })();
   }
   return depsPromise;

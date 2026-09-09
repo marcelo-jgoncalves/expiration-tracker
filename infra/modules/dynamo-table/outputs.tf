@@ -58,6 +58,13 @@ output "cross_tenant_scan_policy_json" {
   value = { for k, v in data.aws_iam_policy_document.cross_tenant_scan : k => v.json }
 }
 
+# D-8 (WhatsApp fatia 4/5): the ONLY policy allowed to Query/PutItem the base-table
+# `PK=WHATSAPP#PORTFOLIO` partition, `dynamodb:LeadingKeys`-scoped. Attach ONLY to
+# WhatsAppDeliveryWorker's role.
+output "whatsapp_portfolio_quota_policy_json" {
+  value = data.aws_iam_policy_document.whatsapp_portfolio_quota.json
+}
+
 # Passthrough for root-level acceptance-test assertions (module internals aren't
 # addressable from a caller's .tftest.hcl). Literal values, not read off
 # aws_dynamodb_table.this.global_secondary_index - that computed attribute is only known
