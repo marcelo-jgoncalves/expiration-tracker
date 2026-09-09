@@ -21,7 +21,7 @@
 5. **Busca e filtros documentais** — 🟢 IMPLEMENTADO fatias 1-3 (D-194/D-196). Fatias 4-5 (projeção materializada+GSI10, índice por assignee) DEFERIDAS com gatilho quantitativo nomeado em D-194 — não bloqueante.
 6. **Dashboard operacional/compliance** — 🟢 IMPLEMENTADO (D-196).
 7. **Relatórios + exportação + audit trail** — 🟢 IMPLEMENTADO fatias 1-4 (D-195). Fora de escopo, nomeado: "solicitações pendentes" (sem GSI tenant-wide por status) e audit trail legível para negócio.
-8. **Document Types configuráveis** — 🟡 quase completo (D-173 a D-186, D-221, D-224): CRUD, RBAC, metadata configurável e leitura pública para guest todos implementados. **Pendente real, decisão de Marcelo**: tornar `documentTypeId` obrigatório no schema HTTP do guest submit (quebraria integrações existentes) — ver `decisions-log.md` D-224.
+8. **Document Types configuráveis** — 🟡 quase completo (D-173 a D-186, D-221, D-224, D-243): CRUD, RBAC, metadata configurável, leitura pública para guest e a decisão de tornar `documentTypeId` obrigatório no schema HTTP do guest submit todos resolvidos. **Pendente real, apenas implementação (não decisão)**: D-243 (`APPROVED`, design pronto — schema+serviço+política de replay+checklist de testes) ainda não foi codado — próxima fatia nível 3-4, protocolo Claude↔Codex dispensado.
 9. **Consolidar Guest Upload + Requests + Review + Recurrence** — 🟢 FECHADO POR INTEIRO (D-222/D-226 a D-230). Ciclo completo (criar→emitir credencial→entregar→resolver) funciona nos dois caminhos (avulso e recorrência), provado por teste e2e real.
 10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechado por completo (D-163 a D-168).
 11. **Frontend completo do P0** — ❌ explicitamente adiado por Marcelo (2026-09-04) — não iniciar.
@@ -56,13 +56,12 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
-2. Item 8 do roadmap P0 (Document Types) — tornar `documentTypeId` obrigatório no guest submit? (D-224).
-3. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
-4. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
-5. WhatsApp com usuário real (item 3 P0) — aviso de privacidade, DPA Meta, residência de dados (E-019).
-6. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
-7. User Validation (planejamento de interface) — aguarda sinal explícito dele.
-8. Frontend completo do P0 (item 11) — adiado para depois do P0 fechar.
+2. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
+3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
+4. WhatsApp com usuário real (item 3 P0) — aviso de privacidade, DPA Meta, residência de dados (E-019).
+5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
+6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
+7. Frontend completo do P0 (item 11) — adiado para depois do P0 fechar.
 
 ## Próxima ação recomendada
 
@@ -72,7 +71,7 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 
 Por ordem sugerida, tudo dentro do P0 (itens ainda não 🟢 na lista acima):
 1. Item 3 do P0 (WhatsApp operacional) — fatia 3/5 **verificada ao vivo (D-242)**. Falta fatia 4/5 (quota 24h + IAM dedicada). Bloqueante à parte para uso com usuário real (E-019, item 5 da lista de pendências acima) segue fora do controle de engenharia pura.
-2. Item 8 do P0 (Document Types) — decisão sobre `documentTypeId` obrigatório no guest submit (D-224) delegada por Marcelo ao protocolo Claude↔Codex (2026-09-08) — ver `decisions-log.md` para o D-número resultante quando concluído; não bloqueia o resto do P0 enquanto isso.
+2. Item 8 do P0 (Document Types) — decisão sobre `documentTypeId` obrigatório no guest submit RESOLVIDA via protocolo Claude↔Codex (D-243, `APPROVED`, design pronto): schema+serviço+política de replay+testes especificados por inteiro, faltando só a implementação (nível 3-4, protocolo dispensado); não bloqueia o resto do P0 enquanto isso.
 3. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente) — não é P0 formalmente, mas é qualidade de engenharia do que já foi entregue.
 4. Ou uma nova frente que Marcelo trouxer.
 
