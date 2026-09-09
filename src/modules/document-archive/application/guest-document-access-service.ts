@@ -106,7 +106,10 @@ export interface StartGuestSessionResult {
 
 export interface SubmitEvidenceInput {
   fileName: string;
-  documentType?: string;
+  /** Mandatory since D-243 (clean cutover, no coexistence with the old free-text `documentType`
+   * field D-184 had left optional) — always validated against the tenant's DocumentType catalog
+   * via the transactional ConditionCheck below. */
+  documentTypeId: string;
   /** Idempotency key OWNED by this call, distinct from the credential/session token — a network
    * retry replaying the same key must never double-create a DocumentVersion. */
   idempotencyKey: string;
@@ -350,32 +353,24 @@ export class GuestDocumentAccessService {
 
     const tenantId = authorizedTenantIdFromPersistedEntity(resolved.session);
     const subjectId = resolved.session.subjectId;
-    const requirementId = resolved.session.requirementId;
 
     const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `DOCREQUEST#${resolved.request.documentRequestId}#SUBMIT#${input.idempotencyKey}` };
+    // D-243 replay policy (payload-agnostic, first-write-wins, preserves D-143 Decision 4/D-184
+    // unchanged): this short-circuit runs BEFORE `documentTypeId` is ever read/validated below —
+    // a replay with the same key and a DIFFERENT `documentTypeId` still returns the original
+    // snapshot untouched, never re-validating or comparing the two values.
     const existingReplay = await this.store.get<{ resultSnapshot: SubmitEvidenceResult } & EntityKey>(idempotencyKey);
     if (existingReplay) return existingReplay.resultSnapshot;
 
     const now = this.now();
     const documentId = this.ids.newDocumentId();
     const versionId = this.ids.newVersionId();
-    // D-173 §5/item 4: `Document.documentTypeId` is the physical row attribute name (renamed
-    // end-to-end from `documentType`) — this does NOT change what value the guest flow writes
-    // into it. The guest's own free-string `documentType ?? requirementId` fallback is
-    // deliberately untouched here (D-175's open decision, guest schema migration remains item 6).
-    const documentType = input.documentType ?? requirementId;
-    // D-184 (resolves D-175's open decision, option (b)): guard is on PRESENCE of the raw input
-    // field (`!== undefined`, not truthy — an explicit empty string is still "supplied", the HTTP
-    // schema already rejects it with minLength:1 before this is reached, but the service itself
-    // must not silently treat it as absent), never on the post-fallback `documentType` value.
-    // Fallback-to-requirementId submissions (the majority today) are byte-identical to before —
-    // requirementId is never validated against the DocumentType catalog, since it never was one.
-    // Only a caller who explicitly names a DocumentType pays the cost of that value being real and
-    // ACTIVE. Idempotency replay (`existingReplay`, above) still short-circuits BEFORE this guard —
-    // a deliberate, pre-existing property of `idempotencyKey` (D-143 Decision 4: the key identifies
-    // one logical operation, not a payload re-checked on every retry — `fileName` was never
-    // re-validated on replay either), not a gap introduced here. See D-184 for the full analysis.
-    const documentTypeSupplied = input.documentType !== undefined;
+    // D-243 (supersedes D-184's conditional guard): `documentTypeId` is now mandatory end to end —
+    // the HTTP schema already rejects a missing/renamed field with 400 before this is reached, and
+    // the old free-text `documentType ?? requirementId` fallback is removed entirely (no coexistence,
+    // clean cutover). Always validated against the tenant's DocumentType catalog via the
+    // unconditional ConditionCheck below.
+    const documentTypeId = input.documentTypeId;
 
     const document: Document = {
       ...documentKey(tenantId, documentId),
@@ -383,7 +378,7 @@ export class GuestDocumentAccessService {
       documentId,
       tenantId,
       subjectId,
-      documentTypeId: documentType,
+      documentTypeId,
       status: "ACTIVE",
       hasValidity: false,
       createdAt: now,
@@ -392,7 +387,7 @@ export class GuestDocumentAccessService {
       ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
       // GSI2 (Documents-by-Subject) — a second attribute set on the same physical row, no
       // mirror item needed (same pattern as DocumentArchiveService.createDocument).
-      ...documentGsi2Keys(tenantId, subjectId, documentType, documentId),
+      ...documentGsi2Keys(tenantId, subjectId, documentTypeId, documentId),
     };
 
     const version: DocumentVersion = {
@@ -440,13 +435,11 @@ export class GuestDocumentAccessService {
     };
 
     const entries = [
-      // D-184: present only when the guest explicitly supplied a documentType — the entry's
-      // index shifts the rest of this array's positions, but the anti-enumeration `catch` below
-      // never inspects a specific index for this reason (unlike createDocument()'s D-175
-      // codes?.[0] check), so no index-tracking is needed here.
-      ...(documentTypeSupplied
-        ? [buildExistenceConditionCheck({ tableName: this.tableName, key: documentTypeKey(tenantId, documentType), extra: { status: "ACTIVE" } })]
-        : []),
+      // D-243: unconditional as of this decision (D-184's presence guard is removed — always
+      // required, always validated). Stays at position [0] (same `buildExistenceConditionCheck`/
+      // `documentTypeKey` as D-175/D-184); TOCTOU-safe by the same transaction, anti-enumeration
+      // `catch` below collapses nonexistent/`DEPRECATED` to the same generic guest error.
+      buildExistenceConditionCheck({ tableName: this.tableName, key: documentTypeKey(tenantId, documentTypeId), extra: { status: "ACTIVE" } }),
       { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
       { Put: buildVersionedCreate(this.tableName, version as unknown as Record<string, unknown> & EntityKey) },
       { Put: buildVersionedCreate(this.tableName, event as unknown as Record<string, unknown> & EntityKey) },

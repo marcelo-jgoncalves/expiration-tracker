@@ -1254,11 +1254,11 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
-  // D-143 Decision 4, guest access (D-146).
+  // D-143 Decision 4, guest access (D-146). documentTypeId mandatory per D-243 (checklist item 3).
   it("accepts a valid docarchive-guest-submit-evidence-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
       fileName: "certidao.pdf",
-      documentType: "CERTIDAO",
+      documentTypeId: "CERTIDAO",
       idempotencyKey: "idem-1",
     });
     expect(errors).toEqual([]);
@@ -1266,13 +1266,34 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
   });
 
   it("rejects a docarchive-guest-submit-evidence-request.v1 missing idempotencyKey", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { fileName: "certidao.pdf" });
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { fileName: "certidao.pdf", documentTypeId: "CERTIDAO" });
+    expect(valid).toBe(false);
+  });
+
+  // D-243 checklist item 1: absence of documentTypeId fails HTTP validation.
+  it("rejects a docarchive-guest-submit-evidence-request.v1 missing documentTypeId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
+      fileName: "certidao.pdf",
+      idempotencyKey: "idem-1",
+    });
+    expect(valid).toBe(false);
+  });
+
+  // D-243 checklist item 2: the old free-text field name is rejected by additionalProperties:false
+  // (clean cutover — no coexistence/alias with `documentType`).
+  it("rejects a docarchive-guest-submit-evidence-request.v1 using the old documentType field name", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
+      fileName: "certidao.pdf",
+      documentType: "CERTIDAO",
+      idempotencyKey: "idem-1",
+    });
     expect(valid).toBe(false);
   });
 
   it("rejects a docarchive-guest-submit-evidence-request.v1 with an additional unknown property", () => {
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
       fileName: "certidao.pdf",
+      documentTypeId: "CERTIDAO",
       idempotencyKey: "idem-1",
       extra: true,
     });
