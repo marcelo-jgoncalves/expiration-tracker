@@ -36,6 +36,11 @@ export interface Document extends EntityKey {
    * object), regardless of how many `required` fields the DocumentType declares (Decision 5) —
    * the only writer is `updateDocumentMetadataValues()` (`document-archive-service.ts`). */
   metadataValues?: Readonly<Record<string, DocumentMetadataValue>>;
+  /** D-225 Decision 1 — sparse, atomic cap counter for `ExternalShareLink` (max
+   * `MAX_ACTIVE_SHARE_LINKS_PER_DOCUMENT`). Every writer uses `if_not_exists(...,0)` and never
+   * allows underflow (`external-share-link-service.ts` is the sole writer, always inside the
+   * SAME `TransactWriteItems` as the link Put/Update it accompanies). */
+  activeExternalShareLinkCount?: number;
   createdAt: string;
   updatedAt: string;
   version: number;

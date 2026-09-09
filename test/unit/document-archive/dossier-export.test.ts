@@ -38,6 +38,7 @@ function makeIds(): DocumentArchiveIdGenerator {
     newDossierExportRunId: () => `dossier-${++n}`,
     newDocumentTypeFieldId: () => `doctypefield_${++n}`,
     newDocumentTypeFieldOptionId: () => `doctypefieldopt_${++n}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 

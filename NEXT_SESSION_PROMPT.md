@@ -35,7 +35,7 @@
 5. dossiê documental PDF/Excel — 🟢 FECHADO POR COMPLETO (D-205/D-216/D-217). TTL de retenção do metadado fechado depois (D-235).
 6. bulk actions — 🟢 FECHADO POR COMPLETO (D-206/D-207/D-209/D-210).
 7. metadata configurável por Document Type — 🟢 FECHADO POR COMPLETO (D-218 a D-221).
-8. compartilhamento externo seguro (`ExternalShareLink`) — 🟡 design `APPROVED` (D-225), implementação em fatias NÃO iniciada — último item do backlog P1 a implementar.
+8. compartilhamento externo seguro (`ExternalShareLink`) — 🟡 design `APPROVED` (D-225), **slice 1/3 IMPLEMENTADO (D-241, domínio+persistência+serviço de aplicação, testado, gate local verde)**. Slices 2/3 (rota HTTP anônima, rotas autenticadas+RBAC+schemas, terraform) PAUSADAS deliberadamente — Marcelo pediu fechar o P0 inteiro antes de qualquer item novo do P1; retomar só depois disso. Último item do backlog P1 a implementar.
 - **P2** (não escopado): assinatura eletrônica; API pública; webhooks; integrações de calendário; compliance score avançado.
 - **Futuro** (sem gatilho comercial): portal completo do cliente; SSO/SCIM/controles enterprise.
 
@@ -68,12 +68,15 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 
 **Prioridade 1 CONCLUÍDA (2026-09-08, D-240)**: a propagação de `AuthorizedTenantId` (branded type criado em D-234) aos key-builders de persistência dos 4 módulos (document-archive D-237, expiration D-238, subject D-239, organization D-240) está fechada por inteiro — zero `as AuthorizedTenantId` fora de `authorization.ts`, suíte completa verde (2786/2786) na fatia final. Nada pendente desse item.
 
-Sem decisão de Marcelo pendente, por ordem sugerida:
-1. Item 8 do backlog P1 (compartilhamento externo seguro) — design já `APPROVED` (D-225), implementar em fatias (nível 3-4, sem protocolo novo).
-2. Fechar a fatia 3/5 do WhatsApp (item 3 P0): `terraform plan` real contra `dev`, merge, CD, verificação ao vivo — nunca aplicada ainda.
-3. Fatia 4/5 do WhatsApp (quota 24h + IAM dedicada).
-4. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente).
-5. Ou uma nova frente que Marcelo trouxer.
+**Mudança de prioridade (Marcelo, 2026-09-08)**: fechar o P0 (roadmap de lançamento, 11 itens acima) por inteiro ANTES de qualquer item novo do backlog P1. `ExternalShareLink` (item 8/19 do P1) foi pausado de propósito em ponto limpo — slice 1/3 implementado e testado (D-241: domínio, persistência, `ExternalShareLinkService` completo — create/resolve-anônimo/revoke/list —, gate local verde), slices 2/3 (rota HTTP anônima `GET /external-share/{shareId}/{token}`, rotas autenticadas+RBAC `docarchive:share-link-*`+schemas, terraform se necessário) **NÃO iniciadas** — não retomar até o P0 fechar.
+
+Por ordem sugerida, tudo dentro do P0 (itens ainda não 🟢 na lista acima):
+1. Item 3 do P0 (WhatsApp operacional) — fechar fatia 3/5: `terraform plan` real contra `dev`, merge, CD, verificação ao vivo (nunca aplicada ainda); depois fatia 4/5 (quota 24h + IAM dedicada). Bloqueante à parte para uso com usuário real (E-019, item 5 da lista de pendências acima) segue fora do controle de engenharia pura.
+2. Item 8 do P0 (Document Types) — pendência de decisão de Marcelo (`documentTypeId` obrigatório no guest submit, D-224), não bloqueia o resto do P0.
+3. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente) — não é P0 formalmente, mas é qualidade de engenharia do que já foi entregue.
+4. Ou uma nova frente que Marcelo trouxer.
+
+Quando o P0 fechar por inteiro: retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
 
 ## Status de evidência (não presumir E2E sem checar)
 

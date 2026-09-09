@@ -36,6 +36,7 @@ function ids(): DocumentArchiveIdGenerator {
   newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   newDocumentTypeFieldId: () => `doctypefield_${crypto.randomUUID()}`,
   newDocumentTypeFieldOptionId: () => `doctypefieldopt_${crypto.randomUUID()}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 

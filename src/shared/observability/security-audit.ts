@@ -105,3 +105,27 @@ export function auditGlobalIndexAccessDenied(input: {
 export function isAccessDeniedError(err: unknown): boolean {
   return typeof err === "object" && err !== null && "name" in err && (err as { name?: unknown }).name === "AccessDeniedException";
 }
+
+/**
+ * ExternalShareLink audit trail — D-225 Decision 11. Four closed-shape events, a CloudWatch Logs
+ * Insights trail (never a real-time product counter — that role is `Document.
+ * activeExternalShareLinkCount`, written transactionally). `shareId` is safe to log (it is not a
+ * secret — the token's `selector.secret` half never reaches this module); `ipHash` is always
+ * pre-hashed with the module's OWN pepper (never the token's pepper, never a raw client IP) by
+ * the call site before it reaches here.
+ */
+export function auditExternalShareLinkCreated(input: { tenantId: string; documentId: string; shareId: string; createdByUserId: string; expiresAt: string }): void {
+  logger.info("security.external_share_link_created", input);
+}
+
+export function auditExternalShareLinkRevoked(input: { tenantId: string; documentId: string; shareId: string; revokedByUserId?: string; reason: "MANUAL" | "EXPIRED_RECONCILED" }): void {
+  logger.info("security.external_share_link_revoked", input);
+}
+
+export function auditExternalShareLinkPresignIssued(input: { tenantId: string; documentId: string; shareId: string; ipHash: string }): void {
+  logger.info("security.external_share_link_presign_issued", input);
+}
+
+export function auditExternalShareLinkTenantInactiveBlocked(input: { tenantId: string; documentId: string; shareId: string; ipHash: string }): void {
+  logger.warn("security.external_share_link_tenant_inactive_blocked", input);
+}
