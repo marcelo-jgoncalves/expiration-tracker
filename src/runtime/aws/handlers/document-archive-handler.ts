@@ -24,6 +24,7 @@ import {
   handleListRequirements,
   handleSearchRequirements,
   handleListReviewQueue,
+  handleGetStorageUsage,
   handleUpdateRequirement,
   handleLinkEvidence,
   handleUnlinkEvidence,
@@ -136,6 +137,10 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // same Lambda, no path-parameter collision with anything above.
         case "GET /document-archive/reviews":
           return await handleListReviewQueue(deps, base);
+        // storage-quota-scoping (D-2xx): tenant-wide storage usage summary - literal segment,
+        // same "no path-parameter collision" reasoning as /reviews above.
+        case "GET /document-archive/storage-usage":
+          return await handleGetStorageUsage(deps, base);
         // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147) — subject-scoped series
         // routes. Tenant-facing only — the guest-facing surface stays on
         // document-archive-guest-handlers.ts, unchanged by this task.

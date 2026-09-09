@@ -26,6 +26,27 @@
 10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechado por completo (D-163 a D-168).
 11. **Frontend completo do P0** — ❌ implementação explicitamente adiada por Marcelo (2026-09-04) — não iniciar código. **Planejamento CONCLUÍDO (D-247, 2026-09-09)**: protocolo Claude↔Codex em 2 etapas convergiu (Etapa 1 rubric 9,4/9,3; Etapa 2 screen inventory 9,4/9,3, ambas ≥9,0) num plano de 25 telas (23 autenticadas + 2 guest) em `docs/frontend/p0-screen-inventory-plan.md`, pronto para o Claude Design construir o protótipo. **Os 3 gaps reais de backend/BFF que bloqueavam telas específicas (G2 Review Queue/A13, G3 allowlist CSV/A16, G4 request-create avulso/A14) foram TODOS FECHADOS em D-248 (2026-09-09)** — route-wiring mecânico de Actions/serviços já existentes (nível 2-3, protocolo dispensado). Nenhum gap de backend/BFF resta bloqueando A13/A14/A16 especificamente.
 
+## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
+
+Marcelo identificou um gap real de produto: tenants não terão armazenamento ilimitado, e nada
+rastreava bytes de armazenamento por tenant. **Mecanismo de backend (tracking/enforcement/leitura)
+totalmente IMPLEMENTADO e testado** (D-249) — `TenantStorageQuota` (document-archive/domain),
+enforcement fail-closed em `reserveFiles()`, contabilidade de 3 estados (`usedBytes`/
+`reservedBytes`), rota `GET /document-archive/storage-usage` (`docarchive:read`). **A UI real
+(A03/A19) permanece NÃO CONSTRUÍDA** — mesma situação do item 11 acima (frontend inteiro adiado até
+Marcelo sinalizar); a especificação já foi atualizada em `p0-screen-inventory-plan.md` (addendum
+datado, não reabre a convergência original). **Minha avaliação de prioridade (Marcelo não
+especificou)**: NÃO é P0-blocking — nenhuma das 25 telas já planejadas depende de storage quota
+para funcionar, e o roadmap competitivo de 11 itens não a menciona; é um **fast-follow** natural do
+item 10 (Storage/Versioning/Renewal, já avançado) e deveria entrar no mesmo lote de frontend do item
+11 quando esse trabalho começar, não bloquear seu início. **Decisão de produto pendente (não
+resolvida nesta sessão, meu palpite não deveria virar decisão final)**: o número exato da quota
+(Marcelo usou "5GB" apenas como exemplo ilustrativo) — implementado como `DEFAULT_STORAGE_QUOTA_
+BYTES` (constante nomeada, `src/modules/document-archive/domain/storage-quota.ts`), um valor
+sensato e documentado, não hardcoded por tenant, fácil de mudar quando Marcelo confirmar o número
+real. Evidência completa: `docs/architecture/decisions-log.md` D-249,
+`docs/architecture/reviews/storage-quota-scoping/`.
+
 ## Backlog pós-lançamento P1 (autorizado 2026-09-04)
 
 1. reminder sequences configuráveis — 🟢 DONE (M3).

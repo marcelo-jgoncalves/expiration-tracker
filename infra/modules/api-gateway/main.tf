@@ -719,6 +719,9 @@ locals {
     # G2 (D-247/D-24x) - review-queue listing (A13); the sparse GSI5 index and RBAC action
     # already existed, only this route was missing.
     list_review_queue = { method = "GET", path = "/document-archive/reviews" }
+    # storage-quota-scoping (D-2xx) - tenant-wide storage usage summary; reuses docarchive:read,
+    # same "literal segment, no new Action" shape as list_review_queue above.
+    get_storage_usage = { method = "GET", path = "/document-archive/storage-usage" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate

@@ -131,6 +131,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" },
   // G2 (D-247/D-24x): review-queue listing (A13) — JSON envelope, same reasoning.
   { method: "GET", pathTemplate: "/document-archive/reviews" },
+  // storage-quota-scoping (D-2xx): tenant-wide storage usage summary — JSON envelope, same
+  // reasoning as review-queue listing above.
+  { method: "GET", pathTemplate: "/document-archive/storage-usage" },
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/series" },
   { method: "GET", pathTemplate: "/document-archive/series/{subjectId}" },
