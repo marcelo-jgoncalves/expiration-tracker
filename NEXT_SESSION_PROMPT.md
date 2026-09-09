@@ -44,7 +44,14 @@ resolvida nesta sessão, meu palpite não deveria virar decisão final)**: o nú
 (Marcelo usou "5GB" apenas como exemplo ilustrativo) — implementado como `DEFAULT_STORAGE_QUOTA_
 BYTES` (constante nomeada, `src/modules/document-archive/domain/storage-quota.ts`), um valor
 sensato e documentado, não hardcoded por tenant, fácil de mudar quando Marcelo confirmar o número
-real. Evidência completa: `docs/architecture/decisions-log.md` D-249,
+real. **Pesquisa de prática de mercado feita a pedido dele (2026-09-09)** para embasar essa
+escolha — concorrentes diretos de rastreamento de vencimento (Remindax/Expiration Reminder/
+ExpiryEdge) usam 100MB-1GB na entrada e 5-50GB em planos pagos; concorrentes de compliance de
+fornecedor mais parecidos no modelo de dados (CertFocus/bcs nos EUA, Econsulte/SoftExpert/Valide no
+Brasil) tratam storage como não-diferencial, frequentemente ilimitado — nenhum concorrente
+brasileiro pesquisado publica GB por plano. Síntese completa + recomendação (não decisão final):
+`docs/architecture/reviews/storage-quota-scoping/market-research-storage-limits-2026-09-09.md`.
+Evidência de design: `docs/architecture/decisions-log.md` D-249,
 `docs/architecture/reviews/storage-quota-scoping/`.
 
 ## Backlog pós-lançamento P1 (autorizado 2026-09-04)
