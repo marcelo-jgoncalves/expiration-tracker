@@ -7,7 +7,7 @@
  * mutação muda o número de subjects ACTIVE) em uma única TransactWriteItems.
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError, QuotaExceededError, SubjectExternalIdConflictError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import { buildVersionedCreate, buildVersionedUpdate, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
@@ -91,9 +91,10 @@ export class SubjectService {
 
   async createSubject(ctx: RequestContext, input: CreateSubjectInput): Promise<TrackedSubject> {
     authorize({ context: ctx, action: "subject:create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
 
     for (let attempt = 0; attempt < MAX_CONTENTION_RETRIES; attempt++) {
-      const entitlement = await this.ensureEntitlement(ctx.tenant.tenantId);
+      const entitlement = await this.ensureEntitlement(tenantId);
       if (entitlement.activeTrackedSubjectsCount >= entitlement.activeTrackedSubjectsLimit) {
         throw new QuotaExceededError("Active tracked subject limit reached for this plan.", {
           tenantId: ctx.tenant.tenantId,
@@ -106,7 +107,7 @@ export class SubjectService {
       const now = this.now();
       const displayNameNormalized = normalizeDisplayName(input.displayName);
       const subject: TrackedSubject = {
-        ...subjectKey(ctx.tenant.tenantId, subjectId),
+        ...subjectKey(tenantId, subjectId),
         entityType: "TrackedSubject",
         subjectId,
         tenantId: ctx.tenant.tenantId,
@@ -120,14 +121,14 @@ export class SubjectService {
         createdAt: now,
         updatedAt: now,
         version: 1,
-        ...gsi7Keys(ctx.tenant.tenantId, "ACTIVE", input.type, displayNameNormalized, subjectId),
+        ...gsi7Keys(tenantId, "ACTIVE", input.type, displayNameNormalized, subjectId),
       };
 
       const entries: TransactWriteEntry[] = [
         {
           Update: buildVersionedUpdate({
             tableName: this.tableName,
-            key: entitlementKey(ctx.tenant.tenantId),
+            key: entitlementKey(tenantId),
             tenantId: ctx.tenant.tenantId,
             expectedVersion: entitlement.version,
             set: { activeTrackedSubjectsCount: entitlement.activeTrackedSubjectsCount + 1 },
@@ -142,7 +143,7 @@ export class SubjectService {
       let pointerEntryIndex: number | undefined;
       if (input.externalId !== undefined) {
         const pointer: SubjectExternalIdPointer = {
-          ...subjectExternalIdPointerKey(ctx.tenant.tenantId, input.externalId),
+          ...subjectExternalIdPointerKey(tenantId, input.externalId),
           entityType: "SubjectExternalIdPointer",
           tenantId: ctx.tenant.tenantId,
           externalId: input.externalId,
@@ -193,19 +194,21 @@ export class SubjectService {
    * callers decide what "not found" means for them (e.g. a 404 vs. a per-row import rejection). */
   async getSubjectByExternalId(ctx: RequestContext, externalId: string): Promise<TrackedSubject | undefined> {
     authorize({ context: ctx, action: "subject:read", resource: { tenantId: ctx.tenant.tenantId } });
-    const pointer = await this.store.get<SubjectExternalIdPointer>(subjectExternalIdPointerKey(ctx.tenant.tenantId, externalId));
+    const tenantId = authorizedTenantId(ctx);
+    const pointer = await this.store.get<SubjectExternalIdPointer>(subjectExternalIdPointerKey(tenantId, externalId));
     if (!pointer) return undefined;
-    return this.store.get<TrackedSubject>(subjectKey(ctx.tenant.tenantId, pointer.subjectId));
+    return this.store.get<TrackedSubject>(subjectKey(tenantId, pointer.subjectId));
   }
 
   async getSubject(ctx: RequestContext, subjectId: string): Promise<TrackedSubject> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const subject = await this.readActiveSubject(authorizedTenantId(ctx), subjectId);
     authorize({ context: ctx, action: "subject:read", resource: { tenantId: subject.tenantId } });
     return subject;
   }
 
   async updateSubject(ctx: RequestContext, subjectId: string, input: UpdateSubjectInput, expectedVersion: number): Promise<TrackedSubject> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const tenantId = authorizedTenantId(ctx);
+    const subject = await this.readActiveSubject(tenantId, subjectId);
     authorize({ context: ctx, action: "subject:update", resource: { tenantId: subject.tenantId } });
 
     const set: Record<string, unknown> = {};
@@ -228,7 +231,7 @@ export class SubjectService {
       after["tags"] = input.tags;
     }
     const nextDisplayNameNormalized = (set["displayNameNormalized"] as string | undefined) ?? subject.displayNameNormalized;
-    const gsi7 = gsi7Keys(subject.tenantId, subject.status, subject.type, nextDisplayNameNormalized, subjectId);
+    const gsi7 = gsi7Keys(tenantId, subject.status, subject.type, nextDisplayNameNormalized, subjectId);
     set["GSI7PK"] = gsi7.GSI7PK;
     set["GSI7SK"] = gsi7.GSI7SK;
 
@@ -236,7 +239,7 @@ export class SubjectService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: subjectKey(subject.tenantId, subjectId),
+          key: subjectKey(tenantId, subjectId),
           tenantId: subject.tenantId,
           expectedVersion,
           set,
@@ -258,13 +261,13 @@ export class SubjectService {
 
   /** ACTIVE -> ARCHIVED. Libera 1 slot de entitlement (mesma transação, nunca "release" separado). */
   async archiveSubject(ctx: RequestContext, subjectId: string, expectedVersion: number): Promise<void> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const subject = await this.readActiveSubject(authorizedTenantId(ctx), subjectId);
     authorize({ context: ctx, action: "subject:update", resource: { tenantId: subject.tenantId } });
     await this.transitionStatus(ctx, subject, expectedVersion, "ARCHIVED", "ARCHIVE", { releaseEntitlement: subject.status === "ACTIVE" });
   }
 
   async deleteSubject(ctx: RequestContext, subjectId: string, expectedVersion: number): Promise<void> {
-    const subject = await this.readActiveSubject(ctx.tenant.tenantId, subjectId);
+    const subject = await this.readActiveSubject(authorizedTenantId(ctx), subjectId);
     authorize({ context: ctx, action: "subject:delete", resource: { tenantId: subject.tenantId } });
     await this.transitionStatus(ctx, subject, expectedVersion, "DELETED", "DELETE", {
       releaseEntitlement: subject.status === "ACTIVE",
@@ -331,16 +334,17 @@ export class SubjectService {
     action: SubjectAuditAction,
     opts: { releaseEntitlement: boolean; extraSet?: Record<string, unknown> },
   ): Promise<void> {
+    const tenantId = authorizedTenantId(ctx);
     const set: Record<string, unknown> = {
       status,
-      ...gsi7Keys(subject.tenantId, status, subject.type, subject.displayNameNormalized, subject.subjectId),
+      ...gsi7Keys(tenantId, status, subject.type, subject.displayNameNormalized, subject.subjectId),
       ...(opts.extraSet ?? {}),
     };
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: subjectKey(subject.tenantId, subject.subjectId),
+          key: subjectKey(tenantId, subject.subjectId),
           tenantId: subject.tenantId,
           expectedVersion,
           set,
@@ -349,11 +353,11 @@ export class SubjectService {
     ];
 
     if (opts.releaseEntitlement) {
-      const entitlement = await this.ensureEntitlement(subject.tenantId);
+      const entitlement = await this.ensureEntitlement(tenantId);
       entries.push({
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: entitlementKey(subject.tenantId),
+          key: entitlementKey(tenantId),
           tenantId: subject.tenantId,
           expectedVersion: entitlement.version,
           set: { activeTrackedSubjectsCount: Math.max(0, entitlement.activeTrackedSubjectsCount - 1) },
@@ -388,7 +392,7 @@ export class SubjectService {
   ): void {
     const event = buildSubjectAuditEvent({
       auditEventId: this.ids.newAuditEventId(),
-      tenantId: ctx.tenant.tenantId,
+      tenantId: authorizedTenantId(ctx),
       resourceType: input.resourceType,
       resourceId: input.resourceId,
       subjectId: input.subjectId,
@@ -404,7 +408,7 @@ export class SubjectService {
   }
 
   /** Get-or-create do plano default (mesmo padrão de auto-provisionamento de TenantQuotaService). */
-  private async ensureEntitlement(tenantId: string): Promise<TenantEntitlement> {
+  private async ensureEntitlement(tenantId: AuthorizedTenantId): Promise<TenantEntitlement> {
     const key = entitlementKey(tenantId);
     const existing = await this.store.get<TenantEntitlement>(key);
     if (existing) return existing;
@@ -417,7 +421,7 @@ export class SubjectService {
     return fresh;
   }
 
-  private async readActiveSubject(tenantId: string, subjectId: string): Promise<TrackedSubject> {
+  private async readActiveSubject(tenantId: AuthorizedTenantId, subjectId: string): Promise<TrackedSubject> {
     const subject = await this.store.get<TrackedSubject>(subjectKey(tenantId, subjectId));
     if (!subject || subject.status === "DELETED") {
       throw new NotFoundError("TrackedSubject not found.", { subjectId });

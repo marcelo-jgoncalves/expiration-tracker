@@ -9,6 +9,7 @@
  * completes the send, while an AMBIGUOUS/CONCLUSIVE_TERMINAL failure (or a post-accept
  * persistence failure) never resends automatically and always alerts a human. */
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { deliverGuestCredential, type GuestCredentialDeliveryDeps, type GuestCredentialDeliveryStore, type UncertainDeliveryAlert } from "../../../src/workers/guest-credential-delivery/deliver.js";
 import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 import { documentRequestKey, type DocumentRequest } from "../../../src/modules/document-archive/domain/document-request.js";
@@ -16,7 +17,7 @@ import type { GuestCredentialDeliveryRecord } from "../../../src/modules/documen
 import type { GuestCredentialDeliveryClaimResult, GuestCredentialDeliveryMarkerStore } from "../../../src/modules/document-archive/ports/guest-credential-delivery-marker-store.js";
 import { EmailSendError, type EmailProviderAdapter, type EmailSendInput } from "../../../src/modules/notification/ports/email-provider.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 
 function seedRequest(overrides: Partial<DocumentRequest> = {}): DocumentRequest {

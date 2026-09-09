@@ -14,6 +14,7 @@
  * own atomic `LastOwnerError` guard, same ordering rationale as `remove-membership.ts`.
  */
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
+import { authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { LastOwnerError, NotFoundError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
 import { deriveMembershipMaintenanceDue, membershipGsi8Keys, membershipKey, type Membership } from "../domain/membership.js";
@@ -39,7 +40,8 @@ export class LeaveOrganizationService {
    * passou pela resolução de `RequestContext`, que por si só exige uma Membership ACTIVE) - a
    * ação em si não distingue por role, só existe/não existe uma Membership própria para sair. */
   async leave(ctx: RequestContext): Promise<void> {
-    const target = await this.store.get<Membership>(membershipKey(ctx.tenant.tenantId, ctx.principal.userId));
+    const tenantId = authorizedTenantId(ctx);
+    const target = await this.store.get<Membership>(membershipKey(tenantId, ctx.principal.userId));
     if (!target || target.status !== "ACTIVE") {
       throw new NotFoundError("No active membership to leave.", {});
     }
@@ -47,8 +49,8 @@ export class LeaveOrganizationService {
     // D-194 Fatia 2: same parallel 5-Query / fail-closed-timeout rationale as
     // `remove-membership.ts`.
     const [assigned, assignedReqs] = await Promise.all([
-      this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, ctx.principal.userId),
-      this.assignedRequirements.findAssignedActiveRequirements(ctx.tenant.tenantId, ctx.principal.userId),
+      this.assignedItems.findAssignedActiveItems(tenantId, ctx.principal.userId),
+      this.assignedRequirements.findAssignedActiveRequirements(tenantId, ctx.principal.userId),
     ]);
     if (assigned.itemIds.length > 0 || assignedReqs.requirementIds.length > 0) {
       throw new ResponsibilityReassignmentRequiredError({
@@ -58,18 +60,18 @@ export class LeaveOrganizationService {
       });
     }
 
-    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);
+    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, tenantId, target.role === "OWNER", false);
 
     const now = this.now();
     // D-179/D-180: same atomic-pointer-at-transition discipline as remove-membership.ts — see
     // that file's comment for the full rationale.
     const due = deriveMembershipMaintenanceDue({ status: "REMOVED", removedAt: now })!;
-    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: ctx.tenant.tenantId, membershipId: target.membershipId });
+    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, membershipId: target.membershipId });
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
-          Key: membershipKey(ctx.tenant.tenantId, ctx.principal.userId),
+          Key: membershipKey(tenantId, ctx.principal.userId),
           UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
@@ -91,7 +93,7 @@ export class LeaveOrganizationService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Membership",
         resourceId: target.membershipId,
         action: "MEMBER_LEFT",

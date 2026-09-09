@@ -16,6 +16,7 @@ import { occurrenceKey, gsi3Keys, computeOccurrencePurgeAfterTtl, type ReminderO
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function contextFor(tenantId: string, userId: string): RequestContext {
   return {
@@ -47,7 +48,7 @@ describe("reconciliation.ts", () => {
     policies = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now });
 
     await store.putIfAbsent({
-      ...itemKey(TENANT, ITEM_ID),
+      ...itemKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT }), ITEM_ID),
       entityType: "ExpirationItem",
       itemId: ITEM_ID,
       tenantId: TENANT,

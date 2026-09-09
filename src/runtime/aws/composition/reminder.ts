@@ -12,6 +12,7 @@ import type { TenantManagerLookup } from "../../../modules/reminder/ports/tenant
 import { organizationKey } from "../../../modules/organization/domain/organization.js";
 import { membershipKey, type Membership } from "../../../modules/organization/domain/membership.js";
 import { globalUserKey } from "../../../modules/identity/persistence/global-user-repository.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 import { UlidIdGenerator, newCorrelationId } from "../ids.js";
 
 const MANAGER_ROLES: ReadonlySet<Membership["role"]> = new Set(["OWNER", "ADMIN"]);
@@ -28,14 +29,14 @@ export function buildTenantManagerLookup(client: DynamoDBDocumentClient, tableNa
 
   return {
     async listActiveManagers(tenantId: string): Promise<{ userId: string }[]> {
-      const { PK } = organizationKey(tenantId);
+      const { PK } = organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId }));
       const result = await client.send(new QueryCommand({ TableName: tableName, ConsistentRead: true, KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)", ExpressionAttributeValues: { ":pk": PK, ":prefix": "MEMBER#" } }));
       const candidates = ((result.Items ?? []) as Membership[]).filter((m) => m.status === "ACTIVE" && MANAGER_ROLES.has(m.role));
       const activeFlags = await Promise.all(candidates.map((m) => isGlobalUserActive(m.userId)));
       return candidates.filter((_, i) => activeFlags[i]).map((m) => ({ userId: m.userId }));
     },
     async isActiveManager(tenantId: string, userId: string): Promise<boolean> {
-      const result = await client.send(new GetCommand({ TableName: tableName, Key: membershipKey(tenantId, userId), ConsistentRead: true }));
+      const result = await client.send(new GetCommand({ TableName: tableName, Key: membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId }), userId), ConsistentRead: true }));
       const membership = result.Item as Membership | undefined;
       if (membership?.status !== "ACTIVE" || !MANAGER_ROLES.has(membership.role)) return false;
       return isGlobalUserActive(userId);

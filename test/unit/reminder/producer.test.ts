@@ -17,6 +17,7 @@ import type { ReminderProducerStore, TransactWriteEntry, EntityKey } from "../..
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 /** Wraps a real InMemoryReminderStore but injects one poison failure: the first
  * transactWrite whose Update targets `poisonSk` throws a plain Error (not a
@@ -66,7 +67,7 @@ describe("producer.ts - partial batch failure", () => {
     clock = { current: "2026-08-01T00:00:00.000Z" };
 
     await store.putIfAbsent({
-      ...itemKey(TENANT, ITEM_ID),
+      ...itemKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT }), ITEM_ID),
       entityType: "ExpirationItem",
       itemId: ITEM_ID,
       tenantId: TENANT,

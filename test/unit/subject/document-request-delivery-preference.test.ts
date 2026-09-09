@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveInitialInviteDeliveryMode, documentRequestDeliveryPreferenceKey } from "../../../src/modules/subject/domain/document-request-delivery-preference.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 describe("resolveInitialInviteDeliveryMode (D-049)", () => {
   it("defaults to MANUAL when nothing is configured at any level", () => {
@@ -19,6 +20,6 @@ describe("resolveInitialInviteDeliveryMode (D-049)", () => {
 
 describe("documentRequestDeliveryPreferenceKey", () => {
   it("is a tenant-level settings key, never per-subject", () => {
-    expect(documentRequestDeliveryPreferenceKey("tenant-1")).toEqual({ PK: "TENANT#tenant-1#SETTINGS", SK: "DOCUMENT_REQUEST_DELIVERY" });
+    expect(documentRequestDeliveryPreferenceKey(authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" }))).toEqual({ PK: "TENANT#tenant-1#SETTINGS", SK: "DOCUMENT_REQUEST_DELIVERY" });
   });
 });

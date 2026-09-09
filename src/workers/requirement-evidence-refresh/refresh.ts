@@ -24,6 +24,7 @@
  * rewrite" requirement.
  */
 import { buildVersionedUpdate, isTransactionCanceled } from "../../shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "../../modules/identity/domain/authorization.js";
 import type { DocumentArchiveStore } from "../../modules/document-archive/ports/document-archive-store.js";
 import type { DocumentArchiveService } from "../../modules/document-archive/application/document-archive-service.js";
 import { documentVersionKey, type DocumentVersion } from "../../modules/document-archive/domain/document-version.js";
@@ -76,14 +77,20 @@ export async function refreshRequirementsForEvidenceVersion(
 ): Promise<RequirementEvidenceRefreshResult> {
   const result: RequirementEvidenceRefreshResult = { discovered: 0, updated: 0, noop: 0, failed: 0, failedRequirementIds: [] };
 
+  // `hint.tenantId` is an SQS wake-up-hint field, not itself a repository read — but the sole
+  // producer of this queue writes it from the Requirement/DocumentVersion row it just persisted
+  // (never from client input), same one-hop-removed-but-server-authored provenance as
+  // `DocumentRequestCredentialIssuanceService.handle`'s message.tenantId.
+  const tenantId = authorizedTenantIdFromPersistedEntity(hint);
+
   // Discovery only — GSI9 is never a source of eligibility, same posture GSI8 consumers already
   // hold. Every candidate returned here is re-fetched fresh before this worker acts on it.
-  const candidates = await deps.documentArchive.findRequirementsByEvidenceVersion(hint.tenantId, hint.versionId);
+  const candidates = await deps.documentArchive.findRequirementsByEvidenceVersion(tenantId, hint.versionId);
   result.discovered = candidates.length;
 
   for (const candidate of candidates) {
     try {
-      const outcome = await refreshOneRequirementWithRetry(deps, hint.tenantId, candidate.subjectId, candidate.requirementId);
+      const outcome = await refreshOneRequirementWithRetry(deps, tenantId, candidate.subjectId, candidate.requirementId);
       if (outcome === "UPDATED") result.updated += 1;
       else result.noop += 1;
     } catch {
@@ -99,7 +106,7 @@ export async function refreshRequirementsForEvidenceVersion(
 
 async function refreshOneRequirementWithRetry(
   deps: RequirementEvidenceRefreshDeps,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   subjectId: string,
   requirementId: string,
 ): Promise<RequirementRefreshOutcome> {
@@ -117,7 +124,7 @@ async function refreshOneRequirementWithRetry(
   throw lastErr instanceof Error ? lastErr : new Error(`Exhausted OCC retries refreshing Requirement ${requirementId}.`);
 }
 
-async function refreshOneRequirement(deps: RequirementEvidenceRefreshDeps, tenantId: string, subjectId: string, requirementId: string): Promise<RequirementRefreshOutcome> {
+async function refreshOneRequirement(deps: RequirementEvidenceRefreshDeps, tenantId: AuthorizedTenantId, subjectId: string, requirementId: string): Promise<RequirementRefreshOutcome> {
   // Fresh read #1: the Requirement itself. Never the GSI9 query result — that projection can
   // already be behind a concurrent mutation by the time this worker gets to it.
   const requirement = await deps.store.get<Requirement>(requirementKey(tenantId, subjectId, requirementId));

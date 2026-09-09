@@ -6,7 +6,7 @@
  * puramente aditiva (zero mudança de comportamento existente).
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, IneligibleAssigneeError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { itemKey } from "../domain/expiration-item.js";
@@ -40,20 +40,21 @@ export class ItemWatchService {
    * (removing/cleaning up an already-invalid watch row is always safe, never grants anything
    * new). */
   async addWatcher(ctx: RequestContext, itemId: string, userId: string): Promise<ItemWatch> {
-    await this.requireActiveItem(ctx.tenant.tenantId, itemId);
+    const tenantId = authorizedTenantId(ctx);
+    await this.requireActiveItem(tenantId, itemId);
     authorize({ context: ctx, action: "item:watch", resource: { tenantId: ctx.tenant.tenantId } });
     if (!(await this.members.isEligibleMember(ctx.tenant.tenantId, userId))) {
       throw new IneligibleAssigneeError("Target user is not an eligible member of this organization.", { userId });
     }
 
-    const key = itemWatchKey(ctx.tenant.tenantId, itemId, userId);
+    const key = itemWatchKey(tenantId, itemId, userId);
     const existing = await this.store.get<ItemWatch>(key);
     if (existing?.status === "ACTIVE") return existing; // idempotente
 
     // D-200 (watcher notification fan-out): a NEW active watcher (fresh row or REMOVED->ACTIVE
     // reactivation, both paths below) grows dispatchOccurrence()'s per-recipient transaction -
     // capped here, at the write that actually increases the ACTIVE count, never after the fact.
-    const activeCount = (await this.store.queryByPk<ItemWatch>(itemKey(ctx.tenant.tenantId, itemId).PK, ITEM_WATCH_SK_PREFIX)).filter((w) => w.status === "ACTIVE").length;
+    const activeCount = (await this.store.queryByPk<ItemWatch>(itemKey(tenantId, itemId).PK, ITEM_WATCH_SK_PREFIX)).filter((w) => w.status === "ACTIVE").length;
     if (activeCount >= MAX_ITEM_WATCHERS) {
       throw new ValidationError(`An ExpirationItem may have at most ${MAX_ITEM_WATCHERS} active watchers.`, { itemId, count: activeCount });
     }
@@ -102,10 +103,11 @@ export class ItemWatchService {
    * yet (pending: next chunk's writer migration pass, see NEXT_SESSION_PROMPT.md).
    */
   async removeWatcher(ctx: RequestContext, itemId: string, userId: string): Promise<void> {
-    await this.requireActiveItem(ctx.tenant.tenantId, itemId);
+    const tenantId = authorizedTenantId(ctx);
+    await this.requireActiveItem(tenantId, itemId);
     authorize({ context: ctx, action: "item:watch", resource: { tenantId: ctx.tenant.tenantId } });
 
-    const key = itemWatchKey(ctx.tenant.tenantId, itemId, userId);
+    const key = itemWatchKey(tenantId, itemId, userId);
     const existing = await this.store.get<ItemWatch>(key);
     if (!existing || existing.status === "REMOVED") return; // idempotente
 
@@ -125,14 +127,15 @@ export class ItemWatchService {
 
   /** Lista watchers ACTIVE de um item via Query(PK, begins_with(SK, WATCH#USER#)) — sem GSI novo. */
   async listWatchers(ctx: RequestContext, itemId: string): Promise<ItemWatch[]> {
-    await this.requireActiveItem(ctx.tenant.tenantId, itemId);
+    const tenantId = authorizedTenantId(ctx);
+    await this.requireActiveItem(tenantId, itemId);
     authorize({ context: ctx, action: "item:read", resource: { tenantId: ctx.tenant.tenantId } });
 
-    const rows = await this.store.queryByPk<ItemWatch>(itemKey(ctx.tenant.tenantId, itemId).PK, ITEM_WATCH_SK_PREFIX);
+    const rows = await this.store.queryByPk<ItemWatch>(itemKey(tenantId, itemId).PK, ITEM_WATCH_SK_PREFIX);
     return rows.filter((row) => row.status === "ACTIVE");
   }
 
-  private async requireActiveItem(tenantId: string, itemId: string): Promise<void> {
+  private async requireActiveItem(tenantId: AuthorizedTenantId, itemId: string): Promise<void> {
     const item = await this.store.get(itemKey(tenantId, itemId));
     if (!item || (item as { status?: string }).status === "DELETED") {
       throw new NotFoundError("ExpirationItem not found.", { itemId });

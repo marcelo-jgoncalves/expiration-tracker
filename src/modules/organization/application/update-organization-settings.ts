@@ -13,7 +13,7 @@
  * externally (invitation emails, guest-facing name) is kept OWNER-only in this codebase, never
  * paritary with ADMIN like most other membership-management actions.
  */
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { NotFoundError, ValidationError, ConflictError } from "../../../shared/errors/app-error.js";
@@ -34,6 +34,7 @@ export class UpdateOrganizationSettingsService {
 
   async update(ctx: RequestContext, input: UpdateOrganizationSettingsInput, expectedVersion: number): Promise<Organization> {
     authorize({ context: ctx, action: "organization:update-settings", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
 
     const displayName = input.displayName?.trim();
     const timezone = input.timezone?.trim();
@@ -47,7 +48,7 @@ export class UpdateOrganizationSettingsService {
       throw new ValidationError("timezone cannot be blank.");
     }
 
-    const organization = await this.store.get<Organization>(organizationKey(ctx.tenant.tenantId));
+    const organization = await this.store.get<Organization>(organizationKey(tenantId));
     if (!organization) {
       throw new NotFoundError("Organization not found.", { organizationId: ctx.tenant.tenantId });
     }
@@ -78,7 +79,7 @@ export class UpdateOrganizationSettingsService {
       {
         Update: {
           TableName: this.tableName,
-          Key: organizationKey(ctx.tenant.tenantId),
+          Key: organizationKey(tenantId),
           UpdateExpression: `SET ${setClauses.join(", ")}`,
           ConditionExpression: "version = :expectedVersion",
           ...(expressionAttributeNames ? { ExpressionAttributeNames: expressionAttributeNames } : {}),

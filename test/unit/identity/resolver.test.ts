@@ -7,6 +7,7 @@ import { IdentityBootstrapService } from "../../../src/modules/identity/applicat
 import { AuthenticationError, OnboardingRequiredError, OrganizationSelectionRequiredError, OrganizationUnavailableError, UnsupportedMembershipRoleError } from "../../../src/shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { membershipKey, membershipGsi4Keys } from "../../../src/modules/organization/domain/membership.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { RemoveMembershipService } from "../../../src/modules/organization/application/remove-membership.js";
 
 function makeResolver() {
@@ -145,7 +146,7 @@ describe("RequestContextResolver - working context once an Organization exists",
     // bypassing CreateOrganizationService's real creator-is-caller invariant - only possible
     // this way because no real writer (Invitations, Wave B2B-8) exists yet.
     organizations.forceUpdate({
-      ...membershipKey(secondOrgId, userId),
+      ...membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: secondOrgId }), userId),
       entityType: "Membership",
       membershipId: "membership-forced",
       organizationId: secondOrgId,
@@ -171,7 +172,7 @@ describe("RequestContextResolver - working context once an Organization exists",
     const { userId, organizationId: firstOrgId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const { organizationId: secondOrgId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1-second-org-fixture");
     organizations.forceUpdate({
-      ...membershipKey(secondOrgId, userId),
+      ...membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: secondOrgId }), userId),
       entityType: "Membership",
       membershipId: "membership-forced",
       organizationId: secondOrgId,
@@ -289,7 +290,7 @@ describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-09
   it("resolves ADMIN into RequestContext.tenant.roles instead of throwing UnsupportedMembershipRoleError", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId, organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const membership = await organizations.get(membershipKey(organizationId, userId));
+    const membership = await organizations.get(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: organizationId }), userId));
     organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "ADMIN" });
 
     const ctx = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
@@ -303,7 +304,7 @@ describe("RequestContextResolver - Membership role resolution (B2B-7, D-097/D-09
   it("still throws UnsupportedMembershipRoleError for a role value outside the real 4-value domain (corrupted data)", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId, organizationId } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const membership = await organizations.get(membershipKey(organizationId, userId));
+    const membership = await organizations.get(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: organizationId }), userId));
     organizations.forceUpdate({ ...(membership as Record<string, unknown> & { PK: string; SK: string }), role: "SUPERADMIN" });
 
     const rejection = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: undefined }).catch((err: unknown) => err);
@@ -336,7 +337,7 @@ describe("RequestContextResolver - Membership revocation and cross-org role isol
     const ids = makeIdGenerator();
     const membershipId = ids.newMembershipId();
     organizations.forceUpdate({
-      ...membershipKey(sharedOrg, memberUserId),
+      ...membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: sharedOrg }), memberUserId),
       entityType: "Membership",
       membershipId,
       organizationId: sharedOrg,
@@ -346,7 +347,7 @@ describe("RequestContextResolver - Membership revocation and cross-org role isol
       joinedAt: "2026-08-30T00:00:00.000Z",
       createdBy: memberUserId,
       version: 1,
-      ...membershipGsi4Keys(memberUserId, sharedOrg, membershipId),
+      ...membershipGsi4Keys(memberUserId, authorizedTenantIdFromPersistedEntity({ tenantId: sharedOrg }), membershipId),
     });
 
     // Sanity - the member can resolve the shared org BEFORE removal (proves the setup is real).
@@ -376,14 +377,14 @@ describe("RequestContextResolver - Membership revocation and cross-org role isol
   it("a role never leaks between Organizations - MEMBER in one, OWNER in another, same user", async () => {
     const { store, organizations, resolver } = makeResolver();
     const { userId, organizationId: orgA } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
-    const membershipA = await organizations.get(membershipKey(orgA, userId));
+    const membershipA = await organizations.get(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: orgA }), userId));
     organizations.forceUpdate({ ...(membershipA as Record<string, unknown> & { PK: string; SK: string }), role: "MEMBER" });
 
     const { organizationId: orgB } = await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1-second-org-fixture");
     const ids = makeIdGenerator();
     const membershipIdB = ids.newMembershipId();
     organizations.forceUpdate({
-      ...membershipKey(orgB, userId),
+      ...membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: orgB }), userId),
       entityType: "Membership",
       membershipId: membershipIdB,
       organizationId: orgB,
@@ -393,7 +394,7 @@ describe("RequestContextResolver - Membership revocation and cross-org role isol
       joinedAt: "2026-08-30T00:00:00.000Z",
       createdBy: userId,
       version: 1,
-      ...membershipGsi4Keys(userId, orgB, membershipIdB),
+      ...membershipGsi4Keys(userId, authorizedTenantIdFromPersistedEntity({ tenantId: orgB }), membershipIdB),
     });
 
     const ctxA = await resolver.resolve({ claims: claims(), requestId: "r1", correlationId: "c1", organizationIdHint: orgA });

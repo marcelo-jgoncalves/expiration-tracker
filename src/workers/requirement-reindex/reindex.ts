@@ -22,6 +22,7 @@
  * of truth for evidence state.
  */
 import { buildVersionedUpdate, isTransactionCanceled } from "../../shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import type { DocumentArchiveStore } from "../../modules/document-archive/ports/document-archive-store.js";
 import { deriveRequirementStatus, requirementGsi1Keys, requirementKey, type Requirement } from "../../modules/document-archive/domain/requirement.js";
 import type { RequirementReindexCandidateSource } from "./candidate-source.js";
@@ -69,7 +70,7 @@ export async function runRequirementReindex(deps: RequirementReindexDeps): Promi
 
     for (const candidate of gsi8Page.items) {
       result.scanned += 1;
-      const requirement = await deps.store.get<Requirement>(requirementKey(candidate.tenantId, candidate.subjectId, candidate.requirementId));
+      const requirement = await deps.store.get<Requirement>(requirementKey(authorizedTenantIdFromPersistedEntity(candidate), candidate.subjectId, candidate.requirementId));
       // Defensive only — queryDue()'s own `GSI8SK < :before` filter means this should never be
       // reachable in practice, but eligibility is always re-derived here, never assumed (same
       // posture as invitation-purge/membership-purge's own defensive check): a concurrent
@@ -89,10 +90,10 @@ export async function runRequirementReindex(deps: RequirementReindexDeps): Promi
 
       const update = buildVersionedUpdate({
         tableName: deps.tableName,
-        key: requirementKey(requirement.tenantId, requirement.subjectId, requirement.requirementId),
+        key: requirementKey(authorizedTenantIdFromPersistedEntity(requirement), requirement.subjectId, requirement.requirementId),
         tenantId: requirement.tenantId,
         expectedVersion: requirement.version,
-        set: { status: nextStatus, ...requirementGsi1Keys(requirement.tenantId, nextStatus, nowIso, requirement.requirementId) },
+        set: { status: nextStatus, ...requirementGsi1Keys(authorizedTenantIdFromPersistedEntity(requirement), nextStatus, nowIso, requirement.requirementId) },
         // `nextStatus` is never SATISFIED here (`deriveRequirementStatus` only reaches this branch
         // once `evidenceValidUntil` has already passed `now`) — the GSI8 pointer always clears,
         // unconditionally, same as `unlinkEvidence`'s unconditional clear.

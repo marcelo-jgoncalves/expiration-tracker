@@ -13,7 +13,7 @@
  * transaction is where M3's ReminderOccurrence cancellation entries will be appended.
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, IneligibleAssigneeError, NotFoundError, ValidationError } from "../../../shared/errors/app-error.js";
 import type { MemberEligibilityChecker } from "../ports/member-eligibility.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
@@ -180,9 +180,10 @@ export class ExpirationService {
    */
   async createItem(ctx: RequestContext, input: CreateItemInput, idempotencyKey?: string): Promise<ExpirationItem> {
     authorize({ context: ctx, action: "item:create", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
     // Wave B2B-11: validated BEFORE any idempotency state is created, so a rejected assignee
     // never burns an idempotency key for a request that will never succeed.
-    await this.validateAssignee(ctx.tenant.tenantId, input.assigneeUserId);
+    await this.validateAssignee(tenantId, input.assigneeUserId);
 
     const operation = "expiration.createItem";
     let idempotencyState: { key: string } | undefined;
@@ -216,7 +217,7 @@ export class ExpirationService {
       const expiresAt = new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString();
 
       const result = await this.idempotency.begin({
-        tenantId: ctx.tenant.tenantId,
+        tenantId,
         operation,
         key,
         requestHash,
@@ -225,7 +226,7 @@ export class ExpirationService {
 
       if (result === "COMPLETED_SAME_REQUEST") {
         const record = await this.store.get({
-          PK: `TENANT#${ctx.tenant.tenantId}#IDEMPOTENCY#${operation}`,
+          PK: `TENANT#${tenantId}#IDEMPOTENCY#${operation}`,
           SK: `KEY#${key}`,
         });
         const existingItemId = (record as { responseRef?: string } | undefined)?.responseRef;
@@ -241,10 +242,10 @@ export class ExpirationService {
     const itemId = this.ids.newItemId();
     const now = this.now();
     const item: ExpirationItem = {
-      ...itemKey(ctx.tenant.tenantId, itemId),
+      ...itemKey(tenantId, itemId),
       entityType: "ExpirationItem",
       itemId,
-      tenantId: ctx.tenant.tenantId,
+      tenantId,
       name: input.name,
       category: input.category,
       categoryNormalized: normalizeCategory(input.category),
@@ -261,7 +262,7 @@ export class ExpirationService {
       createdAt: now,
       updatedAt: now,
       version: 1,
-      ...gsi1Keys(ctx.tenant.tenantId, "ACTIVE", input.dueDate, itemId),
+      ...gsi1Keys(tenantId, "ACTIVE", input.dueDate, itemId),
     };
 
     const entries: TransactWriteEntry[] = [{ Put: buildVersionedCreate(this.tableName, item as unknown as Record<string, unknown> & { PK: string; SK: string }) }];
@@ -317,7 +318,7 @@ export class ExpirationService {
   }
 
   async getItem(ctx: RequestContext, itemId: string): Promise<ExpirationItem> {
-    const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+    const item = await this.readActiveItem(authorizedTenantId(ctx), itemId);
     authorize({ context: ctx, action: "item:read", resource: { tenantId: item.tenantId } });
     return item;
   }
@@ -328,14 +329,15 @@ export class ExpirationService {
     input: UpdateItemInput,
     expectedVersion: number,
   ): Promise<ExpirationItem> {
-    const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+    const item = await this.readActiveItem(authorizedTenantId(ctx), itemId);
     authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
     // Wave B2B-11: only validated when assigneeUserId is actually being CHANGED - re-validating
     // an unchanged value on every update to unrelated fields would be pure overhead and could
     // spuriously reject an update if the assignee's eligibility lapsed after the original
     // assignment (same "admitted while ACTIVE may finish" posture as the rest of this codebase).
     if (input.assigneeUserId !== undefined) {
-      await this.validateAssignee(ctx.tenant.tenantId, input.assigneeUserId);
+      await this.validateAssignee(tenantId, input.assigneeUserId);
     }
 
     const dueDateChanged = input.dueDate !== undefined && input.dueDate !== item.dueDate;
@@ -370,7 +372,7 @@ export class ExpirationService {
       set["categoryNormalized"] = normalizeCategory(nextCategory);
     }
     // GSI1SK always reflects the current dueDate; status is unchanged by updateItem.
-    const gsi1 = gsi1Keys(item.tenantId, item.status, nextDueDate, itemId);
+    const gsi1 = gsi1Keys(tenantId, item.status, nextDueDate, itemId);
     set["GSI1PK"] = gsi1.GSI1PK;
     set["GSI1SK"] = gsi1.GSI1SK;
 
@@ -378,7 +380,7 @@ export class ExpirationService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: itemKey(item.tenantId, itemId),
+          key: itemKey(tenantId, itemId),
           tenantId: item.tenantId,
           expectedVersion,
           set,
@@ -423,13 +425,13 @@ export class ExpirationService {
   }
 
   async archiveItem(ctx: RequestContext, itemId: string, expectedVersion: number): Promise<void> {
-    const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+    const item = await this.readActiveItem(authorizedTenantId(ctx), itemId);
     authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
     await this.transitionStatus(ctx, item, expectedVersion, "ARCHIVED", "ARCHIVE");
   }
 
   async deleteItem(ctx: RequestContext, itemId: string, expectedVersion: number): Promise<void> {
-    const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+    const item = await this.readActiveItem(authorizedTenantId(ctx), itemId);
     authorize({ context: ctx, action: "item:delete", resource: { tenantId: item.tenantId } });
     // D-190 (GSI8, 9th/last worker): the CoreUserDataPurgeWorker's discovery pointer is written
     // in the SAME transaction as the deletedAt transition itself - the only moment an
@@ -438,7 +440,7 @@ export class ExpirationService {
     const deletedAt = this.now();
     const due = deriveCoreUserDataMaintenanceDue({ deletedAt });
     const gsi8 = due.dueAtIso
-      ? coreUserDataGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.tenantId, entityType: "ExpirationItem", sk: itemKey(item.tenantId, item.itemId).SK })
+      ? coreUserDataGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.tenantId, entityType: "ExpirationItem", sk: itemKey(authorizedTenantId(ctx), item.itemId).SK })
       : {};
     await this.transitionStatus(ctx, item, expectedVersion, "DELETED", "DELETE", { deletedAt, ...gsi8 });
   }
@@ -462,7 +464,7 @@ export class ExpirationService {
     expectedVersion: number,
     idempotencyKey?: string,
   ): Promise<{ item: ExpirationItem; copiedReminderPolicyIds: string[] }> {
-    const source = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+    const source = await this.readActiveItem(authorizedTenantId(ctx), itemId);
     authorize({ context: ctx, action: "item:update", resource: { tenantId: source.tenantId } });
 
     // Idempotency check runs BEFORE the ACTIVE-status guard: a retried renewal of the
@@ -503,7 +505,7 @@ export class ExpirationService {
       // derive the notice from the new item's own pointers rather than re-running the copy,
       // same "current state is authoritative" principle the reminder-materialization-trigger
       // worker itself uses (trigger.ts's design note §7).
-      const copiedReminderPolicyIds = await this.findItemPolicyIds(ctx.tenant.tenantId, newItemId);
+      const copiedReminderPolicyIds = await this.findItemPolicyIds(authorizedTenantId(ctx), newItemId);
       return { item, copiedReminderPolicyIds };
     }
 
@@ -544,7 +546,7 @@ export class ExpirationService {
    * pointers - informational only (used for the renewal notice on an idempotency replay,
    * never for a correctness decision), same non-authoritative status trigger.ts's pointer
    * reads always have. */
-  private async findItemPolicyIds(tenantId: string, forItemId: string): Promise<string[]> {
+  private async findItemPolicyIds(tenantId: AuthorizedTenantId, forItemId: string): Promise<string[]> {
     const pointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, forItemId).PK, POLICY_REF_SK_PREFIX);
     return pointers.map((pointer) => pointer.policyId);
   }
@@ -556,12 +558,13 @@ export class ExpirationService {
     input: RenewItemInput,
     expectedVersion: number,
   ): Promise<{ item: ExpirationItem; copiedReminderPolicyIds: string[] }> {
+    const tenantId = authorizedTenantId(ctx);
     const newItemId = this.ids.newItemId();
     const now = this.now();
     const newVersion = expectedVersion + 1;
 
     const newItem: ExpirationItem = {
-      ...itemKey(source.tenantId, newItemId),
+      ...itemKey(tenantId, newItemId),
       entityType: "ExpirationItem",
       itemId: newItemId,
       tenantId: source.tenantId,
@@ -582,17 +585,17 @@ export class ExpirationService {
       createdAt: now,
       updatedAt: now,
       version: 1,
-      ...gsi1Keys(source.tenantId, "ACTIVE", input.newDueDate, newItemId),
+      ...gsi1Keys(tenantId, "ACTIVE", input.newDueDate, newItemId),
     };
 
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: itemKey(source.tenantId, itemId),
+          key: itemKey(tenantId, itemId),
           tenantId: source.tenantId,
           expectedVersion,
-          set: { status: "RENEWED", ...gsi1Keys(source.tenantId, "RENEWED", source.dueDate, itemId) },
+          set: { status: "RENEWED", ...gsi1Keys(tenantId, "RENEWED", source.dueDate, itemId) },
         }),
       },
       { Put: buildVersionedCreate(this.tableName, newItem as unknown as Record<string, unknown> & { PK: string; SK: string }) },
@@ -637,7 +640,7 @@ export class ExpirationService {
     // worker re-reads the new item's pointers at processing time (trigger.ts's "pure
     // invalidation signal" design, §7), so no separate reminder.policy-changed.v1 is needed.
     const copiedReminderPolicyIds: string[] = [];
-    const sourcePointers = await this.store.queryByPk<PolicyRef>(itemKey(source.tenantId, itemId).PK, POLICY_REF_SK_PREFIX);
+    const sourcePointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, itemId).PK, POLICY_REF_SK_PREFIX);
     for (const pointer of sourcePointers) {
       const sourcePolicy = await this.store.get<ReminderPolicy>(policyKey(source.tenantId, pointer.policyId));
       // Orphaned/stale pointer (reminder-delivery-pipeline.md §5) - never trusted, silently
@@ -829,16 +832,17 @@ export class ExpirationService {
   private async bulkReassignOne(ctx: RequestContext, entry: BulkReassignItemInput): Promise<BulkItemOutcome> {
     const { itemId, expectedVersion, assigneeUserId } = entry;
     try {
-      const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+      const tenantId = authorizedTenantId(ctx);
+      const item = await this.readActiveItem(tenantId, itemId);
       authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
-      await this.validateAssignee(ctx.tenant.tenantId, assigneeUserId);
+      await this.validateAssignee(tenantId, assigneeUserId);
 
       const newVersion = expectedVersion + 1;
       const entries: TransactWriteEntry[] = [
         {
           Update: buildVersionedUpdate({
             tableName: this.tableName,
-            key: itemKey(item.tenantId, itemId),
+            key: itemKey(tenantId, itemId),
             tenantId: item.tenantId,
             expectedVersion,
             set: { assigneeUserId },
@@ -855,7 +859,7 @@ export class ExpirationService {
       await this.commit(entries, item.tenantId);
       return { itemId, outcome: "SUCCEEDED" };
     } catch (err) {
-      return { itemId, outcome: await this.classifyBulkError(err, ctx.tenant.tenantId, itemId, expectedVersion, (fresh) => fresh.assigneeUserId === assigneeUserId) };
+      return { itemId, outcome: await this.classifyBulkError(err, authorizedTenantId(ctx), itemId, expectedVersion, (fresh) => fresh.assigneeUserId === assigneeUserId) };
     }
   }
 
@@ -885,7 +889,7 @@ export class ExpirationService {
   private async bulkArchiveOne(ctx: RequestContext, entry: BulkArchiveItemInput): Promise<BulkItemOutcome> {
     const { itemId, expectedVersion } = entry;
     try {
-      const item = await this.readActiveItem(ctx.tenant.tenantId, itemId);
+      const item = await this.readActiveItem(authorizedTenantId(ctx), itemId);
       authorize({ context: ctx, action: "item:update", resource: { tenantId: item.tenantId } });
       if (item.status !== "ACTIVE") {
         // Same narrow reconciliation rule as classifyBulkError's VERSION_CONFLICT case, applied
@@ -902,7 +906,7 @@ export class ExpirationService {
       await this.transitionStatus(ctx, item, expectedVersion, "ARCHIVED", "ARCHIVE");
       return { itemId, outcome: "SUCCEEDED" };
     } catch (err) {
-      return { itemId, outcome: await this.classifyBulkError(err, ctx.tenant.tenantId, itemId, expectedVersion, (fresh) => fresh.status === "ARCHIVED") };
+      return { itemId, outcome: await this.classifyBulkError(err, authorizedTenantId(ctx), itemId, expectedVersion, (fresh) => fresh.status === "ARCHIVED") };
     }
   }
 
@@ -919,7 +923,7 @@ export class ExpirationService {
    */
   private async classifyBulkError(
     err: unknown,
-    tenantId: string,
+    tenantId: AuthorizedTenantId,
     itemId: string,
     expectedVersion: number,
     isTargetApplied: (item: ExpirationItem) => boolean,
@@ -947,9 +951,10 @@ export class ExpirationService {
     action: AuditAction,
     extraSet: Record<string, unknown> = {},
   ): Promise<void> {
+    const tenantId = authorizedTenantId(ctx);
     const set: Record<string, unknown> = {
       status,
-      ...gsi1Keys(item.tenantId, status, item.dueDate, item.itemId),
+      ...gsi1Keys(tenantId, status, item.dueDate, item.itemId),
       ...extraSet,
     };
     const newVersion = expectedVersion + 1;
@@ -957,7 +962,7 @@ export class ExpirationService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: itemKey(item.tenantId, item.itemId),
+          key: itemKey(tenantId, item.itemId),
           tenantId: item.tenantId,
           expectedVersion,
           set,
@@ -1017,7 +1022,7 @@ export class ExpirationService {
   ): void {
     const event = buildAuditEvent({
       auditEventId: this.ids.newAuditEventId(),
-      tenantId: ctx.tenant.tenantId,
+      tenantId: authorizedTenantId(ctx),
       itemId: input.itemId,
       action: input.action,
       actor: { type: "USER", userId: ctx.principal.userId },
@@ -1030,7 +1035,7 @@ export class ExpirationService {
     appendAuditToTransaction(entries, this.tableName, event);
   }
 
-  private async readActiveItem(tenantId: string, itemId: string): Promise<ExpirationItem> {
+  private async readActiveItem(tenantId: AuthorizedTenantId, itemId: string): Promise<ExpirationItem> {
     const item = await this.store.get<ExpirationItem>(itemKey(tenantId, itemId));
     if (!item || item.status === "DELETED") {
       throw new NotFoundError("ExpirationItem not found.", { itemId });
@@ -1042,7 +1047,7 @@ export class ExpirationService {
    * same "empty means no candidate" convention as `resolveCandidateUserId`), `undefined` means
    * "not provided" and never reaches here (callers already gate on `!== undefined`). Any other
    * value must be a real, eligible member of this Organization. */
-  private async validateAssignee(tenantId: string, assigneeUserId: string | undefined): Promise<void> {
+  private async validateAssignee(tenantId: AuthorizedTenantId, assigneeUserId: string | undefined): Promise<void> {
     if (!assigneeUserId) return;
     if (!(await this.members.isEligibleMember(tenantId, assigneeUserId))) {
       throw new IneligibleAssigneeError("assigneeUserId is not an eligible member of this organization.", { assigneeUserId });

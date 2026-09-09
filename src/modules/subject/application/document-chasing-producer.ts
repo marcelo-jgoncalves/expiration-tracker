@@ -16,6 +16,7 @@ import { isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "
 import { buildChasingClaimGsi6Sk, type DocumentChasingOccurrence, type DocumentChasingTier } from "../domain/document-chasing.js";
 import { GSI6PK_WORKSTATE_CLAIMED } from "../../reminder/ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export interface ChasingProducerStore {
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
@@ -66,7 +67,8 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
     return { kind: "SKIPPED_NOT_SCHEDULED" };
   }
 
-  const { tenantId, occurrenceId } = occurrence;
+  const { occurrenceId } = occurrence;
+  const tenantId = authorizedTenantIdFromPersistedEntity(occurrence);
   const claimExpiresAt = new Date(Date.parse(deps.now()) + deps.claimTtlMs).toISOString();
   const newVersion = occurrence.version + 1;
   const now = deps.now();

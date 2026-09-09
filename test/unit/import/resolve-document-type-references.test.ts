@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
 import { resolveDocumentTypeReferences } from "../../../src/modules/import/application/resolve-document-type-references.js";
 import { documentTypeGsi1Keys, documentTypeKey, documentTypeNamePointerKey, type DocumentType, type DocumentTypeNamePointer, type DocumentTypeStatus } from "../../../src/modules/document-archive/domain/document-type.js";
@@ -6,7 +7,7 @@ import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 type SeedItem = Record<string, unknown> & EntityKey;
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-03T00:00:00.000Z";
 
 function seedDocumentType(id: string, normalizedName: string, status: DocumentTypeStatus = "ACTIVE") {

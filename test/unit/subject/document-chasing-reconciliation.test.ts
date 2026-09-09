@@ -9,8 +9,10 @@ import { InMemoryReminderStore } from "../reminder/in-memory-store.js";
 import { reconcileExpiredClaims } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
 import { documentChasingOccurrenceKey, buildChasingClaimGsi6Sk, type DocumentChasingOccurrence } from "../../../src/modules/subject/domain/document-chasing.js";
 import { GSI6PK_WORKSTATE_CLAIMED } from "../../../src/modules/reminder/ports/reconciliation-candidate-source.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const TABLE = "MainTable";
 
 describe("reconcileExpiredClaims - DocumentChasingOccurrence (D-046/D-048)", () => {
@@ -18,7 +20,7 @@ describe("reconcileExpiredClaims - DocumentChasingOccurrence (D-046/D-048)", () 
     const store = new InMemoryReminderStore();
     const claimExpiresAt = "2026-08-23T12:02:00.000Z";
     const occurrence: DocumentChasingOccurrence = {
-      ...documentChasingOccurrenceKey(TENANT, "s1", "a1", "d1", "2026-08-23T12:00:00.000Z", "occ-1"),
+      ...documentChasingOccurrenceKey(AUTH_TENANT, "s1", "a1", "d1", "2026-08-23T12:00:00.000Z", "occ-1"),
       entityType: "DocumentChasingOccurrence",
       occurrenceId: "occ-1",
       tenantId: TENANT,
@@ -37,7 +39,7 @@ describe("reconcileExpiredClaims - DocumentChasingOccurrence (D-046/D-048)", () 
       createdAt: "2026-08-23T12:00:00.000Z",
       updatedAt: "2026-08-23T12:00:00.000Z",
       GSI6PK: GSI6PK_WORKSTATE_CLAIMED,
-      GSI6SK: buildChasingClaimGsi6Sk(claimExpiresAt, TENANT, "occ-1"),
+      GSI6SK: buildChasingClaimGsi6Sk(claimExpiresAt, AUTH_TENANT, "occ-1"),
     };
     await store.putIfAbsent(occurrence);
 
@@ -57,7 +59,7 @@ describe("reconcileExpiredClaims - DocumentChasingOccurrence (D-046/D-048)", () 
     const store = new InMemoryReminderStore();
     const claimExpiresAt = "2026-08-23T12:10:00.000Z"; // still in the future relative to now()
     const occurrence: DocumentChasingOccurrence = {
-      ...documentChasingOccurrenceKey(TENANT, "s1", "a1", "d1", "2026-08-23T12:00:00.000Z", "occ-1"),
+      ...documentChasingOccurrenceKey(AUTH_TENANT, "s1", "a1", "d1", "2026-08-23T12:00:00.000Z", "occ-1"),
       entityType: "DocumentChasingOccurrence",
       occurrenceId: "occ-1",
       tenantId: TENANT,

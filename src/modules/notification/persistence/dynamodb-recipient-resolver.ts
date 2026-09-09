@@ -22,6 +22,7 @@ import type { NotificationRecipientResolver, ResolvedRecipient } from "../ports/
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 import { membershipKey, type Membership } from "../../organization/domain/membership.js";
 import { globalUserKey, type GlobalUser } from "../../identity/persistence/global-user-repository.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export class DynamoDbNotificationRecipientResolver implements NotificationRecipientResolver {
   constructor(
@@ -34,7 +35,11 @@ export class DynamoDbNotificationRecipientResolver implements NotificationRecipi
     let globalUser: GlobalUser | undefined;
     try {
       const [membershipResult, globalUserResult] = await Promise.all([
-        this.client.send(new GetCommand({ TableName: this.tableName, Key: membershipKey(input.tenantId, input.candidateUserId), ConsistentRead: true })),
+        // `input.tenantId` is a worker/SQS-side value the caller already derived from a trusted
+        // source (never raw client input) - same threading convention as notification-router-
+        // workflow.ts's own authorizedTenantIdFromPersistedEntity(intent) calls; the port itself
+        // stays `tenantId: string` (shared cross-module contract, several callers).
+        this.client.send(new GetCommand({ TableName: this.tableName, Key: membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: input.tenantId }), input.candidateUserId), ConsistentRead: true })),
         this.client.send(new GetCommand({ TableName: this.tableName, Key: globalUserKey(input.candidateUserId), ConsistentRead: true })),
       ]);
       membership = membershipResult.Item as Membership | undefined;

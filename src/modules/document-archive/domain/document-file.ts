@@ -10,6 +10,7 @@
  * meaning) — never a new vocabulary for the same concept.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { UploadEvidence } from "../../document/domain/document.js";
 import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
 import type { MalwareEvidence } from "../../document/domain/malware-scan-result.js";
@@ -63,7 +64,7 @@ export interface DocumentFile extends EntityKey {
   GSI8SK?: string;
 }
 
-export function documentFileKey(tenantId: string, documentId: string, seq: number, fileId: string): EntityKey {
+export function documentFileKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}#FILE#${fileId}` };
 }
 
@@ -105,7 +106,7 @@ export function deriveDocumentFileMaintenanceDue(file: Pick<DocumentFile, "scanS
  * (D-179's exact key spec, same shape as `membershipGsi8Keys()`/`invitationGsi8Keys()`) —
  * `documentId`/`seq` are not embedded here since a `KEYS_ONLY` GSI8 Query already returns the
  * base table's own `PK`/`SK`, which already encode them (`documentFileKey()`). */
-export function documentFileGsi8Keys(input: { dueAtIso: string; tenantId: string; fileId: string }): { GSI8PK: string; GSI8SK: string } {
+export function documentFileGsi8Keys(input: { dueAtIso: string; tenantId: AuthorizedTenantId; fileId: string }): { GSI8PK: string; GSI8SK: string } {
   return {
     GSI8PK: `WORK#${DOCUMENT_FILE_RECONCILIATION_WORK_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.fileId}`,

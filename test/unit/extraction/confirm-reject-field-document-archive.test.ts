@@ -20,6 +20,9 @@ import type {
 } from "../../../src/modules/extraction/ports/extracted-field-store.js";
 import { IdempotencyStore, type DynamoLike } from "../../../src/shared/idempotency/idempotency.js";
 import { BusinessRuleError, ConflictError, NotFoundError } from "../../../src/shared/errors/app-error.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const T1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -163,7 +166,7 @@ function makeDeps(table: InMemoryTable): ConfirmRejectFieldDocumentArchiveDeps {
 
 function seedFixture(table: InMemoryTable, versionOverrides: Partial<DocumentVersion> = {}) {
   const version: DocumentVersion = {
-    ...documentVersionKey("t1", "doc1", 3),
+    ...documentVersionKey(T1, "doc1", 3),
     entityType: "DocumentVersion",
     versionId: "v1",
     documentId: "doc1",
@@ -215,7 +218,7 @@ function seedFixture(table: InMemoryTable, versionOverrides: Partial<DocumentVer
   // A real Requirement row, unrelated to this DocumentVersion by identity — seeded so tests can
   // prove it is byte-identical after confirm/reject (checklist: "Requirement nunca dentro dela").
   const requirement: Requirement = {
-    ...requirementKey("t1", "subject1", "req1"),
+    ...requirementKey(T1, "subject1", "req1"),
     entityType: "Requirement",
     requirementId: "req1",
     tenantId: "t1",
@@ -277,13 +280,13 @@ describe("confirmFieldForDocumentArchive / rejectFieldForDocumentArchive (D-193 
     expect(field.confirmedBy).toBe("user-1");
     expect(field.confirmedAt).toBe("2026-08-26T12:00:00.000Z");
 
-    const version = table.read<DocumentVersion>(documentVersionKey("t1", "doc1", 3));
+    const version = table.read<DocumentVersion>(documentVersionKey(T1, "doc1", 3));
     expect(version?.validUntil).toBe("2027-03-31");
     expect(version?.version).toBe(5); // bumped
 
-    const requirement = table.read<Requirement>(requirementKey("t1", "subject1", "req1"));
+    const requirement = table.read<Requirement>(requirementKey(T1, "subject1", "req1"));
     expect(requirement).toEqual({
-      ...requirementKey("t1", "subject1", "req1"),
+      ...requirementKey(T1, "subject1", "req1"),
       entityType: "Requirement",
       requirementId: "req1",
       tenantId: "t1",
@@ -307,7 +310,7 @@ describe("confirmFieldForDocumentArchive / rejectFieldForDocumentArchive (D-193 
     expect(Object.keys(call!).sort()).not.toContain("requirementKey");
     expect(call!.fieldKey).toEqual(extractedFieldKey("t1", "doc1", "expirationDate", "run1"));
     expect(call!.runKey).toEqual(extractionRunKey("t1", "doc1", "run1"));
-    expect(call!.documentVersionKey).toEqual(documentVersionKey("t1", "doc1", 3));
+    expect(call!.documentVersionKey).toEqual(documentVersionKey(T1, "doc1", 3));
   });
 
   it("confirm with no actual validUntil change plans NO_CHANGE — the outbox write is genuinely conditional, not always-fired", async () => {
@@ -338,10 +341,10 @@ describe("confirmFieldForDocumentArchive / rejectFieldForDocumentArchive (D-193 
     expect(field.state).toBe("REJECTED");
     expect(field.correctionReason).toBe("Wrong date read.");
 
-    const version = table.read<DocumentVersion>(documentVersionKey("t1", "doc1", 3));
+    const version = table.read<DocumentVersion>(documentVersionKey(T1, "doc1", 3));
     expect(version).toEqual(seededVersion); // byte-identical — reject never touches DocumentVersion
 
-    const requirement = table.read<Requirement>(requirementKey("t1", "subject1", "req1"));
+    const requirement = table.read<Requirement>(requirementKey(T1, "subject1", "req1"));
     expect(requirement).toEqual(seededRequirement); // byte-identical — reject never touches Requirement
 
     const call = (deps.fields as FakeExtractedFieldStore).rejectCalls[0];
@@ -387,7 +390,7 @@ describe("confirmFieldForDocumentArchive / rejectFieldForDocumentArchive (D-193 
     table.write(extractedFieldKey("t1", "doc1", "expirationDate", "run1"), { state: "CONFIRMED" }, 1);
     deps = makeDeps(table);
     await expect(confirmFieldForDocumentArchive(deps, ctx(), { ...CONFIRM_PARAMS, expectedFieldVersion: 2, idempotencyKey: "k-state" })).rejects.toThrow(BusinessRuleError);
-    expect(table.read<DocumentVersion>(documentVersionKey("t1", "doc1", 3))).toEqual(version);
+    expect(table.read<DocumentVersion>(documentVersionKey(T1, "doc1", 3))).toEqual(version);
   });
 
   it("rejecting a field that is not PENDING_CONFIRMATION is a 422 BusinessRuleError", async () => {

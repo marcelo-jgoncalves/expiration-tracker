@@ -11,6 +11,7 @@ import { GuestRateLimiter } from "../../../modules/subject/application/guest-rat
 import type { ExpirationItemLookup } from "../../../modules/subject/ports/expiration-item-lookup.js";
 import { DynamoDbExpirationStore } from "../../../modules/expiration/persistence/dynamodb-expiration-store.js";
 import { itemKey } from "../../../modules/expiration/domain/expiration-item.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 // M10 (D-037): DocumentSubmission reaproveita os adapters S3/Lambda genéricos do módulo
 // document (S3DocumentObjectStore, S3UploadUrlSigner, LambdaPdfParser) - nenhum deles é
 // acoplado à entidade Document, só a bucket/key/PDF bytes (ver domain/document-submission.ts).
@@ -31,7 +32,7 @@ function buildExpirationItemLookup(client: DynamoDBDocumentClient, tableName: st
   const store = new DynamoDbExpirationStore(client, tableName);
   return {
     async itemExists(tenantId: string, itemId: string): Promise<boolean> {
-      const item = await store.get<{ PK: string; SK: string; status?: string }>(itemKey(tenantId, itemId));
+      const item = await store.get<{ PK: string; SK: string; status?: string }>(itemKey(authorizedTenantIdFromPersistedEntity({ tenantId }), itemId));
       return Boolean(item) && item?.status !== "DELETED";
     },
   };
@@ -134,7 +135,7 @@ async function resolveInternalUserEmail(client: DynamoDBDocumentClient, tableNam
  * por completo, ver `docs/architecture/reviews/gtr-01-supersession-scoping/`). Assinatura só
  * `tenantId` - nenhum call site real precisava do `userId` além de endereçar o mesmo tenant. */
 async function resolveOrganizationDisplayName(client: DynamoDBDocumentClient, tableName: string, tenantId: string): Promise<string | undefined> {
-  const result = await client.send(new GetCommand({ TableName: tableName, Key: organizationKey(tenantId), ConsistentRead: true }));
+  const result = await client.send(new GetCommand({ TableName: tableName, Key: organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId })), ConsistentRead: true }));
   const organization = result.Item as Organization | undefined;
   return organization?.displayName;
 }

@@ -13,10 +13,11 @@
  */
 import type { TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { organizationKey } from "../domain/organization.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 /** `undefined` quando a mutação não muda a contagem de OWNER ACTIVE (não precisa tocar
  * `Organization`). */
-export function buildOwnerCountDeltaEntry(tableName: string, organizationId: string, wasActiveOwner: boolean, willBeActiveOwner: boolean): TransactWriteEntry | undefined {
+export function buildOwnerCountDeltaEntry(tableName: string, organizationId: AuthorizedTenantId, wasActiveOwner: boolean, willBeActiveOwner: boolean): TransactWriteEntry | undefined {
   if (wasActiveOwner === willBeActiveOwner) return undefined;
 
   if (wasActiveOwner && !willBeActiveOwner) {

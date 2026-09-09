@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "./in-memory-store.js";
 import { reconcileTimedOutDocumentFiles } from "../../../src/workers/document-file-reconciliation/reconciliation.js";
 import { applyFileScanTimeout, confirmFileScanClean } from "../../../src/modules/document-archive/application/apply-file-scan-result.js";
@@ -9,7 +10,7 @@ import type { DocumentFileGsi8Candidate, DocumentFileGsi8Page, DocumentFileRecon
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 const TABLE = "MainTable";
-const TENANT = "t1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 const DOC = "doc1";
 const SEQ = 1;
 const PLACEHOLDER = { bucket: "quarantine-bucket", key: "document-archive/tenant/t1/document/doc1/version/1/file/x", versionId: "" };
@@ -30,6 +31,7 @@ function ids(): DocumentArchiveIdGenerator {
   newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   newDocumentTypeFieldId: () => `doctypefield_${crypto.randomUUID()}`,
   newDocumentTypeFieldOptionId: () => `doctypefieldopt_${crypto.randomUUID()}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 

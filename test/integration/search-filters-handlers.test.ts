@@ -23,6 +23,7 @@ import { handleCreateItem, handleSearchItems } from "../../src/modules/expiratio
 import { handleCreateSubject, handleSearchSubjects } from "../../src/modules/subject/http/subject-handlers.js";
 import { handleSearchRequirements } from "../../src/modules/document-archive/http/document-archive-handlers.js";
 import { requirementKey, requirementGsi1Keys } from "../../src/modules/document-archive/domain/requirement.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../src/modules/identity/domain/authorization.js";
 
 function claims(sub: string): ValidatedClaims {
   return { sub, tokenId: `jti-${sub}`, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
@@ -70,6 +71,7 @@ describe("D-194 Fatia 3 - search/filters HTTP handlers", () => {
         newDossierExportRunId: () => "dossier_1",
         newDocumentTypeFieldId: () => "doctypefield_1",
         newDocumentTypeFieldOptionId: () => "doctypefieldopt_1",
+    newShareId: () => `share_${crypto.randomUUID()}`,
       },
       quarantineBucket: "test-quarantine-bucket",
       signer: { presignUpload: async () => ({ uploadUrl: "https://s3.example/fake?sig=fake", requiredHeaders: {} }) },
@@ -130,8 +132,9 @@ describe("D-194 Fatia 3 - search/filters HTTP handlers", () => {
     expect(missingStatus.statusCode).toBe(400);
 
     const now = "2026-09-03T00:00:00.000Z";
+    const authorizedTenant = authorizedTenantIdFromPersistedEntity({ tenantId });
     await documentArchiveStore.putIfAbsent({
-      ...requirementKey(tenantId, "subj-1", "req-1"),
+      ...requirementKey(authorizedTenant, "subj-1", "req-1"),
       entityType: "Requirement",
       requirementId: "req-1",
       tenantId,
@@ -142,7 +145,7 @@ describe("D-194 Fatia 3 - search/filters HTTP handlers", () => {
       createdAt: now,
       updatedAt: now,
       version: 1,
-      ...requirementGsi1Keys(tenantId, "MISSING", now, "req-1"),
+      ...requirementGsi1Keys(authorizedTenant, "MISSING", now, "req-1"),
     });
     const ok = await handleSearchRequirements(archiveDeps, { ...req, queryStringParameters: { status: "MISSING" } });
     expect(ok.statusCode).toBe(200);

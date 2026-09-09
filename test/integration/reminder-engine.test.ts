@@ -18,6 +18,7 @@ import type { ReminderOccurrence } from "../../src/modules/reminder/domain/remin
 import type { NotificationIntent } from "../../src/modules/reminder/domain/notification-intent.js";
 import { itemKey } from "../../src/modules/expiration/domain/expiration-item.js";
 import type { RequestContext } from "../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../src/modules/identity/domain/authorization.js";
 
 /** Manually-built RequestContext (same shape RequestContextResolver produces) - M1/M2 already
  * prove the resolver pipeline end-to-end; M3's HTTP handlers reuse that exact pipeline
@@ -56,7 +57,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     // Seed the ExpirationItem directly (M2 already proves the item lifecycle end-to-end;
     // M3's scope is the Reminder Engine reacting to an ACTIVE item + policy).
     await store.putIfAbsent({
-      ...itemKey(TENANT, ITEM_ID),
+      ...itemKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT }), ITEM_ID),
       entityType: "ExpirationItem",
       itemId: ITEM_ID,
       tenantId: TENANT,
@@ -276,7 +277,7 @@ describe("Reminder Engine end-to-end (M3 exit criterion)", () => {
     const command = tick.claimed[0]!;
 
     // Item's dueDate changed (version bumped) after the occurrence was already claimed.
-    const item = (await store.get<{ PK: string; SK: string; status: string; version: number }>(itemKey(TENANT, ITEM_ID)))!;
+    const item = (await store.get<{ PK: string; SK: string; status: string; version: number }>(itemKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT }), ITEM_ID)))!;
     await store.update<{ PK: string; SK: string; status: string; version: number }>({ ...item, version: 2 });
 
     let eventIdCounter = 0;

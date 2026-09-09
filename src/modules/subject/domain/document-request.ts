@@ -6,6 +6,7 @@
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { InitialInviteDeliveryOverride } from "./document-request-delivery-preference.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type DocumentRequestStatus = "REQUESTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "REVOKED";
 
@@ -35,7 +36,7 @@ export interface DocumentRequest extends EntityKey {
   version: number;
 }
 
-export function documentRequestKey(tenantId: string, subjectId: string, assignmentId: string, documentRequestId: string): EntityKey {
+export function documentRequestKey(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string, documentRequestId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQASSIGN#${assignmentId}#DOCREQ#${documentRequestId}` };
 }
 

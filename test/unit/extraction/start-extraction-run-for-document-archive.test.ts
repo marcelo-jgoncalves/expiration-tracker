@@ -1,5 +1,6 @@
 ﻿import { describe, expect, it } from "vitest";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle } from "../document-archive/in-memory-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { startExtractionRunForDocumentArchive } from "../../../src/modules/extraction/application/start-extraction-run-for-document-archive.js";
 import { documentFileKey, type DocumentFile } from "../../../src/modules/document-archive/domain/document-file.js";
 import { documentVersionKey, type DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
@@ -10,7 +11,7 @@ import type { ExtractionExecutionInput, ExtractionExecutionStarter } from "../..
 import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
-const TENANT = "t1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
 const DOC = "doc1";
 const SEQ = 1;
 const FILE = "file1";

@@ -64,6 +64,7 @@ import type { SubjectService } from "../../subject/application/subject-service.j
 import { buildCreateDocumentEntries, buildCreateRequirementEntries, type TransactEntryLabel } from "../../document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../document-archive/application/id-generator.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
+import { authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export interface ImportCommitDeps {
   store: ImportStore;
@@ -239,7 +240,7 @@ async function commitReferencingRows(
   entries: Array<DocumentImportRowPlanEntry | RequirementImportRowPlanEntry>,
   targetEntityType: "Document" | "Requirement",
 ): Promise<ImportCommitOutcome> {
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const dedupKind: ImportDedupEntityKind = targetEntityType === "Document" ? "DOCUMENT" : "REQUIREMENT";
   const createAction = targetEntityType === "Document" ? "CREATE_DOCUMENT" : "CREATE_REQUIREMENT";
 
@@ -266,7 +267,7 @@ async function commitReferencingRows(
   return { kind: "COMMITTED", createdCount };
 }
 
-function buildPlannedRow(deps: ImportCommitDeps, tenantId: string, entry: DocumentImportRowPlanEntry | RequirementImportRowPlanEntry, targetEntityType: "Document" | "Requirement"): PlannedRow {
+function buildPlannedRow(deps: ImportCommitDeps, tenantId: AuthorizedTenantId, entry: DocumentImportRowPlanEntry | RequirementImportRowPlanEntry, targetEntityType: "Document" | "Requirement"): PlannedRow {
   const now = deps.now();
   if (targetEntityType === "Document") {
     const documentEntry = entry as DocumentImportRowPlanEntry & { action: "CREATE_DOCUMENT" };
@@ -320,7 +321,7 @@ interface AttemptResult {
  * FALLBACK transaction; on a same-row cursor race, re-reads and either discards (already handled
  * by a concurrent winner) or retries once with a fresh version - D-192 §6. */
 async function attemptRow(deps: ImportCommitDeps, ctx: RequestContext, job: ImportJob, planned: PlannedRow, dedupKind: ImportDedupEntityKind, retried = false): Promise<AttemptResult> {
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const now = deps.now();
 
   const dedupLabelIndex = planned.entries.length;
@@ -408,7 +409,7 @@ async function attemptRow(deps: ImportCommitDeps, ctx: RequestContext, job: Impo
 /** FALLBACK transaction (D-192 §6): records the row as permanently FAILED and advances the
  * cursor past it - never retried again, never left silently dropped. */
 async function runFallback(deps: ImportCommitDeps, ctx: RequestContext, job: ImportJob, planned: PlannedRow, failureReason: string, retried = false): Promise<AttemptResult> {
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const now = deps.now();
   const fallbackEntries: TransactWriteEntry[] = [
     {

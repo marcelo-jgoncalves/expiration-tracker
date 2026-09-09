@@ -28,6 +28,7 @@ import {
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import { organizationKey } from "../domain/organization.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
 
@@ -68,19 +69,23 @@ export class AcceptInvitationService {
       throw new InvitationTokenUnavailableError();
     }
 
-    const invitation = await this.store.get<Invitation>(invitationKey(pointer.organizationId, pointer.invitationId));
+    // `pointer` was just read back from a trusted repository call (store.get above), never lifted
+    // straight off client input - same provenance authorizedTenantIdFromPersistedEntity() requires.
+    const pointerTenantId = authorizedTenantIdFromPersistedEntity({ tenantId: pointer.organizationId });
+    const invitation = await this.store.get<Invitation>(invitationKey(pointerTenantId, pointer.invitationId));
     if (!invitation || invitation.status !== "PENDING") {
       throw new InvitationTokenUnavailableError();
     }
+    const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: invitation.organizationId });
 
     const emailNormalized = input.callerVerifiedEmail.trim().toLowerCase();
     const newMembershipId = this.ids.newMembershipId();
-    const gsi4Keys = membershipGsi4Keys(input.userId, invitation.organizationId, newMembershipId);
+    const gsi4Keys = membershipGsi4Keys(input.userId, tenantId, newMembershipId);
 
     const membershipEntry: TransactWriteEntry = {
       Update: {
         TableName: this.tableName,
-        Key: membershipKey(invitation.organizationId, input.userId),
+        Key: membershipKey(tenantId, input.userId),
         // D-179/D-180: REMOVE GSI8PK/GSI8SK atomically alongside removedAt — a reactivated
         // Membership must never keep leaking a stale MaintenanceDueIndex pointer (the worker's
         // own revalidation would self-heal it eventually, but clearing it here at the source of
@@ -105,7 +110,7 @@ export class AcceptInvitationService {
     const invitationEntry: TransactWriteEntry = {
       Update: {
         TableName: this.tableName,
-        Key: invitationKey(invitation.organizationId, invitation.invitationId),
+        Key: invitationKey(tenantId, invitation.invitationId),
         // D-179 slice 2: ACCEPTED is never a maintenance-due candidate - clear the PENDING-time
         // GSI8 pointer atomically here, at the real transition, instead of leaving it to the
         // worker's own stale-pointer self-heal (same posture as the Membership REMOVE above).
@@ -130,7 +135,7 @@ export class AcceptInvitationService {
     };
 
     const dedupEntry: TransactWriteEntry = {
-      Delete: { TableName: this.tableName, Key: invitationDedupKey(invitation.organizationId, invitation.emailNormalized) },
+      Delete: { TableName: this.tableName, Key: invitationDedupKey(tenantId, invitation.emailNormalized) },
     };
 
     const entries: TransactWriteEntry[] = [membershipEntry, invitationEntry, tokenEntry, dedupEntry];
@@ -139,7 +144,7 @@ export class AcceptInvitationService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: invitation.organizationId,
+        organizationId: tenantId,
         resourceType: "Membership",
         resourceId: newMembershipId,
         action: "INVITATION_ACCEPTED",
@@ -158,7 +163,7 @@ export class AcceptInvitationService {
       entries.push({
         Update: {
           TableName: this.tableName,
-          Key: organizationKey(invitation.organizationId),
+          Key: organizationKey(tenantId),
           UpdateExpression: "SET ownerCount = ownerCount + :one",
           ConditionExpression: "attribute_exists(PK)",
           // Wave B2B-14 (D-119): see tokenEntry's comment above - omitted, never `{}`.

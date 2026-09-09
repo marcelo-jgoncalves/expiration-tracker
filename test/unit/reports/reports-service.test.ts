@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { ReportsService } from "../../../src/modules/reports/application/reports-service.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
 import { InMemoryExpirationStore } from "../expiration/in-memory-store.js";
@@ -7,7 +8,7 @@ import { itemKey, gsi1Keys, type ExpirationItemStatus } from "../../../src/modul
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-04T00:00:00.000Z";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {

@@ -7,8 +7,10 @@ import { notificationAttemptKey, buildNotificationAttemptLookup, type Notificati
 import type { EmailProviderAdapter } from "../../../src/modules/notification/ports/email-provider.js";
 import { EmailSendError } from "../../../src/modules/notification/ports/email-provider.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const ITEM_ID = "item1";
 const INTENT_ID = "intent1";
 const ATTEMPT_ID = "attempt1";
@@ -16,7 +18,7 @@ const NOW = "2026-09-10T12:00:00.000Z";
 
 function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
   return {
-    ...itemKey(TENANT, ITEM_ID),
+    ...itemKey(AUTH_TENANT, ITEM_ID),
     entityType: "ExpirationItem",
     itemId: ITEM_ID,
     tenantId: TENANT,

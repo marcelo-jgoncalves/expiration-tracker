@@ -22,6 +22,7 @@
  * DocumentRequest that exists IS exactly one attempt, whether or not it belongs to a series.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 /** Mirrors the older subject-module DocumentRequest's status vocabulary (same states cover the
  * same real lifecycle — requested/opened/submitted/completed, plus the three ways it can die
@@ -111,7 +112,7 @@ export interface DocumentRequest extends EntityKey {
   version: number;
 }
 
-export function documentRequestKey(tenantId: string, subjectId: string, documentRequestId: string): { PK: string; SK: `DOCREQUEST#${string}` } {
+export function documentRequestKey(tenantId: AuthorizedTenantId, subjectId: string, documentRequestId: string): { PK: string; SK: `DOCREQUEST#${string}` } {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `DOCREQUEST#${documentRequestId}` };
 }
 

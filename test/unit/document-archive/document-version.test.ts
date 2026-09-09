@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import {
   canTransitionDocumentVersion,
   assertValidDocumentVersionTransition,
@@ -128,17 +129,18 @@ describe("key builders", () => {
   });
 
   it("documentVersionKey co-locates versions under the Document's own PK (AP2 — no GSI needed)", () => {
-    expect(documentVersionKey("tenant-1", "doc-1", 3)).toEqual({ PK: "TENANT#tenant-1#DOCUMENT#doc-1", SK: "VERSION#000003" });
+    expect(documentVersionKey(authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" }), "doc-1", 3)).toEqual({ PK: "TENANT#tenant-1#DOCUMENT#doc-1", SK: "VERSION#000003" });
   });
 
   it("reviewQueueGsi5Keys buckets RECEIVED and UNDER_REVIEW separately (AP5 — never a fixed literal for both)", () => {
-    const received = reviewQueueGsi5Keys("t1", "RECEIVED", "2026-09-01T00:00:00.000Z", "v1");
-    const underReview = reviewQueueGsi5Keys("t1", "UNDER_REVIEW", "2026-09-01T00:00:00.000Z", "v1");
+    const t1 = authorizedTenantIdFromPersistedEntity({ tenantId: "t1" });
+    const received = reviewQueueGsi5Keys(t1, "RECEIVED", "2026-09-01T00:00:00.000Z", "v1");
+    const underReview = reviewQueueGsi5Keys(t1, "UNDER_REVIEW", "2026-09-01T00:00:00.000Z", "v1");
     expect(received.GSI5PK).not.toBe(underReview.GSI5PK);
     expect(received.GSI5PK).toBe("TENANT#t1#REVIEWQUEUE#RECEIVED");
   });
 
   it("versionLookupGsi5Keys (AP11) is keyed by versionId alone, independent of documentId", () => {
-    expect(versionLookupGsi5Keys("t1", "v1")).toEqual({ GSI5PK: "TENANT#t1#VERSIONLOOKUP", GSI5SK: "VERSION#v1" });
+    expect(versionLookupGsi5Keys(authorizedTenantIdFromPersistedEntity({ tenantId: "t1" }), "v1")).toEqual({ GSI5PK: "TENANT#t1#VERSIONLOOKUP", GSI5SK: "VERSION#v1" });
   });
 });

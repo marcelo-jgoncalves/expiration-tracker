@@ -10,7 +10,7 @@
  * `RemoveMembershipService`/`LeaveOrganizationService`) — decrementar de OWNER ACTIVE para
  * outro role é bloqueado atomicamente se essa Membership for a última OWNER ACTIVE.
  */
-import { authorize } from "../../../modules/identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { LastOwnerError, NotFoundError, OwnerTierChangeRequiresOwnerError } from "../../../shared/errors/app-error.js";
@@ -30,8 +30,9 @@ export class ChangeMembershipRoleService {
 
   async changeRole(ctx: RequestContext, targetUserId: string, newRole: MembershipRole, expectedVersion: number): Promise<void> {
     authorize({ context: ctx, action: "membership:role-change", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
 
-    const target = await this.store.get<Membership>(membershipKey(ctx.tenant.tenantId, targetUserId));
+    const target = await this.store.get<Membership>(membershipKey(tenantId, targetUserId));
     if (!target || target.status !== "ACTIVE") {
       throw new NotFoundError("No active membership for this user.", { targetUserId });
     }
@@ -43,14 +44,14 @@ export class ChangeMembershipRoleService {
 
     const wasActiveOwner = target.role === "OWNER";
     const willBeActiveOwner = newRole === "OWNER";
-    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, wasActiveOwner, willBeActiveOwner);
+    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, tenantId, wasActiveOwner, willBeActiveOwner);
 
     const now = this.now();
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
-          Key: membershipKey(ctx.tenant.tenantId, targetUserId),
+          Key: membershipKey(tenantId, targetUserId),
           UpdateExpression: "SET role = :newRole, version = version + :one",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
@@ -64,7 +65,7 @@ export class ChangeMembershipRoleService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Membership",
         resourceId: target.membershipId,
         action: "ROLE_CHANGED",

@@ -6,7 +6,7 @@
  * e-mail + intenção, são `membership:list-invitations` (ADMIN_ROLES). Reaproveitam
  * `queryByPk` já existente — nenhuma porta nova.
  */
-import { authorize } from "../../../modules/identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { organizationKey } from "../domain/organization.js";
 import type { Membership } from "../domain/membership.js";
@@ -18,7 +18,7 @@ export class ListMembersService {
 
   async listMembers(ctx: RequestContext): Promise<Membership[]> {
     authorize({ context: ctx, action: "membership:list-members", resource: { tenantId: ctx.tenant.tenantId } });
-    const { PK } = organizationKey(ctx.tenant.tenantId);
+    const { PK } = organizationKey(authorizedTenantId(ctx));
     return this.store.queryByPk<Membership>(PK, "MEMBER#");
   }
 }
@@ -28,7 +28,7 @@ export class ListInvitationsService {
 
   async listInvitations(ctx: RequestContext): Promise<Invitation[]> {
     authorize({ context: ctx, action: "membership:list-invitations", resource: { tenantId: ctx.tenant.tenantId } });
-    const { PK } = organizationKey(ctx.tenant.tenantId);
+    const { PK } = organizationKey(authorizedTenantId(ctx));
     return this.store.queryByPk<Invitation>(PK, "INVITATION#");
   }
 }

@@ -41,6 +41,7 @@ import {
 import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
 import { guestCredentialDeliveryKey, type GuestCredentialDeliveryRecord } from "../domain/guest-credential-delivery.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 /** Design decision central item 4: PROVISIONAL engineering default (not 30 days) — pending
  * product/security confirmation (D-226 pendency 2, `estado-final-consolidado.md`). Applies only
@@ -90,7 +91,15 @@ export class DocumentRequestCredentialIssuanceService {
   }
 
   async handle(message: DocumentRequestCredentialIssuanceMessage): Promise<CredentialIssuanceOutcome> {
-    const request = await this.store.get<DocumentRequest>(documentRequestKey(message.tenantId, message.subjectId, message.documentRequestId));
+    // `message.tenantId` is an SQS payload field, not itself a repository read — but the ONLY
+    // producer of this queue (`buildDocumentRequestCreatedOutboxEntry`) writes it in the SAME
+    // TransactWriteItems that persists the `DocumentRequest` row, sourced from that row's own
+    // `tenantId`, never from client input. `authorizedTenantIdFromPersistedEntity` is used here
+    // as the trust-boundary constructor for this one-hop-removed-but-still-server-authored value;
+    // the `request` re-read immediately below (never the message alone) is what this handler
+    // actually acts on for every subsequent write.
+    const tenantId = authorizedTenantIdFromPersistedEntity(message);
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(tenantId, message.subjectId, message.documentRequestId));
     // Genuinely missing DocumentRequest should never happen (the outbox entry is written in the
     // SAME transaction that creates it) — treated as a safe no-op rather than a retryable
     // failure, since retrying can never make a nonexistent row appear.
@@ -158,7 +167,7 @@ export class DocumentRequestCredentialIssuanceService {
       /* 2 */ {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: documentRequestKey(request.tenantId, request.subjectId, request.documentRequestId),
+          key: documentRequestKey(authorizedTenantIdFromPersistedEntity(request), request.subjectId, request.documentRequestId),
           tenantId: request.tenantId,
           expectedVersion: request.version,
           set: { activeCredentialSelectorHash: issued.selectorHash },

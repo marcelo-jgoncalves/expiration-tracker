@@ -10,6 +10,7 @@ import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { DynamoDbNotificationRecipientResolver } from "../../../src/modules/notification/persistence/dynamodb-recipient-resolver.js";
 import { membershipKey } from "../../../src/modules/organization/domain/membership.js";
 import { globalUserKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TABLE = "MainTable";
 
@@ -39,7 +40,7 @@ describe("DynamoDbNotificationRecipientResolver", () => {
 
   it("returns active:true when Membership is ACTIVE and GlobalUser.identityStatus is ACTIVE", async () => {
     const items = new Map<string, Record<string, unknown>>([
-      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
+      [keyOf(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }), "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
       [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "ACTIVE" }],
     ]);
     const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);
@@ -54,7 +55,7 @@ describe("DynamoDbNotificationRecipientResolver", () => {
   // para autenticação normal, esta wave estende para elegibilidade de notificação).
   it("returns active:false (RECIPIENT_NOT_ELIGIBLE) when Membership is ACTIVE but GlobalUser is SUSPENDED - never undefined", async () => {
     const items = new Map<string, Record<string, unknown>>([
-      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
+      [keyOf(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }), "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
       [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "SUSPENDED" }],
     ]);
     const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);
@@ -66,7 +67,7 @@ describe("DynamoDbNotificationRecipientResolver", () => {
 
   it("returns active:false when Membership itself is SUSPENDED, even with an ACTIVE GlobalUser", async () => {
     const items = new Map<string, Record<string, unknown>>([
-      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "SUSPENDED" }],
+      [keyOf(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }), "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "SUSPENDED" }],
       [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "ACTIVE" }],
     ]);
     const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);
@@ -78,7 +79,7 @@ describe("DynamoDbNotificationRecipientResolver", () => {
 
   it("returns active:false when Membership is REMOVED", async () => {
     const items = new Map<string, Record<string, unknown>>([
-      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "REMOVED" }],
+      [keyOf(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }), "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "REMOVED" }],
       [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "ACTIVE" }],
     ]);
     const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);
@@ -96,7 +97,7 @@ describe("DynamoDbNotificationRecipientResolver", () => {
   // de uma leitura nova.
   it("returns the GlobalUser's emailNormalized alongside active:true", async () => {
     const items = new Map<string, Record<string, unknown>>([
-      [keyOf(membershipKey("org-1", "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
+      [keyOf(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }), "user-1")), { entityType: "Membership", userId: "user-1", organizationId: "org-1", status: "ACTIVE" }],
       [keyOf(globalUserKey("user-1")), { entityType: "GlobalUser", userId: "user-1", identityStatus: "ACTIVE", emailNormalized: "user1@example.com" }],
     ]);
     const resolver = new DynamoDbNotificationRecipientResolver(makeClient(items), TABLE);

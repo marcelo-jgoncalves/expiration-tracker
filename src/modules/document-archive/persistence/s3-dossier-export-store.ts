@@ -3,9 +3,10 @@
  * port's own header comment for why this is deliberate reuse, not a new bucket. */
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { DossierExportFormat, DossierExportStore } from "../ports/dossier-export-store.js";
 
-function dossierExportObjectKey(tenantId: string, subjectId: string, runId: string, format: DossierExportFormat): string {
+function dossierExportObjectKey(tenantId: AuthorizedTenantId, subjectId: string, runId: string, format: DossierExportFormat): string {
   return `tenants/${tenantId}/dossier-exports/${subjectId}/runs/${runId}/dossier.${format}`;
 }
 
@@ -20,20 +21,20 @@ export class S3DossierExportStore implements DossierExportStore {
     private readonly bucket: string,
   ) {}
 
-  async putPdf(input: { tenantId: string; subjectId: string; runId: string; body: Uint8Array }): Promise<void> {
+  async putPdf(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; body: Uint8Array }): Promise<void> {
     await this.put(input.tenantId, input.subjectId, input.runId, "pdf", input.body);
   }
 
-  async putXlsx(input: { tenantId: string; subjectId: string; runId: string; body: Buffer }): Promise<void> {
+  async putXlsx(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; body: Buffer }): Promise<void> {
     await this.put(input.tenantId, input.subjectId, input.runId, "xlsx", input.body);
   }
 
-  private async put(tenantId: string, subjectId: string, runId: string, format: DossierExportFormat, body: Uint8Array): Promise<void> {
+  private async put(tenantId: AuthorizedTenantId, subjectId: string, runId: string, format: DossierExportFormat, body: Uint8Array): Promise<void> {
     const key = dossierExportObjectKey(tenantId, subjectId, runId, format);
     await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: CONTENT_TYPE[format], ServerSideEncryption: "AES256" }));
   }
 
-  async presignDownload(input: { tenantId: string; subjectId: string; runId: string; format: DossierExportFormat; expiresInSeconds: number }): Promise<string> {
+  async presignDownload(input: { tenantId: AuthorizedTenantId; subjectId: string; runId: string; format: DossierExportFormat; expiresInSeconds: number }): Promise<string> {
     const key = dossierExportObjectKey(input.tenantId, input.subjectId, input.runId, input.format);
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.client, command, { expiresIn: input.expiresInSeconds });

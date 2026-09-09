@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
@@ -40,6 +41,7 @@ function makeIds(): DocumentArchiveIdGenerator {
   newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   newDocumentTypeFieldId: () => `doctypefield_${crypto.randomUUID()}`,
   newDocumentTypeFieldOptionId: () => `doctypefieldopt_${crypto.randomUUID()}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 
@@ -73,7 +75,7 @@ function makeService(
   return { service, store };
 }
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 
 /** Drives a Document/DocumentVersion all the way to ACCEPTED, so tests can link real evidence

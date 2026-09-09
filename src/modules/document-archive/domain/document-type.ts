@@ -8,6 +8,7 @@
  * Document.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type DocumentTypeStatus = "ACTIVE" | "DEPRECATED";
 
@@ -91,14 +92,14 @@ export interface DocumentTypeMetadataFieldDefinition {
   updatedAt: string;
 }
 
-export function documentTypeKey(tenantId: string, documentTypeId: string): { PK: string; SK: "METADATA" } {
+export function documentTypeKey(tenantId: AuthorizedTenantId, documentTypeId: string): { PK: string; SK: "METADATA" } {
   return { PK: `TENANT#${tenantId}#DOCTYPE#${documentTypeId}`, SK: "METADATA" };
 }
 
 /** GSI1 (discriminated by prefix — same physical GSI1 index already shared by Document/
  * ExpirationItem/Requirement's own status namespaces, no new index): DocumentTypes by
  * status, ordered by normalized name so a catalog listing sorts alphabetically for free. */
-export function documentTypeGsi1Keys(tenantId: string, status: DocumentTypeStatus, normalizedName: string, documentTypeId: string): { GSI1PK: string; GSI1SK: string } {
+export function documentTypeGsi1Keys(tenantId: AuthorizedTenantId, status: DocumentTypeStatus, normalizedName: string, documentTypeId: string): { GSI1PK: string; GSI1SK: string } {
   return {
     GSI1PK: `TENANT#${tenantId}#DOCTYPESTATUS#${status}`,
     GSI1SK: `NAME#${normalizedName}#DOCTYPE#${documentTypeId}`,
@@ -119,7 +120,7 @@ export interface DocumentTypeNamePointer extends EntityKey {
   version: number;
 }
 
-export function documentTypeNamePointerKey(tenantId: string, normalizedName: string): { PK: string; SK: "POINTER" } {
+export function documentTypeNamePointerKey(tenantId: AuthorizedTenantId, normalizedName: string): { PK: string; SK: "POINTER" } {
   return { PK: `TENANT#${tenantId}#DOCTYPENAME#${normalizedName}`, SK: "POINTER" };
 }
 

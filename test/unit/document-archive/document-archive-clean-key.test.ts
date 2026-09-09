@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseDocumentArchiveCleanKey } from "../../../src/modules/document-archive/domain/document-archive-clean-key.js";
 import { buildDocumentArchiveCleanKey } from "../../../src/modules/document-archive/application/advance-file-after-evidence.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 describe("parseDocumentArchiveCleanKey", () => {
   it("round-trips buildDocumentArchiveCleanKey's exact output", () => {
-    const key = buildDocumentArchiveCleanKey("t1", "doc1", "ver-5", "file1");
+    const key = buildDocumentArchiveCleanKey(authorizedTenantIdFromPersistedEntity({ tenantId: "t1" }), "doc1", "ver-5", "file1");
     expect(parseDocumentArchiveCleanKey(key)).toEqual({ tenantId: "t1", documentId: "doc1", versionId: "ver-5", fileId: "file1" });
   });
 

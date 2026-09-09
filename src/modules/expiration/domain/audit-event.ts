@@ -10,6 +10,7 @@ import { defaultRedactor } from "../../../shared/observability/redactor.js";
 import type { Actor } from "../../../shared/contracts/events.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type AuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "RENEW" | "DELETE";
 
@@ -39,7 +40,7 @@ function monthShard(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 7).replace("-", "");
 }
 
-export function auditKey(tenantId: string, occurredAt: string, auditEventId: string): EntityKey {
+export function auditKey(tenantId: AuthorizedTenantId, occurredAt: string, auditEventId: string): EntityKey {
   return {
     PK: `TENANT#${tenantId}#AUDIT#${monthShard(occurredAt)}`,
     SK: `EVT#${occurredAt}#${auditEventId}`,
@@ -48,7 +49,7 @@ export function auditKey(tenantId: string, occurredAt: string, auditEventId: str
 
 export interface BuildAuditEventInput {
   auditEventId: string;
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   itemId: string;
   action: AuditAction;
   actor: Actor;

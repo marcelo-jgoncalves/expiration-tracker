@@ -12,6 +12,7 @@
  * verify + `confirmFileScanClean()` — the part `applyFileScanResult()` deliberately never does
  * itself (no `DocumentObjectStore` wired into it, per its doc comment).
  */
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { documentFileKey, type DocumentFile } from "../domain/document-file.js";
 import type { UploadEvidence } from "../../document/domain/document.js";
 import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
@@ -31,7 +32,7 @@ export interface AdvanceDocumentArchiveFileDeps {
 }
 
 export interface AdvanceDocumentArchiveFileInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   documentId: string;
   seq: number;
   fileId: string;
@@ -45,7 +46,7 @@ export type AdvanceDocumentArchiveFileOutcome = "PROMOTED" | "REJECTED" | "AWAIT
 /** `document-archive/clean/<tenantId>/<documentId>/<versionId>/<fileId>` — the exact clean-key
  * shape the approved design closed on (Round 5, "Chave clean e identidade": versionId-based,
  * NEVER `seq`, since `ExtractionRun`'s future re-keying reads identity off this same triple). */
-export function buildDocumentArchiveCleanKey(tenantId: string, documentId: string, versionId: string, fileId: string): string {
+export function buildDocumentArchiveCleanKey(tenantId: AuthorizedTenantId, documentId: string, versionId: string, fileId: string): string {
   return `document-archive/clean/${tenantId}/${documentId}/${versionId}/${fileId}`;
 }
 

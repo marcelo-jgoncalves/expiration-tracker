@@ -24,4 +24,6 @@ export interface DocumentArchiveIdGenerator {
   newDocumentTypeFieldId(): string;
   /** D-218 (`DocumentTypeFieldOption`, only for `SINGLE_SELECT` fields). */
   newDocumentTypeFieldOptionId(): string;
+  /** D-225 (`ExternalShareLink`). */
+  newShareId(): string;
 }

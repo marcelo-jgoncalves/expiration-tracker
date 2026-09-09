@@ -35,6 +35,7 @@
  */
 import { documentTypeKey, documentTypeNamePointerKey, type DocumentType, type DocumentTypeNamePointer } from "../../document-archive/domain/document-type.js";
 import type { DocumentArchiveStore } from "../../document-archive/ports/document-archive-store.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type DocumentTypeReferenceKind = "DISPLAY_NAME" | "DOCUMENT_TYPE_ID";
 
@@ -54,7 +55,7 @@ export type DocumentTypeReferenceResolution =
  */
 export async function resolveDocumentTypeReferences(
   documentArchiveStore: DocumentArchiveStore,
-  tenantId: string,
+  tenantId: AuthorizedTenantId,
   refKind: DocumentTypeReferenceKind,
   rawValues: readonly string[],
 ): Promise<Map<string, DocumentTypeReferenceResolution>> {

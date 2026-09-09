@@ -19,8 +19,10 @@ import { ReminderMaterializer } from "../../../src/modules/reminder/application/
 import { DocumentChasingMaterializer } from "../../../src/modules/subject/application/document-chasing-materializer.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { DocumentChasingOccurrence } from "../../../src/modules/subject/domain/document-chasing.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const TABLE = "MainTable";
 
 function ctx(): RequestContext {
@@ -36,7 +38,7 @@ function ctx(): RequestContext {
 async function materializeOneChasingOccurrence(store: InMemoryReminderStore, now: () => string, tokenExpiresAt: string): Promise<DocumentChasingOccurrence> {
   const materializer = new DocumentChasingMaterializer(store, now);
   const result = await materializer.materialize({
-    tenantId: TENANT,
+    tenantId: AUTH_TENANT,
     subjectId: "subject-1",
     assignmentId: "assignment-1",
     documentRequestId: "docreq-1",
@@ -90,7 +92,7 @@ describe("producer.ts - M10 cluster 4 entityType discriminator branch", () => {
     const now = () => clock.current;
 
     await store.putIfAbsent({
-      ...itemKey(TENANT, "item1"),
+      ...itemKey(AUTH_TENANT, "item1"),
       entityType: "ExpirationItem",
       itemId: "item1",
       tenantId: TENANT,

@@ -8,6 +8,7 @@
  * requests individuais.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type DocumentRequestDeliveryMode = "MANUAL" | "EMAIL";
 
@@ -27,7 +28,7 @@ export interface DocumentRequestDeliveryPreference extends EntityKey {
   version: number;
 }
 
-export function documentRequestDeliveryPreferenceKey(tenantId: string): { PK: string; SK: "DOCUMENT_REQUEST_DELIVERY" } {
+export function documentRequestDeliveryPreferenceKey(tenantId: AuthorizedTenantId): { PK: string; SK: "DOCUMENT_REQUEST_DELIVERY" } {
   return { PK: `TENANT#${tenantId}#SETTINGS`, SK: "DOCUMENT_REQUEST_DELIVERY" };
 }
 

@@ -18,6 +18,7 @@
  * acesso sempre faz `GetItem` direto na partição base via `membershipKey()`, nunca via GSI4.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";
@@ -56,13 +57,13 @@ export interface Membership extends EntityKey {
   maintenanceAttemptCount?: number;
 }
 
-export function membershipKey(organizationId: string, userId: string): { PK: string; SK: string } {
+export function membershipKey(organizationId: AuthorizedTenantId, userId: string): { PK: string; SK: string } {
   return { PK: `TENANT#${organizationId}#ORG#${organizationId}`, SK: `MEMBER#${userId}` };
 }
 
 /** `MembershipByUser` (GSI4, reaproveitado — não é GSI novo, §6 do physical model). Resolve
  * "quais Organizations este usuário pode acessar" sem tenant prévio. */
-export function membershipGsi4Keys(userId: string, organizationId: string, membershipId: string): { GSI4PK: string; GSI4SK: string } {
+export function membershipGsi4Keys(userId: string, organizationId: AuthorizedTenantId, membershipId: string): { GSI4PK: string; GSI4SK: string } {
   return {
     GSI4PK: `USER#${userId}`,
     GSI4SK: `ORG#${organizationId}#MEMBERSHIP#${membershipId}`,
@@ -106,7 +107,7 @@ export function deriveMembershipMaintenanceDue(membership: Pick<Membership, "sta
  * (D-179's exact key spec) — `tenantId` embedded in the sort key lets the worker revalidate
  * the atomic tenant-ACTIVE `ConditionCheck` straight off a `KEYS_ONLY` Query result, without a
  * second read just to learn which tenant a candidate belongs to. */
-export function membershipGsi8Keys(input: { dueAtIso: string; tenantId: string; membershipId: string }): { GSI8PK: string; GSI8SK: string } {
+export function membershipGsi8Keys(input: { dueAtIso: string; tenantId: AuthorizedTenantId; membershipId: string }): { GSI8PK: string; GSI8SK: string } {
   return {
     GSI8PK: `WORK#${MEMBERSHIP_PURGE_WORK_TYPE}`,
     GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.membershipId}`,

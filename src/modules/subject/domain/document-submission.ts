@@ -10,6 +10,7 @@
  * do prompt estratégico) — evita a exigência de `Document.itemId` que M6 sempre teve.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { DocumentStatus, UploadEvidence } from "../../document/domain/document.js";
 import type { MalwareEvidence } from "../../document/domain/malware-scan-result.js";
 import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
@@ -38,6 +39,6 @@ export interface DocumentSubmission extends EntityKey {
   version: number;
 }
 
-export function documentSubmissionKey(tenantId: string, subjectId: string, assignmentId: string, submissionId: string): EntityKey {
+export function documentSubmissionKey(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string, submissionId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQASSIGN#${assignmentId}#SUBMISSION#${submissionId}` };
 }

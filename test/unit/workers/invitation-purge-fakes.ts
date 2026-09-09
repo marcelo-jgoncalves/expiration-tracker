@@ -1,5 +1,6 @@
 import { deriveInvitationMaintenanceDue, invitationGsi8Keys } from "../../../src/modules/organization/domain/invitation.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import type { EntityKey, TransactWriteEntry } from "../../../src/shared/dynamodb/occ.js";
 import type {
   InvitationGsi8Page,
@@ -55,7 +56,7 @@ export class FakeInvitationPurgeCandidateSource implements InvitationPurgeCandid
    * pointer a test wants to exercise directly. */
   seed(item: InvitationPurgeCandidate): void {
     const due = deriveInvitationMaintenanceDue(item);
-    const gsi8 = due ? invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.organizationId, invitationId: item.invitationId }) : {};
+    const gsi8 = due ? invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: item.organizationId }), invitationId: item.invitationId }) : {};
     this.items.set(k(item), { ...gsi8, ...item });
   }
 

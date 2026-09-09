@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { deriveInvitationMaintenanceDue, invitationGsi8Keys, type Invitation } from "../src/modules/organization/domain/invitation.js";
+import { authorizedTenantIdFromPersistedEntity } from "../src/modules/identity/domain/authorization.js";
 
 interface Args {
   table: string;
@@ -89,7 +90,7 @@ export async function processPage(
     }
     if (dryRun) continue;
 
-    const gsi8 = invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: invitation.organizationId, invitationId: invitation.invitationId });
+    const gsi8 = invitationGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: invitation.organizationId }), invitationId: invitation.invitationId });
     const written = await writePointer(invitation, gsi8);
     if (written) pointersWritten += 1;
   }

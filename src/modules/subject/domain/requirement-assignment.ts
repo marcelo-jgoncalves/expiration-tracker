@@ -16,6 +16,7 @@
  * MISSING <-> SATISFIED, via link/unlink manual de um ExpirationItem já existente.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export type RequirementAssignmentStatus =
   | "MISSING"
@@ -47,7 +48,7 @@ export interface RequirementAssignment extends EntityKey {
   version: number;
 }
 
-export function requirementAssignmentKey(tenantId: string, subjectId: string, assignmentId: string): EntityKey {
+export function requirementAssignmentKey(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `REQASSIGN#${assignmentId}` };
 }
 

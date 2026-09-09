@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
@@ -7,7 +8,7 @@ import { requirementKey, requirementGsi1Keys, type Requirement } from "../../../
 import { dossierExportRunKey, computeDossierScopeHash, type DossierExportRun } from "../../../src/modules/document-archive/domain/dossier-export-run.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-06T00:00:00.000Z";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
@@ -37,6 +38,7 @@ function makeIds(): DocumentArchiveIdGenerator {
     newDossierExportRunId: () => `dossier-${++n}`,
     newDocumentTypeFieldId: () => `doctypefield_${++n}`,
     newDocumentTypeFieldOptionId: () => `doctypefieldopt_${++n}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 

@@ -22,6 +22,7 @@
  */
 import { membershipKey, type Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export type OnboardingState = "HAS_USABLE_MEMBERSHIP" | "SUSPENDED_ONLY" | "NO_TENANT_NO_MEMBERSHIP";
 
@@ -31,7 +32,11 @@ export class OnboardingStateResolver {
   async resolve(userId: string): Promise<OnboardingState> {
     const pointers = await this.store.queryGsi4<Membership>({ gsi4pk: `USER#${userId}` });
 
-    const hydrated = await Promise.all(pointers.map((pointer) => this.store.get<Membership>(membershipKey(pointer.organizationId, userId))));
+    // `pointer` is a GSI4 projection just read back from the repository (never trusted for status,
+    // per the file header) - the same repository-read provenance authorizedTenantIdFromPersistedEntity() requires.
+    const hydrated = await Promise.all(
+      pointers.map((pointer) => this.store.get<Membership>(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: pointer.organizationId }), userId))),
+    );
     const memberships = hydrated.filter((membership): membership is Membership => membership !== undefined);
 
     if (memberships.some((membership) => membership.status === "ACTIVE")) {

@@ -9,8 +9,10 @@ import { notificationEntitlementsKey, type NotificationEntitlements } from "../.
 import { notificationPreferencesKey, type NotificationPreferences } from "../../../src/modules/notification/domain/notification-preferences.js";
 import type { NotificationIntent } from "../../../src/modules/reminder/domain/notification-intent.js";
 import type { NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const ITEM_ID = "item1";
 const POLICY_ID = "policy1";
 const NOW = "2026-09-10T12:00:00.000Z";
@@ -19,7 +21,7 @@ const ASSIGNEE = "assignee-1";
 
 function makeItem(overrides: Partial<ExpirationItem> = {}): ExpirationItem {
   return {
-    ...itemKey(TENANT, ITEM_ID),
+    ...itemKey(AUTH_TENANT, ITEM_ID),
     entityType: "ExpirationItem",
     itemId: ITEM_ID,
     tenantId: TENANT,
@@ -305,7 +307,7 @@ describe("routeNotificationIntent", () => {
 
   it("targetKind WATCHER + ItemWatch ACTIVE -> routes to the watcher, recipientUserId set to the watcher (not the assignee)", async () => {
     await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
-    await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "ACTIVE", createdAt: NOW, updatedAt: NOW, version: 1 });
+    await store.putIfAbsent({ ...itemWatchKey(AUTH_TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "ACTIVE", createdAt: NOW, updatedAt: NOW, version: 1 });
     resolver.result = { userId: WATCHER, tenantId: TENANT, active: true };
     const intent = makeIntent({ targetKind: "WATCHER", targetUserId: WATCHER });
     await store.putIfAbsent(intent);
@@ -324,7 +326,7 @@ describe("routeNotificationIntent", () => {
       return resolver.result;
     };
     await seed({ entitlements: defaultEntitlements(), preferences: defaultPreferences(WATCHER) });
-    await store.putIfAbsent({ ...itemWatchKey(TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "REMOVED", createdAt: NOW, updatedAt: NOW, version: 2 });
+    await store.putIfAbsent({ ...itemWatchKey(AUTH_TENANT, ITEM_ID, WATCHER), entityType: "ItemWatch", itemId: ITEM_ID, tenantId: TENANT, userId: WATCHER, status: "REMOVED", createdAt: NOW, updatedAt: NOW, version: 2 });
     const intent = makeIntent({ targetKind: "WATCHER", targetUserId: WATCHER });
     await store.putIfAbsent(intent);
 

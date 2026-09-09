@@ -13,6 +13,7 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReconciliationDeps } from "../composition/reminder.js";
 import { runReconciliation, type DstReconciliationCandidate as FullDstCandidate } from "../../../workers/reminder-reconciliation/reconciliation.js";
 import { itemKey } from "../../../modules/expiration/domain/expiration-item.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 import { policyKey, type ReminderPolicy } from "../../../modules/reminder/domain/reminder-policy.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import type { ReminderOccurrence } from "../../../modules/reminder/domain/reminder-occurrence.js";
@@ -80,7 +81,7 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
       for (const light of result.items) {
         const policy = await store.get<ReminderPolicy>(policyKey(light.tenantId, light.policyId));
         if (!policy) continue;
-        const item = await store.get<{ PK: string; SK: string; dueDate: string; version: number }>(itemKey(light.tenantId, light.itemId));
+        const item = await store.get<{ PK: string; SK: string; dueDate: string; version: number }>(itemKey(authorizedTenantIdFromPersistedEntity(light), light.itemId));
         if (!item) continue;
         dstCandidates.push({
           tenantId: light.tenantId,

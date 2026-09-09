@@ -16,7 +16,7 @@
  * first because it is resolvable by the caller without any role change, so it is the more
  * actionable failure to see first.
  */
-import { authorize } from "../../../modules/identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { LastOwnerError, NotFoundError, OwnerTierChangeRequiresOwnerError, ResponsibilityReassignmentRequiredError } from "../../../shared/errors/app-error.js";
@@ -44,8 +44,9 @@ export class RemoveMembershipService {
 
   async remove(ctx: RequestContext, targetUserId: string, expectedVersion: number): Promise<void> {
     authorize({ context: ctx, action: "membership:remove", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
 
-    const target = await this.store.get<Membership>(membershipKey(ctx.tenant.tenantId, targetUserId));
+    const target = await this.store.get<Membership>(membershipKey(tenantId, targetUserId));
     if (!target || target.status !== "ACTIVE") {
       throw new NotFoundError("No active membership for this user.", { targetUserId });
     }
@@ -60,8 +61,8 @@ export class RemoveMembershipService {
     // propagates through this `Promise.all` unchanged, rejecting the removal rather than
     // silently treating a slow/failed lookup as "nothing assigned").
     const [assigned, assignedReqs] = await Promise.all([
-      this.assignedItems.findAssignedActiveItems(ctx.tenant.tenantId, targetUserId),
-      this.assignedRequirements.findAssignedActiveRequirements(ctx.tenant.tenantId, targetUserId),
+      this.assignedItems.findAssignedActiveItems(tenantId, targetUserId),
+      this.assignedRequirements.findAssignedActiveRequirements(tenantId, targetUserId),
     ]);
     if (assigned.itemIds.length > 0 || assignedReqs.requirementIds.length > 0) {
       throw new ResponsibilityReassignmentRequiredError({
@@ -73,7 +74,7 @@ export class RemoveMembershipService {
       });
     }
 
-    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, ctx.tenant.tenantId, target.role === "OWNER", false);
+    const ownerCountEntry = buildOwnerCountDeltaEntry(this.tableName, tenantId, target.role === "OWNER", false);
 
     const now = this.now();
     // D-179/D-180: the GSI8 pointer is written in the SAME Update as the REMOVED transition
@@ -82,12 +83,12 @@ export class RemoveMembershipService {
     // `deriveMembershipMaintenanceDue()` always returns a value here (status is REMOVED, removedAt
     // is `now`) — the `undefined` branch only applies to a Membership NOT being removed.
     const due = deriveMembershipMaintenanceDue({ status: "REMOVED", removedAt: now })!;
-    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: ctx.tenant.tenantId, membershipId: target.membershipId });
+    const gsi8Keys = membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, membershipId: target.membershipId });
     const entries: TransactWriteEntry[] = [
       {
         Update: {
           TableName: this.tableName,
-          Key: membershipKey(ctx.tenant.tenantId, targetUserId),
+          Key: membershipKey(tenantId, targetUserId),
           UpdateExpression: "SET #status = :removed, removedAt = :now, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :active AND version = :expectedVersion",
           ExpressionAttributeNames: { "#status": "status" },
@@ -109,7 +110,7 @@ export class RemoveMembershipService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Membership",
         resourceId: target.membershipId,
         action: "MEMBER_REMOVED",

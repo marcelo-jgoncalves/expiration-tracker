@@ -5,6 +5,7 @@ import { ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { itemKey, gsi1Keys, type ExpirationItem } from "../../../src/modules/expiration/domain/expiration-item.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -17,7 +18,7 @@ function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   };
 }
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-03T00:00:00.000Z";
 
 function makeItem(itemId: string, name: string, opts: { status?: ExpirationItem["status"]; tags?: string[]; assigneeUserId?: string; dueDate?: string } = {}): Record<string, unknown> & EntityKey {

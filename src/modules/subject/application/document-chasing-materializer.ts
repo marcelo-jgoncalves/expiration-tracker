@@ -14,6 +14,7 @@ import { chasingGsi3Keys, documentChasingOccurrenceKey, type DocumentChasingOccu
 import { stableHash } from "../../reminder/domain/reminder-occurrence.js";
 import { activeGenerations, type ShardConfig } from "../../reminder/domain/shard-config.js";
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 /** Porta deliberadamente estreita (mesmo espírito de `ReminderProducerStore` vs. `ReminderStore`)
  * — o materializer só precisa de `putIfAbsent`, nunca do resto de `SubjectStore`. */
@@ -30,12 +31,12 @@ const TIER_OFFSETS_MS: Record<Exclude<DocumentChasingTier, "EXPIRED">, number> =
   T3: 3 * 24 * 60 * 60_000,
 };
 
-function idempotencyKey(input: { tenantId: string; documentRequestId: string; documentRequestVersion: number; tier: DocumentChasingTier; scheduledAt: string }): string {
+function idempotencyKey(input: { tenantId: AuthorizedTenantId; documentRequestId: string; documentRequestVersion: number; tier: DocumentChasingTier; scheduledAt: string }): string {
   return [input.tenantId, input.documentRequestId, input.documentRequestVersion, input.tier, input.scheduledAt].join("|");
 }
 
 export interface MaterializeChasingInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   subjectId: string;
   assignmentId: string;
   documentRequestId: string;

@@ -11,6 +11,7 @@ import { buildMembershipAuditEvent } from "../../../src/modules/organization/dom
 import { buildSubjectAuditEvent } from "../../../src/modules/subject/domain/audit-event.js";
 import { buildTenantAuditEvent } from "../../../src/modules/activity/domain/tenant-audit-event.js";
 import { deriveSecurityAuditMaintenanceDue } from "../../../src/shared/security-audit-gsi8.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const OCCURRED_AT = "2025-07-01T00:00:00.000Z";
 const EXPECTED_DUE = deriveSecurityAuditMaintenanceDue({ occurredAt: OCCURRED_AT }).dueAtIso;
@@ -19,7 +20,7 @@ describe("GSI8 pointer written at creation for every AuditEvent-family entity (D
   it("buildAuditEvent stamps GSI8PK=WORK#SECURITY_AUDIT and a due-ordered GSI8SK keyed by tenantId", () => {
     const event = buildAuditEvent({
       auditEventId: "evt-1",
-      tenantId: "tenant-1",
+      tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" }),
       itemId: "item-1",
       action: "CREATE",
       actor: { type: "USER", userId: "user-1" },
@@ -35,7 +36,7 @@ describe("GSI8 pointer written at creation for every AuditEvent-family entity (D
   it("buildMembershipAuditEvent normalizes organizationId into the GSI8SK's tenant segment", () => {
     const event = buildMembershipAuditEvent({
       auditEventId: "evt-2",
-      organizationId: "org-1",
+      organizationId: authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" }),
       resourceType: "Membership",
       resourceId: "membership-1",
       action: "MEMBER_REMOVED",
@@ -52,7 +53,7 @@ describe("GSI8 pointer written at creation for every AuditEvent-family entity (D
   it("buildSubjectAuditEvent stamps the pointer", () => {
     const event = buildSubjectAuditEvent({
       auditEventId: "evt-3",
-      tenantId: "tenant-1",
+      tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" }),
       resourceType: "TrackedSubject",
       resourceId: "subject-1",
       subjectId: "subject-1",

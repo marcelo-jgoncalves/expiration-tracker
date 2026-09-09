@@ -41,6 +41,7 @@ import { ReminderMaterializer } from "../src/modules/reminder/application/remind
 import type { ReminderStore } from "../src/modules/reminder/ports/reminder-store.js";
 import { policyRefKey, type ReminderPolicy } from "../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey, type ExpirationItem } from "../src/modules/expiration/domain/expiration-item.js";
+import { authorizedTenantIdFromPersistedEntity } from "../src/modules/identity/domain/authorization.js";
 import { defaultShardConfig } from "../src/modules/reminder/domain/shard-config.js";
 
 interface Args {
@@ -99,7 +100,7 @@ export async function processPage(
     if (policy.scope !== "ITEM" || !policy.itemId) continue;
     itemScoped += 1;
 
-    const item = await store.get<ExpirationItem>(itemKey(policy.tenantId, policy.itemId));
+    const item = await store.get<ExpirationItem>(itemKey(authorizedTenantIdFromPersistedEntity(policy), policy.itemId));
     if (!item || item.status !== "ACTIVE") {
       skippedMissingOrInactiveItem += 1;
       continue;

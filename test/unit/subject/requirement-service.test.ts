@@ -7,10 +7,13 @@ import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/a
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { TrackedSubject } from "../../../src/modules/subject/domain/tracked-subject.js";
 import { documentSubmissionKey, type DocumentSubmission } from "../../../src/modules/subject/domain/document-submission.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 
 function makeSubmission(overrides: Partial<DocumentSubmission> & { subjectId: string; assignmentId: string; submissionId: string }): DocumentSubmission {
   return {
-    ...documentSubmissionKey("tenant-1", overrides.subjectId, overrides.assignmentId, overrides.submissionId),
+    ...documentSubmissionKey(AUTH_TENANT, overrides.subjectId, overrides.assignmentId, overrides.submissionId),
     entityType: "DocumentSubmission",
     tenantId: "tenant-1",
     documentRequestId: "request-1",

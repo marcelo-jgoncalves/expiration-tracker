@@ -29,6 +29,7 @@ import { policyKey, POLICY_REF_SK_PREFIX, type PolicyRef, type ReminderPolicy } 
 import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
 import type { ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
 import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
+import { authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "../../modules/identity/domain/authorization.js";
 
 export interface TriggerDeps {
   store: ReminderStore;
@@ -51,7 +52,7 @@ export interface TriggerResult {
 
 const EMPTY_RESULT: TriggerResult = { materialized: 0, reconciled: 0, cancelledUnconditionally: 0, skippedOrphanedPointers: 0 };
 
-async function getItem(deps: TriggerDeps, tenantId: string, itemId: string): Promise<ExpirationItem | undefined> {
+async function getItem(deps: TriggerDeps, tenantId: AuthorizedTenantId, itemId: string): Promise<ExpirationItem | undefined> {
   return deps.store.get<ExpirationItem>(itemKey(tenantId, itemId));
 }
 
@@ -90,7 +91,7 @@ async function reconcileCurrentTarget(
  * each, then run the pre-existing itemVersion staleness safety net.
  */
 async function onItemDueDateChanged(deps: TriggerDeps, event: { tenantId: string; itemId: string }): Promise<TriggerResult> {
-  const item = await getItem(deps, event.tenantId, event.itemId);
+  const item = await getItem(deps, authorizedTenantIdFromPersistedEntity(event), event.itemId);
   if (!item || item.status !== "ACTIVE") {
     // Defensive (§7): a due-date-changed event should never outlive an ACTIVE item, but if
     // one does (e.g. a race with a fast subsequent deactivation), treat it exactly like the
@@ -158,7 +159,7 @@ async function onPolicyChanged(
   for (const target of targets) {
     const isCurrentTarget = currentTarget !== null && target === currentTarget;
     if (isCurrentTarget) {
-      const item = await getItem(deps, event.tenantId, target);
+      const item = await getItem(deps, authorizedTenantIdFromPersistedEntity(event), target);
       if (!item || item.status !== "ACTIVE") continue; // an item-deactivated event, if any, handles cleanup
       const result = await reconcileCurrentTarget(deps, materializer, event.tenantId, item, policy);
       reconciled += result.reconciled;

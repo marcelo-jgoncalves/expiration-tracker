@@ -4,7 +4,7 @@
  * token nunca expõe o `secret` de volta na leitura (`GET`) — só na criação, uma única vez.
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import { ConflictError, NotFoundError, QuotaExceededError } from "../../../shared/errors/app-error.js";
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { requirementAssignmentKey, REQUIREMENT_ASSIGNMENT_SK_PREFIX, type RequirementAssignment } from "../domain/requirement-assignment.js";
@@ -89,14 +89,15 @@ export class DocumentRequestService {
   }
 
   async createDocumentRequest(ctx: RequestContext, subjectId: string, assignmentId: string, input: CreateDocumentRequestInput): Promise<CreatedDocumentRequest> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:request-document", resource: { tenantId: assignment.tenantId } });
 
     // M10 cluster 4 (D-049): resolve o modo de entrega ANTES de criar qualquer coisa - se
     // EMAIL foi solicitado (por override ou preferência de tenant) mas o kill switch global
     // está desligado, o convite simplesmente permanece MANUAL (nunca um erro - o kill switch
     // é uma válvula de segurança, não uma feature que o chamador precisa saber que existe).
-    const tenantDeliveryDefault = await this.getDocumentRequestDeliveryPreferenceDefault(assignment.tenantId);
+    const tenantDeliveryDefault = await this.getDocumentRequestDeliveryPreferenceDefault(tenantId);
     const deliveryMode = resolveInitialInviteDeliveryMode({ override: input.initialInviteDelivery, tenantDefault: tenantDeliveryDefault });
     const willAttemptEmail = deliveryMode === "EMAIL" && this.initialInviteEmailEnabled;
 
@@ -109,7 +110,7 @@ export class DocumentRequestService {
     // TenantEntitlement/D-038) - diferente de falha de SES pós-criação, que é best-effort.
     if (willAttemptEmail) {
       try {
-        await this.initialInviteRateLimiter.consumeInitialInvite(assignment.tenantId, input.recipientEmail);
+        await this.initialInviteRateLimiter.consumeInitialInvite(tenantId, input.recipientEmail);
       } catch (err) {
         if (err instanceof QuotaExceededError) {
           await this.writeInitialInviteAudit(ctx, assignmentId, "INITIAL_INVITE_EMAIL_RATE_LIMITED", {});
@@ -127,7 +128,7 @@ export class DocumentRequestService {
     const issued = issueGuestToken(this.pepper);
 
     const request: DocumentRequest = {
-      ...documentRequestKey(assignment.tenantId, subjectId, assignmentId, documentRequestId),
+      ...documentRequestKey(tenantId, subjectId, assignmentId, documentRequestId),
       entityType: "DocumentRequest",
       documentRequestId,
       tenantId: assignment.tenantId,
@@ -191,7 +192,7 @@ export class DocumentRequestService {
     // putIfAbsent, seguro para retry se falhar aqui (o DocumentRequest já foi criado com sucesso;
     // uma falha de materialização não deve desfazer isso, a reconciliação futura cobriria o gap).
     await this.chasingMaterializer.materialize({
-      tenantId: assignment.tenantId,
+      tenantId,
       subjectId,
       assignmentId,
       documentRequestId,
@@ -242,14 +243,14 @@ export class DocumentRequestService {
    * `MANUAL` quando nunca configurada. */
   async getDocumentRequestDeliveryPreference(ctx: RequestContext): Promise<DocumentRequestDeliveryMode> {
     authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
-    return this.getDocumentRequestDeliveryPreferenceDefault(ctx.tenant.tenantId);
+    return this.getDocumentRequestDeliveryPreferenceDefault(authorizedTenantId(ctx));
   }
 
   async setDocumentRequestDeliveryPreference(ctx: RequestContext, mode: DocumentRequestDeliveryMode): Promise<void> {
     authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
 
     const now = this.now();
-    const key = documentRequestDeliveryPreferenceKey(ctx.tenant.tenantId);
+    const key = documentRequestDeliveryPreferenceKey(authorizedTenantId(ctx));
     const existing = await this.store.get<DocumentRequestDeliveryPreference>(key);
     const entries: TransactWriteEntry[] = existing
       ? [
@@ -295,7 +296,7 @@ export class DocumentRequestService {
     }
   }
 
-  private async getDocumentRequestDeliveryPreferenceDefault(tenantId: string): Promise<DocumentRequestDeliveryMode> {
+  private async getDocumentRequestDeliveryPreferenceDefault(tenantId: AuthorizedTenantId): Promise<DocumentRequestDeliveryMode> {
     const preference = await this.store.get<DocumentRequestDeliveryPreference>(documentRequestDeliveryPreferenceKey(tenantId));
     return preference?.initialInviteDeliveryDefault ?? "MANUAL";
   }
@@ -320,23 +321,25 @@ export class DocumentRequestService {
   }
 
   async getDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
-    const request = await this.readActiveRequest(ctx.tenant.tenantId, subjectId, documentRequestId);
+    const request = await this.readActiveRequest(authorizedTenantId(ctx), subjectId, documentRequestId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: request.tenantId } });
     return request;
   }
 
   async listDocumentRequests(ctx: RequestContext, subjectId: string, assignmentId: string): Promise<DocumentRequest[]> {
-    const assignment = await this.readActiveAssignment(ctx.tenant.tenantId, subjectId, assignmentId);
+    const tenantId = authorizedTenantId(ctx);
+    const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
     const rows = await this.store.queryByPk<DocumentRequest>(
-      requirementAssignmentKey(assignment.tenantId, subjectId, assignmentId).PK,
+      requirementAssignmentKey(tenantId, subjectId, assignmentId).PK,
       `REQASSIGN#${assignmentId}#DOCREQ#`,
     );
     return rows;
   }
 
   async revokeDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string, expectedVersion: number): Promise<void> {
-    const request = await this.readActiveRequest(ctx.tenant.tenantId, subjectId, documentRequestId);
+    const tenantId = authorizedTenantId(ctx);
+    const request = await this.readActiveRequest(tenantId, subjectId, documentRequestId);
     authorize({ context: ctx, action: "requirement:update", resource: { tenantId: request.tenantId } });
 
     const now = this.now();
@@ -344,7 +347,7 @@ export class DocumentRequestService {
       {
         Update: buildVersionedUpdate({
           tableName: this.tableName,
-          key: documentRequestKey(request.tenantId, subjectId, request.assignmentId, documentRequestId),
+          key: documentRequestKey(tenantId, subjectId, request.assignmentId, documentRequestId),
           tenantId: request.tenantId,
           expectedVersion,
           set: { status: "REVOKED", revokedAt: now },
@@ -381,7 +384,7 @@ export class DocumentRequestService {
   ): void {
     const event = buildSubjectAuditEvent({
       auditEventId: this.ids.newAuditEventId(),
-      tenantId: ctx.tenant.tenantId,
+      tenantId: authorizedTenantId(ctx),
       resourceType: input.resourceType,
       resourceId: input.resourceId,
       subjectId: input.subjectId,
@@ -396,13 +399,13 @@ export class DocumentRequestService {
     appendSubjectAuditToTransaction(entries, this.tableName, event);
   }
 
-  private async readActiveAssignment(tenantId: string, subjectId: string, assignmentId: string): Promise<RequirementAssignment> {
+  private async readActiveAssignment(tenantId: AuthorizedTenantId, subjectId: string, assignmentId: string): Promise<RequirementAssignment> {
     const assignment = await this.store.get<RequirementAssignment>(requirementAssignmentKey(tenantId, subjectId, assignmentId));
     if (!assignment || assignment.deletedAt) throw new NotFoundError("RequirementAssignment not found.", { subjectId, assignmentId });
     return assignment;
   }
 
-  private async readActiveRequest(tenantId: string, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
+  private async readActiveRequest(tenantId: AuthorizedTenantId, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
     // documentRequestId sozinho não endereça a partição (precisa de assignmentId) - varre a
     // coleção de requirements do subject e localiza pelo SK. Aceitável no v1 (poucos
     // documentRequests por subject); revisar se o volume crescer.

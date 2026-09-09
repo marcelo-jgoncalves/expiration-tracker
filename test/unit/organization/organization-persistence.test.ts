@@ -3,6 +3,10 @@ import { organizationKey, type Organization } from "../../../src/modules/organiz
 import { membershipGsi4Keys, membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { buildVersionedCreate } from "../../../src/shared/dynamodb/occ.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+
+const ORG_1 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-1" });
+const ORG_2 = authorizedTenantIdFromPersistedEntity({ tenantId: "org-2" });
 
 function asItem(entity: Organization | Membership): Record<string, unknown> & { PK: string; SK: string } {
   return entity as unknown as Record<string, unknown> & { PK: string; SK: string };
@@ -10,7 +14,7 @@ function asItem(entity: Organization | Membership): Record<string, unknown> & { 
 
 function makeOrganization(overrides: Partial<Organization> = {}): Organization {
   return {
-    ...organizationKey("org-1"),
+    ...organizationKey(ORG_1),
     entityType: "Organization",
     organizationId: "org-1",
     displayName: "Acme Inc",
@@ -25,7 +29,7 @@ function makeOrganization(overrides: Partial<Organization> = {}): Organization {
 
 function makeMembership(overrides: Partial<Membership> = {}): Membership {
   return {
-    ...membershipKey("org-1", "user-1"),
+    ...membershipKey(ORG_1, "user-1"),
     entityType: "Membership",
     membershipId: "mem-1",
     organizationId: "org-1",
@@ -35,7 +39,7 @@ function makeMembership(overrides: Partial<Membership> = {}): Membership {
     joinedAt: "2026-08-30T00:00:00.000Z",
     createdBy: "user-1",
     version: 1,
-    ...membershipGsi4Keys("user-1", "org-1", "mem-1"),
+    ...membershipGsi4Keys("user-1", ORG_1, "mem-1"),
     ...overrides,
   };
 }
@@ -48,15 +52,15 @@ describe("Organization/Membership key builders", () => {
   // `TENANT#${organizationId}#MEMBER#${organizationId}` (partição diferente da Organization)
   // quebraria a adjacency-list - a asserção de PK igual falharia.
   it("organizationKey shares the same partition as membershipKey for the same organizationId (adjacency-list)", () => {
-    expect(organizationKey("org-1").PK).toBe(membershipKey("org-1", "user-1").PK);
-    expect(organizationKey("org-1").SK).toBe("META");
+    expect(organizationKey(ORG_1).PK).toBe(membershipKey(ORG_1, "user-1").PK);
+    expect(organizationKey(ORG_1).SK).toBe("META");
   });
 
   // Mutação: trocar `SK: \`MEMBER#${userId}\`` por um SK fixo (ex. "MEMBER") ignorando userId
   // faria `a.SK` e `b.SK` serem iguais, quebrando a segunda asserção.
   it("membershipKey's SK is distinct per userId within the same organization partition", () => {
-    const a = membershipKey("org-1", "user-1");
-    const b = membershipKey("org-1", "user-2");
+    const a = membershipKey(ORG_1, "user-1");
+    const b = membershipKey(ORG_1, "user-2");
     expect(a.PK).toBe(b.PK);
     expect(a.SK).not.toBe(b.SK);
   });
@@ -65,7 +69,7 @@ describe("Organization/Membership key builders", () => {
   // (a semântica antiga pré-multi-org que este design substitui) faria `startsWith("TENANT#")`
   // virar true, quebrando exatamente a asserção que prova o ponto central de MembershipByUser.
   it("membershipGsi4Keys is global (USER#<userId>), never tenant-prefixed - the whole point of MembershipByUser", () => {
-    const gsi4 = membershipGsi4Keys("user-1", "org-1", "mem-1");
+    const gsi4 = membershipGsi4Keys("user-1", ORG_1, "mem-1");
     expect(gsi4.GSI4PK).toBe("USER#user-1");
     expect(gsi4.GSI4PK.startsWith("TENANT#")).toBe(false);
     expect(gsi4.GSI4SK).toBe("ORG#org-1#MEMBERSHIP#mem-1");
@@ -75,8 +79,8 @@ describe("Organization/Membership key builders", () => {
   // sem o membershipId) faria duas Organizations diferentes do mesmo usuário colidirem no
   // mesmo GSI4SK quando o membershipId também fosse omitido - a asserção `not.toBe` falharia.
   it("two different organizations for the same user produce distinct GSI4SK under the same GSI4PK", () => {
-    const a = membershipGsi4Keys("user-1", "org-1", "mem-1");
-    const b = membershipGsi4Keys("user-1", "org-2", "mem-2");
+    const a = membershipGsi4Keys("user-1", ORG_1, "mem-1");
+    const b = membershipGsi4Keys("user-1", ORG_2, "mem-2");
     expect(a.GSI4PK).toBe(b.GSI4PK);
     expect(a.GSI4SK).not.toBe(b.GSI4SK);
   });
@@ -91,7 +95,7 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
     const store = new InMemoryOrganizationStore();
     const org = makeOrganization();
     expect(await store.putIfAbsent(org)).toBe(true);
-    expect(await store.get<Organization>(organizationKey("org-1"))).toEqual(org);
+    expect(await store.get<Organization>(organizationKey(ORG_1))).toEqual(org);
   });
 
   // Mutação: remover o `if (this.items.has(key)) return false;` de `putIfAbsent` (upsert
@@ -101,7 +105,7 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
     const org = makeOrganization();
     await store.putIfAbsent(org);
     expect(await store.putIfAbsent({ ...org, displayName: "Different Name" })).toBe(false);
-    expect((await store.get<Organization>(organizationKey("org-1")))?.displayName).toBe("Acme Inc");
+    expect((await store.get<Organization>(organizationKey(ORG_1)))?.displayName).toBe("Acme Inc");
   });
 
   // Mutação: `queryByPk` comparar só `item["PK"].startsWith(pk)` em vez de igualdade exata
@@ -114,10 +118,10 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
     await store.putIfAbsent(org);
     await store.putIfAbsent(membership);
 
-    const all = await store.queryByPk(organizationKey("org-1").PK);
+    const all = await store.queryByPk(organizationKey(ORG_1).PK);
     expect(all).toHaveLength(2);
 
-    const membersOnly = await store.queryByPk(organizationKey("org-1").PK, "MEMBER#");
+    const membersOnly = await store.queryByPk(organizationKey(ORG_1).PK, "MEMBER#");
     expect(membersOnly).toHaveLength(1);
     expect(membersOnly[0]?.["userId"]).toBe("user-1");
   });
@@ -127,12 +131,12 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
   // tem PK=USER#user-1 - a asserção de 2 resultados de Organizations diferentes pegaria isso.
   it("queryGsi4 lists Memberships for a user across Organizations, never touching TENANT# data of unrelated orgs", async () => {
     const store = new InMemoryOrganizationStore();
-    const membershipOrgA = makeMembership({ organizationId: "org-1", ...membershipGsi4Keys("user-1", "org-1", "mem-1") });
+    const membershipOrgA = makeMembership({ organizationId: "org-1", ...membershipGsi4Keys("user-1", ORG_1, "mem-1") });
     const membershipOrgB = makeMembership({
-      ...membershipKey("org-2", "user-1"),
+      ...membershipKey(ORG_2, "user-1"),
       organizationId: "org-2",
       membershipId: "mem-2",
-      ...membershipGsi4Keys("user-1", "org-2", "mem-2"),
+      ...membershipGsi4Keys("user-1", ORG_2, "mem-2"),
     });
     await store.putIfAbsent(membershipOrgA);
     await store.putIfAbsent(membershipOrgB);
@@ -152,8 +156,8 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
 
     await store.transactWrite([{ Put: buildVersionedCreate("MainTable", asItem(org)) }, { Put: buildVersionedCreate("MainTable", asItem(membership)) }]);
 
-    expect(await store.get<Organization>(organizationKey("org-1"))).toEqual(org);
-    expect(await store.get<Membership>(membershipKey("org-1", "user-1"))).toEqual(membership);
+    expect(await store.get<Organization>(organizationKey(ORG_1))).toEqual(org);
+    expect(await store.get<Membership>(membershipKey(ORG_1, "user-1"))).toEqual(membership);
   });
 
   // Mutação: mover o loop de aplicação (`for (const entry of entries) { this.items.set(...) }`)
@@ -169,6 +173,6 @@ describe("InMemoryOrganizationStore (round-trip basics for B2B-3.2 scaffolding)"
       store.transactWrite([{ Put: buildVersionedCreate("MainTable", asItem(org)) }, { Put: buildVersionedCreate("MainTable", asItem(membership)) }]),
     ).rejects.toMatchObject({ name: "TransactionCanceledException" });
 
-    expect(await store.get<Membership>(membershipKey("org-1", "user-1"))).toBeUndefined();
+    expect(await store.get<Membership>(membershipKey(ORG_1, "user-1"))).toBeUndefined();
   });
 });

@@ -10,7 +10,7 @@
  * `change-membership-role.ts`) — `membership:invite` sozinho na matriz (`ADMIN_ROLES`) não seria
  * suficiente para bloquear um `ADMIN` convidando alguém já como `OWNER`.
  */
-import { authorize } from "../../../modules/identity/domain/authorization.js";
+import { authorize, authorizedTenantId } from "../../../modules/identity/domain/authorization.js";
 import type { RequestContext } from "../../../modules/identity/domain/request-context.js";
 import { InternalError, OwnerTierChangeRequiresOwnerError } from "../../../shared/errors/app-error.js";
 import type { TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
@@ -59,7 +59,7 @@ export class CreateInvitationService {
 
   private async sendInvitationEmail(ctx: RequestContext, invitation: Invitation, token: string): Promise<void> {
     if (!this.emailProvider || !this.invitationBaseUrl) return;
-    const organization = await this.store.get<Organization>(organizationKey(ctx.tenant.tenantId));
+    const organization = await this.store.get<Organization>(organizationKey(authorizedTenantId(ctx)));
     try {
       await this.emailProvider.send({
         to: invitation.emailNormalized,
@@ -83,10 +83,11 @@ export class CreateInvitationService {
       throw new OwnerTierChangeRequiresOwnerError("Only an OWNER can invite a new member directly as OWNER.");
     }
 
+    const tenantId = authorizedTenantId(ctx);
     const emailNormalized = input.email.trim().toLowerCase();
     await this.rateLimiter.consumeMembershipInvite(ctx.tenant.tenantId, emailNormalized);
 
-    const existingDedup = await this.store.get<InvitationDedupPointer>(invitationDedupKey(ctx.tenant.tenantId, emailNormalized));
+    const existingDedup = await this.store.get<InvitationDedupPointer>(invitationDedupKey(tenantId, emailNormalized));
     if (existingDedup) {
       return this.resend(ctx, existingDedup);
     }
@@ -99,13 +100,13 @@ export class CreateInvitationService {
     // right here, never later) - the GSI8 pointer is stamped now, not deferred to a later
     // transition that doesn't exist for this branch (see domain/invitation.ts's file comment).
     const due = deriveInvitationMaintenanceDue({ status: "PENDING", expiresAt });
-    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId: ctx.tenant.tenantId, invitationId });
+    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId, invitationId });
 
     const invitation: Invitation = {
-      ...invitationKey(ctx.tenant.tenantId, invitationId),
+      ...invitationKey(tenantId, invitationId),
       entityType: "Invitation",
       invitationId,
-      organizationId: ctx.tenant.tenantId,
+      organizationId: tenantId,
       emailNormalized,
       role: input.role,
       status: "PENDING",
@@ -122,7 +123,7 @@ export class CreateInvitationService {
       entityType: "InvitationTokenPointer",
       selectorHash: issued.selectorHash,
       secretHash: issued.secretHash,
-      organizationId: ctx.tenant.tenantId,
+      organizationId: tenantId,
       invitationId,
       expiresAt,
       purgeAfterTtl: epochSecondsFromIso(expiresAt),
@@ -132,10 +133,10 @@ export class CreateInvitationService {
     };
 
     const dedupPointer: InvitationDedupPointer = {
-      ...invitationDedupKey(ctx.tenant.tenantId, emailNormalized),
+      ...invitationDedupKey(tenantId, emailNormalized),
       entityType: "InvitationDedupPointer",
       invitationId,
-      organizationId: ctx.tenant.tenantId,
+      organizationId: tenantId,
       emailNormalized,
       expiresAt,
     };
@@ -150,7 +151,7 @@ export class CreateInvitationService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Invitation",
         resourceId: invitationId,
         action: "INVITATION_CREATED",
@@ -173,7 +174,8 @@ export class CreateInvitationService {
    * para o mesmo invitationId/role/e-mail — sem risco de segurança em deixá-lo alcançável até o
    * próprio TTL). */
   private async resend(ctx: RequestContext, dedup: InvitationDedupPointer): Promise<CreateInvitationResult> {
-    const invitation = await this.store.get<Invitation>(invitationKey(ctx.tenant.tenantId, dedup.invitationId));
+    const tenantId = authorizedTenantId(ctx);
+    const invitation = await this.store.get<Invitation>(invitationKey(tenantId, dedup.invitationId));
     if (!invitation) {
       throw new InternalError("InvitationDedupPointer references a missing Invitation.", { invitationId: dedup.invitationId });
     }
@@ -184,14 +186,14 @@ export class CreateInvitationService {
     // Rotation moves expiresAt forward - the GSI8 pointer's due date (expiresAt + retention) must
     // move with it, same reasoning as the initial Put in invite() above.
     const due = deriveInvitationMaintenanceDue({ status: "PENDING", expiresAt });
-    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId: ctx.tenant.tenantId, invitationId: invitation.invitationId });
+    const gsi8Keys = invitationGsi8Keys({ dueAtIso: due!.dueAtIso, tenantId, invitationId: invitation.invitationId });
 
     const tokenPointer: InvitationTokenPointer = {
       ...invitationTokenPointerKey(issued.selectorHash),
       entityType: "InvitationTokenPointer",
       selectorHash: issued.selectorHash,
       secretHash: issued.secretHash,
-      organizationId: ctx.tenant.tenantId,
+      organizationId: tenantId,
       invitationId: invitation.invitationId,
       expiresAt,
       purgeAfterTtl: epochSecondsFromIso(expiresAt),
@@ -204,7 +206,7 @@ export class CreateInvitationService {
       {
         Update: {
           TableName: this.tableName,
-          Key: invitationKey(ctx.tenant.tenantId, invitation.invitationId),
+          Key: invitationKey(tenantId, invitation.invitationId),
           UpdateExpression: "SET expiresAt = :expiresAt, tokenPointerId = :tokenPointerId, version = version + :one, GSI8PK = :gsi8pk, GSI8SK = :gsi8sk",
           ConditionExpression: "#status = :pending",
           ExpressionAttributeNames: { "#status": "status" },
@@ -225,7 +227,7 @@ export class CreateInvitationService {
       this.tableName,
       buildMembershipAuditEvent({
         auditEventId: this.ids.newAuditEventId(),
-        organizationId: ctx.tenant.tenantId,
+        organizationId: tenantId,
         resourceType: "Invitation",
         resourceId: invitation.invitationId,
         action: "INVITATION_CREATED",

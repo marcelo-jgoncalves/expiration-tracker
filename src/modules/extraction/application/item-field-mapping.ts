@@ -18,6 +18,7 @@
  * behaviour rather than inventing a mapping.
  */
 import { gsi1Keys, type ExpirationItemStatus } from "../../expiration/domain/expiration-item.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
 export const ITEM_ATTRIBUTE_BY_FIELD_NAME: Record<string, string> = {
   expirationDate: "dueDate",
@@ -32,7 +33,7 @@ export const ITEM_ATTRIBUTE_BY_FIELD_NAME: Record<string, string> = {
  * date. Any other mapped attribute is a plain scalar set.
  */
 export function buildItemAttributeUpdate(input: {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   itemId: string;
   itemStatus: ExpirationItemStatus;
   fieldName: string;

@@ -10,7 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import { BusinessRuleError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
-import { authorize } from "../../identity/domain/authorization.js";
+import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { IdempotencyStore } from "../../../shared/idempotency/idempotency.js";
 import { documentKey, type Document } from "../../document/domain/document.js";
@@ -58,7 +58,7 @@ export interface RejectFieldParams {
   idempotencyKey: string;
 }
 
-async function readField(deps: ConfirmRejectFieldDeps, tenantId: string, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
+async function readField(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, documentId: string, fieldName: string, runId: string): Promise<ExtractedField> {
   const field = await deps.fields.get(extractedFieldKey(tenantId, documentId, fieldName, runId));
   if (!field || field.tenantId !== tenantId) {
     throw new NotFoundError("ExtractedField not found.", { documentId, fieldName, runId });
@@ -66,21 +66,21 @@ async function readField(deps: ConfirmRejectFieldDeps, tenantId: string, documen
   return field;
 }
 
-async function readRun(deps: ConfirmRejectFieldDeps, tenantId: string, documentId: string, runId: string) {
+async function readRun(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, documentId: string, runId: string) {
   const key = extractionRunKey(tenantId, documentId, runId);
   const run = await deps.runs.get<ExtractionRun>(key);
   if (!run || run.tenantId !== tenantId) throw new NotFoundError("ExtractionRun not found.", { documentId, runId });
   return { key, run };
 }
 
-async function readDocument(deps: ConfirmRejectFieldDeps, tenantId: string, itemId: string, documentId: string) {
+async function readDocument(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, itemId: string, documentId: string) {
   const key = documentKey(tenantId, itemId, documentId);
   const document = await deps.documents.get<Document>(key);
   if (!document || document.tenantId !== tenantId) throw new NotFoundError("Document not found.", { itemId, documentId });
   return { key, document };
 }
 
-async function readItem(deps: ConfirmRejectFieldDeps, tenantId: string, itemId: string) {
+async function readItem(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, itemId: string) {
   const key = itemKey(tenantId, itemId);
   const item = await deps.items.get<ExpirationItem>(key);
   if (!item || item.tenantId !== tenantId) throw new NotFoundError("ExpirationItem not found.", { itemId });
@@ -96,7 +96,7 @@ function assertVersion(entity: string, expected: number, actual: number, details
 export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestContext, params: ConfirmFieldParams): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const operation = "extraction.confirmField";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
@@ -131,7 +131,7 @@ export async function confirmField(deps: ConfirmRejectFieldDeps, ctx: RequestCon
   }
 }
 
-async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, params: ConfirmFieldParams, confirmedBy: string): Promise<ExtractedField> {
+async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, params: ConfirmFieldParams, confirmedBy: string): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);
   const { key: runKey, run } = await readRun(deps, tenantId, params.documentId, params.runId);
   const { key: documentKeyResolved, document } = await readDocument(deps, tenantId, params.itemId, params.documentId);
@@ -204,7 +204,7 @@ async function doConfirmField(deps: ConfirmRejectFieldDeps, tenantId: string, pa
 export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestContext, params: RejectFieldParams): Promise<ExtractedField> {
   authorize({ context: ctx, action: "extraction:confirm", resource: { tenantId: ctx.tenant.tenantId } });
 
-  const tenantId = ctx.tenant.tenantId;
+  const tenantId = authorizedTenantId(ctx);
   const operation = "extraction.rejectField";
   const key = params.idempotencyKey;
   const requestHash = createHash("sha256")
@@ -238,7 +238,7 @@ export async function rejectField(deps: ConfirmRejectFieldDeps, ctx: RequestCont
   }
 }
 
-async function doRejectField(deps: ConfirmRejectFieldDeps, tenantId: string, params: RejectFieldParams): Promise<ExtractedField> {
+async function doRejectField(deps: ConfirmRejectFieldDeps, tenantId: AuthorizedTenantId, params: RejectFieldParams): Promise<ExtractedField> {
   const field = await readField(deps, tenantId, params.documentId, params.fieldName, params.runId);
   const { key: runKey, run } = await readRun(deps, tenantId, params.documentId, params.runId);
   const { key: documentKeyResolved, document } = await readDocument(deps, tenantId, params.itemId, params.documentId);

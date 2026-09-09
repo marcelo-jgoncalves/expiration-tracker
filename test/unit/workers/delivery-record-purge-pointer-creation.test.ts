@@ -28,8 +28,10 @@ import type { NotificationIntent } from "../../../src/modules/reminder/domain/no
 import { policyKey, type ReminderPolicy } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import type { ExpirationItem } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { deriveDeliveryRecordMaintenanceDue } from "../../../src/shared/delivery-record-gsi8.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const ITEM_ID = "item1";
 const TABLE = "MainTable";
 const NOW = "2026-08-01T00:00:00.000Z";
@@ -48,7 +50,7 @@ describe("GSI8 pointer written at creation for NotificationIntent/NotificationAt
   it("reminder-dispatch stamps GSI8PK=WORK#DELIVERY_RECORD on the NotificationIntent it creates", async () => {
     const store = new InMemoryReminderStore();
     await store.putIfAbsent({
-      ...itemKey(TENANT, ITEM_ID),
+      ...itemKey(AUTH_TENANT, ITEM_ID),
       entityType: "ExpirationItem",
       itemId: ITEM_ID,
       tenantId: TENANT,

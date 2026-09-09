@@ -215,6 +215,26 @@ export function authorizedTenantId(context: RequestContext): AuthorizedTenantId 
   return context.tenant.tenantId as AuthorizedTenantId;
 }
 
+/**
+ * D-2xx (document-archive key-builder propagation, follow-up to D-234): second, narrower
+ * provenance constructor for the non-HTTP half of `AuthorizedTenantId`'s propagation gap — async
+ * workers (`src/workers/**`) that build a persistence key from a `tenantId` but have no
+ * `RequestContext` (no authenticated caller on the path at all). Call ONLY with an entity/record
+ * that was itself just read back from a trusted repository call (`store.get`/`queryByPk`/
+ * `queryIndexPage`/`scanActiveSeries`/…) — never with a bare field lifted straight off an SQS
+ * message/event payload before it has been reconciled against a persisted record, since a queue
+ * payload is still one hop removed from "traced back to an authenticated identity." The whole
+ * `entity` (not a bare string) is required deliberately: it makes a suspicious call site (passing
+ * something that isn't actually a repository read result) visibly wrong at the call site, the same
+ * shape-based nudge `authorizedTenantId(context: RequestContext)` gets from requiring a
+ * `RequestContext.` TypeScript's structural typing cannot literally prove the object came from
+ * DynamoDB — this is an audited trust boundary, not a compile-time guarantee, enforced by the same
+ * "no `as AuthorizedTenantId` outside this file" convention as the HTTP-path constructor above.
+ */
+export function authorizedTenantIdFromPersistedEntity(entity: Readonly<{ tenantId: string }>): AuthorizedTenantId {
+  return entity.tenantId as AuthorizedTenantId;
+}
+
 export interface AuthorizedResource {
   tenantId: string;
   ownerUserId?: string;

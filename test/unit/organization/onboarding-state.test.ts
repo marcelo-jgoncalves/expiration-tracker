@@ -3,10 +3,12 @@ import { OnboardingStateResolver } from "../../../src/modules/organization/appli
 import { membershipGsi4Keys, membershipKey, type Membership, type MembershipStatus } from "../../../src/modules/organization/domain/membership.js";
 import type { EntityKey, Gsi4QueryInput, OrganizationStore, TransactWriteEntry } from "../../../src/modules/organization/ports/organization-store.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function makeMembership(organizationId: string, userId: string, status: MembershipStatus): Membership {
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
   return {
-    ...membershipKey(organizationId, userId),
+    ...membershipKey(tenantId, userId),
     entityType: "Membership",
     membershipId: `mem-${organizationId}-${userId}`,
     organizationId,
@@ -16,7 +18,7 @@ function makeMembership(organizationId: string, userId: string, status: Membersh
     joinedAt: "2026-08-30T00:00:00.000Z",
     createdBy: userId,
     version: 1,
-    ...membershipGsi4Keys(userId, organizationId, `mem-${organizationId}-${userId}`),
+    ...membershipGsi4Keys(userId, tenantId, `mem-${organizationId}-${userId}`),
   };
 }
 

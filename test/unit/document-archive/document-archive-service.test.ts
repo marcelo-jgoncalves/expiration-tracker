@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { buildCreateDocumentEntries, buildCreateRequirementEntries, DocumentArchiveService } from "../../../src/modules/document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { InMemoryDocumentArchiveStore, seedActiveDocumentType, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
@@ -55,6 +56,7 @@ function makeIds(): DocumentArchiveIdGenerator {
   newDossierExportRunId: () => `dossier_${crypto.randomUUID()}`,
   newDocumentTypeFieldId: () => `doctypefield_${crypto.randomUUID()}`,
   newDocumentTypeFieldOptionId: () => `doctypefieldopt_${crypto.randomUUID()}`,
+    newShareId: () => `share_${crypto.randomUUID()}`,
   };
 }
 
@@ -84,7 +86,7 @@ function makeService(
   return { service, store, signer };
 }
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 
 /** Shared fixture helper: `commitUpload()` requires the file set to be sealed (`fileSetSealed`
  * gate, D-163 §4, activated in this slice) — every test exercising the DRAFT->RECEIVED
@@ -511,7 +513,7 @@ describe("DocumentArchiveService (D-143 Nucleus 1)", () => {
 describe("buildCreateDocumentEntries (D-192 §6, pure planner)", () => {
   const BASE = {
     tableName: "test-table",
-    tenantId: "tenant-1",
+    tenantId: TENANT,
     documentId: "doc-plan-1",
     subjectId: "subject-plan-1",
     documentTypeId: "ALVARA",
@@ -562,7 +564,7 @@ describe("buildCreateDocumentEntries (D-192 §6, pure planner)", () => {
 describe("buildCreateRequirementEntries (D-192 §6, pure planner)", () => {
   const BASE = {
     tableName: "test-table",
-    tenantId: "tenant-1",
+    tenantId: TENANT,
     requirementId: "req-plan-1",
     subjectId: "subject-plan-1",
     name: "Alvara de Funcionamento",

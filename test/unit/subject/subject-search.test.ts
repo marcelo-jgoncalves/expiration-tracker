@@ -4,6 +4,7 @@ import { SubjectService } from "../../../src/modules/subject/application/subject
 import { ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { subjectKey, gsi7Keys, normalizeDisplayName, type TrackedSubject } from "../../../src/modules/subject/domain/tracked-subject.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
@@ -19,8 +20,9 @@ function ctx(overrides: Partial<RequestContext> = {}): RequestContext {
 function makeSubject(tenantId: string, subjectId: string, displayName: string, opts: { type?: TrackedSubject["type"]; tags?: string[] } = {}): TrackedSubject {
   const type = opts.type ?? "VENDOR";
   const displayNameNormalized = normalizeDisplayName(displayName);
+  const authTenantId = authorizedTenantIdFromPersistedEntity({ tenantId });
   return {
-    ...subjectKey(tenantId, subjectId),
+    ...subjectKey(authTenantId, subjectId),
     entityType: "TrackedSubject",
     subjectId,
     tenantId,
@@ -32,7 +34,7 @@ function makeSubject(tenantId: string, subjectId: string, displayName: string, o
     createdAt: "2026-08-23T12:00:00.000Z",
     updatedAt: "2026-08-23T12:00:00.000Z",
     version: 1,
-    ...gsi7Keys(tenantId, "ACTIVE", type, displayNameNormalized, subjectId),
+    ...gsi7Keys(authTenantId, "ACTIVE", type, displayNameNormalized, subjectId),
   };
 }
 

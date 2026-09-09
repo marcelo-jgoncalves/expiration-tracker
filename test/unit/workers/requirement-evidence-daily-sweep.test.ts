@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { runRequirementEvidenceDailySweep, type RequirementEvidenceDailySweepHint } from "../../../src/workers/requirement-evidence-daily-sweep/sweep.js";
 import { InMemoryDocumentArchiveStore } from "../document-archive/in-memory-store.js";
 import { requirementGsi1Keys, requirementGsi8Keys, requirementGsi9Keys, requirementKey, type Requirement, type RequirementStatus } from "../../../src/modules/document-archive/domain/requirement.js";
 import type { EntityKey } from "../../../src/shared/dynamodb/occ.js";
 import type { DocumentArchiveStore, ScanPage } from "../../../src/modules/document-archive/ports/document-archive-store.js";
 
-const TENANT = "tenant-1";
+const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
 const DOCUMENT_ID = "doc-1";
 
@@ -14,7 +15,7 @@ function seed(...items: Requirement[]): (Record<string, unknown> & EntityKey)[] 
 }
 
 function makeRequirement(overrides: Partial<Requirement> & { requirementId: string }): Requirement {
-  const tenantId = overrides.tenantId ?? TENANT;
+  const tenantId = overrides.tenantId ? authorizedTenantIdFromPersistedEntity({ tenantId: overrides.tenantId }) : TENANT;
   const status: RequirementStatus = overrides.status ?? "SATISFIED";
   const base: Requirement = {
     ...requirementKey(tenantId, SUBJECT, overrides.requirementId),
@@ -34,7 +35,7 @@ function makeRequirement(overrides: Partial<Requirement> & { requirementId: stri
 }
 
 function makeLinkedRequirement(overrides: Partial<Requirement> & { requirementId: string; versionId: string }): Requirement {
-  const tenantId = overrides.tenantId ?? TENANT;
+  const tenantId = overrides.tenantId ? authorizedTenantIdFromPersistedEntity({ tenantId: overrides.tenantId }) : TENANT;
   const evidenceValidUntil = overrides.evidenceValidUntil ?? "2026-08-01T00:00:00.000Z";
   return makeRequirement({
     evidenceVersionId: overrides.versionId,

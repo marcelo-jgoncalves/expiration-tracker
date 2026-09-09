@@ -109,6 +109,10 @@ export class UlidIdGenerator
   newDocumentTypeFieldOptionId(): string {
     return `doctypefieldopt_${ulid()}`;
   }
+  /** D-225 (`ExternalShareLink`). */
+  newShareId(): string {
+    return `share_${ulid()}`;
+  }
   newSubjectId(): string {
     return `subject_${ulid()}`;
   }

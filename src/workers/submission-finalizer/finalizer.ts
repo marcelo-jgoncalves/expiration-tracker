@@ -10,9 +10,10 @@ import type { SubjectStore } from "../../modules/subject/ports/subject-store.js"
 import type { DocumentObjectStore } from "../../modules/document/ports/document-object-store.js";
 import type { PdfParser } from "../../modules/document/ports/pdf-parser.js";
 import { tryTenantBusinessMutation } from "../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import type { AuthorizedTenantId } from "../../modules/identity/domain/authorization.js";
 
 export interface FinalizeSubmissionInput {
-  tenantId: string;
+  tenantId: AuthorizedTenantId;
   subjectId: string;
   assignmentId: string;
   submissionId: string;

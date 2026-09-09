@@ -1,5 +1,6 @@
 import { deriveMembershipMaintenanceDue, membershipGsi8Keys } from "../../../src/modules/organization/domain/membership.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import type { EntityKey, TransactWriteEntry } from "../../../src/shared/dynamodb/occ.js";
 import type {
   MembershipGsi8Page,
@@ -54,7 +55,7 @@ export class FakeMembershipPurgeCandidateSource implements MembershipPurgeCandid
    * hand-crafted pointer a test wants to exercise directly. */
   seed(item: MembershipPurgeCandidate): void {
     const due = deriveMembershipMaintenanceDue(item);
-    const gsi8 = due ? membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: item.organizationId, membershipId: item.membershipId }) : {};
+    const gsi8 = due ? membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: item.organizationId }), membershipId: item.membershipId }) : {};
     this.items.set(k(item), { ...gsi8, ...item });
   }
 

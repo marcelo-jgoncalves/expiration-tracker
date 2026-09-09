@@ -6,6 +6,7 @@ import { ItemWatchService } from "../../../modules/expiration/application/item-w
 import type { MemberEligibilityChecker } from "../../../modules/expiration/ports/member-eligibility.js";
 import { membershipKey, type Membership } from "../../../modules/organization/domain/membership.js";
 import { globalUserKey } from "../../../modules/identity/persistence/global-user-repository.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 import { UlidIdGenerator } from "../ids.js";
 
 /** Wave B2B-11 (Responsibility + Notifications): same 2-condition eligibility rule as
@@ -17,7 +18,7 @@ export function buildMemberEligibilityChecker(client: DynamoDBDocumentClient, ta
   return {
     async isEligibleMember(organizationId: string, userId: string): Promise<boolean> {
       const [membershipResult, globalUserResult] = await Promise.all([
-        client.send(new GetCommand({ TableName: tableName, Key: membershipKey(organizationId, userId), ConsistentRead: true })),
+        client.send(new GetCommand({ TableName: tableName, Key: membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: organizationId }), userId), ConsistentRead: true })),
         client.send(new GetCommand({ TableName: tableName, Key: globalUserKey(userId), ConsistentRead: true })),
       ]);
       const membership = membershipResult.Item as Membership | undefined;

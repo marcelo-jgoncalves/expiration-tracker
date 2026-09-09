@@ -6,7 +6,7 @@
  * route in the system.
  */
 import { AppError, AuthorizationError, ConflictError, ValidationError, toAppError } from "../../../shared/errors/app-error.js";
-import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorizedTenantId } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/search-cursor.js";
@@ -815,7 +815,7 @@ export async function handleDownloadDossierExport(deps: DocumentArchiveHttpDeps,
     if (run.status !== "READY") {
       throw new ConflictError("Dossier export is not ready for download yet.", { subjectId, runId, status: run.status });
     }
-    const downloadUrl = await deps.dossierExportStore.presignDownload({ tenantId: context.tenant.tenantId, subjectId, runId, format, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS });
+    const downloadUrl = await deps.dossierExportStore.presignDownload({ tenantId: authorizedTenantId(context), subjectId, runId, format, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS });
     return { statusCode: 200, body: { downloadUrl, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS } };
   });
 }

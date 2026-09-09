@@ -11,6 +11,7 @@ import { policyRefKey, validatePolicyScope } from "../../../src/modules/reminder
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "t1";
 const TABLE = "MainTable";
@@ -28,7 +29,7 @@ function contextFor(tenantId: string): RequestContext {
 
 async function seedActiveItem(store: InMemoryReminderStore, itemId: string, tenantId = TENANT): Promise<void> {
   await store.putIfAbsent({
-    ...itemKey(tenantId, itemId),
+    ...itemKey(authorizedTenantIdFromPersistedEntity({ tenantId }), itemId),
     entityType: "ExpirationItem",
     itemId,
     tenantId,
@@ -77,7 +78,7 @@ describe("ReminderPolicyService - createPolicy", () => {
   });
 
   it("rejects an ITEM-scoped policy whose item is not ACTIVE", async () => {
-    await store.putIfAbsent({ ...itemKey(TENANT, "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ARCHIVED", dueDate: NOW, version: 1 });
+    await store.putIfAbsent({ ...itemKey(authorizedTenantIdFromPersistedEntity({ tenantId: TENANT }), "item1"), entityType: "ExpirationItem", itemId: "item1", tenantId: TENANT, status: "ARCHIVED", dueDate: NOW, version: 1 });
     await expect(
       service.createPolicy(ctx, {
         scope: "ITEM",

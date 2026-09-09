@@ -11,16 +11,24 @@
 import { membershipKey, type Membership } from "../domain/membership.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 
 export type WorkingOrganizationResult = { status: "OK"; membership: Membership } | { status: "UNAVAILABLE" };
 
+// `organizationId` here is the claimed/candidate org (from a selection request, or from
+// identity resolution before a RequestContext exists) - this function IS part of the tenant
+// resolution machinery (same role as resolve-request-context.ts's own tenantId derivation
+// elsewhere): the Membership `ACTIVE` + TenantLifecycleRecord `ACTIVE` double-check below is
+// what actually establishes trust, mirroring cancel-organization-closure.ts's identical
+// rationale for the one other pre-RequestContext path in this module.
 export async function resolveWorkingOrganization(organizations: OrganizationStore, userId: string, organizationId: string): Promise<WorkingOrganizationResult> {
-  const membership = await organizations.get<Membership>(membershipKey(organizationId, userId));
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
+  const membership = await organizations.get<Membership>(membershipKey(tenantId, userId));
   if (!membership || membership.status !== "ACTIVE") {
     return { status: "UNAVAILABLE" };
   }
 
-  const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(organizationId));
+  const lifecycle = await organizations.get<TenantLifecycleRecord>(tenantLifecycleKey(tenantId));
   if (!lifecycle || lifecycle.status !== TENANT_ACTIVE_STATUS) {
     return { status: "UNAVAILABLE" };
   }

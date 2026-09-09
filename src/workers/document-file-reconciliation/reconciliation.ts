@@ -6,6 +6,7 @@
  * module only discovers candidates and calls it, unchanged division of labor from D-166. */
 import { applyFileScanTimeout, type ApplyFileScanResultDeps } from "../../modules/document-archive/application/apply-file-scan-result.js";
 import { documentFileGsi8Keys } from "../../modules/document-archive/domain/document-file.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import type { DocumentFileGsi8Candidate, DocumentFileReconciliationCandidateSource } from "./candidate-source.js";
 
 /** Hard cap on pages drained per invocation - same rationale as the purge workers' `MAX_PAGES`:
@@ -70,9 +71,10 @@ async function processOneCandidate(
     return;
   }
 
-  const observedGsi8Pointer = documentFileGsi8Keys({ dueAtIso: candidate.dueAtIso, tenantId: candidate.tenantId, fileId: candidate.fileId });
+  const tenantId = authorizedTenantIdFromPersistedEntity(candidate);
+  const observedGsi8Pointer = documentFileGsi8Keys({ dueAtIso: candidate.dueAtIso, tenantId, fileId: candidate.fileId });
   const outcome = await applyFileScanTimeout(deps, {
-    tenantId: candidate.tenantId,
+    tenantId,
     documentId: candidate.documentId,
     seq: candidate.seq,
     fileId: candidate.fileId,

@@ -25,6 +25,7 @@
  */
 import { isTransactionCanceled, getCancellationReasonCodes, type TransactWriteEntry } from "../../shared/dynamodb/occ.js";
 import { tenantLifecycleKey } from "../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import {
   MEMBERSHIP_RETENTION_DAYS,
   deriveMembershipMaintenanceDue,
@@ -205,7 +206,10 @@ export async function runMembershipPurge(deps: MembershipPurgeDeps): Promise<Mem
                   ":dlq": DLQ_GSI8PK,
                   ":attempt": nextAttempt,
                   ":v": membership.version,
-                  ":work": membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: candidate.tenantId, membershipId: membership.membershipId }).GSI8PK,
+                  // `membership` is the strongly-consistent base-item re-read above (getMembership),
+                  // never the untrusted GSI8-parsed `candidate.tenantId` (GSI8 is discovery-only,
+                  // D-179 §4) - same repository-read provenance authorizedTenantIdFromPersistedEntity() requires.
+                  ":work": membershipGsi8Keys({ dueAtIso: due.dueAtIso, tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: membership.organizationId }), membershipId: membership.membershipId }).GSI8PK,
                 },
               },
             }
@@ -216,7 +220,7 @@ export async function runMembershipPurge(deps: MembershipPurgeDeps): Promise<Mem
                 UpdateExpression: "SET GSI8SK = :sk, maintenanceAttemptCount = :attempt",
                 ConditionExpression: "version = :v",
                 ExpressionAttributeValues: {
-                  ":sk": membershipGsi8Keys({ dueAtIso: backoffDueAtIso(nextAttempt, nowIso), tenantId: candidate.tenantId, membershipId: membership.membershipId }).GSI8SK,
+                  ":sk": membershipGsi8Keys({ dueAtIso: backoffDueAtIso(nextAttempt, nowIso), tenantId: authorizedTenantIdFromPersistedEntity({ tenantId: membership.organizationId }), membershipId: membership.membershipId }).GSI8SK,
                   ":attempt": nextAttempt,
                   ":v": membership.version,
                 },

@@ -1,6 +1,7 @@
 import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, TransactWriteEntry } from "../../../src/modules/document-archive/ports/document-archive-store.js";
 import { documentTypeKey, type DocumentType } from "../../../src/modules/document-archive/domain/document-type.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 /** D-173 item 3: `createDocument()` now runs through `executeTenantBusinessMutation`, which
  * fences on `TenantLifecycleRecord.status = ACTIVE` in the SAME store — fixtures that build
@@ -43,7 +44,7 @@ export function seedActiveTrackedSubject(tenantId: string, subjectId: string): R
  * row per literal so existing `createDocument()` fixtures keep working unchanged. */
 export function seedActiveDocumentType(tenantId: string, documentTypeId: string): Record<string, unknown> & EntityKey {
   const documentType: DocumentType = {
-    ...documentTypeKey(tenantId, documentTypeId),
+    ...documentTypeKey(authorizedTenantIdFromPersistedEntity({ tenantId }), documentTypeId),
     entityType: "DocumentType",
     documentTypeId,
     tenantId,

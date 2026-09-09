@@ -13,6 +13,7 @@ import type { Session } from "../../../src/modules/bff/domain/session.js";
 import { membershipKey } from "../../../src/modules/organization/domain/membership.js";
 import { organizationKey, type Organization } from "../../../src/modules/organization/domain/organization.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TABLE = "MainTable";
 
@@ -69,8 +70,9 @@ async function loginOnce(ctx: ReturnType<typeof buildService>) {
  * outside of a real 2nd invitation accept), same pattern as
  * test/unit/identity/resolver.test.ts's multi-org fixture. */
 function graftSecondOrganization(organizations: InMemoryOrganizationStore, userId: string, organizationId: string, lifecycleStatus: "ACTIVE" | "DELETING" = "ACTIVE"): void {
+  const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organizationId });
   organizations.forceUpdate({
-    ...organizationKey(organizationId),
+    ...organizationKey(tenantId),
     entityType: "Organization",
     organizationId,
     displayName: "Second Org",
@@ -91,7 +93,7 @@ function graftSecondOrganization(organizations: InMemoryOrganizationStore, userI
     version: 1,
   } satisfies TenantLifecycleRecord);
   organizations.forceUpdate({
-    ...membershipKey(organizationId, userId),
+    ...membershipKey(tenantId, userId),
     entityType: "Membership",
     membershipId: "membership-second",
     organizationId,

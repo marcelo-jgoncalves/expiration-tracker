@@ -7,8 +7,10 @@ import { requirementAssignmentKey, type RequirementAssignment } from "../../../s
 import { guestTokenPointerKey, issueGuestToken, epochSecondsFromIso } from "../../../src/modules/subject/domain/guest-token.js";
 import type { ChasingDispatchCommand } from "../../../src/modules/subject/application/document-chasing-producer.js";
 import type { EmailProviderAdapter, EmailSendInput, EmailSendResult } from "../../../src/modules/notification/ports/email-provider.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
 const TENANT = "tenant-1";
+const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
 const SUBJECT = "subject-1";
 const ASSIGNMENT = "assignment-1";
 const DOCREQ = "docreq-1";
@@ -57,7 +59,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
 
   async function seedOccurrence(tier: DocumentChasingTier, status: "CLAIMED" | "SCHEDULED" | "TRIGGERED" = "CLAIMED"): Promise<DocumentChasingOccurrence> {
     const occurrence: DocumentChasingOccurrence = {
-      ...documentChasingOccurrenceKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID),
+      ...documentChasingOccurrenceKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID),
       entityType: "DocumentChasingOccurrence",
       occurrenceId: OCC_ID,
       tenantId: TENANT,
@@ -81,7 +83,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
   async function seedRequest(status: DocumentRequestStatus = "REQUESTED", version = 1): Promise<DocumentRequest> {
     const issued = issueGuestToken(PEPPER);
     const request: DocumentRequest = {
-      ...documentRequestKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ),
+      ...documentRequestKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ),
       entityType: "DocumentRequest",
       documentRequestId: DOCREQ,
       tenantId: TENANT,
@@ -123,7 +125,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
 
   async function seedAssignment(): Promise<RequirementAssignment> {
     const assignment: RequirementAssignment = {
-      ...requirementAssignmentKey(TENANT, SUBJECT, ASSIGNMENT),
+      ...requirementAssignmentKey(AUTH_TENANT, SUBJECT, ASSIGNMENT),
       entityType: "RequirementAssignment",
       assignmentId: ASSIGNMENT,
       tenantId: TENANT,
@@ -171,11 +173,11 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
     expect(emailProvider.sent[0]?.tags.correlationId).toBe("cor-1"); // continues the command's own causal chain, never a freshly generated id
     expect(emailProvider.sent[0]?.renderContext["requesterName"]).toBe("Empresa Alfa Ltda."); // W5-01/GTR-01
 
-    const updatedRequest = await store.get<DocumentRequest>(documentRequestKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ));
+    const updatedRequest = await store.get<DocumentRequest>(documentRequestKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ));
     expect(updatedRequest?.tokenVersion).toBe(2);
     expect(updatedRequest?.tokenSelectorHash).not.toBe(request.tokenSelectorHash);
 
-    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
+    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
     expect(occurrenceRow?.status).toBe("TRIGGERED");
 
     const intent = await store.get<DocumentChasingIntent>({ PK: `TENANT#${TENANT}#SUBJECT#${SUBJECT}`, SK: `REQASSIGN#${ASSIGNMENT}#DOCREQ#${DOCREQ}#CHASINGINTENT#intent-1` });
@@ -196,7 +198,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
     expect(emailProvider.sent[0]?.templateId).toBe("document-request-chasing-expired-internal");
     expect(JSON.stringify(emailProvider.sent[0]?.renderContext)).not.toMatch(/https?:\/\//); // never a link
 
-    const updatedRequest = await store.get<DocumentRequest>(documentRequestKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ));
+    const updatedRequest = await store.get<DocumentRequest>(documentRequestKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ));
     expect(updatedRequest?.tokenVersion).toBe(1); // unchanged - no rotation on EXPIRED
 
     const intent = await store.get<DocumentChasingIntent>({ PK: `TENANT#${TENANT}#SUBJECT#${SUBJECT}`, SK: `REQASSIGN#${ASSIGNMENT}#DOCREQ#${DOCREQ}#CHASINGINTENT#intent-1` });
@@ -212,7 +214,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
 
     expect(outcome).toEqual({ kind: "CANCELLED_STALE", reason: "REQUEST_NOT_ACTIVE" });
     expect(emailProvider.sent).toHaveLength(0);
-    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
+    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
     expect(occurrenceRow?.status).toBe("CANCELLED");
   });
 
@@ -264,7 +266,7 @@ describe("dispatchChasingOccurrence (D-039/D-046/D-048)", () => {
     const outcome = await dispatchChasingOccurrence(deps, command("T3"));
 
     expect(outcome.kind).toBe("SEND_FAILED");
-    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
+    const occurrenceRow = await store.get<DocumentChasingOccurrence>(documentChasingOccurrenceKey(AUTH_TENANT, SUBJECT, ASSIGNMENT, DOCREQ, SCHEDULED_AT, OCC_ID));
     expect(occurrenceRow?.status).toBe("TRIGGERED"); // never reverted just because the email failed
     const intent = await store.get<DocumentChasingIntent>({ PK: `TENANT#${TENANT}#SUBJECT#${SUBJECT}`, SK: `REQASSIGN#${ASSIGNMENT}#DOCREQ#${DOCREQ}#CHASINGINTENT#intent-1` });
     expect(intent?.status).toBe("FAILED");
