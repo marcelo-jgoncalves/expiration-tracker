@@ -5,10 +5,9 @@
  * deterministic poison message, still retried/redriven under the uniform native SQS policy -
  * D-128, no branching on retryable).
  *
- * NOT reachable from the real notification flow yet - `notification-router-workflow.ts` never
- * writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record (router wiring is fatia 5/5). This
- * handler exists so the queue -> worker -> Cloud API mechanism is deployable and testable ahead
- * of that wiring.
+ * Reachable from the real notification flow as of D-197 fatia 5/5 -
+ * `notification-router-workflow.ts` now writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record
+ * whenever a WHATSAPP-requesting intent routes; the outbox relay delivers it to this queue.
  *
  * Credentials now come from AWS Secrets Manager (D-10, fatia 3/5) - `whatsapp-cloud-api-
  * adapter.ts`'s `WhatsAppCloudApiConfig` shape is UNCHANGED, exactly as fatia 2/5's own comment

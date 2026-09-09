@@ -1022,14 +1022,22 @@ data "aws_iam_policy_document" "ses_send_email" {
 module "notification_router" {
   source = "./modules/lambda-function"
 
-  function_name         = "${local.name_prefix}-notification-router"
-  handler_name          = "notification-router-handler"
-  source_dir            = "${local.dist_dir}/notification-router-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
+  function_name  = "${local.name_prefix}-notification-router"
+  handler_name   = "notification-router-handler"
+  source_dir     = "${local.dist_dir}/notification-router-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # D-197 fatia 5/5: AppConfig env vars added so the handler can read the WHATSAPP kill switch
+  # once per Streams batch (`isWhatsAppChannelEnabled`) - same trio every other flag-reading
+  # Lambda already gets (whatsapp_delivery/whatsapp_webhook_handler/extraction_starter_handler).
+  environment_variables = merge(local.common_env, {
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
+  })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

@@ -11,8 +11,9 @@
 import type { FeatureFlags } from "../../extraction/ports/feature-flags-reader.js";
 
 /** `WHATSAPP` alone gates whether the channel is considered available at all (opt-in flows,
- * router visibility - the router itself is not wired yet, D-197's fatia 5/5). No dependency on
- * the delivery-worker flag - a channel can be "on" for opt-in purposes while the worker that
+ * router visibility - `notification-router.ts`'s `isChannelRoutable()` reads this via
+ * `RouterInput.whatsappChannelEnabled`, wired in D-197 fatia 5/5). No dependency on the
+ * delivery-worker flag - a channel can be "on" for opt-in purposes while the worker that
  * actually sends stays off. */
 export function isWhatsAppChannelEnabled(flags: FeatureFlags): boolean {
   return flags.WHATSAPP === true;

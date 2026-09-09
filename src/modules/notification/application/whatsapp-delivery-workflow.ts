@@ -5,11 +5,13 @@
  * fenced-SUBMITTING-claim discipline, same staleness handling via `applyStaleDeliveryDecision`
  * (already generic over `CorrectiveIntentDeps`, reused verbatim, not duplicated).
  *
- * NOT wired to the router yet (`notification-router.ts`'s `SUPPORTED_CHANNELS` still routes
- * `EMAIL` alone - that wiring is fatia 5/5, D-197's "próxima ação real"). This worker is
- * reachable today only via a direct SQS message on `whatsapp-deliver-queue` or a direct unit/
- * integration-test call - never by the real notification flow, by design of this fatia's
- * boundary.
+ * Wired to the router as of D-197 fatia 5/5 - `notification-router-workflow.ts`'s
+ * `applyRoutedDecision` now writes a `SQS_NOTIFICATION_WHATSAPP_V1` outbox record whenever a
+ * WHATSAPP-requesting intent routes (kill switch + entitlement both pass), which the outbox
+ * relay delivers to `whatsapp-deliver-queue`, invoking this worker for real. Still gated by
+ * `WHATSAPP_DELIVERY_WORKER_ENABLED` (this worker's own kill switch, checked in the handler)
+ * independently of the router's `WHATSAPP` flag - both must be on for a message to actually
+ * reach `WhatsAppProviderAdapter.send()`.
  */
 import { itemKey, type ExpirationItem } from "../../expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";

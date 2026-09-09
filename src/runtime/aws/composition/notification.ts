@@ -18,7 +18,13 @@ export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableN
   return { store, preferences };
 }
 
-export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tableName: string) {
+/**
+ * `whatsappChannelEnabled` (D-197 fatia 5/5): read ONCE per Streams batch by the handler (same
+ * discipline as `whatsapp-delivery-handler.ts`'s own kill-switch read) via
+ * `isWhatsAppChannelEnabled(flags)`, then threaded in here rather than re-read per intent -
+ * `notification-router-handler.ts` calls this once per invocation, not per record.
+ */
+export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tableName: string, whatsappChannelEnabled = false) {
   const store = new DynamoDbNotificationStore(client, tableName);
   const recipientResolver = new DynamoDbNotificationRecipientResolver(client, tableName);
   const ids = new UlidIdGenerator();
@@ -30,6 +36,7 @@ export function buildNotificationRouterDeps(client: DynamoDBDocumentClient, tabl
     now: () => new Date().toISOString(),
     newAttemptId: () => ids.newAttemptId(),
     newIntentId: () => ids.newIntentId(),
+    whatsappChannelEnabled,
   };
 }
 

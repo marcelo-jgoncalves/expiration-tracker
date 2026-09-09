@@ -27,6 +27,7 @@ import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
+import { buildWhatsAppOutboxRecord } from "./whatsapp-outbox.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -36,6 +37,12 @@ export interface NotificationRouterWorkflowDeps {
   now: () => string;
   newAttemptId: () => string;
   newIntentId: () => string;
+  /** D-197 fatia 5/5: `isWhatsAppChannelEnabled(flags)` (`whatsapp-activation.ts`), read ONCE
+   * per Streams batch by the composition root/handler (same discipline as
+   * `whatsapp-delivery-handler.ts`'s own kill-switch read) and threaded in here rather than
+   * read per-intent. Optional (defaults to `false`, never routable) so every existing EMAIL-only
+   * `NotificationRouterWorkflowDeps` fixture that predates WhatsApp keeps compiling unchanged. */
+  whatsappChannelEnabled?: boolean;
 }
 
 export type RouterWorkflowOutcome =
@@ -94,9 +101,13 @@ export async function routeNotificationIntent(deps: NotificationRouterWorkflowDe
     item: item ? { version: item.version, status: item.status === "ACTIVE" ? "ACTIVE" : "ARCHIVED" } : undefined,
     policy: policy ? { version: policy.version, enabled: policy.enabled, requiresCommunication: policy.enabled } : undefined,
     recipient: { resolved: resolved ? { userId: resolved.userId, active: resolved.active } : undefined, candidateWasEmpty },
-    entitlement: { emailEnabled: entitlements ? entitlements.email.enabled : undefined },
+    entitlement: {
+      emailEnabled: entitlements ? entitlements.email.enabled : undefined,
+      whatsappEnabled: entitlements ? entitlements.whatsapp.enabled : undefined,
+    },
     preference: { emailEnabled: preferences ? preferences.emailEnabled : undefined, quietHours: preferences?.quietHours ?? undefined },
     latestAttemptStatus,
+    whatsappChannelEnabled: deps.whatsappChannelEnabled === true,
     now,
   });
 
@@ -321,7 +332,12 @@ async function applyRoutedDecision(
   ];
 
   for (const channel of decision.routedChannels) {
-    if (channel !== "EMAIL") continue; // only EMAIL has a real delivery path in M4
+    // D-197 fatia 5/5: WHATSAPP now has a real delivery path too (fatia 2-4 built the
+    // adapter/worker/queue/quota; this fatia is the first thing that actually reaches them).
+    // Any channel beyond these two would fall through and be silently skipped here - the
+    // router's own per-channel loop (`isChannelRoutable`) is the only place a NEW channel must
+    // ever be added going forward, never here in isolation.
+    if (channel !== "EMAIL" && channel !== "WHATSAPP") continue;
     const attemptId = deps.newAttemptId();
     const attemptNumber = 1;
     const attempt: NotificationAttempt = {
@@ -332,8 +348,8 @@ async function applyRoutedDecision(
       attemptId,
       attemptNumber,
       redriveGeneration: 0,
-      channel: "EMAIL",
-      provider: "SES",
+      channel,
+      provider: channel === "EMAIL" ? "SES" : "META_CLOUD_API",
       providerAccountId: "default",
       status: "PREPARED",
       expectedItemVersion: intent.itemVersion,
@@ -367,7 +383,10 @@ async function applyRoutedDecision(
     entries.push({
       Put: {
         TableName: deps.tableName,
-        Item: buildEmailOutboxRecord(intent, attempt, decision.deliverNotBefore, now),
+        // D-9 (ADR-0008): never the email queue for a WhatsApp attempt - each channel gets its
+        // own outbox destination, `buildWhatsAppOutboxRecord` (already unit-tested standalone
+        // since fatia 2/5) targets `SQS_NOTIFICATION_WHATSAPP_V1` exclusively.
+        Item: channel === "EMAIL" ? buildEmailOutboxRecord(intent, attempt, decision.deliverNotBefore, now) : buildWhatsAppOutboxRecord(intent, attempt, decision.deliverNotBefore, now),
         ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
       },
     });
