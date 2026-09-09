@@ -39,17 +39,14 @@ datado, não reabre a convergência original). **Minha avaliação de prioridade
 especificou)**: NÃO é P0-blocking — nenhuma das 25 telas já planejadas depende de storage quota
 para funcionar, e o roadmap competitivo de 11 itens não a menciona; é um **fast-follow** natural do
 item 10 (Storage/Versioning/Renewal, já avançado) e deveria entrar no mesmo lote de frontend do item
-11 quando esse trabalho começar, não bloquear seu início. **Decisão de produto pendente (não
-resolvida nesta sessão, meu palpite não deveria virar decisão final)**: o número exato da quota
-(Marcelo usou "5GB" apenas como exemplo ilustrativo) — implementado como `DEFAULT_STORAGE_QUOTA_
-BYTES` (constante nomeada, `src/modules/document-archive/domain/storage-quota.ts`), um valor
-sensato e documentado, não hardcoded por tenant, fácil de mudar quando Marcelo confirmar o número
-real. **Pesquisa de prática de mercado feita a pedido dele (2026-09-09)** para embasar essa
-escolha — concorrentes diretos de rastreamento de vencimento (Remindax/Expiration Reminder/
-ExpiryEdge) usam 100MB-1GB na entrada e 5-50GB em planos pagos; concorrentes de compliance de
-fornecedor mais parecidos no modelo de dados (CertFocus/bcs nos EUA, Econsulte/SoftExpert/Valide no
-Brasil) tratam storage como não-diferencial, frequentemente ilimitado — nenhum concorrente
-brasileiro pesquisado publica GB por plano. Síntese completa + recomendação (não decisão final):
+11 quando esse trabalho começar, não bloquear seu início. **Número da quota CONFIRMADO por Marcelo
+(2026-09-09) após pesquisa de mercado**: 8GB — `DEFAULT_STORAGE_QUOTA_BYTES` (constante nomeada,
+`src/modules/document-archive/domain/storage-quota.ts`) ajustado de 5GB (exemplo ilustrativo
+original) para 8GB, deliberadamente acima da faixa "plano padrão" observada nos concorrentes
+diretos de rastreamento de vencimento (Remindax/Expiration Reminder/ExpiryEdge: 100MB-1GB na
+entrada, 5-50GB em planos pagos) — já que o nicho mais próximo do modelo de dados deste produto
+(compliance de fornecedor, CertFocus/bcs nos EUA, Econsulte/SoftExpert/Valide no Brasil) trata
+storage como não-diferencial, frequentemente ilimitado. Pesquisa completa:
 `docs/architecture/reviews/storage-quota-scoping/market-research-storage-limits-2026-09-09.md`.
 Evidência de design: `docs/architecture/decisions-log.md` D-249,
 `docs/architecture/reviews/storage-quota-scoping/`.

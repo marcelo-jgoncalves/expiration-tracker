@@ -29,10 +29,13 @@
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
-/** Marcelo's "5GB" was illustrative, not a firm product decision (flagged in
- * NEXT_SESSION_PROMPT.md as pending his confirmation) — implemented as a named, documented,
- * overridable constant so the exact number is a one-line change, never hardcoded per tenant. */
-export const DEFAULT_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB
+/** Confirmed by Marcelo (2026-09-09) after market research on storage-quota practices in direct
+ * and adjacent competitors, US and Brazil (docs/architecture/reviews/storage-quota-scoping/
+ * market-research-storage-limits-2026-09-09.md) — 8GB sits above the "standard tier" range
+ * observed there, deliberately generous since this niche treats storage as a non-differentiator
+ * rather than a visible commercial limit. Implemented as a named, documented, overridable
+ * constant so the exact number is a one-line change, never hardcoded per tenant. */
+export const DEFAULT_STORAGE_QUOTA_BYTES = 8 * 1024 * 1024 * 1024; // 8 GiB
 
 /** Google Workspace's own cited warning threshold (80% -> "Storage low", see
  * docs/architecture/reviews/storage-quota-scoping/{claude-proposal,codex-proposal}.md) — chosen
