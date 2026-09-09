@@ -131,6 +131,15 @@ export class InMemoryNotificationStore implements NotificationStore {
     return [...this.items.values()].filter((i) => i.PK === pk && String(i.SK).startsWith("ATTEMPT#")) as unknown as T[];
   }
 
+  async queryWhatsAppPortfolioQuotaWindow<T extends EntityKey = Record<string, unknown> & EntityKey>(
+    startSkInclusive: string,
+    endSkInclusive: string,
+  ): Promise<T[]> {
+    return [...this.items.values()]
+      .filter((i) => i.PK === "WHATSAPP#PORTFOLIO" && String(i.SK) >= startSkInclusive && String(i.SK) <= endSkInclusive)
+      .sort((a, b) => String(a.SK).localeCompare(String(b.SK))) as unknown as T[];
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }

@@ -146,7 +146,12 @@ function renderWhatsAppTemplate(item: ExpirationItem): { templateName: string; t
  * this function's credential-sourcing lines with a Secrets Manager read; `WhatsAppCloudApiAdapter`
  * itself does not change shape when that happens.
  */
-export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableName: string, config: WhatsAppCloudApiConfig) {
+export function buildWhatsAppDeliveryDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  config: WhatsAppCloudApiConfig,
+  portfolioQuotaTierLimit: number,
+) {
   const store = new DynamoDbNotificationStore(client, tableName);
   return {
     store,
@@ -156,6 +161,7 @@ export function buildWhatsAppDeliveryDeps(client: DynamoDBDocumentClient, tableN
     renderTemplate: (input: { item: ExpirationItem }) => renderWhatsAppTemplate(input.item),
     now: () => new Date().toISOString(),
     newIntentId: () => new UlidIdGenerator().newIntentId(),
+    portfolioQuotaTierLimit,
   };
 }
 

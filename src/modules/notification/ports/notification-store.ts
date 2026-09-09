@@ -16,4 +16,14 @@ export interface NotificationStore {
    * ReminderStore.queryByItem. Used to find the most recent NotificationAttempt for a given
    * intent (corrective-intent-service.ts's REPLACEMENT vs CORRECTIVE decision). */
   queryAttemptsByIntent<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, intentId: string): Promise<T[]>;
+  /** D-8 (fatia 4/5, `whatsapp-portfolio-quota.ts`): full-pagination range Query against the
+   * tenantless `PK=WHATSAPP#PORTFOLIO` partition, `SK` between `startSkInclusive` and
+   * `endSkInclusive`. Real range Query, not a Scan — cost/pagination made explicit by returning
+   * every page rather than a single bounded page (round3-claude-revision.md critério 3's "custo/
+   * limite de paginação declarado"). Callers use this to compute the rolling-24h distinct-phone
+   * count; see that module's hot-partition docstring for the accepted, named cost of this. */
+  queryWhatsAppPortfolioQuotaWindow<T extends EntityKey = Record<string, unknown> & EntityKey>(
+    startSkInclusive: string,
+    endSkInclusive: string,
+  ): Promise<T[]>;
 }

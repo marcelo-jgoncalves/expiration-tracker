@@ -33,6 +33,13 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const whatsAppSecretId = process.env["WHATSAPP_SECRET_ID"];
 const whatsAppApiVersion = process.env["WHATSAPP_API_VERSION"] ?? "v21.0";
+// D-8 (fatia 4/5): Meta's own tier ceiling for this portfolio's phone number (unique
+// recipients/24h - 250/2.000/10.000/100.000), operator-configured because it is a Meta account
+// property, never a value this repo can hardcode or infer. Defaults to the lowest real tier
+// (250) so a missing env var fails toward the MOST restrictive real ceiling, never toward
+// "unlimited" - the same "fail-closed, never fail-open toward laxer" posture the quota check
+// itself uses on a read error.
+const whatsAppPortfolioQuotaTierLimit = Number(process.env["WHATSAPP_PORTFOLIO_QUOTA_TIER_LIMIT"] ?? "250");
 const appConfigApplicationId = process.env["APPCONFIG_APPLICATION_ID"];
 const appConfigEnvironmentId = process.env["APPCONFIG_ENVIRONMENT_ID"];
 const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PROFILE_ID"];
@@ -55,11 +62,16 @@ async function getDeps(): Promise<WhatsAppDeliveryDeps> {
   if (!depsPromise) {
     depsPromise = (async () => {
       const secrets = await loadWhatsAppSecrets(secretsClient, whatsAppSecretId!);
-      return buildWhatsAppDeliveryDeps(client, tableName!, {
-        accessToken: secrets.accessToken,
-        phoneNumberId: secrets.phoneNumberId,
-        apiVersion: whatsAppApiVersion,
-      });
+      return buildWhatsAppDeliveryDeps(
+        client,
+        tableName!,
+        {
+          accessToken: secrets.accessToken,
+          phoneNumberId: secrets.phoneNumberId,
+          apiVersion: whatsAppApiVersion,
+        },
+        whatsAppPortfolioQuotaTierLimit,
+      );
     })();
   }
   return depsPromise;

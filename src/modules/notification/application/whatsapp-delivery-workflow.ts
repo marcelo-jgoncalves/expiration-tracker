@@ -27,6 +27,7 @@ import { WhatsAppSendError } from "../ports/whatsapp-provider.js";
 import { decideSendAction, nextWhatsAppStatusAfterSendAttempt } from "./whatsapp-delivery.js";
 import { applyStaleDeliveryDecision } from "./notification-router-workflow.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import { checkAndRecordWhatsAppPortfolioQuota } from "./whatsapp-portfolio-quota-service.js";
 
 export interface WhatsAppDeliverCommandData {
   tenantId: string;
@@ -59,6 +60,9 @@ export interface WhatsAppDeliveryWorkflowDeps {
   now: () => string;
   newIntentId: () => string;
   leaseDurationMs?: number;
+  /** D-8 (fatia 4/5) — Meta's real 24h unique-recipient tier ceiling for this portfolio's
+   * phone number, checked/recorded right before the external `send()` call. */
+  portfolioQuotaTierLimit: number;
 }
 
 export type WhatsAppDeliveryOutcome =
@@ -136,6 +140,19 @@ export async function processWhatsAppDelivery(deps: WhatsAppDeliveryWorkflowDeps
   if (!to || !item) {
     // No resolved/opted-in phone - conclusive terminal failure, not ambiguous.
     const nextStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "FAILURE", failureKind: "CONCLUSIVE_TERMINAL" });
+    await forceUpdateAttemptStatus(deps, { ...attempt, status: "SUBMITTING", version: attempt.version + 1 }, nextStatus, now);
+    return { kind: "SEND_FAILED", nextStatus };
+  }
+
+  // D-8 (fatia 4/5): the real Cloud API 24h unique-recipient tier ceiling. Checked/recorded
+  // here, right before the external call - same "admit before the external call" discipline as
+  // the SUBMITTING lease claim above. A quota refusal (tier reached, or the quota read itself
+  // failed - fail-closed) is a CONCLUSIVE_RETRYABLE failure: no external call was ever attempted,
+  // so there is no ambiguity about whether Meta saw anything, and the rolling window means a
+  // later retry can genuinely succeed once it advances.
+  const quota = await checkAndRecordWhatsAppPortfolioQuota({ store: deps.store, tierLimit: deps.portfolioQuotaTierLimit, now: deps.now }, to);
+  if (!quota.allowed) {
+    const nextStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "FAILURE", failureKind: "CONCLUSIVE_RETRYABLE" });
     await forceUpdateAttemptStatus(deps, { ...attempt, status: "SUBMITTING", version: attempt.version + 1 }, nextStatus, now);
     return { kind: "SEND_FAILED", nextStatus };
   }
