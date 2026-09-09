@@ -16,7 +16,7 @@
 
 1. **Requirement Templates** — 🟢 IMPLEMENTADO (D-191).
 2. **Bulk import (Documents+Requirements+column mapping)** — 🟢 IMPLEMENTADO (D-192).
-3. **WhatsApp operacional** — 🟡 design `APPROVED` (D-197/ADR-0012) + fatias 1-3/5 implementadas (D-223/D-229/D-231). **Pendente real**: revisar `terraform plan` real contra `dev` e completar merge/CD/verificação ao vivo da fatia 3 (nunca aplicada); fatia 4/5 (quota 24h + IAM dedicada) não iniciada. Bloqueante adicional para uso com usuário real (E-019): aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito ainda.
+3. **WhatsApp operacional** — 🟡 design `APPROVED` (D-197/ADR-0012) + fatias 1-3/5 implementadas e **fatia 3/5 VERIFICADA AO VIVO em `dev`** (D-242: secret/IAM/rota/Lambda confirmados via `aws --profile claude-dev`; PR #292 mergeado em `main`, CD `success`). **Pendente real**: fatia 4/5 (quota 24h + IAM dedicada) não iniciada. Bloqueante adicional para uso com usuário real (E-019): aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito ainda (as credenciais reais da Meta no secret também dependem disso).
 4. **IA/OCR no Document Lifecycle** — 🟢 IMPLEMENTADO por completo (D-193). Flags `EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED` deliberadamente OFF (ativação é decisão futura reversível).
 5. **Busca e filtros documentais** — 🟢 IMPLEMENTADO fatias 1-3 (D-194/D-196). Fatias 4-5 (projeção materializada+GSI10, índice por assignee) DEFERIDAS com gatilho quantitativo nomeado em D-194 — não bloqueante.
 6. **Dashboard operacional/compliance** — 🟢 IMPLEMENTADO (D-196).
@@ -71,12 +71,14 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 **Mudança de prioridade (Marcelo, 2026-09-08)**: fechar o P0 (roadmap de lançamento, 11 itens acima) por inteiro ANTES de qualquer item novo do backlog P1. `ExternalShareLink` (item 8/19 do P1) foi pausado de propósito em ponto limpo — slice 1/3 implementado e testado (D-241: domínio, persistência, `ExternalShareLinkService` completo — create/resolve-anônimo/revoke/list —, gate local verde), slices 2/3 (rota HTTP anônima `GET /external-share/{shareId}/{token}`, rotas autenticadas+RBAC `docarchive:share-link-*`+schemas, terraform se necessário) **NÃO iniciadas** — não retomar até o P0 fechar.
 
 Por ordem sugerida, tudo dentro do P0 (itens ainda não 🟢 na lista acima):
-1. Item 3 do P0 (WhatsApp operacional) — fechar fatia 3/5: `terraform plan` real contra `dev`, merge, CD, verificação ao vivo (nunca aplicada ainda); depois fatia 4/5 (quota 24h + IAM dedicada). Bloqueante à parte para uso com usuário real (E-019, item 5 da lista de pendências acima) segue fora do controle de engenharia pura.
-2. Item 8 do P0 (Document Types) — pendência de decisão de Marcelo (`documentTypeId` obrigatório no guest submit, D-224), não bloqueia o resto do P0.
+1. Item 3 do P0 (WhatsApp operacional) — fatia 3/5 **verificada ao vivo (D-242)**. Falta fatia 4/5 (quota 24h + IAM dedicada). Bloqueante à parte para uso com usuário real (E-019, item 5 da lista de pendências acima) segue fora do controle de engenharia pura.
+2. Item 8 do P0 (Document Types) — decisão sobre `documentTypeId` obrigatório no guest submit (D-224) delegada por Marcelo ao protocolo Claude↔Codex (2026-09-08) — ver `decisions-log.md` para o D-número resultante quando concluído; não bloqueia o resto do P0 enquanto isso.
 3. Avançar qualquer eixo do full-audit-round2 com achado nível 3-4 pendente listado acima (E-016 QUEUE_BASE_NAMES, E-023 corrida intermitente) — não é P0 formalmente, mas é qualidade de engenharia do que já foi entregue.
 4. Ou uma nova frente que Marcelo trouxer.
 
-Quando o P0 fechar por inteiro: retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
+**Instrução permanente para quando o item 11 (Frontend completo do P0) for o único item do P0 restante** (Marcelo, 2026-09-08): antes de prototipar qualquer tela, fazer um levantamento minucioso de quais telas são necessárias para o lançamento, via protocolo Claude↔Codex EM DUAS ETAPAS — (1) pesquisa na web + protocolo para estabelecer os critérios de avaliação dessa engenharia/arquitetura de telas; (2) só depois, protocolo para definir o conjunto de telas em si, usando os critérios convergidos na etapa 1. Ao convergir, salvar o planejamento final em um documento dedicado (`docs/frontend/` — nome a definir na hora) cujo objetivo explícito é dar ao Claude Design informação suficiente para construir o protótipo das telas com assertividade e coerência com o restante do projeto. Não iniciar isso enquanto outros itens do P0 ainda estiverem abertos.
+
+Quando o P0 fechar por inteiro (exceto o item 11, tratado pela instrução acima): retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
 
 ## Status de evidência (não presumir E2E sem checar)
 
