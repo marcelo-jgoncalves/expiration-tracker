@@ -1,0 +1,73 @@
+You are Codex, acting as an independent reviewer/co-author in a Claude<->Codex protocol
+(AGENTS.md paragraph 4). BLIND round: you have not seen Claude's Stage 2 proposal.
+
+CONTEXT: expiration-tracker repo. B2B SaaS tracking compliance-document expirations. Multi-tenant
+(Organization/Membership), RBAC roles OWNER/ADMIN/MEMBER/VIEWER. Backend for the entire P0 launch
+roadmap (11 items, docs/project/roadmap-competitivo-2026-09-01.md) is done except item 11: the
+frontend. Stage 1 of this protocol already converged a grading rubric (reproduced below). Your
+task now (Stage 2): independently read the ACTUAL backend code in this repo and propose the
+concrete screen/view inventory needed for P0 launch, to be graded against that rubric.
+
+READ FOR REAL, in this repo, before answering (do not guess/invent capabilities):
+- src/modules/identity/domain/authorization.ts — the full `Action` union and `ACTION_ROLES` map
+  is the ground truth for what each of OWNER/ADMIN/MEMBER/VIEWER can do. Every action needs a
+  home in some screen, or must be named a deliberate P0 deferral.
+- src/modules/organization/ (Organization, Membership, Invitation - multi-tenant structure/onboarding)
+- src/modules/document-archive/ (Document, DocumentVersion, Requirement, DocumentType,
+  RequirementTemplate, guest upload+review, dossier export, document requests/recurrence - this
+  is the core domain)
+- src/modules/subject/ (TrackedSubject, RequirementAssignment, document chasing - an OLDER,
+  still-live PARALLEL domain to document-archive's Requirement - see the D-116 naming-collision
+  comment inside authorization.ts around the `docarchive:requirement-*` actions for why these are
+  deliberately separate, not duplicated)
+- src/modules/expiration/ (ExpirationItem - the original core entity, still live)
+- src/modules/notification/ (channels EMAIL/WhatsApp, escalation, digests, preferences)
+- docs/frontend/ - especially interface-screen-and-state-inventory.md (an OLDER 17-surface
+  inventory that PREDATES document-archive/organization/multi-tenant-B2B - reuse its state-
+  taxonomy discipline (loading/empty/error subtypes, persistence vs visibility distinction) but
+  do NOT treat its surface list as current or complete - the backend has grown enormously since)
+- docs/project/roadmap-competitivo-2026-09-01.md (the 11 P0 items, to know what needs a screen)
+
+=== STAGE 1's CONVERGED RUBRIC (grade your own Stage 2 answer against this) ===
+
+8 weighted axes / 100 points:
+1. Backend-to-interface completeness and traceability (18) - every Action/capability maps to a
+   screen or is recorded DEFERRED under a 6-condition rule (out of P0 scope; concrete reason;
+   destination milestone/trigger; dependencies named; no P0 journey dangles on it; recorded as
+   DEFERRED not silently dropped).
+2. Journey/navigation/screen-graph coherence (14) - every screen has entry points, exits, next
+   steps; no orphans/dead ends; cross-references agree both directions.
+3. RBAC-aware visibility and action model (14) - per screen AND per action, which roles can
+   discover/view/invoke/administer it; no actionable-looking control for a role that can't use it.
+4. State, feedback, recovery coverage (14) - loading/empty/success/validation/error/retry/
+   unavailable PLUS domain-specific states (OCC conflict, partial import failure, expired/revoked
+   guest link, authorization denial, anti-enumeration collapse); actionable recovery, not "handle
+   errors."
+5. Multi-tenant organization context and isolation UX (10) - active org unambiguous, switch
+   behavior/persistence, no misleading cross-tenant transitions, stale-link/invitation handling.
+6. Guest/authenticated surface separation (8) - structural, not visual; guest entry/limited
+   capabilities/expiry/revocation/escalation/safe-failure without leaking resource existence.
+7. Responsive/mobile/accessibility planning (12) - per-screen responsive treatment stated
+   explicitly (full parity / transformation / degradation / desktop-only-with-reason); keyboard/
+   focus/reflow/target-size/status-announcement coverage.
+8. Zero-context handoff quality and internal consistency (10) - a downstream design tool with NO
+   session history can build each screen without an avoidable clarifying question; roles/states/
+   terminology/backend facts restated inline, consistently.
+
+Evidence-sufficiency gate (not a scored 9th axis): capability->surface traceability; surface->
+capability reverse map; role x surface x action rules; route/nav hierarchy; journey x surface
+coverage; per-screen state coverage; org-context/switching rules; guest/auth boundary spec;
+per-screen responsive/accessibility notes; assumption/gap/deferral register.
+
+=== YOUR TASK ===
+
+Propose the full screen inventory for BOTH the authenticated tenant app AND the guest-facing
+surface. For each screen give: name/route, purpose, primary entities/fields shown, actions
+mapped to real Actions from authorization.ts (state which roles), states (generic + domain-
+specific), and how it connects to other screens (entry points / what it links to-from). Name
+anything that is a genuine backend gap as DEFERRED per the 6-condition rule (do not invent
+screens for capabilities that don't exist, and do not silently omit capabilities that do exist -
+grep the codebase for the real routes/actions, don't guess). End with your own self-score out of
+10 against the 8-axis rubric above, naming at least one honest weakness.
+
+Write your full answer as plain text/markdown to stdout. Do not ask clarifying questions.

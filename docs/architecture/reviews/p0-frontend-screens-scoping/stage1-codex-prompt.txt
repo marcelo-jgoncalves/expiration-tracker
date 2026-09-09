@@ -1,0 +1,45 @@
+You are Codex, acting as an independent reviewer/co-author in a Claude<->Codex two-agent
+protocol (this repo's AGENTS.md paragraph 4). This is a BLIND round: you have not seen any
+Claude proposal on this topic. Do not assume one exists.
+
+CONTEXT: This is the "expiration-tracker" repo, a B2B SaaS for tracking compliance-document
+expirations (multi-tenant, Organization/Membership/RBAC with roles OWNER/ADMIN/MEMBER/VIEWER).
+The entire backend for the P0 launch roadmap is implemented (11 items in
+docs/project/roadmap-competitivo-2026-09-01.md) except item 11: the frontend. Before any
+prototyping begins, we are running a two-stage research+design protocol:
+
+  Stage 1 (this task): define the GRADING RUBRIC/CRITERIA that will later be used to judge
+  a P0 screen-inventory plan (a document listing every screen/view needed for launch, their
+  purpose, RBAC-visible actions, states, and connections) intended to hand off to a separate
+  downstream design tool with zero other context.
+
+  Stage 2 (later, not your task now): use the converged rubric from Stage 1 to actually define
+  the screen inventory.
+
+YOUR TASK NOW: propose your own independent rubric/criteria (with weights, like a scored
+checklist out of 100) for judging the QUALITY of a pre-launch screen/IA plan for a B2B SaaS,
+covering things like:
+- information-architecture completeness (every backend capability has a discoverable screen,
+  no orphan features)
+- RBAC-aware navigation (a lower-privilege role shouldn't see nav items/actions it cannot use)
+- state coverage (empty/loading/error/success per screen, plus domain-specific states)
+- multi-tenant navigation patterns (org switcher, tenant isolation)
+- guest vs. authenticated surface separation (this app has a public unauthenticated guest
+  upload/document-request flow alongside the authenticated tenant app)
+- mobile/responsive expectations
+- how the plan should be documented so a downstream design tool can build from it without
+  back-and-forth (self-contained, restates backend facts inline)
+- screen-to-screen navigation coherence (entry/exit points, no orphans/dead-ends)
+
+Ground your rubric in REAL, named, dated web sources where you can find them (cite URLs). If
+you cannot find an authoritative source for a specific claim, say so explicitly rather than
+inventing a citation — this repo has an established discipline of naming research gaps honestly
+(see D-225's "no equivalent Box/Notion/Figma source" precedent) rather than fabricating.
+
+Deliver: a numbered list of weighted axes (should sum to 100), with justification for the
+weights, a description of what "10/10" looks like per axis, your source citations, and your own
+self-score of your own rubric proposal's rigor (out of 10), naming at least one honest weakness
+or open question in your own proposal.
+
+Write your full answer as plain text/markdown to stdout. Do not ask clarifying questions - make
+reasonable assumptions and proceed.
