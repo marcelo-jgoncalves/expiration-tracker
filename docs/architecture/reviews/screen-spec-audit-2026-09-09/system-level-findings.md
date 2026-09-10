@@ -117,6 +117,8 @@ owner above, unchanged).
 **Batch 3 update (2026-09-09)**: A09, A11, A12, A13 (12/12 screens across three batches) all omitted
 `:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix,
 same pending system-level template update as the remediation owner.
+**Batch 4 update (2026-09-10)**: A14, A15, A16, A17 (16/16 screens across four batches) all omitted
+`:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix.
 
 ---
 
@@ -150,6 +152,12 @@ into the header overflow menu as `secondary` (OWNER/ADMIN only); A11's row actio
 overflow menu with no variant named as `tertiary`. A12 and A13 did not use `tertiary` pre-revision.
 This finding remains firmly past the system-level recurrence gate; still tracked as interim
 per-screen correction pending a real design-system proposal per the remediation owner note above.
+**Batch 4 update (2026-09-10)**: A14 ("Gerar agora"/"Cancelar"/"Ver"), A15 ("Voltar"/"Ver relatório
+de erros"), and A16 ("Editar"/"Remover") all used `tertiary` pre-revision — now 10/16 screens across
+four batches. A17 did not. All three corrected this batch: `ghost` for low-emphasis non-destructive
+actions (A14's "Cancelar" kept as `ghost`, not `danger`, since cancelling a series is
+reversible/recreatable, not a permanent deletion); A16's "Remover" (deleting a subscription) moved to
+`danger` as a genuinely destructive action, the same distinction A07 established in batch 2.
 
 ---
 
@@ -164,4 +172,10 @@ per-screen correction pending a real design-system proposal per the remediation 
   confirmed on a second screen (A09); SLF-02/03/04 continued recurring; no new SYSTEM GAP/CONSTRAINT
   opened — two candidate cross-screen patterns (Version Lineage/claim-aware action gate on A12/A13)
   noted as SYSTEM EVOLUTION CANDIDATE, not yet promoted (below the 3-screen bar) |
-| 4/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
+| 4/6 | A14, A15, A16, A17 | DONE — all 4 scored NOT PASS (25.4-48.7/100 consolidated); A16 carries
+  a **CRITICAL RBAC over-grant** (tenant-wide export/subscription access granted to MEMBER/VIEWER
+  where the plan requires ADMIN_ROLES-only with a narrow named-recipient-per-run exception) — the
+  second CRITICAL RBAC finding of the full audit project; A17's RBAC line was confirmed fully correct
+  with no revision needed (no MEMBER-assignee exception, matching D-205 literally); SLF-03/04
+  continued recurring on all 4 screens; no new SYSTEM GAP/CONSTRAINT opened |
+| 5/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
