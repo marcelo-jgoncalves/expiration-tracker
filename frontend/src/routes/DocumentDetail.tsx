@@ -25,6 +25,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useDocument, useDocumentVersions } from "../hooks/useDocumentDetail.js";
+import { listDocumentVersions } from "../api/documentArchive.js";
 import {
   useReserveUpload,
   useReserveFiles,
@@ -99,7 +100,7 @@ export function DocumentDetail() {
 
       {canWrite ? (
         <Section heading="Enviar nova versão" headingId="upload-wizard">
-          <UploadWizard documentId documentIdValue={documentId} onDone={() => void versionsQuery.refetch()} />
+          <UploadWizard documentId={documentId} onDone={() => void versionsQuery.refetch()} />
         </Section>
       ) : null}
 
@@ -304,22 +305,28 @@ function VersionCard({
   );
 }
 
-type UploadStep = "idle" | "reserving" | "reserved" | "uploading-files" | "files-reserved" | "committing" | "done";
+type UploadStep = "idle" | "reserving" | "reserved" | "uploading-files" | "upload-failed" | "files-reserved" | "committing" | "done";
 
 /** The 3-step upload flow, modeled as sequential UI state (not one button): (1) reserve a new
  * version (`reserveUpload`), (2) reserve+presign a file batch for it and PUT the bytes to
  * storage (`reserveFiles` + direct-to-storage PUT), (3) commit (`commitUpload`, DRAFT ->
  * RECEIVED). Each step can fail independently and the wizard surfaces exactly which one did —
  * never collapsed into a single opaque "upload" action. */
-function UploadWizard({ documentIdValue, onDone }: { documentId?: boolean; documentIdValue: string; onDone: () => void }) {
-  const reserveUploadMutation = useReserveUpload(documentIdValue);
+function UploadWizard({ documentId, onDone }: { documentId: string; onDone: () => void }) {
+  const reserveUploadMutation = useReserveUpload(documentId);
   const [seq, setSeq] = useState<number | undefined>();
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>();
-  const reserveFilesMutation = useReserveFiles(documentIdValue, seq ?? 0);
-  const commitMutation = useCommitUpload(documentIdValue, seq ?? 0);
+  const reserveFilesMutation = useReserveFiles(documentId, seq ?? 0);
+  const commitMutation = useCommitUpload(documentId, seq ?? 0);
   const [step, setStep] = useState<UploadStep>("idle");
   const [file, setFile] = useState<File | undefined>();
   const [error, setError] = useState<string | undefined>();
+  // Codex review round 1 finding: `reserveFiles` seals the file set in the SAME transaction
+  // that reserves it (D-163 §2's `fileSetSealed` fence) - once that call succeeds, calling it
+  // again for a retry would fail with "file set is already sealed" even though the caller's
+  // real problem was only the follow-up storage PUT. So a PUT failure must retry ONLY the PUT
+  // against the already-reserved URL, never re-run `reserveFiles`.
+  const [reservedUpload, setReservedUpload] = useState<{ uploadUrl: string; requiredHeaders: Record<string, string> } | undefined>();
 
   async function handleReserveVersion() {
     setError(undefined);
@@ -339,6 +346,11 @@ function UploadWizard({ documentIdValue, onDone }: { documentId?: boolean; docum
     if (!file || seq === undefined || expectedVersion === undefined) return;
     setError(undefined);
     setStep("uploading-files");
+    // Local, not the `reservedUpload` state var - `setReservedUpload` below only SCHEDULES a
+    // re-render, it does not update this closure's already-captured `reservedUpload` value, so
+    // the catch block below must consult this local flag to know whether reserveFiles already
+    // committed on the backend (a real stale-closure bug found while writing this fix).
+    let reservedThisAttempt: { uploadUrl: string; requiredHeaders: Record<string, string> } | undefined;
     try {
       const checksumSha256 = await computeChecksumSha256(file);
       const { files } = await reserveFilesMutation.mutateAsync({
@@ -347,11 +359,38 @@ function UploadWizard({ documentIdValue, onDone }: { documentId?: boolean; docum
       });
       const reserved = files[0];
       if (!reserved) throw new Error("Nenhum arquivo reservado.");
+      reservedThisAttempt = { uploadUrl: reserved.uploadUrl, requiredHeaders: reserved.requiredHeaders };
+      setReservedUpload(reservedThisAttempt);
+      // Codex review round 1 finding: `reserveFiles`'s own TransactWriteItems (D-163 §2) updates
+      // the DocumentVersion row (fileSetSealed/principalFileId/totalFiles) - its OCC `version`
+      // has advanced past what `reserveUpload` returned. Re-reading the version here (rather
+      // than reusing the stale `expectedVersion`) is what makes `commitUpload`'s OCC check pass
+      // instead of always conflicting.
+      const { versions } = await listDocumentVersions(documentId);
+      const refreshed = versions.find((v) => v.seq === seq);
+      if (refreshed) setExpectedVersion(refreshed.version);
       await uploadFileBytes(reserved.uploadUrl, reserved.requiredHeaders, file);
       setStep("files-reserved");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Não foi possível enviar o arquivo.");
-      setStep("reserved");
+      // If the file set was already reserved/sealed on the backend before the failure, land on
+      // "upload-failed" so the retry button below retries ONLY the PUT - never "reserved"
+      // (which would let the user hit "Enviar arquivo" again and re-run `reserveFiles` against
+      // an already-sealed set, D-163 §2's `fileSetSealed` fence).
+      setStep(reservedThisAttempt ? "upload-failed" : "reserved");
+    }
+  }
+
+  async function handleRetryUploadOnly() {
+    if (!file || !reservedUpload) return;
+    setError(undefined);
+    setStep("uploading-files");
+    try {
+      await uploadFileBytes(reservedUpload.uploadUrl, reservedUpload.requiredHeaders, file);
+      setStep("files-reserved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível enviar o arquivo.");
+      setStep("upload-failed");
     }
   }
 
@@ -377,6 +416,7 @@ function UploadWizard({ documentIdValue, onDone }: { documentId?: boolean; docum
     setSeq(undefined);
     setExpectedVersion(undefined);
     setFile(undefined);
+    setReservedUpload(undefined);
     setError(undefined);
     setStep("idle");
   }
@@ -411,17 +451,25 @@ function UploadWizard({ documentIdValue, onDone }: { documentId?: boolean; docum
             <input
               type="file"
               aria-label="Selecionar arquivo"
-              disabled={seq === undefined || step === "files-reserved" || step === "committing"}
+              disabled={seq === undefined || step === "files-reserved" || step === "committing" || Boolean(reservedUpload)}
               onChange={(e) => setFile(e.target.files?.[0])}
             />
-            <Button
-              variant="primary"
-              disabled={seq === undefined || !file || step === "files-reserved" || step === "committing"}
-              pending={step === "uploading-files"}
-              onClick={() => void handleReserveAndUploadFile()}
-            >
-              {step === "files-reserved" ? "Arquivo enviado" : "Enviar arquivo"}
-            </Button>
+            {step === "upload-failed" ? (
+              // The file batch is already reserved/sealed on the backend (D-163 §2) - only the
+              // storage PUT failed, so retry ONLY the PUT, never re-run reserveFiles.
+              <Button variant="primary" pending={false} onClick={() => void handleRetryUploadOnly()}>
+                Tentar enviar novamente
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                disabled={seq === undefined || !file || step === "files-reserved" || step === "committing"}
+                pending={step === "uploading-files"}
+                onClick={() => void handleReserveAndUploadFile()}
+              >
+                {step === "files-reserved" ? "Arquivo enviado" : "Enviar arquivo"}
+              </Button>
+            )}
           </li>
           <li>
             <p>3. Concluir envio</p>

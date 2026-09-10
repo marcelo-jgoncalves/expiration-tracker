@@ -104,14 +104,20 @@ test("E2E-B5-D03: VIEWER sees no upload wizard and no action bar", async ({ page
   await expect(page.getByRole("button", { name: "Reivindicar" })).toHaveCount(0);
 });
 
-test("E2E-B5-D04: the 3-step upload wizard reserves a version, uploads a file, then commits", async ({ page }) => {
+test("E2E-B5-D04: the 3-step upload wizard reserves a version, uploads a file, then commits (re-reading the OCC version reserveFiles advances)", async ({ page }) => {
   await mockOrganizations(page, "MEMBER");
   await mockDocument(page, documentPayload());
-  await mockVersions(page, [version({ state: "ACCEPTED" })]);
 
+  // `reserveFiles` seals the file set in the SAME transaction that reserves it (D-163 §2),
+  // which advances the DocumentVersion's own OCC `version` past what `reserveUpload` returned
+  // (1 -> 5 here) - the wizard must re-read it via a fresh GET .../versions before committing,
+  // never reuse the stale value from step 1 (Codex review round 1 finding).
+  let getVersionsCalls = 0;
   await page.route("**/bff/api/document-archive/documents/doc-1/versions", (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return route.fulfill({ json: { version: version({ seq: 2, state: "DRAFT", version: 1 }) } });
+    if (route.request().method() === "POST") return route.fulfill({ json: { version: version({ seq: 2, state: "DRAFT", version: 1 }) } });
+    getVersionsCalls += 1;
+    if (getVersionsCalls === 1) return route.fulfill({ json: { versions: [version({ state: "ACCEPTED" })] } });
+    return route.fulfill({ json: { versions: [version({ state: "ACCEPTED" }), version({ seq: 2, state: "DRAFT", version: 5, fileSetSealed: true })] } });
   });
   // Same-origin presigned URL — an external domain would be blocked by the app's own CSP
   // `connect-src 'self'` (a real constraint found while writing this test, not a mocking
@@ -129,7 +135,7 @@ test("E2E-B5-D04: the 3-step upload wizard reserves a version, uploads a file, t
   let commitBody: Record<string, unknown> | undefined;
   await page.route("**/bff/api/document-archive/documents/doc-1/versions/2/commit", (route) => {
     commitBody = route.request().postDataJSON() as Record<string, unknown>;
-    return route.fulfill({ json: { version: version({ seq: 2, state: "RECEIVED", version: 2 }) } });
+    return route.fulfill({ json: { version: version({ seq: 2, state: "RECEIVED", version: 6 }) } });
   });
 
   await page.goto("/documents/doc-1");
@@ -141,8 +147,46 @@ test("E2E-B5-D04: the 3-step upload wizard reserves a version, uploads a file, t
   await expect(page.getByText("Arquivo enviado")).toBeVisible();
 
   await page.getByRole("button", { name: "Concluir" }).click();
-  await expect.poll(() => commitBody?.["expectedVersion"]).toBe(1);
+  await expect.poll(() => commitBody?.["expectedVersion"]).toBe(5);
   await expect(page.getByText(/enviada com sucesso/)).toBeVisible();
+});
+
+test("E2E-B5-D04b: a storage PUT failure after files are reserved retries only the PUT, never re-reserves the (already-sealed) file set", async ({ page }) => {
+  await mockOrganizations(page, "MEMBER");
+  await mockDocument(page, documentPayload());
+  await mockVersions(page, [version({ state: "ACCEPTED" })]);
+
+  await page.route("**/bff/api/document-archive/documents/doc-1/versions", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return route.fulfill({ json: { version: version({ seq: 2, state: "DRAFT", version: 1 }) } });
+  });
+  let reserveFilesCalls = 0;
+  await page.route("**/bff/api/document-archive/documents/doc-1/versions/2/files", (route) => {
+    reserveFilesCalls += 1;
+    return route.fulfill({
+      json: {
+        files: [{ file: { fileId: "file-1", role: "PRINCIPAL", mediaType: "application/pdf", contentLength: 3 }, uploadUrl: "/mock-storage/upload", requiredHeaders: {} }],
+      },
+    });
+  });
+  let uploadAttempts = 0;
+  await page.route("**/mock-storage/upload", (route) => {
+    uploadAttempts += 1;
+    if (uploadAttempts === 1) return route.fulfill({ status: 500, body: "boom" });
+    return route.fulfill({ status: 200, body: "" });
+  });
+
+  await page.goto("/documents/doc-1");
+  await page.getByRole("button", { name: "Reservar versão" }).click();
+  await page.setInputFiles('input[type="file"]', { name: "doc.pdf", mimeType: "application/pdf", buffer: Buffer.from("abc") });
+  await page.getByRole("button", { name: "Enviar arquivo" }).click();
+
+  await expect(page.getByRole("button", { name: "Tentar enviar novamente" })).toBeVisible();
+  expect(reserveFilesCalls).toBe(1);
+
+  await page.getByRole("button", { name: "Tentar enviar novamente" }).click();
+  await expect(page.getByText("Arquivo enviado")).toBeVisible();
+  expect(reserveFilesCalls, "retry must not call reserveFiles again - the file set is already sealed").toBe(1);
 });
 
 test("E2E-B5-D05: a MEMBER sees no action bar on a version claimed by another reviewer", async ({ page }) => {
