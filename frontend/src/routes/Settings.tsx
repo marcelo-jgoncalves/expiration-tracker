@@ -22,11 +22,32 @@ import { TextField } from "../components/forms/TextField.js";
 /** A19 "seção de armazenamento" - the same `docarchive:read` (READ_ONLY_ROLES, every role)
  * summary A03's conditional card links to, always visible here (not threshold-gated) since
  * Settings/Organização is the dedicated place to check usage regardless of how close to the
- * limit it currently is. Renders nothing while the query is pending/errored - a secondary
- * summary here, never worth its own loading/error UI on top of the settings form above it. */
+ * limit it currently is. Unlike A03's card (a secondary, non-blocking signal that silently
+ * omits itself on failure), this is the DEDICATED section for storage - Codex block-review
+ * finding (D-256): silently returning null on error/loading made an authorization failure or a
+ * real backend outage indistinguishable from "no storage data exists", with no retry path.
+ * `Section`'s own heading/title always renders, so the failure is never silently invisible. */
 function StorageSection() {
   const query = useStorageQuota();
-  if (!query.data) return null;
+
+  if (query.isPending) {
+    return (
+      <Section heading="Armazenamento" headingId="storage-usage">
+        <Panel>
+          <CollectionSkeleton rows={1} label="Carregando uso de armazenamento…" />
+        </Panel>
+      </Section>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <Section heading="Armazenamento" headingId="storage-usage">
+        <ErrorState message="Não foi possível carregar o uso de armazenamento." onRetry={() => void query.refetch()} />
+      </Section>
+    );
+  }
+
   const usage = query.data.usage;
   const percent = Math.round(usage.usedPercent * 100);
 

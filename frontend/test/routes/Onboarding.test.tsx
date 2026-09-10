@@ -41,7 +41,7 @@ describe("Onboarding", () => {
 
   // Wave B2B-14: the OTHER real case organizationSelectionRequired covers (1+ organizations,
   // none currently selected) - distinct from "zero organizations", never the create form.
-  // A02 (D-255/D-2xx): renders a card grid (name + role) instead of a plain button list, but the
+  // A02 (D-255/D-256): renders a card grid (name + role) instead of a plain button list, but the
   // create-organization form stays embedded below it (still reachable without a separate route).
   it("shows an org card grid, each card labelled with name and role, when 1+ usable organizations exist but none is selected", () => {
     const selectMock = vi.fn();
@@ -72,7 +72,7 @@ describe("Onboarding", () => {
   });
 
   // A02 spec's suspended-membership disabled-card rule requires suspended-state data the BFF
-  // does not return today (D-255/D-2xx investigation) - graceful degradation means every listed
+  // does not return today (D-255/D-256 investigation) - graceful degradation means every listed
   // card is enabled/navigable, never a fabricated disabled state.
   it("never disables a listed org card - suspended-Membership data is not available from the BFF today", () => {
     renderAtRoute(
@@ -87,5 +87,25 @@ describe("Onboarding", () => {
       },
     );
     expect(screen.getByRole("button", { name: /Org A/ })).toBeEnabled();
+  });
+
+  // Codex block-review finding (D-256): org-card selection and the embedded create-organization
+  // form are two independent mutations of the same session's org-selection context - each must
+  // be disabled while the OTHER is in flight, so a user cannot start both nearly simultaneously.
+  it("disables the create-organization submit button while a card selection is in flight (switching)", () => {
+    renderAtRoute(
+      "/onboarding",
+      <Onboarding />,
+      "/onboarding",
+      {
+        organizationSelectionRequired: {
+          organizations: [{ organizationId: "org-a", displayName: "Org A", role: "OWNER", version: 1 }],
+        },
+        select: vi.fn(),
+        switching: true,
+      },
+    );
+    expect(screen.getByRole("button", { name: /Org A/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Criar organização" })).toBeDisabled();
   });
 });

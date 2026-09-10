@@ -177,4 +177,27 @@ describe("Settings", () => {
 
     await waitFor(() => expect(screen.getByText(/Novos uploads bloqueados/)).toBeInTheDocument());
   });
+
+  // Codex block-review finding (D-256): StorageSection previously returned null on both
+  // loading AND error, making a real backend/authorization failure indistinguishable from "no
+  // storage data" and giving the user no way to retry. Now it shows a real ErrorState with a
+  // working retry, same discipline as the dashboard's own error handling (Overview.test.tsx).
+  it("shows a retryable error state in the storage section when the storage-usage fetch fails, never a silent disappearance", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    let callCount = 0;
+    getMock.mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) return Promise.reject(new ApiError({ code: "INTERNAL", category: "INTERNAL", message: "erro interno", retryable: false }, 500));
+      return Promise.resolve({
+        usage: { limitBytes: 8 * 1024 * 1024 * 1024, usedBytes: 1024, reservedBytes: 0, availableBytes: 8 * 1024 * 1024 * 1024, usedPercent: 0, warningLevel: "OK" },
+      });
+    });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByText("Não foi possível carregar o uso de armazenamento.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await waitFor(() => expect(screen.getByText(/de 8 GB usados/)).toBeInTheDocument());
+    expect(callCount).toBe(2);
+  });
 });

@@ -44,7 +44,7 @@ test("an unauthenticated visit is redirected to the BFF login, carrying the orig
   expect(url.searchParams.get("returnTo")).toBe("/items");
 });
 
-// A02 (D-255/D-2xx): authenticated, but no organization currently selected and 2+ usable
+// A02 (D-255/D-256): authenticated, but no organization currently selected and 2+ usable
 // Organizations exist - OnboardingGate renders the org picker grid (never AppShell), selecting a
 // card calls POST /bff/organization/select and, once the session refetch confirms the new
 // activeOrganizationId, the app proceeds past onboarding into the selected organization.

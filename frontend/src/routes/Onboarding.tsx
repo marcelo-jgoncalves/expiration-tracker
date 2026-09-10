@@ -13,7 +13,7 @@
  *   - 1+ usable Organizations but none currently selected -> pick one (POST
  *     /bff/organization/select, reuses the exact same `select()` the switcher already uses)
  *
- * A02 spec reconciliation (D-255/D-2xx): `docs/frontend/prototype-screen-specs/A02-onboarding.md`
+ * A02 spec reconciliation (D-255/D-256): `docs/frontend/prototype-screen-specs/A02-onboarding.md`
  * (V7 tese visual) calls for a per-org operational note ("N vencimentos em atenção"), a
  * `StatusBadge` for suspended Memberships, and a session-level pending-invitation banner. None
  * of those 3 exist in `organizationSelectionRequired.organizations` (`UsableOrganization`:
@@ -28,7 +28,7 @@
  *     an undefined "attention" threshold - a genuine product/design decision, not a DTO field;
  *   - the pending-invitation banner needs querying Invitation by invitee email across tenants -
  *     no such index exists.
- * All three are real new backend capabilities, recorded as pending (decisions-log D-2xx), not
+ * All three are real new backend capabilities, recorded as pending (decisions-log D-256), not
  * silently dropped. This screen therefore renders ONLY data the BFF actually returns today - a
  * card grid (name + role, per spec structure #4 minus the two unavailable fields) rather than a
  * fabricated badge/note, which would violate this codebase's epistemic-integrity rule
@@ -84,7 +84,11 @@ export function Onboarding() {
               <button
                 type="button"
                 className="ui-onboarding-org-card"
-                disabled={switching}
+                // Codex block-review finding (D-256): selecting a card and submitting the create
+                // form are two independent mutations of the same org-selection context - gating
+                // each control ONLY on its own pending state let a user start both nearly
+                // simultaneously. Cross-gating on `create.isPending` too closes that race.
+                disabled={switching || create.isPending}
                 onClick={() => select(org.organizationId)}
               >
                 <span className="ui-onboarding-org-card__name" title={org.displayName}>
@@ -102,7 +106,7 @@ export function Onboarding() {
           <form onSubmit={handleSubmit}>
             <TextField label="Nome da organização" value={displayName} onChange={setDisplayName} required />
             <TextField label="Fuso horário" value={timezone} onChange={setTimezone} required />
-            <Button type="submit" variant="secondary" pending={create.isPending}>
+            <Button type="submit" variant="secondary" pending={create.isPending} disabled={switching}>
               {create.isPending ? "Criando…" : "Criar organização"}
             </Button>
             {create.isError ? (

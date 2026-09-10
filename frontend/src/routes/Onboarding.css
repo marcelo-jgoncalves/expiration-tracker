@@ -11,12 +11,16 @@
   list-style: none;
 }
 
+/* Codex block-review finding (D-256): `display: contents` on the <li> risked stripping list
+   semantics in some browser/AT combinations. The <li> now participates in the grid directly
+   (a real grid item, not display:contents) and the button simply fills it. */
 .ui-onboarding-org-grid > li {
-  display: contents;
+  display: flex;
 }
 
 .ui-onboarding-org-card {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4);

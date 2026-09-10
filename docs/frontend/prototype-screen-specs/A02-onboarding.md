@@ -2,7 +2,7 @@
 
 **Revisado em 2026-09-09** — pós auditoria de spec visual (`docs/architecture/reviews/screen-spec-audit-2026-09-09/A02-audit-record.md`). Mudanças: as 3 rotas do plano agora nomeadas como estados desta tela (incluindo o fluxo de criação, antes "fora de escopo"), estados de convite/Membership completos, `tertiary`→`ghost`, motion explícito, tese visual própria.
 
-**Implementação parcial registrada em 2026-09-10 (D-255/D-2xx)** — `frontend/src/routes/Onboarding.tsx`
+**Implementação parcial registrada em 2026-09-10 (D-255/D-256)** — `frontend/src/routes/Onboarding.tsx`
 implementa o caso `≥1 organização utilizável` como grid de cards (`Suas organizações`) reaproveitando
 o form de criação já existente (embutido abaixo do grid, não um `Dialog`) em vez de rota separada.
 **3 elementos desta spec foram investigados e confirmados como lacuna REAL de backend, não wiring

@@ -232,6 +232,15 @@ export interface StorageQuotaUsage {
   usedBytes: number;
   reservedBytes: number;
   availableBytes: number;
+  /** A FRACTION in `0..1` (e.g. `0.1` = 10%), never a `0..100` percentage - confirmed against the
+   * backend's own computation, `usedPercent = committed / quota.limitBytes`
+   * (`src/modules/document-archive/domain/storage-quota.ts`), and its test
+   * (`test/unit/document-archive/storage-quota.test.ts`: `expect(usage.usedPercent).toBeCloseTo(0.1)`
+   * for a 10%-committed fixture). Codex block-review finding (D-256): every frontend call site
+   * multiplies this by 100 for display and feeds it directly to `<progress max={1}>` - a
+   * `0..100` value here would silently render as e.g. "8750%" - see
+   * `frontend/test/routes/{Overview,Settings}.test.tsx`'s `usedPercent: 0.875`/`0.5` fixtures
+   * asserting the correctly-rendered "87%"/"50%" text for the pinned frontend-side contract. */
   usedPercent: number;
   warningLevel: "OK" | "WARNING" | "CRITICAL" | "OVER";
 }

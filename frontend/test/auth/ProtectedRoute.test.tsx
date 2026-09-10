@@ -1,10 +1,14 @@
 /**
  * ProtectedRoute (A01 real architecture — see docs/frontend/prototype-screen-specs/A01-sign-in.md
- * post-correction): unauthenticated/expired/refresh-failed states must trigger exactly one
- * `reauthenticate()` full-page-redirect call and render the neutral "Redirecionando…" structural
- * placeholder, never a dead end or a flash of protected content. AUTHENTICATED renders children;
- * SESSION_REFRESHING renders the neutral initial-loading state (no "validating session" wording,
- * D-136/D-A).
+ * post-correction): proves the state -> render/call mapping ONLY - for each `AuthState`, does it
+ * render children/a loading placeholder/a redirecting placeholder, and does it call
+ * `reauthenticate()` exactly once on the initial render of a redirect-triggering state. It does
+ * NOT prove (Codex block-review finding, D-256, corrected scope claim): that the real full-page
+ * navigation happens, that `returnTo` reaches `/bff/login` correctly, or that a re-render of the
+ * SAME state never calls `reauthenticate()` a second time (this file mocks `useAuth` itself, so
+ * `reauthenticate` here is a fresh spy per test, not the real hook's memoized callback) - those
+ * are `AuthContext.test.tsx` (URL/returnTo) and `e2e/smoke.spec.ts` (the real page.goto/redirect
+ * request assertions) reponsibility, not this component-level test's.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";

@@ -1,6 +1,6 @@
 # A01 — Entrar (Sign In)
 
-**Corrigida em 2026-09-10 (D-255/D-2xx)** — a versão anterior (revisada em 2026-09-09) descrevia
+**Corrigida em 2026-09-10 (D-255/D-256)** — a versão anterior (revisada em 2026-09-09) descrevia
 um formulário de e-mail/senha client-side com rotas `/login`, `/auth/callback`, `/session-expired`
 próprias. Essa descrição contradiz a arquitetura real já `APPROVED` (6 rodadas Claude↔Codex,
 D-053/D-054, `docs/frontend/frontend-production-foundation.md` F1, FPF-G1 auditado: nenhum token
@@ -79,5 +79,8 @@ padrão do app (`OnboardingGate` decide A02 vs. conteúdo normal, conforme `acti
 
 - `frontend/test/auth/AuthContext.test.tsx` — os 6 estados do `AuthState`, incluindo
   `reportUnauthorized`/`logout`/`logoutAll`.
-- `frontend/test/auth/ProtectedRoute.test.tsx` — mapeamento estado → render/redirect, um único
-  `reauthenticate()` por transição, nunca um flash de conteúdo protegido.
+- `frontend/test/auth/ProtectedRoute.test.tsx` — mapeamento estado → render/`reauthenticate()`
+  (uma chamada no render inicial de cada estado que dispara redirect), nunca um flash de conteúdo
+  protegido. A navegação de página inteira real e o `returnTo` chegando a `/bff/login` são
+  provados por `e2e/smoke.spec.ts`, não por este teste de componente (correção de escopo, Codex
+  block-review D-256).
