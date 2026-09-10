@@ -1,0 +1,11 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 3 (final) do design de armazenamento real de arquivo no caminho guest. Rodada 2 você deu 8,4/10 NEEDS FIXES, 6/6 achados originais RESOLVIDOS, 1 achado NOVO bloqueante (presign fresco vs. deadline GSI8 do reconciliador) e 2 menores.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md — responde aos 3 achados da Rodada 2 (o bloqueante e os 2 menores).
+
+Reavalie o achado bloqueante especificamente: a correção proposta é presignar para min(PRESIGN_TTL_SECONDS, tempo restante até o deadline GSI8 original) em qualquer replay, nunca reabrir uma janela de 600s nova; se o tempo restante já é <= 0, não presignar (uploadUrl ausente na resposta); a resposta nunca expõe scanStatus interno ao guest (disciplina anti-enumeração), só uploadUrl presente/ausente. Isso fecha genuinamente a race que você apontou, ou ainda existe uma janela real de inconsistência com o worker de reconciliação (src/workers/... que aplica TIMEOUT)?
+
+Dê o veredito final:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+Se APPROVED: confirme que os 3 achados desta rodada mais os 6 das rodadas anteriores estão todos genuinamente fechados.
+Se NEEDS FIXES: liste exatamente o que falta, com a maior precisão possível (isto seria a 4a rodada).

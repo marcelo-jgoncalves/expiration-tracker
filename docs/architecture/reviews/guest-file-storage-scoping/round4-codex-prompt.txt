@@ -1,0 +1,15 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 4 (provavelmente final) do design de armazenamento real de arquivo no caminho guest. Rodada 3 você deu 8,8/10 NEEDS FIXES: 8/9 achados fechados, 1 residual — race entre um PUT tardio/evento S3 tardio e o worker de reconciliação declarando TIMEOUT.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md — propõe um novo método `confirmUploadInFlight()` chamado pelo frontend logo após o S3 confirmar 200 no PUT, que estende transacionalmente (OCC, condicionado, no máximo uma vez) o deadline GSI8 do DocumentFile, sem tocar scanStatus nem o gate STARTER/PROMOTER.
+
+Verifique contra o código real:
+- src/modules/document-archive/domain/document-file.ts (deriveDocumentFileMaintenanceDue, documentFileGsi8Keys)
+- src/workers/document-file-reconciliation/reconciliation.ts (como o worker decide TIMEOUT, para confirmar que uma condição OCC no DocumentFile realmente bloqueia a corrida)
+
+Avalie: essa correção fecha genuinamente a race (reduz a uma janela de milissegundos de round-trip de rede do próprio browser, não mais ~600s), ou ainda existe uma janela real e concreta (não apenas "teoricamente todo sistema distribuído tem uma janela")? Considere também: essa mudança introduz algum problema NOVO (ex: guest pode abusar de `confirmUploadInFlight` de alguma forma não coberta pelo limite de uma extensão por arquivo; interação com idempotência de submitEvidence; falta de fileId no contrato anterior)?
+
+Dê o veredito final:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+Se APPROVED: confirme que todos os achados de todas as rodadas anteriores (1 a 4) estão genuinamente fechados, sem exceção.
+Se NEEDS FIXES: seja específico sobre o que falta.

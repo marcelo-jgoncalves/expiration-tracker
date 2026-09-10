@@ -1,0 +1,2109 @@
+OpenAI Codex v0.154.0
+--------
+workdir: /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a08c7c-b03a-7040-afed-20ea63c30f6f
+--------
+user
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 5 do design de armazenamento real de arquivo no caminho guest. Rodada 4 você deu 7,8/10 NEEDS FIXES: a arbitragem OCC do mecanismo de extensão de deadline é tecnicamente correta, mas apontou 4 bugs de implementação concretos (expressão de condição para campo esparso incorreta; extensão não cobria scanStatus=SCANNING; idempotência mal definida; fileId aceito sem autorização) + CSRF/rate-limit implícitos + linguagem de garantia superestimada.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md — responde aos 6 pontos, um a um, com expressões DynamoDB explícitas e reaproveitando o padrão de idempotência já existente em submitEvidence() (guest-document-access-service.ts:481-494).
+
+Verifique contra o código real:
+- src/modules/document-archive/application/guest-document-access-service.ts (padrão de idempotência real em submitEvidence, resolveSession)
+- src/modules/document-archive/domain/document-file.ts (isNonTerminalFileScanStatus)
+- Qualquer buildVersionedUpdate/extraConditions existente no repo para confirmar que "attribute_not_exists(x) OR x <> :true" é o padrão real já usado (grep por "attribute_not_exists" em src/modules/document-archive se útil)
+
+Dê o veredito final:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+Se APPROVED: confirme que TODOS os achados de TODAS as rodadas (1-5) estão genuinamente fechados.
+Se NEEDS FIXES: seja específico — isto seria a 6a rodada, então só aponte um problema se for um bug real e concreto, não uma preferência estilística.
+
+codex
+Vou conferir a reconciliação da Rodada 5 contra as implementações citadas e os helpers OCC reais; depois fecho com a nota no formato exato pedido.
+exec
+/bin/bash -lc "sed -n '1,260p' docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md && sed -n '430,540p' src/modules/document-archive/application/guest-document-access-service.ts && sed -n '1,240p' src/modules/document-archive/domain/document-file.ts && rg -n \"attribute_not_exists|buildVersionedUpdate|extraConditions|resolveSession\" src/modules/document-archive src/shared" in /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+ succeeded in 0ms:
+# Rodada 5 — Reconciliação final Claude: correções de implementação do ack
+
+Nota Rodada 4 (Codex, blind): 7,8/10 NEEDS FIXES — a arbitragem OCC em si é tecnicamente correta
+("Essa parte está tecnicamente correta"), mas a Rodada 4 introduziu 4 bugs de implementação
+concretos + 1 lacuna de autorização + 1 reformulação de linguagem. Corrige todos, precisamente.
+
+## #1 (BLOQUEANTE) — expressão de condição para campo esparso
+
+Corrigido: `attribute_not_exists(deadlineExtended) OR deadlineExtended <> :true` (nunca só
+`deadlineExtended <> true` — DynamoDB não trata ausência como diferente-de-verdadeiro
+automaticamente). Mesma disciplina de `extraConditions` já usada em outros `buildVersionedUpdate()`
+deste módulo (ex. `reserveFiles()`'s `attribute_not_exists(#sealed) OR #sealed = :false`).
+
+## #2 (BLOQUEANTE) — extensão deve admitir `PENDING_UPLOAD` OU `SCANNING`
+
+Corrigido: condição de estado passa de `scanStatus = :pendingUpload` para
+`isNonTerminalFileScanStatus`-equivalente em expressão DynamoDB:
+`#status IN (:pendingUpload, :scanning)` — cobre o caso real apontado (evento físico chega rápido,
+`applyFileScanResult()` já moveu para `SCANNING` antes do ack chegar). Nunca estende um arquivo já
+terminal (`CLEAN`/`REJECTED`/`UNSUPPORTED`/`TIMEOUT`).
+
+## #3 (BLOQUEANTE) — idempotência corrigida (sucesso silencioso real, não conflito)
+
+Mesmo padrão de `isTransactionCanceled` + releitura que `submitEvidence()` já usa
+(`guest-document-access-service.ts:481-494`), nunca um padrão novo:
+
+```ts
+try {
+  await this.store.transactWrite([{ Update: /* condição #1 + #2 acima */ }]);
+  return { extended: true };
+} catch (err) {
+  if (!isTransactionCanceled(err)) throw err;
+  const fresh = await this.store.get<DocumentFile>(documentFileKey(...));
+  if (fresh?.deadlineExtended === true && isNonTerminalFileScanStatus(fresh.scanStatus)) {
+    // Nossa própria extensão anterior (ou uma chamada concorrente idêntica) já venceu —
+    // sucesso idempotente real, nunca reportado como conflito.
+    return { extended: true };
+  }
+  // scanStatus já terminal (TIMEOUT/CLEAN/REJECTED/UNSUPPORTED) — a corrida foi genuinamente
+  // perdida. Resposta neutra "expirado/já resolvido", mesma disciplina anti-enumeração.
+  return { extended: false };
+}
+```
+
+## #4 (BLOQUEANTE) — autorização do `fileId`, nunca aceito cru do cliente
+
+Corrigido: `confirmUploadInFlight()` NUNCA aceita `fileId`/`documentId` como parâmetro direto do
+guest (um `fileId` arbitrário não prova posse). Em vez disso, resolve a partir do MESMO registro de
+idempotência que `submitEvidence()` já grava
+(`{PK: TENANT#<t>#SUBJECT#<s>, SK: DOCREQUEST#<req>#SUBMIT#<idempotencyKey>}`,
+`resultSnapshot: {documentId, versionId, seq, fileId}` — `fileId` passa a fazer parte desse
+snapshot, correção adicional). O guest chama `confirmUploadInFlight(sessionToken, requestContext,
+idempotencyKey)` — SÓ o `idempotencyKey` da submissão original, nunca um identificador de arquivo
+solto. O serviço resolve a sessão (mesma disciplina de `resolveSession()`), lê o registro de
+idempotência pela chave derivada do `subjectId`/`documentRequestId` da SESSÃO (nunca de um valor
+enviado pelo cliente), confirma que existe, e só então usa `resultSnapshot.documentId`/`.fileId`
+internamente — o mesmo binding servidor-autoritativo que toda a disciplina anti-enumeração do
+módulo já exige em outro lugar.
+
+## #5 (MENOR) — CSRF/rate-limit explícitos
+
+Corrigido: assinatura completa —
+`confirmUploadInFlight(rawSessionToken: string, requestContext: { ip: string; csrfCookieValue:
+string | undefined; csrfHeaderValue: string | undefined }, idempotencyKey: string)` — MESMA
+resolução de sessão + MESMA checagem CSRF double-submit + MESMO rate limiter de
+`submitEvidence()` (reaproveitados literalmente, não uma segunda cópia da lógica).
+
+## #6 (RESIDUAL) — linguagem corrigida, nunca reclama garantia absoluta
+
+A alegação final não é "todo PUT confirmado pelo S3 é sempre aceito" — é: **a janela de corrida
+real fica limitada ao round-trip de rede entre o S3 responder 200 e a chamada
+`confirmUploadInFlight()` chegar ao DynamoDB** (tipicamente dezenas a poucas centenas de
+milissegundos, não os ~600s originais) — um limite de admissão linearizável, não uma prova formal
+de zero-race em qualquer condição adversarial de rede. Consistente com a mesma classe de garantia
+que o resto do pipeline de scan já opera sob (eventual consistency entre S3/GuardDuty/EventBridge/
+SQS, nunca exatidão síncrona perfeita). Documentado explicitamente como tal em vez de implicitamente
+alegado como absoluto.
+
+## Pedido final ao Codex
+
+Reavalie com as 5 correções acima. Se ainda houver um bug de implementação concreto (não uma
+reformulação de garantia teórica), aponte-o com precisão de linha/expressão, como fez nas rodadas
+anteriores — esse rigor já produziu 2 rodadas de achados reais genuínos e é bem-vindo. Se ≥9,0,
+`APPROVED`.
+      requestId: resolved.request.documentRequestId,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      ...reviewQueueGsi5Keys(tenantId, "RECEIVED", now, versionId),
+    };
+
+    const event: DocumentVersionEvent = {
+      ...documentVersionEventKey(tenantId, documentId, 1, this.ids.newEventId()),
+      entityType: "DocumentVersionEvent",
+      tenantId,
+      documentId,
+      versionId,
+      type: "RECEIVED",
+      toState: "RECEIVED",
+      actor: `guest:${resolved.request.documentRequestId}`,
+      occurredAt: now,
+    };
+
+    const result: SubmitEvidenceResult = { documentId, versionId, seq: 1 };
+    const idempotencyRecord = {
+      ...idempotencyKey,
+      entityType: "IdempotencyRecord" as const,
+      tenantId,
+      payloadHash: `submitEvidence:${resolved.request.documentRequestId}:${input.idempotencyKey}`,
+      resultSnapshot: result,
+      createdAt: now,
+    };
+
+    const entries = [
+      // D-243: unconditional as of this decision (D-184's presence guard is removed — always
+      // required, always validated). Stays at position [0] (same `buildExistenceConditionCheck`/
+      // `documentTypeKey` as D-175/D-184); TOCTOU-safe by the same transaction, anti-enumeration
+      // `catch` below collapses nonexistent/`DEPRECATED` to the same generic guest error.
+      buildExistenceConditionCheck({ tableName: this.tableName, key: documentTypeKey(tenantId, documentTypeId), extra: { status: "ACTIVE" } }),
+      { Put: buildVersionedCreate(this.tableName, document as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, version as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, event as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, idempotencyRecord as unknown as Record<string, unknown> & EntityKey) },
+      {
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key: documentRequestKey(tenantId, subjectId, resolved.request.documentRequestId),
+          tenantId,
+          expectedVersion: resolved.request.version,
+          set: { status: "SUBMITTED", lastSubmissionId: versionId, submissionCount: resolved.request.submissionCount + 1 },
+          now,
+        }),
+      },
+    ];
+
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        const replay = await this.store.get<{ resultSnapshot: SubmitEvidenceResult } & EntityKey>(idempotencyKey);
+        if (replay) return replay.resultSnapshot;
+        // A genuine race (e.g. two near-simultaneous submits of the same session) or the tenant
+        // leaving ACTIVE — the guest never sees which; same anti-enumeration collapse as every
+        // other failure mode on this surface.
+        throw new GuestAccessInvalidError();
+      }
+      if (err instanceof TenantNotActiveError) throw new GuestAccessInvalidError();
+      throw err;
+    }
+
+    return result;
+  }
+
+  private async markOpened(request: DocumentRequest): Promise<void> {
+    try {
+      await this.store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: this.tableName,
+            key: documentRequestKey(authorizedTenantIdFromPersistedEntity(request), request.subjectId, request.documentRequestId),
+            tenantId: request.tenantId,
+            expectedVersion: request.version,
+            set: { status: "OPENED", lastOpenedAt: this.now() },
+          }),
+        },
+      ]);
+    } catch (err) {
+      // Best-effort — a concurrent read race (two near-simultaneous opens of the same link)
+      // must never block the guest from seeing the request's info.
+      if (!isTransactionCanceled(err)) throw err;
+    }
+  }
+}
+/**
+ * DocumentFile — D-163 (`docs/architecture/reviews/document-file-scoping/estado-final-
+ * consolidado.md`). Generalizes M6's proven upload/malware-scan pipeline
+ * (`src/modules/document/domain/{document.ts,malware-scan-result.ts,document-object-
+ * reference.ts}`) from "1 Document = 1 file, keyed by itemId" to "N files per
+ * DocumentVersion, keyed by versionId" — reuses the same evidence/object-reference types
+ * verbatim rather than redeclaring them.
+ *
+ * `scanStatus` mirrors M6's `DocumentStatus` taxonomy exactly (same terminal states, same
+ * meaning) — never a new vocabulary for the same concept.
+ */
+import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
+import type { UploadEvidence } from "../../document/domain/document.js";
+import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
+import type { MalwareEvidence } from "../../document/domain/malware-scan-result.js";
+import { formatVersionSeq } from "./document-version.js";
+
+// D-163 §1 (symmetric evidence correlation): reused verbatim, not redeclared — the first
+// physical event to arrive consolidates `quarantineObject` from its own observed triple, the
+// second verifies exact equality against it via this same function.
+export { sameObjectVersion } from "../../document/domain/document-object-reference.js";
+
+export type DocumentFileRole = "PRINCIPAL" | "ATTACHMENT";
+
+export type DocumentFileScanStatus = "PENDING_UPLOAD" | "SCANNING" | "CLEAN" | "REJECTED" | "UNSUPPORTED" | "TIMEOUT";
+
+/** Non-terminal states — a file in one of these can still be advanced by a physical event
+ * (S3 Object Created / GuardDuty finding) or by reconciliation timeout. */
+const NON_TERMINAL_SCAN_STATUSES: readonly DocumentFileScanStatus[] = ["PENDING_UPLOAD", "SCANNING"];
+
+export function isNonTerminalFileScanStatus(status: DocumentFileScanStatus): boolean {
+  return NON_TERMINAL_SCAN_STATUSES.includes(status);
+}
+
+export interface DocumentFile extends EntityKey {
+  entityType: "DocumentFile";
+  tenantId: string;
+  documentId: string;
+  versionId: string;
+  seq: number;
+  fileId: string;
+  role: DocumentFileRole;
+  scanStatus: DocumentFileScanStatus;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+  quarantineObject: DocumentObjectReference;
+  cleanObject?: DocumentObjectReference;
+  uploadEvidence?: UploadEvidence;
+  malwareEvidence?: MalwareEvidence;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  /** MaintenanceDueIndex pointer (D-179 slice 3/D-166 follow-up) — present only while
+   * `scanStatus` is non-terminal, removed atomically by the same transaction that reaches a
+   * terminal state. REPLACES the GSI5-based `fileReconciliationGsi5Keys()` pointer D-164/D-166
+   * defined: that mechanism was discovered, on re-reading the write path before this migration,
+   * to have never had a real writer (`reserveFiles()` never called it) — the reconciliation
+   * worker's Scan filtered on `attribute_exists(GSI5PK)` could therefore never find a real
+   * candidate in production. GSI8 is a clean replacement, not a second mechanism alongside a
+   * working one — same D-179 mandate the other 8 workers follow. */
+  GSI8PK?: string;
+  GSI8SK?: string;
+}
+
+export function documentFileKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): EntityKey {
+  return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}#FILE#${fileId}` };
+}
+
+/** Upload+scan window (D-179 slice 3) — mirrors the presign URL's own TTL
+ * (`document-archive-service.ts`'s `PRESIGN_TTL_SECONDS`, which imports this constant rather
+ * than duplicating it): the whole reserve->scan lifecycle is bounded by the same window the
+ * presigned upload URL itself expires under, so a file still non-terminal past this point can no
+ * longer even be uploaded through the URL it was issued, and TIMEOUT is the right verdict. */
+export const FILE_SCAN_TIMEOUT_SECONDS = 600;
+const MS_PER_SECOND = 1000;
+
+/** GSI8 (MaintenanceDueIndex, D-179) namespace this worker owns — the ONLY value any
+ * document-file-reconciliation-scoped IAM policy's `dynamodb:LeadingKeys` condition may
+ * reference (`infra/modules/dynamo-table/main.tf`), alongside the DLQ counterpart. */
+export const DOCUMENT_FILE_RECONCILIATION_WORK_TYPE = "DOCUMENT_FILE_RECONCILIATION";
+
+export interface MaintenanceDue {
+  dueAtIso: string;
+}
+
+/**
+ * deriveDocumentFileMaintenanceDue — D-179 slice 3's pure due-date function, same role as
+ * `deriveMembershipMaintenanceDue()`/`deriveInvitationMaintenanceDue()`: single source of truth
+ * reused by the write path (`reserveFiles()`), the backfill script, and the worker's own
+ * processing (via `applyFileScanTimeout`'s fresh re-read).
+ *
+ * Closer to Invitation's PENDING branch than to Membership's REMOVED branch: the due date is
+ * fully known at creation (`reserveFiles()`) — `createdAt + FILE_SCAN_TIMEOUT_SECONDS` — there is
+ * no later transition ("scan started") to hang it on, since SCANNING is just evidence arriving
+ * within the same fixed window, never a new clock start. `undefined` once terminal (never a real
+ * candidate again).
+ */
+export function deriveDocumentFileMaintenanceDue(file: Pick<DocumentFile, "scanStatus" | "createdAt">): MaintenanceDue | undefined {
+  if (!isNonTerminalFileScanStatus(file.scanStatus)) return undefined;
+  return { dueAtIso: new Date(Date.parse(file.createdAt) + FILE_SCAN_TIMEOUT_SECONDS * MS_PER_SECOND).toISOString() };
+}
+
+/** `GSI8PK=WORK#DOCUMENT_FILE_RECONCILIATION` / `GSI8SK=<dueAtIso>#TENANT#<tenantId>#<fileId>`
+ * (D-179's exact key spec, same shape as `membershipGsi8Keys()`/`invitationGsi8Keys()`) —
+ * `documentId`/`seq` are not embedded here since a `KEYS_ONLY` GSI8 Query already returns the
+ * base table's own `PK`/`SK`, which already encode them (`documentFileKey()`). */
+export function documentFileGsi8Keys(input: { dueAtIso: string; tenantId: AuthorizedTenantId; fileId: string }): { GSI8PK: string; GSI8SK: string } {
+  return {
+    GSI8PK: `WORK#${DOCUMENT_FILE_RECONCILIATION_WORK_TYPE}`,
+    GSI8SK: `${input.dueAtIso}#TENANT#${input.tenantId}#${input.fileId}`,
+  };
+}
+
+export interface FileUploadSpec {
+  role: DocumentFileRole;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export class InvalidFileSetError extends Error {
+  constructor(reason: string) {
+    super(`Invalid file set for reserveFiles: ${reason}`);
+    this.name = "InvalidFileSetError";
+  }
+}
+
+/** D-143 Decision 6: exactly one PRINCIPAL per batch. Pure validation, checked before any
+ * write is attempted — the actual concurrency race between two batches reserving the same
+ * DocumentVersion is closed separately, by the transaction's `fileSetSealed` fence in
+ * `DocumentArchiveService.reserveFiles()` (D-163 §2), never by this check alone. */
+export function assertExactlyOnePrincipal(files: readonly FileUploadSpec[]): void {
+  if (files.length === 0) throw new InvalidFileSetError("at least one file is required");
+  const principals = files.filter((f) => f.role === "PRINCIPAL");
+  if (principals.length !== 1) throw new InvalidFileSetError(`exactly one PRINCIPAL is required, got ${principals.length}`);
+}
+
+/** D-163 §2: caps a single `reserveFiles` batch well under `TransactWriteItems`'s 100-action
+ * limit (N Put + 1 Update = N+1 actions in the worst case). */
+export const MAX_FILES_PER_VERSION = 20;
+src/shared/errors/app-error.ts:373: * `AcceptInvitation` call failed its transactional guard (`attribute_not_exists(consumedAt) AND
+src/shared/errors/app-error.ts:548: * `Put` (`attribute_not_exists`) loses the race — the tenant already has a different
+src/shared/tenant-lifecycle/system-mutation.ts:55:  buildVersionedUpdate,
+src/shared/tenant-lifecycle/system-mutation.ts:121:       * `attribute_not_exists(PK) OR begins_with(PK, "TENANT#<tenantId>#")` — deleting an
+src/shared/tenant-lifecycle/system-mutation.ts:131:       * codebase, which routes through `buildVersionedUpdate`/`buildVersionedDelete`): a purge
+src/shared/tenant-lifecycle/system-mutation.ts:183:      const extraConditions: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }> = [
+src/shared/tenant-lifecycle/system-mutation.ts:186:          // of the version check buildVersionedUpdate already does — belt-and-suspenders
+src/shared/tenant-lifecycle/system-mutation.ts:234:          extraConditions.push({
+src/shared/tenant-lifecycle/system-mutation.ts:244:          Update: buildVersionedUpdate({
+src/shared/tenant-lifecycle/system-mutation.ts:252:            extraConditions,
+src/shared/tenant-lifecycle/system-mutation.ts:264:            // `#set0`/`:set0` naming deliberately mirrors what `buildVersionedUpdate` generates
+src/shared/tenant-lifecycle/system-mutation.ts:341:              "attribute_not_exists(PK) OR begins_with(PK, :purgeTenantPrefix) OR tenantId = :purgeTenantId OR organizationId = :purgeTenantId",
+src/shared/dynamodb/tenant-purge-scan.ts:100:   * (`attribute_not_exists(PK)` half), and (B5 fix) re-asserts the stored `tenantId` attribute
+src/shared/dynamodb/tenant-purge-scan.ts:114:          ConditionExpression: "attribute_not_exists(PK) OR tenantId = :expectedTenantId",
+src/shared/outbox/relay-store.ts:11:   * `ConditionExpression: attribute_not_exists(leaseOwner) OR leaseExpiresAt < :now`.
+src/modules/document-archive/ports/document-archive-store.ts:57:  /** PutItem conditioned on attribute_not_exists(PK) AND attribute_not_exists(SK) — true if
+src/modules/document-archive/ports/guest-credential-delivery-marker-store.ts:44:  /** Creates the marker as `CLAIMED` (fresh, `attribute_not_exists`), or - if it already exists
+src/shared/tenant-lifecycle/tenant-business-mutation.ts:48: *    builder enforces it); `buildVersionedUpdate`/`buildVersionedDelete` read it from
+src/shared/dynamodb/occ.ts:35:   * or with any `set`/`remove` generated key (#set<i>/:set<i>/#rem<j>) - buildVersionedUpdate
+src/shared/dynamodb/occ.ts:38:  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+src/shared/dynamodb/occ.ts:50:   * `buildVersionedUpdate()` below never hits this (it always maps at least #version/
+src/shared/dynamodb/occ.ts:70:  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+src/shared/dynamodb/occ.ts:74: * Private core shared by `buildVersionedUpdate()` (tenant-fenced, every ordinary business
+src/shared/dynamodb/occ.ts:81: * `extraConditions` composition and placeholder-collision detection are a single implementation,
+src/shared/dynamodb/occ.ts:125:  for (const extra of input.extraConditions ?? []) {
+src/shared/dynamodb/occ.ts:127:      if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved/generated key: ${nameKey}`);
+src/shared/dynamodb/occ.ts:131:      if (valueKey in values) throw new Error(`extraConditions value placeholder collides with a reserved/generated key: ${valueKey}`);
+src/shared/dynamodb/occ.ts:154:export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateCommandInput {
+src/shared/dynamodb/occ.ts:161:   * structure as `buildVersionedUpdate()`, for an entity that genuinely has no tenant. */
+src/shared/dynamodb/occ.ts:166: * Account-scoped sibling of `buildVersionedUpdate()` (D-197 fatia 3/5) - identical
+src/shared/dynamodb/occ.ts:170: * use this for an entity that has (or could ever have) a real tenant - `buildVersionedUpdate()`
+src/shared/dynamodb/occ.ts:187: * implementation-blueprint.md #5.2: ConditionExpression attribute_not_exists(PK) AND
+src/shared/dynamodb/occ.ts:188: * attribute_not_exists(SK). Caller supplies `item` already containing PK/SK/tenantId/version=1.
+src/shared/dynamodb/occ.ts:194:    ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+src/shared/dynamodb/occ.ts:208: * `buildVersionedUpdate`'s `extraConditions`.
+src/shared/dynamodb/occ.ts:271: * observed, same OCC discipline as `buildVersionedUpdate`, just for `DeleteItem` instead of
+src/shared/dynamodb/occ.ts:272: * `UpdateItem`). `extraConditions` uses the same collision-checked merge as
+src/shared/dynamodb/occ.ts:273: * `buildVersionedUpdate` - see that function's docs.
+src/shared/dynamodb/occ.ts:280:  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+src/shared/dynamodb/occ.ts:286:  for (const extra of input.extraConditions ?? []) {
+src/shared/dynamodb/occ.ts:288:      if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved key: ${nameKey}`);
+src/shared/dynamodb/occ.ts:292:      if (valueKey in values) throw new Error(`extraConditions value placeholder collides with a reserved key: ${valueKey}`);
+src/shared/dynamodb/occ.ts:315: * "hasn't changed since scan" intent as `buildVersionedDelete`'s `extraConditions`, just without
+src/shared/dynamodb/occ.ts:453: * `buildVersionedUpdate`, whose reserved condition requires `tenantId` and is therefore unusable
+src/shared/dynamodb/occ.ts:458: * `buildVersionedUpdate`, not a generalization of this narrow helper.
+src/shared/dynamodb/occ.ts:465:    ConditionExpression: "attribute_not_exists(#attr)",
+src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts:25:          ConditionExpression: "attribute_not_exists(leaseOwner) OR leaseExpiresAt < :now",
+src/shared/outbox/outbox.ts:187:      ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+src/modules/document-archive/persistence/dynamodb-guest-credential-delivery-marker-store.ts:43:          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+src/modules/document-archive/persistence/dynamodb-document-archive-store.ts:43:        new PutCommand({ TableName: this.tableName, Item: item, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" }),
+src/shared/idempotency/idempotency.ts:4: * `PutItem attribute_not_exists(PK)` as required by data-model.md §4.
+src/modules/document-archive/application/external-share-link-service.ts:23:  buildVersionedUpdate,
+src/modules/document-archive/application/external-share-link-service.ts:229:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/external-share-link-service.ts:239:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/external-share-link-service.ts:280:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/external-share-link-service.ts:286:          extraConditions: [{ expression: "#status = :active", names: { "#status": "status" }, values: { ":active": "ACTIVE" } }],
+src/modules/document-archive/application/external-share-link-service.ts:291:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/guest-document-access-service.ts:29:import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
+src/modules/document-archive/application/guest-document-access-service.ts:332:  private async resolveSession(rawSessionToken: string, requestContext: { ip: string }): Promise<ResolvedSession> {
+src/modules/document-archive/application/guest-document-access-service.ts:363:    const resolved = await this.resolveSession(rawSessionToken, requestContext);
+src/modules/document-archive/application/guest-document-access-service.ts:470:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/guest-document-access-service.ts:503:          Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:26:import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+src/modules/document-archive/application/apply-file-scan-result.ts:136:            Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:180:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:193:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:203:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:273:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:284:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:294:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:331: * exact same counter/GSI8-removal mechanism (buildVersionedUpdate, no new pattern) - the only
+src/modules/document-archive/application/apply-file-scan-result.ts:354:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:366:          extraConditions: [
+src/modules/document-archive/application/apply-file-scan-result.ts:374:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/apply-file-scan-result.ts:384:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-request-recurrence-service.ts:14: * `buildVersionedUpdate` directly against the store rather than round-tripping through
+src/modules/document-archive/application/document-request-recurrence-service.ts:18:import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+src/modules/document-archive/application/document-request-recurrence-service.ts:119:      Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-request-recurrence-service.ts:213:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-request-recurrence-service.ts:250:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-request-recurrence-service.ts:309:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:15: * entries — `IdempotencyRecord` Put (`attribute_not_exists(PK)`), `RequestAccessCredential`
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:28:  buildVersionedUpdate,
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:168:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:175:          extraConditions: [
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:179:              expression: "attribute_not_exists(#activeSel) OR #activeSel = :expectedPointer",
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:181:              // When absent at read-time, the OR's first branch (attribute_not_exists) is what
+src/modules/document-archive/application/document-request-credential-issuance-service.ts:196:          ConditionExpression: "attribute_not_exists(PK)",
+src/modules/document-archive/application/document-archive-service.ts:22:  buildVersionedUpdate,
+src/modules/document-archive/application/document-archive-service.ts:698:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:705:          extraConditions: [
+src/modules/document-archive/application/document-archive-service.ts:707:            { expression: "attribute_not_exists(#sealed) OR #sealed = :false", names: { "#sealed": "fileSetSealed" }, values: { ":false": false } },
+src/modules/document-archive/application/document-archive-service.ts:716:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:723:          extraConditions: [
+src/modules/document-archive/application/document-archive-service.ts:815:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:822:      extraConditions: [{ expression: "#sealed = :true", names: { "#sealed": "fileSetSealed" }, values: { ":true": true } }],
+src/modules/document-archive/application/document-archive-service.ts:874:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:939:      Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:955:          Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:963:            extraConditions: [{ expression: "#docId = :docId AND #st = :acceptedState", names: { "#docId": "documentId", "#st": "state" }, values: { ":docId": documentId, ":acceptedState": "ACCEPTED" } }],
+src/modules/document-archive/application/document-archive-service.ts:978:      Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:986:        extraConditions: [
+src/modules/document-archive/application/document-archive-service.ts:1065:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1097:            Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1156:    // `attribute_not_exists` (not by a read-then-write), and the Subject's existence/status is
+src/modules/document-archive/application/document-archive-service.ts:1483:        Update: buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1644:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1736:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1771:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1849:   * createDocumentType — D-173 §3. `[0] Put(DocumentType, attribute_not_exists), [1]
+src/modules/document-archive/application/document-archive-service.ts:1850:   * Put(pointer, attribute_not_exists), [2] fence]`. Position 1 (the pointer) is what actually
+src/modules/document-archive/application/document-archive-service.ts:1936:   * documentTypeId=:self), [2] Put(new pointer, attribute_not_exists), [3] fence]`.
+src/modules/document-archive/application/document-archive-service.ts:1949:      const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:1967:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2011:   * expectedVersion, status flip), [1] fence]`. Each direction's `extraConditions` fences the
+src/modules/document-archive/application/document-archive-service.ts:2036:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2043:      extraConditions: [{ expression: "#st = :from", names: { "#st": "status" }, values: { ":from": fromStatus } }],
+src/modules/document-archive/application/document-archive-service.ts:2111:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2165:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2289:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2320:  /** Same shape as `createDocumentType` (D-173 §3): `[0] Put(template, attribute_not_exists),
+src/modules/document-archive/application/document-archive-service.ts:2321:   * [1] Put(name pointer, attribute_not_exists), [2] fence]`. Position 1 is what actually closes
+src/modules/document-archive/application/document-archive-service.ts:2372:   * editable (409, fenced by `extraConditions` on the FROM status, not just by `expectedVersion`)
+src/modules/document-archive/application/document-archive-service.ts:2397:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2404:      extraConditions: [{ expression: "#st = :active", names: { "#st": "status" }, values: { ":active": "ACTIVE" } }],
+src/modules/document-archive/application/document-archive-service.ts:2503:   * N × Put(Requirement, attribute_not_exists) + N × Put(name pointer, attribute_not_exists)
+src/modules/document-archive/application/document-archive-service.ts:2680:    const update = buildVersionedUpdate({
+src/modules/document-archive/application/document-archive-service.ts:2689:      extraConditions: [{ expression: "#st = :from", names: { "#st": "status" }, values: { ":from": fromStatus } }],
+
+codex
+A resposta fecha corretamente os dois erros de condição mais diretos: ausência do atributo esparso e os dois estados não terminais. Estou agora validando os detalhes menos óbvios do binding via registro de idempotência — especialmente formato da chave, snapshot e ordem de CSRF/rate limit — porque é aí que ainda poderia existir um bug concreto.
+exec
+/bin/bash -lc "sed -n '1,430p' src/modules/document-archive/application/guest-document-access-service.ts && sed -n '1,190p' src/shared/dynamodb/occ.ts && sed -n '670,745p' src/modules/document-archive/application/document-archive-service.ts && sed -n '330,405p' src/modules/document-archive/application/apply-file-scan-result.ts && rg -n \"guest-file-storage-scoping|Rodada [1-4]|NOTA:|NEEDS FIXES|APPROVED\" docs/architecture/reviews/guest-file-storage-scoping -g '*.md'" in /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+ succeeded in 0ms:
+/**
+ * GuestDocumentAccessService — D-143 Decision 4, the document-archive analogue of
+ * `src/modules/subject/application/guest-submission-service.ts`. NEVER touches
+ * `RequestContext`/`authorize()` — the guest is validated only by credential/session tokens,
+ * deliberately outside normal RBAC (same posture as the subject-module precedent).
+ *
+ * Three layers, three entry points:
+ *  1. `resolveCredential()` — validates a `RequestAccessCredential` token end to end (parse ->
+ *     rate limit BEFORE lookup, to avoid an existence oracle -> pointer lookup -> dummy-safe
+ *     secret compare -> expiry/revocation -> DocumentRequest liveness).
+ *  2. `startGuestSession()` — the ONLY way a `GuestSession` is minted (Decision 4: never
+ *     automatically from the credential alone, an explicit human interstitial action every
+ *     time — see `guest-session.ts`'s doc comment for why).
+ *  3. `submitEvidence()` — validates a `GuestSession` token (same resolve discipline as the
+ *     credential) + CSRF double-submit + its OWN idempotency key (never the credential/session,
+ *     so a network retry can never double-create a DocumentVersion), then creates a brand-new
+ *     Document + DocumentVersion landing at RECEIVED (C2, `document-domain-functional-decisions.md`:
+ *     "Todo upload externo deve chegar como RECEIVED e depender de aceite interno" — guest
+ *     uploads must NEVER auto-accept) in one `TransactWriteItems`, fenced through
+ *     `executeTenantBusinessMutation` exactly like the subject-module precedent.
+ *
+ * Anti-enumeration discipline (Decision 4, mirrors `GuestTokenInvalidError`): every failure mode
+ * of every one of the three entry points — malformed/nonexistent/wrong-secret/expired/revoked/
+ * rate-limited/CSRF-mismatch — collapses to the SAME `GuestAccessInvalidError`, with no `details`
+ * populated (`AppError.toJSON()` serializes `details` into the HTTP response).
+ */
+import { AppError, ValidationError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
+import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
+import { documentTypeKey, type DocumentType } from "../domain/document-type.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
+import {
+  epochSecondsFromIso,
+  hmacRequestAccessCrypto,
+  issueRequestAccessCredential,
+  parseRequestAccessToken,
+  requestAccessCredentialKey,
+  requestAccessSecretMatches,
+  type IssuedRequestAccessCredential,
+  type RequestAccessCredential,
+} from "../domain/request-access-credential.js";
+import {
+  GUEST_SESSION_TTL_SECONDS,
+  guestSessionCsrfMatches,
+  guestSessionKey,
+  guestSessionSecretMatches,
+  hmacGuestSessionCrypto,
+  issueGuestSession,
+  parseGuestSessionToken,
+  type GuestSession,
+  type IssuedGuestSession,
+} from "../domain/guest-session.js";
+import { documentRequestKey, isDocumentRequestLive, type DocumentRequest } from "../domain/document-request.js";
+import { requirementKey } from "../domain/requirement.js";
+import { trackedSubjectKeyForFence } from "../domain/requirement-template.js";
+import { documentKey, documentGsi1Keys, documentGsi2Keys, type Document } from "../domain/document.js";
+import { documentVersionKey, reviewQueueGsi5Keys, type DocumentVersion } from "../domain/document-version.js";
+import { documentVersionEventKey, type DocumentVersionEvent } from "../domain/document-version-event.js";
+import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
+import type { DocumentArchiveIdGenerator } from "./id-generator.js";
+import type { DocumentArchiveGuestRateLimiter } from "./document-archive-guest-rate-limiter.js";
+
+/** Single generic error for every guest-auth/CSRF/rate-limit failure mode (Decision 4). */
+export class GuestAccessInvalidError extends AppError {
+  constructor() {
+    super({ code: "GUEST_ACCESS_INVALID", category: "AUTH", message: "Invalid, expired, or unauthorized guest access.", retryable: false });
+    this.name = "GuestAccessInvalidError";
+  }
+}
+
+const RATE_LIMIT_PER_MINUTE = 30;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
+
+export interface GuestDocumentAccessServiceDeps {
+  store: DocumentArchiveStore;
+  tableName: string;
+  ids: DocumentArchiveIdGenerator;
+  rateLimiter: DocumentArchiveGuestRateLimiter;
+  pepper: string;
+  now?: () => string;
+}
+
+export interface ResolvedCredential {
+  credential: RequestAccessCredential;
+  request: DocumentRequest;
+  /** G02 (Block 6, D-2xx) — the guest wizard's own card copy ("{Fornecedor} solicitou evidência
+   * para o requisito: {Requisito}") needs a human-readable name, never the opaque
+   * subjectId/requirementId this service otherwise deals in exclusively. Best-effort/absent-safe
+   * (`?`): a Subject/Requirement deleted after the credential was issued must never turn an
+   * otherwise-valid guest session into a hard failure — the UI degrades to omitting the name,
+   * same "no fabricated value" discipline as the rest of this module. */
+  subjectDisplayName?: string;
+  requirementName?: string;
+}
+
+export interface ResolvedSession {
+  session: GuestSession;
+  request: DocumentRequest;
+}
+
+export interface IssueCredentialInput {
+  tenantId: string;
+  subjectId: string;
+  requirementId: string;
+  documentRequestId: string;
+  /** TTL for the credential — must equal the business Request's deadline (Decision 4). Callers
+   * (the future recurrence/DocumentRequest-creation flow) always supply this explicitly; this
+   * service never invents a default TTL. */
+  expiresAt: string;
+}
+
+export interface StartGuestSessionResult {
+  session: IssuedGuestSession;
+  expiresAt: string;
+  /** G02 (Block 6, D-2xx) — see `ResolvedCredential`'s own doc comment; startGuestSession is the
+   * ONE call G02 actually makes on page load (it never calls the bare layer-1 GET route
+   * directly, see `document-archive-guest-handlers.ts`'s header comment), so this is the single
+   * place the wizard's card copy gets its display names from. */
+  subjectDisplayName?: string;
+  requirementName?: string;
+}
+
+export interface SubmitEvidenceInput {
+  fileName: string;
+  /** Mandatory since D-243 (clean cutover, no coexistence with the old free-text `documentType`
+   * field D-184 had left optional) — always validated against the tenant's DocumentType catalog
+   * via the transactional ConditionCheck below. */
+  documentTypeId: string;
+  /** Idempotency key OWNED by this call, distinct from the credential/session token — a network
+   * retry replaying the same key must never double-create a DocumentVersion. */
+  idempotencyKey: string;
+}
+
+export interface SubmitEvidenceResult {
+  documentId: string;
+  versionId: string;
+  seq: number;
+}
+
+/** Deliberately minimal — never exposes `metadataFields`/`status`/timestamps/`version` to a
+ * guest, only what a submission UI needs to populate a `documentType` choice. */
+export interface GuestDocumentTypeSummary {
+  documentTypeId: string;
+  displayName: string;
+}
+
+export class GuestDocumentAccessService {
+  private readonly store: DocumentArchiveStore;
+  private readonly tableName: string;
+  private readonly ids: DocumentArchiveIdGenerator;
+  private readonly rateLimiter: DocumentArchiveGuestRateLimiter;
+  private readonly pepper: string;
+  private readonly now: () => string;
+
+  constructor(deps: GuestDocumentAccessServiceDeps) {
+    this.store = deps.store;
+    this.tableName = deps.tableName;
+    this.ids = deps.ids;
+    this.rateLimiter = deps.rateLimiter;
+    this.pepper = deps.pepper;
+    this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  /** Issuance entry point — normally invoked by an authenticated internal flow when a
+   * DocumentRequest is created (recurrence's job, D-143 Decision 8, a separate follow-up task).
+   * Kept here as the minimal, explicit extension point this task needs: guest access cannot be
+   * exercised end to end without SOME way to mint a credential. */
+  async issueCredential(input: IssueCredentialInput): Promise<IssuedRequestAccessCredential> {
+    const issued = issueRequestAccessCredential(this.pepper);
+    const now = this.now();
+    const credential: RequestAccessCredential = {
+      ...requestAccessCredentialKey(issued.selectorHash),
+      entityType: "RequestAccessCredential",
+      selectorHash: issued.selectorHash,
+      secretHash: issued.secretHash,
+      tenantId: input.tenantId,
+      subjectId: input.subjectId,
+      requirementId: input.requirementId,
+      documentRequestId: input.documentRequestId,
+      tokenVersion: 1,
+      expiresAt: input.expiresAt,
+      purgeAfterTtl: epochSecondsFromIso(input.expiresAt),
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    const created = await this.store.putIfAbsent(credential);
+    if (!created) {
+      // Astronomically unlikely selector collision (128 bits) — never silently overwrite an
+      // existing credential pointer.
+      throw new ValidationError("Could not issue credential (selector collision).");
+    }
+    return issued;
+  }
+
+  /** Layer 1: validates a `RequestAccessCredential` token end to end. Never mints a session —
+   * callers that only need to SHOW request info (an interstitial page) call this alone. */
+  async resolveCredential(rawToken: string, requestContext: { ip: string }): Promise<ResolvedCredential> {
+    const parsed = parseRequestAccessToken(rawToken);
+    if (!parsed) throw new GuestAccessInvalidError();
+
+    const selectorHash = hmacRequestAccessCrypto.hash(this.pepper, parsed.selector);
+
+    // Rate limit consumed BEFORE lookup, by both the selector (computable even if no pointer
+    // exists) and IP — Decision 4's multidimensional requirement, applied at the earliest point
+    // an oracle could otherwise form (same discipline as GuestSubmissionService.resolveToken).
+    try {
+      await this.rateLimiter.consumeBoth({ requestKey: selectorHash, ip: requestContext.ip, limit: RATE_LIMIT_PER_MINUTE, windowSeconds: RATE_LIMIT_WINDOW_SECONDS });
+    } catch {
+      throw new GuestAccessInvalidError();
+    }
+
+    const pointer = await this.store.get<RequestAccessCredential>(requestAccessCredentialKey(selectorHash));
+
+    // Dummy anti-timing path — even when no pointer exists, still compute a hash and a
+    // timingSafeEqual comparison so response time never depends on selector existence. The dummy
+    // hash's fixed prefix can never collide with a real secretHash (issueRequestAccessCredential
+    // never produces this literal input).
+    const targetSecretHash = pointer?.secretHash ?? hmacRequestAccessCrypto.hash(this.pepper, `dummy:${selectorHash}`);
+    const secretOk = requestAccessSecretMatches(this.pepper, parsed.secret, targetSecretHash);
+    if (!pointer || !secretOk) throw new GuestAccessInvalidError();
+
+    if (pointer.revokedAt) throw new GuestAccessInvalidError();
+    if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
+
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
+    if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
+    // Re-validate against the live Request's deadline too (same "credential TTL OR deadline,
+    // whichever is sooner, re-checked at resolve time" discipline as GuestTokenPointer's D-037
+    // precedent) — catches a deadline edited after the credential was issued without reissuing it.
+    if (request.deadline && request.deadline < this.now()) throw new GuestAccessInvalidError();
+
+    if (request.status === "REQUESTED") await this.markOpened(request);
+
+    const tenantId = authorizedTenantIdFromPersistedEntity(pointer);
+    const [subject, requirement] = await Promise.all([
+      this.store.get<EntityKey & { displayName?: string }>(trackedSubjectKeyForFence(tenantId, pointer.subjectId)),
+      this.store.get<EntityKey & { name?: string }>(requirementKey(tenantId, pointer.subjectId, pointer.requirementId)),
+    ]);
+
+    return { credential: pointer, request, subjectDisplayName: subject?.displayName, requirementName: requirement?.name };
+  }
+
+  /**
+   * Discovery route (item 6 of D-173's estado-final-consolidado.md, engineering-only slice —
+   * see D-19x for the full contradiction/pendency writeup): lets a guest who has a valid
+   * credential token discover which `DocumentTypeId`s are currently valid to submit, WITHOUT any
+   * `authorize()`/`RequestContext` — same token-resolution discipline as `resolveCredential()`,
+   * reused here rather than duplicated. Only ACTIVE types are ever returned (never DRAFT/
+   * DEPRECATED) — a guest has no legitimate reason to see a type it cannot successfully submit
+   * against, since D-184's transactional ConditionCheck would reject anything else anyway.
+   * Read-only, no side effect (does NOT call `markOpened` — that is `resolveCredential`'s own
+   * concern and this route can be polled/refreshed by a guest UI without mutating Request state).
+   */
+  async listActiveDocumentTypesForGuest(rawToken: string, requestContext: { ip: string }): Promise<GuestDocumentTypeSummary[]> {
+    const parsed = parseRequestAccessToken(rawToken);
+    if (!parsed) throw new GuestAccessInvalidError();
+
+    const selectorHash = hmacRequestAccessCrypto.hash(this.pepper, parsed.selector);
+    try {
+      await this.rateLimiter.consumeBoth({ requestKey: selectorHash, ip: requestContext.ip, limit: RATE_LIMIT_PER_MINUTE, windowSeconds: RATE_LIMIT_WINDOW_SECONDS });
+    } catch {
+      throw new GuestAccessInvalidError();
+    }
+
+    const pointer = await this.store.get<RequestAccessCredential>(requestAccessCredentialKey(selectorHash));
+    const targetSecretHash = pointer?.secretHash ?? hmacRequestAccessCrypto.hash(this.pepper, `dummy:${selectorHash}`);
+    const secretOk = requestAccessSecretMatches(this.pepper, parsed.secret, targetSecretHash);
+    if (!pointer || !secretOk) throw new GuestAccessInvalidError();
+    if (pointer.revokedAt) throw new GuestAccessInvalidError();
+    if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
+
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
+    if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
+    if (request.deadline && request.deadline < this.now()) throw new GuestAccessInvalidError();
+
+    // Same GSI1 DOCTYPESTATUS namespace as DocumentArchiveService.listDocumentTypes, read
+    // directly against the store (never through that authorize()-gated method — this whole
+    // module never calls authorize()/RequestContextResolver, see file header). Catalogs are
+    // small (a handful to low hundreds of types per tenant), so — unlike the internal
+    // paginated-by-design admin listing — this accumulates every page here: a guest-facing
+    // discovery list has no caller-driven cursor to hand back, and a hard page cap (`MAX_PAGES`)
+    // bounds the cost of a pathological tenant rather than looping unbounded.
+    const MAX_PAGES = 20;
+    const items: DocumentType[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await this.store.queryIndexPage<DocumentType>({
+        indexName: "GSI1",
+        partitionKeyValue: `TENANT#${pointer.tenantId}#DOCTYPESTATUS#ACTIVE`,
+        exclusiveStartKey,
+      });
+      items.push(...result.items);
+      if (!result.lastEvaluatedKey) break;
+      exclusiveStartKey = result.lastEvaluatedKey;
+    }
+
+    return items.map((item) => ({ documentTypeId: item.documentTypeId, displayName: item.displayName }));
+  }
+
+  /** Layer 2: the ONLY way a GuestSession is minted — always an explicit call, never a side
+   * effect of `resolveCredential`. */
+  async startGuestSession(rawToken: string, requestContext: { ip: string }): Promise<StartGuestSessionResult> {
+    const resolved = await this.resolveCredential(rawToken, requestContext);
+    const issued = issueGuestSession(this.pepper);
+    const now = this.now();
+    const expiresAt = new Date(Date.parse(now) + GUEST_SESSION_TTL_SECONDS * 1000).toISOString();
+    const session: GuestSession = {
+      ...guestSessionKey(issued.selectorHash),
+      entityType: "GuestSession",
+      selectorHash: issued.selectorHash,
+      secretHash: issued.secretHash,
+      tenantId: resolved.credential.tenantId,
+      subjectId: resolved.credential.subjectId,
+      requirementId: resolved.credential.requirementId,
+      documentRequestId: resolved.credential.documentRequestId,
+      credentialSelectorHash: resolved.credential.selectorHash,
+      csrfTokenHash: issued.csrfTokenHash,
+      expiresAt,
+      purgeAfterTtl: epochSecondsFromIso(expiresAt),
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    const created = await this.store.putIfAbsent(session);
+    if (!created) throw new GuestAccessInvalidError(); // astronomically unlikely selector collision.
+    return { session: issued, expiresAt, subjectDisplayName: resolved.subjectDisplayName, requirementName: resolved.requirementName };
+  }
+
+  /** Resolves a GuestSession token — same parse/rate-limit/lookup/dummy-compare/expiry
+   * discipline as `resolveCredential`, over the session's own tenantless namespace. */
+  private async resolveSession(rawSessionToken: string, requestContext: { ip: string }): Promise<ResolvedSession> {
+    const parsed = parseGuestSessionToken(rawSessionToken);
+    if (!parsed) throw new GuestAccessInvalidError();
+
+    const selectorHash = hmacGuestSessionCrypto.hash(this.pepper, parsed.selector);
+    try {
+      await this.rateLimiter.consumeBoth({ requestKey: selectorHash, ip: requestContext.ip, limit: RATE_LIMIT_PER_MINUTE, windowSeconds: RATE_LIMIT_WINDOW_SECONDS });
+    } catch {
+      throw new GuestAccessInvalidError();
+    }
+
+    const pointer = await this.store.get<GuestSession>(guestSessionKey(selectorHash));
+    const targetSecretHash = pointer?.secretHash ?? hmacGuestSessionCrypto.hash(this.pepper, `dummy:${selectorHash}`);
+    const secretOk = guestSessionSecretMatches(this.pepper, parsed.secret, targetSecretHash);
+    if (!pointer || !secretOk) throw new GuestAccessInvalidError();
+    if (pointer.expiresAt < this.now()) throw new GuestAccessInvalidError();
+
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(pointer), pointer.subjectId, pointer.documentRequestId));
+    if (!request || !isDocumentRequestLive(request.status)) throw new GuestAccessInvalidError();
+
+    return { session: pointer, request };
+  }
+
+  /** Layer 3: idempotent evidence submission. `csrfCookieValue`/`csrfHeaderValue` are the raw
+   * double-submit pair — mismatch (missing either side, or the two differing) is a CSRF failure
+   * and collapses into the same generic error as every other guest-auth failure mode. */
+  async submitEvidence(
+    rawSessionToken: string,
+    requestContext: { ip: string; csrfCookieValue: string | undefined; csrfHeaderValue: string | undefined },
+    input: SubmitEvidenceInput,
+  ): Promise<SubmitEvidenceResult> {
+    const resolved = await this.resolveSession(rawSessionToken, requestContext);
+
+    // Double-submit CSRF: cookie and header must both be present AND equal AND match the
+    // session's own stored hash (defends both "no cookie at all" and "attacker can set an
+    // arbitrary matching pair but doesn't know the real session's csrfToken" — the latter is the
+    // whole point of hashing it server-side rather than only comparing cookie===header).
+    if (!requestContext.csrfCookieValue || !requestContext.csrfHeaderValue || requestContext.csrfCookieValue !== requestContext.csrfHeaderValue) {
+      throw new GuestAccessInvalidError();
+    }
+    if (!guestSessionCsrfMatches(this.pepper, requestContext.csrfHeaderValue, resolved.session.csrfTokenHash)) {
+      throw new GuestAccessInvalidError();
+    }
+
+    const tenantId = authorizedTenantIdFromPersistedEntity(resolved.session);
+    const subjectId = resolved.session.subjectId;
+
+    const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `DOCREQUEST#${resolved.request.documentRequestId}#SUBMIT#${input.idempotencyKey}` };
+    // D-243 replay policy (payload-agnostic, first-write-wins, preserves D-143 Decision 4/D-184
+    // unchanged): this short-circuit runs BEFORE `documentTypeId` is ever read/validated below —
+    // a replay with the same key and a DIFFERENT `documentTypeId` still returns the original
+    // snapshot untouched, never re-validating or comparing the two values.
+    const existingReplay = await this.store.get<{ resultSnapshot: SubmitEvidenceResult } & EntityKey>(idempotencyKey);
+    if (existingReplay) return existingReplay.resultSnapshot;
+
+    const now = this.now();
+    const documentId = this.ids.newDocumentId();
+    const versionId = this.ids.newVersionId();
+    // D-243 (supersedes D-184's conditional guard): `documentTypeId` is now mandatory end to end —
+    // the HTTP schema already rejects a missing/renamed field with 400 before this is reached, and
+    // the old free-text `documentType ?? requirementId` fallback is removed entirely (no coexistence,
+    // clean cutover). Always validated against the tenant's DocumentType catalog via the
+    // unconditional ConditionCheck below.
+    const documentTypeId = input.documentTypeId;
+
+    const document: Document = {
+      ...documentKey(tenantId, documentId),
+      entityType: "Document",
+      documentId,
+      tenantId,
+      subjectId,
+      documentTypeId,
+      status: "ACTIVE",
+      hasValidity: false,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      ...documentGsi1Keys(tenantId, "ACTIVE", now, documentId),
+      // GSI2 (Documents-by-Subject) — a second attribute set on the same physical row, no
+      // mirror item needed (same pattern as DocumentArchiveService.createDocument).
+      ...documentGsi2Keys(tenantId, subjectId, documentTypeId, documentId),
+    };
+
+    const version: DocumentVersion = {
+      ...documentVersionKey(tenantId, documentId, 1),
+      entityType: "DocumentVersion",
+      versionId,
+      documentId,
+      tenantId,
+      seq: 1,
+      // C2 (document-domain-functional-decisions.md): every guest upload lands as RECEIVED,
+      // never auto-accepted — this single transaction goes straight to RECEIVED (the compressed
+      // internal-flow precedent for "DRAFT -> RECEIVED in one step", never further to ACCEPTED).
+      state: "RECEIVED",
+      origin: "GUEST_UPLOAD",
+      receivedAt: now,
+      pendingFileScans: 0,
+      infectedFileScans: 0,
+      requestId: resolved.request.documentRequestId,
+/**
+ * Optimistic concurrency control helper - implementation-blueprint.md #5.2 / M0 deliverable.
+ *
+ * M0 ships no tables/Lambdas yet (that's M1+), so this module only builds the DynamoDB
+ * command *parameters* for OCC-safe writes; it does not depend on @aws-sdk/client-dynamodb
+ * so it stays testable without AWS credentials/mocks. M1 wires these builders into the
+ * actual DocumentClient calls once tables exist.
+ */
+
+export interface EntityKey {
+  PK: string;
+  SK: string;
+}
+
+export interface VersionedUpdateInput {
+  tableName: string;
+  key: EntityKey;
+  tenantId: string;
+  expectedVersion: number;
+  /** Additional SET clauses beyond version/updatedAt, e.g. { status: "CANCELLED" }. */
+  set: Record<string, unknown>;
+  /** Attribute names to REMOVE atomically in the same conditional update - e.g. dropping
+   * GSI6PK/GSI6SK when a reconciliation-candidate pointer (M3.5) stops applying. Gap noted
+   * since M3 (occ.ts was SET-only, cancelled GSI3 pointers were left orphaned because
+   * nothing actively queried them); M3.5 needs REMOVE for real because GSI6 pointers ARE
+   * actively queried by reconciliation. */
+  remove?: string[];
+  now?: string;
+  /** Extra ConditionExpression clauses ANDed to the base condition, each with its own
+   * caller-supplied names/values (W3-06 purge worker's claim/fence conditions - e.g. checking
+   * `legalHold`/`GSI6PK`/`purgeAfter` atomically alongside the version check). Each entry's
+   * `expression` is wrapped in its own parentheses before being ANDed in, so callers never need
+   * to hand-balance parens against the base condition. Placeholder names/values MUST NOT collide
+   * with the base condition's (#version/#tenantId/#updatedAt/:expectedVersion/:tenantId/:one/:now)
+   * or with any `set`/`remove` generated key (#set<i>/:set<i>/#rem<j>) - buildVersionedUpdate
+   * throws before building an invalid ConditionExpression rather than silently overwriting one
+   * caller's placeholder with another's. */
+  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+}
+
+export interface DynamoUpdateCommandInput {
+  TableName: string;
+  Key: EntityKey;
+  UpdateExpression: string;
+  ConditionExpression: string;
+  /** Optional, not `Record<string, string>` with an empty-object default (Wave B2B-14, D-119
+   * real finding): DynamoDB's TransactWriteItems rejects an explicitly-empty
+   * ExpressionAttributeNames outright (`ValidationException: ExpressionAttributeNames must
+   * not be empty`) - the key must be OMITTED, never `{}`, when a caller has nothing to map.
+   * `buildVersionedUpdate()` below never hits this (it always maps at least #version/
+   * #tenantId/#updatedAt), but a hand-rolled Update (update-organization-settings.ts) can. */
+  ExpressionAttributeNames?: Record<string, string>;
+  ExpressionAttributeValues: Record<string, unknown>;
+}
+
+interface ScopeCondition {
+  namePlaceholder: string;
+  attributeName: string;
+  valuePlaceholder: string;
+  value: string;
+}
+
+interface ScopedVersionedUpdateInput {
+  tableName: string;
+  key: EntityKey;
+  expectedVersion: number;
+  set: Record<string, unknown>;
+  remove?: string[];
+  now?: string;
+  extraConditions?: Array<{ expression: string; names?: Record<string, string>; values?: Record<string, unknown> }>;
+}
+
+/**
+ * Private core shared by `buildVersionedUpdate()` (tenant-fenced, every ordinary business
+ * entity) and `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5: WhatsApp `WebhookInbox`,
+ * the first entity in this repo with no tenant at all - see
+ * `docs/architecture/reviews/whatsapp-channel-scoping/webhook-inbox-purge-scoping/` for the
+ * 3-round Claude<->Codex protocol, both final notes >=9.0, that decided this shape). The ONLY
+ * difference between the two public builders is which attribute anchors the scope fence
+ * (`tenantId` vs `accountId`) - version increment, `updatedAt`, SET/REMOVE generation,
+ * `extraConditions` composition and placeholder-collision detection are a single implementation,
+ * never duplicated, so the two builders can never drift apart on anything but their fence.
+ */
+function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: ScopeCondition): DynamoUpdateCommandInput {
+  const now = input.now ?? new Date().toISOString();
+
+  const names: Record<string, string> = {
+    "#version": "version",
+    [scope.namePlaceholder]: scope.attributeName,
+    "#updatedAt": "updatedAt",
+  };
+  const values: Record<string, unknown> = {
+    ":expectedVersion": input.expectedVersion,
+    [scope.valuePlaceholder]: scope.value,
+    ":one": 1,
+    ":now": now,
+  };
+
+  const setClauses = ["#version = #version + :one", "#updatedAt = :now"];
+  let i = 0;
+  for (const [field, value] of Object.entries(input.set)) {
+    const nameKey = `#set${i}`;
+    const valueKey = `:set${i}`;
+    names[nameKey] = field;
+    values[valueKey] = value;
+    setClauses.push(`${nameKey} = ${valueKey}`);
+    i += 1;
+  }
+
+  const removeClauses: string[] = [];
+  let j = 0;
+  for (const field of input.remove ?? []) {
+    const nameKey = `#rem${j}`;
+    names[nameKey] = field;
+    removeClauses.push(nameKey);
+    j += 1;
+  }
+
+  const expression =
+    removeClauses.length > 0
+      ? `SET ${setClauses.join(", ")} REMOVE ${removeClauses.join(", ")}`
+      : `SET ${setClauses.join(", ")}`;
+
+  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", `${scope.namePlaceholder} = ${scope.valuePlaceholder}`];
+  for (const extra of input.extraConditions ?? []) {
+    for (const [nameKey, name] of Object.entries(extra.names ?? {})) {
+      if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved/generated key: ${nameKey}`);
+      names[nameKey] = name;
+    }
+    for (const [valueKey, value] of Object.entries(extra.values ?? {})) {
+      if (valueKey in values) throw new Error(`extraConditions value placeholder collides with a reserved/generated key: ${valueKey}`);
+      values[valueKey] = value;
+    }
+    baseConditionParts.push(`(${extra.expression})`);
+  }
+
+  return {
+    TableName: input.tableName,
+    Key: input.key,
+    UpdateExpression: expression,
+    ConditionExpression: baseConditionParts.join(" AND "),
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  };
+}
+
+/**
+ * Builds an UpdateItem input enforcing implementation-blueprint.md #5.2's exact
+ * ConditionExpression: attribute_exists(PK) AND attribute_exists(SK) AND
+ * #version = :expectedVersion AND #tenantId = :tenantId, and increments version atomically.
+ * Contractually unchanged by the account-scoped sibling below - same signature, same generated
+ * expression, byte-for-byte, for every one of this repo's ~40 existing call sites.
+ */
+export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateCommandInput {
+  return buildScopedVersionedUpdate(input, { namePlaceholder: "#tenantId", attributeName: "tenantId", valuePlaceholder: ":tenantId", value: input.tenantId });
+}
+
+export interface AccountScopedVersionedUpdateInput extends ScopedVersionedUpdateInput {
+  /** External vendor account id (e.g. a WhatsApp Business Account id) - NEVER a tenant id, real
+   * or fabricated. Fences the update to the row's own account, same OCC-plus-scope-fence
+   * structure as `buildVersionedUpdate()`, for an entity that genuinely has no tenant. */
+  accountId: string;
+}
+
+/**
+ * Account-scoped sibling of `buildVersionedUpdate()` (D-197 fatia 3/5) - identical
+ * ConditionExpression shape, `#accountId = :accountId` in place of `#tenantId = :tenantId`. Exists
+ * for exactly one entity today: WhatsApp `WebhookInbox` (`purgeScope: "ACCOUNT"`, permanently
+ * account-owned - see the purge-scoping decision this sibling builder itself depends on). Never
+ * use this for an entity that has (or could ever have) a real tenant - `buildVersionedUpdate()`
+ * is the only builder any tenant-scoped entity may use.
+ */
+export function buildAccountScopedVersionedUpdate(input: AccountScopedVersionedUpdateInput): DynamoUpdateCommandInput {
+  return buildScopedVersionedUpdate(input, { namePlaceholder: "#accountId", attributeName: "accountId", valuePlaceholder: ":accountId", value: input.accountId });
+}
+
+export interface DynamoPutCommandInput {
+  TableName: string;
+  Item: Record<string, unknown>;
+  ConditionExpression: string;
+  ExpressionAttributeNames?: Record<string, string>;
+  ExpressionAttributeValues?: Record<string, unknown>;
+}
+
+/**
+ * Builds a PutItem input for first-time creation of a versioned entity, per
+ * implementation-blueprint.md #5.2: ConditionExpression attribute_not_exists(PK) AND
+ * attribute_not_exists(SK). Caller supplies `item` already containing PK/SK/tenantId/version=1.
+ */
+export function buildVersionedCreate(tableName: string, item: Record<string, unknown> & EntityKey): DynamoPutCommandInput {
+      const due = deriveDocumentFileMaintenanceDue({ scanStatus: "PENDING_UPLOAD", createdAt: now })!;
+      return {
+        ...documentFileKey(tenantId, documentId, seq, fileId),
+        entityType: "DocumentFile",
+        tenantId,
+        documentId,
+        versionId: current.versionId,
+        seq,
+        fileId,
+        role: spec.role,
+        scanStatus: "PENDING_UPLOAD",
+        mediaType: spec.mediaType,
+        contentLength: spec.contentLength,
+        checksumSha256: spec.checksumSha256,
+        // D-163 §1: versionId consolidated later, atomically, by whichever physical event
+        // (S3 Object Created / GuardDuty finding) observes the real object first — never
+        // fabricated here (same placeholder discipline M6's Document.quarantineObject uses).
+        quarantineObject: { bucket: this.quarantineBucket, key: this.buildQuarantineKey(tenantId, documentId, seq, fileId), versionId: "" },
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        ...documentFileGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, fileId }),
+      };
+    });
+    const principalFileId = documentFiles.find((f) => f.role === "PRINCIPAL")!.fileId;
+
+    const entries = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key,
+          tenantId,
+          expectedVersion,
+          set: { fileSetSealed: true, principalFileId, totalFiles: documentFiles.length, pendingFileScans: documentFiles.length },
+          now,
+          extraConditions: [
+            { expression: "#st = :draft", names: { "#st": "state" }, values: { ":draft": "DRAFT" } },
+            { expression: "attribute_not_exists(#sealed) OR #sealed = :false", names: { "#sealed": "fileSetSealed" }, values: { ":false": false } },
+          ],
+        }),
+      },
+      ...documentFiles.map((file) => ({ Put: buildVersionedCreate(this.tableName, file as unknown as Record<string, unknown> & EntityKey) })),
+      {
+        // storage-quota-scoping (D-2xx): the transactional re-assertion of the same check above
+        // — the ONE write that actually serializes concurrent reservations against the shared
+        // quota row (the earlier in-memory check only gives a fast, clear error message).
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key: storageQuotaKey(tenantId),
+          tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: quota.reservedBytes + requestedBytes },
+          now,
+          extraConditions: [
+            {
+              expression: "#used + #reserved + :requested <= #limit",
+              names: { "#used": "usedBytes", "#reserved": "reservedBytes", "#limit": "limitBytes" },
+              values: { ":requested": requestedBytes },
+            },
+          ],
+        }),
+      },
+    ];
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion's file set was concurrently reserved, the Version is no longer DRAFT, or the tenant's storage quota was concurrently exhausted — retry.", { documentId, seq });
+      throw err;
+    }
+
+    return Promise.all(
+      documentFiles.map(async (file) => {
+        const presigned = await this.signer.presignUpload({
+          bucket: file.quarantineObject.bucket,
+          key: file.quarantineObject.key,
+          mediaType: file.mediaType,
+ * reached by deadline rather than by a physical S3/GuardDuty event. Deliberately reuses the
+ * exact same counter/GSI8-removal mechanism (buildVersionedUpdate, no new pattern) - the only
+ * new ingredient is conditioning on the observed GSI8 pointer itself, which a physical-event
+ * caller never needs (it always re-reads the file fresh and checks scanStatus, never a stale
+ * discovery pointer).
+ */
+export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input: ApplyFileScanTimeoutInput): Promise<ApplyFileScanTimeoutOutcome> {
+  const now = deps.now ?? (() => new Date().toISOString());
+  const key = documentFileKey(input.tenantId, input.documentId, input.seq, input.fileId);
+
+  for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+    const file = await deps.store.get<DocumentFile>(key);
+    if (!file) return "IGNORED_STALE";
+    if (!isNonTerminalFileScanStatus(file.scanStatus)) return "IGNORED_STALE";
+
+    const version = await deps.store.get<DocumentVersion>(documentVersionKey(input.tenantId, input.documentId, input.seq));
+    if (!version) return "IGNORED_STALE"; // Version cannot be removed once files exist - fail closed if this ever changes.
+
+    const nowTs = now();
+    // storage-quota-scoping (D-2xx): TIMEOUT is terminal without ever reaching CLEAN, same
+    // reasoning as the REJECT branch above — release the capacity hold this file's bytes took.
+    const quota = await ensureStorageQuota(deps, input.tenantId);
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key,
+          tenantId: input.tenantId,
+          expectedVersion: file.version,
+          set: { scanStatus: "TIMEOUT" },
+          remove: ["GSI8PK", "GSI8SK"],
+          // Exact-pointer fence (round4-claude-final.md §3): closes the race where the
+          // candidate this scan observed already advanced (new deadline, or terminal) by the
+          // time this write lands - never conditioned on `file.version` alone, since a
+          // concurrent SCANNING->TIMEOUT-eligible re-write could bump version without changing
+          // eligibility in a way the scan already accounted for.
+          extraConditions: [
+            { expression: "#gsi8pk = :gsi8pk", names: { "#gsi8pk": "GSI8PK" }, values: { ":gsi8pk": input.observedGsi8Pointer.GSI8PK } },
+            { expression: "#gsi8sk = :gsi8sk", names: { "#gsi8sk": "GSI8SK" }, values: { ":gsi8sk": input.observedGsi8Pointer.GSI8SK } },
+          ],
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: documentVersionKey(input.tenantId, input.documentId, input.seq),
+          tenantId: input.tenantId,
+          expectedVersion: version.version,
+          set: { pendingFileScans: version.pendingFileScans - 1 },
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: storageQuotaKey(input.tenantId),
+          tenantId: input.tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: Math.max(0, quota.reservedBytes - file.contentLength) },
+          now: nowTs,
+        }),
+      },
+    ];
+    try {
+      await deps.store.transactWrite(entries);
+      return "TIMED_OUT";
+    } catch (err) {
+      // A cancellation here may be the GSI8-pointer race the comment above describes, OR a
+      // concurrent write to the quota row (e.g. another file's REJECT/CLEAN transition landing
+      // at the same instant) - both are legitimately retried by the reconciliation worker's next
+      // sweep (it re-derives GSI8 candidates fresh each run), so IGNORED_STALE is correct for
+      // either cause, never a silent quota-accounting drop.
+      if (isTransactionCanceled(err)) return "IGNORED_STALE"; // lost the race - a concurrent event/sweep already claimed this file.
+      throw err;
+    }
+docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md:3:Nota Rodada 4 (Codex, blind): 7,8/10 NEEDS FIXES — a arbitragem OCC em si é tecnicamente correta
+docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md:4:("Essa parte está tecnicamente correta"), mas a Rodada 4 introduziu 4 bugs de implementação
+docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md:84:`APPROVED`.
+docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md:1:# Rodada 2 — Revisão Claude: Armazenamento real de arquivo no caminho guest (G02)
+docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md:3:Nota Rodada 1 (Codex, blind): 5,8/10 NEEDS FIXES — 3 achados BLOQUEANTES, 3 MENORES, todos
+docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md:48:**Consequência honesta, registrada explicitamente (não estava em Rodada 1)**: com as flags no
+docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md:86:## Design revisado, seção 1 completa (substitui a Rodada 1)
+docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md:1:# Rodada 3 — Reconciliação final Claude: Armazenamento real de arquivo no caminho guest (G02)
+docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md:3:Nota Rodada 2 (Codex, blind): 8,4/10 NEEDS FIXES — 6/6 achados originais RESOLVIDOS, 1 achado NOVO
+docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md:72:Reavalie com os 3 achados novos corrigidos acima (mais os 6 da Rodada 1, já RESOLVIDOS e
+docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md:73:inalterados nesta rodada). Se ≥9,0, considere `APPROVED` e este design segue para implementação
+docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md:74:(dentro do orçamento restante desta sessão) ou registro como `APPROVED`/ADR para uma sessão futura
+docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md:1:# Rodada 1 — Proposta Claude: Armazenamento real de arquivo no caminho guest (G02)
+docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md:6:Recurrence + Guest Request). A rodada Codex de D-264 (7,6/10 NEEDS FIXES) apontou um achado
+docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md:9:Esta proposta cobre SÓ este gap — não reabre nenhuma decisão de arquitetura já `APPROVED`
+docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md:162:segurança já `APPROVED`/em produção — não introduz nenhum componente de infraestrutura novo.
+docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md:1:# Rodada 4 — Reconciliação final Claude: race presign/TIMEOUT
+docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md:3:Nota Rodada 3 (Codex, blind): 8,8/10 NEEDS FIXES — 8/9 achados fechados, 1 residual: um PUT que
+docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md:45:falhar, mesma copy neutra de expiração já definida na Rodada 3 (nunca reafirma sucesso que não foi
+docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md:61:Reavalie com esta correção. Se ≥9,0, `APPROVED`. Se ainda houver uma janela residual real
+
+exec
+/bin/bash -lc "for f in docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md docs/architecture/reviews/guest-file-storage-scoping/round3-claude-reconciliation.md docs/architecture/reviews/guest-file-storage-scoping/round4-claude-reconciliation.md; do sed -n '1,260p' \""'$f"; done' in /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+ succeeded in 0ms:
+# Rodada 1 — Proposta Claude: Armazenamento real de arquivo no caminho guest (G02)
+
+## Contexto
+
+Bloco 6 do plano de sequenciamento de frontend (D-264) implementou A14+G02 (Requests &
+Recurrence + Guest Request). A rodada Codex de D-264 (7,6/10 NEEDS FIXES) apontou um achado
+bloqueante real, deliberadamente não corrigido por ser decisão de nível 5-6/6: **`GuestDocumentAccessService.submitEvidence()` (`src/modules/document-archive/application/guest-document-access-service.ts`) aceita `fileName` no payload mas nunca persiste bytes de arquivo — só metadata.** A propriedade completa A14→G02→A13/A12 não fecha ponta a ponta: um documento enviado por um convidado nunca aparece de fato revisável (com arquivo real) em A13 (Review Queue)/A12 (Document Detail).
+
+Esta proposta cobre SÓ este gap — não reabre nenhuma decisão de arquitetura já `APPROVED`
+(sessão guest via cookie D-146, RBAC, modelo de dados de `DocumentRequest`/Document/DocumentVersion).
+
+## Pesquisa externa considerada: SIM PARCIAL
+
+Fontes (acesso 2026-09-10):
+- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — validação allowlist de tipo/tamanho/nome, isolar do webroot, nunca confiar no nome de arquivo do cliente, escanear antes de confiar, preferir usuário identificável a upload verdadeiramente anônimo.
+- [AWS Security Blog — Using Amazon GuardDuty Malware Protection to scan uploads to Amazon S3](https://aws.amazon.com/blogs/security/using-amazon-guardduty-malware-protection-to-scan-uploads-to-amazon-s3/) e [Mechanical Rock — Malware-Protected File Upload with S3 and GuardDuty](https://www.mechanicalrock.io/blog/malware-protected-file-upload-with-s3-and-guardduty) — padrão de referência: presigned PUT para bucket de staging/quarentena → GuardDuty Malware Protection for S3 → EventBridge → Lambda decide → cópia para bucket "limpo" só se `NO_THREATS_FOUND`. TTL curto de presign (~15 min) recomendado.
+
+**Escopo da pesquisa**: informa o PADRÃO de upload anônimo com scan (presign curto + bucket de
+quarentena + scan antes de promover + nunca confiar no nome/Content-Type do cliente) — a parte
+externa da decisão. A forma EXATA de integrar com o modelo de dados deste projeto
+(`DocumentFile`/`DocumentVersion`/chave DynamoDB/GSI8) é puramente interna, já resolvida por D-163
+para o caminho autenticado — não há ambiguidade de mercado aí, só reaproveitamento.
+
+**Achado central desta pesquisa, verificado contra o código real ANTES desta proposta**: o projeto
+já implementa o padrão de referência acima, ponta a ponta, para 3 domínios (`document` M6,
+`subject` M10, `document-archive` D-163/D-193) — UM bucket de quarentena compartilhado
+(`module.document_buckets`), coberto por `module.document_malware_protection` (GuardDuty), um
+handler genérico (`malware-result-handler.ts`) que roteia por prefixo de chave S3 via parsers
+dedicados por módulo (`parseDocumentArchiveQuarantineKey`, etc.), e uma máquina de estados real
+(`DocumentFile.scanStatus`: `PENDING_UPLOAD→SCANNING→CLEAN|REJECTED|UNSUPPORTED|TIMEOUT`,
+`apply-file-scan-result.ts`/`advance-file-after-evidence.ts`). **Isso muda o escopo da decisão**:
+não é "desenhar scanning de malware do zero", é "estender uma superfície de escrita já existente e
+já validada para aceitar um segundo tipo de chamador (guest, não autenticado)". A pesquisa converge
+com essa decisão pré-existente do projeto, não a contradiz.
+
+**Ressalva OWASP levada a sério**: a fonte recomenda usuário identificável, não upload
+verdadeiramente anônimo. Este projeto já tem esse substituto: o guest não é anônimo no sentido
+"qualquer um" — é gated por um credential/session possession-based (token HMAC + cookie de sessão +
+CSRF double-submit, D-146), rate-limited (30/min por seletor+IP), e vinculado a um
+`DocumentRequest` vivo e específico de um tenant/subject/requirement. O mesmo padrão já é usado
+em produção pelo `subject`-module guest-submission (M10) sem incidente registrado. Esta proposta
+não introduz um endpoint público irrestrito — estende um endpoint já gated.
+
+## Checklist de critérios pesados (derivado da pesquisa, sub-rubrica desta rodada)
+
+1. **Nunca promover a "confiável" sem scan** — arquivo só sai do bucket de quarentena após
+   `scanStatus=CLEAN` confirmado (reaproveita `apply-file-scan-result.ts` verbatim).
+2. **Nunca auto-aceitar** — mesmo com `scanStatus=CLEAN`, o Document permanece `RECEIVED`,
+   exigindo `acceptVersion()` humano autenticado (C2, já vigente) — scan limpo ≠ aceito.
+3. **Allowlist de tipo/tamanho, nunca blocklist** — `mediaType` contra lista fechada,
+   `contentLength` com teto explícito, aplicado no SERVIÇO (não só no schema HTTP).
+4. **Nome de arquivo do cliente nunca vira caminho de armazenamento** — chave S3 gerada só a
+   partir de identificadores internos (`documentId`/`seq`/`fileId`), nunca `fileName` (já a
+   disciplina de `buildQuarantineKey()`, reaproveitada verbatim).
+5. **Presign de vida curta** — reaproveita `PRESIGN_TTL_SECONDS=600s` já estabelecido (dentro da
+   faixa recomendada pela fonte AWS, ~15min).
+6. **Identificabilidade/accountability sem autenticação de usuário** — mantém a cadeia já
+   existente (credential→session→CSRF→DocumentRequest de um tenant específico), nunca relaxa para
+   um endpoint verdadeiramente aberto.
+7. **Custo de armazenamento agora é real — quota deve ser aplicada** — até hoje a submissão guest
+   era metadata-only (custo ~0); com bytes reais, a MESMA transação deve checar/reservar quota de
+   armazenamento do tenant (reaproveitando o mecanismo de `reserveFiles()`, D-249), fechando um
+   vetor de abuso que não existia antes desta mudança.
+8. **Zero infraestrutura nova para o mecanismo de scan em si** — reaproveitar o bucket/GuardDuty/
+   handler já existentes; qualquer proposta que crie um bucket/scanner paralelo é rejeitada por
+   violar o próprio achado da pesquisa (o padrão de referência já está implementado).
+
+## Design proposto
+
+### 1. Domínio/aplicação (`guest-document-access-service.ts`)
+
+`GuestDocumentAccessServiceDeps` ganha 2 deps novas: `signer: DocumentUploadSigner` (a MESMA
+interface/porta que `document-archive-service.ts` já usa) e `quarantineBucket: string`.
+
+`SubmitEvidenceInput` ganha 3 campos novos, obrigatórios: `mediaType: string`,
+`contentLength: number`, `checksumSha256: string` (mesmo shape de `FileUploadSpec`, reaproveitado,
+não redeclarado com nomes diferentes).
+
+Validação nova, no SERVIÇO (não só no schema — trilha dupla, mesma disciplina do resto do módulo):
+- `mediaType` contra uma allowlist portada para `document-archive` (mesmo valor de `document`
+  module's `ALLOWED_MEDIA_TYPES` = `application/pdf`, `image/jpeg`, `image/png` — PORTADA, não
+  importada cross-module, mesmo precedente que `storage-quota.ts` já documenta para
+  `document-archive` não poder importar de `subject/**`/`document/**` via
+  `.dependency-cruiser.cjs`).
+- `contentLength` entre 1 e um teto nomeado (`MAX_GUEST_UPLOAD_BYTES`, proposta: reaproveitar o
+  MESMO valor de `document` module, 10 MiB — nenhum motivo de produto identificado para um limite
+  diferente no caminho guest).
+- Falha de validação colapsa no MESMO `GuestAccessInvalidError` genérico (disciplina
+  anti-enumeração já documentada no header do arquivo) — nunca vaza qual regra específica falhou.
+
+`submitEvidence()`'s transação existente ganha 2 entradas novas, na MESMA `TransactWriteItems`:
+- 1 `Put` de `DocumentFile` (`role: "PRINCIPAL"`, `scanStatus: "PENDING_UPLOAD"`, `quarantineObject`
+  usando o MESMO `buildQuarantineKey()`/prefixo que `document-archive-service.ts` já usa — o
+  parser `parseDocumentArchiveQuarantineKey` em `malware-result-handler.ts` já reconhece essa
+  forma, **zero mudança nesse handler**).
+- O `Update` já existente em `DocumentVersion` ganha os campos `fileSetSealed: true,
+  principalFileId, totalFiles: 1, pendingFileScans: 1` (mesmos campos que `reserveFiles()` seta —
+  `apply-file-scan-result.ts`/`advance-file-after-evidence.ts` nunca checam `DocumentVersion.state`,
+  só `fileSetSealed`+`scanStatus`, então nascer já-selado em `RECEIVED` em vez de passar por um
+  `DRAFT` intermediário é seguro).
+- Reserva de quota de armazenamento: mesma condição transacional que `reserveFiles()` já usa
+  (`usedBytes+reservedBytes+requested <= limitBytes` como `ConditionCheck`/`Update` na MESMA
+  transação) — se excederia, a transação inteira é cancelada e o guest recebe o MESMO
+  `GuestAccessInvalidError` genérico (nunca vaza "quota do tenant esgotada" a um estranho).
+
+Depois que a transação commita: presigna um PUT contra o `quarantineObject` da nova `DocumentFile`
+(mesmo `signer.presignUpload()`, mesmo `PRESIGN_TTL_SECONDS`). `SubmitEvidenceResult` ganha
+`uploadUrl: string` e `requiredHeaders: Record<string,string>`.
+
+**Replay idempotente com presign fresco**: a checagem de idempotência (`existingReplay`) já
+existente continua retornando o snapshot original de `{documentId,versionId,seq}` — mas o presign
+NUNCA é cacheado no snapshot (mesma disciplina de `reserveFiles()`: presign é sempre gerado
+depois, nunca parte do resultado persistido). Em um replay, o serviço relê a `DocumentFile` real
+pelo ponteiro do documento: se `scanStatus` ainda é `PENDING_UPLOAD`, presigna de novo contra a
+MESMA `quarantineObject.key` (idempotente — múltiplos presigns da mesma chave nunca conflitam); se
+já é terminal (`CLEAN`/`SCANNING`/etc.), `uploadUrl` vem `undefined` na resposta e o front-end trata
+como "já recebido, nada a fazer".
+
+### 2. HTTP (`document-archive-guest-handlers.ts` + schema)
+
+`docarchive-guest-submit-evidence-request.v1.json` ganha `mediaType`/`contentLength`/
+`checksumSha256` como `required`, mesmos formatos/constraints do schema já existente
+`docarchive-reserve-files-request.v1.json` (reaproveitar os literais de validação, não redigitar).
+Resposta HTTP ganha `uploadUrl`/`requiredHeaders` (opcionais, ausentes quando o replay não precisa
+de novo upload).
+
+### 3. Infra (`infra/main.tf`)
+
+`module.document_archive_guest_handler` ganha `QUARANTINE_BUCKET_NAME` no `environment_variables` e
+o MESMO `data.aws_iam_policy_document.document_archive_presign_quarantine_put.json` já definido
+(reaproveitado, nunca uma segunda política equivalente) adicionado a `policy_documents_json` —
+nenhum recurso novo, nenhuma mudança em `document_malware_protection`/EventBridge/GuardDuty.
+
+### 4. Frontend (`GuestDocumentRequest.tsx`)
+
+Reaproveita literalmente `computeChecksumSha256()`/`uploadDocumentBytes()` de
+`frontend/src/hooks/useUploadDocument.ts` (mesmas funções, import direto, nunca redigitadas). Fluxo
+do wizard no passo final: computa checksum → chama `submitEvidence` com os campos novos → SE
+`uploadUrl` presente, faz o PUT real via `uploadDocumentBytes` → SÓ ENTÃO mostra a copy final
+"Recebemos seu envio". Se o PUT falhar, mostra um estado de erro real e distinto (não a mesma copy
+de sucesso) — o registro de metadata já existe (idempotente, replay seguro), então um retry do
+guest chama `submitEvidence` de novo com a MESMA `idempotencyKey` e recebe um presign fresco para
+tentar o PUT de novo. Um `DocumentFile` nunca enviado (guest desiste) expira sozinho via o worker de
+reconciliação já existente (`FILE_SCAN_TIMEOUT_SECONDS`, `TIMEOUT` terminal) — nenhuma limpeza
+manual nova necessária.
+
+## Fora de escopo (nomeado, não esquecido)
+
+- Sessão guest não vinculada ao token do path (achado #2 de D-264) — pré-existente, não piora
+  materialmente com esta mudança (mesma semântica de "segunda aba sobrescreve sessão"), permanece
+  como pendência nomeada separada.
+- `createSeries` sem fence de unicidade de série ACTIVE (achado #3 de D-264) — não relacionado a
+  este gap.
+- Suporte a múltiplos arquivos/`ATTACHMENT` no caminho guest — G02 hoje só tem UI para 1 arquivo
+  PRINCIPAL; não expandir escopo além do necessário para fechar o gap nomeado.
+- Extração/OCR do arquivo do guest — fora de escopo desde sempre (roadmap).
+
+## Nível de risco
+
+5-6/6 (`change-risk-scale.md`): nova superfície efetiva de escrita anônima de bytes (mesmo gated),
+mudança de custo real (quota) em um caminho antes gratuito, mas reaproveita 100% de um mecanismo de
+segurança já `APPROVED`/em produção — não introduz nenhum componente de infraestrutura novo.
+# Rodada 2 — Revisão Claude: Armazenamento real de arquivo no caminho guest (G02)
+
+Nota Rodada 1 (Codex, blind): 5,8/10 NEEDS FIXES — 3 achados BLOQUEANTES, 3 MENORES, todos
+verificados como reais por leitura direta do código antes desta revisão. Corrige cada um; não
+repete o que não mudou (contexto/pesquisa/checklist/fora-de-escopo permanecem os de
+`round1-claude-proposal.md`).
+
+## Achados corrigidos
+
+**#1 (BLOQUEANTE) — `DocumentVersion` nasce por `Put`, não por `Update`.** Correto — a versão é
+criada em `entries` como `{ Put: buildVersionedCreate(..., version) }`
+(`guest-document-access-service.ts:415-435`), o único `Update` da transação é do
+`DocumentRequest`. Correção: `fileSetSealed: true, principalFileId, totalFiles: 1,
+pendingFileScans: 1` nascem como campos do objeto `version` literal, no MESMO `Put` — nunca um
+segundo `Update` no mesmo item (que a `TransactWriteItems` real rejeitaria).
+
+**#2 (BLOQUEANTE) — `DocumentFile` precisa do ponteiro GSI8.** Correto — sem
+`documentFileGsi8Keys()`/`deriveDocumentFileMaintenanceDue()`, o worker de reconciliação nunca
+descobre um arquivo PENDING_UPLOAD nunca enviado, e ele fica pendente para sempre em vez de
+`TIMEOUT`. Correção: o `Put` do `DocumentFile` guest inclui, EXATAMENTE como `reserveFiles()`
+(`document-archive-service.ts:663-693`):
+```
+const due = deriveDocumentFileMaintenanceDue({ scanStatus: "PENDING_UPLOAD", createdAt: now })!;
+...
+...documentFileGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, fileId }),
+```
+
+**#3 (BLOQUEANTE) — Gate STARTER/PROMOTER (D-193 item 8/9) já existe e é intencional, não um bug a
+corrigir.** Verificado: `isDocumentArchivePromotionEnabled()`
+(`src/modules/extraction/application/document-archive-activation.ts`) exige AMBAS
+`EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED` — hoje
+deliberadamente `false` (`NEXT_SESSION_PROMPT.md` item 4: "ativação é decisão futura reversível").
+Enquanto desligadas, **tanto o upload autenticado (A07/A12, já em produção) quanto o guest desta
+proposta** ficam com o mesmo comportamento: o arquivo é fisicamente aceito no bucket de quarentena
+(S3 PUT bem-sucedido), mas `upload-finalizer-handler.ts`/`malware-result-handler.ts` descartam o
+evento físico ANTES de qualquer leitura de `DocumentFile` (`IGNORED_PROMOTION_DISABLED`) — o
+arquivo nunca chega a `CLEAN`, nunca fica revisável em A12, e eventualmente expira via
+reconciliação (`FILE_SCAN_TIMEOUT_SECONDS`) como `TIMEOUT`.
+
+**Decisão explícita desta rodada: NÃO ativar essas flags como parte deste design.** A ativação é
+uma decisão de produto já nomeada e deliberadamente adiada (item 4 do roadmap), acoplada ao
+consumidor de OCR/extração (D-193's "CLEAN sem consumidor" window) — ativá-la unilateralmente aqui
+reabriria uma decisão fora do escopo desta tarefa (armazenar bytes do guest), afetando também TODO
+upload autenticado já em produção. Esta proposta **herda o mesmo gate já aprovado**, sem
+contorná-lo — o guest tem exatamente a mesma paridade de comportamento que o caminho autenticado já
+tem hoje, nem mais nem menos permissivo.
+
+**Consequência honesta, registrada explicitamente (não estava em Rodada 1)**: com as flags no
+estado atual, esta mudança sozinha AINDA NÃO fecha a propriedade "A14→G02→A13/A12" com um arquivo
+de fato revisável — fecha a PARTE que está no orçamento desta decisão (bytes armazenados
+corretamente, sob o mesmo mecanismo de segurança/scan já aprovado, nunca fabricando confiança antes
+da hora). A ativação do STARTER/PROMOTER continua sendo pendência nomeada separada, cujo
+responsável é quem decidir ativar OCR/extração — não esta rodada. A cópia final de G02 (D-264) já
+não afirma "arquivo verificado/aceito", só "recebemos seu envio" — continua correta sem mudança,
+porque nunca prometeu mais do que isto entrega.
+
+**#4 (MENOR) — validação de formato de `checksumSha256` no serviço.** Corrigido: mesma regra de
+`DocumentService.reserveUpload()` (`document-service.ts:85`), portada (não importada
+cross-module, mesmo precedente de `storage-quota.ts`):
+```
+if (!/^[a-f0-9]{64}$/i.test(input.checksumSha256)) throw new GuestAccessInvalidError();
+```
+(nunca `ValidationError` com a mensagem original — colapsa no erro genérico, disciplina
+anti-enumeração do módulo).
+
+**#5 (MENOR) — import do frontend errado.** Corrigido: `computeChecksumSha256`/
+`uploadDocumentBytes` são exportados por `frontend/src/api/documents.ts` (linhas 34/57), não por
+`hooks/useUploadDocument.ts` (que só os importa). G02 importa diretamente de `api/documents.ts`.
+
+**#6 (MENOR) — validação de schema vaza detalhe do Ajv antes do colapso genérico.** Real e mais
+sério com os campos novos (range numérico, enum de mediaType, regex de checksum produzem mensagens
+mais discriminantes que os 3 campos string atuais). Corrigido, escopo mínimo: em
+`handleSubmitEvidence` (`document-archive-guest-handlers.ts:190`), a chamada
+`validateAgainstSchema(...)` passa a ser envolvida em try/catch que relança qualquer falha de
+schema como `GuestAccessInvalidError` — SÓ nesta rota (as outras rotas guest têm campos
+suficientemente pouco discriminantes para não precisar do mesmo tratamento nesta rodada; ver nota
+de fora-de-escopo abaixo).
+
+## Fora de escopo (inalterado + 1 item novo)
+
+Tudo de `round1-claude-proposal.md` §"Fora de escopo", MAIS: hardening equivalente do try/catch de
+schema nas OUTRAS rotas guest (`handleGetGuestRequest`/`handleListGuestDocumentTypes`) — mesma
+classe de problema, mas pré-existente e não introduzida por esta mudança; nomeado aqui para uma
+sessão futura, não corrigido agora para não expandir o diff além do gap fechado.
+
+## Design revisado, seção 1 completa (substitui a Rodada 1)
+
+```ts
+const due = deriveDocumentFileMaintenanceDue({ scanStatus: "PENDING_UPLOAD", createdAt: now })!;
+const file: DocumentFile = {
+  ...documentFileKey(tenantId, documentId, seq, fileId),
+  entityType: "DocumentFile",
+  tenantId, documentId, versionId, seq: 1,
+  fileId, role: "PRINCIPAL", scanStatus: "PENDING_UPLOAD",
+  mediaType: input.mediaType, contentLength: input.contentLength, checksumSha256: input.checksumSha256,
+  quarantineObject: { bucket: this.quarantineBucket, key: this.buildQuarantineKey(tenantId, documentId, 1, fileId), versionId: "" },
+  createdAt: now, updatedAt: now, version: 1,
+  ...documentFileGsi8Keys({ dueAtIso: due.dueAtIso, tenantId, fileId }),
+};
+
+const version: DocumentVersion = {
+  ...documentVersionKey(tenantId, documentId, 1),
+  entityType: "DocumentVersion", versionId, documentId, tenantId, seq: 1,
+  state: "RECEIVED", origin: "GUEST_UPLOAD", receivedAt: now,
+  fileSetSealed: true, principalFileId: fileId, totalFiles: 1, pendingFileScans: 1, infectedFileScans: 0,
+  requestId: resolved.request.documentRequestId,
+  createdAt: now, updatedAt: now, version: 1,
+  ...reviewQueueGsi5Keys(tenantId, "RECEIVED", now, versionId),
+};
+```
+(`buildQuarantineKey` privado de `document-archive-service.ts` precisa virar exportado/compartilhado —
+proposta: mover para `document-file.ts` como função pura, reaproveitada pelos dois call sites, nunca
+duplicada.)
+
+Reserva de quota (mesma condição de `reserveFiles()`) entra como entrada adicional na MESMA
+`entries[]` já existente da transação. Ordem de checagem no serviço, antes de montar a transação:
+mediaType (allowlist) → contentLength (faixa) → checksumSha256 (regex) — qualquer falha lança
+`GuestAccessInvalidError` direto, nunca chega a montar a transação.
+
+## Pedido explícito ao Codex nesta rodada
+
+Reavalie a nota considerando as 6 correções acima. Se algum achado bloqueante NÃO estiver
+genuinamente fechado por esta revisão, diga exatamente qual e por quê — não aceite a alegação de
+"corrigido" sem reconferir contra o código real novamente.
+# Rodada 3 — Reconciliação final Claude: Armazenamento real de arquivo no caminho guest (G02)
+
+Nota Rodada 2 (Codex, blind): 8,4/10 NEEDS FIXES — 6/6 achados originais RESOLVIDOS, 1 achado NOVO
+bloqueante (presign fresco vs. deadline GSI8), 2 menores. Corrige os 3.
+
+## Achado novo #1 (BLOQUEANTE) — presign de replay deve respeitar o deadline original, nunca reabrir uma janela nova
+
+Correto: `FILE_SCAN_TIMEOUT_SECONDS`/`PRESIGN_TTL_SECONDS` são deliberadamente a MESMA janela
+(comentário de `document-file.ts`: "the whole reserve->scan lifecycle is bounded by the same
+window the presigned URL itself expires under") — presignar 600s frescos a cada replay quebra essa
+invariante já documentada, permitindo um PUT válido depois que o reconciliador já decidiu
+`TIMEOUT`.
+
+**Correção**: em QUALQUER emissão de presign (primeira chamada ou replay), calcular
+`remainingSeconds = secondsUntil(due.dueAtIso) - SAFETY_MARGIN_SECONDS` (margem pequena, ex. 5s,
+evitando emitir uma URL que expira no instante em que o reconciliador roda). Três casos:
+
+1. `file.scanStatus === "PENDING_UPLOAD"` e `remainingSeconds > 0` → presigna para
+   `min(PRESIGN_TTL_SECONDS, remainingSeconds)` (nunca um teto novo além do deadline original).
+   `SubmitEvidenceResult.uploadUrl`/`requiredHeaders` presentes.
+2. `file.scanStatus === "PENDING_UPLOAD"` e `remainingSeconds <= 0` → NÃO presigna (o
+   reconciliador pode ainda não ter rodado, mas a janela já é considerada encerrada por
+   construção). `uploadUrl` ausente na resposta.
+3. `file.scanStatus` já terminal (`SCANNING`/`CLEAN`/`REJECTED`/`UNSUPPORTED`/`TIMEOUT`) → NÃO
+   presigna. `uploadUrl` ausente.
+
+**Contrato de resposta simplificado (fecha também a confusão apontada sobre `TIMEOUT`)**:
+`SubmitEvidenceResult` expõe só `uploadUrl?`/`requiredHeaders?` — nunca `scanStatus` (vazaria
+estado interno a um chamador anônimo, quebra a disciplina anti-enumeração do módulo). Contrato
+para o frontend: **presente = "envie os bytes agora, o registro ainda aceita"**; **ausente =
+"nada mais a fazer por esta submissão específica"**, sem distinguir para o guest se foi por já ter
+sido recebido, rejeitado ou expirado (a mesma colapsagem genérica que todo o resto do módulo já
+aplica) — G02 mostra uma copy neutra ("Este envio já foi processado ou expirou — se ainda precisar
+enviar evidência, inicie um novo envio") em vez de assumir sucesso.
+
+## Achado novo #2 (MENOR) — constraints do schema devem ser explícitas, não "reaproveitadas" de um arquivo que não as tem
+
+Correto — `docarchive-reserve-files-request.v1.json` não tem `enum`/`maximum`. O schema NOVO
+(`docarchive-guest-submit-evidence-request.v1.json`, versão revisada) declara explicitamente:
+```json
+"mediaType": { "type": "string", "enum": ["application/pdf", "image/jpeg", "image/png"] },
+"contentLength": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+"checksumSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+```
+(mesmos VALORES do precedente de `document`/M6 — `ALLOWED_MEDIA_TYPES`/`MAX_UPLOAD_BYTES` —
+portados como literais no schema E revalidados no serviço, disciplina de dupla trilha já usada em
+outros módulos deste projeto.)
+
+## Achado novo #3 (MENOR) — pseudocódigo autoconsistente
+
+`seq = 1` declarado explicitamente (toda submissão guest cria uma versão nova na sequência 1, não
+existe conceito de versão >1 no caminho guest). `buildQuarantineKey()` deixa de ser privado de
+`document-archive-service.ts`: vira função pura exportada de `document-file.ts`
+(`buildDocumentArchiveQuarantineKey(tenantId, documentId, seq, fileId)`), importada por AMBOS
+`document-archive-service.ts` (`reserveFiles()`) e `guest-document-access-service.ts`
+(`submitEvidence()`) — nunca duplicada, nunca método privado de uma classe que a outra não pode
+chamar.
+
+## Estado final da propriedade A14→G02→A13/A12 (framing explícito pedido pelo Codex)
+
+Esta decisão fecha **armazenamento real de bytes no caminho guest**, sob o MESMO mecanismo de
+segurança/scan já aprovado (D-163), com paridade total de comportamento em relação ao caminho
+autenticado. Ela **não** fecha, e não tenta fechar, a ativação do gate STARTER/PROMOTER
+(`EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED`) — decisão de
+produto separada, já nomeada (item 4 do roadmap), que afeta igualmente o caminho autenticado já em
+produção. `D-265` (o D-number desta decisão) registrará os dois estados separadamente: "armazenamento
+guest implementado" (fechado aqui) vs. "jornada revisável ponta a ponta" (ainda pendente da
+ativação, não escopo desta decisão).
+
+## Pedido final ao Codex
+
+Reavalie com os 3 achados novos corrigidos acima (mais os 6 da Rodada 1, já RESOLVIDOS e
+inalterados nesta rodada). Se ≥9,0, considere `APPROVED` e este design segue para implementação
+(dentro do orçamento restante desta sessão) ou registro como `APPROVED`/ADR para uma sessão futura
+implementar, conforme o tempo permitir.
+# Rodada 4 — Reconciliação final Claude: race presign/TIMEOUT
+
+Nota Rodada 3 (Codex, blind): 8,8/10 NEEDS FIXES — 8/9 achados fechados, 1 residual: um PUT que
+começa perto do deadline (ou cujo evento S3 chega tarde) pode perder a corrida contra o worker de
+reconciliação, que já terá marcado `TIMEOUT` por `GSI8SK < now`. Margem fixa de 5s reduz a
+probabilidade mas não fecha a invariante.
+
+## Correção: confirmação pós-PUT que estende o deadline, sem tocar no pipeline de scan
+
+Novo método guest, mínimo e de escopo estreito: `confirmUploadInFlight(sessionToken, fileId,
+idempotencyKey)`. Chamado pelo frontend IMEDIATAMENTE após o S3 responder 200 ao PUT — evidência
+real de que os bytes chegaram, não uma suposição de tempo.
+
+**O que faz (e o que deliberadamente NÃO faz)**: uma única `Update` transacional (OCC) no
+`DocumentFile`, condicionada a `scanStatus = PENDING_UPLOAD AND deadlineExtended <> true`:
+- Reseta `GSI8SK`/`dueAtIso` para `now + FILE_SCAN_TIMEOUT_SECONDS` (reaproveita
+  `deriveDocumentFileMaintenanceDue({ scanStatus: "PENDING_UPLOAD", createdAt: now })` — a MESMA
+  função pura, só chamada com um `createdAt` mais recente).
+- Marca `deadlineExtended: true` — a condição `<> true` garante extensão NO MÁXIMO UMA VEZ por
+  arquivo (fecha o vetor de abuso "guest chama isso em loop para manter reserva de quota presa
+  para sempre").
+- **Nunca** toca `scanStatus`, nunca chama `applyFileScanResult()`, nunca lê o S3. Não interage
+  com o gate STARTER/PROMOTER (`document-archive-activation.ts`) porque não decide nem observa
+  nada sobre o resultado do scan — só dá ao pipeline assíncrono (que já existe, independente desta
+  mudança) tempo real adicional antes que o reconciliador possa declarar `TIMEOUT`. Se as flags
+  continuarem desligadas, o comportamento é idêntico a hoje (arquivo eventualmente `TIMEOUT`,
+  só que mais tarde) — não muda a decisão já tomada sobre a ativação.
+
+**Por que isso fecha a race real**: o cenário do Codex (PUT inicia perto do deadline original, S3
+valida a expiração só no início da requisição, o worker de reconciliação já rodou antes do evento
+físico chegar) exige que o worker rode DEPOIS que o guest já tem confirmação de 200 do S3 mas
+ANTES da chamada de `confirmUploadInFlight` chegar ao DynamoDB — uma janela de milissegundos
+(network round-trip do próprio browser), não mais os ~600s inteiros do presign. A chamada é
+disparada de imediato, sem esperar interação do usuário, e é idempotente (condição já cumprida =
+sucesso silencioso, nunca erro).
+
+**Se a condição falhar** (ou porque já passou de `TIMEOUT` antes da extensão chegar, ou porque já
+foi estendido antes): resposta genérica "conflito, tente novamente" — mesmo colapso
+anti-enumeração do resto do módulo, nunca vaza `scanStatus`.
+
+**Consistência de resposta atualizada**: `submitEvidence()` retorna, além de `uploadUrl`/
+`requiredHeaders`, `fileId` (necessário para o guest referenciar o ack — hoje ausente do contrato,
+correção adicional desta rodada). Fluxo do frontend (G02): submit → (se `uploadUrl` presente) PUT
+→ (se PUT retornar 2xx) `confirmUploadInFlight` → SÓ ENTÃO copy de sucesso. Se `confirmUploadInFlight`
+falhar, mesma copy neutra de expiração já definida na Rodada 3 (nunca reafirma sucesso que não foi
+confirmado).
+
+## Escopo/infra desta correção
+
+- Domínio: `document-file.ts` ganha `deadlineExtended?: boolean` no `DocumentFile` (campo esparso,
+  ausente = `false`, mesma disciplina de campos opcionais já usada no arquivo).
+- Serviço: novo método em `guest-document-access-service.ts`, mesma resolução de sessão de
+  `submitEvidence()` (reaproveitada, não duplicada).
+- HTTP: nova rota guest (`POST .../uploads/{fileId}/confirm` ou equivalente — nome exato decidido
+  na implementação, seguindo a convenção de rota já usada pelas outras rotas guest deste módulo).
+- **Nenhuma mudança de infraestrutura/IAM além do que as rodadas anteriores já cobrem** — esta
+  correção é só DynamoDB (mesma tabela, mesma policy já concedida), nunca toca S3.
+
+## Pedido final ao Codex
+
+Reavalie com esta correção. Se ≥9,0, `APPROVED`. Se ainda houver uma janela residual real
+(diferente de "teoricamente qualquer sistema distribuído tem uma janela"), diga o cenário concreto
+específico que ainda quebra.
+
+exec
+/bin/bash -lc "sed -n '350,510p' src/modules/document-archive/application/guest-document-access-service.ts && rg -n \"function idempotencyRecordKey|idempotency.*Key|SUBMIT#\" src/modules/document-archive src/shared -g '*.ts' && sed -n '1,120p' src/modules/document-archive/ports/document-archive-store.ts && rg -n \"presignUpload\\(|PRESIGN_TTL_SECONDS|expiresIn\" src/modules/document-archive src/runtime/aws -g '*.ts'" in /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+ succeeded in 16ms:
+exec
+/bin/bash -lc "sed -n '90,225p' src/modules/document-archive/application/apply-file-scan-result.ts && sed -n '1,220p' src/modules/document-archive/application/advance-file-after-evidence.ts 2>/dev/null || true && rg -n \"scanStatus: \\\"SCANNING\\\"|PENDING_UPLOAD.*SCANNING|isNonTerminalFileScanStatus\" src/modules/document-archive/application -g '*.ts'" in /mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker
+ succeeded in 0ms:
+  const key = documentFileKey(input.tenantId, input.documentId, input.seq, input.fileId);
+
+  for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+    const file = await deps.store.get<DocumentFile>(key);
+    if (!file) return { outcome: "IGNORED_STALE" };
+
+    // Terminal-state idempotency FIRST, before any correlation check: a repeated/late event
+    // against a file already at CLEAN/REJECTED/UNSUPPORTED/TIMEOUT is a legitimate replay, never
+    // re-evaluated against the consolidated triple (D-163 §1's correlation only ever applies
+    // while `scanStatus IN (PENDING_UPLOAD, SCANNING)`).
+    if (!isNonTerminalFileScanStatus(file.scanStatus)) return { outcome: "IGNORED_STALE" };
+
+    // D-163 §1 symmetric evidence correlation: `quarantineObject.versionId === ""` means no
+    // physical event has consolidated it yet (`reserveFiles()`'s placeholder) - this event IS
+    // the first, so it wins unconditionally. Once consolidated, every further event must match
+    // that exact triple or is a stale/duplicate/wrong-object event, never re-consolidated.
+    const consolidated = file.quarantineObject.versionId !== "";
+    if (consolidated && !sameObjectVersion(file.quarantineObject, input.observedObject)) {
+      return { outcome: "IGNORED_WRONG_VERSION" };
+    }
+
+    const mergedUploadEvidence = input.uploadEvidence ?? file.uploadEvidence;
+    const mergedMalwareEvidence = input.malwareEvidence ?? file.malwareEvidence;
+
+    const decision = decideNextAction({
+      currentStatus: file.scanStatus,
+      uploadValid: mergedUploadEvidence?.valid,
+      uploadEvidence: mergedUploadEvidence,
+      malwareEvidence: mergedMalwareEvidence,
+    });
+
+    const evidenceSet: Record<string, unknown> = {};
+    if (input.uploadEvidence) evidenceSet["uploadEvidence"] = input.uploadEvidence;
+    if (input.malwareEvidence) evidenceSet["malwareEvidence"] = input.malwareEvidence;
+    const quarantineObjectSet = consolidated ? {} : { quarantineObject: input.observedObject };
+
+    if (decision.action === "IGNORE_STALE_EVENT") return { outcome: "IGNORED_STALE" };
+
+    if (decision.action === "AWAIT_MORE_EVIDENCE") {
+      const nowTs = now();
+      const result = await tryTenantBusinessMutation({
+        store: deps.store,
+        tableName: deps.tableName,
+        tenantId: input.tenantId,
+        entries: [
+          {
+            Update: buildVersionedUpdate({
+              tableName: deps.tableName,
+              key,
+              tenantId: input.tenantId,
+              expectedVersion: file.version,
+              // SCANNING marks "at least one physical event has landed" independent of
+              // decideNextAction's own vocabulary (it only ever returns actions, never this
+              // specific status) - a no-op re-SET when the file was already SCANNING.
+              set: { scanStatus: "SCANNING", ...quarantineObjectSet, ...evidenceSet },
+              now: nowTs,
+            }),
+          },
+        ],
+      });
+      if (result.ok) return { outcome: "AWAITING" };
+      if (result.reason === "OCC_CONFLICT") continue; // concurrent half of evidence landed - retry fresh.
+      return { outcome: "IGNORED_TENANT_NOT_ACTIVE" };
+    }
+
+    if (decision.action === "PROMOTE") {
+      // Never claims CLEAN itself - zero writes here, same discipline M6's PROMOTE branch
+      // established (`advance-after-evidence.ts`'s doc comment). The evidence merge that got us
+      // here was already persisted by an earlier AWAITING call (PROMOTE is only reachable once
+      // BOTH evidences exist, and only one arrives per call) - nothing new to consolidate.
+      const sourceObject = consolidated ? file.quarantineObject : input.observedObject;
+      return { outcome: "READY_TO_PROMOTE", sourceObject };
+    }
+
+    // decision.action === "REJECT": terminal transition - counters + GSI8 removal happen in the
+    // SAME transaction as the file's own write (Decision 6/Bloqueador 9: a crash between the two
+    // would leave pendingFileScans stuck above zero forever, permanently blocking acceptVersion).
+    const version = await deps.store.get<DocumentVersion>(documentVersionKey(input.tenantId, input.documentId, input.seq));
+    if (!version) return { outcome: "IGNORED_STALE" }; // Version cannot be removed once files exist - fail closed if this ever changes.
+
+    const infected = mergedMalwareEvidence?.status === "THREATS_FOUND";
+    const nowTs = now();
+    // storage-quota-scoping (D-2xx): REJECTED/UNSUPPORTED is terminal without ever reaching
+    // CLEAN, so the capacity hold `reserveFiles()` took on this file's bytes must be released
+    // here — in the SAME transaction as the file's own terminal write, same "counters change
+    // atomically with the state transition, never a separate step" discipline this file's
+    // pendingFileScans decrement already follows (module doc comment, Decision 6/Bloqueador 9).
+    const quota = await ensureStorageQuota(deps, input.tenantId);
+    const entries: TransactWriteEntry[] = [
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key,
+          tenantId: input.tenantId,
+          expectedVersion: file.version,
+          set: { scanStatus: decision.status, ...quarantineObjectSet, ...evidenceSet },
+          // D-163 §5/§6: any transaction reaching a terminal scanStatus removes the sparse GSI8
+          // reconciliation pointer in the same write - never a separate cleanup step.
+          remove: ["GSI8PK", "GSI8SK"],
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: documentVersionKey(input.tenantId, input.documentId, input.seq),
+          tenantId: input.tenantId,
+          expectedVersion: version.version,
+          set: { pendingFileScans: version.pendingFileScans - 1, ...(infected ? { infectedFileScans: version.infectedFileScans + 1 } : {}) },
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: storageQuotaKey(input.tenantId),
+          tenantId: input.tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: Math.max(0, quota.reservedBytes - file.contentLength) },
+          now: nowTs,
+        }),
+      },
+    ];
+    // D-163 §2 (Rodada 4): FILE_REJECTED_INFECTED is emitted only for the infection-caused
+    // REJECTED transition, never for a plain upload-invalid REJECTED or an UNSUPPORTED one - the
+    // audit trail exists specifically so "why was this file removed from consideration" is
+    // answerable without re-deriving it from malwareEvidence.
+    if (infected) {
+      entries.push({
+        Put: buildVersionedCreate(
+          deps.tableName,
+          buildFileRejectedEvent(deps, input.tenantId, input.documentId, input.seq, version.versionId, version.state, input.fileId, file.scanStatus, decision.status, nowTs) as unknown as Record<string, unknown> & EntityKey,
+        ),
+      });
+    }
+    const result = await tryTenantBusinessMutation({ store: deps.store, tableName: deps.tableName, tenantId: input.tenantId, entries });
+/**
+ * advanceDocumentArchiveFileAfterEvidence — D-193 ("Ingestão física") slice 1. Sibling to
+ * `document/application/advance-after-evidence.ts`'s `advanceAfterEvidence()`, called
+ * identically by both physical handlers (`upload-finalizer-handler.ts` after persisting
+ * uploadEvidence-equivalent data, `malware-result-handler.ts` after a GuardDuty finding).
+ *
+ * Unlike M6's `Document` (whose `advanceAfterEvidence()` owns evidence persistence itself and
+ * `decideNextAction()` separately), `DocumentFile`'s `applyFileScanResult()` already does BOTH —
+ * persists whichever evidence half this call observed AND applies `decideNextAction()`'s
+ * decision — in one atomic OCC loop (`apply-file-scan-result.ts`'s own doc comment). This
+ * function's only real job on top of that is the PROMOTE branch's physical copy-to-clean +
+ * verify + `confirmFileScanClean()` — the part `applyFileScanResult()` deliberately never does
+ * itself (no `DocumentObjectStore` wired into it, per its doc comment).
+ */
+import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
+import { documentFileKey, type DocumentFile } from "../domain/document-file.js";
+import type { UploadEvidence } from "../../document/domain/document.js";
+import type { DocumentObjectReference } from "../../document/domain/document-object-reference.js";
+import type { MalwareEvidence } from "../../document/domain/malware-scan-result.js";
+import type { DocumentObjectStore } from "../../document/ports/document-object-store.js";
+import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
+import type { DocumentArchiveIdGenerator } from "./id-generator.js";
+import { applyFileScanResult, confirmFileScanClean } from "./apply-file-scan-result.js";
+
+export interface AdvanceDocumentArchiveFileDeps {
+  store: DocumentArchiveStore;
+  objects: DocumentObjectStore;
+  ids: DocumentArchiveIdGenerator;
+  tableName: string;
+  cleanBucket: string;
+  now?: () => string;
+}
+
+export interface AdvanceDocumentArchiveFileInput {
+  tenantId: AuthorizedTenantId;
+  documentId: string;
+  seq: number;
+  fileId: string;
+  observedObject: DocumentObjectReference;
+  uploadEvidence?: UploadEvidence;
+  malwareEvidence?: MalwareEvidence;
+}
+
+export type AdvanceDocumentArchiveFileOutcome = "PROMOTED" | "REJECTED" | "AWAITING" | "IGNORED_STALE" | "IGNORED_WRONG_VERSION" | "IGNORED_TENANT_NOT_ACTIVE";
+
+/** `document-archive/clean/<tenantId>/<documentId>/<versionId>/<fileId>` — the exact clean-key
+ * shape the approved design closed on (Round 5, "Chave clean e identidade": versionId-based,
+ * NEVER `seq`, since `ExtractionRun`'s future re-keying reads identity off this same triple). */
+export function buildDocumentArchiveCleanKey(tenantId: AuthorizedTenantId, documentId: string, versionId: string, fileId: string): string {
+  return `document-archive/clean/${tenantId}/${documentId}/${versionId}/${fileId}`;
+}
+
+export async function advanceDocumentArchiveFileAfterEvidence(
+  deps: AdvanceDocumentArchiveFileDeps,
+  input: AdvanceDocumentArchiveFileInput,
+): Promise<AdvanceDocumentArchiveFileOutcome> {
+  const applyDeps = { store: deps.store, tableName: deps.tableName, ids: deps.ids, now: deps.now };
+  const outcome = await applyFileScanResult(applyDeps, {
+    tenantId: input.tenantId,
+    documentId: input.documentId,
+    seq: input.seq,
+    fileId: input.fileId,
+    observedObject: input.observedObject,
+    uploadEvidence: input.uploadEvidence,
+    malwareEvidence: input.malwareEvidence,
+  });
+
+  if (outcome.outcome === "AWAITING") return "AWAITING";
+  if (outcome.outcome === "IGNORED_STALE") return "IGNORED_STALE";
+  if (outcome.outcome === "IGNORED_WRONG_VERSION") return "IGNORED_WRONG_VERSION";
+  if (outcome.outcome === "IGNORED_TENANT_NOT_ACTIVE") return "IGNORED_TENANT_NOT_ACTIVE";
+  if (outcome.outcome === "REJECTED") return "REJECTED";
+
+  // outcome.outcome === "READY_TO_PROMOTE": copy quarantine -> clean, verify, confirm CLEAN —
+  // same discipline advanceAfterEvidence()'s own PROMOTE branch requires. `versionId` is not
+  // carried by applyFileScanResult's own outcome shape (it never needs it internally), so a
+  // fresh read of the DocumentFile itself supplies it here — cheap, and never assumes the
+  // caller's earlier read (if any) is still current.
+  const file = await deps.store.get<DocumentFile>(documentFileKey(input.tenantId, input.documentId, input.seq, input.fileId));
+  if (!file) return "IGNORED_STALE"; // the file cannot be removed once created - fail closed if this ever changes.
+
+  const cleanKey = buildDocumentArchiveCleanKey(input.tenantId, input.documentId, file.versionId, input.fileId);
+  const cleanObject = await deps.objects.copyObject(outcome.sourceObject, deps.cleanBucket, cleanKey);
+  const verify = await deps.objects.headObject(cleanObject);
+  if (!verify || verify.contentLength !== file.contentLength) {
+    // Same orphaned-clean-version compensation discipline as advanceAfterEvidence() - never
+    // confirm CLEAN on unverified data, and never leave the failed copy's version dangling.
+    try {
+      await deps.objects.deleteObjectVersion(cleanObject);
+    } catch {
+      // Best-effort - the bucket's own lifecycle rule / a future reconciliation sweep is the
+      // backstop, same reasoning advance-after-evidence.ts documents for its own compensation.
+    }
+    throw new Error(`Promotion copy verification failed for DocumentFile ${input.fileId}`);
+  }
+
+  const confirmOutcome = await confirmFileScanClean(applyDeps, {
+    tenantId: input.tenantId,
+    documentId: input.documentId,
+    seq: input.seq,
+    fileId: input.fileId,
+    cleanObject,
+  });
+  if (confirmOutcome !== "CONFIRMED") {
+    // Concurrent rejection or tenant fence loss between the copy and this confirm - compensate
+    // the orphaned clean-bucket version, same as advanceAfterEvidence()'s every-non-committed-
+    // outcome discipline (W3-07 review finding).
+    try {
+      await deps.objects.deleteObjectVersion(cleanObject);
+    } catch {
+      // Best-effort, same backstop reasoning as above.
+    }
+    return confirmOutcome === "IGNORED_TENANT_NOT_ACTIVE" ? "IGNORED_TENANT_NOT_ACTIVE" : "IGNORED_STALE";
+  }
+
+  // Quarantine object removal is best-effort cleanup, never a condition for CLEAN - same M6
+  // design §2.3 posture advanceAfterEvidence() already follows.
+  try {
+    await deps.objects.deleteObjectVersion(outcome.sourceObject);
+  } catch {
+    // Intentionally swallowed - the quarantine bucket's own lifecycle rule is the backstop.
+  }
+  return "PROMOTED";
+}
+src/modules/document-archive/application/apply-file-scan-result.ts:32:import { documentFileKey, isNonTerminalFileScanStatus, sameObjectVersion, type DocumentFile, type DocumentFileScanStatus } from "../domain/document-file.js";
+src/modules/document-archive/application/apply-file-scan-result.ts:99:    // while `scanStatus IN (PENDING_UPLOAD, SCANNING)`).
+src/modules/document-archive/application/apply-file-scan-result.ts:100:    if (!isNonTerminalFileScanStatus(file.scanStatus)) return { outcome: "IGNORED_STALE" };
+src/modules/document-archive/application/apply-file-scan-result.ts:144:              set: { scanStatus: "SCANNING", ...quarantineObjectSet, ...evidenceSet },
+src/modules/document-archive/application/apply-file-scan-result.ts:259:    if (!isNonTerminalFileScanStatus(file.scanStatus)) return "IGNORED_STALE";
+src/modules/document-archive/application/apply-file-scan-result.ts:329: * (PENDING_UPLOAD/SCANNING -> TIMEOUT), symmetric to applyFileScanResult's REJECT branch but
+src/modules/document-archive/application/apply-file-scan-result.ts:343:    if (!isNonTerminalFileScanStatus(file.scanStatus)) return "IGNORED_STALE";
+
+codex
+NOTA: 8,8/10  
+VEREDITO: NEEDS FIXES
+
+Há um único bug concreto: o tratamento de cancelamento não cobre conflito OCC enquanto o arquivo continua elegível.
+
+Cenário real:
+
+1. `confirmUploadInFlight()` lê `PENDING_UPLOAD`, versão N.
+2. `applyFileScanResult()` grava `SCANNING`, versão N+1 — transição real em [apply-file-scan-result.ts](/mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker/src/modules/document-archive/application/apply-file-scan-result.ts:136).
+3. O update da confirmação, ainda esperando versão N, é cancelado.
+4. A releitura encontra `SCANNING`, `deadlineExtended !== true`.
+5. O pseudocódigo retorna `{ extended: false }`, embora `SCANNING` tenha sido explicitamente declarado elegível para extensão.
+
+Logo, as correções #2 e #3 ainda não compõem corretamente. `isTransactionCanceled` não significa apenas “extensão anterior venceu” ou “estado terminal”: também pode significar conflito OCC com outra escrita não terminal.
+
+A correção necessária é um loop OCC limitado, como já existe em `applyFileScanResult()`:
+
+```ts
+for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+  const file = await this.store.get<DocumentFile>(key);
+
+  if (!file || !isNonTerminalFileScanStatus(file.scanStatus)) {
+    return { extended: false };
+  }
+
+  if (file.deadlineExtended === true) {
+    return { extended: true };
+  }
+
+  try {
+    await this.store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          expectedVersion: file.version,
+          // set...
+          extraConditions: [
+            {
+              expression:
+                "attribute_not_exists(#extended) OR #extended <> :true",
+              names: { "#extended": "deadlineExtended" },
+              values: { ":true": true },
+            },
+            {
+              expression: "#status IN (:pending, :scanning)",
+              names: { "#status": "scanStatus" },
+              values: {
+                ":pending": "PENDING_UPLOAD",
+                ":scanning": "SCANNING",
+              },
+            },
+          ],
+          // ...
+        }),
+      },
+    ]);
+
+    return { extended: true };
+  } catch (err) {
+    if (!isTransactionCanceled(err)) throw err;
+    // Releitura e nova arbitragem na próxima iteração.
+  }
+}
+```
+
+As demais correções da Rodada 5 estão tecnicamente corretas: condição para atributo esparso, inclusão de `SCANNING`, binding do arquivo pelo registro servidor-autoritativo de submissão, CSRF/rate limit e linguagem de garantia. Porém, o conflito OCC acima ainda produz falso negativo no fluxo normal de chegada do evento físico, portanto não é possível aprovar nesta rodada.
+tokens used
+40,805
+NOTA: 8,8/10  
+VEREDITO: NEEDS FIXES
+
+Há um único bug concreto: o tratamento de cancelamento não cobre conflito OCC enquanto o arquivo continua elegível.
+
+Cenário real:
+
+1. `confirmUploadInFlight()` lê `PENDING_UPLOAD`, versão N.
+2. `applyFileScanResult()` grava `SCANNING`, versão N+1 — transição real em [apply-file-scan-result.ts](/mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker/src/modules/document-archive/application/apply-file-scan-result.ts:136).
+3. O update da confirmação, ainda esperando versão N, é cancelado.
+4. A releitura encontra `SCANNING`, `deadlineExtended !== true`.
+5. O pseudocódigo retorna `{ extended: false }`, embora `SCANNING` tenha sido explicitamente declarado elegível para extensão.
+
+Logo, as correções #2 e #3 ainda não compõem corretamente. `isTransactionCanceled` não significa apenas “extensão anterior venceu” ou “estado terminal”: também pode significar conflito OCC com outra escrita não terminal.
+
+A correção necessária é um loop OCC limitado, como já existe em `applyFileScanResult()`:
+
+```ts
+for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+  const file = await this.store.get<DocumentFile>(key);
+
+  if (!file || !isNonTerminalFileScanStatus(file.scanStatus)) {
+    return { extended: false };
+  }
+
+  if (file.deadlineExtended === true) {
+    return { extended: true };
+  }
+
+  try {
+    await this.store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          expectedVersion: file.version,
+          // set...
+          extraConditions: [
+            {
+              expression:
+                "attribute_not_exists(#extended) OR #extended <> :true",
+              names: { "#extended": "deadlineExtended" },
+              values: { ":true": true },
+            },
+            {
+              expression: "#status IN (:pending, :scanning)",
+              names: { "#status": "scanStatus" },
+              values: {
+                ":pending": "PENDING_UPLOAD",
+                ":scanning": "SCANNING",
+              },
+            },
+          ],
+          // ...
+        }),
+      },
+    ]);
+
+    return { extended: true };
+  } catch (err) {
+    if (!isTransactionCanceled(err)) throw err;
+    // Releitura e nova arbitragem na próxima iteração.
+  }
+}
+```
+
+As demais correções da Rodada 5 estão tecnicamente corretas: condição para atributo esparso, inclusão de `SCANNING`, binding do arquivo pelo registro servidor-autoritativo de submissão, CSRF/rate limit e linguagem de garantia. Porém, o conflito OCC acima ainda produz falso negativo no fluxo normal de chegada do evento físico, portanto não é possível aprovar nesta rodada.

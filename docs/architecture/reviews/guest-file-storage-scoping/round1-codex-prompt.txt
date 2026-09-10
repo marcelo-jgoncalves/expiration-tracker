@@ -1,0 +1,23 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, ver AGENTS.md §4). Avalie a proposta de design abaixo (Rodada 1) para fechar um gap real: o caminho de submissão de evidência do CONVIDADO (guest, não autenticado) aceita metadata de arquivo mas nunca persiste bytes reais.
+
+Leia o arquivo completo em docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md (relativo à raiz do repo) antes de avaliar — ele contém contexto, pesquisa externa, checklist de critérios derivado da pesquisa, e o design proposto em detalhe.
+
+Verifique especificamente, lendo o código real do repositório (não confie cegamente na descrição da proposta):
+1. src/modules/document-archive/application/guest-document-access-service.ts (código atual do submitEvidence())
+2. src/modules/document-archive/application/document-archive-service.ts (reserveFiles(), linhas ~612-780, o padrão que a proposta diz estar reaproveitando)
+3. src/modules/document-archive/application/apply-file-scan-result.ts e advance-file-after-evidence.ts (a máquina de estados de scan que a proposta diz nunca checar DocumentVersion.state)
+4. src/runtime/aws/handlers/malware-result-handler.ts (o roteador por prefixo de chave S3 que a proposta diz já reconhecer o formato de chave sem mudança)
+5. infra/main.tf (módulos document_archive_handler vs document_archive_guest_handler, linhas ~420-490, para confirmar a lacuna de IAM/env var que a proposta descreve)
+6. src/modules/document-archive/domain/document-file.ts e document-request.ts (isDocumentRequestLive, para confirmar se SUBMITTED permite resubmissão)
+
+Dê uma nota de 0 a 10 (não arredondada) avaliando:
+- Correção técnica: a proposta realmente reaproveita o mecanismo existente sem quebrar nenhuma invariante (fileSetSealed, pendingFileScans, anti-enumeração, idempotência, isolamento de tenant)?
+- Segurança: allowlist de mediaType/contentLength, quota de armazenamento, presign de vida curta, nunca confiar em fileName do cliente, nunca vazar detalhe de falha a um guest — tudo coberto e tecnicamente correto?
+- Completude: falta algum caso real (ex: e se o guest nunca faz o PUT? e se faz o PUT duas vezes com o mesmo idempotencyKey? e se a quota já está no limite?)?
+- Escopo: a proposta reabre alguma decisão já aprovada sem necessidade, ou expande escopo além do gap nomeado?
+- Achados REAIS de bugs/gaps na proposta (não estilo, não preferência).
+
+Formato da resposta:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: lista numerada, cada um com severidade (BLOQUEANTE/MENOR) e localização específica na proposta ou no código

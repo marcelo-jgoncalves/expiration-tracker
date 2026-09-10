@@ -1,0 +1,14 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 5 do design de armazenamento real de arquivo no caminho guest. Rodada 4 você deu 7,8/10 NEEDS FIXES: a arbitragem OCC do mecanismo de extensão de deadline é tecnicamente correta, mas apontou 4 bugs de implementação concretos (expressão de condição para campo esparso incorreta; extensão não cobria scanStatus=SCANNING; idempotência mal definida; fileId aceito sem autorização) + CSRF/rate-limit implícitos + linguagem de garantia superestimada.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round5-claude-reconciliation.md — responde aos 6 pontos, um a um, com expressões DynamoDB explícitas e reaproveitando o padrão de idempotência já existente em submitEvidence() (guest-document-access-service.ts:481-494).
+
+Verifique contra o código real:
+- src/modules/document-archive/application/guest-document-access-service.ts (padrão de idempotência real em submitEvidence, resolveSession)
+- src/modules/document-archive/domain/document-file.ts (isNonTerminalFileScanStatus)
+- Qualquer buildVersionedUpdate/extraConditions existente no repo para confirmar que "attribute_not_exists(x) OR x <> :true" é o padrão real já usado (grep por "attribute_not_exists" em src/modules/document-archive se útil)
+
+Dê o veredito final:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+Se APPROVED: confirme que TODOS os achados de TODAS as rodadas (1-5) estão genuinamente fechados.
+Se NEEDS FIXES: seja específico — isto seria a 6a rodada, então só aponte um problema se for um bug real e concreto, não uma preferência estilística.

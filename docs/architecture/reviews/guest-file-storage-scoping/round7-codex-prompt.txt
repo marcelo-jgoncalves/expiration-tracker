@@ -1,0 +1,8 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 7 (fechamento) do design de armazenamento real de arquivo no caminho guest. Rodada 6: 8,9/10 NEEDS FIXES, único bug restante era MAX_OCC_RETRIES não exportado de apply-file-scan-result.ts.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round7-claude-reconciliation.md — a correção é só exportar a constante.
+
+Confirme que este é de fato o único item pendente (sem nenhum outro achado novo) e dê o veredito de fechamento:
+NOTA: X,X/10
+VEREDITO: APPROVED ou NEEDS FIXES
+Se APPROVED: declare o design como fechado, pronto para implementação, confirmando que os 7 rodadas de achados estão genuinamente resolvidas.

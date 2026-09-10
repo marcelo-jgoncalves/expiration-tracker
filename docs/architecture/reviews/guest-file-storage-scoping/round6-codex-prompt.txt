@@ -1,0 +1,11 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Rodada 6 (provavelmente final) do design de armazenamento real de arquivo no caminho guest. Rodada 5 você deu 8,8/10 NEEDS FIXES, com um único bug concreto restante — tratamento de OCC cancelado sem loop de retry, produzindo falso negativo quando SCANNING chega concorrentemente. Você mesmo forneceu o código do loop OCC limitado como correção.
+
+Leia docs/architecture/reviews/guest-file-storage-scoping/round6-claude-reconciliation.md — adota seu código quase verbatim (loop `MAX_OCC_RETRIES`, relê o estado a cada iteração, nunca decide a partir de um único cancelamento).
+
+Confirme se este código fecha genuinamente o bug apontado na Rodada 5, e se não introduz nenhum problema novo (ex: MAX_OCC_RETRIES existe de fato em apply-file-scan-result.ts para ser reaproveitado — confirme lendo o arquivo).
+
+Dê o veredito final:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+Se APPROVED: confirme que TODOS os achados de TODAS as rodadas (1-6) estão genuinamente fechados, sem exceção — este é o fechamento do protocolo.
+Se NEEDS FIXES: seja específico, só aponte um bug real e concreto.
