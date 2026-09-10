@@ -44,6 +44,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}" },
+  // D-258: item->policy discovery for A06 (Reminder Policy screen).
+  { method: "GET", pathTemplate: "/items/{itemId}/reminder-policy" },
   { method: "DELETE", pathTemplate: "/items/{itemId}/documents/{documentId}" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" },

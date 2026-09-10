@@ -148,6 +148,15 @@ locals {
     update  = { method = "PUT", path = "/reminders/policies/{policyId}" }
     disable = { method = "POST", path = "/reminders/policies/{policyId}/disable" }
   }
+
+  # D-258: item->policy discovery route, served by the SAME RemindersHandler Lambda/
+  # integration as reminders_routes above (no new function) but living under "/items/*",
+  # so it needs its own aws_apigatewayv2_route entry (kept out of `reminders_routes` since
+  # that map's for_each also drives `aws_lambda_permission.reminders`'s source_arn wildcard,
+  # which is scoped to "/reminders/policies*" and must not silently widen).
+  reminders_item_routes = {
+    get_by_item = { method = "GET", path = "/items/{itemId}/reminder-policy" }
+  }
 }
 
 resource "aws_apigatewayv2_route" "items" {
@@ -340,6 +349,28 @@ resource "aws_lambda_permission" "reminders" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reminders/policies*"
+}
+
+# D-258: item->policy discovery, same RemindersHandler Lambda as above, routed under
+# "/items/*" so it needs its own route + invoke permission - same pattern as
+# `aws_lambda_permission.items_activity`/`items_dashboard_summary` for ItemsHandler above.
+resource "aws_apigatewayv2_route" "reminders_item" {
+  for_each = local.reminders_item_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.reminders.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "reminders_item" {
+  statement_id  = "AllowApiGatewayInvokeRemindersItem"
+  action        = "lambda:InvokeFunction"
+  function_name = var.reminders_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/reminder-policy"
 }
 
 # --- DocumentsHandler: /items/{itemId}/documents* (M6) ----------------------------------

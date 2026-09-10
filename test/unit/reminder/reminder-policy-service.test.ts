@@ -131,6 +131,71 @@ describe("ReminderPolicyService - createPolicy", () => {
   });
 });
 
+describe("ReminderPolicyService - getPolicyForItem (D-258 discovery)", () => {
+  let store: InMemoryReminderStore;
+  let service: ReminderPolicyService;
+  let ctx: RequestContext;
+
+  beforeEach(async () => {
+    store = new InMemoryReminderStore();
+    service = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => NOW });
+    ctx = contextFor(TENANT);
+    await seedActiveItem(store, "item1");
+  });
+
+  it("returns null (not an error) when the item has no policy yet", async () => {
+    expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
+  });
+
+  it("resolves the policy via the POLICYREF pointer for an item that has one", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+
+    const found = await service.getPolicyForItem(ctx, "item1");
+    expect(found?.policyId).toBe(policy.policyId);
+    expect(found?.name).toBe("r");
+  });
+
+  it("follows a moved pointer after updatePolicy re-targets the policy to a different item", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    await seedActiveItem(store, "item2");
+    await service.updatePolicy(ctx, policy.policyId, { scope: "ITEM", itemId: "item2", rule: { name: "r", triggers: policy.triggers, timeZone: policy.timeZone, channels: policy.channels } }, 1);
+
+    expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
+    expect((await service.getPolicyForItem(ctx, "item2"))?.policyId).toBe(policy.policyId);
+  });
+
+  it("still resolves a disabled policy (disable never removes the pointer, per §5)", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    await service.disablePolicy(ctx, policy.policyId, 1);
+
+    const found = await service.getPolicyForItem(ctx, "item1");
+    expect(found?.enabled).toBe(false);
+  });
+
+  it("denies cross-tenant access to the same itemId (a different tenant's item1)", async () => {
+    await seedActiveItem(store, "item1", "other-tenant");
+    await service.createPolicy(contextFor("other-tenant"), {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+
+    expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
+  });
+});
+
 describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
   let store: InMemoryReminderStore;
   let service: ReminderPolicyService;

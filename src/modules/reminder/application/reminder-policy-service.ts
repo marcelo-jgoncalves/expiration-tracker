@@ -25,7 +25,7 @@ import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdat
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { itemKey } from "../../expiration/domain/expiration-item.js";
-import { policyKey, policyRefKey, validatePolicyScope, type ReminderPolicy, type PutPolicyInput } from "../domain/reminder-policy.js";
+import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, validatePolicyScope, type ReminderPolicy, type PolicyRef, type PutPolicyInput } from "../domain/reminder-policy.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../ports/reminder-store.js";
 import type { ReminderIdGenerator } from "./id-generator.js";
 
@@ -95,6 +95,32 @@ export class ReminderPolicyService {
   async getPolicy(ctx: RequestContext, policyId: string): Promise<ReminderPolicy> {
     const policy = await this.readActivePolicy(ctx.tenant.tenantId, policyId);
     authorize({ context: ctx, action: "reminder:manage", resource: { tenantId: policy.tenantId } });
+    return policy;
+  }
+
+  /**
+   * D-258: item->policy discovery. `policyId` is server-generated (ULID) and unrelated to
+   * `itemId`, so a caller holding only an `itemId` (e.g. the A06 frontend screen) has no way
+   * to reach `GET /reminders/policies/{policyId}` directly. Resolved via the SAME `POLICYREF#`
+   * pointer row (`reminder-policy.ts`'s `policyRefKey`) the materialization-trigger worker
+   * already uses to discover ITEM-scoped policies for an item - this is discovery-only
+   * wiring, not a new capability: the pointer has existed since BLOCKER-B (§5), just never
+   * had an HTTP route reading it. Returns `null` (never throws NotFoundError) when the item
+   * has no policy yet - "no policy configured" is a legitimate, common state (A06's
+   * no-policy-yet screen state), not an error.
+   */
+  async getPolicyForItem(ctx: RequestContext, itemId: string): Promise<ReminderPolicy | null> {
+    const tenantId = authorizedTenantId(ctx);
+    authorize({ context: ctx, action: "reminder:manage", resource: { tenantId } });
+
+    const refs = await this.store.queryByItem<PolicyRef>(tenantId, itemId, POLICY_REF_SK_PREFIX);
+    if (refs.length === 0) return null;
+    // Invariant: at most one ITEM-scoped policy per item (updatePolicy's pointer-move logic
+    // always removes the OLD pointer before/independent of a new one being written - see its
+    // comment on `movedAwayFromItem`) - defensive `[0]` rather than assuming array shape.
+    const policyId = refs[0]!.policyId;
+    const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, policyId));
+    if (!policy || policy.deletedAt) return null;
     return policy;
   }
 
