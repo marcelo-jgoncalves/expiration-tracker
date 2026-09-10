@@ -23,6 +23,8 @@ import type {
   RequirementStatus,
   RequirementTemplateStatus,
   TrackedSubjectType,
+  DocumentRequest,
+  DocumentRequestSeriesStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -287,4 +289,32 @@ export function presentSubmissionStatus(status: DocumentSubmissionStatus): Statu
     case "DELETED":
       return { label: "Excluído", tone: "neutral" };
   }
+}
+
+/** A14 (Block 6, D-2xx) — "Ativa"/"Cancelada", BOTH neutral (A14-solicitacoes-recorrencia.md's
+ * own explicit instruction: a cancelled series is closed history, not a warning/critical
+ * attention state). */
+export function presentDocumentRequestSeriesStatus(status: DocumentRequestSeriesStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativa", tone: "neutral" };
+    case "CANCELLED":
+      return { label: "Cancelada", tone: "neutral" };
+  }
+}
+
+/**
+ * A14 (Block 6, D-2xx) — "Link do convidado" cell text. Derived exclusively from
+ * `DocumentRequest.status`/`deadline` — never from delivery-attempt state (SENT/SEND_UNCERTAIN),
+ * which the tenant-facing side genuinely cannot read (see `SubjectRequests.tsx`'s header
+ * comment for the real, confirmed gap this deviates from the spec's "Entrega da credencial"
+ * column). Plain text, not a StatusBadge, matching the spec's own "(texto: ...)" phrasing.
+ */
+export function presentGuestLinkState(request: Pick<DocumentRequest, "status" | "deadline">, now: Date): string {
+  if (request.status === "SUBMITTED" || request.status === "COMPLETED") return "Resolvido (submissão recebida)";
+  if (request.status === "REVOKED") return "Revogado";
+  if (request.status === "EXPIRED") return "Expirado";
+  if (request.status === "CANCELLED") return "Cancelado";
+  if (request.deadline && new Date(request.deadline).getTime() < now.getTime()) return "Expirado";
+  return request.deadline ? `Ativo · expira em ${formatAbsoluteDate(request.deadline)}` : "Ativo";
 }

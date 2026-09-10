@@ -77,6 +77,13 @@ export const queryKeys = {
      * `currentVersionId`. */
     document: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "detail", documentId] as const,
     documentVersions: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "versions", documentId] as const,
+    /** A14 (Block 6, D-2xx) - the two panels of "Solicitações e recorrência" are independent
+     * queries/keys, same discipline as `document`/`documentVersions` above - a series mutation
+     * (create/cancel/materialize/recipient) never needs to invalidate the requests list, and
+     * vice versa, except materialize which touches both (its own hook invalidates both keys
+     * explicitly, never by accident of a shared key). */
+    series: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "series", subjectId] as const,
+    documentRequests: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "documentRequests", subjectId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in

@@ -1,0 +1,47 @@
+/* G02 — no AppShell, own minimal layout (spec: "sem AppShell. Fundo levemente acinzentado. Card
+   único centralizado (max-width 520px)"). */
+.guest-page {
+  min-height: 100vh;
+  background: var(--color-surface-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-6) var(--space-5);
+}
+
+.guest-wordmark {
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-5);
+}
+
+.guest-card {
+  background: var(--color-surface-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-6);
+  max-width: 32.5rem;
+  width: 100%;
+}
+
+.guest-steps {
+  display: flex;
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-5);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.guest-steps li[aria-current="step"] {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.guest-dropzone {
+  border: 2px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  text-align: center;
+  margin: var(--space-4) 0;
+}

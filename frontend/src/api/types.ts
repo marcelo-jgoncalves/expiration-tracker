@@ -684,3 +684,106 @@ export interface ReservedDocumentFile {
   uploadUrl: string;
   requiredHeaders: Record<string, string>;
 }
+
+/**
+ * A14 (Block 6, D-2xx) — `document-archive/domain/{document-request-series,document-request}.ts`.
+ * Real, confirmed deviation from the audited spec's illustrative copy (A14-solicitacoes-
+ * recorrencia.md §Estrutura point 2, `docs/architecture/reviews/screen-spec-audit-2026-09-09/
+ * A14-audit-record.md`): the spec shows a cron expression ("cron: 0 0 1 star-slash-3 star") as the
+ * recurrence's technical representation. The REAL backend (`DocumentRequestSeries.cadence`)
+ * only ever models a plain day interval (`{ intervalDays: number }`) — there is no cron anywhere
+ * in this domain, confirmed by reading `document-request-series.ts`/`document-request-
+ * recurrence-service.ts` directly (no `updateSeriesCadence`/cron-parsing code exists at all).
+ * `SubjectRequests.tsx` never fabricates a cron string the backend cannot produce — it shows
+ * "A cada N dias" (plus the named-option label when N matches one), never a cron expression.
+ */
+export type DocumentRequestSeriesStatus = "ACTIVE" | "CANCELLED";
+
+export interface DocumentRequestSeriesCadence {
+  intervalDays: number;
+}
+
+export interface DocumentRequestSeries {
+  seriesId: string;
+  subjectId: string;
+  requirementId: string;
+  cadence: DocumentRequestSeriesCadence;
+  status: DocumentRequestSeriesStatus;
+  currentCycleStartAt: string;
+  nextDueAt: string;
+  latestAttemptIndex: number;
+  latestRequestId?: string;
+  recipientEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentRequestSeriesInput {
+  subjectId: string;
+  requirementId: string;
+  cadence: DocumentRequestSeriesCadence;
+  firstDueAt?: string;
+  recipientEmail?: string;
+}
+
+export type DocumentRequestStatus = "REQUESTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "REVOKED";
+
+export interface DocumentRequest {
+  documentRequestId: string;
+  subjectId: string;
+  requirementId: string;
+  status: DocumentRequestStatus;
+  deadline?: string;
+  lastOpenedAt?: string;
+  lastSubmissionId?: string;
+  submissionCount: number;
+  seriesId?: string;
+  occurrenceId?: string;
+  attemptIndex?: number;
+  parentRequestId?: string;
+  issuanceGeneration: number;
+  recipientEmail?: string;
+  lastRejection?: { versionId: string; reason: string; occurredAt: string };
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentRequestInput {
+  subjectId: string;
+  requirementId: string;
+  deadline?: string;
+  recipientEmail?: string;
+  idempotencyKey: string;
+}
+
+/**
+ * G02 (Block 6, D-2xx) — `document-archive/application/guest-document-access-service.ts`'s
+ * public response shapes. Deliberately minimal (never the full tenant-facing `DocumentRequest`/
+ * `DocumentType` shapes above) — the guest surface is validated only by token/session, never by
+ * `Role`, and must never leak more than a submission UI needs (same posture the backend's own
+ * `GuestDocumentTypeSummary` doc comment states).
+ */
+export interface GuestDocumentTypeOption {
+  documentTypeId: string;
+  displayName: string;
+}
+
+export interface GuestStartSessionResult {
+  expiresAt: string;
+  subjectDisplayName?: string;
+  requirementName?: string;
+}
+
+export interface GuestSubmitEvidenceInput {
+  fileName: string;
+  documentTypeId: string;
+  idempotencyKey: string;
+}
+
+export interface GuestSubmitEvidenceResult {
+  documentId: string;
+  versionId: string;
+  seq: number;
+}

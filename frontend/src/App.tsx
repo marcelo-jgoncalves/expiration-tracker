@@ -46,6 +46,9 @@ import { ActivityLog } from "./routes/ActivityLog.js";
 import { AcceptInvitation } from "./routes/AcceptInvitation.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
+import { ToastProvider } from "./components/Toast.js";
+import { SubjectRequests } from "./routes/subjects/SubjectRequests.js";
+import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -78,6 +81,11 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
+            {/* A14 (Block 6, D-2xx) - first real usage of Toast (design-system.md §46). Wrapped
+                here, above every route including G02's fully public one, so the live region is
+                always registered - G02 itself never calls useToast() (its own confirmations are
+                InlineNotice/AsyncFeedback per spec, never a toast a guest could miss). */}
+            <ToastProvider>
             <Routes>
               <Route
                 path="app/:orgId"
@@ -99,6 +107,11 @@ export function App() {
                 <Route path="subjects/new" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId" element={<SubjectHub />} />
+                {/* A14 (Block 6, D-2xx) - Solicitações e recorrência, `docarchive:series-read`
+                    (all roles, incl. VIEWER). Same component for both routes - the seriesId
+                    route opens the series detail overlay on top of the same two panels. */}
+                <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
+                <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}
                 <Route path="reviews" element={<ReviewQueue />} />
@@ -139,6 +152,10 @@ export function App() {
                 <Route path="subjects/new" element={null} />
                 <Route path="subjects/:subjectId/edit" element={null} />
                 <Route path="subjects/:subjectId" element={null} />
+                {/* A14 (Block 6, D-2xx) - added here from the start, same healing-forward
+                    discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/requests" element={null} />
+                <Route path="subjects/:subjectId/series/:seriesId" element={null} />
                 {/* A11 (Block 3, D-2xx) - was missing from this list entirely (real gap, found
                     by the Block 3 E2E/accessibility gap closure, D-2xx): `page.goto("/requirements")`
                     and any real bookmark/link to the bare path 404'd via the catch-all `*` route
@@ -171,8 +188,15 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              {/* G02 (Block 6, D-2xx) - Solicitação de documento (convidado), a fully public
+                  route validated only by the opaque token/session in the URL and its own
+                  cookies (document-archive-guest-handlers.ts) - NEVER wrapped in
+                  ProtectedRoute/AuthProvider gating (G02's own spec: "esta tela é estruturalmente
+                  separada do app autenticado"). No AppShell, no org context, no RBAC. */}
+              <Route path="document-archive/guest/document-requests/:token" element={<GuestDocumentRequest />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </ToastProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

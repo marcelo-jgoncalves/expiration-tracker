@@ -1,0 +1,38 @@
+/* Combobox — reuses Form.css's .ui-field__label/.ui-field__control (TextField's own classes) so
+   it matches every other field visually; only the listbox popover is new here. */
+
+.ui-combobox {
+  position: relative;
+  margin-bottom: var(--space-4);
+}
+
+.ui-combobox__listbox {
+  position: absolute;
+  z-index: var(--z-overlay);
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) 0;
+  list-style: none;
+  background: var(--color-surface-default);
+  border: var(--border-width-thin) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.ui-combobox__option {
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+
+.ui-combobox__option--active {
+  background: var(--color-surface-selected);
+}
+
+.ui-combobox__empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+}
