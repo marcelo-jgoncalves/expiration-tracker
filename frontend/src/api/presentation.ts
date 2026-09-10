@@ -107,6 +107,15 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
 }
 
+/** Storage-quota-scoping (D-2xx) - "1,2 GB de 8 GB", pt-BR decimal comma via Intl, GB-only
+ * (never MB/KB) since `DEFAULT_STORAGE_QUOTA_BYTES` is always in the multi-GB range - a smaller
+ * unit would only ever fire for a near-empty tenant, where the exact byte count is not
+ * actionable information for the reader. */
+export function formatBytesAsGb(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(gb)} GB`;
+}
+
 /** DD/MM/YYYY - matches mission §20's example format exactly. Formats the date portion only
  * (never shifted by the viewer's local timezone - see `dateOnlyUtc` above for why that matters). */
 export function formatAbsoluteDate(iso: string): string {

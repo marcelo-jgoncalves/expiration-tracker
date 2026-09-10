@@ -220,3 +220,22 @@ export interface ActivityPageResponse {
   cursor: string | null;
   hasMore: boolean;
 }
+
+/**
+ * Storage-quota-scoping (D-2xx) - mirrors `StorageQuotaUsage`
+ * (`src/modules/document-archive/domain/storage-quota.ts`) exactly, `GET
+ * /document-archive/storage-usage`'s `{ usage }` envelope. `docarchive:read` is READ_ONLY_ROLES
+ * (every role), matching A03's "todos os papéis" access for the conditional storage card.
+ */
+export interface StorageQuotaUsage {
+  limitBytes: number;
+  usedBytes: number;
+  reservedBytes: number;
+  availableBytes: number;
+  usedPercent: number;
+  warningLevel: "OK" | "WARNING" | "CRITICAL" | "OVER";
+}
+
+export interface StorageUsageResponse {
+  usage: StorageQuotaUsage;
+}

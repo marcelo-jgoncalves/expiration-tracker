@@ -17,6 +17,12 @@ vi.mock("../../src/api/organizations.js", () => ({
 
 beforeEach(() => {
   getMock.mockReset();
+  // A19 storage section (D-2xx) - every Settings render now also fires useStorageQuota(); a
+  // benign default here keeps the existing tests below (none of which are ABOUT storage)
+  // focused on their own assertions rather than an unrelated pending/error query.
+  getMock.mockResolvedValue({
+    usage: { limitBytes: 1, usedBytes: 0, reservedBytes: 0, availableBytes: 1, usedPercent: 0, warningLevel: "OK" },
+  });
   patchMock.mockReset();
   postMock.mockReset();
   fetchOrganizationsMock.mockReset();
@@ -146,5 +152,29 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Encerrar organização definitivamente/ }));
 
     await waitFor(() => expect(screen.getByText(/já está sendo encerrada/)).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  // A19 "seção de armazenamento" (D-2xx): docarchive:read is READ_ONLY_ROLES (every role), so
+  // this must be visible to a non-OWNER too, unlike the displayName form above it.
+  it("shows the storage section to a non-OWNER", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "VIEWER", version: 1 }] });
+    getMock.mockResolvedValue({
+      usage: { limitBytes: 8 * 1024 * 1024 * 1024, usedBytes: 4 * 1024 * 1024 * 1024, reservedBytes: 0, availableBytes: 4 * 1024 * 1024 * 1024, usedPercent: 0.5, warningLevel: "OK" },
+    });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByText(/de 8 GB usados \(50%\)/)).toBeInTheDocument());
+  });
+
+  it("shows the OVER-state upload-blocked notice in the storage section", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    getMock.mockResolvedValue({
+      usage: { limitBytes: 8 * 1024 * 1024 * 1024, usedBytes: 8 * 1024 * 1024 * 1024, reservedBytes: 0, availableBytes: 0, usedPercent: 1, warningLevel: "OVER" },
+    });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByText(/Novos uploads bloqueados/)).toBeInTheDocument());
   });
 });
