@@ -507,6 +507,34 @@ export async function handleCreateDocumentRequest(deps: DocumentArchiveHttpDeps,
   });
 }
 
+/** A14 (Block 6, D-2xx) — closes the read gap named on `DocumentArchiveService.
+ * listDocumentRequests`'s own doc comment: mechanical GET routes over an already-correct key
+ * layout, same shape as `handleListRequirements`/`handleGetRequirement` below. */
+export async function handleListDocumentRequests(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const documentRequests = await deps.documentArchive.listDocumentRequests(context, subjectId);
+    return { statusCode: 200, body: { documentRequests } };
+  });
+}
+
+function requireDocumentRequestId(req: HttpRequest): string {
+  const documentRequestId = req.pathParameters?.["documentRequestId"];
+  if (!documentRequestId) throw new ValidationError("Missing documentRequestId path parameter.");
+  return documentRequestId;
+}
+
+export async function handleGetDocumentRequest(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const documentRequestId = requireDocumentRequestId(req);
+    const context = await resolve(deps, req);
+    const documentRequest = await deps.documentArchive.getDocumentRequest(context, subjectId, documentRequestId);
+    return { statusCode: 200, body: { documentRequest } };
+  });
+}
+
 // --- Recurrence / DocumentRequestSeries (D-143 Decision 8, D-147) --------------------------
 // Tenant-facing series management only — the resulting guest link/DocumentRequest surfaces
 // through the EXISTING guest-facing handlers (document-archive-guest-handlers.ts), never here.

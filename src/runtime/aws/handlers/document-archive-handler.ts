@@ -30,6 +30,8 @@ import {
   handleUnlinkEvidence,
   handleDeleteRequirement,
   handleCreateDocumentRequest,
+  handleListDocumentRequests,
+  handleGetDocumentRequest,
   handleCreateSeries,
   handleGetSeries,
   handleListSeries,
@@ -133,6 +135,15 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest, outside any series.
         case "POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests":
           return await handleCreateDocumentRequest(deps, { ...base, body: parseBody(event) });
+        // A14 (Block 6, D-2xx): literal "document-requests" segment routed before the
+        // "{requirementId}" param route above (same "literal beats param" precedent as
+        // "compliance"/"search" elsewhere in this switch) — lists every DocumentRequest under a
+        // Subject, avulso and series-materialized alike (see `listDocumentRequests`'s doc
+        // comment for the real read gap this closes).
+        case "GET /document-archive/requirements/{subjectId}/document-requests":
+          return await handleListDocumentRequests(deps, base);
+        case "GET /document-archive/requirements/{subjectId}/document-requests/{documentRequestId}":
+          return await handleGetDocumentRequest(deps, base);
         // G2 (D-247/D-24x): review-queue listing (A13) - literal segment under /document-archive,
         // same Lambda, no path-parameter collision with anything above.
         case "GET /document-archive/reviews":

@@ -148,7 +148,7 @@ import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-s
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { computeDossierExportRunPurgeAfterTtl, computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
-import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
+import { documentRequestKey, DOCUMENT_REQUEST_SK_PREFIX, type DocumentRequest } from "../domain/document-request.js";
 import { requestAccessCredentialKey } from "../domain/request-access-credential.js";
 import { buildDocumentRequestCreatedOutboxEntry } from "./document-request-recurrence-service.js";
 import { defaultStorageQuota, projectStorageQuotaUsage, storageQuotaKey, wouldExceedStorageQuota, type StorageQuotaUsage, type TenantStorageQuota } from "../domain/storage-quota.js";
@@ -1248,6 +1248,35 @@ export class DocumentArchiveService {
       }
       throw err;
     }
+    return request;
+  }
+
+  /**
+   * A14 (Block 6, D-2xx) — closes a real, previously-unbuilt read gap found while implementing
+   * the frontend's "Solicitações avulsas e materializações" panel: `createDocumentRequest` (D-226
+   * Achado 2) and `materializeAttempt` (D-147) both write a `DocumentRequest` under the Subject's
+   * own partition (`documentRequestKey`/`DOCUMENT_REQUEST_SK_PREFIX`, identical convention to
+   * `listRequirements`/`REQUIREMENT_SK_PREFIX` just above), but no reader ever existed — a tenant
+   * caller had no way to see the DocumentRequests a Subject's Requirements had accumulated,
+   * avulso or series-materialized alike. Mechanical, same shape as `listRequirements`/
+   * `getRequirement` (a plain `queryByPk`/`store.get` over an existing, already-correct key
+   * layout) — no new domain concept, no new index. Reuses `docarchive:series-read` (never a new
+   * action) per the audited spec's own access model: the entire A14 screen, both panels, gates
+   * on that single read action for all roles including VIEWER.
+   */
+  async listDocumentRequests(ctx: RequestContext, subjectId: string): Promise<DocumentRequest[]> {
+    authorize({ context: ctx, action: "docarchive:series-read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.store.queryByPk<DocumentRequest>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, DOCUMENT_REQUEST_SK_PREFIX);
+  }
+
+  /** Companion to `listDocumentRequests` above — same rationale, same mechanical gap (A14's "Ver"
+   * detail drawer needs a single-item read; the key is fully deterministic via
+   * `documentRequestKey`, same `store.get` shape as `getRequirement`/`getDocument`). */
+  async getDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
+    authorize({ context: ctx, action: "docarchive:series-read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(tenantId, subjectId, documentRequestId));
+    if (!request) throw new NotFoundError("DocumentRequest not found.", { documentRequestId });
     return request;
   }
 

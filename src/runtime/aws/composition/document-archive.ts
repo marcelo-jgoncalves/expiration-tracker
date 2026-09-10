@@ -127,7 +127,7 @@ export function buildGuestCredentialDeliveryDeps(
   sesFromAddress: string,
   sesConfigurationSet: string,
   failuresQueueUrl: string,
-  guestUploadBaseUrl = "https://app.example.invalid/guest/document-requests",
+  guestUploadBaseUrl = "https://app.example.invalid/document-archive/guest/document-requests",
 ): GuestCredentialDeliveryDeps {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const markerStore = new DynamoDbGuestCredentialDeliveryMarkerStore(client, deliveryTableName);

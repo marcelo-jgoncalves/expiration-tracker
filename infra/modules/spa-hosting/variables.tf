@@ -18,6 +18,19 @@ variable "bff_api_endpoint" {
   type        = string
 }
 
+variable "resource_api_endpoint" {
+  description = <<-EOT
+    Full https:// endpoint of the resource HTTP API (module.api.api_endpoint from
+    infra/modules/api-gateway) that hosts document-archive-guest-handler's public
+    (authorization_type = NONE) `/document-archive/guest/*` routes (D-146). A14/G02 (Block 6,
+    D-2xx): routed same-origin through CloudFront, same ADR-0011 pattern as the BFF origin below
+    - the guest link the delivery worker emails (deliver.ts's guestLink) resolves to THIS
+    distribution's own domain, never a bare execute-api URL the browser would have to call
+    cross-origin.
+  EOT
+  type        = string
+}
+
 variable "bff_edge_security_headers" {
   description = <<-EOT
     Security header values the BFF's own runtime already emits (src/runtime/aws/handlers/

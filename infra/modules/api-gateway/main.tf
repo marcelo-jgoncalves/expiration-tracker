@@ -747,6 +747,11 @@ locals {
     # service (createDocumentRequest, D-226 Achado 2) already existed, only this route was
     # missing.
     create_document_request = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" }
+    # A14 (Block 6, D-2xx) - list/get DocumentRequest under a Subject (avulso + series-
+    # materialized alike); mechanical read gap closed on the same already-correct key layout,
+    # see DocumentArchiveService.listDocumentRequests's own doc comment.
+    list_document_requests = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests" }
+    get_document_request    = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" }
     # G2 (D-247/D-24x) - review-queue listing (A13); the sparse GSI5 index and RBAC action
     # already existed, only this route was missing.
     list_review_queue = { method = "GET", path = "/document-archive/reviews" }

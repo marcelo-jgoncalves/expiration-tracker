@@ -131,6 +131,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest — JSON envelope, no content-disposition
   // gap (that's the /reports/* CSV routes below), safe to proxy like any other mutation.
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" },
+  // A14 (Block 6, D-2xx): list/get DocumentRequest under a Subject (avulso + series-materialized
+  // alike) — JSON envelope, same reasoning as the routes immediately above.
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/document-requests" },
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" },
   // G2 (D-247/D-24x): review-queue listing (A13) — JSON envelope, same reasoning.
   { method: "GET", pathTemplate: "/document-archive/reviews" },
   // storage-quota-scoping (D-2xx): tenant-wide storage usage summary — JSON envelope, same

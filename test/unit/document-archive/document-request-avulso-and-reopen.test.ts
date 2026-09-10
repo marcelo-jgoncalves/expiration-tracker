@@ -152,6 +152,47 @@ describe("createDocumentRequest (D-226 Achado 2, avulso)", () => {
   });
 });
 
+describe("listDocumentRequests / getDocumentRequest (A14, Block 6 — closes the read gap named on listDocumentRequests's own doc comment)", () => {
+  it("lists every DocumentRequest under a Subject, avulso and series-materialized alike, and VIEWER (series-read) can read it", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1"), seedRequirement(TENANT, SUBJECT, "req-2")]);
+    const service = makeService(store);
+    const r1 = await service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-1", idempotencyKey: "idem-1" });
+    const r2 = await service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-2", idempotencyKey: "idem-2" });
+
+    const viewerCtx = ctx({ tenant: { tenantId: TENANT, roles: ["VIEWER"] } });
+    const listed = await service.listDocumentRequests(viewerCtx, SUBJECT);
+    expect(listed.map((r) => r.documentRequestId).sort()).toEqual([r1.documentRequestId, r2.documentRequestId].sort());
+  });
+
+  it("getDocumentRequest returns the single request; throws NotFoundError for an unknown id", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const service = makeService(store);
+    const created = await service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-1", idempotencyKey: "idem-1" });
+
+    const fetched = await service.getDocumentRequest(ctx({ tenant: { tenantId: TENANT, roles: ["VIEWER"] } }), SUBJECT, created.documentRequestId);
+    expect(fetched.documentRequestId).toBe(created.documentRequestId);
+
+    await expect(service.getDocumentRequest(ctx(), SUBJECT, "no-such-request")).rejects.toThrow(NotFoundError);
+  });
+
+  it("listDocumentRequests never returns another Subject's requests", async () => {
+    const store = new InMemoryDocumentArchiveStore([
+      seedActiveTenantLifecycle(TENANT),
+      seedActiveTrackedSubject(TENANT, SUBJECT),
+      seedActiveTrackedSubject(TENANT, "subject-2"),
+      seedRequirement(TENANT, SUBJECT, "req-1"),
+      seedRequirement(TENANT, "subject-2", "req-1"),
+    ]);
+    const service = makeService(store);
+    await service.createDocumentRequest(ctx(), { subjectId: SUBJECT, requirementId: "req-1", idempotencyKey: "idem-1" });
+    await service.createDocumentRequest(ctx(), { subjectId: "subject-2", requirementId: "req-1", idempotencyKey: "idem-2" });
+
+    const listed = await service.listDocumentRequests(ctx(), SUBJECT);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.subjectId).toBe(SUBJECT);
+  });
+});
+
 describe("rejectVersion reopening the origin DocumentRequest (D-226 Achado 3)", () => {
   async function seedSubmittedGuestFlow(store: InMemoryDocumentArchiveStore, opts: { withCredential: boolean; lastSubmissionId?: string; status?: DocumentRequest["status"] }) {
     const documentId = "doc-1";
