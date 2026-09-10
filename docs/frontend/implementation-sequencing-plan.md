@@ -83,18 +83,21 @@ convergence, not a deviation from it.
   nav visibility) — these become the standing regression gate alongside the existing Core
   Expiration E2E suite.
 
-### Block 1 — Entry and administration already partially shipped
+### Block 1 — Entry and administration — COMPLETE (D-255 A19/A03, D-256 A01/A02 + block Codex review)
 
 A01 (Sign-in/Session) · A02 (Onboarding/picker/invitation) · A03 (Dashboard) · A19 (Team &
 Organization)
 
-Reconcile existing partial code against the audited specs, do not rewrite from scratch. A19 is the
-priority inside this block: its real code (`Members.tsx`/`Settings.tsx`) has known, real deltas
-against the audit's 3 CRITICAL RBAC findings (roster visibility, Organization-tab OWNER gating,
-OWNER-promotion restriction) plus the entirely-missing storage subsection (A19's `D-2xx` addition)
-— these must be fixed as part of this block, not deferred. A01 is a real gap despite being the
-literal entry point (only the BFF-level auth foundation exists, no dedicated screen/states per the
-spec). A03 gets its remaining 4 cards, now using Block 0's SLF-01 card pattern.
+All 4 screens implemented, tested, and covered by one Codex block-review round (D-256; findings
+fixed same session). A19's 3 CRITICAL RBAC findings (roster visibility, Organization-tab OWNER
+gating, OWNER-promotion restriction) and its storage subsection were fixed/built in D-255. A01's
+audited spec described a client-side password form contradicting the already-APPROVED BFF/Cognito
+Hosted UI architecture (D-053/D-054) — the spec was corrected to the real redirect/state-machine
+flow, not rewritten as a form (D-256). A02's 3 spec-required operational fields (per-org attention
+count, suspended-Membership badge, session-level pending-invitation banner) were investigated and
+confirmed as genuine new backend capabilities, not mechanical wiring — implemented with graceful
+degradation (real fields only) and the gap recorded precisely in A02-onboarding.md and D-256; a
+future session should treat closing that backend gap as new scoped work, not part of this block.
 
 ### Block 2 — Expirations, completed
 
