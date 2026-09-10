@@ -83,6 +83,14 @@ treat that as confirmation the authoring template itself needs the fix, not each
 **Batch 5 update (2026-09-10)**: A18, A19, A20, A21 all scored V6=0/9 pre-revision (motion evidence
 level 0), continuing to confirm the pre-revision authoring-discipline gap 20/20 screens in; all four
 added a local motion decision as part of this batch's revision, same as every prior batch.
+**Batch 6 update (2026-09-10, FINAL)**: A22, A23, G01, G02 all scored V6=0/9 or 1/9 pre-revision,
+confirming this gap on **24/24 screens across all six batches, with zero exceptions** — the
+authoring-discipline root cause is now proven, not merely likely. All four added a local motion
+decision as part of this batch's revision. This finding is now closed as fully confirmed; the
+remediation (an explicit "Motion" prompt in the spec-authoring template) remains open and unowned —
+recommend it be the first action item for whoever picks up frontend implementation, since every
+spec now has a local motion decision baked in but no template exists to keep future specs (e.g. the
+still-ungenerated A10) from repeating the same 24/24 gap.
 
 ---
 
@@ -124,6 +132,18 @@ same pending system-level template update as the remediation owner.
 `:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix.
 **Batch 5 update (2026-09-10)**: A18, A19, A20, A21 (20/20 screens across five batches) all omitted
 `:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix.
+**Batch 6 update (2026-09-10, FINAL)**: A22 and A23 (both authenticated, tenant-scoped screens)
+both omitted `:orgId` pre-revision — corrected directly this batch. A23's route was additionally
+wrong in its path segment itself (`/audit-log` vs. plan's `/app/:orgId/activity`), not just the
+missing segment — recorded as a screen-local defect on top of the shared SLF-03 pattern. G01/G02 are
+guest-facing and structurally have no `:orgId` concept (plan §2.5) — correctly N/A for this finding;
+both instead had their own route path segments corrected to match the plan's canonical guest routes
+(`/guest/document-requests/:token`, `/document-archive/guest/document-requests/:token`), a
+same-shape but distinct defect (wrong path, not a missing tenant segment). Final tally: **22/22
+authenticated screens across all six batches omitted `:orgId` pre-revision, with zero exceptions**
+(A01-A21 excluding any N/A guest screens, plus A22/A23 this batch) — this finding is now closed as
+fully confirmed at 100% recurrence. Remediation owner and fix unchanged from above; still pending a
+template-level fix for any future authenticated screen (e.g. the still-ungenerated A10).
 
 ---
 
@@ -169,6 +189,50 @@ batches, still firmly past the recurrence gate. All corrected this batch: A19's 
 member's access) moved to `danger` per the same destructive-action logic as A07/A16, while its
 "Revogar" (a pending invitation, trivially re-issuable) and A20/A21's reversible catalog-lifecycle
 actions moved to `ghost`.
+**Batch 6 update (2026-09-10, FINAL)**: G02 ("Voltar", both wizard steps) used `tertiary`
+pre-revision — now 14/24 screens across the full six-batch project. A22/A23/G01 did not. Corrected
+this batch: G02's "Voltar" moved to `ghost` (non-destructive, low-emphasis, reversible navigation
+within the wizard). This finding closes with the full audit project at 14/24 confirmed instances —
+well past the recurrence gate; the interim per-screen correction pattern held for the entire
+project, and no genuine third visual tier ever emerged as a distinct recurring need beyond
+`ghost`/`danger`, so no design-system proposal is recommended — the interim fix should simply become
+the permanent guidance (never use `tertiary`, it does not exist).
+
+---
+
+## SLF-05 — Guest-surface anti-enumeration collapse not specified by either guest screen (CONFIRMED, batch 6)
+
+**Status**: CONFIRMED on both guest screens in the project (G01, G02 — 2/2, batch 6, the only batch
+containing guest screens other than none prior).
+**Disposition**: SPEC GAP (both screens independently omitted the same required behavior) with a
+SYSTEM EVOLUTION CANDIDATE for the fix itself (a single shared visual/copy pattern for the
+"link unavailable" state, reused by both screens rather than authored twice).
+**Evidence**: `p0-screen-inventory-plan.md` §2.5 requires that four (G01) or six (G02, which adds
+guest-session and CSRF failure modes) distinct internal failure causes collapse into exactly ONE
+generic external message ("this link is unavailable") with no distinguishing copy, icon, or visual
+treatment — an explicit anti-enumeration security property, not a missing feature. Pre-revision,
+neither G01 nor G02 specified this state at all: G01's only related text offered `sent` OR "link já
+utilizado" as alternatives for a reused/already-used link (itself a distinguishing message, exactly
+the kind of leak the plan forbids), and G02 had no failure-state text for credential/session/CSRF
+problems whatsoever.
+**Why this is system-level, not two unrelated screen-level bugs**: both screens failed in the same
+way (silence on the required security property) for the same reason (the anti-enumeration
+requirement lives in the plan's shared §2.5 guest-surface section, not repeated per-screen, and
+neither screen's author re-derived it into a concrete UI state) — the same root-cause shape as
+SLF-02/03/04, just newly confirmed this batch because this was the first batch to audit any guest
+screen.
+**Local fix applied this batch**: both G01 and G02's revisions define an identical `unavailable`
+state (same title "Este link não está disponível", same body copy pattern, same neutral icon, no
+action button) — deliberately written to read as the same shared component/pattern rather than two
+independently-worded screens, satisfying V8 (cross-screen coherence) as well as closing the
+security gap.
+**Remediation owner**: whoever owns the guest-surface implementation (no dedicated owner named yet
+in this project) — promote the local fix into one real shared component (e.g. `GuestLinkUnavailable`)
+used by both G01 and G02 rather than two copies of the same markdown text, so a future guest screen
+never has to re-derive this from the plan text either.
+**Recheck**: no further guest screens exist in the current 24-screen inventory to recheck against;
+if the future A10 spec (still not generated — see `NEXT_SESSION_PROMPT.md`) or any later guest-
+adjacent surface is added, confirm it reuses this pattern rather than re-authoring it.
 
 ---
 
@@ -197,4 +261,13 @@ actions moved to `ghost`.
   entirely-missing mandatory storage subsection — the third CRITICAL RBAC finding of the full audit
   project (after A16's over-grant in batch 4 and the under-grant found earlier in the project);
   SLF-02/03/04 continued recurring on all 4 screens; no new SYSTEM GAP/CONSTRAINT opened |
-| 6/6 | remaining 4 screens | pending, see `NEXT_SESSION_PROMPT.md` |
+| 6/6 | A22, A23, G01, G02 | DONE — all 4 scored NOT PASS (29.1-42.5/100 consolidated); A22 carries
+  the **fourth CRITICAL RBAC finding** of the full project (over-grant: `ADMIN+` stated where the
+  plan requires `OWNER_ROLES`-exclusive, screen not nav-visible to non-OWNER at all); A23 carries a
+  Critical disclosure-control defect (hedged "ADMIN+ (recomendado)" access rule on a
+  disclosure-sensitive screen); G01 and G02 both carry a **Critical anti-enumeration security
+  defect** (the required 4-6-cause failure collapse into one generic "link unavailable" message was
+  entirely unspecified in both) — opened as SLF-05, the fifth and final system-level finding of the
+  project; SLF-02/03/04 all reached 100%/24-of-24 (or equivalent full) recurrence this batch and are
+  now closed as fully confirmed. **This completes the full 24-screen audit** — see
+  `estado-final-consolidado.md` for the aggregate summary. |
