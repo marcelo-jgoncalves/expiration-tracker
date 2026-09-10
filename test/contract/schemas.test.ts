@@ -1255,48 +1255,83 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
   });
 
   // D-143 Decision 4, guest access (D-146). documentTypeId mandatory per D-243 (checklist item 3).
+  // mediaType/contentLength/checksumSha256 mandatory per ADR-0013 (D-265).
+  const VALID_GUEST_SUBMIT_EVIDENCE_BODY = {
+    fileName: "certidao.pdf",
+    documentTypeId: "CERTIDAO",
+    mediaType: "application/pdf",
+    contentLength: 1024,
+    checksumSha256: "a".repeat(64),
+    idempotencyKey: "idem-1",
+  };
+
+  function withoutField<T extends object, K extends keyof T>(obj: T, key: K): Omit<T, K> {
+    const clone: Partial<T> = { ...obj };
+    delete clone[key];
+    return clone as Omit<T, K>;
+  }
+
   it("accepts a valid docarchive-guest-submit-evidence-request.v1", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
-      fileName: "certidao.pdf",
-      documentTypeId: "CERTIDAO",
-      idempotencyKey: "idem-1",
-    });
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", VALID_GUEST_SUBMIT_EVIDENCE_BODY);
     expect(errors).toEqual([]);
     expect(valid).toBe(true);
   });
 
   it("rejects a docarchive-guest-submit-evidence-request.v1 missing idempotencyKey", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { fileName: "certidao.pdf", documentTypeId: "CERTIDAO" });
+    const { valid } = registry.validate(
+      "https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json",
+      withoutField(VALID_GUEST_SUBMIT_EVIDENCE_BODY, "idempotencyKey"),
+    );
     expect(valid).toBe(false);
   });
 
   // D-243 checklist item 1: absence of documentTypeId fails HTTP validation.
   it("rejects a docarchive-guest-submit-evidence-request.v1 missing documentTypeId", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
-      fileName: "certidao.pdf",
-      idempotencyKey: "idem-1",
-    });
+    const { valid } = registry.validate(
+      "https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json",
+      withoutField(VALID_GUEST_SUBMIT_EVIDENCE_BODY, "documentTypeId"),
+    );
     expect(valid).toBe(false);
   });
 
   // D-243 checklist item 2: the old free-text field name is rejected by additionalProperties:false
   // (clean cutover — no coexistence/alias with `documentType`).
   it("rejects a docarchive-guest-submit-evidence-request.v1 using the old documentType field name", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
-      fileName: "certidao.pdf",
-      documentType: "CERTIDAO",
-      idempotencyKey: "idem-1",
-    });
+    const rest = withoutField(VALID_GUEST_SUBMIT_EVIDENCE_BODY, "documentTypeId");
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { ...rest, documentType: "CERTIDAO" });
     expect(valid).toBe(false);
   });
 
   it("rejects a docarchive-guest-submit-evidence-request.v1 with an additional unknown property", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", {
-      fileName: "certidao.pdf",
-      documentTypeId: "CERTIDAO",
-      idempotencyKey: "idem-1",
-      extra: true,
-    });
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { ...VALID_GUEST_SUBMIT_EVIDENCE_BODY, extra: true });
+    expect(valid).toBe(false);
+  });
+
+  // ADR-0013 (D-265) — mediaType/contentLength/checksumSha256 real constraints.
+  it("rejects a docarchive-guest-submit-evidence-request.v1 with an unsupported mediaType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { ...VALID_GUEST_SUBMIT_EVIDENCE_BODY, mediaType: "application/zip" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-guest-submit-evidence-request.v1 with contentLength over 10MiB", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { ...VALID_GUEST_SUBMIT_EVIDENCE_BODY, contentLength: 10485761 });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-guest-submit-evidence-request.v1 with a non-hex64 checksumSha256", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json", { ...VALID_GUEST_SUBMIT_EVIDENCE_BODY, checksumSha256: "not-hex" });
+    expect(valid).toBe(false);
+  });
+
+  // ADR-0013 (D-265) — PATCH /document-archive/guest/document-requests/{token}/uploads.
+  it("accepts a valid docarchive-guest-confirm-upload-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-confirm-upload-request.v1.json", { idempotencyKey: "idem-1" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-guest-confirm-upload-request.v1 missing idempotencyKey", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-guest-confirm-upload-request.v1.json", {});
     expect(valid).toBe(false);
   });
 

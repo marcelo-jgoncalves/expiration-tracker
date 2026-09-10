@@ -484,9 +484,18 @@ module "document_archive_guest_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     DOCARCHIVE_GUEST_ACCESS_PEPPER = random_password.document_archive_guest_access_pepper.result
+    # ADR-0013 (D-265) — same quarantine bucket document_archive_handler above already presigns
+    # against; the guest surface's own submitEvidence()/confirmUploadInFlight() now write real
+    # DocumentFile rows and presign PUTs into it too.
+    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
   })
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    # ADR-0013 (D-265) — same policy document already granted to document_archive_handler above
+    # (line ~462), reused verbatim, never a second IAM statement for the same bucket/action.
+    data.aws_iam_policy_document.document_archive_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- DocumentRequestCredentialIssuance: SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1, fed by

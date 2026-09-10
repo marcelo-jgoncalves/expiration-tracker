@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-guest-confirm-upload-request.v1.json",
+  "title": "DocArchiveGuestConfirmUploadRequest v1",
+  "description": "PATCH /document-archive/guest/document-requests/{token}/uploads request body. ADR-0013 (D-265) - confirmUploadInFlight() resolves fileId/documentId solely from the idempotencyKey's own submitEvidence idempotency record, never a raw client-supplied fileId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["idempotencyKey"],
+  "properties": {
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}

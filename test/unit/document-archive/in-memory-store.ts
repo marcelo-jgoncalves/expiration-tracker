@@ -75,7 +75,12 @@ export function seedActiveDocumentType(tenantId: string, documentTypeId: string)
  * each clause either `attribute_exists(PK|SK)`, `attribute_not_exists(PK|SK)`, a bare
  * `#name = :value` equality, or a parenthesized group of `OR`-joined equalities.
  */
-type OrTerm = { kind: "equality"; field: string; value: unknown } | { kind: "exists"; field: string } | { kind: "notExists"; field: string };
+type OrTerm =
+  | { kind: "equality"; field: string; value: unknown }
+  | { kind: "notEquality"; field: string; value: unknown }
+  | { kind: "inList"; field: string; values: unknown[] }
+  | { kind: "exists"; field: string }
+  | { kind: "notExists"; field: string };
 
 interface ParsedCondition {
   requireExists?: boolean;
@@ -97,6 +102,27 @@ function parseCondition(expression: string, names: Record<string, string> | unde
       const field = nameMap[nameKey as string];
       if (!field || !(valueKey! in valueMap)) return undefined;
       return { kind: "equality", field, value: valueMap[valueKey as string] };
+    }
+    // ADR-0013 (D-265, Codex review round 1) — `confirmUploadInFlight()`'s OCC condition is the
+    // first real caller of `<>`/`IN (...)` this module's builders produce; this parser silently
+    // dropped both before (an unrecognized term is filtered out, same as any other clause this
+    // parser can't handle), so a fake-store-backed test could never actually prove either
+    // condition rejects a write for real, only that the SERVICE's own early-return check does.
+    const notEq = /^\s*(#\w+)\s*<>\s*(:\w+)\s*$/.exec(clause);
+    if (notEq) {
+      const [, nameKey, valueKey] = notEq;
+      const field = nameMap[nameKey as string];
+      if (!field || !(valueKey! in valueMap)) return undefined;
+      return { kind: "notEquality", field, value: valueMap[valueKey as string] };
+    }
+    const inList = /^\s*(#\w+)\s+IN\s*\(([^)]+)\)\s*$/.exec(clause);
+    if (inList) {
+      const [, nameKey, rawValueKeys] = inList;
+      const field = nameMap[nameKey as string];
+      if (!field) return undefined;
+      const valueKeys = rawValueKeys!.split(",").map((k) => k.trim());
+      if (!valueKeys.every((k) => k in valueMap)) return undefined;
+      return { kind: "inList", field, values: valueKeys.map((k) => valueMap[k]) };
     }
     // Named-attribute attribute_exists/attribute_not_exists — distinct from the bare
     // PK/SK-only top-level checks below, which this module's builders never wrap in an OR
@@ -144,6 +170,14 @@ function termSatisfied(existing: Record<string, unknown>, term: OrTerm): boolean
   switch (term.kind) {
     case "equality":
       return existing[term.field] === term.value;
+    // Real DynamoDB comparison operators (<>, IN) require the attribute to exist — a missing
+    // attribute never satisfies them on its own (same reason `confirmUploadInFlight()`'s own
+    // condition ALWAYS pairs `<>` with an `attribute_not_exists` OR-sibling, never relies on
+    // `<>` alone to cover the sparse-field case).
+    case "notEquality":
+      return term.field in existing && existing[term.field] !== term.value;
+    case "inList":
+      return term.field in existing && term.values.includes(existing[term.field]);
     case "exists":
       return term.field in existing;
     case "notExists":

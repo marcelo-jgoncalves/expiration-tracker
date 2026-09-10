@@ -214,9 +214,11 @@ locals {
   # (GET/HEAD only) would silently break logout and every proxied mutation.
   bff_allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
 
-  # G02's guest wizard only ever GETs (resolve/document-types) or POSTs (session/uploads) -
-  # never PUT/PATCH/DELETE (document-archive-guest-handlers.ts's 4 routes). A real `dev` apply
-  # (D-264) found that a narrower list here is not actually possible: CloudFront's
+  # G02's guest wizard GETs (resolve/document-types), POSTs (session/uploads), or PATCHes
+  # (uploads, ADR-0013/D-265's confirmUploadInFlight() - same path as the POST, only the verb
+  # differs, so it needed no new CloudFront behavior) - never PUT/DELETE
+  # (document-archive-guest-handlers.ts's 5 routes). A real `dev` apply (D-264) found that a
+  # narrower list here is not actually possible: CloudFront's
   # aws_cloudfront_distribution.allowed_methods only accepts one of three fixed enumerated sets
   # ([GET,HEAD] / [GET,HEAD,OPTIONS] / the full 7-method set) - "GET,HEAD,OPTIONS,POST" is not a
   # valid CloudFront combination at all (confirmed by the real API's own 400 InvalidArgument),
