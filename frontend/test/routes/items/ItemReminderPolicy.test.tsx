@@ -145,6 +145,70 @@ describe("ItemReminderPolicy (A06)", () => {
     expect(screen.getByText("Este aviso já existe")).toBeInTheDocument();
   });
 
+  it("Codex review finding (D-258 round 1): an empty or decimal offset is rejected inline, never silently coerced to 0 ('No dia') or sent as an invalid offsetIso", async () => {
+    mockItemAndPolicy({}, policy({}));
+    mockAsRole("OWNER");
+    renderAtRoute("/items/:itemId/reminder-policy", <ItemReminderPolicy />, "/items/item-1/reminder-policy");
+
+    await waitFor(() => expect(screen.getByText(/7 dias antes/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar aviso" }));
+    fireEvent.change(screen.getByLabelText("Número de dias antes"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar" }));
+    expect(screen.getByText("Informe um número inteiro de dias maior que zero.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Número de dias antes"), { target: { value: "2.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar" }));
+    expect(screen.getByText("Informe um número inteiro de dias maior que zero.")).toBeInTheDocument();
+    // Neither invalid attempt added a new trigger row - still just the original "-P7D" one.
+    expect(screen.getAllByText(/dias antes|No dia/).filter((el) => el.tagName === "SPAN")).toHaveLength(1);
+  });
+
+  it("Codex review finding (D-258 round 1): AUTHORIZATION on the policy query maps to the permission-limited state, not a generic retryable error", async () => {
+    const { ApiError } = await import("../../../src/api/errors.js");
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/reminder-policy") return Promise.reject(new ApiError({ code: "FORBIDDEN", category: "AUTHORIZATION", message: "forbidden", retryable: false }, 403));
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    mockAsRole("OWNER");
+    renderAtRoute("/items/:itemId/reminder-policy", <ItemReminderPolicy />, "/items/item-1/reminder-policy");
+
+    await waitFor(() => expect(screen.getByText("Acesso restrito")).toBeInTheDocument());
+  });
+
+  it("Codex review finding (D-258 round 1): a successful save writes the response into the cache synchronously - an immediate second save on the same edit dispatches PUT (update), never a duplicate POST", async () => {
+    // A real backend would echo the just-created policy on the next GET; this mock mirrors
+    // that (rather than staying pinned to the pre-create `null`) so the test isolates the
+    // synchronous-cache-write fix from `invalidateQueries`' own eventual-consistency refetch.
+    let created: ReminderPolicy | null = null;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: created });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    postMock.mockImplementation(() => {
+      created = policy({ policyId: "policy-new", version: 1 });
+      return Promise.resolve({ policy: created });
+    });
+    putMock.mockResolvedValue({ policy: policy({ policyId: "policy-new", version: 2 }) });
+    mockAsRole("OWNER");
+    renderAtRoute("/items/:itemId/reminder-policy", <ItemReminderPolicy />, "/items/item-1/reminder-policy");
+
+    await waitFor(() => expect(screen.getByText("Nenhum aviso configurado")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar aviso" }));
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar lembretes" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+
+    // A second, independent edit immediately after the first save's response lands - before
+    // any real network round-trip for the refetch has necessarily settled.
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar lembretes" }));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/reminders/policies/policy-new", expect.anything(), { expectedVersion: 1 }));
+    expect(postMock).toHaveBeenCalledTimes(1);
+  });
+
   it("disabling the policy (toggle off) shows the warning notice and preserves the configured triggers", async () => {
     mockItemAndPolicy({}, policy({}));
     mockAsRole("OWNER");
@@ -157,7 +221,7 @@ describe("ItemReminderPolicy (A06)", () => {
     expect(screen.getByText(/7 dias antes/)).toBeInTheDocument();
   });
 
-  it("an OCC conflict on save (409) shows the conflict notice", async () => {
+  it("an OCC conflict on save (409) shows the conflict notice and re-fetches the current version (Codex review finding: a stale If-Match must not be resent forever)", async () => {
     mockItemAndPolicy({}, policy({ version: 2 }));
     const { ApiError } = await import("../../../src/api/errors.js");
     putMock.mockRejectedValue(new ApiError({ code: "VERSION_CONFLICT", category: "CONFLICT", message: "conflict", retryable: false }, 409));
@@ -166,9 +230,13 @@ describe("ItemReminderPolicy (A06)", () => {
 
     await waitFor(() => expect(screen.getByText(/7 dias antes/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("switch"));
+    getMock.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Salvar lembretes" }));
 
     await waitFor(() => expect(screen.getByText("Esta política foi alterada por outra pessoa. Revise antes de salvar novamente.")).toBeInTheDocument());
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/items/item-1/reminder-policy", expect.anything()));
+    // The user's in-progress edit (the toggle they just flipped) survives the refetch intact.
+    expect(screen.getByText("Esta política está desabilitada — nenhum aviso será enviado.")).toBeInTheDocument();
   });
 
   it("a scheduler-dependency-unavailable save (503) shows the degraded-but-saved warning, not a generic failure", async () => {

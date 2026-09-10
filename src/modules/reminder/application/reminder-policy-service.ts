@@ -108,20 +108,43 @@ export class ReminderPolicyService {
    * had an HTTP route reading it. Returns `null` (never throws NotFoundError) when the item
    * has no policy yet - "no policy configured" is a legitimate, common state (A06's
    * no-policy-yet screen state), not an error.
+   *
+   * `reminder:read` (READ_ONLY_ROLES), never `reminder:manage` - Codex review finding (D-258
+   * round 1): gating a pure read behind WRITE_ROLES locked VIEWER out of A06 entirely, even
+   * though the screen itself renders a read-only view for VIEWER.
+   *
+   * Codex review finding (D-258 round 1): `trigger.ts`'s own comment on this exact pointer
+   * partition says "discover its ITEM-scoped **policies**" (plural) - the domain does not
+   * actually enforce at most one ITEM-scoped policy per item (`createPolicy` never checks for
+   * an existing pointer before writing a new one), so blindly trusting `refs[0]` could surface
+   * the wrong policy, and a stale/orphaned pointer (left behind by a partial historical write,
+   * never authoritative per §5) could point at a policy that no longer targets this item at
+   * all. Every candidate is dereferenced and validated exactly like
+   * `reminder-materialization-trigger/trigger.ts`'s `onItemDueDateChanged` already does
+   * (scope/itemId/tenantId re-checked, orphans silently skipped) - among the surviving valid
+   * candidates, the most recently updated one is returned deterministically (never an
+   * unvalidated `refs[0]`). A06's UI only ever creates one ITEM-scoped policy per item through
+   * its own save flow; true concurrent multi-policy creation remains a known, pre-existing
+   * domain gap (not introduced here) worth a dedicated uniqueness fix later, not silently
+   * widened by this discovery route.
    */
   async getPolicyForItem(ctx: RequestContext, itemId: string): Promise<ReminderPolicy | null> {
     const tenantId = authorizedTenantId(ctx);
-    authorize({ context: ctx, action: "reminder:manage", resource: { tenantId } });
+    authorize({ context: ctx, action: "reminder:read", resource: { tenantId } });
 
     const refs = await this.store.queryByItem<PolicyRef>(tenantId, itemId, POLICY_REF_SK_PREFIX);
     if (refs.length === 0) return null;
-    // Invariant: at most one ITEM-scoped policy per item (updatePolicy's pointer-move logic
-    // always removes the OLD pointer before/independent of a new one being written - see its
-    // comment on `movedAwayFromItem`) - defensive `[0]` rather than assuming array shape.
-    const policyId = refs[0]!.policyId;
-    const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, policyId));
-    if (!policy || policy.deletedAt) return null;
-    return policy;
+
+    const candidates: ReminderPolicy[] = [];
+    for (const ref of refs) {
+      const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, ref.policyId));
+      if (!policy || policy.deletedAt || policy.tenantId !== tenantId || policy.scope !== "ITEM" || policy.itemId !== itemId) {
+        continue; // orphaned/stale pointer (§5) - never trusted, same discipline as the trigger worker.
+      }
+      candidates.push(policy);
+    }
+    if (candidates.length === 0) return null;
+    return candidates.reduce((latest, candidate) => (candidate.updatedAt > latest.updatedAt ? candidate : latest));
   }
 
   async updatePolicy(

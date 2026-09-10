@@ -7,7 +7,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-store.js";
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
-import { policyRefKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { policyKey, policyRefKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -193,6 +193,53 @@ describe("ReminderPolicyService - getPolicyForItem (D-258 discovery)", () => {
     });
 
     expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
+  });
+
+  it("Codex review finding (D-258 round 1): VIEWER can read via reminder:read (READ_ONLY_ROLES), never blocked like a WRITE_ROLES action would", async () => {
+    await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    const viewerCtx: RequestContext = { ...ctx, tenant: { ...ctx.tenant, roles: ["VIEWER"] } };
+
+    const found = await service.getPolicyForItem(viewerCtx, "item1");
+    expect(found?.name).toBe("r");
+  });
+
+  it("Codex review finding (D-258 round 1): a stale pointer whose target policy no longer targets this item (orphaned) is skipped, never returned", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    // Simulate a corrupted/leftover pointer: the policy itself moved to TEMPLATE scope via a
+    // path that (hypothetically) left the OLD item1 pointer behind without the normal
+    // updatePolicy cleanup - directly write a stale pointer row rather than relying on any
+    // production code path to produce one (that path is exactly what §5 says must never be
+    // trusted blindly).
+    await store.update({ ...(await store.get(policyKey(TENANT, policy.policyId)))!, scope: "TEMPLATE", itemId: undefined });
+
+    expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
+  });
+
+  it("Codex review finding (D-258 round 1): when more than one valid ITEM-scoped policy pointer exists for an item (domain does not enforce 1:1), the most recently updated one is returned deterministically, never an unvalidated refs[0]", async () => {
+    const older = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "older", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    const laterService = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => "2026-08-02T00:00:00.000Z" });
+    const newer = await laterService.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "newer", triggers: [{ triggerId: "t2", offsetIso: "-P3D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+    });
+    expect(older.policyId).not.toBe(newer.policyId);
+
+    const found = await service.getPolicyForItem(ctx, "item1");
+    expect(found?.policyId).toBe(newer.policyId);
+    expect(found?.name).toBe("newer");
   });
 });
 

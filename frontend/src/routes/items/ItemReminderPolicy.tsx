@@ -67,11 +67,22 @@ function fromPolicy(triggers: ReminderTrigger[] | undefined, enabled: boolean | 
   return { triggers: triggers ?? [], enabled: enabled ?? true };
 }
 
+/** Whole positive integer only (the "N dias antes" field's real domain - `offsetIso`'s
+ * restricted "[-]P<N>D" grammar has no room for a fraction). Codex review finding (D-258
+ * round 1): the previous `Number(value) || 0` silently turned an empty/invalid field into 0
+ * ("No dia" - never entered by the user) and let a decimal reach `onAdd` as an offsetIso the
+ * backend would reject with no visible cause. */
+function parsePositiveIntegerDays(raw: string): number | undefined {
+  if (!/^\d+$/.test(raw.trim())) return undefined;
+  const parsed = Number(raw);
+  return parsed > 0 ? parsed : undefined;
+}
+
 function AddOffsetForm({ existingDays, onAdd }: { existingDays: number[]; onAdd: (days: number) => void }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("7");
   const [direction, setDirection] = useState<"before" | "same-day">("before");
-  const [duplicateError, setDuplicateError] = useState(false);
+  const [error, setError] = useState<string | undefined>();
 
   if (!open) {
     return (
@@ -82,12 +93,22 @@ function AddOffsetForm({ existingDays, onAdd }: { existingDays: number[]; onAdd:
   }
 
   function handleAdd() {
-    const days = direction === "same-day" ? 0 : -Math.abs(Number(value) || 0);
+    let days: number;
+    if (direction === "same-day") {
+      days = 0;
+    } else {
+      const parsedDays = parsePositiveIntegerDays(value);
+      if (parsedDays === undefined) {
+        setError("Informe um número inteiro de dias maior que zero.");
+        return;
+      }
+      days = -parsedDays;
+    }
     if (existingDays.includes(days)) {
-      setDuplicateError(true);
+      setError("Este aviso já existe");
       return;
     }
-    setDuplicateError(false);
+    setError(undefined);
     onAdd(days);
     setOpen(false);
     setValue("7");
@@ -104,6 +125,7 @@ function AddOffsetForm({ existingDays, onAdd }: { existingDays: number[]; onAdd:
         <input
           type="number"
           min={1}
+          step={1}
           value={value}
           onChange={(event) => setValue(event.target.value)}
           aria-label="Número de dias antes"
@@ -116,16 +138,35 @@ function AddOffsetForm({ existingDays, onAdd }: { existingDays: number[]; onAdd:
       <Button variant="secondary" size="sm" onClick={() => setOpen(false)}>
         Cancelar
       </Button>
-      {duplicateError ? (
+      {error ? (
         <span role="alert" className="u-text-secondary">
-          Este aviso já existe
+          {error}
         </span>
       ) : null}
     </div>
   );
 }
 
-function ReminderPolicyForm({ item, initial, existingPolicyId, expectedVersion }: { item: ExpirationItem; initial: EditableState; existingPolicyId?: string; expectedVersion?: number }) {
+function ReminderPolicyForm({
+  item,
+  initial,
+  existingPolicyId,
+  expectedVersion,
+  refetchPolicy,
+}: {
+  item: ExpirationItem;
+  initial: EditableState;
+  existingPolicyId?: string;
+  expectedVersion?: number;
+  /** Codex review finding (D-258 round 1): an OCC conflict must re-fetch the current
+   * server-side version, or a retried save keeps sending the same stale `If-Match` and
+   * conflicts indefinitely. Refetching updates `expectedVersion` (a prop derived from the
+   * parent's query) WITHOUT discarding the user's in-progress edit - the effect below only
+   * re-baselines `state` while NOT dirty, so a conflicted edit survives the refetch intact,
+   * exactly as the audited spec requires ("recarrega os valores atuais sem descartar
+   * silenciosamente a edição do usuário"). */
+  refetchPolicy: () => void;
+}) {
   const [state, setState] = useState<EditableState>(initial);
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -171,11 +212,21 @@ function ReminderPolicyForm({ item, initial, existingPolicyId, expectedVersion }
       saveMutation.newIntent();
       setDirty(false);
     } catch (err) {
-      if (isConflict(err)) setConflict(true);
+      if (isConflict(err)) {
+        setConflict(true);
+        refetchPolicy();
+      }
     }
   }
 
   const existingDays = state.triggers.map((trigger) => offsetDays(trigger.offsetIso));
+  // Spec state ("Scheduler indisponível") - the audited spec's copy asserts the write itself
+  // succeeded and only the downstream scheduling confirmation is pending. Codex review finding
+  // (D-258 round 1): today `ReminderPolicyService.createPolicy/updatePolicy` never actually
+  // throws DEPENDENCY_UNAVAILABLE (nothing in that write path calls a scheduler dependency),
+  // so this branch is forward-compatible/defensive, not an empirically proven guarantee yet -
+  // if a future scheduler-confirmation step is added to this exact write path, whoever adds it
+  // must ensure it happens strictly AFTER the transactional commit for this copy to stay true.
   const schedulerUnavailable = saveMutation.isError && saveMutation.error instanceof ApiError && saveMutation.error.category === "DEPENDENCY_UNAVAILABLE";
   const genericSaveError =
     saveMutation.isError && !conflict && !schedulerUnavailable ? (saveMutation.error instanceof ApiError ? saveMutation.error.message : "Não foi possível salvar. Tente novamente.") : undefined;
@@ -287,6 +338,12 @@ export function ItemReminderPolicy() {
     return <ErrorState message={message} onRetry={() => void itemQuery.refetch()} />;
   }
   if (policyQuery.isError) {
+    // Codex review finding (D-258 round 1): AUTHORIZATION on this query must map to the same
+    // permission-limited state as itemQuery above, not a generic retry-able error - matches
+    // this app's convention everywhere else an AUTHORIZATION-category failure is possible.
+    if (policyQuery.error instanceof ApiError && policyQuery.error.category === "AUTHORIZATION") {
+      return <EmptyState kind="permission-limited" />;
+    }
     const message = policyQuery.error instanceof ApiError ? policyQuery.error.message : "Não foi possível carregar a política de lembretes.";
     return <ErrorState message={message} onRetry={() => void policyQuery.refetch()} />;
   }
@@ -318,5 +375,13 @@ export function ItemReminderPolicy() {
     );
   }
 
-  return <ReminderPolicyForm item={item} initial={initial} existingPolicyId={policy?.policyId} expectedVersion={policy?.version} />;
+  return (
+    <ReminderPolicyForm
+      item={item}
+      initial={initial}
+      existingPolicyId={policy?.policyId}
+      expectedVersion={policy?.version}
+      refetchPolicy={() => void policyQuery.refetch()}
+    />
+  );
 }

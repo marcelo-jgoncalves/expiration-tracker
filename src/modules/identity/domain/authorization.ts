@@ -11,6 +11,7 @@ export type Action =
   | "item:delete"
   | "item:watch"
   | "reminder:manage"
+  | "reminder:read"
   | "document:reserve-upload"
   | "document:read"
   | "document:delete"
@@ -275,6 +276,11 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "item:export": ADMIN_ROLES,
   "item:watch": WRITE_ROLES,
   "reminder:manage": WRITE_ROLES,
+  // D-258 review finding (Codex, real bug): the item->policy discovery route was gating a
+  // pure read behind reminder:manage (WRITE_ROLES), which locked VIEWER out of A06 entirely
+  // even though the screen's own frontend renders a read-only view for VIEWER. Same
+  // read/write tier split as document:read vs document:reserve-upload above.
+  "reminder:read": READ_ONLY_ROLES,
   "document:reserve-upload": WRITE_ROLES,
   "document:read": READ_ONLY_ROLES,
   "document:delete": ADMIN_ROLES,
