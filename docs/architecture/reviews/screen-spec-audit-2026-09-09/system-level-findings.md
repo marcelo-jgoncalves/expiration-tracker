@@ -73,9 +73,14 @@ treat that as confirmation the authoring template itself needs the fix, not each
 
 ---
 
-## SLF-03 — Screen spec routes omit the tenant `:orgId` path segment (NEW, opened this batch)
+## SLF-03 — Screen spec routes omit the tenant `:orgId` path segment (CONFIRMED, recurs batch 2)
 
-**Status**: NEW finding, opened during this batch — not one of the rubric's pre-named hypotheses.
+**Status**: CONFIRMED as recurring — now 8/8 screens across batches 1-2 (A01-A08) omit `:orgId` (and,
+where applicable, other required path params like `:policyId?`/`:documentId?`). Batch 2 instances:
+A05 (`/expirations/:id` vs. required `/app/:orgId/expirations/:itemId`), A06 (missing `:orgId` and
+`:policyId?`), A07 (missing `:orgId` and `:documentId?`), A08 (`/subjects` vs.
+`/app/:orgId/subjects`). This finding has now unambiguously met the rubric §5 system-level gate
+(recurs across 3+ screens) — every screen audited so far shows the same root cause.
 **Disposition**: SPEC GAP, recurring — candidate SYSTEM-LEVEL if it recurs in 1+ more upcoming
 batches (already 2/4 screens in this batch: A03 `/dashboard`, A04 `/expirations`, vs. the
 `p0-screen-inventory-plan.md`-canonical `/app/:orgId/dashboard` and `/app/:orgId/expirations`).
@@ -96,13 +101,20 @@ future screen spec states it explicitly rather than each author reproducing the 
 memory.
 **Local fix applied this batch**: A03 and A04's own audit records/revisions below correct their
 route line directly (a screen-local, one-line fix — not gated on the system-level template update).
+**Local fix applied in batch 2**: A05, A06, A07, A08 all corrected their routes directly (same
+screen-local fix, still not gated on the pending system-level template update — see remediation
+owner above, unchanged).
 
 ---
 
-## SLF-04 — `tertiary` referenced as a Button variant, but the design system does not define one (NEW, opened this batch)
+## SLF-04 — `tertiary` referenced as a Button variant, but the design system does not define one (CONFIRMED, recurs batch 2)
 
-**Status**: NEW finding, opened during this batch. Recurs in 2/4 screens so far (A02's "Recusar"
-button, A04's "Importar CSV" header action).
+**Status**: CONFIRMED as recurring. Batch 1: 2/4 screens (A02's "Recusar" button, A04's "Importar
+CSV" header action). Batch 2: 3/4 screens (A05's "Arquivar vencimento", A06's "Remover", A07's
+"Excluir" — the A07 instance is notable because `tertiary` was applied to a genuinely *destructive*
+action, where the correct approved variant is `danger`, not `ghost` as in the other four instances —
+this screen author conflated "low emphasis" with "not primary," which are different design axes).
+Now 5/8 screens across two batches — this finding has met the rubric §5 system-level gate.
 **Disposition**: SPEC GAP — candidate SYSTEM EVOLUTION CANDIDATE if a genuine third-tier action
 style (below secondary, above a plain text link) turns out to be a real recurring need once more
 screens are audited; not enough evidence yet to justify inventing a new approved variant.
@@ -111,12 +123,14 @@ screens are audited; not enough evidence yet to justify inventing a new approved
 A02-onboarding.md and A04-vencimentos.md call for a `tertiary` button, which does not exist in that
 catalog.
 **Remediation owner**: interim — each screen's own spec should be corrected to use the closest
-approved variant (`ghost`, in both observed cases: a low-emphasis action next to a stronger primary
-one) rather than a name the system doesn't define. If a genuine third visual tier keeps recurring
-across more screens in later batches, escalate to a real design-system proposal instead of
-continuing to patch specs one at a time.
+approved variant (`ghost` for a low-emphasis non-destructive action; `danger` when the action is
+destructive, per the A07 correction) rather than a name the system doesn't define. If a genuine third
+visual tier keeps recurring across more screens in later batches, escalate to a real design-system
+proposal instead of continuing to patch specs one at a time.
 **Local fix applied this batch**: A02 and A04's revisions below replace `tertiary` with `ghost` and
 name the semantic role explicitly.
+**Local fix applied in batch 2**: A05 and A06 replaced `tertiary` with `ghost`; A07 replaced it with
+`danger` (destructive action) — the distinction is now named explicitly in that screen's revision.
 
 ---
 
@@ -125,4 +139,6 @@ name the semantic role explicitly.
 | Batch | Screens | Status |
 |---|---|---|
 | 1/6 | A01, A02, A03, A04 | DONE (this file's originating batch) |
-| 2/6-6/6 | remaining 20 screens | pending, see `NEXT_SESSION_PROMPT.md` |
+| 2/6 | A05, A06, A07, A08 | DONE — all 4 scored NOT PASS (27.6-39.6/100 consolidated); SLF-03 and
+  SLF-04 both confirmed as met the system-level recurrence gate during this batch |
+| 3/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
