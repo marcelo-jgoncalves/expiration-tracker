@@ -119,6 +119,11 @@ export function App() {
                 <Route path="subjects/new" element={null} />
                 <Route path="subjects/:subjectId/edit" element={null} />
                 <Route path="subjects/:subjectId" element={null} />
+                {/* A11 (Block 3, D-2xx) - was missing from this list entirely (real gap, found
+                    by the Block 3 E2E/accessibility gap closure, D-2xx): `page.goto("/requirements")`
+                    and any real bookmark/link to the bare path 404'd via the catch-all `*` route
+                    instead of healing forward like every other real screen here. */}
+                <Route path="requirements" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />

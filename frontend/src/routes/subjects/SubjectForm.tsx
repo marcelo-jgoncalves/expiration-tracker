@@ -17,7 +17,7 @@ import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.j
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
-import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
+import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
 import { PageHeader } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { ApiError, isConflict } from "../../api/errors.js";
@@ -48,6 +48,12 @@ export function SubjectForm() {
   const [notes, setNotes] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
+  // Field-level association (mission §40/VL-G10, same pattern as CreateItem.tsx): a required-
+  // field failure must be reachable via aria-invalid/aria-describedby on the control itself,
+  // not only as an unlinked general error (E2E/accessibility gap closure, D-2xx - the prior
+  // version of this form only ever called setGeneralErrors, which TextField never renders as a
+  // per-field error, so "Nome" never got aria-invalid when submitted blank).
+  const [nameError, setNameError] = useState<string | undefined>();
 
   if (isEdit && subjectQuery.isPending) {
     return <InitialLoading label="Carregando fornecedor…" />;
@@ -70,9 +76,10 @@ export function SubjectForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!displayName.trim()) {
-      setGeneralErrors(["Informe o nome do fornecedor."]);
+      setNameError("Informe o nome do fornecedor.");
       return;
     }
+    setNameError(undefined);
     setGeneralErrors([]);
     try {
       if (isEdit && subjectId && subjectQuery.data) {
@@ -108,14 +115,15 @@ export function SubjectForm() {
 
   const pending = createMutation.isPending || updateMutation.isPending;
   const isConflictState = isEdit ? updateMutation.isConflict : false;
+  const fieldErrors: SummaryFieldError[] = nameError ? [{ fieldId: "subject-name", label: "Nome", message: nameError }] : [];
 
   return (
     <div>
       <PageHeader above={<ButtonLink variant="secondary" size="sm" to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")}>← Voltar</ButtonLink>} title={isEdit ? "Editar fornecedor" : "Novo fornecedor"} />
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <FormErrorSummary errors={generalErrors} />
+        <FormErrorSummary errors={generalErrors} fieldErrors={fieldErrors} />
         {isConflictState ? <p role="alert">Este fornecedor mudou desde que a página carregou — recarregue antes de salvar de novo.</p> : null}
-        <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} required />
+        <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
         {isEdit ? null : (
           <>
             <SelectField
