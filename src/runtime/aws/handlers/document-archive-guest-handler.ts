@@ -14,6 +14,7 @@ import {
   handleStartGuestSession,
   handleSubmitEvidence,
   handleListGuestDocumentTypes,
+  handleConfirmUpload,
   type GuestArchiveHttpDeps,
   type GuestArchiveHttpRequest,
 } from "../../../modules/document-archive/http/document-archive-guest-handlers.js";
@@ -23,9 +24,12 @@ import { runWithContext } from "../../../shared/observability/context.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const guestAccessPepper = process.env["DOCARCHIVE_GUEST_ACCESS_PEPPER"];
+// ADR-0013 (D-265) — same bucket every other document-archive/document Lambda already requires.
+const quarantineBucket = process.env["QUARANTINE_BUCKET_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!guestAccessPepper) throw new Error("DOCARCHIVE_GUEST_ACCESS_PEPPER env var is required.");
-const { guestAccess } = buildDocumentArchiveGuestDeps(client, tableName, guestAccessPepper);
+if (!quarantineBucket) throw new Error("QUARANTINE_BUCKET_NAME env var is required.");
+const { guestAccess } = buildDocumentArchiveGuestDeps(client, tableName, guestAccessPepper, quarantineBucket);
 const deps: GuestArchiveHttpDeps = { guestAccess };
 
 function parseBody<T>(event: APIGatewayProxyEventV2): T | undefined {
@@ -60,6 +64,8 @@ async function handleGuestArchiveRoute(event: APIGatewayProxyEventV2): Promise<A
           return await handleStartGuestSession(deps, base);
         case "POST /document-archive/guest/document-requests/{token}/uploads":
           return await handleSubmitEvidence(deps, { ...base, body: parseBody(event) });
+        case "PATCH /document-archive/guest/document-requests/{token}/uploads":
+          return await handleConfirmUpload(deps, { ...base, body: parseBody(event) });
         case "GET /document-archive/guest/document-requests/{token}/document-types":
           return await handleListGuestDocumentTypes(deps, base);
         default:

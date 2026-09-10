@@ -4,22 +4,10 @@
  * cookies (`document-archive-guest-handlers.ts`). See `api/guestDocumentArchive.ts`'s header
  * comment for why this never goes through `apiClient`.
  *
- * THREE real, confirmed deviations from `G02-solicitacao-documento-convidado.md` (the audited
+ * TWO real, confirmed deviations from `G02-solicitacao-documento-convidado.md` (the audited
  * spec), investigated directly against the backend before deciding how to adapt, never silently:
  *
- *  1. **No S3/file-storage integration exists in the guest submission path at all.** Read
- *     directly: `GuestDocumentAccessService.submitEvidence` creates a real
- *     Document/DocumentVersion(RECEIVED) record and accepts `fileName` as a string, but never
- *     transmits or stores the file's actual bytes anywhere (unlike the tenant-authenticated
- *     `reserveFiles`/`commitUpload` 2-phase S3 flow `api/documentArchive.ts` uses for A07/A12).
- *     This is a genuine, pre-existing backend limitation this screen does not invent or hide —
- *     Etapa 2 still lets the guest select a file (for `fileName` and UX completeness/future
- *     readiness), and the submission call is wired to the real, only-existing endpoint, but the
- *     bytes are never actually persisted server-side. Named explicitly in
- *     `docs/architecture/decisions-log.md`/`NEXT_SESSION_PROMPT.md` as a real gap requiring its
- *     own Type-1 design decision (new anonymous public write surface + malware-scan integration)
- *     before it can be closed — deliberately out of this block's scope, never faked here.
- *  2. **`documentTypeId`/name selection never distinguishably fails at submission time.**
+ *  1. **`documentTypeId`/name selection never distinguishably fails at submission time.**
  *     `submitEvidence`'s own code collapses EVERY submission failure — including a
  *     since-deprecated `documentTypeId`'s ConditionCheck failing — into the SAME generic
  *     anti-enumeration error as a session/CSRF failure (its own comment: "the guest never sees
@@ -28,28 +16,32 @@
  *     failure copy ("Não foi possível enviar. Tente novamente.") for every submission failure,
  *     honestly matching the backend's real, deliberate collapse rather than fabricating a
  *     distinction the API cannot make.
- *  3. **The bare layer-1 GET route is never called** (`resolveCredential` alone) — `startGuestSession`
+ *  2. **The bare layer-1 GET route is never called** (`resolveCredential` alone) — `startGuestSession`
  *     already resolves the credential internally, so this screen calls only session/document-types/
  *     uploads, matching the three specific CloudFront behaviors added in this block (`infra/
  *     modules/spa-hosting/main.tf`) — the bare token path is reserved for the SPA's own page load.
  *
- * Codex review round 1 (D-264, NEEDS FIXES 7.6/10) confirmed deviation 1 above is NOT acceptable
- * as-is for a screen claiming the A14→G02→A13/A12 loop closes end to end: an operator reviewing
- * in A13/A12 has nothing real to inspect. The final-state copy below was softened to never claim
- * the FILE itself was received (only the submission/record was) — real file storage remains the
- * named, un-closed blocker (see decisions-log D-264), not something this session could respond to
- * with the codebase's usual anonymous-write-surface + malware-scan rigor in the time available.
+ * ADR-0013 (D-265) closed the real, pre-existing gap D-264's Codex review round 1 (NEEDS FIXES
+ * 7.6/10) had flagged: `submitEvidence` used to accept `fileName` as metadata only, with no real
+ * S3 integration. It now persists a real `DocumentFile` (PENDING_UPLOAD) and returns a presigned
+ * PUT — Etapa 3 below now completes the real 3-call flow (submit → PUT the bytes directly to S3 →
+ * `confirmUploadInFlight`, mirroring the tenant-authenticated 2-phase upload `api/documentArchive.ts`
+ * already uses for A07/A12, D-163's shared pipeline). The final-state copy is still deliberately
+ * neutral, never claiming the file was REVIEWED/ACCEPTED (only submitted) — that stays correct
+ * regardless of storage, since the STARTER/PROMOTER activation gate (D-193) is a separate, still-
+ * pending product decision that governs the authenticated path identically (see ADR-0013 §4).
  */
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useIdempotentMutation } from "../../hooks/useIdempotentMutation.js";
-import { startGuestSession, listGuestDocumentTypes, submitGuestEvidence } from "../../api/guestDocumentArchive.js";
+import { startGuestSession, listGuestDocumentTypes, submitGuestEvidence, confirmGuestUpload } from "../../api/guestDocumentArchive.js";
+import { computeChecksumSha256, uploadDocumentBytes } from "../../api/documents.js";
 import { GuestLinkUnavailable } from "../../components/GuestLinkUnavailable.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Button } from "../../components/ui/Button.js";
 import { AsyncFeedback } from "../../components/AsyncStates.js";
-import type { GuestDocumentTypeOption } from "../../api/types.js";
+import type { GuestDocumentTypeOption, GuestSubmitEvidenceResult } from "../../api/types.js";
 import "./GuestDocumentRequest.css";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -310,8 +302,45 @@ function StepReview({
   const typesQuery = useQuery({ queryKey: ["guest", "documentTypes", token], queryFn: () => listGuestDocumentTypes(token), retry: false });
   const typeLabel = typesQuery.data?.documentTypes.find((t: GuestDocumentTypeOption) => t.documentTypeId === documentTypeId)?.displayName ?? documentTypeId;
 
-  const mutation = useIdempotentMutation<Awaited<ReturnType<typeof submitGuestEvidence>>, void>({
-    mutationFn: (_input, idempotencyKey) => submitGuestEvidence(token, { fileName: file.name, documentTypeId, idempotencyKey }),
+  // ADR-0013 (D-265) — the real 3-call flow, all inside ONE mutationFn so a retry after a
+  // mid-flow failure (PUT or confirm step) reuses the exact SAME idempotencyKey, never a fresh
+  // one (useIdempotentMutation's own contract: only `newIntent()` rotates it). If submitEvidence
+  // itself already succeeded on a prior attempt, this replay returns the cached snapshot (with a
+  // freshly recomputed uploadUrl, never a stale one) rather than re-creating the DocumentVersion.
+  //
+  // Codex review round 1 (D-265 implementation) finding, corrected: PUTting the bytes only when
+  // `uploadUrl` is present is right, but treating "no uploadUrl" as automatic success was NOT —
+  // it conflated "already confirmed by an earlier attempt" with "the window genuinely expired
+  // without ever uploading" (a real risk on retry: a replay past the GSI8 deadline, or one whose
+  // file already advanced to SCANNING between attempts, both legitimately omit `uploadUrl`).
+  // `confirmUploadInFlight`'s own `{extended}` return is the authoritative, server-side signal —
+  // `true` for any genuinely non-terminal file (PENDING_UPLOAD or SCANNING, i.e. bytes really are
+  // in flight or already landed), `false` for missing/terminal (expired, rejected, or — unreachable
+  // today since STARTER/PROMOTER stays off, ADR-0013 §4 — already CLEAN). ALWAYS calling it
+  // (never only inside the `if (uploadUrl)` branch) means a retry whose file already advanced past
+  // PENDING_UPLOAD still gets a truthful answer instead of being skipped.
+  const mutation = useIdempotentMutation<GuestSubmitEvidenceResult, void>({
+    mutationFn: async (_input, idempotencyKey) => {
+      const checksumSha256 = await computeChecksumSha256(file);
+      const result = await submitGuestEvidence(token, {
+        fileName: file.name,
+        documentTypeId,
+        mediaType: file.type,
+        contentLength: file.size,
+        checksumSha256,
+        idempotencyKey,
+      });
+      if (result.uploadUrl && result.requiredHeaders) {
+        await uploadDocumentBytes(result.uploadUrl, result.requiredHeaders, file);
+      }
+      const confirmation = await confirmGuestUpload(token, { idempotencyKey });
+      if (!confirmation.extended) {
+        // Never surfaced to the guest as a distinguishing reason (deviation 2 below) - just a
+        // real exception so the generic retry copy shows instead of a false "Evidência enviada".
+        throw new Error("Guest upload window expired or already resolved without confirmation.");
+      }
+      return result;
+    },
   });
 
   async function handleSubmit() {

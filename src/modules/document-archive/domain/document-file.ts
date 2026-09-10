@@ -62,10 +62,28 @@ export interface DocumentFile extends EntityKey {
    * working one — same D-179 mandate the other 8 workers follow. */
   GSI8PK?: string;
   GSI8SK?: string;
+  /** ADR-0013 (guest file storage, D-265) — sparse, absent means `false`. Set at most once by
+   * `GuestDocumentAccessService.confirmUploadInFlight()`, gating that method's own GSI8 deadline
+   * extension to exactly one occurrence per file (closes the abuse vector of calling it in a loop
+   * to hold a quota reservation open indefinitely). Never set/read by the authenticated
+   * `reserveFiles()` path — guest-only field. */
+  deadlineExtended?: boolean;
 }
 
 export function documentFileKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): EntityKey {
   return { PK: `TENANT#${tenantId}#DOCUMENT#${documentId}`, SK: `VERSION#${formatVersionSeq(seq)}#FILE#${fileId}` };
+}
+
+/** D-163 §7: mirrors M6's quarantine key convention (`document/domain/quarantine-key.ts`'s
+ * `tenant/<t>/item/<i>/...`), namespaced under `document-archive/` so the two key formats coexist
+ * in the same physical bucket without ever colliding. Extracted from
+ * `DocumentArchiveService.buildQuarantineKey()` (private method) into this pure exported function
+ * by ADR-0013 (D-265) so `GuestDocumentAccessService.submitEvidence()` can build the identical key
+ * shape without a `DocumentArchiveService` instance in scope — never duplicated, both call sites
+ * import this one function. Never encodes the original file name (PII) — only internal
+ * identifiers. */
+export function buildDocumentArchiveQuarantineKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): string {
+  return `document-archive/tenant/${tenantId}/document/${documentId}/version/${seq}/file/${fileId}`;
 }
 
 /** Upload+scan window (D-179 slice 3) — mirrors the presign URL's own TTL

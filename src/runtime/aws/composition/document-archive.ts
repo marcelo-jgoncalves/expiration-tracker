@@ -92,12 +92,16 @@ export function buildDocumentArchiveWorkerDeps(
 /** D-143 Decision 4 / D-146 (guest access). Separate from `buildDocumentArchiveDeps` — the
  * guest surface is deliberately its own composition (own pepper env var, own Lambda,
  * no Cognito/RequestContext machinery), same separation `subject`'s
- * `buildGuestSubmissionDeps` keeps from its authenticated sibling. */
-export function buildDocumentArchiveGuestDeps(client: DynamoDBDocumentClient, tableName: string, guestAccessPepper: string) {
+ * `buildGuestSubmissionDeps` keeps from its authenticated sibling.
+ * ADR-0013 (D-265): `quarantineBucket` added — reuses the SAME bucket/`S3UploadUrlSigner`
+ * adapter `buildDocumentArchiveDeps` above already wires, no new bucket/signer abstraction for
+ * the guest path's real file storage. */
+export function buildDocumentArchiveGuestDeps(client: DynamoDBDocumentClient, tableName: string, guestAccessPepper: string, quarantineBucket: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
   const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
-  const guestAccess = new GuestDocumentAccessService({ store, tableName, ids, rateLimiter, pepper: guestAccessPepper });
+  const signer = new S3UploadUrlSigner(new S3Client({}));
+  const guestAccess = new GuestDocumentAccessService({ store, tableName, ids, rateLimiter, pepper: guestAccessPepper, quarantineBucket, signer });
   return { store, guestAccess };
 }
 

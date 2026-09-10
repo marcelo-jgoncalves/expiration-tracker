@@ -779,6 +779,11 @@ export interface GuestStartSessionResult {
 export interface GuestSubmitEvidenceInput {
   fileName: string;
   documentTypeId: string;
+  /** ADR-0013 (D-265) — real upload metadata, validated server-side against the same
+   * allowlist/size ceiling the authenticated upload path already uses. */
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
   idempotencyKey: string;
 }
 
@@ -786,4 +791,14 @@ export interface GuestSubmitEvidenceResult {
   documentId: string;
   versionId: string;
   seq: number;
+  fileId: string;
+  /** ADR-0013 (D-265) — present only while the file is still eligible for its presigned PUT
+   * (see `GuestDocumentAccessService.computeUploadOffer`'s doc comment). Absent means nothing
+   * more to do for this submission. */
+  uploadUrl?: string;
+  requiredHeaders?: Record<string, string>;
+}
+
+export interface GuestConfirmUploadResult {
+  extended: boolean;
 }

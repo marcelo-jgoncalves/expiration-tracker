@@ -65,7 +65,9 @@ export type ApplyFileScanResultOutcome =
   | { outcome: "REJECTED"; status: Extract<DocumentFileScanStatus, "REJECTED" | "UNSUPPORTED"> }
   | { outcome: "READY_TO_PROMOTE"; sourceObject: DocumentObjectReference };
 
-const MAX_OCC_RETRIES = 10;
+/** ADR-0013 (D-265): exported so `GuestDocumentAccessService.confirmUploadInFlight()` reuses the
+ * exact same OCC-retry bound rather than redeclaring it. */
+export const MAX_OCC_RETRIES = 10;
 
 /** Same get-or-create shape as `DocumentArchiveService.ensureStorageQuota()` (kept as a free
  * function here since this module's functions take `deps`, not a class instance) — storage-

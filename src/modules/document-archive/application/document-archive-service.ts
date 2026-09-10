@@ -97,6 +97,7 @@ import {
 } from "../domain/document-type.js";
 import {
   assertExactlyOnePrincipal,
+  buildDocumentArchiveQuarantineKey,
   documentFileGsi8Keys,
   documentFileKey,
   deriveDocumentFileMaintenanceDue,
@@ -684,7 +685,7 @@ export class DocumentArchiveService {
         // D-163 §1: versionId consolidated later, atomically, by whichever physical event
         // (S3 Object Created / GuardDuty finding) observes the real object first — never
         // fabricated here (same placeholder discipline M6's Document.quarantineObject uses).
-        quarantineObject: { bucket: this.quarantineBucket, key: this.buildQuarantineKey(tenantId, documentId, seq, fileId), versionId: "" },
+        quarantineObject: { bucket: this.quarantineBucket, key: buildDocumentArchiveQuarantineKey(tenantId, documentId, seq, fileId), versionId: "" },
         createdAt: now,
         updatedAt: now,
         version: 1,
@@ -751,15 +752,6 @@ export class DocumentArchiveService {
         return { file, uploadUrl: presigned.uploadUrl, requiredHeaders: presigned.requiredHeaders };
       }),
     );
-  }
-
-  /** D-163 §7: mirrors M6's quarantine key convention (`document-service.ts`'s
-   * `tenant/<t>/item/<i>/document/<d>/slot/<s>/<random>`), namespaced under `document-archive/`
-   * so the two key formats coexist in the same physical bucket without ever colliding — the S3
-   * event handler routes on this prefix to pick the right parser (D-163 §7, deferred). Never
-   * encodes the original file name (PII) — only internal identifiers. */
-  private buildQuarantineKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): string {
-    return `document-archive/tenant/${tenantId}/document/${documentId}/version/${seq}/file/${fileId}`;
   }
 
   /** Get-or-create of the default storage quota row — same "auto-provisioning" shape

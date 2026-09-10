@@ -50,6 +50,19 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
   if (!valid) throw new ValidationError("Request body failed schema validation.", { errors });
 }
 
+/** ADR-0013 (D-265, Rodada 2 achado #6) — `validateAgainstSchema`'s own Ajv `errors` detail is
+ * more discriminant now that `docarchive-guest-submit-evidence-request.v1.json` has a numeric
+ * range/enum/regex (vs. the 3 plain strings it had before) — collapsed to the same generic guest
+ * error, never leaked to an anonymous caller. Scoped to THIS route only (the other guest routes'
+ * schemas remain less discriminant, named as a pre-existing gap not fixed here, same as D-264). */
+function validateGuestSubmitSchema(body: unknown): void {
+  try {
+    validateAgainstSchema(SUBMIT_EVIDENCE_SCHEMA_ID, body);
+  } catch {
+    throw new GuestAccessInvalidError();
+  }
+}
+
 const SUBMIT_EVIDENCE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-guest-submit-evidence-request.v1.json";
 
 export interface GuestArchiveHttpRequest<TBody = unknown> {
@@ -186,8 +199,12 @@ export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: Gues
     // the session to its issuing token (or scoping the cookie name by token) - a session-identity
     // design change that deserves its own scoping, not a rushed patch. Named in decisions-log
     // D-264.
-    if (!req.body) throw new ValidationError("Missing request body.");
-    validateAgainstSchema(SUBMIT_EVIDENCE_SCHEMA_ID, req.body);
+    // ADR-0013 (D-265) implementation, Codex review round 1: a missing body used to throw a
+    // differentiated `ValidationError` (400 with detail) while an invalid one collapsed to the
+    // generic guest error — an anti-enumeration leak the schema-validation collapse below was
+    // meant to close but didn't cover. Both now collapse identically.
+    if (!req.body) throw new GuestAccessInvalidError();
+    validateGuestSubmitSchema(req.body);
 
     const cookies = cookiesOf(req);
     const sessionToken = cookies[GUEST_SESSION_COOKIE_NAME];
@@ -203,5 +220,37 @@ export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: Gues
       req.body,
     );
     return { statusCode: 201, headers: baseHeaders(), body: result as unknown as Record<string, unknown> };
+  });
+}
+
+const CONFIRM_UPLOAD_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-guest-confirm-upload-request.v1.json";
+
+/** PATCH /document-archive/guest/document-requests/{token}/uploads — ADR-0013 (D-265). Same
+ * path as `handleSubmitEvidence` (a different HTTP verb, not a new CloudFront behavior — the
+ * existing guest-uploads CloudFront cache behavior already matches this exact path regardless
+ * of method), same session-cookie/CSRF discipline. */
+export async function handleConfirmUpload(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest<{ idempotencyKey: string }>): Promise<GuestArchiveHttpResponse> {
+  return withErrorMapping(async () => {
+    requireToken(req);
+    // Same anti-enumeration collapse as handleSubmitEvidence above — missing and invalid bodies
+    // must be indistinguishable to the caller.
+    if (!req.body) throw new GuestAccessInvalidError();
+    try {
+      validateAgainstSchema(CONFIRM_UPLOAD_SCHEMA_ID, req.body);
+    } catch {
+      throw new GuestAccessInvalidError();
+    }
+
+    const cookies = cookiesOf(req);
+    const sessionToken = cookies[GUEST_SESSION_COOKIE_NAME];
+    if (!sessionToken) throw new GuestAccessInvalidError();
+    const csrfHeaderValue = req.headers?.[CSRF_HEADER_NAME] ?? req.headers?.["X-CSRF-Token"];
+
+    const result = await deps.guestAccess.confirmUploadInFlight(
+      sessionToken,
+      { ip: req.sourceIp, csrfCookieValue: cookies[GUEST_CSRF_COOKIE_NAME], csrfHeaderValue },
+      req.body.idempotencyKey,
+    );
+    return { statusCode: 200, headers: baseHeaders(), body: result as unknown as Record<string, unknown> };
   });
 }
