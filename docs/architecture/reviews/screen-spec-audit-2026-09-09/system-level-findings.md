@@ -43,14 +43,24 @@ reading order — without inventing a new shared component from within a single 
 **Recheck in later batches**: confirm/refute against A09 and any other screen using this pattern;
 if 3+ confirmed instances accumulate, this finding's status is already "recurs across a foundational
 primitive" per the rubric's OR clause, so the gate is already met regardless of exact count.
+**Batch 3 update (2026-09-09)**: CONFIRMED on A09 exactly as the rubric predicted — A09's four-card
+link grid (Requirements/Documents/legacy tracking/Requests) gave every destination equal visual
+weight regardless of `missingCount`/`expiringSoonCount`, capping V7 at the same 8/17 counterfactual
+ceiling as A03. A09's own audit record applies the same class of local mitigation as A03 (severity-led
+card tone/ordering within the constraint, not a new shared component). This is now 2 confirmed
+screen-level instances (A03, A09) plus the already-met "foundational primitive" OR-clause — remediation
+owner and scope unchanged from the original entry above.
 
 ---
 
 ## SLF-02 — Design-system motion tokens exist, but no spec states when to use them (CONFIRMED, reclassified)
 
-**Status**: CONFIRMED as a recurring pattern — all 4 screens in this batch (A01-A04) state zero
+**Status**: CONFIRMED as a recurring pattern — all 4 screens in batch 1 (A01-A04) state zero
 motion/transition treatment (V6 evidence level 0 in every one of Claude's and Codex's independent
-reads).
+reads). Batches 2-3 (A05-A08, A09/A11-A13) all applied a local motion decision as part of their
+revision (SPEC GAP fix, per-screen), consistent with this finding's remediation note below — the
+pre-revision specs in both batches also scored V6=0/9 before revision, continuing to confirm the
+pre-revision authoring-discipline gap this finding describes.
 **Disposition**: **SPEC GAP** (24 independent instances), not SYSTEM GAP — reclassified from the
 rubric's open hypothesis. Rationale: `docs/frontend/design-system.md` §21 already defines concrete
 motion tokens (`motion.fast/normal/slow`, easing rules, a `prefers-reduced-motion` requirement) and
@@ -104,6 +114,9 @@ route line directly (a screen-local, one-line fix — not gated on the system-le
 **Local fix applied in batch 2**: A05, A06, A07, A08 all corrected their routes directly (same
 screen-local fix, still not gated on the pending system-level template update — see remediation
 owner above, unchanged).
+**Batch 3 update (2026-09-09)**: A09, A11, A12, A13 (12/12 screens across three batches) all omitted
+`:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix,
+same pending system-level template update as the remediation owner.
 
 ---
 
@@ -131,6 +144,12 @@ proposal instead of continuing to patch specs one at a time.
 name the semantic role explicitly.
 **Local fix applied in batch 2**: A05 and A06 replaced `tertiary` with `ghost`; A07 replaced it with
 `danger` (destructive action) — the distinction is now named explicitly in that screen's revision.
+**Batch 3 update (2026-09-09)**: A09 ("Exportar dossiê") and A11 ("Ver") both used `tertiary`
+pre-revision — now 7/12 screens across three batches. Both corrected this batch: A09's action moved
+into the header overflow menu as `secondary` (OWNER/ADMIN only); A11's row action moved into a row
+overflow menu with no variant named as `tertiary`. A12 and A13 did not use `tertiary` pre-revision.
+This finding remains firmly past the system-level recurrence gate; still tracked as interim
+per-screen correction pending a real design-system proposal per the remediation owner note above.
 
 ---
 
@@ -141,4 +160,8 @@ name the semantic role explicitly.
 | 1/6 | A01, A02, A03, A04 | DONE (this file's originating batch) |
 | 2/6 | A05, A06, A07, A08 | DONE — all 4 scored NOT PASS (27.6-39.6/100 consolidated); SLF-03 and
   SLF-04 both confirmed as met the system-level recurrence gate during this batch |
-| 3/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
+| 3/6 | A09, A11, A12, A13 | DONE — all 4 scored NOT PASS (32.9-42.5/100 consolidated); SLF-01
+  confirmed on a second screen (A09); SLF-02/03/04 continued recurring; no new SYSTEM GAP/CONSTRAINT
+  opened — two candidate cross-screen patterns (Version Lineage/claim-aware action gate on A12/A13)
+  noted as SYSTEM EVOLUTION CANDIDATE, not yet promoted (below the 3-screen bar) |
+| 4/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
