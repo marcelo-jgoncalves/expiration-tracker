@@ -54,6 +54,11 @@ export const queryKeys = {
   documentArchive: {
     /** D-2xx storage-quota-scoping - tenant-wide summary, no sub-filters, one key per org. */
     storageUsage: (organizationId: string) => ["org", organizationId, "documentArchive", "storageUsage"] as const,
+    /** A11 (Block 3, D-2xx) - tenant-wide Requirement search, one key per (org, status filter). */
+    requirementsSearch: (organizationId: string, status: string, namePrefix: string | undefined, assigneeUserId: string | undefined) =>
+      ["org", organizationId, "documentArchive", "requirements", "search", status, namePrefix ?? "", assigneeUserId ?? ""] as const,
+    /** A09 (Block 3, D-2xx) - Compliance panel, `GET .../requirements/{subjectId}/compliance`. */
+    subjectCompliance: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "compliance", subjectId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
