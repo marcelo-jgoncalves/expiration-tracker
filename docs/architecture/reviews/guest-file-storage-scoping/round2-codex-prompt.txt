@@ -1,0 +1,22 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, AGENTS.md §4). Esta é a Rodada 2 (crítica → tréplica). Na Rodada 1 você deu nota 5,8/10 NEEDS FIXES para uma proposta de design (armazenamento real de arquivo no caminho guest de submissão de evidência), com 3 achados BLOQUEANTES e 3 MENORES.
+
+Leia:
+1. docs/architecture/reviews/guest-file-storage-scoping/round1-claude-proposal.md (proposta original)
+2. docs/architecture/reviews/guest-file-storage-scoping/round1-codex-output.txt (sua crítica original, para referência)
+3. docs/architecture/reviews/guest-file-storage-scoping/round2-claude-revision.md (a revisão que responde a cada um dos 6 achados)
+
+Reavalie cada um dos 6 achados originais contra o código real (não confie na alegação "corrigido" da revisão — reconfira você mesmo):
+1. src/modules/document-archive/application/guest-document-access-service.ts
+2. src/modules/document-archive/application/document-archive-service.ts (reserveFiles, para comparar o padrão)
+3. src/modules/document-archive/domain/document-file.ts (deriveDocumentFileMaintenanceDue, documentFileGsi8Keys)
+4. src/modules/extraction/application/document-archive-activation.ts (o gate STARTER/PROMOTER)
+5. src/modules/document/application/document-service.ts linha ~85 (o padrão de validação de checksumSha256 que a revisão diz estar portando)
+6. frontend/src/api/documents.ts (onde computeChecksumSha256/uploadDocumentBytes são realmente exportados)
+7. src/modules/document-archive/http/document-archive-guest-handlers.ts (handleSubmitEvidence, validateAgainstSchema)
+
+Para o achado #3 (gate STARTER/PROMOTER): a revisão argumenta que NÃO ativar as flags é a decisão correta (herdar o mesmo gate que o caminho autenticado já tem, nunca reabrir a decisão de ativação de OCR que é um item de roadmap separado e deliberadamente adiado) e registra honestamente que a propriedade "A14→G02→A13/A12" ainda não fecha 100% ponta a ponta enquanto essas flags continuarem desligadas — isso é aceitável, ou você considera que isso invalida o objetivo da tarefa (fechar a pendência de D-264)? Avalie com julgamento de engenharia real, não uma régua binária.
+
+Dê uma nota atualizada de 0 a 10 (não arredondada):
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: para cada um dos 6 originais, diga RESOLVIDO ou NÃO RESOLVIDO (com motivo específico se não resolvido). Liste também qualquer achado NOVO que a revisão tenha introduzido.
