@@ -72,14 +72,22 @@ function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
  * configured" (a decorative lie for items that DO have one) or need a fabricated discovery
  * mechanism. Recorded as a pending backend gap (decisions-log D-2xx), same discipline as A02's
  * D-255 deferrals - never built decorative. */
+function documentsEntryNote(query: ReturnType<typeof useDocuments>): string {
+  // Codex block-review finding (D-2xx): a persistent load failure must never read identically
+  // to "still loading" - both used to collapse into the same neutral prompt.
+  if (query.isError) return "Não foi possível carregar a contagem";
+  const count = query.data?.documents.filter((document) => document.status !== "DELETED").length;
+  if (count === undefined) return "Ver arquivos anexados";
+  return count === 0 ? "Nenhum anexo" : `${count} anexo(s)`;
+}
+
 function DocumentsEntryCard({ itemId }: { itemId: string }) {
   const orgPath = useOrgPath();
   const query = useDocuments(itemId);
-  const count = query.data?.documents.filter((document) => document.status !== "DELETED").length;
   return (
     <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/documents`)}>
       <strong>Arquivos</strong>
-      <span className="u-text-secondary">{count === undefined ? "Ver arquivos anexados" : count === 0 ? "Nenhum anexo" : `${count} anexo(s)`}</span>
+      <span className="u-text-secondary">{documentsEntryNote(query)}</span>
     </Link>
   );
 }

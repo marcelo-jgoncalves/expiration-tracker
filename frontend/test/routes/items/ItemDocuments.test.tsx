@@ -127,7 +127,25 @@ describe("ItemDocuments (A07)", () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/items/item-1/documents/doc-1"));
   });
 
-  it("every non-DELETED status renders its own badge, honestly - CLEAN is never presented as a stronger claim than PENDING_UPLOAD/SCANNING", async () => {
+  it("Codex block-review finding: a failed delete is surfaced as a visible error, not a confirm button that silently does nothing", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [doc({})] });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    deleteMock.mockRejectedValue(new Error("network down"));
+    mockAsRole("ADMIN");
+    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Excluir" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível excluir este arquivo."));
+    // The document is still listed - a failed delete never silently removes it from view.
+    expect(screen.getByText("contrato.pdf")).toBeInTheDocument();
+  });
+
+  it("every real DocumentStatus (including CLEAN/UNSUPPORTED/TIMEOUT) renders its own honest badge - CLEAN is never presented as a stronger claim than PENDING_UPLOAD/SCANNING, and DELETED is filtered out entirely", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
       if (path === "/items/item-1/documents")
@@ -135,8 +153,11 @@ describe("ItemDocuments (A07)", () => {
           documents: [
             doc({ documentId: "d1", fileName: "a.pdf", status: "PENDING_UPLOAD" }),
             doc({ documentId: "d2", fileName: "b.pdf", status: "SCANNING" }),
-            doc({ documentId: "d3", fileName: "c.pdf", status: "REJECTED" }),
-            doc({ documentId: "d4", fileName: "d.pdf", status: "DELETED" }),
+            doc({ documentId: "d3", fileName: "c.pdf", status: "CLEAN" }),
+            doc({ documentId: "d4", fileName: "d.pdf", status: "REJECTED" }),
+            doc({ documentId: "d5", fileName: "e.pdf", status: "UNSUPPORTED" }),
+            doc({ documentId: "d6", fileName: "f.pdf", status: "TIMEOUT" }),
+            doc({ documentId: "d7", fileName: "g.pdf", status: "DELETED" }),
           ],
         });
       return Promise.reject(new Error("unexpected path " + path));
@@ -147,35 +168,96 @@ describe("ItemDocuments (A07)", () => {
     await waitFor(() => expect(screen.getByText("a.pdf")).toBeInTheDocument());
     expect(screen.getByText("Aguardando envio")).toBeInTheDocument();
     expect(screen.getByText("Verificando segurança")).toBeInTheDocument();
+    expect(screen.getByText("Verificado (segurança) — conteúdo não conferido")).toBeInTheDocument();
     expect(screen.getByText("Rejeitado (ameaça detectada)")).toBeInTheDocument();
+    expect(screen.getByText("Arquivo não suportado")).toBeInTheDocument();
+    expect(screen.getByText("Envio expirado")).toBeInTheDocument();
     // A DELETED document is filtered out of the visible list entirely.
-    expect(screen.queryByText("d.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText("g.pdf")).not.toBeInTheDocument();
   });
 
-  it("the two-phase upload model: reserving a slot and PUTting bytes are two real calls, and the document stays PENDING_UPLOAD from the reservation response alone", async () => {
-    getMock.mockImplementation((path: string) => {
-      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
-      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
-      return Promise.reject(new Error("unexpected path " + path));
-    });
-    postMock.mockResolvedValue({
-      documentId: "doc-new",
-      uploadSlotId: "slot-1",
-      uploadUrl: "https://storage.example.com/upload",
-      requiredHeaders: { "x-amz-meta": "x" },
-      expiresAt: "2026-01-01T00:10:00.000Z",
-    });
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
-    mockAsRole("OWNER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+  describe("the two-phase upload model", () => {
+    function mockReservation() {
+      postMock.mockResolvedValue({
+        documentId: "doc-new",
+        uploadSlotId: "slot-1",
+        uploadUrl: "https://storage.example.com/upload",
+        requiredHeaders: { "x-amz-meta": "x" },
+        expiresAt: "2026-01-01T00:10:00.000Z",
+      });
+    }
 
-    await waitFor(() => expect(screen.getByLabelText("Selecionar arquivo")).toBeInTheDocument());
-    const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
-    fireEvent.change(screen.getByLabelText("Selecionar arquivo"), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole("button", { name: "Anexar arquivo" }));
+    async function renderWithEmptyList() {
+      getMock.mockImplementation((path: string) => {
+        if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+        if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+        return Promise.reject(new Error("unexpected path " + path));
+      });
+      mockAsRole("OWNER");
+      renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+      await waitFor(() => expect(screen.getByLabelText("Selecionar arquivo")).toBeInTheDocument());
+    }
 
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/items/item-1/documents", expect.objectContaining({ fileName: "novo.pdf" }), expect.anything()));
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("https://storage.example.com/upload", expect.objectContaining({ method: "PUT" })));
-    fetchSpy.mockRestore();
+    it("reserves the slot (phase 1) and only then PUTs the bytes (phase 2) - never the other order, and the PUT carries the real file body and required headers", async () => {
+      mockReservation();
+      const callOrder: string[] = [];
+      postMock.mockImplementation(async () => {
+        callOrder.push("reserve");
+        return {
+          documentId: "doc-new",
+          uploadSlotId: "slot-1",
+          uploadUrl: "https://storage.example.com/upload",
+          requiredHeaders: { "x-amz-meta": "x" },
+          expiresAt: "2026-01-01T00:10:00.000Z",
+        };
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+        callOrder.push("put");
+        return new Response(null, { status: 200 });
+      });
+      await renderWithEmptyList();
+
+      const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
+      fireEvent.change(screen.getByLabelText("Selecionar arquivo"), { target: { files: [file] } });
+      fireEvent.click(screen.getByRole("button", { name: "Anexar arquivo" }));
+
+      await waitFor(() => expect(callOrder).toEqual(["reserve", "put"]));
+      expect(fetchSpy).toHaveBeenCalledWith("https://storage.example.com/upload", {
+        method: "PUT",
+        headers: { "x-amz-meta": "x" },
+        body: file,
+      });
+      fetchSpy.mockRestore();
+    });
+
+    it("a reservation failure never attempts the PUT, and is surfaced as a visible error", async () => {
+      postMock.mockRejectedValue(new Error("quota exceeded"));
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      await renderWithEmptyList();
+
+      const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
+      fireEvent.change(screen.getByLabelText("Selecionar arquivo"), { target: { files: [file] } });
+      fireEvent.click(screen.getByRole("button", { name: "Anexar arquivo" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível enviar o arquivo."));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it("a PUT failure (phase 2) is surfaced as a visible error and never invalidates/refreshes the document list as if it had succeeded", async () => {
+      mockReservation();
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
+      await renderWithEmptyList();
+      getMock.mockClear();
+
+      const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
+      fireEvent.change(screen.getByLabelText("Selecionar arquivo"), { target: { files: [file] } });
+      fireEvent.click(screen.getByRole("button", { name: "Anexar arquivo" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível enviar o arquivo."));
+      // No re-fetch of the document list was triggered by a failed upload.
+      expect(getMock).not.toHaveBeenCalledWith("/items/item-1/documents", expect.anything());
+      fetchSpy.mockRestore();
+    });
   });
 });

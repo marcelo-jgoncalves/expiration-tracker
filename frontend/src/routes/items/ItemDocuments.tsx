@@ -57,7 +57,7 @@ function UploadForm({ itemId }: { itemId: string }) {
     }
     setValidationError(undefined);
     try {
-      await mutation.mutateAsync({ itemId, file });
+      await mutation.mutateAsync({ file });
       mutation.newIntent();
       if (inputRef.current) inputRef.current.value = "";
     } catch {
@@ -103,6 +103,11 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
         <p className="u-text-secondary">
           {formatBytes(document.contentLength)} · Anexado em {formatAbsoluteDate(document.createdAt)}
         </p>
+        {deleteMutation.isError ? (
+          <p className="u-text-secondary" role="alert">
+            {deleteMutation.error instanceof ApiError ? deleteMutation.error.message : "Não foi possível excluir este arquivo."}
+          </p>
+        ) : null}
       </div>
       <StatusBadge presentation={presentation} srPrefix="Status do arquivo" />
       {canDelete ? (
