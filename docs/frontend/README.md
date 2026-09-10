@@ -173,16 +173,15 @@ existem mais.
 
 ## Prototype Screen Specs (2026-09-09) — saída do Claude Design a partir do plano acima
 
-`docs/frontend/prototype-screen-specs/` — pacote de 24 especificações de tela (componentes/props/
-dados de exemplo/RBAC concretos por tela), gerado por uma sessão separada do Claude Design a
+`docs/frontend/prototype-screen-specs/` — pacote de 25 especificações de tela (componentes/props/
+dados de exemplo/RBAC concretos por tela): 24 geradas por uma sessão separada do Claude Design a
 partir do `p0-screen-inventory-plan.md`, recebido como .zip e reorganizado/renomeado nesta sessão
 (arquivos originais tinham numeração sequencial sem relação com os IDs de tela; renomeados para
-`<ID>-slug.md` correspondendo 1:1 aos IDs do plano). Material de apoio de implementação, não
-passou pelo protocolo Claude↔Codex, não é normativo acima do plano. **Lacuna real encontrada**: o
-pacote não inclui uma spec para A10 (Legacy Tracked Requirements) — 24 de 25 telas do plano
-cobertas; A10 precisa ser especificada separadamente antes de a implementação cobrir o fluxo
-legado por completo. Ver `prototype-screen-specs/README.md` para o índice completo e a nota de
-proveniência.
+`<ID>-slug.md` correspondendo 1:1 aos IDs do plano), mais A10 (Legacy Tracked Requirements) —
+**lacuna real do pacote original, fechada em 2026-09-10**: escrita do zero nesta sessão (nunca
+gerada pelo Claude Design) e já auditada (WORLD-CLASS-READY). Material de apoio de implementação,
+não passou pelo protocolo Claude↔Codex, não é normativo acima do plano. Ver
+`prototype-screen-specs/README.md` para o índice completo e a nota de proveniência.
 
 ## Screen Spec Audit Rubric (2026-09-09, D-250) — instrumento para auditar as 24 specs acima
 

@@ -24,7 +24,7 @@
 8. **Document Types configuráveis** — 🟢 IMPLEMENTADO (D-173 a D-186, D-221, D-224, D-243, D-244): CRUD, RBAC, metadata configurável, leitura pública para guest, e `documentTypeId` agora OBRIGATÓRIO no schema HTTP do guest submit-evidence (corte único, `documentType` livre removido por completo) — D-244 codou o desenho `APPROVED` de D-243 por inteiro (schema+serviço+9/9 testes do checklist), gate local completo verde.
 9. **Consolidar Guest Upload + Requests + Review + Recurrence** — 🟢 FECHADO POR INTEIRO (D-222/D-226 a D-230). Ciclo completo (criar→emitir credencial→entregar→resolver) funciona nos dois caminhos (avulso e recorrência), provado por teste e2e real.
 10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechado por completo (D-163 a D-168).
-11. **Frontend completo do P0** — 🟡 planejamento + auditoria de qualidade CONCLUÍDOS, implementação real ainda NÃO INICIADA. Plano de 25 telas (D-247, `docs/frontend/p0-screen-inventory-plan.md`); os 3 gaps de backend/BFF fechados (D-248); as 24 specs concretas do Claude Design foram TODAS auditadas e revisadas (D-251, ver seção "Próxima ação recomendada" abaixo) — 24/24 NOT PASS pré-revisão, corrigidas na própria auditoria. Falta: spec da A10 (nunca gerada), plano de sequenciamento de implementação, e então o código de frontend em si.
+11. **Frontend completo do P0** — 🟡 planejamento + auditoria de qualidade CONCLUÍDOS (25/25 telas), implementação real ainda NÃO INICIADA. Plano de 25 telas (D-247, `docs/frontend/p0-screen-inventory-plan.md`); os 3 gaps de backend/BFF fechados (D-248); as 24 specs concretas do Claude Design foram TODAS auditadas e revisadas (D-251) — 24/24 NOT PASS pré-revisão, corrigidas na própria auditoria; a 25ª (A10, nunca gerada pelo pacote original) foi escrita do zero e auditada em 2026-09-10 (D-252), WORLD-CLASS-READY de primeira. Falta: plano de sequenciamento de implementação, e então o código de frontend em si.
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 
@@ -115,21 +115,21 @@ NOT PASS** (25.4-50.2/100 consolidado) — nenhuma passou nem o piso de Baseline
 `docs/frontend/prototype-screen-specs/` foram todas revisadas em resposta aos achados (versões
 pré-auditoria estão superadas). `npm run check-docs` verde após o lote final.
 
-**Duas lacunas nomeadas, explicitamente NÃO resolvidas por esta auditoria:**
-1. **A10 (Legacy Tracked Requirements) não tem spec nenhuma** — nunca foi gerada pelo pacote
-   original do Claude Design, mas é referenciada por outras telas (A09→A10, G01 alcançada via A10)
-   como se existisse. Precisa ser criada e depois auditada pela mesma rubrica antes de entrar no
-   conjunto de implementação — é a única lacuna de planejamento real que resta.
-2. **Plano de sequenciamento de implementação** (ordem de construção das 24+1 telas, estratégia de
-   teste por tela, integração com o AppShell já existente) — decisão real ainda não tomada. Marcelo
-   já autorizou prosseguir nisso via o mesmo protocolo Claude↔Codex sem esperar por ele na resolução
-   em si (mesma autonomia já concedida para o resto deste projeto).
+**Lacuna A10 fechada (2026-09-10, D-252)**: `A10-rastreamento-legado.md` foi escrita do zero (nunca
+gerada pelo pacote original do Claude Design) e auditada contra o mesmo rubric —
+WORLD-CLASS-READY (Functional 94.0/Visual 92.0/Consolidado 92.4), a única das 25 telas a passar de
+primeira. Ver `docs/architecture/reviews/screen-spec-audit-2026-09-09/A10-audit-record.md` e
+`estado-final-consolidado.md` (tabela agregada agora com 25/25 telas). O conjunto de specs do plano
+de 25 telas está **completo e auditado**.
+
+**Lacuna real ainda aberta**: **Plano de sequenciamento de implementação** (ordem de construção das
+25 telas, estratégia de teste por tela, integração com o AppShell já existente) — decisão real ainda
+não tomada. Marcelo já autorizou prosseguir nisso via o mesmo protocolo Claude↔Codex sem esperar por
+ele na resolução em si (mesma autonomia já concedida para o resto deste projeto).
 
 **Próximo passo autorizado, sem esperar sinal de Marcelo**: resolver o plano de sequenciamento de
-implementação (item 2 acima) via protocolo Claude↔Codex, e então começar a implementação real de
-frontend por blocos de telas, rodando o mesmo protocolo de novo após cada bloco implementado. A
-lacuna A10 (item 1) deve ser resolvida antes ou em paralelo, dado que pelo menos duas telas já
-auditadas dependem dela na jornada.
+implementação via protocolo Claude↔Codex, e então começar a implementação real de frontend por
+blocos de telas, rodando o mesmo protocolo de novo após cada bloco implementado.
 
 Quando o P0 fechar por inteiro (exceto o item 11, tratado pela instrução acima): retomar `ExternalShareLink` a partir do slice 2/3 (ver D-241) — domínio/persistência já prontos, só falta a camada HTTP/RBAC/schemas/terraform.
 

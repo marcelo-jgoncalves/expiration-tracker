@@ -13,13 +13,17 @@ dados de exemplo, regras de RBAC por tela), gerado por IA a partir do plano `APP
 pelo protocolo Claude↔Codex (não é decisão de arquitetura) e não deve ser tratado como fonte
 normativa acima do plano em si — em caso de divergência, `p0-screen-inventory-plan.md` vence.
 
-**Lacuna real encontrada ao organizar este pacote (2026-09-09, não corrigida aqui)**: o plano
+**Lacuna real encontrada ao organizar este pacote (2026-09-09), fechada em 2026-09-10**: o plano
 original tem 25 telas incluindo **A10 — Legacy Tracked Requirements** (`RequirementAssignment`,
-rota `/app/:orgId/subjects/:subjectId/tracking`). Este pacote **não contém uma spec para A10** — o
+rota `/app/:orgId/subjects/:subjectId/tracking`). Este pacote **não continha uma spec para A10** — o
 Hub do Fornecedor (A09, aqui `A09-subject-hub.md`) referencia um card "Rastreamento legado" que
-navegaria para ela, mas nenhum arquivo `A10-*.md` foi gerado. Ou seja, o pacote cobre 24 das 25
-telas do plano (23 autenticadas incluindo A08 e A09, mais G01/G02) — A10 ficou de fora e precisa
-ser gerada/especificada separadamente antes da implementação cobrir o fluxo legado por completo.
+navegaria para ela, mas nenhum arquivo `A10-*.md` havia sido gerado pelo Claude Design. Diferente das
+outras 24 telas (geradas pelo pacote e depois auditadas), `A10-rastreamento-legado.md` foi **escrita
+do zero nesta sessão**, já aplicando diretamente as 5 lições de sistema convergidas no audit das
+outras 24 (`docs/architecture/reviews/screen-spec-audit-2026-09-09/system-level-findings.md`), e
+auditada com o mesmo instrumento (ver `A10-audit-record.md` na mesma pasta) — WORLD-CLASS-READY,
+Functional 94.0/Visual 92.0/Consolidado 92.4. O conjunto de 25 telas do plano está agora
+completamente coberto por spec.
 
 ## Sistema de design
 
@@ -83,7 +87,7 @@ Rodapé do shell: botão terciário pequeno "Sair" (logout).
 | A07-arquivos-vencimento.md | A07 | Arquivos do vencimento | `/expirations/:id/files` |
 | A08-fornecedores.md | A08 | Fornecedores (lista) | `/subjects` |
 | A09-subject-hub.md | A09 | Hub do fornecedor | `/subjects/:id` |
-| **— (não gerada)** | **A10** | **Rastreamento legado (`RequirementAssignment`) — FALTANDO, ver nota de lacuna acima** | `/subjects/:id/tracking` |
+| A10-rastreamento-legado.md | A10 | Rastreamento legado (`RequirementAssignment`) | `/subjects/:id/tracking` |
 | A11-requisitos.md | A11 | Requisitos (lista) | `/requirements` |
 | A12-documento-detalhe.md | A12 | Detalhe do documento | `/documents/:id` |
 | A13-fila-revisao.md | A13 | Fila de revisão | `/reviews` |

@@ -90,7 +90,8 @@ decision as part of this batch's revision. This finding is now closed as fully c
 remediation (an explicit "Motion" prompt in the spec-authoring template) remains open and unowned —
 recommend it be the first action item for whoever picks up frontend implementation, since every
 spec now has a local motion decision baked in but no template exists to keep future specs (e.g. the
-still-ungenerated A10) from repeating the same 24/24 gap.
+A10, now authored and audited 2026-09-10 with a motion decision named from the start — see
+A10-audit-record.md) from repeating the same 24/24 gap.
 
 ---
 
@@ -143,7 +144,8 @@ same-shape but distinct defect (wrong path, not a missing tenant segment). Final
 authenticated screens across all six batches omitted `:orgId` pre-revision, with zero exceptions**
 (A01-A21 excluding any N/A guest screens, plus A22/A23 this batch) — this finding is now closed as
 fully confirmed at 100% recurrence. Remediation owner and fix unchanged from above; still pending a
-template-level fix for any future authenticated screen (e.g. the still-ungenerated A10).
+template-level fix for any future authenticated screen (A10, authored 2026-09-10, already includes
+`:orgId` from the start, confirming the local-fix pattern works when applied proactively).
 
 ---
 
@@ -231,8 +233,9 @@ in this project) — promote the local fix into one real shared component (e.g. 
 used by both G01 and G02 rather than two copies of the same markdown text, so a future guest screen
 never has to re-derive this from the plan text either.
 **Recheck**: no further guest screens exist in the current 24-screen inventory to recheck against;
-if the future A10 spec (still not generated — see `NEXT_SESSION_PROMPT.md`) or any later guest-
-adjacent surface is added, confirm it reuses this pattern rather than re-authoring it.
+A10 (authored 2026-09-10) is not guest-adjacent itself, so this recheck does not apply to it
+directly; if any later guest-adjacent surface is added, confirm it reuses this pattern rather than
+re-authoring it.
 
 ---
 
