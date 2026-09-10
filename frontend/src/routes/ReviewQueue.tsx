@@ -29,12 +29,14 @@
  * for CSV export.
  */
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useReviewQueue } from "../hooks/useReviewQueue.js";
 import { useClaimReview } from "../hooks/useClaimReview.js";
 import { useAcceptVersion } from "../hooks/useAcceptVersion.js";
 import { useRejectVersion } from "../hooks/useRejectVersion.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
+import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
@@ -44,6 +46,7 @@ import { Button } from "../components/ui/Button.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
+import { queryKeys } from "../api/queryKeys.js";
 import type { ReviewQueueHit, ReviewQueueState, RejectionReason } from "../api/types.js";
 
 const TABS: { value: ReviewQueueState; label: string }[] = [
@@ -114,6 +117,18 @@ export function ReviewQueue() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [claimedByMe, setClaimedByMe] = useState<ReadonlySet<string>>(new Set());
   const autoSelectedRef = useRef(false);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
+
+  // Codex Block 5 review round 1 finding 1: an OCC conflict (someone else decided/claimed this
+  // item first) must actually refresh BOTH queue tabs, not just show a message over stale data -
+  // the mutation hooks only invalidate on SUCCESS, so a conflict needs its own explicit
+  // invalidation, passed down to `DetailPanel`.
+  function invalidateQueues() {
+    if (!organizationId) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.documentArchive.reviewQueue(organizationId, "RECEIVED") });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.documentArchive.reviewQueue(organizationId, "UNDER_REVIEW") });
+  }
 
   // Both tabs' counts are shown on their own FilterGroup entry (audited spec, "Structure" item
   // 2), so both are fetched unconditionally - two independent requests, never merged into one
@@ -214,8 +229,18 @@ export function ReviewQueue() {
             isAdminOrOwner={isAdminOrOwner}
             claimedByMe={claimedByMe.has(selectedKey ?? "")}
             nameFor={nameFor}
+            invalidate={invalidateQueues}
             onClaimed={() => {
-              if (selectedKey) markClaimedByMe(selectedKey);
+              // Codex Block 5 review round 1 finding 2: a successful claim moves this item OUT
+              // of the RECEIVED tab (it invalidates/refetches both queues) - staying on
+              // "RECEIVED" would make the just-claimed item vanish from view right after the
+              // operator claimed it. Follow it to "Em revisão" instead of resetting the
+              // selection (`setTab`, not `handleTabChange` - `hitKey` is state-independent, so
+              // the same key still resolves once `underReviewQuery` refetches).
+              if (selectedKey) {
+                markClaimedByMe(selectedKey);
+                setTab("UNDER_REVIEW");
+              }
             }}
             onDecided={() => {
               if (selectedKey) advanceAfterDecision(selectedKey);
@@ -239,6 +264,7 @@ function DetailPanel({
   isAdminOrOwner,
   claimedByMe,
   nameFor,
+  invalidate,
   onClaimed,
   onDecided,
 }: {
@@ -247,6 +273,7 @@ function DetailPanel({
   isAdminOrOwner: boolean;
   claimedByMe: boolean;
   nameFor: (userId: string) => string | undefined;
+  invalidate: () => void;
   onClaimed: () => void;
   onDecided: () => void;
 }) {
@@ -266,6 +293,10 @@ function DetailPanel({
   // NEVER hidden for a claim ownership reason - only a MEMBER acting on someone else's claim is
   // blocked from deciding.
   const memberBlockedByOwnership = isClaimedByOther && !isAdminOrOwner;
+  // Codex Block 5 review round 1 ("additional risk") - Claim/Accept/Reject all act on the SAME
+  // `expectedVersion`; letting two of them fire concurrently (e.g. a double-click) races each
+  // other into an avoidable OCC conflict. One in-flight mutation blocks the other two.
+  const anyPending = claimMutation.isPending || acceptMutation.isPending || rejectMutation.isPending;
 
   async function handleClaim() {
     setActionError(undefined);
@@ -275,6 +306,7 @@ function DetailPanel({
     } catch (err) {
       if (isConflict(err)) {
         setActionError("Este item já foi reivindicado por outra pessoa — a fila foi atualizada.");
+        invalidate();
         return;
       }
       setActionError(err instanceof ApiError ? err.message : "Não foi possível reivindicar este item.");
@@ -288,10 +320,11 @@ function DetailPanel({
       onDecided();
     } catch (err) {
       if (isConflict(err)) {
-        // Shown, not silently navigated away from (Codex-style lesson: a message the user
-        // never sees is not a message) - the queue itself is already stale/invalidated by
-        // TanStack Query's own cache; the operator explicitly reselects once they've read this.
+        // Shown, AND the queue is explicitly refreshed (Codex Block 5 review round 1 finding 1
+        // - relying only on the mutation hook's onSuccess-only invalidation left the stale item
+        // on screen after a real conflict).
         setActionError("Este item já foi decidido por outra pessoa.");
+        invalidate();
         return;
       }
       setActionError(err instanceof ApiError ? err.message : "Não foi possível aceitar este item.");
@@ -307,6 +340,7 @@ function DetailPanel({
     } catch (err) {
       if (isConflict(err)) {
         setActionError("Este item já foi decidido por outra pessoa.");
+        invalidate();
         return;
       }
       setActionError(err instanceof ApiError ? err.message : "Não foi possível rejeitar este item.");
@@ -360,7 +394,7 @@ function DetailPanel({
         <div className="a13-actionbar ui-toolbar">
           <div>
             {!version.reviewerId ? (
-              <Button variant="secondary" pending={claimMutation.isPending} onClick={() => void handleClaim()}>
+              <Button variant="secondary" disabled={anyPending && !claimMutation.isPending} pending={claimMutation.isPending} onClick={() => void handleClaim()}>
                 {claimMutation.isPending ? "Reivindicando…" : "Reivindicar"}
               </Button>
             ) : null}
@@ -380,20 +414,20 @@ function DetailPanel({
                   onChange={(v) => setReason(v as RejectionReason)}
                   options={REJECTION_REASONS.map((r) => ({ value: r.value, label: r.label }))}
                 />
-                <Button variant="danger" pending={rejectMutation.isPending} onClick={() => void handleReject()}>
+                <Button variant="danger" disabled={anyPending && !rejectMutation.isPending} pending={rejectMutation.isPending} onClick={() => void handleReject()}>
                   {rejectMutation.isPending ? "Rejeitando…" : "Confirmar rejeição"}
                 </Button>{" "}
-                <Button variant="secondary" onClick={() => setRejecting(false)}>
+                <Button variant="secondary" disabled={anyPending} onClick={() => setRejecting(false)}>
                   Cancelar
                 </Button>
               </span>
             ) : (
               <>
-                <Button variant="danger" onClick={() => setRejecting(true)}>
+                <Button variant="danger" disabled={anyPending} onClick={() => setRejecting(true)}>
                   Rejeitar
                 </Button>{" "}
                 {!isInfected ? (
-                  <Button variant="primary" disabled={isScanPending} pending={acceptMutation.isPending} onClick={() => void handleAccept()}>
+                  <Button variant="primary" disabled={isScanPending || (anyPending && !acceptMutation.isPending)} pending={acceptMutation.isPending} onClick={() => void handleAccept()}>
                     {acceptMutation.isPending ? "Aceitando…" : "Aceitar"}
                   </Button>
                 ) : null}

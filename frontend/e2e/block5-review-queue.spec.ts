@@ -154,16 +154,28 @@ test("E2E-B5-08: Aceitar is hidden (Rejeitar stays) when a file scan is infected
   await expect(page.getByRole("button", { name: "Rejeitar" })).toBeVisible();
 });
 
-test("E2E-B5-09: a concurrent decision (OCC conflict) surfaces a clear notice and reloads the queue", async ({ page }) => {
+test("E2E-B5-09: a concurrent decision (OCC conflict) surfaces a clear notice and re-fetches the queue", async ({ page }) => {
   await mockOrganizations(page, "MEMBER");
-  await mockReviews(page, [hit()]);
+  let reviewCalls = 0;
+  await page.route("**/bff/api/document-archive/reviews**", (route) => {
+    reviewCalls += 1;
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get("state");
+    return route.fulfill({ json: { items: state === "RECEIVED" ? [hit()] : [], cursor: null } });
+  });
   await page.route("**/bff/api/document-archive/documents/doc-1/versions/1/accept", (route) =>
     route.fulfill({ status: 409, json: { code: "CONFLICT", category: "CONFLICT", message: "DocumentVersion is no longer eligible for acceptance.", retryable: false } }),
   );
 
   await page.goto("/reviews");
+  await expect(page.getByRole("button", { name: "Aceitar" })).toBeVisible();
+  const callsBeforeConflict = reviewCalls;
   await page.getByRole("button", { name: "Aceitar" }).click();
   await expect(page.getByText("Este item já foi decidido por outra pessoa.")).toBeVisible();
+  // Codex Block 5 review round 1 finding 1: a conflict must trigger a real re-fetch of BOTH
+  // queue tabs (`invalidateQueues()`), never just leave the stale item on screen with a message
+  // over it - both GET .../reviews?state= calls fire again after the conflict.
+  await expect.poll(() => reviewCalls).toBeGreaterThan(callsBeforeConflict + 1);
 });
 
 test("E2E-B5-10: the empty queue shows 'Nenhum item nesta fila.'", async ({ page }) => {

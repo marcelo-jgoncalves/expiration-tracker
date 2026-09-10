@@ -120,6 +120,23 @@ describe("ReviewQueue (A13)", () => {
     expect(screen.getByRole("button", { name: "Rejeitar" })).toBeInTheDocument();
   });
 
+  it("after a successful claim, follows the item to 'Em revisão' so it stays actionable (Codex Block 5 review round 1 finding 2)", async () => {
+    mockRole("MEMBER");
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("state=RECEIVED")) return Promise.resolve({ items: [hit()], cursor: null });
+      if (path.includes("state=UNDER_REVIEW")) return Promise.resolve({ items: [hit({ state: "UNDER_REVIEW", reviewerId: "me", version: 2 })], cursor: null });
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    postMock.mockResolvedValue({ version: { ...hit().version, state: "UNDER_REVIEW", reviewerId: "me", version: 2 } });
+    renderAtRoute("/reviews", <ReviewQueue />, "/reviews");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reivindicar" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Reivindicar" }));
+    // The screen follows the claimed item onto the "Em revisão" tab instead of leaving the
+    // operator on "Recebidas", where the just-claimed item no longer appears.
+    await waitFor(() => expect(screen.getByRole("button", { name: /Em revisão/ })).toHaveAttribute("aria-current", "page"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Aceitar" })).toBeInTheDocument());
+  });
+
   it("disables Aceitar while a file scan is pending, with an explanation notice, and never hides it", async () => {
     mockRole("MEMBER");
     mockReviews([hit({ pendingFileScans: 1 })]);
