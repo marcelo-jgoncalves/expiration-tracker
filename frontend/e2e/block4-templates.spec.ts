@@ -206,6 +206,11 @@ test("E2E-B4-15: ADMIN reorders template items with the ▲/▼ buttons (a real 
   await page.getByRole("button", { name: 'Mover "CND Estadual" para cima' }).click();
 
   await expect.poll(() => (updateBody?.["items"] as Array<{ name: string }> | undefined)?.map((i) => i.name)).toEqual(["CND Estadual", "CND Federal"]);
+  // Codex block-review finding (LOW): the original version only asserted item order, so a
+  // regression that silently dropped `expectedVersion` from the reorder PATCH (which the real
+  // backend requires in the body, not the `If-Match` header - see `requirementTemplates.ts`'s
+  // own doc comment) would have passed this test and then 400'd in production.
+  expect(updateBody?.["expectedVersion"]).toBe(3);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -419,4 +424,16 @@ test("A11Y-forms: A21's 'Novo template' and 'Aplicar a fornecedor' forms have fu
     }).length,
   );
   expect(unlabelledCreate).toBe(0);
+
+  // Codex block-review finding (LOW): this test's title promised BOTH forms but only ever
+  // opened "Novo template" - the apply form's own label/error association was never checked.
+  await page.getByRole("button", { name: "Cancelar" }).click();
+  await page.getByRole("button", { name: "Aplicar a fornecedor" }).click();
+  const unlabelledApply = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("input, textarea, select")).filter((control) => {
+      const id = control.getAttribute("id");
+      return !(Boolean(id) && document.querySelector(`label[for="${id}"]`) !== null) && control.closest("label") === null;
+    }).length,
+  );
+  expect(unlabelledApply).toBe(0);
 });

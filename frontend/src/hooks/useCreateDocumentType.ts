@@ -10,7 +10,9 @@ export function useCreateDocumentType() {
   return useMutation<{ documentType: DocumentType }, unknown, CreateDocumentTypeInput>({
     mutationFn: (input) => createDocumentType(input),
     onSuccess: () => {
-      if (organizationId) void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "documentTypes"] });
+      // "list" subtree only (Codex block-review finding): the bare "documentTypes" prefix also
+      // matches every open detail query, forcing an unrelated refetch on every create.
+      if (organizationId) void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "documentTypes", "list"] });
     },
   });
 }

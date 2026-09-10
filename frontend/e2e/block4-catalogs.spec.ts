@@ -53,15 +53,29 @@ test.beforeEach(async ({ page }) => {
 // E2E: A20 catalog - RBAC, create, deprecate/reactivate
 // ---------------------------------------------------------------------------------------------
 
-test("E2E-B4-01: ADMIN creates a document type and sees it in the catalog", async ({ page }) => {
+test("E2E-B4-01: ADMIN creates a document type and it actually renders in the catalog after refetch (not just the POST body)", async ({ page }) => {
   await mockOrganizations(page, "ADMIN");
-  let createBody: Record<string, unknown> | undefined;
-  await page.route("**/bff/api/document-archive/document-types", (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    createBody = route.request().postDataJSON() as Record<string, unknown>;
-    return route.fulfill({ status: 201, json: { documentType: documentType({ displayName: createBody["displayName"] }) } });
+  // Codex block-review finding (LOW): the original version of this test only observed the POST
+  // request body - it would still pass even if the post-create cache invalidation/refetch were
+  // broken and the new type never actually appeared on screen. This stateful mock makes the GET
+  // catalog route reflect what was actually created, so the assertion below proves the UI
+  // really re-renders with the new type, not just that the network call was shaped correctly.
+  const created: Record<string, unknown>[] = [];
+  await page.route("**/bff/api/document-archive/document-types**", (route) => {
+    const method = route.request().method();
+    if (method === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const type = documentType({ displayName: body["displayName"] });
+      created.push(type);
+      return route.fulfill({ status: 201, json: { documentType: type } });
+    }
+    if (method === "GET") {
+      const url = new URL(route.request().url());
+      const status = url.searchParams.get("status");
+      return route.fulfill({ json: { documentTypes: status === "DEPRECATED" ? [] : created } });
+    }
+    return route.fallback();
   });
-  await mockCatalog(page, []);
 
   await page.goto("/settings/document-types");
   await expect(page.getByRole("heading", { name: "Tipos de documento" })).toBeVisible();
@@ -69,7 +83,7 @@ test("E2E-B4-01: ADMIN creates a document type and sees it in the catalog", asyn
   await page.getByLabel(/Nome do tipo de documento/).fill("Alvará de Funcionamento");
   await page.getByRole("button", { name: "Criar tipo" }).click();
 
-  await expect.poll(() => createBody?.["displayName"]).toBe("Alvará de Funcionamento");
+  await expect(page.getByRole("link", { name: "Alvará de Funcionamento" })).toBeVisible();
 });
 
 test("E2E-B4-02: VIEWER browses the catalog with no 'Novo tipo' and no Ações column", async ({ page }) => {
@@ -82,18 +96,41 @@ test("E2E-B4-02: VIEWER browses the catalog with no 'Novo tipo' and no Ações c
   await expect(page.getByRole("button", { name: "Descontinuar" })).toHaveCount(0);
 });
 
-test("E2E-B4-03: ADMIN deprecates then reactivates a type (docarchive:documenttype-deprecate/reactivate)", async ({ page }) => {
+test("E2E-B4-03: ADMIN deprecates then reactivates a type (docarchive:documenttype-deprecate/reactivate) - reactivation is actually exercised, not just deprecation", async ({ page }) => {
   await mockOrganizations(page, "ADMIN");
-  await mockCatalog(page, [documentType()]);
+  // Codex block-review finding (LOW): the original version of this test's title promised
+  // "deprecates THEN reactivates" but only ever clicked "Descontinuar" - reactivation, including
+  // its body-based `expectedVersion`, was never exercised. Stateful mock so the catalog list
+  // reflects each mutation, letting the test click through the real deprecate -> reactivate
+  // round trip and assert both bodies.
+  let type = documentType();
   let deprecateBody: Record<string, unknown> | undefined;
+  let reactivateBody: Record<string, unknown> | undefined;
+  await page.route("**/bff/api/document-archive/document-types**", (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "GET" && url.pathname.endsWith("/document-types")) {
+      const status = url.searchParams.get("status");
+      return route.fulfill({ json: { documentTypes: (status === "DEPRECATED") === (type.status === "DEPRECATED") ? [type] : [] } });
+    }
+    return route.fallback();
+  });
   await page.route("**/bff/api/document-archive/document-types/doctype-1/deprecate", (route) => {
     deprecateBody = route.request().postDataJSON() as Record<string, unknown>;
-    return route.fulfill({ json: { documentType: documentType({ status: "DEPRECATED", version: 2 }) } });
+    type = documentType({ status: "DEPRECATED", version: 2 });
+    return route.fulfill({ json: { documentType: type } });
+  });
+  await page.route("**/bff/api/document-archive/document-types/doctype-1/reactivate", (route) => {
+    reactivateBody = route.request().postDataJSON() as Record<string, unknown>;
+    type = documentType({ status: "ACTIVE", version: 3 });
+    return route.fulfill({ json: { documentType: type } });
   });
 
   await page.goto("/settings/document-types");
   await page.getByRole("button", { name: "Descontinuar" }).click();
   await expect.poll(() => deprecateBody?.["expectedVersion"]).toBe(1);
+  await expect(page.getByRole("button", { name: "Reativar" })).toBeVisible();
+  await page.getByRole("button", { name: "Reativar" }).click();
+  await expect.poll(() => reactivateBody?.["expectedVersion"]).toBe(2);
 });
 
 test("E2E-B4-04: MEMBER opens the field editor in read-only mode (docarchive:documenttype-read is READ_ONLY_ROLES)", async ({ page }) => {

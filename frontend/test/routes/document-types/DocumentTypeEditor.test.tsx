@@ -103,6 +103,33 @@ describe("DocumentTypeEditor (A20)", () => {
     await waitFor(() => expect(screen.getByText(/Tipo descontinuado/)).toBeInTheDocument());
   });
 
+  // Codex block-review finding (HIGH): this component's own header comment promised rename/
+  // required/option editing that didn't actually exist - only archive/reactivate of the whole
+  // field. This test would fail against the pre-fix code (no "Editar campo" control at all).
+  it("renames an existing field and toggles required via 'Editar campo'", async () => {
+    mockRole(
+      "ADMIN",
+      documentType({
+        metadataFields: [{ fieldId: "f1", name: "Categoria", valueType: "TEXT", required: false, status: "ACTIVE", createdAt: "x", updatedAt: "x" }],
+      }),
+    );
+    let updateBody: Record<string, unknown> | undefined;
+    requestMock.mockImplementation((_path: string, options: { body?: Record<string, unknown> }) => {
+      updateBody = options?.body;
+      return Promise.resolve({ documentType: documentType({ metadataFields: [{ fieldId: "f1", name: "Categoria de risco", valueType: "TEXT", required: true, status: "ACTIVE", createdAt: "x", updatedAt: "x" }] }) });
+    });
+    renderAtRoute("/settings/document-types/:documentTypeId", <DocumentTypeEditor />, "/settings/document-types/doctype-1");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Editar campo" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Editar campo" }));
+    fireEvent.change(screen.getByLabelText(/Nome do campo/), { target: { value: "Categoria de risco" } });
+    fireEvent.click(screen.getByLabelText("Obrigatório"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(updateBody?.["name"]).toBe("Categoria de risco"));
+    expect(updateBody?.["required"]).toBe(true);
+    expect(updateBody?.["expectedDocumentTypeVersion"]).toBe(3);
+  });
+
   it("adds a SINGLE_SELECT field with comma-separated options", async () => {
     mockRole("ADMIN", documentType());
     postMock.mockResolvedValue({ documentType: documentType({ metadataFields: [{ fieldId: "f1", name: "Prioridade", valueType: "SINGLE_SELECT", required: false, status: "ACTIVE", options: [{ optionId: "o1", label: "Baixo", status: "ACTIVE" }, { optionId: "o2", label: "Alto", status: "ACTIVE" }], createdAt: "x", updatedAt: "x" }] }) });

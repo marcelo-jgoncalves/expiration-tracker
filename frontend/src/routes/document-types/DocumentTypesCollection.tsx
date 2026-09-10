@@ -30,7 +30,7 @@ import { PageHeader } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
-import { ApiError } from "../../api/errors.js";
+import { ApiError, isConflict } from "../../api/errors.js";
 import { presentDocumentTypeStatus } from "../../api/presentation.js";
 import type { DocumentType } from "../../api/types.js";
 
@@ -119,13 +119,23 @@ function RowActions({ documentType }: { documentType: DocumentType }) {
   const reactivateMutation = useReactivateDocumentType(documentType.documentTypeId);
   const [error, setError] = useState<string | undefined>();
   const mutation = documentType.status === "ACTIVE" ? deprecateMutation : reactivateMutation;
+  // `mutation.isConflict` is a RENDER-time read (fine in JSX below); reading it synchronously
+  // inside this catch block right after `mutateAsync` rejects is a real stale-closure bug (Codex
+  // block-review finding) — `handleToggle`'s closure still holds the mutation object from the
+  // render BEFORE this rejection, so `mutation.isConflict` here can lag or be wrong. Classify
+  // straight from the caught error instead.
+  const [showConflict, setShowConflict] = useState(false);
 
   async function handleToggle() {
     setError(undefined);
+    setShowConflict(false);
     try {
       await mutation.mutateAsync({ expectedVersion: documentType.version });
     } catch (err) {
-      if (mutation.isConflict) return;
+      if (isConflict(err)) {
+        setShowConflict(true);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Não foi possível atualizar este tipo.");
     }
   }
@@ -143,7 +153,7 @@ function RowActions({ documentType }: { documentType: DocumentType }) {
       <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={() => void handleToggle()}>
         {documentType.status === "ACTIVE" ? "Descontinuar" : "Reativar"}
       </Button>
-      {mutation.isConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}
+      {showConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}
       {error ? <span role="alert"> {error}</span> : null}
     </>
   );

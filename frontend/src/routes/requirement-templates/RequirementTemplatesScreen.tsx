@@ -44,7 +44,7 @@ import { PageHeader, Section } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
-import { ApiError } from "../../api/errors.js";
+import { ApiError, isConflict } from "../../api/errors.js";
 import { presentRequirementTemplateStatus } from "../../api/presentation.js";
 import type { RequirementTemplate, TemplateApplicationPreview } from "../../api/types.js";
 
@@ -62,6 +62,10 @@ export function RequirementTemplatesScreen() {
   const queries = [activeQuery, archivedQuery];
   const isPending = queries.some((q) => q.isPending);
   const isFullyError = queries.every((q) => q.isError);
+  // A20's `DocumentTypesCollection` already surfaces a partial-failure notice when exactly one
+  // of its two status queries fails; A21 originally didn't (Codex block-review finding) - same
+  // two-status-query shape here, same fix.
+  const failedCount = queries.filter((q) => q.isError).length;
 
   if (isPending) {
     return <InitialLoading label="Carregando templates de requisitos…" />;
@@ -88,6 +92,11 @@ export function RequirementTemplatesScreen() {
         description="Checklists reutilizáveis de Requisitos, aplicáveis a um fornecedor de uma vez."
         actions={isAdmin ? <Button variant="primary" onClick={() => setShowCreate((v) => !v)}>Novo template</Button> : undefined}
       />
+      {failedCount > 0 && !isFullyError ? (
+        <InlineNotice tone="warning" announce="status">
+          Não foi possível carregar {failedCount} de {queries.length} categorias de status — o catálogo abaixo está incompleto.
+        </InlineNotice>
+      ) : null}
       {showCreate ? <CreateTemplateForm onClose={() => setShowCreate(false)} onCreated={selectTemplate} /> : null}
       {templates.length === 0 ? (
         <EmptyState kind="true-empty" message="Nenhum template cadastrado ainda." />
@@ -164,6 +173,8 @@ function TemplateDetailPanel({ templateId, isAdmin, canApply }: { templateId: st
   const query = useRequirementTemplate(templateId);
   const updateMutation = useUpdateRequirementTemplate(templateId);
   const [reorderError, setReorderError] = useState<string | undefined>();
+  const [reorderConflict, setReorderConflict] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [showApply, setShowApply] = useState(false);
 
   if (query.isPending) {
@@ -186,13 +197,20 @@ function TemplateDetailPanel({ templateId, isAdmin, canApply }: { templateId: st
     if (!moved) return;
     reordered.splice(target, 0, moved);
     setReorderError(undefined);
+    setReorderConflict(false);
     try {
       await updateMutation.mutateAsync({
         input: { items: reordered.map((item) => ({ name: item.name, notes: item.notes, applicability: item.applicability })) },
         expectedVersion: template.version,
       });
     } catch (err) {
-      if (updateMutation.isConflict) return;
+      // `isConflict(err)`, not `updateMutation.isConflict` (Codex block-review finding - the
+      // mutation object in this closure is from the render BEFORE this rejection, so it can lag
+      // or be wrong; classify straight from the caught error instead).
+      if (isConflict(err)) {
+        setReorderConflict(true);
+        return;
+      }
       setReorderError(err instanceof ApiError ? err.message : "Não foi possível reordenar os itens.");
     }
   }
@@ -236,11 +254,12 @@ function TemplateDetailPanel({ templateId, isAdmin, canApply }: { templateId: st
           ))}
         </ul>
       )}
-      {updateMutation.isConflict ? <p role="alert">Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</p> : null}
+      {reorderConflict ? <p role="alert">Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</p> : null}
       {reorderError ? <p role="alert">{reorderError}</p> : null}
       <CellSecondary>v{template.version}</CellSecondary>
+      {editing ? <EditTemplateForm template={template} onClose={() => setEditing(false)} /> : null}
       <div className="template-actions">
-        {isAdmin ? <AdminActions template={template} /> : null}
+        {isAdmin ? <AdminActions template={template} onEdit={() => setEditing(true)} /> : null}
         {canApply ? (
           <Button
             variant="primary"
@@ -257,28 +276,34 @@ function TemplateDetailPanel({ templateId, isAdmin, canApply }: { templateId: st
   );
 }
 
-function AdminActions({ template }: { template: RequirementTemplate }) {
+function AdminActions({ template, onEdit }: { template: RequirementTemplate; onEdit: () => void }) {
   const archiveMutation = useArchiveRequirementTemplate(template.templateId);
   const unarchiveMutation = useUnarchiveRequirementTemplate(template.templateId);
   const duplicateMutation = useDuplicateRequirementTemplate(template.templateId);
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [showConflict, setShowConflict] = useState(false);
   const isArchived = template.status === "ARCHIVED";
   const toggleMutation = isArchived ? unarchiveMutation : archiveMutation;
 
   async function handleToggle() {
     setError(undefined);
+    setShowConflict(false);
     try {
       await toggleMutation.mutateAsync({ expectedVersion: template.version });
     } catch (err) {
-      if (toggleMutation.isConflict) return;
+      // `isConflict(err)`, not `toggleMutation.isConflict` - see `moveItem`'s identical comment.
+      if (isConflict(err)) {
+        setShowConflict(true);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Não foi possível atualizar este template.");
     }
   }
 
   return (
     <div>
-      <Button variant="secondary" disabled={isArchived} title={isArchived ? "Reative o template antes de editar" : undefined}>
+      <Button variant="secondary" disabled={isArchived} title={isArchived ? "Reative o template antes de editar" : undefined} onClick={onEdit}>
         Editar
       </Button>{" "}
       <Button variant="secondary" onClick={() => setShowDuplicate((v) => !v)}>
@@ -287,10 +312,62 @@ function AdminActions({ template }: { template: RequirementTemplate }) {
       <Button variant="ghost" pending={toggleMutation.isPending} onClick={() => void handleToggle()}>
         {isArchived ? "Reativar" : "Arquivar"}
       </Button>
-      {toggleMutation.isConflict ? <span role="alert"> Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}
+      {showConflict ? <span role="alert"> Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}
       {error ? <span role="alert"> {error}</span> : null}
       {showDuplicate ? <DuplicateTemplateForm mutation={duplicateMutation} onClose={() => setShowDuplicate(false)} /> : null}
     </div>
+  );
+}
+
+function EditTemplateForm({ template, onClose }: { template: RequirementTemplate; onClose: () => void }) {
+  const mutation = useUpdateRequirementTemplate(template.templateId);
+  const [displayName, setDisplayName] = useState(template.displayName);
+  const [description, setDescription] = useState(template.description ?? "");
+  const [errors, setErrors] = useState<string[]>([]);
+  const [showConflict, setShowConflict] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!displayName.trim()) {
+      setErrors(["Informe o nome do template."]);
+      return;
+    }
+    setErrors([]);
+    setShowConflict(false);
+    try {
+      await mutation.mutateAsync({ input: { displayName: displayName.trim(), description: description.trim() || undefined }, expectedVersion: template.version });
+      onClose();
+    } catch (err) {
+      if (isConflict(err)) {
+        setShowConflict(true);
+        return;
+      }
+      if (err instanceof ApiError && err.category === "CONFLICT") {
+        setErrors(["Já existe um template com este nome."]);
+        return;
+      }
+      setErrors([err instanceof ApiError ? err.message : "Não foi possível salvar este template."]);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <FormErrorSummary errors={errors} />
+      {showConflict ? <p role="alert">Este template foi alterado por outra pessoa desde que a página carregou — recarregue antes de salvar.</p> : null}
+      <TextField id={`template-edit-name-${template.templateId}`} label="Nome do template" value={displayName} onChange={setDisplayName} required />
+      <TextField id={`template-edit-description-${template.templateId}`} label="Descrição" value={description} onChange={setDescription} multiline />
+      {/* Item add/remove/edit-in-place is a real, separate remaining gap (Codex block-review
+          finding named it explicitly): this form closes name/description, the item LIST itself
+          is still only reorderable here, never added-to/removed-from/renamed in place - a
+          genuinely new editor surface, not mechanical wiring, left for a follow-up session
+          rather than rushed into this fix round. */}
+      <Button type="submit" variant="primary" pending={mutation.isPending}>
+        {mutation.isPending ? "Salvando…" : "Salvar"}
+      </Button>{" "}
+      <Button type="button" variant="secondary" onClick={onClose}>
+        Cancelar
+      </Button>
+    </form>
   );
 }
 
@@ -340,37 +417,68 @@ function ApplyTemplateFlow({ template, onClose }: { template: RequirementTemplat
   const applyMutation = useApplyTemplate(template.templateId);
   const [subjectId, setSubjectId] = useState("");
   const [preview, setPreview] = useState<TemplateApplicationPreview | undefined>();
+  // The exact Subject the current `preview` was computed for (Codex block-review finding, HIGH:
+  // without this, editing `subjectId` after a preview - the field stayed live/enabled - let a
+  // confirm apply to a DIFFERENT Subject than the one the visible preview described; a stale
+  // preview also violates epistemic integrity on its own, independent of the mismatch). Confirm
+  // always uses THIS value, never the live `subjectId` state, and the preview is invalidated the
+  // moment the Subject field changes again.
+  const [previewedSubjectId, setPreviewedSubjectId] = useState<string | undefined>();
   const [previewError, setPreviewError] = useState<string | undefined>();
   const [applyError, setApplyError] = useState<string | undefined>();
+  const [applyConflict, setApplyConflict] = useState(false);
   const [confirmed, setConfirmed] = useState<{ created: number; skipped: number } | undefined>();
+
+  function handleSubjectIdChange(value: string) {
+    setSubjectId(value);
+    // Any edit to the Subject field invalidates whatever preview is showing - it describes a
+    // Subject that may no longer be the one about to be confirmed.
+    if (preview !== undefined) setPreview(undefined);
+    setPreviewedSubjectId(undefined);
+    setConfirmed(undefined);
+  }
 
   async function handlePreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!subjectId.trim()) {
+    const trimmed = subjectId.trim();
+    if (!trimmed) {
       setPreviewError("Informe o ID do fornecedor.");
       return;
     }
     setPreviewError(undefined);
     setConfirmed(undefined);
     try {
-      const result = await previewMutation.mutateAsync({ subjectId: subjectId.trim() });
+      const result = await previewMutation.mutateAsync({ subjectId: trimmed });
       setPreview(result);
+      setPreviewedSubjectId(trimmed);
     } catch (err) {
       setPreviewError(err instanceof ApiError ? err.message : "Não foi possível pré-visualizar a aplicação deste template.");
     }
   }
 
   async function handleConfirm() {
+    if (!previewedSubjectId) return;
     setApplyError(undefined);
+    setApplyConflict(false);
     try {
-      const result = await applyMutation.mutateAsync({ subjectId: subjectId.trim(), expectedTemplateVersion: preview?.templateVersion });
+      const result = await applyMutation.mutateAsync({ subjectId: previewedSubjectId, expectedTemplateVersion: preview?.templateVersion });
       setConfirmed({ created: result.created.length, skipped: result.skipped.length });
       setPreview(undefined);
+      setPreviewedSubjectId(undefined);
     } catch (err) {
-      // A network/timeout UNKNOWN_OUTCOME here is exactly the spec's "partial application
-      // conflict" - retrying is safe (never duplicates: the planner re-observes anything the
-      // first attempt actually created as DUPLICATE_NAME), so the retry affordance below simply
-      // re-invokes handleConfirm rather than a separate "resume" flow.
+      // A `CONFLICT` (stale `expectedTemplateVersion` - the template moved since the preview
+      // was taken) is DEFINITIVE, never safe to blindly retry with the same stale version
+      // (Codex block-review finding, HIGH) - the preview is invalidated and the operator is
+      // asked to preview again, never offered "tentar novamente" for this case. Only a
+      // network/timeout UNKNOWN_OUTCOME is the spec's real "partial application conflict",
+      // where retrying is safe (never duplicates: the planner re-observes anything the first
+      // attempt actually created as DUPLICATE_NAME).
+      if (isConflict(err)) {
+        setApplyConflict(true);
+        setPreview(undefined);
+        setPreviewedSubjectId(undefined);
+        return;
+      }
       setApplyError(err instanceof ApiError ? err.message : "Não foi possível confirmar a aplicação. Alguns itens podem já ter sido criados.");
     }
   }
@@ -381,7 +489,7 @@ function ApplyTemplateFlow({ template, onClose }: { template: RequirementTemplat
     <div role="region" aria-label="Aplicar template a fornecedor">
       <form onSubmit={(event) => void handlePreview(event)} noValidate>
         <FormErrorSummary errors={previewError ? [previewError] : []} />
-        <TextField id="apply-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
+        <TextField id="apply-subject-id" label="ID do fornecedor" value={subjectId} onChange={handleSubjectIdChange} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
         <Button type="submit" variant="secondary" pending={previewMutation.isPending}>
           {previewMutation.isPending ? "Carregando…" : "Pré-visualizar aplicação"}
         </Button>{" "}
@@ -392,6 +500,11 @@ function ApplyTemplateFlow({ template, onClose }: { template: RequirementTemplat
       {confirmed ? (
         <InlineNotice tone="success" announce="status">
           {confirmed.created} requisito(s) criado(s), {confirmed.skipped} ignorado(s) por duplicidade de nome.
+        </InlineNotice>
+      ) : null}
+      {applyConflict ? (
+        <InlineNotice tone="warning" announce="alert">
+          Este template foi alterado por outra pessoa desde a pré-visualização — pré-visualize novamente antes de confirmar.
         </InlineNotice>
       ) : null}
       {applyError ? (

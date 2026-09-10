@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute, TEST_ORGANIZATION_ID } from "../../testUtils.js";
 import { RequirementTemplatesScreen } from "../../../src/routes/requirement-templates/RequirementTemplatesScreen.js";
+import { ApiError } from "../../../src/api/errors.js";
 import type { RequirementTemplate } from "../../../src/api/types.js";
 
 const { getMock, postMock, requestMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), requestMock: vi.fn() }));
@@ -151,6 +152,67 @@ describe("RequirementTemplatesScreen (A21)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirmar aplicação" }));
 
     await waitFor(() => expect(screen.getByText("1 requisito(s) criado(s), 0 ignorado(s) por duplicidade de nome.")).toBeInTheDocument());
+  });
+
+  // Codex block-review finding (HIGH): the preview must be bound to the exact Subject it was
+  // computed for - editing the Subject field after a preview must never let confirm apply to a
+  // DIFFERENT Subject than the one the visible preview describes. This test would fail against
+  // the pre-fix code (which read the live `subjectId` state in `handleConfirm`, not a value
+  // captured at preview time).
+  it("clears the preview when the Subject field is edited after previewing (never applies to a different Subject than shown)", async () => {
+    mockCatalog("MEMBER", [template()]);
+    postMock.mockImplementation((path: string) => {
+      if (path.includes("/preview")) return Promise.resolve({ create: [{ templateItemId: "item-1", name: "CND Federal", applicability: "APPLICABLE", position: 0 }], skip: [], templateVersion: 3 });
+      return Promise.reject(new Error("unexpected POST"));
+    });
+    renderAtRoute("/settings/requirement-templates", <RequirementTemplatesScreen />, "/settings/requirement-templates");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Aplicar a fornecedor" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar a fornecedor" }));
+    fireEvent.change(screen.getByLabelText(/ID do fornecedor/), { target: { value: "subj-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar aplicação" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar aplicação" })).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/ID do fornecedor/), { target: { value: "subj-2" } });
+    expect(screen.queryByRole("button", { name: "Confirmar aplicação" })).not.toBeInTheDocument();
+  });
+
+  // Codex block-review finding (HIGH): a CONFLICT on confirm (stale `expectedTemplateVersion`)
+  // is definitive - it must never be offered the same "tentar novamente" retry as a genuine
+  // unknown-outcome/network failure, since retrying would resend the same stale version.
+  it("shows a re-preview message (not a blind retry) when confirm fails with a version CONFLICT", async () => {
+    mockCatalog("MEMBER", [template()]);
+    postMock.mockImplementation((path: string) => {
+      if (path.includes("/preview")) return Promise.resolve({ create: [{ templateItemId: "item-1", name: "CND Federal", applicability: "APPLICABLE", position: 0 }], skip: [], templateVersion: 3 });
+      if (path.includes("/apply")) return Promise.reject(new ApiError({ code: "VERSION_CONFLICT", category: "CONFLICT", message: "Version conflict.", retryable: false }));
+      return Promise.reject(new Error("unexpected POST"));
+    });
+    renderAtRoute("/settings/requirement-templates", <RequirementTemplatesScreen />, "/settings/requirement-templates");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Aplicar a fornecedor" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar a fornecedor" }));
+    fireEvent.change(screen.getByLabelText(/ID do fornecedor/), { target: { value: "subj-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar aplicação" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar aplicação" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar aplicação" }));
+
+    await waitFor(() => expect(screen.getByText(/pré-visualize novamente antes de confirmar/)).toBeInTheDocument());
+    expect(screen.queryByText("Tentar novamente apenas os pendentes")).not.toBeInTheDocument();
+  });
+
+  // Codex block-review finding (HIGH): "Editar" was a dead button with no onClick.
+  it("opens a real edit form from 'Editar' and saves name/description", async () => {
+    mockCatalog("ADMIN", [template()]);
+    let updateBody: Record<string, unknown> | undefined;
+    requestMock.mockImplementation((_path: string, options: { body?: Record<string, unknown> }) => {
+      updateBody = options?.body;
+      return Promise.resolve({ requirementTemplate: template({ displayName: "Novo nome" }) });
+    });
+    renderAtRoute("/settings/requirement-templates", <RequirementTemplatesScreen />, "/settings/requirement-templates");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByLabelText(/Nome do template/), { target: { value: "Novo nome" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(updateBody?.["displayName"]).toBe("Novo nome"));
   });
 
   it("shows the EMPTY_TRUE state when there are no templates at all", async () => {

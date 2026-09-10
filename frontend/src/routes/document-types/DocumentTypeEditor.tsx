@@ -6,7 +6,11 @@
  * `docarchive:documenttype-read` (READ_ONLY_ROLES) opens this screen for every role; only
  * ADMIN_ROLES (`docarchive:documenttype-metadata-manage`) can add a field or mutate one
  * (rename/required/archive/reactivate/options) — MEMBER/VIEWER get an explicit read-only
- * `InlineNotice`, never a silently-disabled form.
+ * `InlineNotice`, never a silently-disabled form. `FieldCard`'s "Editar campo" (rename/
+ * required) and per-option add/archive/reactivate (Codex block-review finding: these were
+ * promised by this very comment in an earlier revision but not actually implemented — only
+ * archive/reactivate of the whole field existed) are real now, both funneled through the same
+ * single `useUpdateMetadataField` PATCH per D-218 Decision 7.
  *
  * Named gap (investigated directly against the domain/service layer, not assumed): the spec's
  * "▲"/"▼" field-reorder affordance has NO backend capability at all —
@@ -31,9 +35,9 @@ import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { Checkbox } from "../../components/ui/Checkbox.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
-import { ApiError } from "../../api/errors.js";
+import { ApiError, isConflict } from "../../api/errors.js";
 import { presentDocumentTypeStatus } from "../../api/presentation.js";
-import type { DocumentTypeFieldValueType, DocumentTypeMetadataFieldDefinition } from "../../api/types.js";
+import type { DocumentTypeFieldOption, DocumentTypeFieldValueType, DocumentTypeMetadataFieldDefinition } from "../../api/types.js";
 
 const VALUE_TYPE_OPTIONS: { value: DocumentTypeFieldValueType; label: string }[] = [
   { value: "TEXT", label: "Texto" },
@@ -111,16 +115,73 @@ function FieldCard({
 }) {
   const mutation = useUpdateMetadataField(documentTypeId);
   const [error, setError] = useState<string | undefined>();
+  const [showConflict, setShowConflict] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(field.name);
+  const [required, setRequired] = useState(field.required);
+  const [newOptionLabel, setNewOptionLabel] = useState("");
   const isArchived = field.status === "ARCHIVED";
 
-  async function toggleArchive() {
+  // `isConflict(err)` from the caught error, never `mutation.isConflict` read synchronously
+  // right after `mutateAsync` rejects (Codex block-review finding: that read is a stale-closure
+  // bug — this handler's closure still holds the mutation object from the render BEFORE the
+  // rejection, so it can lag or be wrong).
+  async function runUpdate(input: Parameters<typeof mutation.mutateAsync>[0]["input"], onOk?: () => void) {
     setError(undefined);
+    setShowConflict(false);
     try {
-      await mutation.mutateAsync({ fieldId: field.fieldId, input: { status: isArchived ? "ACTIVE" : "ARCHIVED" }, expectedDocumentTypeVersion: documentTypeVersion });
+      await mutation.mutateAsync({ fieldId: field.fieldId, input, expectedDocumentTypeVersion: documentTypeVersion });
+      onOk?.();
     } catch (err) {
-      if (mutation.isConflict) return;
+      if (isConflict(err)) {
+        setShowConflict(true);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Não foi possível atualizar este campo.");
     }
+  }
+
+  function toggleArchive() {
+    void runUpdate({ status: isArchived ? "ACTIVE" : "ARCHIVED" });
+  }
+
+  function saveEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) {
+      setError("Informe o nome do campo.");
+      return;
+    }
+    void runUpdate({ name: name.trim(), required }, () => setEditing(false));
+  }
+
+  function addOption(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!newOptionLabel.trim()) return;
+    void runUpdate({ optionsPatch: [{ op: "ADD", label: newOptionLabel.trim() }] }, () => setNewOptionLabel(""));
+  }
+
+  function toggleOption(option: DocumentTypeFieldOption) {
+    const op = option.status === "ARCHIVED" ? "REACTIVATE" : "ARCHIVE";
+    void runUpdate({ optionsPatch: [{ op, optionId: option.optionId }] });
+  }
+
+  if (editing) {
+    return (
+      <li className="doctype-field-card">
+        <form onSubmit={saveEdit} noValidate>
+          <FormErrorSummary errors={error ? [error] : []} />
+          {showConflict ? <p role="alert">Este tipo foi alterado por outra pessoa — recarregue antes de salvar de novo.</p> : null}
+          <TextField id={`field-edit-name-${field.fieldId}`} label="Nome do campo" value={name} onChange={setName} required />
+          <Checkbox label="Obrigatório" checked={required} onChange={setRequired} />
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Salvando…" : "Salvar"}
+          </Button>{" "}
+          <Button type="button" variant="secondary" onClick={() => setEditing(false)}>
+            Cancelar
+          </Button>
+        </form>
+      </li>
+    );
   }
 
   return (
@@ -134,14 +195,39 @@ function FieldCard({
         </>
       ) : null}
       {field.valueType === "SINGLE_SELECT" && field.options && field.options.length > 0 ? (
-        <div>Opções: {field.options.map((o) => o.label).join(", ")}</div>
+        <ul className="doctype-field-options">
+          {field.options.map((option) => (
+            <li key={option.optionId}>
+              {option.label}
+              {option.status === "ARCHIVED" ? " (arquivada)" : null}
+              {isAdmin && !isArchived ? (
+                <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={() => toggleOption(option)}>
+                  {option.status === "ARCHIVED" ? "Reativar opção" : "Arquivar opção"}
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {isAdmin && !isArchived && field.valueType === "SINGLE_SELECT" ? (
+        <form onSubmit={addOption} noValidate>
+          <TextField id={`field-add-option-${field.fieldId}`} label="Nova opção" value={newOptionLabel} onChange={setNewOptionLabel} />
+          <Button type="submit" size="sm" variant="secondary" pending={mutation.isPending}>
+            Adicionar opção
+          </Button>
+        </form>
       ) : null}
       {isAdmin ? (
         <div>
-          <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={() => void toggleArchive()}>
+          {!isArchived ? (
+            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+              Editar campo
+            </Button>
+          ) : null}{" "}
+          <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={toggleArchive}>
             {isArchived ? "Reativar campo" : "Arquivar campo"}
           </Button>
-          {mutation.isConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de salvar de novo.</span> : null}
+          {showConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de salvar de novo.</span> : null}
           {error ? <span role="alert"> {error}</span> : null}
         </div>
       ) : null}
@@ -156,6 +242,7 @@ function AddFieldForm({ documentTypeId, documentTypeVersion, onClose }: { docume
   const [required, setRequired] = useState(false);
   const [optionsText, setOptionsText] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [showConflict, setShowConflict] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -165,6 +252,7 @@ function AddFieldForm({ documentTypeId, documentTypeVersion, onClose }: { docume
     }
     const options = valueType === "SINGLE_SELECT" ? optionsText.split(",").map((o) => o.trim()).filter(Boolean) : undefined;
     setErrors([]);
+    setShowConflict(false);
     try {
       await mutation.mutateAsync({
         input: { name: name.trim(), valueType, required, ...(options ? { options } : {}) },
@@ -172,7 +260,12 @@ function AddFieldForm({ documentTypeId, documentTypeVersion, onClose }: { docume
       });
       onClose();
     } catch (err) {
-      if (mutation.isConflict) return;
+      // `isConflict(err)`, not `mutation.isConflict` (Codex block-review finding - stale
+      // closure, see `FieldCard.runUpdate`'s identical comment).
+      if (isConflict(err)) {
+        setShowConflict(true);
+        return;
+      }
       setErrors([err instanceof ApiError ? err.message : "Não foi possível adicionar este campo."]);
     }
   }
@@ -180,7 +273,7 @@ function AddFieldForm({ documentTypeId, documentTypeVersion, onClose }: { docume
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate>
       <FormErrorSummary errors={errors} />
-      {mutation.isConflict ? <p role="alert">Este tipo foi alterado por outra pessoa desde que a página carregou — recarregue antes de salvar.</p> : null}
+      {showConflict ? <p role="alert">Este tipo foi alterado por outra pessoa desde que a página carregou — recarregue antes de salvar.</p> : null}
       <TextField id="field-name" label="Nome do campo" value={name} onChange={setName} required />
       <SelectField id="field-value-type" label="Tipo de valor" value={valueType} onChange={(v) => setValueType(v as DocumentTypeFieldValueType)} options={VALUE_TYPE_OPTIONS} required />
       <Checkbox label="Obrigatório" checked={required} onChange={setRequired} />
