@@ -1,0 +1,128 @@
+# Screen Spec Audit — System-Level Findings Log
+
+**Status**: LIVE — created during batch 1/6 (A01-A04), updated by every subsequent batch.
+**Purpose**: per `docs/frontend/screen-spec-audit-rubric.md` §5's system-level gate, a SYSTEM GAP/
+CONSTRAINT that recurs across 3+ screens or affects a foundational primitive (type scale,
+metric-card pattern, AppShell) gets ONE finding with one remediation owner here, instead of being
+penalized independently on every screen's own audit record. Each screen's own audit record links
+back here instead of re-deriving the finding.
+
+Process note: each per-screen audit used one BLIND Codex pass (`codex exec --skip-git-repo-check`)
++ one Claude reconciliation, not the full 3-round protocol — same deliberate scope reduction as
+D-249/D-250, named explicitly per the task brief for this audit.
+
+---
+
+## SLF-01 — Flat, structurally-identical metric-card grid pattern (CONFIRMED)
+
+**Status**: CONFIRMED (rubric §5's first named hypothesis).
+**Disposition**: SYSTEM CONSTRAINT / SYSTEM EVOLUTION CANDIDATE (the shared convention itself needs
+to evolve, not just be avoided locally).
+**Evidence**: `docs/frontend/prototype-screen-specs/README.md` §"Convenções" defines the compact
+metric-card grid as a shared pattern; A03 (Dashboard) instantiates it as 4 equal-weight linked
+cards with identical visual treatment differing only in label/count/link target. Both Claude's and
+Codex's independent audits of A03 capped V7 (product-specific authorship) at the counterfactual-test
+ceiling (8/17) specifically because the grid gives overdue/critical work the same visual weight as
+every other counter — no comparative temporal-risk hierarchy is encoded in layout, only in badge
+tone. A09 (Subject Hub) is named in the rubric as a second expected instance; not yet audited in
+this batch (scheduled for a later batch).
+**Why this is system-level, not screen-level**: the pattern is defined once in the shared README
+convention and instantiated identically wherever it's used — fixing A03's copy of it in isolation
+would create a one-off divergence from the shared pattern, which the design system's §3.6
+("Consistency Over Local Optimization") explicitly discourages. The fix belongs at the pattern
+level.
+**Remediation owner**: design-system/pattern-library maintainer (next available frontend
+design-system revision cycle) — define a **risk-prioritized compliance-summary pattern** as a named
+variant of (or replacement for) the flat metric-card grid: cards must be able to carry different
+visual weight/size/position based on domain severity (e.g., overdue count visually dominant vs.
+missing-requirements count secondary), not just differing badge color, while remaining reusable
+across A03/A09/any future compliance-summary screen.
+**Interim local mitigation applied**: A03's own audit record (below) applies a JUSTIFIED
+LOCAL IMPROVEMENT within the constraint — reordering/sizing guidance and an explicit severity-led
+reading order — without inventing a new shared component from within a single screen's spec file.
+**Recheck in later batches**: confirm/refute against A09 and any other screen using this pattern;
+if 3+ confirmed instances accumulate, this finding's status is already "recurs across a foundational
+primitive" per the rubric's OR clause, so the gate is already met regardless of exact count.
+
+---
+
+## SLF-02 — Design-system motion tokens exist, but no spec states when to use them (CONFIRMED, reclassified)
+
+**Status**: CONFIRMED as a recurring pattern — all 4 screens in this batch (A01-A04) state zero
+motion/transition treatment (V6 evidence level 0 in every one of Claude's and Codex's independent
+reads).
+**Disposition**: **SPEC GAP** (24 independent instances), not SYSTEM GAP — reclassified from the
+rubric's open hypothesis. Rationale: `docs/frontend/design-system.md` §21 already defines concrete
+motion tokens (`motion.fast/normal/slow`, easing rules, a `prefers-reduced-motion` requirement) and
+a general principle ("Movimento deve explicar mudança de estado"). The system is not missing a
+primitive — screen authors have simply never invoked it. This is an authoring-discipline gap, not a
+token/pattern gap.
+**Why this still gets one entry instead of 4 separate deep findings**: the root cause (spec-authoring
+process never prompts for a motion decision) is the same in every screen, even though each screen's
+correct motion decision differs. Each per-screen audit record below still names its own concrete
+motion requirement (attached to that screen's own state transitions), but the systemic root cause
+and its remediation are tracked once, here.
+**Remediation owner**: whoever maintains the spec-authoring template/checklist for
+`docs/frontend/prototype-screen-specs/*.md` — add an explicit "Motion" subsection prompt to the
+template (or to `README.md`'s shared conventions) requiring every screen spec to either name a
+concrete transition (trigger, direction, duration/easing token, reduced-motion equivalent) or state
+an explicit "no motion, because X" rationale (rubric V6 already scores the latter at full credit —
+the gap is that no spec does either).
+**Recheck in later batches**: expect this to keep recurring through all 24 screens; if it does,
+treat that as confirmation the authoring template itself needs the fix, not each author individually.
+
+---
+
+## SLF-03 — Screen spec routes omit the tenant `:orgId` path segment (NEW, opened this batch)
+
+**Status**: NEW finding, opened during this batch — not one of the rubric's pre-named hypotheses.
+**Disposition**: SPEC GAP, recurring — candidate SYSTEM-LEVEL if it recurs in 1+ more upcoming
+batches (already 2/4 screens in this batch: A03 `/dashboard`, A04 `/expirations`, vs. the
+`p0-screen-inventory-plan.md`-canonical `/app/:orgId/dashboard` and `/app/:orgId/expirations`).
+**Evidence**: `p0-screen-inventory-plan.md` §3 and every per-screen route line in that document use
+`/app/:orgId/...` for all authenticated, tenant-scoped screens (organization-switching, isolation,
+and "never show a flash of the previous org's data" are all defined relative to that `:orgId`
+segment). The prototype specs for A03 and A04 instead use bare routes (`/dashboard`,
+`/expirations`) with no tenant segment, silently leaving multi-tenant URL isolation as an implicit
+assumption rather than a stated contract.
+**Why this matters beyond a naming nitpick**: the org-switcher behavior (URL segment change, cache
+clearing, no stale-org flash) specified in the shared AppShell contract is only implementable if
+every screen's own route actually carries `:orgId` — a spec that omits it either has to be
+re-derived correctly by the implementer (never assumed under this rubric's anti-gaming rule) or
+risks the org-switch contract silently not applying to that screen.
+**Remediation owner**: whoever owns `docs/frontend/prototype-screen-specs/README.md`'s shared
+conventions — add the `:orgId`-qualified route pattern to the shared template/checklist so every
+future screen spec states it explicitly rather than each author reproducing the plan's routes from
+memory.
+**Local fix applied this batch**: A03 and A04's own audit records/revisions below correct their
+route line directly (a screen-local, one-line fix — not gated on the system-level template update).
+
+---
+
+## SLF-04 — `tertiary` referenced as a Button variant, but the design system does not define one (NEW, opened this batch)
+
+**Status**: NEW finding, opened during this batch. Recurs in 2/4 screens so far (A02's "Recusar"
+button, A04's "Importar CSV" header action).
+**Disposition**: SPEC GAP — candidate SYSTEM EVOLUTION CANDIDATE if a genuine third-tier action
+style (below secondary, above a plain text link) turns out to be a real recurring need once more
+screens are audited; not enough evidence yet to justify inventing a new approved variant.
+**Evidence**: `docs/frontend/design-system.md` §30 defines exactly four Button variants — `primary`,
+`secondary`, `ghost`, `danger` — and its §63 explicitly forbids inventing ad hoc variants. Both
+A02-onboarding.md and A04-vencimentos.md call for a `tertiary` button, which does not exist in that
+catalog.
+**Remediation owner**: interim — each screen's own spec should be corrected to use the closest
+approved variant (`ghost`, in both observed cases: a low-emphasis action next to a stronger primary
+one) rather than a name the system doesn't define. If a genuine third visual tier keeps recurring
+across more screens in later batches, escalate to a real design-system proposal instead of
+continuing to patch specs one at a time.
+**Local fix applied this batch**: A02 and A04's revisions below replace `tertiary` with `ghost` and
+name the semantic role explicitly.
+
+---
+
+## Batch tracker
+
+| Batch | Screens | Status |
+|---|---|---|
+| 1/6 | A01, A02, A03, A04 | DONE (this file's originating batch) |
+| 2/6-6/6 | remaining 20 screens | pending, see `NEXT_SESSION_PROMPT.md` |
