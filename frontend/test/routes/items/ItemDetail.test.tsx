@@ -47,12 +47,29 @@ describe("ItemDetail", () => {
     expect(screen.queryByRole("link", { name: "Renovar" })).not.toBeInTheDocument();
   });
 
-  it("never mentions Documents at all - BLOCKER-A means there is no real contract to back a claim either way (mission §25)", async () => {
-    getMock.mockResolvedValue({ item: item({}) });
+  it("Block 2 (D-2xx): links to the Arquivos (A07) and Histórico de auditoria entry points, both real routes now that BLOCKER-A is closed", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
-    expect(screen.queryByText(/documento/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Arquivos/ })).toHaveAttribute("href", "/app/org-1/items/item-1/documents");
+    expect(screen.getByRole("link", { name: /Histórico de auditoria/ })).toHaveAttribute("href", "/app/org-1/activity");
+    await waitFor(() => expect(screen.getByText("Nenhum anexo")).toBeInTheDocument());
+  });
+
+  it("Arquivos entry point degrades gracefully to a neutral prompt while the document count hasn't resolved yet", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      return new Promise(() => {}); // documents query never resolves in this test
+    });
+    renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
+    expect(screen.getByText("Ver arquivos anexados")).toBeInTheDocument();
   });
 
   it("shows a single-hop renewal lineage link when renewedFromId is present and resolvable", async () => {

@@ -13,6 +13,7 @@
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
+import { useDocuments } from "../../hooks/useDocuments.js";
 import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
@@ -22,6 +23,7 @@ import { ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import "./ItemDetail.css";
 
 interface DetailField {
   label: string;
@@ -60,6 +62,35 @@ function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
         {source.name} (venceu em {formatAbsoluteDate(source.dueDate)})
       </Link>
     </p>
+  );
+}
+
+/** A05 extension entry points (Block 2, D-2xx): "Lembretes"/A06 is deliberately NOT included
+ * here yet — `GET /reminders/policies/{policyId}` requires a policyId the frontend has no way
+ * to discover for a given item (policyId is server-generated, unrelated to itemId, and no
+ * list/lookup-by-item route exists) - a card here would either always claim "no policy
+ * configured" (a decorative lie for items that DO have one) or need a fabricated discovery
+ * mechanism. Recorded as a pending backend gap (decisions-log D-2xx), same discipline as A02's
+ * D-255 deferrals - never built decorative. */
+function DocumentsEntryCard({ itemId }: { itemId: string }) {
+  const orgPath = useOrgPath();
+  const query = useDocuments(itemId);
+  const count = query.data?.documents.filter((document) => document.status !== "DELETED").length;
+  return (
+    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/documents`)}>
+      <strong>Arquivos</strong>
+      <span className="u-text-secondary">{count === undefined ? "Ver arquivos anexados" : count === 0 ? "Nenhum anexo" : `${count} anexo(s)`}</span>
+    </Link>
+  );
+}
+
+function AuditEntryCard() {
+  const orgPath = useOrgPath();
+  return (
+    <Link className="ui-entry-card" to={orgPath("/activity")}>
+      <strong>Histórico de auditoria</strong>
+      <span className="u-text-secondary">Ver log de atividade</span>
+    </Link>
   );
 }
 
@@ -135,6 +166,12 @@ function DetailBody({
             ]}
           />
         </Panel>
+      </Section>
+      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points">
+        <div className="ui-entry-card-grid">
+          <DocumentsEntryCard itemId={item.itemId} />
+          <AuditEntryCard />
+        </div>
       </Section>
       {item.renewedFromId ? <RenewalLineage sourceItemId={item.renewedFromId} /> : null}
     </div>
