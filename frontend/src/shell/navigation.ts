@@ -60,6 +60,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // browses the catalog (mutation is individually gated inside the screen, same discipline as
   // "requirements" above).
   { id: "document-types", to: "/settings/document-types", label: "Tipos de documento" },
+  // A21 (Block 4, D-2xx) - `docarchive:requirementtemplate-read` is READ_ONLY_ROLES, every role
+  // browses (apply/administer are individually gated inside the screen itself).
+  { id: "requirement-templates", to: "/settings/requirement-templates", label: "Templates de requisitos" },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.

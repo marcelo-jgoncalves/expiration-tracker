@@ -8,22 +8,22 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
 
   it("shows Membros (roster is membership:list-members, READ_ONLY_ROLES) but hides Atividade for a VIEWER", () => {
     const ids = getVisibleNavItems("VIEWER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "requirement-templates"]);
   });
 
   it("shows Membros but hides Atividade for a MEMBER", () => {
     const ids = getVisibleNavItems("MEMBER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "requirement-templates"]);
   });
 
   it("shows every item for an ADMIN", () => {
     const ids = getVisibleNavItems("ADMIN").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "requirement-templates", "activity"]);
   });
 
   it("shows every item for an OWNER", () => {
     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "document-types", "requirement-templates", "activity"]);
   });
 
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES: every real
@@ -32,6 +32,14 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
   it("shows Tipos de documento to every role, including VIEWER", () => {
     for (const role of ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const) {
       expect(getVisibleNavItems(role).map((item) => item.id)).toContain("document-types");
+    }
+  });
+
+  // A21 (Block 4, D-2xx) - same discipline as A20 above: `docarchive:requirementtemplate-read`
+  // is READ_ONLY_ROLES.
+  it("shows Templates de requisitos to every role, including VIEWER", () => {
+    for (const role of ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const) {
+      expect(getVisibleNavItems(role).map((item) => item.id)).toContain("requirement-templates");
     }
   });
 });

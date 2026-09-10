@@ -37,6 +37,7 @@ import { SubjectHub } from "./routes/subjects/SubjectHub.js";
 import { RequirementsCollection } from "./routes/RequirementsCollection.js";
 import { DocumentTypesCollection } from "./routes/document-types/DocumentTypesCollection.js";
 import { DocumentTypeEditor } from "./routes/document-types/DocumentTypeEditor.js";
+import { RequirementTemplatesScreen } from "./routes/requirement-templates/RequirementTemplatesScreen.js";
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
 import { ActivityLog } from "./routes/ActivityLog.js";
@@ -102,6 +103,11 @@ export function App() {
                     a top-level path - matches its "Configurações" nav placement). */}
                 <Route path="settings/document-types" element={<DocumentTypesCollection />} />
                 <Route path="settings/document-types/:documentTypeId" element={<DocumentTypeEditor />} />
+                {/* A21 (Block 4, D-2xx) - one screen, two routes (catalog-default and
+                    deep-linked-to-a-template), same component either way per the audited
+                    spec's own route contract. */}
+                <Route path="settings/requirement-templates" element={<RequirementTemplatesScreen />} />
+                <Route path="settings/requirement-templates/:templateId" element={<RequirementTemplatesScreen />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
@@ -135,6 +141,8 @@ export function App() {
                     (D-260): both legacy bare paths heal forward instead of 404ing. */}
                 <Route path="settings/document-types" element={null} />
                 <Route path="settings/document-types/:documentTypeId" element={null} />
+                <Route path="settings/requirement-templates" element={null} />
+                <Route path="settings/requirement-templates/:templateId" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />
