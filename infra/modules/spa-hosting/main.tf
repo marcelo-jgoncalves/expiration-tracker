@@ -215,10 +215,13 @@ locals {
   bff_allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
 
   # G02's guest wizard only ever GETs (resolve/document-types) or POSTs (session/uploads) -
-  # never PUT/PATCH/DELETE (document-archive-guest-handlers.ts's 4 routes) - a narrower allow
-  # list than the BFF's, matching what the guest surface actually needs rather than reusing the
-  # BFF's broader set by default.
-  guest_allowed_methods = ["GET", "HEAD", "OPTIONS", "POST"]
+  # never PUT/PATCH/DELETE (document-archive-guest-handlers.ts's 4 routes). A real `dev` apply
+  # (D-264) found that a narrower list here is not actually possible: CloudFront's
+  # aws_cloudfront_distribution.allowed_methods only accepts one of three fixed enumerated sets
+  # ([GET,HEAD] / [GET,HEAD,OPTIONS] / the full 7-method set) - "GET,HEAD,OPTIONS,POST" is not a
+  # valid CloudFront combination at all (confirmed by the real API's own 400 InvalidArgument),
+  # so this reuses the same full set as `bff_allowed_methods` below, same posture as that one.
+  guest_allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
 }
 
 resource "aws_cloudfront_distribution" "spa" {
