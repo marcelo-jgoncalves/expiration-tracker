@@ -70,6 +70,13 @@ export const queryKeys = {
      * has no server-side "ALL" mode, same one-required-discriminator discipline as
      * `requirementsSearch` above. */
     reviewQueue: (organizationId: string, state: string) => ["org", organizationId, "documentArchive", "reviews", state] as const,
+    /** A12 (Block 5, D-2xx) - Document Detail/Version History. Document metadata and its version
+     * list are two independent queries/keys (never merged) - same discipline as
+     * `requirementsSearch`/`reviewQueue` above, and the two are invalidated together on every
+     * write since a version-list change (accept/reject/commit) can also change the Document's
+     * `currentVersionId`. */
+    document: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "detail", documentId] as const,
+    documentVersions: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "versions", documentId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in

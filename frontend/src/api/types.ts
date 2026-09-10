@@ -617,3 +617,70 @@ export interface ReviewQueuePage {
 export interface PolicyResponse {
   policy: ReminderPolicy;
 }
+
+/**
+ * A12 (Block 5, D-2xx) — Document Detail / Version History. `document-archive`'s full
+ * `Document`/`DocumentVersion` shapes (`src/modules/document-archive/domain/document.ts`/
+ * `document-version.ts`), same "domain-relevant subset" convention as `ReviewDocumentVersion`
+ * above — GSI bookkeeping fields (GSI1PK/SK etc.) deliberately excluded.
+ */
+export type DocumentArchiveStatus = "ACTIVE" | "ARCHIVED";
+
+export interface DocumentArchiveDocument {
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+  status: DocumentArchiveStatus;
+  hasValidity: boolean;
+  currentVersionId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export type DocumentVersionState = "DRAFT" | "RECEIVED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN";
+
+export interface DocumentArchiveVersion {
+  documentId: string;
+  seq: number;
+  versionId: string;
+  state: DocumentVersionState;
+  origin: DocumentVersionOrigin;
+  issuedAt?: string;
+  validFrom?: string;
+  validUntil?: string;
+  receivedAt?: string;
+  reviewerId?: string;
+  decidedAt?: string;
+  rejectionReason?: RejectionReason;
+  pendingFileScans: number;
+  infectedFileScans: number;
+  fileSetSealed?: boolean;
+  principalFileId?: string;
+  totalFiles?: number;
+  requestId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentInput {
+  subjectId: string;
+  documentTypeId: string;
+  hasValidity: boolean;
+}
+
+export type DocumentFileRole = "PRINCIPAL" | "SUPPORTING";
+
+export interface FileUploadSpec {
+  role: DocumentFileRole;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export interface ReservedDocumentFile {
+  file: { fileId: string; role: DocumentFileRole; mediaType: string; contentLength: number };
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+}

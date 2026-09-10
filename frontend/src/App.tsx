@@ -36,6 +36,7 @@ import { SubjectForm } from "./routes/subjects/SubjectForm.js";
 import { SubjectHub } from "./routes/subjects/SubjectHub.js";
 import { RequirementsCollection } from "./routes/RequirementsCollection.js";
 import { ReviewQueue } from "./routes/ReviewQueue.js";
+import { DocumentDetail } from "./routes/DocumentDetail.js";
 import { DocumentTypesCollection } from "./routes/document-types/DocumentTypesCollection.js";
 import { DocumentTypeEditor } from "./routes/document-types/DocumentTypeEditor.js";
 import { RequirementTemplatesScreen } from "./routes/requirement-templates/RequirementTemplatesScreen.js";
@@ -101,6 +102,9 @@ export function App() {
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}
                 <Route path="reviews" element={<ReviewQueue />} />
+                {/* A12 (Block 5, D-2xx) - Document Detail/Version History, `docarchive:read`
+                    (all roles). */}
+                <Route path="documents/:documentId" element={<DocumentDetail />} />
                 {/* A20 (Block 4, D-2xx) - catalog + field editor, `/settings/document-types...`
                     per the audited spec's own route contract (nested under "settings", never
                     a top-level path - matches its "Configurações" nav placement). */}
@@ -143,6 +147,9 @@ export function App() {
                 {/* A13 (Block 5, D-2xx) - added here from the start, same healing-forward
                     discipline as A20/A21 below, not a repeat of A11's real gap (D-260). */}
                 <Route path="reviews" element={null} />
+                {/* A12 (Block 5, D-2xx) - added here from the start, same healing-forward
+                    discipline as A13/A20/A21. */}
+                <Route path="documents/:documentId" element={null} />
                 {/* A20 (Block 4, D-2xx) - added here from the start, unlike A11's real gap
                     (D-260): both legacy bare paths heal forward instead of 404ing. */}
                 <Route path="settings/document-types" element={null} />
