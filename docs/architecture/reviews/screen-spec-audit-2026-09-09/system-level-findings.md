@@ -80,6 +80,9 @@ an explicit "no motion, because X" rationale (rubric V6 already scores the latte
 the gap is that no spec does either).
 **Recheck in later batches**: expect this to keep recurring through all 24 screens; if it does,
 treat that as confirmation the authoring template itself needs the fix, not each author individually.
+**Batch 5 update (2026-09-10)**: A18, A19, A20, A21 all scored V6=0/9 pre-revision (motion evidence
+level 0), continuing to confirm the pre-revision authoring-discipline gap 20/20 screens in; all four
+added a local motion decision as part of this batch's revision, same as every prior batch.
 
 ---
 
@@ -118,6 +121,8 @@ owner above, unchanged).
 `:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix,
 same pending system-level template update as the remediation owner.
 **Batch 4 update (2026-09-10)**: A14, A15, A16, A17 (16/16 screens across four batches) all omitted
+`:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix.
+**Batch 5 update (2026-09-10)**: A18, A19, A20, A21 (20/20 screens across five batches) all omitted
 `:orgId` pre-revision — corrected directly in each screen's own revision this batch, same local fix.
 
 ---
@@ -158,6 +163,12 @@ four batches. A17 did not. All three corrected this batch: `ghost` for low-empha
 actions (A14's "Cancelar" kept as `ghost`, not `danger`, since cancelling a series is
 reversible/recreatable, not a permanent deletion); A16's "Remover" (deleting a subscription) moved to
 `danger` as a genuinely destructive action, the same distinction A07 established in batch 2.
+**Batch 5 update (2026-09-10)**: A19 ("Remover"/"Revogar"), A20 ("Editar"/"Descontinuar"/"Reativar"),
+and A21 ("Arquivar"/"Reativar") all used `tertiary` pre-revision — now 13/20 screens across five
+batches, still firmly past the recurrence gate. All corrected this batch: A19's "Remover" (removing a
+member's access) moved to `danger` per the same destructive-action logic as A07/A16, while its
+"Revogar" (a pending invitation, trivially re-issuable) and A20/A21's reversible catalog-lifecycle
+actions moved to `ghost`.
 
 ---
 
@@ -178,4 +189,12 @@ reversible/recreatable, not a permanent deletion); A16's "Remover" (deleting a s
   second CRITICAL RBAC finding of the full audit project; A17's RBAC line was confirmed fully correct
   with no revision needed (no MEMBER-assignee exception, matching D-205 literally); SLF-03/04
   continued recurring on all 4 screens; no new SYSTEM GAP/CONSTRAINT opened |
-| 5/6-6/6 | remaining 16 screens | pending, see `NEXT_SESSION_PROMPT.md` |
+| 5/6 | A18, A19, A20, A21 | DONE — all 4 scored NOT PASS (27-39/100 consolidated); A19 carries a
+  **CRITICAL RBAC finding cluster** (three independently-confirmed defects: "Membros e convites" tab
+  wrongly ADMIN-gated when the plan requires READ_ONLY_ROLES roster visibility, "Organização" tab
+  wrongly opened to ADMIN when the plan requires OWNER-only visibility, and OWNER promotion/demotion
+  blanket-disabled for every actor when the plan requires it enabled for an OWNER actor) plus an
+  entirely-missing mandatory storage subsection — the third CRITICAL RBAC finding of the full audit
+  project (after A16's over-grant in batch 4 and the under-grant found earlier in the project);
+  SLF-02/03/04 continued recurring on all 4 screens; no new SYSTEM GAP/CONSTRAINT opened |
+| 6/6 | remaining 4 screens | pending, see `NEXT_SESSION_PROMPT.md` |
