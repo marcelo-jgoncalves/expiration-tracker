@@ -30,6 +30,7 @@ import { ItemDetail } from "./routes/items/ItemDetail.js";
 import { CreateItem } from "./routes/items/CreateItem.js";
 import { RenewItem } from "./routes/items/RenewItem.js";
 import { ItemDocuments } from "./routes/items/ItemDocuments.js";
+import { ItemReminderPolicy } from "./routes/items/ItemReminderPolicy.js";
 import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
 import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
 import { Members } from "./routes/Members.js";
@@ -86,6 +87,7 @@ export function App() {
                 <Route path="items/:itemId" element={<ItemDetail />} />
                 <Route path="items/:itemId/renew" element={<RenewItem />} />
                 <Route path="items/:itemId/documents" element={<ItemDocuments />} />
+                <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
                 <Route path="subjects/:subjectId" element={<SubjectDetail />} />
                 <Route path="members" element={<Members />} />

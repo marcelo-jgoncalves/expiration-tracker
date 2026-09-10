@@ -299,3 +299,63 @@ export interface ReserveUploadResult {
   requiredHeaders: Record<string, string>;
   expiresAt: string;
 }
+
+/** A06 (Reminder Policy) - mirrors src/modules/reminder/domain/reminder-policy.ts's
+ * ReminderTrigger/ReminderPolicy exactly (the backend contract, not a UI-shaped subset).
+ * `offsetIso` is the restricted "[-]P<N>D" grammar (recurrence.ts's `parseDayOffset`) - days
+ * relative to the item's dueDate, never a general ISO-8601 duration. */
+export type NotificationChannelKind = "EMAIL" | "WHATSAPP";
+
+export interface ReminderTrigger {
+  triggerId: string;
+  offsetIso: string;
+  localTime: string;
+  audience?: "ASSIGNEE_AND_WATCHERS" | "MANAGER";
+}
+
+export interface QuietHours {
+  startLocalTime: string;
+  endLocalTime: string;
+}
+
+export interface ReminderPolicy {
+  policyId: string;
+  tenantId: string;
+  scope: "TEMPLATE" | "ITEM";
+  itemId?: string;
+  name: string;
+  triggers: ReminderTrigger[];
+  timeZone: string;
+  quietHours?: QuietHours;
+  channels: NotificationChannelKind[];
+  optOutChannels?: NotificationChannelKind[];
+  enabled: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /items/{itemId}/reminder-policy response (D-258 discovery route) - `policy: null` is a
+ * legitimate, common state ("no policy configured yet"), never an error. */
+export interface ItemReminderPolicyResponse {
+  policy: ReminderPolicy | null;
+}
+
+/** POST/PUT /reminders/policies(/{policyId}) request body (`PutPolicyInput`). */
+export interface PutPolicyInput {
+  scope: "TEMPLATE" | "ITEM";
+  itemId?: string;
+  rule: {
+    name: string;
+    triggers: ReminderTrigger[];
+    timeZone: string;
+    quietHours?: QuietHours;
+    channels: NotificationChannelKind[];
+    optOutChannels?: NotificationChannelKind[];
+  };
+  enabled?: boolean;
+}
+
+export interface PolicyResponse {
+  policy: ReminderPolicy;
+}

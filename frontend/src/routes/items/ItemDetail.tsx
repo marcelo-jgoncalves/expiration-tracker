@@ -14,6 +14,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
+import { useReminderPolicy } from "../../hooks/useReminderPolicy.js";
 import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
@@ -65,13 +66,27 @@ function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
   );
 }
 
-/** A05 extension entry points (Block 2, D-2xx): "Lembretes"/A06 is deliberately NOT included
- * here yet — `GET /reminders/policies/{policyId}` requires a policyId the frontend has no way
- * to discover for a given item (policyId is server-generated, unrelated to itemId, and no
- * list/lookup-by-item route exists) - a card here would either always claim "no policy
- * configured" (a decorative lie for items that DO have one) or need a fabricated discovery
- * mechanism. Recorded as a pending backend gap (decisions-log D-2xx), same discipline as A02's
- * D-255 deferrals - never built decorative. */
+/** "Lembretes"/A06 entry card (Block 2, D-258) - the item->policy discovery route
+ * (`GET /items/{itemId}/reminder-policy`) unblocked this; the card is real, not decorative:
+ * it reflects the item's actual policy state (or its absence) via `useReminderPolicy`. */
+function reminderPolicyEntryNote(query: ReturnType<typeof useReminderPolicy>): string {
+  if (query.isError) return "Não foi possível carregar";
+  if (query.data === undefined) return "Ver lembretes";
+  if (query.data.policy === null) return "Nenhuma política configurada";
+  return query.data.policy.enabled ? "Ativa" : "Desabilitada";
+}
+
+function ReminderPolicyEntryCard({ itemId }: { itemId: string }) {
+  const orgPath = useOrgPath();
+  const query = useReminderPolicy(itemId);
+  return (
+    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/reminder-policy`)}>
+      <strong>Lembretes</strong>
+      <span className="u-text-secondary">{reminderPolicyEntryNote(query)}</span>
+    </Link>
+  );
+}
+
 function documentsEntryNote(query: ReturnType<typeof useDocuments>): string {
   // Codex block-review finding (D-2xx): a persistent load failure must never read identically
   // to "still loading" - both used to collapse into the same neutral prompt.
@@ -177,6 +192,7 @@ function DetailBody({
       </Section>
       <Section heading="Mais sobre este vencimento" headingId="detail-entry-points">
         <div className="ui-entry-card-grid">
+          <ReminderPolicyEntryCard itemId={item.itemId} />
           <DocumentsEntryCard itemId={item.itemId} />
           <AuditEntryCard />
         </div>

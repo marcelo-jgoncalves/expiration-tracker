@@ -37,6 +37,8 @@ export const queryKeys = {
      * document's whole lifecycle is scoped to exactly one item, same convention as
      * `subjects.requirements`/`subjects.submissions` below. */
     documents: (organizationId: string, itemId: string) => ["org", organizationId, "items", "documents", itemId] as const,
+    /** A06 (Block 2 D-258) - item->policy discovery, `GET /items/{itemId}/reminder-policy`. */
+    reminderPolicy: (organizationId: string, itemId: string) => ["org", organizationId, "items", "reminderPolicy", itemId] as const,
   },
   subjects: {
     dashboard: (organizationId: string, status: string) => ["org", organizationId, "subjects", "dashboard", status] as const,

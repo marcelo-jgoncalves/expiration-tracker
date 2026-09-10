@@ -190,6 +190,14 @@ export function presentDocumentStatus(status: DocumentStatus): StatusPresentatio
   return presentSubmissionStatus(status);
 }
 
+/** A06 (Block 2 D-258) - reminder channel availability. WhatsApp has no consent flow yet
+ * (item G5 of the roadmap), so it is permanently "Indisponível" in this version, never a
+ * toggle that would look interactive. Both tones are `neutral` (this is a capability
+ * description, not a warning/error about anything). */
+export function presentReminderChannelStatus(channel: "EMAIL" | "WHATSAPP"): StatusPresentation {
+  return channel === "EMAIL" ? { label: "Ativo", tone: "neutral" } : { label: "Indisponível", tone: "neutral" };
+}
+
 export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
   switch (status) {
     case "PENDING_UPLOAD":
