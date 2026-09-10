@@ -2,6 +2,29 @@
 
 **Revisado em 2026-09-09** — pós auditoria de spec visual (`docs/architecture/reviews/screen-spec-audit-2026-09-09/A02-audit-record.md`). Mudanças: as 3 rotas do plano agora nomeadas como estados desta tela (incluindo o fluxo de criação, antes "fora de escopo"), estados de convite/Membership completos, `tertiary`→`ghost`, motion explícito, tese visual própria.
 
+**Implementação parcial registrada em 2026-09-10 (D-255/D-2xx)** — `frontend/src/routes/Onboarding.tsx`
+implementa o caso `≥1 organização utilizável` como grid de cards (`Suas organizações`) reaproveitando
+o form de criação já existente (embutido abaixo do grid, não um `Dialog`) em vez de rota separada.
+**3 elementos desta spec foram investigados e confirmados como lacuna REAL de backend, não wiring
+mecânico** (`resolveActiveMembership`/`listUsableOrganizations`, `organization/application/
+resolve-active-membership.ts`, verificado diretamente no código) — implementados como degradação
+graciosa (nunca dado fabricado), pendentes de decisão de produto/design de backend:
+1. **Nota operacional por card** ("N vencimentos em atenção") — exigiria uma agregação nova
+   cross-módulo (scan de GSI1 por organização) com um limiar de "atenção" ainda não definido.
+2. **`StatusBadge` de Membership suspensa** — o dado existe (`Membership.status`), mas
+   `resolveActiveMembership` (compartilhado com a asserção de autorização "exatamente uma
+   Membership ACTIVE" do `RequestContextResolver`) filtra para `ACTIVE` antes de chegar ao BFF;
+   expor `SUSPENDED` exigiria um caminho de leitura SEPARADO, não afrouxar a função compartilhada.
+3. **Bloco de convite pendente no nível da sessão** — exigiria consultar `Invitation` por e-mail do
+   convidado entre tenants; não existe índice para isso hoje (`ListInvitationsService` é por
+   organização, ADMIN-gated).
+
+Todo card renderizado hoje é sempre habilitável/navegável (nunca um estado `disabled` fabricado) —
+a regra de card desabilitado para Membership suspensa só pode ser implementada quando o item 2
+acima for resolvido. O `Dialog` de criação (vs. form inline atual) e o rodapé fixo com
+`env(safe-area-inset-bottom)` também não foram implementados nesta rodada — mudança visual, não
+bloqueada por dado ausente, deixada para uma iteração futura sem risco de regressão funcional.
+
 **Rotas:** `/onboarding` (primeira visita, zero Memberships), `/organizations` (picker normal com ≥1 Membership), `/invitations/accept` (chegada via link de convite). As três são estados desta mesma tela — o roteamento decide qual bloco abre em primeiro plano, mas a estrutura de baixo (grid + convite + criação) é compartilhada.
 **Acesso:** autenticado, sem AppShell (tela pré-seleção de organização, ocorre antes de entrar em qualquer org)
 **Layout:** coluna única, max-width 720px centralizada, padding `space.8` (32px) no container em desktop / `space.4` (16px) em mobile — segue a régua de content container do design system (§28), não um valor arbitrário.

@@ -17,7 +17,14 @@ import { test, expect, type Page } from "@playwright/test";
 // { authenticated, activeOrganizationId?, onboardingState?, organizationSelectionRequired? } -
 // never tenantId/userId (those never existed on this response). Every org-scoped query in the
 // app now gates on ActiveOrganizationContext's organizationId, itself sourced from this mock.
-function mockSession(page: Page, session: { authenticated: boolean; activeOrganizationId?: string }) {
+function mockSession(
+  page: Page,
+  session: {
+    authenticated: boolean;
+    activeOrganizationId?: string;
+    organizationSelectionRequired?: { organizations: { organizationId: string; displayName: string; role: string; version: number }[] };
+  },
+) {
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
@@ -35,6 +42,45 @@ test("an unauthenticated visit is redirected to the BFF login, carrying the orig
   const request = await loginRequest;
   const url = new URL(request.url());
   expect(url.searchParams.get("returnTo")).toBe("/items");
+});
+
+// A02 (D-255/D-2xx): authenticated, but no organization currently selected and 2+ usable
+// Organizations exist - OnboardingGate renders the org picker grid (never AppShell), selecting a
+// card calls POST /bff/organization/select and, once the session refetch confirms the new
+// activeOrganizationId, the app proceeds past onboarding into the selected organization.
+test("selecting an organization from the A02 picker grid selects it and proceeds past onboarding", async ({ page }) => {
+  let selected = false;
+  await page.route("**/bff/session", (route) => {
+    return route.fulfill({
+      json: {
+        authenticated: true,
+        organizationSelectionRequired: {
+          organizations: [
+            { organizationId: "org-1", displayName: "Org One", role: "OWNER", version: 1 },
+            { organizationId: "org-2", displayName: "Org Two", role: "MEMBER", version: 1 },
+          ],
+        },
+        ...(selected ? { activeOrganizationId: "org-2" } : {}),
+      },
+    });
+  });
+  const selectRequest = page.waitForRequest((req) => req.url().includes("/bff/organization/select") && req.method() === "POST");
+  await page.route("**/bff/organization/select", (route) => {
+    selected = true;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await mockDashboard(page, { items: [] });
+
+  // No dedicated /onboarding route exists - OnboardingGate renders Onboarding INSTEAD of
+  // AppShell/children for ANY protected route while no organization is selected, so any
+  // in-app path reaches the same picker.
+  await page.goto("/overview");
+
+  await expect(page.getByText("Suas organizações")).toBeVisible();
+  await page.getByRole("button", { name: /Org Two/ }).click();
+
+  await selectRequest;
+  await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
 });
 
 test("an authenticated session renders the dashboard sorted by due date ascending (most urgent first)", async ({ page }) => {
