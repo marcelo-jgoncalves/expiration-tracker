@@ -45,6 +45,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // A11 (Block 3, D-2xx) - `docarchive:requirement-read` is READ_ONLY_ROLES, every role sees
   // this list (create/edit/delete are individually gated inside the screen itself).
   { id: "requirements", to: "/requirements", label: "Requisitos" },
+  // A13 (Block 5, D-2xx) - `docarchive:read` is READ_ONLY_ROLES, every role sees the queue
+  // (Reivindicar/Aceitar/Rejeitar are individually gated inside the screen, same discipline as
+  // "requirements" above).
+  { id: "reviews", to: "/reviews", label: "Revisões" },
   // Visible to every role, deliberately NOT ADMIN-gated (fixed after the Block 0 Codex review
   // round caught this as a real RBAC-nav bug in the first draft): the backend action the roster
   // GET actually authorizes against is `membership:list-members`, which is READ_ONLY_ROLES - every

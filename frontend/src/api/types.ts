@@ -557,6 +557,63 @@ export interface PutPolicyInput {
   enabled?: boolean;
 }
 
+/**
+ * A13 (Block 5, D-2xx) — `document-archive`'s review-queue subset of `DocumentVersion`/
+ * `Document` (`src/modules/document-archive/domain/document-version.ts`/`document.ts`). Only
+ * the fields this screen actually renders/decides on are declared here — same "domain-relevant
+ * subset, not the full persisted record" convention `ExpirationItem`'s own doc comment states,
+ * deliberately excluding the GSI5 sparse-index bookkeeping fields.
+ */
+export type ReviewQueueState = "RECEIVED" | "UNDER_REVIEW";
+
+/** Closed taxonomy, `document-version.ts`'s `RejectionReason` — mirrors it exactly (backend
+ * has no free-text field alongside "OTHER" today; the audited spec's "texto livre quando o
+ * domínio permitir" is conditional precisely because the domain does not yet permit it here). */
+export type RejectionReason = "EXPIRED" | "ILLEGIBLE" | "INCORRECT" | "WRONG_SUBJECT" | "OUTDATED_VERSION" | "INCOMPLETE" | "OTHER";
+
+export type ReviewDocumentVersionState = ReviewQueueState | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN" | "DRAFT";
+export type DocumentVersionOrigin = "MANUAL_UPLOAD" | "GUEST_UPLOAD" | "REQUEST_RESPONSE" | "IMPORT" | "AUTOMATED_CAPTURE";
+
+export interface ReviewDocumentVersion {
+  documentId: string;
+  seq: number;
+  versionId: string;
+  state: ReviewDocumentVersionState;
+  origin: DocumentVersionOrigin;
+  validFrom?: string;
+  validUntil?: string;
+  receivedAt?: string;
+  reviewerId?: string;
+  decidedAt?: string;
+  rejectionReason?: RejectionReason;
+  pendingFileScans: number;
+  infectedFileScans: number;
+  requestId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+/** `document.ts`'s `Document` has no display `name` field (only `subjectId`/`documentTypeId`) —
+ * the row/detail panel shows the identifiers it actually has, a graceful-degradation precedent
+ * this codebase already uses elsewhere (`RequirementsCollection`'s row shows `r.subjectId`
+ * directly, no name-resolution fetch), not a fabricated field. */
+export interface ReviewDocumentSummary {
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+}
+
+export interface ReviewQueueHit {
+  version: ReviewDocumentVersion;
+  document?: ReviewDocumentSummary;
+}
+
+export interface ReviewQueuePage {
+  items: ReviewQueueHit[];
+  cursor: string | null;
+}
+
 export interface PolicyResponse {
   policy: ReminderPolicy;
 }

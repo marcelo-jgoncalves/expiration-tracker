@@ -66,6 +66,10 @@ export const queryKeys = {
     /** A21 (Block 4, D-2xx) - RequirementTemplate catalog. */
     requirementTemplates: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "list", status] as const,
     requirementTemplate: (organizationId: string, templateId: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "detail", templateId] as const,
+    /** A13 (Block 5, D-2xx) - review queue, one key per (org, state) - `GET .../reviews?state=`
+     * has no server-side "ALL" mode, same one-required-discriminator discipline as
+     * `requirementsSearch` above. */
+    reviewQueue: (organizationId: string, state: string) => ["org", organizationId, "documentArchive", "reviews", state] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
