@@ -6,6 +6,12 @@
  * exception (not ADMIN_ROLES like most `-delete` actions) confirmed directly against
  * `authorization.ts`.
  *
+ * A09's "Requisitos documentais"/"Documentos" cards link here with `?subjectId=...` - honored
+ * below via `useRequirementsForSubject` (bypasses the tenant-wide search entirely when present,
+ * the real per-subject `GET .../requirements/{subjectId}` route, not a client-side filter over
+ * a merged tenant-wide result) - Codex Block 3 review round 1 finding 1, the filter was
+ * previously silently ignored.
+ *
  * Known, named gaps (not mechanical wiring - real missing backend capability, implemented with
  * graceful degradation rather than blocking the screen, per the A02/Block-1 precedent):
  *  - `docarchive:requirement-export` (CSV) has no backend route/handler anywhere in
@@ -15,17 +21,26 @@
  *  - Template-apply (`docarchive:requirementtemplate-apply`, opens A21) is Block 4 scope - "Ver
  *    templates" is out of scope for this screen this block; omitted rather than a dead link.
  *  - "Novo requisito" asks for a subjectId directly (no subject-name typeahead picker yet) -
- *    same "operator supplies the id directly" precedent `SubjectDetail.tsx`'s legacy review flow
- *    already established for `itemId`, not a fabricated shortcut.
+ *    same "operator supplies the id directly" precedent the legacy review flow already
+ *    established for `itemId`, not a fabricated shortcut.
+ *  - The tenant-wide "Todos" tab merges each status's FIRST page only (`searchRequirements`'s
+ *    cursor is read but not followed) - a true cursor-following aggregate would need either a
+ *    dedicated backend endpoint or client-side multi-page fetching per status, out of this
+ *    block's time-box. `scanLimitReached`/a partial per-status failure is surfaced explicitly
+ *    (never silently dropped) rather than pretending the merged list is exhaustive (Codex Block
+ *    3 review round 1, findings 2/3).
  */
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
+import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
 import { useCreateRequirement } from "../hooks/useCreateRequirement.js";
+import { useUpdateRequirement } from "../hooks/useUpdateRequirement.js";
 import { useDeleteRequirement } from "../hooks/useDeleteRequirement.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Toolbar } from "../components/ui/Layout.js";
@@ -48,46 +63,74 @@ const STATUS_TABS: { value: "ALL" | RequirementStatus; label: string }[] = [
 
 export function RequirementsCollection() {
   const orgPath = useOrgPath();
+  const [searchParams] = useSearchParams();
+  const filterSubjectId = searchParams.get("subjectId") ?? undefined;
   const [statusTab, setStatusTab] = useState<"ALL" | RequirementStatus>("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const role = useCurrentMembershipRole();
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
 
+  const subjectQuery = useRequirementsForSubject(filterSubjectId ?? "");
+
   const singleStatus = statusTab === "ALL" ? "MISSING" : statusTab;
-  const query = useRequirementsSearch(singleStatus, searchTerm || undefined);
+  const isAll = statusTab === "ALL";
+  // Each status is its own independent query, fetched only while the "Todos" tab is active -
+  // one status's failure never blanks the others, and the other 4 requests are skipped entirely
+  // outside "Todos" (Codex Block 3 review round 1 finding 14).
+  const query = useRequirementsSearch(singleStatus, searchTerm || undefined, undefined, !filterSubjectId && !isAll);
+  const missing = useRequirementsSearch("MISSING", searchTerm || undefined, undefined, !filterSubjectId && isAll);
+  const pending = useRequirementsSearch("PENDING", searchTerm || undefined, undefined, !filterSubjectId && isAll);
+  const satisfied = useRequirementsSearch("SATISFIED", searchTerm || undefined, undefined, !filterSubjectId && isAll);
+  const notSatisfied = useRequirementsSearch("NOT_SATISFIED", searchTerm || undefined, undefined, !filterSubjectId && isAll);
+  const notApplicable = useRequirementsSearch("NOT_APPLICABLE", searchTerm || undefined, undefined, !filterSubjectId && isAll);
 
-  // "Todos" needs every status merged - fetch the other 4 only when that tab is active, each
-  // its own independent query so one status's failure never blanks the others.
-  const missing = useRequirementsSearch("MISSING", searchTerm || undefined);
-  const pending = useRequirementsSearch("PENDING", searchTerm || undefined);
-  const satisfied = useRequirementsSearch("SATISFIED", searchTerm || undefined);
-  const notSatisfied = useRequirementsSearch("NOT_SATISFIED", searchTerm || undefined);
-  const notApplicable = useRequirementsSearch("NOT_APPLICABLE", searchTerm || undefined);
-
-  const allQueries = statusTab === "ALL" ? [missing, pending, satisfied, notSatisfied, notApplicable] : [query];
+  const statusQueries = isAll ? [missing, pending, satisfied, notSatisfied, notApplicable] : [query];
+  const allQueries = filterSubjectId ? [subjectQuery] : statusQueries;
   const isPending = allQueries.some((q) => q.isPending);
-  const isError = allQueries.every((q) => q.isError);
+  const isFullyError = allQueries.every((q) => q.isError);
+  const failedCount = allQueries.filter((q) => q.isError).length;
+  const anyScanLimitReached = !filterSubjectId && statusQueries.some((q) => (q.data as { scanLimitReached?: boolean } | undefined)?.scanLimitReached);
 
   if (isPending) {
     return <InitialLoading label="Carregando requisitos…" />;
   }
-  if (isError) {
+  if (isFullyError) {
     const first = allQueries[0];
     const message = first?.error instanceof ApiError ? first.error.message : "Não foi possível carregar os requisitos.";
     return <ErrorState message={message} onRetry={() => allQueries.forEach((q) => void q.refetch())} />;
   }
 
-  const requirements: Requirement[] = statusTab === "ALL" ? allQueries.flatMap((q) => q.data?.items ?? []) : (query.data?.items ?? []);
+  let requirements: Requirement[];
+  if (filterSubjectId) {
+    requirements = subjectQuery.data?.requirements ?? [];
+    if (statusTab !== "ALL") requirements = requirements.filter((r) => r.status === statusTab);
+    if (searchTerm.trim()) {
+      const needle = searchTerm.trim().toLowerCase();
+      requirements = requirements.filter((r) => r.name.toLowerCase().includes(needle));
+    }
+  } else {
+    requirements = isAll ? statusQueries.flatMap((q) => q.data?.items ?? []) : (query.data?.items ?? []);
+  }
 
   return (
     <div>
       <PageHeader
         title="Requisitos documentais"
-        description="Requisitos de documento, com evidência vinculada, em toda a organização."
+        description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
         actions={canWrite ? <Button variant="secondary" onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
       />
-      {showCreate ? <CreateRequirementForm onClose={() => setShowCreate(false)} /> : null}
+      {failedCount > 0 && !isFullyError ? (
+        <InlineNotice tone="warning" announce="status">
+          Não foi possível carregar {failedCount} de {allQueries.length} categorias de status — a lista abaixo está incompleta.
+        </InlineNotice>
+      ) : null}
+      {anyScanLimitReached ? (
+        <InlineNotice tone="info" announce="status">
+          Mostrando um número limitado de resultados por status — refine a busca para ver itens que não aparecem aqui.
+        </InlineNotice>
+      ) : null}
+      {showCreate ? <CreateRequirementForm defaultSubjectId={filterSubjectId} onClose={() => setShowCreate(false)} /> : null}
       <Toolbar>
         <nav aria-label="Filtrar por status">
           {STATUS_TABS.map((tab) => (
@@ -140,6 +183,8 @@ export function RequirementsCollection() {
 function RowActions({ requirement }: { requirement: Requirement }) {
   const deleteMutation = useDeleteRequirement(requirement.subjectId, requirement.requirementId);
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | undefined>();
 
   async function handleDelete() {
     try {
@@ -147,7 +192,12 @@ function RowActions({ requirement }: { requirement: Requirement }) {
       setConfirming(false);
     } catch (err) {
       if (isConflict(err)) return;
+      setDeleteError(err instanceof ApiError ? err.message : "Não foi possível excluir este requisito.");
     }
+  }
+
+  if (editing) {
+    return <EditRequirementForm requirement={requirement} onClose={() => setEditing(false)} />;
   }
 
   return confirming ? (
@@ -159,17 +209,70 @@ function RowActions({ requirement }: { requirement: Requirement }) {
       <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
         Cancelar
       </Button>
+      {deleteError ? <span role="alert"> {deleteError}</span> : null}
     </span>
   ) : (
-    <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
-      Excluir
-    </Button>
+    <>
+      <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+        Editar
+      </Button>{" "}
+      <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
+        Excluir
+      </Button>
+    </>
   );
 }
 
-function CreateRequirementForm({ onClose }: { onClose: () => void }) {
+function EditRequirementForm({ requirement, onClose }: { requirement: Requirement; onClose: () => void }) {
+  const mutation = useUpdateRequirement(requirement.subjectId, requirement.requirementId);
+  const [name, setName] = useState(requirement.name);
+  const [applicability, setApplicability] = useState<RequirementApplicability>(requirement.applicability);
+  const [errors, setErrors] = useState<string[]>([]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) {
+      setErrors(["Informe o nome do requisito."]);
+      return;
+    }
+    setErrors([]);
+    try {
+      await mutation.mutateAsync({ input: { name: name.trim(), applicability }, expectedVersion: requirement.version });
+      onClose();
+    } catch (err) {
+      if (isConflict(err)) return; // surfaced by mutation.isConflict below.
+      setErrors([err instanceof ApiError ? err.message : "Não foi possível salvar este requisito."]);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <FormErrorSummary errors={errors} />
+      {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
+      <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
+      <SelectField
+        id={`req-edit-applicability-${requirement.requirementId}`}
+        label="Aplicabilidade"
+        value={applicability}
+        onChange={(v) => setApplicability(v as RequirementApplicability)}
+        options={[
+          { value: "APPLICABLE", label: "Aplicável" },
+          { value: "NOT_APPLICABLE", label: "Não se aplica" },
+        ]}
+      />
+      <Button type="submit" variant="primary" pending={mutation.isPending}>
+        {mutation.isPending ? "Salvando…" : "Salvar"}
+      </Button>{" "}
+      <Button type="button" variant="secondary" onClick={onClose}>
+        Cancelar
+      </Button>
+    </form>
+  );
+}
+
+function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => void; defaultSubjectId?: string }) {
   const mutation = useCreateRequirement();
-  const [subjectId, setSubjectId] = useState("");
+  const [subjectId, setSubjectId] = useState(defaultSubjectId ?? "");
   const [name, setName] = useState("");
   const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
   const [errors, setErrors] = useState<string[]>([]);

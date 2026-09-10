@@ -61,8 +61,11 @@ describe("SubjectHub (A09)", () => {
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
 
-    await waitFor(() => expect(screen.getByText("—")).toBeInTheDocument());
-    expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument());
+    // Scoped to the compliance panel's percentage element - the page also renders an em dash as
+    // a plain separator elsewhere ("Rastreamento legado — Em breve...").
+    const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
+    expect(section?.querySelector("strong")?.textContent).toBe("—");
   });
 
   it("shows the archived InlineNotice for an ARCHIVED subject", async () => {

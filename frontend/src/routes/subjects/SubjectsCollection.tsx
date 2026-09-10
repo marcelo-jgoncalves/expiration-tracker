@@ -171,7 +171,25 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
       <ButtonLink size="sm" variant="secondary" to={orgPath(`/subjects/${subject.subjectId}/edit`)}>
         Editar
       </ButtonLink>{" "}
-      <Button size="sm" variant="secondary" disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate({ expectedVersion: subject.version })}>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={archiveMutation.isPending}
+        onClick={() =>
+          archiveMutation.mutate(
+            { expectedVersion: subject.version },
+            {
+              // A non-conflict archive/reactivate failure (authorization, validation, network)
+              // must not disappear silently - only isConflict had a visible state before (Codex
+              // Block 3 review round 1 finding 12).
+              onError: (err) => {
+                if (isConflict(err)) return;
+                setBlockedReason(err instanceof ApiError ? err.message : "Não foi possível concluir esta ação.");
+              },
+            },
+          )
+        }
+      >
         {subject.status === "ARCHIVED" ? "Reativar" : "Arquivar"}
       </Button>
       {canDelete ? (

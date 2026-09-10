@@ -13,7 +13,8 @@ import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useCreateSubject } from "../../hooks/useCreateSubject.js";
 import { useUpdateSubject } from "../../hooks/useUpdateSubject.js";
-import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
+import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
+import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
@@ -34,6 +35,12 @@ export function SubjectForm() {
   const subjectQuery = useSubject(subjectId ?? "");
   const createMutation = useCreateSubject();
   const updateMutation = useUpdateSubject(subjectId ?? "");
+  const role = useCurrentMembershipRole();
+  // Screen->action->role conformance: the backend is the real enforcement boundary (subject:
+  // create/update are WRITE_ROLES), but this route must not RENDER a functional form to a role
+  // that has no path to submit it successfully - hiding the "Editar"/"Novo fornecedor" entry
+  // points elsewhere is not sufficient on its own (Codex Block 3 review round 1 finding 10).
+  const canWrite = role === undefined || role === "OWNER" || role === "ADMIN" || role === "MEMBER";
 
   const [displayName, setDisplayName] = useState("");
   const [type, setType] = useState<TrackedSubjectType>("VENDOR");
@@ -48,6 +55,9 @@ export function SubjectForm() {
   if (isEdit && subjectQuery.isError) {
     const message = subjectQuery.error instanceof ApiError ? subjectQuery.error.message : "Não foi possível carregar este fornecedor.";
     return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
+  }
+  if (role !== undefined && !canWrite) {
+    return <EmptyState kind="permission-limited" />;
   }
   if (isEdit && subjectQuery.data && !hydrated) {
     setDisplayName(subjectQuery.data.subject.displayName);
@@ -82,8 +92,12 @@ export function SubjectForm() {
         navigate(orgPath(`/subjects/${result.subject.subjectId}`));
       }
     } catch (err) {
-      if (isConflict(err)) return;
-      if (err instanceof ApiError && err.category === "CONFLICT") return;
+      // OCC (stale `expectedVersion`) only exists on the EDIT path - `updateMutation.isConflict`
+      // already renders that case above. On CREATE, a CONFLICT means the duplicate-externalId
+      // business rule (`SubjectExternalIdPointer`), which must reach the user, never be silently
+      // swallowed (Codex Block 3 review round 1 finding 4 - a prior version of this catch
+      // returned early for every CONFLICT regardless of which path threw it).
+      if (isEdit && isConflict(err)) return;
       const message = err instanceof ApiError ? err.message : "Não foi possível salvar este fornecedor.";
       // A08 spec's "identificador duplicado" state: the backend enforces external-id
       // uniqueness via SubjectExternalIdPointer and returns a CONFLICT/VALIDATION error whose

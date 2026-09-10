@@ -68,3 +68,20 @@ export function linkEvidence(subjectId: string, requirementId: string, documentI
 export function unlinkEvidence(subjectId: string, requirementId: string, expectedVersion: number): Promise<{ requirement: Requirement }> {
   return apiClient.post<{ requirement: Requirement }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}/unlink-evidence`, undefined, { expectedVersion });
 }
+
+/** A09 (Block 3, D-2xx) - `docarchive:dossier-export`, ADMIN_ROLES exclusive (D-205). Real
+ * two-step preview/confirm flow (`document-archive-handlers.ts`'s own doc comment: "Generation
+ * itself (PDF/XLSX) is fatia 2, not built yet - confirm only dispatches the outbox event that
+ * fatia 2's worker will eventually consume") - the frontend implements exactly the preview step
+ * that exists, and is honest that a downloadable file is not available yet (never claims a
+ * result the backend itself cannot produce). */
+export interface DossierPreviewRow {
+  requirementId: string;
+  name: string;
+  status: RequirementStatus;
+  evidenceValidUntil?: string;
+  assigneeUserId?: string;
+}
+export function previewDossierExport(subjectId: string): Promise<{ run: { runId: string; scopeHash: string }; rows: DossierPreviewRow[] }> {
+  return apiClient.post<{ run: { runId: string; scopeHash: string }; rows: DossierPreviewRow[] }>(`/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier`, undefined);
+}
