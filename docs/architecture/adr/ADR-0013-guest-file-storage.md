@@ -111,14 +111,17 @@ discriminante).
 
 ## Implementação
 
-Design `APPROVED`, ainda **NÃO implementado** nesta sessão — orçamento de turnos desta invocação
-esgotado nas 7 rodadas do protocolo. Próxima sessão/fork implementa exatamente este design (seção
-"Decisão final de design" acima é o plano de implementação completo), roda gate local, 1 rodada
-Codex sobre a implementação real (pode divergir do design em detalhes mecânicos de código, mesma
-disciplina do resto do projeto), commit/push/merge.
+**IMPLEMENTADA (D-266, 2026-09-10)** — domínio+serviço+HTTP+schemas+infra+frontend+testes, exatamente
+conforme a seção "Decisão final de design" acima. 2 rodadas Codex sobre a implementação real (5,6/10
+→ 7,2/10 NEEDS FIXES, achados corrigidos entre rodadas — ver D-266 para o relato completo). Um gap
+real e sério só descoberto na Rodada 2 (replay expirado sem nunca ter feito upload retornava
+`{extended:true}` — falso positivo) foi corrigido depois da Rodada 2, sem uma 3ª rodada formal
+(orçamento de turnos + julgamento de que o fix é mecanicamente direto e coberto por teste dedicado
+novo). Ver D-266 para o estado final, achados não corrigidos (CSP/CORS, pré-existente) e evidência de
+gate local.
 
 ## References
 
-`docs/architecture/reviews/guest-file-storage-scoping/` (7 rodadas completas); D-264
+`docs/architecture/reviews/guest-file-storage-scoping/` (7 rodadas completas); D-264/D-266
 (`docs/architecture/decisions-log.md`); D-163 (`docs/architecture/reviews/document-file-scoping/`);
 D-193 (`estado-final-consolidado.md`, gate STARTER/PROMOTER); D-249 (storage quota).
