@@ -32,6 +32,11 @@ export const queryKeys = {
       [...queryKeys.items.dashboardAll(organizationId), "page", status] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
+    /** A07 (Block 2 D-2xx) - generic per-item document attachments, `GET
+     * /items/{itemId}/documents`. Nested under `items` (not a sibling top-level key) because a
+     * document's whole lifecycle is scoped to exactly one item, same convention as
+     * `subjects.requirements`/`subjects.submissions` below. */
+    documents: (organizationId: string, itemId: string) => ["org", organizationId, "items", "documents", itemId] as const,
   },
   subjects: {
     dashboard: (organizationId: string, status: string) => ["org", organizationId, "subjects", "dashboard", status] as const,

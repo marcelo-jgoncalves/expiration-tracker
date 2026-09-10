@@ -248,3 +248,54 @@ export interface StorageQuotaUsage {
 export interface StorageUsageResponse {
   usage: StorageQuotaUsage;
 }
+
+/**
+ * A07 (Generic Document/OCR attachment, Block 2 D-2xx) - mirrors
+ * `src/modules/document/domain/document.ts`'s `Document` exactly. Two-phase upload model
+ * (audited fix, `A07-arquivos-vencimento.md`): `PENDING_UPLOAD` means the slot was reserved
+ * and a presigned URL issued, NOT that bytes have been received - the actual transfer is a
+ * separate direct-to-storage PUT the frontend performs itself, never collapsed into one
+ * action/state with reservation.
+ */
+export type DocumentStatus = "PENDING_UPLOAD" | "SCANNING" | "CLEAN" | "REJECTED" | "UNSUPPORTED" | "TIMEOUT" | "DELETED";
+
+export interface ItemDocument {
+  documentId: string;
+  itemId: string;
+  fileName: string;
+  mediaType: string;
+  contentLength: number;
+  status: DocumentStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface DocumentsListResponse {
+  documents: ItemDocument[];
+}
+
+export interface DocumentResponse {
+  document: ItemDocument;
+}
+
+/** POST /items/{itemId}/documents request body (`ReserveUploadInput`). */
+export interface ReserveUploadInput {
+  fileName: string;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+/** POST /items/{itemId}/documents response (`ReserveUploadResult`) - phase 1 only. The
+ * frontend must PUT the raw file bytes to `uploadUrl` with `requiredHeaders` itself (phase 2)
+ * before the document can ever leave `PENDING_UPLOAD`; there is no separate "commit" call in
+ * this module (unlike document-archive's `/versions/{seq}/commit`) - the storage-layer PUT
+ * itself is what the malware-scan pipeline reacts to. */
+export interface ReserveUploadResult {
+  documentId: string;
+  uploadSlotId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}

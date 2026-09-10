@@ -13,7 +13,7 @@
  * Every function here is a pure, testable mapping - no component should invent its own label
  * for a domain status.
  */
-import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, RequirementAssignmentStatus } from "./types.js";
+import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus } from "./types.js";
 
 export interface StatusPresentation {
   label: string;
@@ -181,6 +181,13 @@ export function presentRequirementStatus(status: RequirementAssignmentStatus): S
     case "SATISFIED":
       return { label: "Vinculado a um vencimento", tone: "neutral" };
   }
+}
+
+/** A07 (Block 2) - `Document` (`src/modules/document/domain/document.ts`) shares the exact
+ * same status vocabulary as `DocumentSubmission` (`presentSubmissionStatus` above), so this is
+ * a thin alias rather than a re-derivation of the same mapping rule in a second place. */
+export function presentDocumentStatus(status: DocumentStatus): StatusPresentation {
+  return presentSubmissionStatus(status);
 }
 
 export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
