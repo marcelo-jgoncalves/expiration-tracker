@@ -107,13 +107,25 @@ A05 already exists (extend, don't touch its passing test suite) · A06 (Reminder
 Closes the "Track and renew an expiration" journey (§6, journey 2) fully. Smallest incremental
 surface — both A06/A07 attach directly onto the already-shipped A05.
 
-### Block 3 — Subject compliance core
+### Block 3 — Subject compliance core — COMPLETE (D-259, 2026-09-10)
 
 A08 (complete CRUD, currently read/review-only) · A09 (Subject Hub, replacing the narrow
 `SubjectDetail` with the full hub + SLF-01 compliance card) · A11 (Requirements, tenant-wide)
 
 Closes journey 3 ("Register a Subject and measure its compliance") end-to-end; establishes the
 collection/hub/filter/contextual-action patterns reused by every later collection screen.
+
+All 3 screens implemented, tested (247/247), and covered by one Codex block-review round (5.2/10
+blind, 8 blocking findings, all fixed same session — see D-259). Named, real (not mechanical) gaps
+carried forward: A08 has no pending-first sort (TrackedSubject carries no pending-count
+aggregation, a deliberate prior decision, D-194); A11 has no CSV export (no backend route/handler
+exists anywhere for `docarchive:requirement-export`); A09's dossier export stops at the real
+preview step (the backend's own generation/download fatia isn't built yet either). A10 (Block 7)
+still has no frontend, so the legacy `RequirementAssignment` review/link/unlink journey the old
+`SubjectDetail` offered is temporarily unavailable until A10 ships — an accepted consequence of
+this block's replace-not-extend instruction, not a silent regression. E2E/Playwright and
+accessibility verification were NOT run for these 3 screens this session (process gap, recorded
+in `NEXT_SESSION_PROMPT.md` — run before starting Block 5, do not let it accumulate further).
 
 ### Block 4 — Catalogs and templates
 
