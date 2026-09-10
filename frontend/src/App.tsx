@@ -32,6 +32,7 @@ import { RenewItem } from "./routes/items/RenewItem.js";
 import { ItemDocuments } from "./routes/items/ItemDocuments.js";
 import { ItemReminderPolicy } from "./routes/items/ItemReminderPolicy.js";
 import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
+import { SubjectForm } from "./routes/subjects/SubjectForm.js";
 import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
@@ -89,6 +90,8 @@ export function App() {
                 <Route path="items/:itemId/documents" element={<ItemDocuments />} />
                 <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
+                <Route path="subjects/new" element={<SubjectForm />} />
+                <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId" element={<SubjectDetail />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
@@ -111,6 +114,8 @@ export function App() {
                 <Route path="items/:itemId" element={null} />
                 <Route path="items/:itemId/renew" element={null} />
                 <Route path="subjects" element={null} />
+                <Route path="subjects/new" element={null} />
+                <Route path="subjects/:subjectId/edit" element={null} />
                 <Route path="subjects/:subjectId" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />

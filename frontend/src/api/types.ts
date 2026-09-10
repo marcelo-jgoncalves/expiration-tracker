@@ -92,6 +92,9 @@ export interface TrackedSubject {
   type: TrackedSubjectType;
   displayName: string;
   notes?: string;
+  /** A08 (Block 3, D-2xx) - create-only durable external identifier (CNPJ, CRM id, etc.) -
+   * mirrors `src/modules/subject/domain/tracked-subject.ts`'s `externalId`. */
+  externalId?: string;
   tags: string[];
   status: TrackedSubjectStatus;
   createdAt: string;
@@ -139,6 +142,29 @@ export interface SubjectsDashboardResponse {
   subjects: TrackedSubject[];
 }
 
+/** A08 (Block 3, D-2xx) - mirrors `src/modules/subject/domain/tracked-subject.ts`'s
+ * `CreateSubjectInput`/`UpdateSubjectInput` exactly. `externalId` is create-only (no rename
+ * path on update - see that file's own doc comment on why). */
+export interface CreateSubjectInput {
+  type: TrackedSubjectType;
+  displayName: string;
+  notes?: string;
+  tags?: string[];
+  externalId?: string;
+}
+
+export interface UpdateSubjectInput {
+  displayName?: string;
+  notes?: string;
+  tags?: string[];
+}
+
+export interface SubjectSearchPage {
+  items: TrackedSubject[];
+  cursor: string | null;
+  scanLimitReached?: boolean;
+}
+
 export interface RequirementAssignmentResponse {
   assignment: RequirementAssignment;
 }
@@ -152,6 +178,62 @@ export interface DocumentSubmissionsResponse {
 }
 
 // Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.
+
+/** A09/A11 (Block 3, D-2xx) - `document-archive` module's evidence-backed `Requirement`
+ * (`src/modules/document-archive/domain/requirement.ts`). A DISTINCT concept from
+ * `RequirementAssignment` above (the legacy `subject` module one, MISSING/SATISFIED only, A10)
+ * - never rendered under the bare label "Requisito", always "Requisito documental" here, per
+ * the A11 spec's naming-collision verification. */
+export type RequirementStatus = "MISSING" | "PENDING" | "SATISFIED" | "NOT_SATISFIED" | "NOT_APPLICABLE";
+export type RequirementApplicability = "APPLICABLE" | "NOT_APPLICABLE";
+
+export interface Requirement {
+  requirementId: string;
+  subjectId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  assigneeUserId?: string;
+  evidenceVersionId?: string;
+  evidenceDocumentId?: string;
+  evidenceSeq?: number;
+  evidenceValidUntil?: string;
+  status: RequirementStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateRequirementInput {
+  subjectId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  assigneeUserId?: string;
+}
+
+export interface UpdateRequirementInput {
+  name?: string;
+  notes?: string;
+  applicability?: RequirementApplicability;
+  assigneeUserId?: string;
+}
+
+export interface RequirementSearchPage {
+  items: Requirement[];
+  cursor: string | null;
+  scanLimitReached?: boolean;
+}
+
+/** Roadmap P0.6 fatia 2 - `null` (never `0%`) when `totalRequirements === 0`, per A09's spec
+ * ("sempre mostrar numerador/denominador junto ao percentual"). */
+export interface SubjectComplianceSummary {
+  totalRequirements: number;
+  satisfiedCount: number;
+  expiringSoonCount: number;
+  missingCount: number;
+  compliancePercent: number | null;
+}
 
 export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";

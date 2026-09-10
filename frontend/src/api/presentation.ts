@@ -13,7 +13,7 @@
  * Every function here is a pure, testable mapping - no component should invent its own label
  * for a domain status.
  */
-import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus } from "./types.js";
+import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus, RequirementStatus, TrackedSubjectType } from "./types.js";
 
 export interface StatusPresentation {
   label: string;
@@ -196,6 +196,47 @@ export function presentDocumentStatus(status: DocumentStatus): StatusPresentatio
  * description, not a warning/error about anything). */
 export function presentReminderChannelStatus(channel: "EMAIL" | "WHATSAPP"): StatusPresentation {
   return channel === "EMAIL" ? { label: "Ativo", tone: "neutral" } : { label: "Indisponível", tone: "neutral" };
+}
+
+/** A08 (Block 3, D-2xx) - the real backend enum
+ * (`src/modules/subject/domain/tracked-subject.ts`'s `TrackedSubjectType`), never the free-text
+ * business description the pre-audit spec had (see A08-fornecedores.md's revision history). */
+export function presentSubjectType(type: TrackedSubjectType): string {
+  switch (type) {
+    case "COMPANY":
+      return "Empresa";
+    case "VENDOR":
+      return "Fornecedor";
+    case "CLIENT":
+      return "Cliente";
+    case "EMPLOYEE":
+      return "Colaborador";
+    case "ASSET":
+      return "Ativo";
+    case "LOCATION":
+      return "Unidade";
+    case "CUSTOM":
+      return "Personalizado";
+  }
+}
+
+/** A11 (Block 3, D-2xx) - `document-archive` module's `Requirement` (5-state, evidence-backed),
+ * distinct from `presentRequirementStatus` above (the legacy `RequirementAssignment`, A10).
+ * `NOT_APPLICABLE` gets its own label/tone pair, deliberately never collapsed into MISSING's
+ * text even though both could read as "not fulfilled" - the audit fix names this explicitly. */
+export function presentRequirementDocStatus(status: RequirementStatus): StatusPresentation {
+  switch (status) {
+    case "MISSING":
+      return { label: "Em falta", tone: "danger" };
+    case "PENDING":
+      return { label: "Pendente", tone: "warning" };
+    case "SATISFIED":
+      return { label: "Satisfeito", tone: "neutral" };
+    case "NOT_SATISFIED":
+      return { label: "Não satisfeito", tone: "danger" };
+    case "NOT_APPLICABLE":
+      return { label: "Não se aplica", tone: "neutral" };
+  }
 }
 
 export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {

@@ -42,7 +42,7 @@ describe("SubjectsCollection", () => {
     getMock.mockResolvedValue({ subjects: [] });
     renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
 
-    await waitFor(() => expect(screen.getByText("Nenhum fornecedor cadastrado ainda.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Nenhum fornecedor cadastrado ainda\./)).toBeInTheDocument());
   });
 
   it("switching to the Arquivados tab queries status=ARCHIVED", async () => {
