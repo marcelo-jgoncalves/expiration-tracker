@@ -10,6 +10,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
 import { useDocumentSubmissions } from "../../hooks/useDocumentSubmissions.js";
@@ -26,6 +27,7 @@ const REVIEWABLE_STATUSES = new Set(["MISSING", "REQUESTED", "SUBMITTED", "UNDER
 
 export function SubjectDetail() {
   const { subjectId } = useParams<{ subjectId: string }>();
+  const orgPath = useOrgPath();
   const subjectQuery = useSubject(subjectId ?? "");
   const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
 
@@ -38,7 +40,7 @@ export function SubjectDetail() {
   if (subjectQuery.isError) {
     const error = subjectQuery.error;
     if (error instanceof ApiError && error.category === "NOT_FOUND") {
-      return <EmptyState kind="unavailable" message="Este fornecedor não foi encontrado." action={<Link to="/subjects">Voltar para Fornecedores</Link>} />;
+      return <EmptyState kind="unavailable" message="Este fornecedor não foi encontrado." action={<Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>} />;
     }
     const message = error instanceof ApiError ? error.message : "Não foi possível carregar este fornecedor.";
     return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
@@ -55,7 +57,7 @@ export function SubjectDetail() {
   return (
     <div>
       <p>
-        <Link to="/subjects">← Voltar para Fornecedores</Link>
+        <Link to={orgPath("/subjects")}>← Voltar para Fornecedores</Link>
       </p>
       <h1>{subject.displayName}</h1>
       <p>{subject.type}</p>

@@ -19,6 +19,7 @@
  */
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItemsDashboardPage } from "../../hooks/useItemsDashboard.js";
 import {
   presentItemStatus,
@@ -52,7 +53,7 @@ interface RowEntry {
   urgency: UrgencyPresentation;
 }
 
-function buildColumns(now: Date): DataTableColumn<RowEntry>[] {
+function buildColumns(now: Date, orgPath: (path: string) => string): DataTableColumn<RowEntry>[] {
   return [
     {
       key: "name",
@@ -60,7 +61,7 @@ function buildColumns(now: Date): DataTableColumn<RowEntry>[] {
       primary: true,
       render: ({ item }) => (
         <>
-          <Link to={`/items/${item.itemId}`}>{item.name}</Link>
+          <Link to={orgPath(`/items/${item.itemId}`)}>{item.name}</Link>
           {item.issuer || item.number ? <CellSecondary>{[item.issuer, item.number ? `nº ${item.number}` : undefined].filter(Boolean).join(" · ")}</CellSecondary> : null}
         </>
       ),
@@ -99,7 +100,7 @@ function buildColumns(now: Date): DataTableColumn<RowEntry>[] {
       actions: true,
       render: ({ item }) =>
         item.status === "ACTIVE" ? (
-          <ButtonLink to={`/items/${item.itemId}/renew`} variant="tertiary" size="sm">
+          <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="tertiary" size="sm">
             Renovar
           </ButtonLink>
         ) : null,
@@ -108,6 +109,7 @@ function buildColumns(now: Date): DataTableColumn<RowEntry>[] {
 }
 
 export function ItemsCollection() {
+  const orgPath = useOrgPath();
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
   const status: ExpirationItemStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
@@ -115,7 +117,7 @@ export function ItemsCollection() {
   // Computed once per render, not re-derived per row - a long-lived tab drifting a few
   // minutes stale between renders is an accepted trade-off (Overview.tsx's existing pattern).
   const now = useMemo(() => new Date(), []);
-  const columns = useMemo(() => buildColumns(now), [now]);
+  const columns = useMemo(() => buildColumns(now, orgPath), [now, orgPath]);
 
   function selectStatus(next: ExpirationItemStatus) {
     setSearchParams(next === "ACTIVE" ? {} : { status: next });
@@ -126,7 +128,7 @@ export function ItemsCollection() {
       title="Vencimentos"
       description="Tudo o que está sendo acompanhado, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to="/items/new" variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary">
           Novo vencimento
         </ButtonLink>
       }
@@ -200,7 +202,7 @@ export function ItemsCollection() {
           message={status === "ACTIVE" ? "Nenhum vencimento cadastrado ainda." : "Nenhum vencimento neste status."}
           action={
             status === "ACTIVE" ? (
-              <ButtonLink to="/items/new" variant="primary">
+              <ButtonLink to={orgPath("/items/new")} variant="primary">
                 Novo vencimento
               </ButtonLink>
             ) : null

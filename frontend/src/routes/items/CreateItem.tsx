@@ -12,6 +12,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useCreateItem } from "../../hooks/useCreateItem.js";
 import { useFormDraft } from "../../hooks/useFormDraft.js";
 import { ApiError, isUnknownOutcome } from "../../api/errors.js";
@@ -59,6 +60,7 @@ function toSummaryFieldErrors(fieldErrors: Record<string, string>): SummaryField
 
 export function CreateItem() {
   const navigate = useNavigate();
+  const orgPath = useOrgPath();
   const { draft, update, clear } = useFormDraft<CreateItemDraft>(DRAFT_STORAGE_KEY, EMPTY_CREATE_ITEM_DRAFT);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
@@ -85,7 +87,7 @@ export function CreateItem() {
       const response = await mutation.mutateAsync(draftToCreateItemInput(draft));
       clear();
       mutation.newIntent();
-      navigate(`/items/${response.item.itemId}`, { state: { justCreated: true } });
+      navigate(orgPath(`/items/${response.item.itemId}`), { state: { justCreated: true } });
     } catch (err) {
       if (isValidationError(err)) {
         const parsed = parseValidationErrors(err);
@@ -106,7 +108,7 @@ export function CreateItem() {
   return (
     <div>
       <PageHeader
-        above={<Link to="/items">← Voltar para Vencimentos</Link>}
+        above={<Link to={orgPath("/items")}>← Voltar para Vencimentos</Link>}
         title="Novo vencimento"
         description="Só nome, categoria e data de vencimento são obrigatórios. O resto pode ser preenchido depois."
       />
@@ -172,7 +174,7 @@ export function CreateItem() {
           <Button type="submit" variant="primary" pending={mutation.isPending}>
             {mutation.isPending ? "Criando…" : "Criar vencimento"}
           </Button>
-          <ButtonLink to="/items" variant="tertiary">
+          <ButtonLink to={orgPath("/items")} variant="tertiary">
             Cancelar
           </ButtonLink>
         </div>

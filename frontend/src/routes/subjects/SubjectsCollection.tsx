@@ -7,6 +7,7 @@
  * read/review surface, not full CRUD, matching the narrower scope BLOCKER-C actually needs.
  */
 import { Link, useSearchParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubjectsDashboard } from "../../hooks/useSubjectsDashboard.js";
 import { InitialLoading, ErrorState, EmptyState, BackgroundRefreshIndicator } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
@@ -22,6 +23,7 @@ function isKnownStatus(value: string | null): value is TrackedSubjectStatus {
 }
 
 export function SubjectsCollection() {
+  const orgPath = useOrgPath();
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
   const status: TrackedSubjectStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
@@ -72,7 +74,7 @@ export function SubjectsCollection() {
         <ul>
           {subjects.map((subject) => (
             <li key={subject.subjectId}>
-              <Link to={`/subjects/${subject.subjectId}`}>{subject.displayName}</Link> <span>{subject.type}</span>
+              <Link to={orgPath(`/subjects/${subject.subjectId}`)}>{subject.displayName}</Link> <span>{subject.type}</span>
             </li>
           ))}
         </ul>

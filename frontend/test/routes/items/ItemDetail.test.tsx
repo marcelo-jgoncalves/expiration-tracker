@@ -36,7 +36,7 @@ describe("ItemDetail", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
     expect(screen.getByText("Financeiro")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Renovar" })).toHaveAttribute("href", "/items/item-1/renew");
+    expect(screen.getByRole("link", { name: "Renovar" })).toHaveAttribute("href", "/app/org-1/items/item-1/renew");
   });
 
   it("never shows a Renovar link for a non-ACTIVE item", async () => {
@@ -64,7 +64,7 @@ describe("ItemDetail", () => {
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-2");
 
     await waitFor(() => expect(screen.getByText(/Ciclo anterior/)).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: /Old cycle/ })).toHaveAttribute("href", "/items/item-1");
+    expect(screen.getByRole("link", { name: /Old cycle/ })).toHaveAttribute("href", "/app/org-1/items/item-1");
   });
 
   it("a 404 shows an honest not-found state with a way back, not a generic error", async () => {

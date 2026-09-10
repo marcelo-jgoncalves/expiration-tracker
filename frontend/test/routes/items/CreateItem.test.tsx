@@ -63,7 +63,7 @@ describe("CreateItem", () => {
     expect(path).toBe("/items");
     expect(body).toMatchObject({ name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" });
     expect(options.idempotencyKey).toBeTruthy();
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-99", { state: { justCreated: true } }));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/app/org-1/items/item-99", { state: { justCreated: true } }));
   });
 
   it("maps a VALIDATION error from the backend to field-specific messages, preserving entered values", async () => {

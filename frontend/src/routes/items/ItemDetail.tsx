@@ -11,6 +11,7 @@
  * rows, and there is exactly one record here.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
@@ -48,13 +49,14 @@ function DetailList({ fields }: { fields: DetailField[] }) {
  * failed, or permission-denied lookup silently renders nothing rather than blocking or
  * erroring the whole Detail page over an optional embellishment. */
 function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
+  const orgPath = useOrgPath();
   const query = useItem(sourceItemId);
   if (!query.data) return null;
   const source = query.data.item;
   return (
     <p className="u-text-secondary">
       Ciclo anterior:{" "}
-      <Link to={`/items/${source.itemId}`}>
+      <Link to={orgPath(`/items/${source.itemId}`)}>
         {source.name} (venceu em {formatAbsoluteDate(source.dueDate)})
       </Link>
     </p>
@@ -72,13 +74,14 @@ function DetailBody({
   justRenewed: boolean;
   copiedReminderPolicyIds: string[];
 }) {
+  const orgPath = useOrgPath();
   const now = new Date();
   const urgency = presentItemUrgency(item, now);
 
   return (
     <div>
       <PageHeader
-        above={<Link to="/items">← Voltar para Vencimentos</Link>}
+        above={<Link to={orgPath("/items")}>← Voltar para Vencimentos</Link>}
         title={item.name}
         description={
           // Urgency AND lifecycle status side by side, never merged into one token
@@ -90,7 +93,7 @@ function DetailBody({
         }
         actions={
           item.status === "ACTIVE" ? (
-            <ButtonLink to={`/items/${item.itemId}/renew`} variant="primary">
+            <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="primary">
               Renovar
             </ButtonLink>
           ) : null
@@ -141,6 +144,7 @@ function DetailBody({
 export function ItemDetail() {
   const { itemId } = useParams<{ itemId: string }>();
   const location = useLocation();
+  const orgPath = useOrgPath();
   const query = useItem(itemId ?? "");
 
   if (!itemId) {
@@ -159,7 +163,7 @@ export function ItemDetail() {
           kind="unavailable"
           message="Este vencimento não foi encontrado."
           action={
-            <ButtonLink to="/items" variant="secondary">
+            <ButtonLink to={orgPath("/items")} variant="secondary">
               Voltar para Vencimentos
             </ButtonLink>
           }

@@ -73,6 +73,7 @@ Rodapé do shell: botão terciário pequeno "Sair" (logout).
 - **Wizards multi-etapa** (Importação CSV, upload de convidado): badges de etapa no topo, etapa ativa destacada, navegação Voltar/Continuar.
 - **Tabelas**: sempre via `DataTable` com `density="compact"`, `columns`, `rows`, `rowKey`, `caption` (para leitores de tela).
 - **Contraste**: texto mínimo 4.5:1; badges usam tons `neutral` (default/ativo), `warning` (atenção), `critical` (bloqueante/vencido/erro).
+- **Movimento (obrigatório em toda spec nova ou revisada — SLF-02, D-2xx Block 0)**: toda spec de tela DEVE ter uma subseção "Movimento" declarando, para cada transição de estado real (troca de etapa, aparecimento/sumiço de conteúdo, feedback de ação), o gatilho, a direção, o token de duração/easing usado (`design-system.md` §21: `motion.fast/normal/slow`) e o equivalente sob `prefers-reduced-motion` — OU, quando a tela genuinamente não tem transição alguma que justifique movimento, uma frase explícita "sem movimento, porque X" (a rubrica V6 já dá crédito total a essa segunda opção). O que a rubrica não aceita é a ausência de qualquer uma das duas — foi exatamente isso que ocorreu nas 24 telas pré-revisão do projeto de auditoria (`docs/architecture/reviews/screen-spec-audit-2026-09-09/system-level-findings.md` SLF-02): o sistema já tinha os tokens de movimento, mas nenhuma spec os invocava. Este item existe para que a próxima tela nova não repita a mesma lacuna de processo.
 
 ## Índice de telas
 

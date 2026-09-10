@@ -13,6 +13,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useRenewItem } from "../../hooks/useRenewItem.js";
 import { formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
@@ -27,6 +28,7 @@ import { InlineNotice } from "../../components/ui/InlineNotice.js";
 export function RenewItem() {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
+  const orgPath = useOrgPath();
   const itemQuery = useItem(itemId ?? "");
   const [newDueDate, setNewDueDate] = useState("");
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
@@ -56,7 +58,7 @@ export function RenewItem() {
     try {
       const response = await mutation.mutateAsync({ newDueDate: `${newDueDate}T00:00:00.000Z`, expectedVersion: item.version });
       mutation.newIntent();
-      navigate(`/items/${response.item.itemId}`, { state: { justRenewed: true, copiedReminderPolicyIds: response.copiedReminderPolicyIds } });
+      navigate(orgPath(`/items/${response.item.itemId}`), { state: { justRenewed: true, copiedReminderPolicyIds: response.copiedReminderPolicyIds } });
     } catch (err) {
       if (isConflict(err)) return; // surfaced by the derived `conflict` flag below, no separate copy needed
       if (isUnknownOutcome(err)) {
@@ -70,7 +72,7 @@ export function RenewItem() {
   return (
     <div>
       <PageHeader
-        above={<Link to={`/items/${item.itemId}`}>← Voltar para o vencimento</Link>}
+        above={<Link to={orgPath(`/items/${item.itemId}`)}>← Voltar para o vencimento</Link>}
         title="Renovar vencimento"
         description={
           <>
@@ -117,7 +119,7 @@ export function RenewItem() {
           <Button type="submit" variant="primary" pending={mutation.isPending} disabled={conflict}>
             {mutation.isPending ? "Renovando…" : "Confirmar renovação"}
           </Button>
-          <ButtonLink to={`/items/${item.itemId}`} variant="tertiary">
+          <ButtonLink to={orgPath(`/items/${item.itemId}`)} variant="tertiary">
             Cancelar
           </ButtonLink>
         </div>

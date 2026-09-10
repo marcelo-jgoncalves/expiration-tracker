@@ -5,13 +5,24 @@
  * No route invented purely for technical convenience; no attempt to cover all 17 Interaction
  * Surfaces (mission §77). Overview, Vencimentos (Core Expiration Vertical Slice) and
  * Fornecedores (BLOCKER-C review queue, Variante B - 2026-08-25) have real implementations.
+ *
+ * D-2xx (Block 0): the real screens now live under `/app/:orgId/...`
+ * (implementation-sequencing-plan.md's route contract) - `:orgId` is kept in sync with the
+ * session's real `activeOrganizationId` by `OrgRouteGuard`, never a second competing source of
+ * truth (see its own header comment). The pre-migration bare paths below (`overview`, `items`,
+ * ...) are kept, each rendering `LegacyOrgRedirect` instead of removed outright - bookmarks and
+ * the existing E2E suite's `page.goto("/items")`-style calls heal forward to the new contract
+ * instead of 404ing.
  */
+import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext.js";
 import { ActiveOrganizationProvider } from "./auth/ActiveOrganizationContext.js";
 import { OnboardingGate } from "./auth/OnboardingGate.js";
 import { ProtectedRoute } from "./auth/ProtectedRoute.js";
+import { OrgRouteGuard } from "./routing/OrgRouteGuard.js";
+import { LegacyOrgRedirect } from "./routing/LegacyOrgRedirect.js";
 import { AppShell } from "./shell/AppShell.js";
 import { Overview } from "./routes/Overview.js";
 import { ItemsCollection } from "./routes/items/ItemsCollection.js";
@@ -40,6 +51,18 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Shared by both the real `/app/:orgId` tree and the legacy bare-path tree below - identical
+ * auth/tenant/onboarding gating either way, they only differ in what renders once past it. */
+function withOrgGates(children: ReactNode) {
+  return (
+    <ProtectedRoute>
+      <ActiveOrganizationProvider>
+        <OnboardingGate>{children}</OnboardingGate>
+      </ActiveOrganizationProvider>
+    </ProtectedRoute>
+  );
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -48,17 +71,14 @@ export function App() {
           <AuthProvider>
             <Routes>
               <Route
-                element={
-                  <ProtectedRoute>
-                    <ActiveOrganizationProvider>
-                      <OnboardingGate>
-                        <AppShell />
-                      </OnboardingGate>
-                    </ActiveOrganizationProvider>
-                  </ProtectedRoute>
-                }
+                path="app/:orgId"
+                element={withOrgGates(
+                  <OrgRouteGuard>
+                    <AppShell />
+                  </OrgRouteGuard>,
+                )}
               >
-                <Route index element={<Navigate to="/overview" replace />} />
+                <Route index element={<Navigate to="overview" replace />} />
                 <Route path="overview" element={<Overview />} />
                 <Route path="items" element={<ItemsCollection />} />
                 <Route path="items/new" element={<CreateItem />} />
@@ -70,7 +90,29 @@ export function App() {
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
               </Route>
-              {/* Sibling of the main protected group, never nested under ActiveOrganizationProvider/
+              {/* Root path - a plain, ungated redirect to the (also legacy, also gated below)
+                  "/overview" path, exactly what the pre-migration index route did. Kept OUTSIDE
+                  the gated group below: that group's layout element (LegacyOrgRedirect) never
+                  renders an <Outlet/>, so an `index` child nested in it would never actually
+                  render its own element either - a plain top-level redirect avoids that trap. */}
+              <Route path="/" element={<Navigate to="/overview" replace />} />
+              {/* Pre-migration bare paths (D-2xx, Block 0) - same gating as the real tree above
+                  (organizationId is guaranteed defined by the time LegacyOrgRedirect renders),
+                  each one heals forward to the equivalent `/app/:orgId/...` URL rather than
+                  disappearing. */}
+              <Route element={withOrgGates(<LegacyOrgRedirect />)}>
+                <Route path="overview" element={null} />
+                <Route path="items" element={null} />
+                <Route path="items/new" element={null} />
+                <Route path="items/:itemId" element={null} />
+                <Route path="items/:itemId/renew" element={null} />
+                <Route path="subjects" element={null} />
+                <Route path="subjects/:subjectId" element={null} />
+                <Route path="members" element={null} />
+                <Route path="settings" element={null} />
+                <Route path="activity" element={null} />
+              </Route>
+              {/* Sibling of the two groups above, never nested under ActiveOrganizationProvider/
                   OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships
                   anywhere yet, exactly the case those two assume never happens. */}
               <Route

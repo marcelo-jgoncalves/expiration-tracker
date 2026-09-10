@@ -14,8 +14,11 @@ import { useEffect, useRef, type RefObject } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
+import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
+import { useOrgPath } from "../routing/useOrgPath.js";
 import { Button } from "../components/ui/Button.js";
 import { OrganizationSwitcher } from "../components/OrganizationSwitcher.js";
+import { getVisibleNavItems } from "./navigation.js";
 
 function navLinkClassName(): string {
   return "app-shell__link";
@@ -44,6 +47,9 @@ function useFocusMainOnRouteChange(mainRef: RefObject<HTMLElement>) {
 
 export function AppShell() {
   const { logout } = useAuth();
+  const role = useCurrentMembershipRole();
+  const visibleNavItems = getVisibleNavItems(role);
+  const orgPath = useOrgPath();
   const mainRef = useRef<HTMLElement>(null);
   useFocusMainOnRouteChange(mainRef);
 
@@ -55,27 +61,22 @@ export function AppShell() {
       {/* A plain vertical list of links on desktop, a wrapping row when narrow (CSS only) -
           visually simple, stable and predictable, so it orients without competing with the
           operational content. `NavLink` supplies aria-current="page" itself; the visual
-          current-page treatment is tint + weight + an inset bar, never colour alone. */}
+          current-page treatment is tint + weight + an inset bar, never colour alone.
+          Declarative + RBAC-aware (D-2xx, Block 0, navigation.ts): the list itself is data, and
+          an item the current role cannot act on at all is omitted here, never rendered-disabled
+          (p0-screen-inventory-plan.md §2.1). `item.to` is org-relative (`/overview`, not
+          `/app/:orgId/overview`) - resolved through `useOrgPath()` here, the same helper every
+          screen's internal links use, so clicking the nav itself never round-trips through
+          `LegacyOrgRedirect` (found in the Block 0 Codex review round: the first draft left
+          these bare, which silently remounted AppShell - and the focus-management fix above -
+          on every single nav click). */}
       <nav className="app-shell__nav" aria-label="Navegação principal">
         <span className="app-shell__wordmark">Expiration Tracker</span>
-        <NavLink to="/overview" className={navLinkClassName}>
-          Visão geral
-        </NavLink>
-        <NavLink to="/items" className={navLinkClassName}>
-          Vencimentos
-        </NavLink>
-        <NavLink to="/subjects" className={navLinkClassName}>
-          Fornecedores
-        </NavLink>
-        <NavLink to="/members" className={navLinkClassName}>
-          Membros
-        </NavLink>
-        <NavLink to="/settings" className={navLinkClassName}>
-          Configurações
-        </NavLink>
-        <NavLink to="/activity" className={navLinkClassName}>
-          Atividade
-        </NavLink>
+        {visibleNavItems.map((item) => (
+          <NavLink key={item.id} to={orgPath(item.to)} className={navLinkClassName}>
+            {item.label}
+          </NavLink>
+        ))}
         <span className="app-shell__nav-spacer" />
         <OrganizationSwitcher />
         <Button variant="tertiary" size="sm" onClick={() => void logout()}>

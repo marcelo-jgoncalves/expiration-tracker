@@ -99,7 +99,10 @@ test("a 401 mid-session (session expired) triggers a redirect back to the BFF lo
 
   const request = await loginRequest;
   const url = new URL(request.url());
-  expect(url.searchParams.get("returnTo")).toBe("/overview");
+  // D-2xx (Block 0): by the time the 401 fires, "/overview" has already healed forward to the
+  // real /app/:orgId/overview URL (LegacyOrgRedirect) - returnTo correctly captures THAT
+  // current path (mission §23's "current path" contract), not the pre-migration one requested.
+  expect(url.searchParams.get("returnTo")).toBe("/app/org-1/overview");
 });
 
 test("logout calls the BFF's logout endpoint and returns to the login redirect", async ({ page }) => {

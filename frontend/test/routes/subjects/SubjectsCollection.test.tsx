@@ -35,7 +35,7 @@ describe("SubjectsCollection", () => {
 
     expect(screen.getByText("Carregando fornecedores…")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "ACME Ltda" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "ACME Ltda" })).toHaveAttribute("href", "/subjects/subject-1");
+    expect(screen.getByRole("link", { name: "ACME Ltda" })).toHaveAttribute("href", "/app/org-1/subjects/subject-1");
   });
 
   it("shows the true-empty state for a genuinely empty ACTIVE list", async () => {

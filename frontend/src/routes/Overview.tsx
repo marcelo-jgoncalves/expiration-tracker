@@ -11,6 +11,7 @@
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useOrgPath } from "../routing/useOrgPath.js";
 import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
@@ -29,13 +30,14 @@ export function Overview() {
   // single bounded read, never the paginated "load more" the Collection needs).
   const query = useItemsDashboardBounded("ACTIVE");
   const now = useMemo(() => new Date(), []);
+  const orgPath = useOrgPath();
 
   const columns: DataTableColumn<ExpirationItem>[] = [
     {
       key: "name",
       header: "Vencimento",
       primary: true,
-      render: (item) => <Link to={`/items/${item.itemId}`}>{item.name}</Link>,
+      render: (item) => <Link to={orgPath(`/items/${item.itemId}`)}>{item.name}</Link>,
     },
     {
       key: "dueDate",
@@ -62,7 +64,7 @@ export function Overview() {
       title="Visão geral"
       description="Seus vencimentos ativos, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to="/items/new" variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary">
           Novo vencimento
         </ButtonLink>
       }
@@ -100,7 +102,7 @@ export function Overview() {
           kind="true-empty"
           message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
           action={
-            <ButtonLink to="/items/new" variant="primary">
+            <ButtonLink to={orgPath("/items/new")} variant="primary">
               Novo vencimento
             </ButtonLink>
           }
@@ -116,7 +118,7 @@ export function Overview() {
         <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
       <p>
-        <Link to="/items">Ver todos os vencimentos</Link>
+        <Link to={orgPath("/items")}>Ver todos os vencimentos</Link>
       </p>
     </>
   );
