@@ -184,9 +184,30 @@ cobertas; A10 precisa ser especificada separadamente antes de a implementação 
 legado por completo. Ver `prototype-screen-specs/README.md` para o índice completo e a nota de
 proveniência.
 
+## Screen Spec Audit Rubric (2026-09-09, D-250) — instrumento para auditar as 24 specs acima
+
+`docs/frontend/screen-spec-audit-rubric.md` — rubric consolidado para auditar cada spec em
+`prototype-screen-specs/` em duas dimensões: os 8 eixos funcionais já convergidos em D-247 (100
+pts, reusados sem alteração) + 8 eixos novos de excelência visual V1-V8 (100 pts) grounded em
+pesquisa real (Linear/Stripe/Emil Kowalski, tipografia/spacing/cor/motion/anti-"generic SaaS UI"),
+combinados 60% funcional / 40% visual com gates não-compensatórios. Endereça diretamente a
+avaliação de Marcelo de que as specs são funcionalmente boas mas "não tão profissionais e
+world-class" quanto ele gostaria — trata `design-system.md` como precedente reconciliável, não
+cerca fixa (taxonomia SPEC GAP/SYSTEM GAP/SYSTEM CONSTRAINT/JUSTIFIED EXCEPTION/SYSTEM EVOLUTION
+CANDIDATE para cada achado que conflite com o sistema atual). Produzido via protocolo
+Claude↔Codex (1 rodada cega + 1 reconciliação, Codex 8,8/9,3 auto-nota, Claude 9,1/9,4 avaliando a
+rodada de Codex por inteiro — ambos ≥9,0). **Instrumento pronto; a auditoria real das 24 specs
+ainda NÃO FOI EXECUTADA** — é o próximo passo explícito (ver `NEXT_SESSION_PROMPT.md`), antes de
+qualquer código de frontend. Ver D-250 (`decisions-log.md`) e
+`docs/architecture/reviews/frontend-visual-excellence-rubric-scoping/` para o trilho completo.
+
 ## Próxima etapa
 
-**User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
+**Auditoria das 24 prototype screen specs contra o `screen-spec-audit-rubric.md` (D-250)** — passo
+imediato seguinte, mais específico que a nota geral de "frontend adiado" abaixo: aplicar o rubric
+consolidado a cada spec em `prototype-screen-specs/` (uma por vez ou em lotes), produzindo um
+registro de auditoria por tela (template §6 do rubric) antes de qualquer código de frontend ser
+escrito. **User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
 Planning`, não produzido em `interface-validation-readiness.md` §23 por decisão explícita de
 escopo). Recebe como input o protótipo já com Participant Mode isolado (`prototype/`, ver
 `prototype/README.md` para como rodar — Participant Mode é o default, `?mode=evaluator` ativa o
