@@ -65,9 +65,21 @@ function InviteForm() {
   );
 }
 
-function MembersTable({ members, canManage }: { members: Member[]; canManage: boolean }) {
+function MembersTable({ members, canManage, actorRole }: { members: Member[]; canManage: boolean; actorRole: MembershipRole | undefined }) {
   const changeRole = useChangeMemberRole();
   const removeMember = useRemoveMember();
+  // Backend tier (authorization.ts comment on `membership:role-change`, OwnerTierChangeRequiresOwnerError):
+  // ADMIN_ROLES may change roles in general, but ONLY an OWNER actor may promote a member TO OWNER or
+  // demote a member FROM OWNER - the "OWNER, exceto quando o alvo/novo role é OWNER" carve-out that
+  // isn't expressible in the generic authorize() matrix. An ADMIN actor gets the OWNER option filtered
+  // out of the dropdown entirely (never a control they can even click, matching the read-only tab
+  // treatment elsewhere) rather than a submit that predictably 409/403s against the backend check.
+  const isOwnerActor = actorRole === "OWNER";
+  function optionsFor(member: Member): typeof ROLE_OPTIONS {
+    if (isOwnerActor) return ROLE_OPTIONS;
+    if (member.role === "OWNER") return ROLE_OPTIONS.filter((option) => option.value === "OWNER");
+    return ROLE_OPTIONS.filter((option) => option.value !== "OWNER");
+  }
 
   const columns: DataTableColumn<Member>[] = [
     { key: "userId", header: "Usuário", primary: true, render: (m) => m.userId },
@@ -75,11 +87,11 @@ function MembersTable({ members, canManage }: { members: Member[]; canManage: bo
       key: "role",
       header: "Papel",
       render: (m) =>
-        canManage ? (
+        canManage && (isOwnerActor || m.role !== "OWNER") ? (
           <SelectField
             label={`Papel de ${m.userId}`}
             value={m.role}
-            options={ROLE_OPTIONS}
+            options={optionsFor(m)}
             onChange={(value) => changeRole.mutate({ userId: m.userId, role: value as MembershipRole, expectedVersion: m.version })}
           />
         ) : (
@@ -145,7 +157,7 @@ export function Members() {
         </Section>
       ) : null}
       <Panel>
-        {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} />}
+        {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} actorRole={role} />}
       </Panel>
       {manage && invitationsQuery.data && invitationsQuery.data.invitations.length > 0 ? (
         <Section heading="Convites pendentes" headingId="pending-invitations">
