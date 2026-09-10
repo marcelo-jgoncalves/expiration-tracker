@@ -11,7 +11,13 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, type LinkProps } from "react-router-dom";
 import "./Button.css";
 
-export type ButtonVariant = "primary" | "secondary" | "tertiary" | "danger";
+// "ghost" (A20/A21, Block 4, D-2xx) - the canonical 4th variant name per design-system.md §30
+// ("primary/secondary/ghost/danger") - additive alongside the pre-existing "tertiary" (never
+// renamed here: that would touch every existing call site for a naming nit, out of this
+// block's scope). Same low-emphasis/never-destructive semantics as tertiary, reused visually
+// (Button.css) - the two audited specs (A20/A21) both name "ghost" explicitly for reversible,
+// non-destructive row actions (Descontinuar/Reativar, Arquivar/Reativar), never "tertiary".
+export type ButtonVariant = "primary" | "secondary" | "tertiary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md";
 
 function classNames(variant: ButtonVariant, size: ButtonSize, extra?: string): string {

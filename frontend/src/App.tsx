@@ -35,6 +35,8 @@ import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
 import { SubjectForm } from "./routes/subjects/SubjectForm.js";
 import { SubjectHub } from "./routes/subjects/SubjectHub.js";
 import { RequirementsCollection } from "./routes/RequirementsCollection.js";
+import { DocumentTypesCollection } from "./routes/document-types/DocumentTypesCollection.js";
+import { DocumentTypeEditor } from "./routes/document-types/DocumentTypeEditor.js";
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
 import { ActivityLog } from "./routes/ActivityLog.js";
@@ -95,6 +97,11 @@ export function App() {
                 <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId" element={<SubjectHub />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
+                {/* A20 (Block 4, D-2xx) - catalog + field editor, `/settings/document-types...`
+                    per the audited spec's own route contract (nested under "settings", never
+                    a top-level path - matches its "Configurações" nav placement). */}
+                <Route path="settings/document-types" element={<DocumentTypesCollection />} />
+                <Route path="settings/document-types/:documentTypeId" element={<DocumentTypeEditor />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
@@ -124,6 +131,10 @@ export function App() {
                     and any real bookmark/link to the bare path 404'd via the catch-all `*` route
                     instead of healing forward like every other real screen here. */}
                 <Route path="requirements" element={null} />
+                {/* A20 (Block 4, D-2xx) - added here from the start, unlike A11's real gap
+                    (D-260): both legacy bare paths heal forward instead of 404ing. */}
+                <Route path="settings/document-types" element={null} />
+                <Route path="settings/document-types/:documentTypeId" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />

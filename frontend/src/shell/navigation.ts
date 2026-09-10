@@ -56,6 +56,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // roster would be an access REDUCTION the real RBAC matrix never asked for.
   { id: "members", to: "/members", label: "Membros" },
   { id: "settings", to: "/settings", label: "Configurações" },
+  // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES, every role
+  // browses the catalog (mutation is individually gated inside the screen, same discipline as
+  // "requirements" above).
+  { id: "document-types", to: "/settings/document-types", label: "Tipos de documento" },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.

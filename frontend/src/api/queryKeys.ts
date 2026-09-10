@@ -59,6 +59,13 @@ export const queryKeys = {
       ["org", organizationId, "documentArchive", "requirements", "search", status, namePrefix ?? "", assigneeUserId ?? ""] as const,
     /** A09 (Block 3, D-2xx) - Compliance panel, `GET .../requirements/{subjectId}/compliance`. */
     subjectCompliance: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "compliance", subjectId] as const,
+    /** A20 (Block 4, D-2xx) - DocumentType catalog, one key per (org, status) - same "no
+     * unfiltered ALL mode" discipline as `requirementsSearch` above. */
+    documentTypes: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "documentTypes", "list", status] as const,
+    documentType: (organizationId: string, documentTypeId: string) => ["org", organizationId, "documentArchive", "documentTypes", "detail", documentTypeId] as const,
+    /** A21 (Block 4, D-2xx) - RequirementTemplate catalog. */
+    requirementTemplates: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "list", status] as const,
+    requirementTemplate: (organizationId: string, templateId: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "detail", templateId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in

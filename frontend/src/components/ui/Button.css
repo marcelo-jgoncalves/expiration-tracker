@@ -51,12 +51,14 @@
 
 /* Tertiary is a low-emphasis ACTION, still a button — it keeps a hover surface so it is not
    mistaken for body text, and it is never used for a destructive action. */
-.ui-button--tertiary {
+.ui-button--tertiary,
+.ui-button--ghost {
   background: transparent;
   color: var(--color-text-link);
   padding-inline: var(--space-3);
 }
-.ui-button--tertiary:hover:not(:disabled) {
+.ui-button--tertiary:hover:not(:disabled),
+.ui-button--ghost:hover:not(:disabled) {
   background: var(--color-surface-selected);
   color: var(--color-action-primary-pressed);
 }

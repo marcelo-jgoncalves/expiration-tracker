@@ -13,7 +13,17 @@
  * Every function here is a pure, testable mapping - no component should invent its own label
  * for a domain status.
  */
-import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus, RequirementStatus, TrackedSubjectType } from "./types.js";
+import type {
+  ExpirationItem,
+  ExpirationItemStatus,
+  DocumentSubmissionStatus,
+  DocumentStatus,
+  DocumentTypeStatus,
+  RequirementAssignmentStatus,
+  RequirementStatus,
+  RequirementTemplateStatus,
+  TrackedSubjectType,
+} from "./types.js";
 
 export interface StatusPresentation {
   label: string;
@@ -236,6 +246,27 @@ export function presentRequirementDocStatus(status: RequirementStatus): StatusPr
       return { label: "Não satisfeito", tone: "danger" };
     case "NOT_APPLICABLE":
       return { label: "Não se aplica", tone: "neutral" };
+  }
+}
+
+/** A20 (Block 4, D-2xx) - `DocumentType` catalog status. `ACTIVE` reads "Ativo" (neutral, per
+ * the audited spec) - never "Aprovado"/a stronger claim than the domain state supports. */
+export function presentDocumentTypeStatus(status: DocumentTypeStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "DEPRECATED":
+      return { label: "Descontinuado", tone: "warning" };
+  }
+}
+
+/** A21 (Block 4, D-2xx) - `RequirementTemplate` catalog status. */
+export function presentRequirementTemplateStatus(status: RequirementTemplateStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "ARCHIVED":
+      return { label: "Arquivado", tone: "warning" };
   }
 }
 

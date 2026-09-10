@@ -235,6 +235,125 @@ export interface SubjectComplianceSummary {
   compliancePercent: number | null;
 }
 
+// A20 (Block 4, D-2xx) - `document-archive` module's `DocumentType` catalog
+// (`src/modules/document-archive/domain/document-type.ts`). Tenant-wide, shared by every
+// upload flow (A12) and the guest catalog (G02) - every `ACTIVE` type is guest-visible by
+// construction, no separate visibility flag exists on the backend (never invent one here).
+export type DocumentTypeStatus = "ACTIVE" | "DEPRECATED";
+export type DocumentTypeFieldValueType = "TEXT" | "NUMBER" | "DECIMAL" | "DATE" | "BOOLEAN" | "SINGLE_SELECT";
+export type DocumentTypeFieldStatus = "ACTIVE" | "ARCHIVED";
+export type DocumentTypeFieldOptionStatus = "ACTIVE" | "ARCHIVED";
+
+export interface DocumentTypeFieldOption {
+  optionId: string;
+  label: string;
+  status: DocumentTypeFieldOptionStatus;
+}
+
+export interface DocumentTypeMetadataFieldDefinition {
+  fieldId: string;
+  name: string;
+  valueType: DocumentTypeFieldValueType;
+  required: boolean;
+  options?: DocumentTypeFieldOption[];
+  status: DocumentTypeFieldStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentType {
+  documentTypeId: string;
+  displayName: string;
+  status: DocumentTypeStatus;
+  metadataFields?: DocumentTypeMetadataFieldDefinition[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentTypeInput {
+  displayName: string;
+}
+
+export interface CreateDocumentTypeMetadataFieldInput {
+  name: string;
+  valueType: DocumentTypeFieldValueType;
+  required: boolean;
+  options?: string[];
+}
+
+export type DocumentTypeFieldOptionPatchOp =
+  | { op: "ADD"; label: string }
+  | { op: "RENAME"; optionId: string; label: string }
+  | { op: "ARCHIVE"; optionId: string }
+  | { op: "REACTIVATE"; optionId: string };
+
+export interface UpdateDocumentTypeMetadataFieldInput {
+  name?: string;
+  required?: boolean;
+  status?: DocumentTypeFieldStatus;
+  optionsPatch?: DocumentTypeFieldOptionPatchOp[];
+}
+
+// A21 (Block 4, D-2xx) - `RequirementTemplate` catalog
+// (`src/modules/document-archive/domain/requirement-template.ts`). Applying is SNAPSHOT
+// semantics (never a live link) - a later template edit never reaches an already-applied
+// Requirement.
+export type RequirementTemplateStatus = "ACTIVE" | "ARCHIVED";
+
+export interface RequirementTemplateItem {
+  templateItemId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  position: number;
+}
+
+export interface RequirementTemplate {
+  templateId: string;
+  displayName: string;
+  description?: string;
+  status: RequirementTemplateStatus;
+  items: RequirementTemplateItem[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateRequirementTemplateInput {
+  displayName: string;
+  description?: string;
+  items: Array<{ name: string; notes?: string; applicability?: RequirementApplicability }>;
+}
+
+export interface UpdateRequirementTemplateInput {
+  displayName?: string;
+  description?: string;
+  items?: Array<{ name: string; notes?: string; applicability?: RequirementApplicability }>;
+}
+
+export type TemplateApplicationSkipReason = "DUPLICATE_NAME";
+
+export interface TemplateApplicationSkip {
+  templateItemId: string;
+  name: string;
+  reason: TemplateApplicationSkipReason;
+  existingRequirementId: string;
+  sameTemplateItem: boolean;
+}
+
+export interface TemplateApplicationPreview {
+  create: RequirementTemplateItem[];
+  skip: TemplateApplicationSkip[];
+  templateVersion: number;
+}
+
+export interface TemplateApplicationResult {
+  created: Array<{ templateItemId: string; requirementId: string; name: string }>;
+  skipped: TemplateApplicationSkip[];
+  templateVersion: number;
+}
+
 export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
