@@ -65,7 +65,7 @@ describe("RenewItem", () => {
     expect(body).toMatchObject({ newDueDate: "2027-09-01T00:00:00.000Z" });
     expect(options.expectedVersion).toBe(3);
     expect(options.idempotencyKey).toBeTruthy();
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: [] } }));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/app/org-1/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: [] } }));
   });
 
   it("passes copiedReminderPolicyIds through navigation state when the backend reports a copy", async () => {
@@ -77,7 +77,7 @@ describe("RenewItem", () => {
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar renovação" }));
 
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: ["policy-1"] } }));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/app/org-1/items/item-2", { state: { justRenewed: true, copiedReminderPolicyIds: ["policy-1"] } }));
   });
 
   it("OCC conflict (409): shows the dedicated recovery notice, never a generic error, and blocks resubmission until Recarregar", async () => {

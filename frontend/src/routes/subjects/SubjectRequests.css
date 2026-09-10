@@ -1,0 +1,6 @@
+/* A14 (Block 6, D-2xx) — "Não definido" (destinatário ausente) is attention text, never a blank
+   cell (spec: "Sem destinatário definido... em texto de atenção"). */
+.u-text-attention {
+  color: var(--color-status-warning-fg);
+  font-weight: var(--font-weight-medium);
+}

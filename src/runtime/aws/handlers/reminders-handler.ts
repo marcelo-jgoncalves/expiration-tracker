@@ -8,6 +8,7 @@ import {
   handleCreatePolicy,
   handleDisablePolicy,
   handleGetPolicy,
+  handleGetPolicyByItem,
   handleUpdatePolicy,
   type ReminderHttpDeps,
 } from "../../../modules/reminder/http/policy-handlers.js";
@@ -41,6 +42,8 @@ async function handleRemindersRoute(event: APIGatewayProxyEventV2WithJWTAuthoriz
           return await handleCreatePolicy(deps, { ...base, body: parseBody(event) });
         case "GET /reminders/policies/{policyId}":
           return await handleGetPolicy(deps, base);
+        case "GET /items/{itemId}/reminder-policy":
+          return await handleGetPolicyByItem(deps, base);
         case "PUT /reminders/policies/{policyId}":
           return await handleUpdatePolicy(deps, { ...base, body: parseBody(event) });
         case "POST /reminders/policies/{policyId}/disable":

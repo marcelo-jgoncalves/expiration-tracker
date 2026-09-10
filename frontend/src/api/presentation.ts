@@ -13,7 +13,19 @@
  * Every function here is a pure, testable mapping - no component should invent its own label
  * for a domain status.
  */
-import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, RequirementAssignmentStatus } from "./types.js";
+import type {
+  ExpirationItem,
+  ExpirationItemStatus,
+  DocumentSubmissionStatus,
+  DocumentStatus,
+  DocumentTypeStatus,
+  RequirementAssignmentStatus,
+  RequirementStatus,
+  RequirementTemplateStatus,
+  TrackedSubjectType,
+  DocumentRequest,
+  DocumentRequestSeriesStatus,
+} from "./types.js";
 
 export interface StatusPresentation {
   label: string;
@@ -107,6 +119,15 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
 }
 
+/** Storage-quota-scoping (D-2xx) - "1,2 GB de 8 GB", pt-BR decimal comma via Intl, GB-only
+ * (never MB/KB) since `DEFAULT_STORAGE_QUOTA_BYTES` is always in the multi-GB range - a smaller
+ * unit would only ever fire for a near-empty tenant, where the exact byte count is not
+ * actionable information for the reader. */
+export function formatBytesAsGb(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(gb)} GB`;
+}
+
 /** DD/MM/YYYY - matches mission §20's example format exactly. Formats the date portion only
  * (never shifted by the viewer's local timezone - see `dateOnlyUtc` above for why that matters). */
 export function formatAbsoluteDate(iso: string): string {
@@ -174,6 +195,83 @@ export function presentRequirementStatus(status: RequirementAssignmentStatus): S
   }
 }
 
+/** A07 (Block 2) - `Document` (`src/modules/document/domain/document.ts`) shares the exact
+ * same status vocabulary as `DocumentSubmission` (`presentSubmissionStatus` above), so this is
+ * a thin alias rather than a re-derivation of the same mapping rule in a second place. */
+export function presentDocumentStatus(status: DocumentStatus): StatusPresentation {
+  return presentSubmissionStatus(status);
+}
+
+/** A06 (Block 2 D-258) - reminder channel availability. WhatsApp has no consent flow yet
+ * (item G5 of the roadmap), so it is permanently "Indisponível" in this version, never a
+ * toggle that would look interactive. Both tones are `neutral` (this is a capability
+ * description, not a warning/error about anything). */
+export function presentReminderChannelStatus(channel: "EMAIL" | "WHATSAPP"): StatusPresentation {
+  return channel === "EMAIL" ? { label: "Ativo", tone: "neutral" } : { label: "Indisponível", tone: "neutral" };
+}
+
+/** A08 (Block 3, D-2xx) - the real backend enum
+ * (`src/modules/subject/domain/tracked-subject.ts`'s `TrackedSubjectType`), never the free-text
+ * business description the pre-audit spec had (see A08-fornecedores.md's revision history). */
+export function presentSubjectType(type: TrackedSubjectType): string {
+  switch (type) {
+    case "COMPANY":
+      return "Empresa";
+    case "VENDOR":
+      return "Fornecedor";
+    case "CLIENT":
+      return "Cliente";
+    case "EMPLOYEE":
+      return "Colaborador";
+    case "ASSET":
+      return "Ativo";
+    case "LOCATION":
+      return "Unidade";
+    case "CUSTOM":
+      return "Personalizado";
+  }
+}
+
+/** A11 (Block 3, D-2xx) - `document-archive` module's `Requirement` (5-state, evidence-backed),
+ * distinct from `presentRequirementStatus` above (the legacy `RequirementAssignment`, A10).
+ * `NOT_APPLICABLE` gets its own label/tone pair, deliberately never collapsed into MISSING's
+ * text even though both could read as "not fulfilled" - the audit fix names this explicitly. */
+export function presentRequirementDocStatus(status: RequirementStatus): StatusPresentation {
+  switch (status) {
+    case "MISSING":
+      return { label: "Em falta", tone: "danger" };
+    case "PENDING":
+      return { label: "Pendente", tone: "warning" };
+    case "SATISFIED":
+      return { label: "Satisfeito", tone: "neutral" };
+    case "NOT_SATISFIED":
+      return { label: "Não satisfeito", tone: "danger" };
+    case "NOT_APPLICABLE":
+      return { label: "Não se aplica", tone: "neutral" };
+  }
+}
+
+/** A20 (Block 4, D-2xx) - `DocumentType` catalog status. `ACTIVE` reads "Ativo" (neutral, per
+ * the audited spec) - never "Aprovado"/a stronger claim than the domain state supports. */
+export function presentDocumentTypeStatus(status: DocumentTypeStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "DEPRECATED":
+      return { label: "Descontinuado", tone: "warning" };
+  }
+}
+
+/** A21 (Block 4, D-2xx) - `RequirementTemplate` catalog status. */
+export function presentRequirementTemplateStatus(status: RequirementTemplateStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "ARCHIVED":
+      return { label: "Arquivado", tone: "warning" };
+  }
+}
+
 export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
   switch (status) {
     case "PENDING_UPLOAD":
@@ -191,4 +289,32 @@ export function presentSubmissionStatus(status: DocumentSubmissionStatus): Statu
     case "DELETED":
       return { label: "Excluído", tone: "neutral" };
   }
+}
+
+/** A14 (Block 6, D-2xx) — "Ativa"/"Cancelada", BOTH neutral (A14-solicitacoes-recorrencia.md's
+ * own explicit instruction: a cancelled series is closed history, not a warning/critical
+ * attention state). */
+export function presentDocumentRequestSeriesStatus(status: DocumentRequestSeriesStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativa", tone: "neutral" };
+    case "CANCELLED":
+      return { label: "Cancelada", tone: "neutral" };
+  }
+}
+
+/**
+ * A14 (Block 6, D-2xx) — "Link do convidado" cell text. Derived exclusively from
+ * `DocumentRequest.status`/`deadline` — never from delivery-attempt state (SENT/SEND_UNCERTAIN),
+ * which the tenant-facing side genuinely cannot read (see `SubjectRequests.tsx`'s header
+ * comment for the real, confirmed gap this deviates from the spec's "Entrega da credencial"
+ * column). Plain text, not a StatusBadge, matching the spec's own "(texto: ...)" phrasing.
+ */
+export function presentGuestLinkState(request: Pick<DocumentRequest, "status" | "deadline">, now: Date): string {
+  if (request.status === "SUBMITTED" || request.status === "COMPLETED") return "Resolvido (submissão recebida)";
+  if (request.status === "REVOKED") return "Revogado";
+  if (request.status === "EXPIRED") return "Expirado";
+  if (request.status === "CANCELLED") return "Cancelado";
+  if (request.deadline && new Date(request.deadline).getTime() < now.getTime()) return "Expirado";
+  return request.deadline ? `Ativo · expira em ${formatAbsoluteDate(request.deadline)}` : "Ativo";
 }

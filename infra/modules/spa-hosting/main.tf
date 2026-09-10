@@ -202,15 +202,23 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host_header" {
 # --- CloudFront distribution: two origins, three behaviors ----------------------------------
 
 locals {
-  bff_origin_id = "bff-api"
-  spa_origin_id = "spa-s3"
+  bff_origin_id          = "bff-api"
+  spa_origin_id          = "spa-s3"
+  resource_api_origin_id = "resource-api"
   # Custom origin needs the bare hostname; aws_apigatewayv2_api.api_endpoint is a full https:// URL.
-  bff_origin_domain = replace(var.bff_api_endpoint, "https://", "")
+  bff_origin_domain          = replace(var.bff_api_endpoint, "https://", "")
+  resource_api_origin_domain = replace(var.resource_api_endpoint, "https://", "")
 
   # Every method client.ts can send as a mutation (src/api/client.ts's MUTATING_METHODS) plus
   # GET/HEAD/OPTIONS - ADR-0011 Correção 4 (v2): the CloudFront default restricted method set
   # (GET/HEAD only) would silently break logout and every proxied mutation.
   bff_allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+
+  # G02's guest wizard only ever GETs (resolve/document-types) or POSTs (session/uploads) -
+  # never PUT/PATCH/DELETE (document-archive-guest-handlers.ts's 4 routes) - a narrower allow
+  # list than the BFF's, matching what the guest surface actually needs rather than reusing the
+  # BFF's broader set by default.
+  guest_allowed_methods = ["GET", "HEAD", "OPTIONS", "POST"]
 }
 
 resource "aws_cloudfront_distribution" "spa" {
@@ -228,6 +236,19 @@ resource "aws_cloudfront_distribution" "spa" {
   origin {
     origin_id   = local.bff_origin_id
     domain_name = local.bff_origin_domain
+    custom_origin_config {
+      origin_protocol_policy = "https-only"
+      http_port              = 80
+      https_port             = 443
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # A14/G02 (Block 6, D-2xx) - third origin, same custom_origin_config shape as the BFF origin
+  # above (execute-api regional endpoint works directly as a custom HTTPS origin).
+  origin {
+    origin_id   = local.resource_api_origin_id
+    domain_name = local.resource_api_origin_domain
     custom_origin_config {
       origin_protocol_policy = "https-only"
       http_port              = 80
@@ -258,6 +279,59 @@ resource "aws_cloudfront_distribution" "spa" {
     target_origin_id           = local.bff_origin_id
     viewer_protocol_policy     = "redirect-to-https"
     allowed_methods            = local.bff_allowed_methods
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.bff_edge_floor.id
+    compress                   = true
+  }
+
+  # A14/G02 (Block 6, D-2xx) - routes the public (authorization_type = NONE) guest surface
+  # same-origin, mirroring the /bff/* behavior's shape exactly (own origin, no caching, the
+  # AllViewer-minus-Host origin request policy so the guest's own double-submit CSRF
+  # cookie/header pair and Referrer-Policy response header both survive the hop unmodified).
+  #
+  # Deliberately THREE specific sub-path patterns, never a single "/document-archive/guest/*"
+  # wildcard: G02's own React Router PAGE route is the bare
+  # "/document-archive/guest/document-requests/{token}" (docs/frontend/prototype-screen-specs/
+  # G02-solicitacao-documento-convidado.md's route contract) - the EXACT SAME path
+  # document-archive-guest-handlers.ts's layer-1 `GET .../document-requests/{token}` also
+  # answers (JSON, not HTML). A wildcard covering that bare path would hijack the guest's very
+  # first full-page navigation (the emailed link) to the API origin, serving JSON where the
+  # browser needs index.html. G02 never actually calls that layer-1 route directly anyway -
+  # `startGuestSession` (session/) already resolves the credential internally
+  # (guest-document-access-service.ts) - so every real fetch call G02 makes targets one of these
+  # three longer, unambiguous sub-paths, and the bare token path is left to fall through to the
+  # default (S3/SPA) behavior below, exactly like any other client-side route.
+  ordered_cache_behavior {
+    path_pattern               = "/document-archive/guest/document-requests/*/session"
+    target_origin_id           = local.resource_api_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = local.guest_allowed_methods
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.bff_edge_floor.id
+    compress                   = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern               = "/document-archive/guest/document-requests/*/document-types"
+    target_origin_id           = local.resource_api_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = local.guest_allowed_methods
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.bff_edge_floor.id
+    compress                   = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern               = "/document-archive/guest/document-requests/*/uploads"
+    target_origin_id           = local.resource_api_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = local.guest_allowed_methods
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id

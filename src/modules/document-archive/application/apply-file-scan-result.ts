@@ -32,6 +32,7 @@ import type { MalwareEvidence } from "../../document/domain/malware-scan-result.
 import { documentFileKey, isNonTerminalFileScanStatus, sameObjectVersion, type DocumentFile, type DocumentFileScanStatus } from "../domain/document-file.js";
 import { documentVersionEventKey, type DocumentVersionEvent } from "../domain/document-version-event.js";
 import { documentVersionKey, type DocumentVersion } from "../domain/document-version.js";
+import { defaultStorageQuota, storageQuotaKey, type TenantStorageQuota } from "../domain/storage-quota.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 
@@ -65,6 +66,21 @@ export type ApplyFileScanResultOutcome =
   | { outcome: "READY_TO_PROMOTE"; sourceObject: DocumentObjectReference };
 
 const MAX_OCC_RETRIES = 10;
+
+/** Same get-or-create shape as `DocumentArchiveService.ensureStorageQuota()` (kept as a free
+ * function here since this module's functions take `deps`, not a class instance) — storage-
+ * quota-scoping (D-2xx). */
+async function ensureStorageQuota(deps: ApplyFileScanResultDeps, tenantId: AuthorizedTenantId): Promise<TenantStorageQuota> {
+  const key = storageQuotaKey(tenantId);
+  const existing = await deps.store.get<TenantStorageQuota>(key);
+  if (existing) return existing;
+  const created = defaultStorageQuota(tenantId, (deps.now ?? (() => new Date().toISOString()))());
+  const wrote = await deps.store.putIfAbsent(created);
+  if (wrote) return created;
+  const fresh = await deps.store.get<TenantStorageQuota>(key);
+  if (!fresh) throw new Error(`Storage quota record vanished after creation race for tenant ${tenantId}.`);
+  return fresh;
+}
 
 /** Re-reads the file fresh on every attempt - never assumes the caller's in-memory copy is
  * current, since the upload-finalizer and malware-scan events for the SAME file may land
@@ -153,6 +169,12 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
 
     const infected = mergedMalwareEvidence?.status === "THREATS_FOUND";
     const nowTs = now();
+    // storage-quota-scoping (D-2xx): REJECTED/UNSUPPORTED is terminal without ever reaching
+    // CLEAN, so the capacity hold `reserveFiles()` took on this file's bytes must be released
+    // here — in the SAME transaction as the file's own terminal write, same "counters change
+    // atomically with the state transition, never a separate step" discipline this file's
+    // pendingFileScans decrement already follows (module doc comment, Decision 6/Bloqueador 9).
+    const quota = await ensureStorageQuota(deps, input.tenantId);
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
@@ -174,6 +196,16 @@ export async function applyFileScanResult(deps: ApplyFileScanResultDeps, input: 
           tenantId: input.tenantId,
           expectedVersion: version.version,
           set: { pendingFileScans: version.pendingFileScans - 1, ...(infected ? { infectedFileScans: version.infectedFileScans + 1 } : {}) },
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: storageQuotaKey(input.tenantId),
+          tenantId: input.tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: Math.max(0, quota.reservedBytes - file.contentLength) },
           now: nowTs,
         }),
       },
@@ -230,6 +262,12 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
     if (!version) return "IGNORED_STALE";
 
     const nowTs = now();
+    // storage-quota-scoping (D-2xx): the moment a file durably becomes CLEAN is the real
+    // "commit" point for storage — moves `file.contentLength` from `reservedBytes` to
+    // `usedBytes` (net zero to the committed total `reserveFiles()` already checked), in the
+    // SAME transaction as the CLEAN transition, same discipline as the pendingFileScans entry
+    // beside it.
+    const quota = await ensureStorageQuota(deps, input.tenantId);
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
@@ -249,6 +287,16 @@ export async function confirmFileScanClean(deps: ApplyFileScanResultDeps, input:
           tenantId: input.tenantId,
           expectedVersion: version.version,
           set: { pendingFileScans: version.pendingFileScans - 1 },
+          now: nowTs,
+        }),
+      },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: storageQuotaKey(input.tenantId),
+          tenantId: input.tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: Math.max(0, quota.reservedBytes - file.contentLength), usedBytes: quota.usedBytes + file.contentLength },
           now: nowTs,
         }),
       },
@@ -298,6 +346,9 @@ export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input:
     if (!version) return "IGNORED_STALE"; // Version cannot be removed once files exist - fail closed if this ever changes.
 
     const nowTs = now();
+    // storage-quota-scoping (D-2xx): TIMEOUT is terminal without ever reaching CLEAN, same
+    // reasoning as the REJECT branch above — release the capacity hold this file's bytes took.
+    const quota = await ensureStorageQuota(deps, input.tenantId);
     const entries: TransactWriteEntry[] = [
       {
         Update: buildVersionedUpdate({
@@ -329,11 +380,26 @@ export async function applyFileScanTimeout(deps: ApplyFileScanResultDeps, input:
           now: nowTs,
         }),
       },
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: storageQuotaKey(input.tenantId),
+          tenantId: input.tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: Math.max(0, quota.reservedBytes - file.contentLength) },
+          now: nowTs,
+        }),
+      },
     ];
     try {
       await deps.store.transactWrite(entries);
       return "TIMED_OUT";
     } catch (err) {
+      // A cancellation here may be the GSI8-pointer race the comment above describes, OR a
+      // concurrent write to the quota row (e.g. another file's REJECT/CLEAN transition landing
+      // at the same instant) - both are legitimately retried by the reconciliation worker's next
+      // sweep (it re-derives GSI8 candidates fresh each run), so IGNORED_STALE is correct for
+      // either cause, never a silent quota-accounting drop.
       if (isTransactionCanceled(err)) return "IGNORED_STALE"; // lost the race - a concurrent event/sweep already claimed this file.
       throw err;
     }

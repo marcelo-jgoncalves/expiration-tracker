@@ -1,0 +1,27 @@
+/* A05 extension (Block 2) — entry-point card grid to A06/A07/audit sub-screens. */
+
+.ui-entry-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.ui-entry-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: var(--border-width-thin) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: inherit;
+}
+
+.ui-entry-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+.ui-entry-card:focus-visible {
+  outline: 2px solid var(--color-border-interactive);
+  outline-offset: 2px;
+}

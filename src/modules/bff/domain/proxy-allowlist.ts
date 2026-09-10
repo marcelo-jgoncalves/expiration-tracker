@@ -44,6 +44,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}" },
+  // D-258: item->policy discovery for A06 (Reminder Policy screen).
+  { method: "GET", pathTemplate: "/items/{itemId}/reminder-policy" },
   { method: "DELETE", pathTemplate: "/items/{itemId}/documents/{documentId}" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" },
@@ -129,8 +131,15 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest — JSON envelope, no content-disposition
   // gap (that's the /reports/* CSV routes below), safe to proxy like any other mutation.
   { method: "POST", pathTemplate: "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" },
+  // A14 (Block 6, D-2xx): list/get DocumentRequest under a Subject (avulso + series-materialized
+  // alike) — JSON envelope, same reasoning as the routes immediately above.
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/document-requests" },
+  { method: "GET", pathTemplate: "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" },
   // G2 (D-247/D-24x): review-queue listing (A13) — JSON envelope, same reasoning.
   { method: "GET", pathTemplate: "/document-archive/reviews" },
+  // storage-quota-scoping (D-2xx): tenant-wide storage usage summary — JSON envelope, same
+  // reasoning as review-queue listing above.
+  { method: "GET", pathTemplate: "/document-archive/storage-usage" },
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/series" },
   { method: "GET", pathTemplate: "/document-archive/series/{subjectId}" },

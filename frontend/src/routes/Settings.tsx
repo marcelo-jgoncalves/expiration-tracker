@@ -10,12 +10,63 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useUpdateOrganizationSettings } from "../hooks/useUpdateOrganizationSettings.js";
 import { useLeaveOrganization } from "../hooks/useLeaveOrganization.js";
 import { useCloseOrganization } from "../hooks/useCloseOrganization.js";
+import { useStorageQuota } from "../hooks/useStorageQuota.js";
+import { formatBytesAsGb } from "../api/presentation.js";
 import { ApiError, isConflict, isLastOwnerError, isResponsibilityReassignmentRequiredError } from "../api/errors.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
+
+/** A19 "seção de armazenamento" - the same `docarchive:read` (READ_ONLY_ROLES, every role)
+ * summary A03's conditional card links to, always visible here (not threshold-gated) since
+ * Settings/Organização is the dedicated place to check usage regardless of how close to the
+ * limit it currently is. Unlike A03's card (a secondary, non-blocking signal that silently
+ * omits itself on failure), this is the DEDICATED section for storage - Codex block-review
+ * finding (D-256): silently returning null on error/loading made an authorization failure or a
+ * real backend outage indistinguishable from "no storage data exists", with no retry path.
+ * `Section`'s own heading/title always renders, so the failure is never silently invisible. */
+function StorageSection() {
+  const query = useStorageQuota();
+
+  if (query.isPending) {
+    return (
+      <Section heading="Armazenamento" headingId="storage-usage">
+        <Panel>
+          <CollectionSkeleton rows={1} label="Carregando uso de armazenamento…" />
+        </Panel>
+      </Section>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <Section heading="Armazenamento" headingId="storage-usage">
+        <ErrorState message="Não foi possível carregar o uso de armazenamento." onRetry={() => void query.refetch()} />
+      </Section>
+    );
+  }
+
+  const usage = query.data.usage;
+  const percent = Math.round(usage.usedPercent * 100);
+
+  return (
+    <Section heading="Armazenamento" headingId="storage-usage">
+      <Panel>
+        <p>
+          {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
+        </p>
+        <progress value={Math.min(usage.usedPercent, 1)} max={1} aria-label="Percentual de armazenamento utilizado" style={{ width: "100%" }} />
+        {usage.warningLevel === "OVER" ? (
+          <InlineNotice tone="critical" announce="status">
+            Novos uploads bloqueados até liberar espaço — arquivos existentes não são afetados.
+          </InlineNotice>
+        ) : null}
+      </Panel>
+    </Section>
+  );
+}
 
 /** Wave B2B-14 (D-120) - `handleLeaveOrganization` has been fully wired end-to-end (Lambda,
  * API Gateway route, proxy allowlist) since Wave B2B-8/D-099, but no frontend call site ever
@@ -162,6 +213,7 @@ export function Settings() {
           </p>
           <p>Somente o Owner da organização pode alterar essas configurações.</p>
         </Panel>
+        <StorageSection />
         <LeaveOrganizationSection />
       </>
     );
@@ -198,6 +250,7 @@ export function Settings() {
           ) : null}
         </form>
       </Panel>
+      <StorageSection />
       <LeaveOrganizationSection />
       <CloseOrganizationSection organizationId={activeOrganization.organizationId} />
     </>

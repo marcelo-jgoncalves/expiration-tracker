@@ -1,0 +1,52 @@
+You are acting as an independent reviewer/co-author in a Claude<->Codex reconciliation protocol
+(see AGENTS.md section 4 in this repo for the protocol shape - blind proposal first, no rounding,
+gate is >=9.0/10 agreed by both sides after reconciliation).
+
+CONTEXT: This repo (expiration-tracker) has an existing, converged 8-axis/100-point FUNCTIONAL
+rubric (D-247, docs/architecture/reviews/p0-frontend-screens-scoping/stage1-estado-final-consolidado.md)
+used to grade a screen-inventory PLAN document. Separately, a Claude Design session generated 24
+concrete UI screen specs (docs/frontend/prototype-screen-specs/*.md, ~20-43 lines each - short,
+component+prop+RBAC+example-data level of detail, no pixels/renders) implementing that plan. The
+product owner (Marcelo) says he likes the direction but the specs are "not yet as professional and
+world-class as I'd like." He wants a NEW rubric axis set for VISUAL/DESIGN EXCELLENCE (this does
+not exist yet in this repo) that can be applied to grade a WRITTEN SPEC (not a rendered screen) on
+visual quality, to be merged with the existing D-247 functional rubric into one consolidated
+per-screen audit instrument for a future audit pass over the 24 specs. Marcelo explicitly does NOT
+want the current design system doc (docs/frontend/design-system.md, "Operational Calm" - 8pt-ish
+spacing, semantic tokens, restrained motion, already has type scale/color scale/spacing/motion
+sections) treated as an unquestionable constraint - if research suggests the design system itself
+caps achievable visual quality, that should be named, not silently worked around.
+
+YOUR TASK (do this cold, do not assume any particular answer):
+
+1. Research (from your own knowledge, citing what you can, being honest about what you cannot
+   verify) what concretely separates "professional, world-class" SaaS product visual design from
+   merely functional/adequate design - grounded in real, named products/sources where possible
+   (e.g. Linear, Stripe, Vercel, Notion, Arc, Attio - only if you actually have grounded knowledge,
+   do not fabricate specifics). Cover: typography systems (type scale discipline, line-height/
+   measure, weight/pairing), spacing/layout rhythm (8pt grid or equivalent, whitespace as a tool),
+   color system sophistication (semantic tokens beyond primary/neutral/danger, scale depth, dark
+   mode parity), micro-interaction/motion quality (deliberate restraint vs none vs gratuitous - cite
+   real design-engineering voices if you know them, e.g. Emil Kowalski/Linear, Josh Comeau), density/
+   information hierarchy technique beyond "heading + table", and what specifically gets named in
+   critiques of "generic SaaS UI" / "looks like it was made from a UI kit" - this last one matters
+   most, since it's likely the specific failure mode Marcelo means by "not world-class yet".
+
+2. Address head-on the methodological problem: these specs are TEXT, not pixels. Explain concretely
+   how a rubric can score visual excellence from a written spec description alone (e.g. does the
+   spec assert specific hierarchy/rhythm/motion decisions, vs silently deferring to a component
+   library default) - don't hand-wave this.
+
+3. Propose your own visual-excellence rubric: axes + point weights, same shape as D-247's 8-axis/
+   100-point rubric, sized however you think is right (does not have to be 8 axes or 100 points).
+
+4. Propose how to weight/combine this new visual rubric with the existing D-247 100-point functional
+   rubric into ONE consolidated score for a screen spec - justify the relative weight, don't default
+   to 50/50 without reasoning.
+
+5. Self-score your own proposal 0-10 on: (a) rigor of research grounding, (b) usability/soundness of
+   the resulting rubric for actually auditing a spec file.
+
+Write your full answer as markdown. Do not ask clarifying questions - make reasonable assumptions
+and state them. This is a BLIND round - you have not seen and will not be shown any other proposal
+until after you answer.

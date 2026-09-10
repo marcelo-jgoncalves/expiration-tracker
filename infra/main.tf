@@ -598,8 +598,12 @@ module "guest_credential_delivery_handler" {
     SES_FROM_ADDRESS                             = var.ses_from_address
     SES_CONFIGURATION_SET                        = module.ses_notifications.configuration_set_name
     GUEST_CREDENTIAL_DELIVERY_FAILURES_QUEUE_URL = aws_sqs_queue.guest_credential_delivery_failures.url
-    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado das
-    # outras Lambdas que montam guestLink (D-047: sem domínio de frontend ainda).
+    # A14/G02 (Block 6, D-2xx): G02's real route now exists (`docs/frontend/
+    # prototype-screen-specs/G02-solicitacao-documento-convidado.md`'s route contract), reachable
+    # same-origin via the new `/document-archive/guest/*` CloudFront behavior below - wired for
+    # real for the first time (was deliberately unset, D-047, while no frontend route existed).
+    # No trailing slash - deliver.ts appends `/${token}` (a PATH segment, never `?token=`).
+    GUEST_UPLOAD_BASE_URL = "${var.app_origin}/document-archive/guest/document-requests"
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -805,9 +809,10 @@ module "bff_api" {
 module "spa_hosting" {
   source = "./modules/spa-hosting"
 
-  name_prefix      = local.name_prefix
-  bff_api_endpoint = module.bff_api.api_endpoint
-  tags             = { Project = local.project_name, Environment = var.environment }
+  name_prefix           = local.name_prefix
+  bff_api_endpoint      = module.bff_api.api_endpoint
+  resource_api_endpoint = module.api.api_endpoint
+  tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- WAF (M10, D-037) — REMOVIDO (D-051): AWS WAFv2 não suporta associação com API Gateway

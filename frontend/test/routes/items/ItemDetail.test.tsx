@@ -36,7 +36,7 @@ describe("ItemDetail", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
     expect(screen.getByText("Financeiro")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Renovar" })).toHaveAttribute("href", "/items/item-1/renew");
+    expect(screen.getByRole("link", { name: "Renovar" })).toHaveAttribute("href", "/app/org-1/items/item-1/renew");
   });
 
   it("never shows a Renovar link for a non-ACTIVE item", async () => {
@@ -47,24 +47,46 @@ describe("ItemDetail", () => {
     expect(screen.queryByRole("link", { name: "Renovar" })).not.toBeInTheDocument();
   });
 
-  it("never mentions Documents at all - BLOCKER-A means there is no real contract to back a claim either way (mission §25)", async () => {
-    getMock.mockResolvedValue({ item: item({}) });
+  it("Block 2 (D-258): links to the Lembretes (A06), Arquivos (A07) and Histórico de auditoria entry points, all real routes now that discovery is unblocked", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+      if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: null });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
-    expect(screen.queryByText(/documento/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Lembretes/ })).toHaveAttribute("href", "/app/org-1/items/item-1/reminder-policy");
+    expect(screen.getByRole("link", { name: /Arquivos/ })).toHaveAttribute("href", "/app/org-1/items/item-1/documents");
+    expect(screen.getByRole("link", { name: /Histórico de auditoria/ })).toHaveAttribute("href", "/app/org-1/activity");
+    await waitFor(() => expect(screen.getByText("Nenhum anexo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Nenhuma política configurada")).toBeInTheDocument());
+  });
+
+  it("Arquivos entry point degrades gracefully to a neutral prompt while the document count hasn't resolved yet", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      return new Promise(() => {}); // documents/reminder-policy queries never resolve in this test
+    });
+    renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
+    expect(screen.getByText("Ver arquivos anexados")).toBeInTheDocument();
+    expect(screen.getByText("Ver lembretes")).toBeInTheDocument();
   });
 
   it("shows a single-hop renewal lineage link when renewedFromId is present and resolvable", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/items/item-2") return Promise.resolve({ item: item({ itemId: "item-2", name: "New cycle", renewedFromId: "item-1" }) });
       if (path === "/items/item-1") return Promise.resolve({ item: item({ itemId: "item-1", name: "Old cycle", dueDate: "2025-09-01T00:00:00.000Z" }) });
+      if (path === "/items/item-2/documents" || path === "/items/item-2/reminder-policy") return Promise.resolve({ documents: [], policy: null });
       return Promise.reject(new Error("unexpected path " + path));
     });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-2");
 
     await waitFor(() => expect(screen.getByText(/Ciclo anterior/)).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: /Old cycle/ })).toHaveAttribute("href", "/items/item-1");
+    expect(screen.getByRole("link", { name: /Old cycle/ })).toHaveAttribute("href", "/app/org-1/items/item-1");
   });
 
   it("a 404 shows an honest not-found state with a way back, not a generic error", async () => {

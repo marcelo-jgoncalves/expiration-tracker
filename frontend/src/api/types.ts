@@ -92,6 +92,9 @@ export interface TrackedSubject {
   type: TrackedSubjectType;
   displayName: string;
   notes?: string;
+  /** A08 (Block 3, D-2xx) - create-only durable external identifier (CNPJ, CRM id, etc.) -
+   * mirrors `src/modules/subject/domain/tracked-subject.ts`'s `externalId`. */
+  externalId?: string;
   tags: string[];
   status: TrackedSubjectStatus;
   createdAt: string;
@@ -139,6 +142,29 @@ export interface SubjectsDashboardResponse {
   subjects: TrackedSubject[];
 }
 
+/** A08 (Block 3, D-2xx) - mirrors `src/modules/subject/domain/tracked-subject.ts`'s
+ * `CreateSubjectInput`/`UpdateSubjectInput` exactly. `externalId` is create-only (no rename
+ * path on update - see that file's own doc comment on why). */
+export interface CreateSubjectInput {
+  type: TrackedSubjectType;
+  displayName: string;
+  notes?: string;
+  tags?: string[];
+  externalId?: string;
+}
+
+export interface UpdateSubjectInput {
+  displayName?: string;
+  notes?: string;
+  tags?: string[];
+}
+
+export interface SubjectSearchPage {
+  items: TrackedSubject[];
+  cursor: string | null;
+  scanLimitReached?: boolean;
+}
+
 export interface RequirementAssignmentResponse {
   assignment: RequirementAssignment;
 }
@@ -152,6 +178,181 @@ export interface DocumentSubmissionsResponse {
 }
 
 // Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.
+
+/** A09/A11 (Block 3, D-2xx) - `document-archive` module's evidence-backed `Requirement`
+ * (`src/modules/document-archive/domain/requirement.ts`). A DISTINCT concept from
+ * `RequirementAssignment` above (the legacy `subject` module one, MISSING/SATISFIED only, A10)
+ * - never rendered under the bare label "Requisito", always "Requisito documental" here, per
+ * the A11 spec's naming-collision verification. */
+export type RequirementStatus = "MISSING" | "PENDING" | "SATISFIED" | "NOT_SATISFIED" | "NOT_APPLICABLE";
+export type RequirementApplicability = "APPLICABLE" | "NOT_APPLICABLE";
+
+export interface Requirement {
+  requirementId: string;
+  subjectId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  assigneeUserId?: string;
+  evidenceVersionId?: string;
+  evidenceDocumentId?: string;
+  evidenceSeq?: number;
+  evidenceValidUntil?: string;
+  status: RequirementStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateRequirementInput {
+  subjectId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  assigneeUserId?: string;
+}
+
+export interface UpdateRequirementInput {
+  name?: string;
+  notes?: string;
+  applicability?: RequirementApplicability;
+  assigneeUserId?: string;
+}
+
+export interface RequirementSearchPage {
+  items: Requirement[];
+  cursor: string | null;
+  scanLimitReached?: boolean;
+}
+
+/** Roadmap P0.6 fatia 2 - `null` (never `0%`) when `totalRequirements === 0`, per A09's spec
+ * ("sempre mostrar numerador/denominador junto ao percentual"). */
+export interface SubjectComplianceSummary {
+  totalRequirements: number;
+  satisfiedCount: number;
+  expiringSoonCount: number;
+  missingCount: number;
+  compliancePercent: number | null;
+}
+
+// A20 (Block 4, D-2xx) - `document-archive` module's `DocumentType` catalog
+// (`src/modules/document-archive/domain/document-type.ts`). Tenant-wide, shared by every
+// upload flow (A12) and the guest catalog (G02) - every `ACTIVE` type is guest-visible by
+// construction, no separate visibility flag exists on the backend (never invent one here).
+export type DocumentTypeStatus = "ACTIVE" | "DEPRECATED";
+export type DocumentTypeFieldValueType = "TEXT" | "NUMBER" | "DECIMAL" | "DATE" | "BOOLEAN" | "SINGLE_SELECT";
+export type DocumentTypeFieldStatus = "ACTIVE" | "ARCHIVED";
+export type DocumentTypeFieldOptionStatus = "ACTIVE" | "ARCHIVED";
+
+export interface DocumentTypeFieldOption {
+  optionId: string;
+  label: string;
+  status: DocumentTypeFieldOptionStatus;
+}
+
+export interface DocumentTypeMetadataFieldDefinition {
+  fieldId: string;
+  name: string;
+  valueType: DocumentTypeFieldValueType;
+  required: boolean;
+  options?: DocumentTypeFieldOption[];
+  status: DocumentTypeFieldStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentType {
+  documentTypeId: string;
+  displayName: string;
+  status: DocumentTypeStatus;
+  metadataFields?: DocumentTypeMetadataFieldDefinition[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentTypeInput {
+  displayName: string;
+}
+
+export interface CreateDocumentTypeMetadataFieldInput {
+  name: string;
+  valueType: DocumentTypeFieldValueType;
+  required: boolean;
+  options?: string[];
+}
+
+export type DocumentTypeFieldOptionPatchOp =
+  | { op: "ADD"; label: string }
+  | { op: "RENAME"; optionId: string; label: string }
+  | { op: "ARCHIVE"; optionId: string }
+  | { op: "REACTIVATE"; optionId: string };
+
+export interface UpdateDocumentTypeMetadataFieldInput {
+  name?: string;
+  required?: boolean;
+  status?: DocumentTypeFieldStatus;
+  optionsPatch?: DocumentTypeFieldOptionPatchOp[];
+}
+
+// A21 (Block 4, D-2xx) - `RequirementTemplate` catalog
+// (`src/modules/document-archive/domain/requirement-template.ts`). Applying is SNAPSHOT
+// semantics (never a live link) - a later template edit never reaches an already-applied
+// Requirement.
+export type RequirementTemplateStatus = "ACTIVE" | "ARCHIVED";
+
+export interface RequirementTemplateItem {
+  templateItemId: string;
+  name: string;
+  notes?: string;
+  applicability: RequirementApplicability;
+  position: number;
+}
+
+export interface RequirementTemplate {
+  templateId: string;
+  displayName: string;
+  description?: string;
+  status: RequirementTemplateStatus;
+  items: RequirementTemplateItem[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateRequirementTemplateInput {
+  displayName: string;
+  description?: string;
+  items: Array<{ name: string; notes?: string; applicability?: RequirementApplicability }>;
+}
+
+export interface UpdateRequirementTemplateInput {
+  displayName?: string;
+  description?: string;
+  items?: Array<{ name: string; notes?: string; applicability?: RequirementApplicability }>;
+}
+
+export type TemplateApplicationSkipReason = "DUPLICATE_NAME";
+
+export interface TemplateApplicationSkip {
+  templateItemId: string;
+  name: string;
+  reason: TemplateApplicationSkipReason;
+  existingRequirementId: string;
+  sameTemplateItem: boolean;
+}
+
+export interface TemplateApplicationPreview {
+  create: RequirementTemplateItem[];
+  skip: TemplateApplicationSkip[];
+  templateVersion: number;
+}
+
+export interface TemplateApplicationResult {
+  created: Array<{ templateItemId: string; requirementId: string; name: string }>;
+  skipped: TemplateApplicationSkip[];
+  templateVersion: number;
+}
 
 export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";
@@ -219,4 +420,370 @@ export interface ActivityPageResponse {
    * client-side" convention as DashboardResponse.nextCursor above. */
   cursor: string | null;
   hasMore: boolean;
+}
+
+/**
+ * Storage-quota-scoping (D-2xx) - mirrors `StorageQuotaUsage`
+ * (`src/modules/document-archive/domain/storage-quota.ts`) exactly, `GET
+ * /document-archive/storage-usage`'s `{ usage }` envelope. `docarchive:read` is READ_ONLY_ROLES
+ * (every role), matching A03's "todos os papéis" access for the conditional storage card.
+ */
+export interface StorageQuotaUsage {
+  limitBytes: number;
+  usedBytes: number;
+  reservedBytes: number;
+  availableBytes: number;
+  /** A FRACTION in `0..1` (e.g. `0.1` = 10%), never a `0..100` percentage - confirmed against the
+   * backend's own computation, `usedPercent = committed / quota.limitBytes`
+   * (`src/modules/document-archive/domain/storage-quota.ts`), and its test
+   * (`test/unit/document-archive/storage-quota.test.ts`: `expect(usage.usedPercent).toBeCloseTo(0.1)`
+   * for a 10%-committed fixture). Codex block-review finding (D-256): every frontend call site
+   * multiplies this by 100 for display and feeds it directly to `<progress max={1}>` - a
+   * `0..100` value here would silently render as e.g. "8750%" - see
+   * `frontend/test/routes/{Overview,Settings}.test.tsx`'s `usedPercent: 0.875`/`0.5` fixtures
+   * asserting the correctly-rendered "87%"/"50%" text for the pinned frontend-side contract. */
+  usedPercent: number;
+  warningLevel: "OK" | "WARNING" | "CRITICAL" | "OVER";
+}
+
+export interface StorageUsageResponse {
+  usage: StorageQuotaUsage;
+}
+
+/**
+ * A07 (Generic Document/OCR attachment, Block 2 D-2xx) - mirrors
+ * `src/modules/document/domain/document.ts`'s `Document` exactly. Two-phase upload model
+ * (audited fix, `A07-arquivos-vencimento.md`): `PENDING_UPLOAD` means the slot was reserved
+ * and a presigned URL issued, NOT that bytes have been received - the actual transfer is a
+ * separate direct-to-storage PUT the frontend performs itself, never collapsed into one
+ * action/state with reservation.
+ */
+export type DocumentStatus = "PENDING_UPLOAD" | "SCANNING" | "CLEAN" | "REJECTED" | "UNSUPPORTED" | "TIMEOUT" | "DELETED";
+
+export interface ItemDocument {
+  documentId: string;
+  itemId: string;
+  fileName: string;
+  mediaType: string;
+  contentLength: number;
+  status: DocumentStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface DocumentsListResponse {
+  documents: ItemDocument[];
+}
+
+export interface DocumentResponse {
+  document: ItemDocument;
+}
+
+/** POST /items/{itemId}/documents request body (`ReserveUploadInput`). */
+export interface ReserveUploadInput {
+  fileName: string;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+/** POST /items/{itemId}/documents response (`ReserveUploadResult`) - phase 1 only. The
+ * frontend must PUT the raw file bytes to `uploadUrl` with `requiredHeaders` itself (phase 2)
+ * before the document can ever leave `PENDING_UPLOAD`; there is no separate "commit" call in
+ * this module (unlike document-archive's `/versions/{seq}/commit`) - the storage-layer PUT
+ * itself is what the malware-scan pipeline reacts to. */
+export interface ReserveUploadResult {
+  documentId: string;
+  uploadSlotId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+/** A06 (Reminder Policy) - mirrors src/modules/reminder/domain/reminder-policy.ts's
+ * ReminderTrigger/ReminderPolicy exactly (the backend contract, not a UI-shaped subset).
+ * `offsetIso` is the restricted "[-]P<N>D" grammar (recurrence.ts's `parseDayOffset`) - days
+ * relative to the item's dueDate, never a general ISO-8601 duration. */
+export type NotificationChannelKind = "EMAIL" | "WHATSAPP";
+
+export interface ReminderTrigger {
+  triggerId: string;
+  offsetIso: string;
+  localTime: string;
+  audience?: "ASSIGNEE_AND_WATCHERS" | "MANAGER";
+}
+
+export interface QuietHours {
+  startLocalTime: string;
+  endLocalTime: string;
+}
+
+export interface ReminderPolicy {
+  policyId: string;
+  tenantId: string;
+  scope: "TEMPLATE" | "ITEM";
+  itemId?: string;
+  name: string;
+  triggers: ReminderTrigger[];
+  timeZone: string;
+  quietHours?: QuietHours;
+  channels: NotificationChannelKind[];
+  optOutChannels?: NotificationChannelKind[];
+  enabled: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /items/{itemId}/reminder-policy response (D-258 discovery route) - `policy: null` is a
+ * legitimate, common state ("no policy configured yet"), never an error. */
+export interface ItemReminderPolicyResponse {
+  policy: ReminderPolicy | null;
+}
+
+/** POST/PUT /reminders/policies(/{policyId}) request body (`PutPolicyInput`). */
+export interface PutPolicyInput {
+  scope: "TEMPLATE" | "ITEM";
+  itemId?: string;
+  rule: {
+    name: string;
+    triggers: ReminderTrigger[];
+    timeZone: string;
+    quietHours?: QuietHours;
+    channels: NotificationChannelKind[];
+    optOutChannels?: NotificationChannelKind[];
+  };
+  enabled?: boolean;
+}
+
+/**
+ * A13 (Block 5, D-2xx) — `document-archive`'s review-queue subset of `DocumentVersion`/
+ * `Document` (`src/modules/document-archive/domain/document-version.ts`/`document.ts`). Only
+ * the fields this screen actually renders/decides on are declared here — same "domain-relevant
+ * subset, not the full persisted record" convention `ExpirationItem`'s own doc comment states,
+ * deliberately excluding the GSI5 sparse-index bookkeeping fields.
+ */
+export type ReviewQueueState = "RECEIVED" | "UNDER_REVIEW";
+
+/** Closed taxonomy, `document-version.ts`'s `RejectionReason` — mirrors it exactly (backend
+ * has no free-text field alongside "OTHER" today; the audited spec's "texto livre quando o
+ * domínio permitir" is conditional precisely because the domain does not yet permit it here). */
+export type RejectionReason = "EXPIRED" | "ILLEGIBLE" | "INCORRECT" | "WRONG_SUBJECT" | "OUTDATED_VERSION" | "INCOMPLETE" | "OTHER";
+
+export type ReviewDocumentVersionState = ReviewQueueState | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN" | "DRAFT";
+export type DocumentVersionOrigin = "MANUAL_UPLOAD" | "GUEST_UPLOAD" | "REQUEST_RESPONSE" | "IMPORT" | "AUTOMATED_CAPTURE";
+
+export interface ReviewDocumentVersion {
+  documentId: string;
+  seq: number;
+  versionId: string;
+  state: ReviewDocumentVersionState;
+  origin: DocumentVersionOrigin;
+  validFrom?: string;
+  validUntil?: string;
+  receivedAt?: string;
+  reviewerId?: string;
+  decidedAt?: string;
+  rejectionReason?: RejectionReason;
+  pendingFileScans: number;
+  infectedFileScans: number;
+  requestId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+/** `document.ts`'s `Document` has no display `name` field (only `subjectId`/`documentTypeId`) —
+ * the row/detail panel shows the identifiers it actually has, a graceful-degradation precedent
+ * this codebase already uses elsewhere (`RequirementsCollection`'s row shows `r.subjectId`
+ * directly, no name-resolution fetch), not a fabricated field. */
+export interface ReviewDocumentSummary {
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+}
+
+export interface ReviewQueueHit {
+  version: ReviewDocumentVersion;
+  document?: ReviewDocumentSummary;
+}
+
+export interface ReviewQueuePage {
+  items: ReviewQueueHit[];
+  cursor: string | null;
+}
+
+export interface PolicyResponse {
+  policy: ReminderPolicy;
+}
+
+/**
+ * A12 (Block 5, D-2xx) — Document Detail / Version History. `document-archive`'s full
+ * `Document`/`DocumentVersion` shapes (`src/modules/document-archive/domain/document.ts`/
+ * `document-version.ts`), same "domain-relevant subset" convention as `ReviewDocumentVersion`
+ * above — GSI bookkeeping fields (GSI1PK/SK etc.) deliberately excluded.
+ */
+export type DocumentArchiveStatus = "ACTIVE" | "ARCHIVED";
+
+export interface DocumentArchiveDocument {
+  documentId: string;
+  subjectId: string;
+  documentTypeId: string;
+  status: DocumentArchiveStatus;
+  hasValidity: boolean;
+  currentVersionId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export type DocumentVersionState = "DRAFT" | "RECEIVED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN";
+
+export interface DocumentArchiveVersion {
+  documentId: string;
+  seq: number;
+  versionId: string;
+  state: DocumentVersionState;
+  origin: DocumentVersionOrigin;
+  issuedAt?: string;
+  validFrom?: string;
+  validUntil?: string;
+  receivedAt?: string;
+  reviewerId?: string;
+  decidedAt?: string;
+  rejectionReason?: RejectionReason;
+  pendingFileScans: number;
+  infectedFileScans: number;
+  fileSetSealed?: boolean;
+  principalFileId?: string;
+  totalFiles?: number;
+  requestId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentInput {
+  subjectId: string;
+  documentTypeId: string;
+  hasValidity: boolean;
+}
+
+export type DocumentFileRole = "PRINCIPAL" | "SUPPORTING";
+
+export interface FileUploadSpec {
+  role: DocumentFileRole;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export interface ReservedDocumentFile {
+  file: { fileId: string; role: DocumentFileRole; mediaType: string; contentLength: number };
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+}
+
+/**
+ * A14 (Block 6, D-2xx) — `document-archive/domain/{document-request-series,document-request}.ts`.
+ * Real, confirmed deviation from the audited spec's illustrative copy (A14-solicitacoes-
+ * recorrencia.md §Estrutura point 2, `docs/architecture/reviews/screen-spec-audit-2026-09-09/
+ * A14-audit-record.md`): the spec shows a cron expression ("cron: 0 0 1 star-slash-3 star") as the
+ * recurrence's technical representation. The REAL backend (`DocumentRequestSeries.cadence`)
+ * only ever models a plain day interval (`{ intervalDays: number }`) — there is no cron anywhere
+ * in this domain, confirmed by reading `document-request-series.ts`/`document-request-
+ * recurrence-service.ts` directly (no `updateSeriesCadence`/cron-parsing code exists at all).
+ * `SubjectRequests.tsx` never fabricates a cron string the backend cannot produce — it shows
+ * "A cada N dias" (plus the named-option label when N matches one), never a cron expression.
+ */
+export type DocumentRequestSeriesStatus = "ACTIVE" | "CANCELLED";
+
+export interface DocumentRequestSeriesCadence {
+  intervalDays: number;
+}
+
+export interface DocumentRequestSeries {
+  seriesId: string;
+  subjectId: string;
+  requirementId: string;
+  cadence: DocumentRequestSeriesCadence;
+  status: DocumentRequestSeriesStatus;
+  currentCycleStartAt: string;
+  nextDueAt: string;
+  latestAttemptIndex: number;
+  latestRequestId?: string;
+  recipientEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentRequestSeriesInput {
+  subjectId: string;
+  requirementId: string;
+  cadence: DocumentRequestSeriesCadence;
+  firstDueAt?: string;
+  recipientEmail?: string;
+}
+
+export type DocumentRequestStatus = "REQUESTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "REVOKED";
+
+export interface DocumentRequest {
+  documentRequestId: string;
+  subjectId: string;
+  requirementId: string;
+  status: DocumentRequestStatus;
+  deadline?: string;
+  lastOpenedAt?: string;
+  lastSubmissionId?: string;
+  submissionCount: number;
+  seriesId?: string;
+  occurrenceId?: string;
+  attemptIndex?: number;
+  parentRequestId?: string;
+  issuanceGeneration: number;
+  recipientEmail?: string;
+  lastRejection?: { versionId: string; reason: string; occurredAt: string };
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateDocumentRequestInput {
+  subjectId: string;
+  requirementId: string;
+  deadline?: string;
+  recipientEmail?: string;
+  idempotencyKey: string;
+}
+
+/**
+ * G02 (Block 6, D-2xx) — `document-archive/application/guest-document-access-service.ts`'s
+ * public response shapes. Deliberately minimal (never the full tenant-facing `DocumentRequest`/
+ * `DocumentType` shapes above) — the guest surface is validated only by token/session, never by
+ * `Role`, and must never leak more than a submission UI needs (same posture the backend's own
+ * `GuestDocumentTypeSummary` doc comment states).
+ */
+export interface GuestDocumentTypeOption {
+  documentTypeId: string;
+  displayName: string;
+}
+
+export interface GuestStartSessionResult {
+  expiresAt: string;
+  subjectDisplayName?: string;
+  requirementName?: string;
+}
+
+export interface GuestSubmitEvidenceInput {
+  fileName: string;
+  documentTypeId: string;
+  idempotencyKey: string;
+}
+
+export interface GuestSubmitEvidenceResult {
+  documentId: string;
+  versionId: string;
+  seq: number;
 }

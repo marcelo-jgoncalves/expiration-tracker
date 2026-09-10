@@ -141,7 +141,7 @@ function makeDeps(store: GuestCredentialDeliveryStore, overrides: Partial<Omit<G
     markerStore,
     emailProvider,
     notifyUncertainDelivery,
-    guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+    guestUploadBaseUrl: "https://app.example.invalid/document-archive/guest/document-requests",
     now: () => clock,
     newCorrelationId: () => "corr-1",
     leaseDurationMs: 30_000,
@@ -161,7 +161,7 @@ describe("deliverGuestCredential (D-228/D-233)", () => {
     expect(emailProvider.sent).toHaveLength(1);
     expect(emailProvider.sent[0]?.to).toBe("guest@example.com");
     const link = String(emailProvider.sent[0]?.renderContext["guestLink"]);
-    expect(link).toBe(`https://app.example.invalid/guest/document-requests?token=${encodeURIComponent(seedDelivery().token)}`);
+    expect(link).toBe(`https://app.example.invalid/document-archive/guest/document-requests/${encodeURIComponent(seedDelivery().token)}`);
   });
 
   it("G-V3: a duplicate Streams delivery of the SAME record after a confirmed send is a safe no-op — never sends twice", async () => {

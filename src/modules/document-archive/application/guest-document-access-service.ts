@@ -51,6 +51,8 @@ import {
   type IssuedGuestSession,
 } from "../domain/guest-session.js";
 import { documentRequestKey, isDocumentRequestLive, type DocumentRequest } from "../domain/document-request.js";
+import { requirementKey } from "../domain/requirement.js";
+import { trackedSubjectKeyForFence } from "../domain/requirement-template.js";
 import { documentKey, documentGsi1Keys, documentGsi2Keys, type Document } from "../domain/document.js";
 import { documentVersionKey, reviewQueueGsi5Keys, type DocumentVersion } from "../domain/document-version.js";
 import { documentVersionEventKey, type DocumentVersionEvent } from "../domain/document-version-event.js";
@@ -81,6 +83,14 @@ export interface GuestDocumentAccessServiceDeps {
 export interface ResolvedCredential {
   credential: RequestAccessCredential;
   request: DocumentRequest;
+  /** G02 (Block 6, D-2xx) — the guest wizard's own card copy ("{Fornecedor} solicitou evidência
+   * para o requisito: {Requisito}") needs a human-readable name, never the opaque
+   * subjectId/requirementId this service otherwise deals in exclusively. Best-effort/absent-safe
+   * (`?`): a Subject/Requirement deleted after the credential was issued must never turn an
+   * otherwise-valid guest session into a hard failure — the UI degrades to omitting the name,
+   * same "no fabricated value" discipline as the rest of this module. */
+  subjectDisplayName?: string;
+  requirementName?: string;
 }
 
 export interface ResolvedSession {
@@ -102,6 +112,12 @@ export interface IssueCredentialInput {
 export interface StartGuestSessionResult {
   session: IssuedGuestSession;
   expiresAt: string;
+  /** G02 (Block 6, D-2xx) — see `ResolvedCredential`'s own doc comment; startGuestSession is the
+   * ONE call G02 actually makes on page load (it never calls the bare layer-1 GET route
+   * directly, see `document-archive-guest-handlers.ts`'s header comment), so this is the single
+   * place the wizard's card copy gets its display names from. */
+  subjectDisplayName?: string;
+  requirementName?: string;
 }
 
 export interface SubmitEvidenceInput {
@@ -216,7 +232,13 @@ export class GuestDocumentAccessService {
 
     if (request.status === "REQUESTED") await this.markOpened(request);
 
-    return { credential: pointer, request };
+    const tenantId = authorizedTenantIdFromPersistedEntity(pointer);
+    const [subject, requirement] = await Promise.all([
+      this.store.get<EntityKey & { displayName?: string }>(trackedSubjectKeyForFence(tenantId, pointer.subjectId)),
+      this.store.get<EntityKey & { name?: string }>(requirementKey(tenantId, pointer.subjectId, pointer.requirementId)),
+    ]);
+
+    return { credential: pointer, request, subjectDisplayName: subject?.displayName, requirementName: requirement?.name };
   }
 
   /**
@@ -302,7 +324,7 @@ export class GuestDocumentAccessService {
     };
     const created = await this.store.putIfAbsent(session);
     if (!created) throw new GuestAccessInvalidError(); // astronomically unlikely selector collision.
-    return { session: issued, expiresAt };
+    return { session: issued, expiresAt, subjectDisplayName: resolved.subjectDisplayName, requirementName: resolved.requirementName };
   }
 
   /** Resolves a GuestSession token — same parse/rate-limit/lookup/dummy-compare/expiry

@@ -32,6 +32,7 @@ import {
   DocumentTypeNotActiveError,
   IneligibleAssigneeError,
   NotFoundError,
+  QuotaExceededError,
   RequirementNameConflictError,
   SubjectPreconditionFailedError,
   TemplatePreconditionFailedError,
@@ -147,9 +148,10 @@ import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-s
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { computeDossierExportRunPurgeAfterTtl, computeDossierScopeHash, dossierExportRunKey, type DossierExportRun } from "../domain/dossier-export-run.js";
-import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
+import { documentRequestKey, DOCUMENT_REQUEST_SK_PREFIX, type DocumentRequest } from "../domain/document-request.js";
 import { requestAccessCredentialKey } from "../domain/request-access-credential.js";
 import { buildDocumentRequestCreatedOutboxEntry } from "./document-request-recurrence-service.js";
+import { defaultStorageQuota, projectStorageQuotaUsage, storageQuotaKey, wouldExceedStorageQuota, type StorageQuotaUsage, type TenantStorageQuota } from "../domain/storage-quota.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
  * (P0.1/§8) rather than by a fixed `CancellationReasons` index. */
@@ -639,6 +641,25 @@ export class DocumentArchiveService {
     const now = this.now();
     const principalSpec = files.find((f) => f.role === "PRINCIPAL");
     if (!principalSpec) throw new ValidationError("Exactly one PRINCIPAL is required.", { documentId, seq });
+
+    // storage-quota-scoping (2026-09-09, D-2xx): reservation-time capacity hold, checked and
+    // incremented in the SAME transaction that seals the file set below — closes the
+    // oversubscription gap Codex's independent proposal caught (N concurrent reservations
+    // against a near-full quota reading the same stale `usedBytes` and all passing). The OCC
+    // condition on the quota row's `version` is what actually serializes concurrent batches;
+    // this in-memory check only produces a clear, early `QuotaExceededError` message.
+    const requestedBytes = files.reduce((sum, f) => sum + f.contentLength, 0);
+    const quota = await this.ensureStorageQuota(tenantId);
+    if (wouldExceedStorageQuota(quota, requestedBytes)) {
+      throw new QuotaExceededError("Tenant storage quota would be exceeded by this upload.", {
+        tenantId: ctx.tenant.tenantId,
+        limitBytes: quota.limitBytes,
+        usedBytes: quota.usedBytes,
+        reservedBytes: quota.reservedBytes,
+        requestedBytes,
+      });
+    }
+
     const documentFiles: DocumentFile[] = files.map((spec) => {
       const fileId = this.ids.newFileId();
       // D-179 slice 3: the scan-timeout deadline is fully known right here (createdAt=now, the
@@ -688,11 +709,31 @@ export class DocumentArchiveService {
         }),
       },
       ...documentFiles.map((file) => ({ Put: buildVersionedCreate(this.tableName, file as unknown as Record<string, unknown> & EntityKey) })),
+      {
+        // storage-quota-scoping (D-2xx): the transactional re-assertion of the same check above
+        // — the ONE write that actually serializes concurrent reservations against the shared
+        // quota row (the earlier in-memory check only gives a fast, clear error message).
+        Update: buildVersionedUpdate({
+          tableName: this.tableName,
+          key: storageQuotaKey(tenantId),
+          tenantId,
+          expectedVersion: quota.version,
+          set: { reservedBytes: quota.reservedBytes + requestedBytes },
+          now,
+          extraConditions: [
+            {
+              expression: "#used + #reserved + :requested <= #limit",
+              names: { "#used": "usedBytes", "#reserved": "reservedBytes", "#limit": "limitBytes" },
+              values: { ":requested": requestedBytes },
+            },
+          ],
+        }),
+      },
     ];
     try {
       await this.store.transactWrite(entries);
     } catch (err) {
-      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion's file set was concurrently reserved or the Version is no longer DRAFT.", { documentId, seq });
+      if (isTransactionCanceled(err)) throw new ConflictError("DocumentVersion's file set was concurrently reserved, the Version is no longer DRAFT, or the tenant's storage quota was concurrently exhausted — retry.", { documentId, seq });
       throw err;
     }
 
@@ -719,6 +760,35 @@ export class DocumentArchiveService {
    * encodes the original file name (PII) — only internal identifiers. */
   private buildQuarantineKey(tenantId: AuthorizedTenantId, documentId: string, seq: number, fileId: string): string {
     return `document-archive/tenant/${tenantId}/document/${documentId}/version/${seq}/file/${fileId}`;
+  }
+
+  /** Get-or-create of the default storage quota row — same "auto-provisioning" shape
+   * `SubjectService.ensureEntitlement()` established (D-038's `TenantQuotaService` precedent),
+   * ported here rather than reused directly because `document-archive` cannot import from
+   * `subject/**` (`.dependency-cruiser.cjs`; see `storage-quota.ts`'s module doc comment). */
+  private async ensureStorageQuota(tenantId: AuthorizedTenantId): Promise<TenantStorageQuota> {
+    const key = storageQuotaKey(tenantId);
+    const existing = await this.store.get<TenantStorageQuota>(key);
+    if (existing) return existing;
+    const created = defaultStorageQuota(tenantId, this.now());
+    const wrote = await this.store.putIfAbsent(created);
+    if (wrote) return created;
+    // Lost the creation race — another concurrent call already created it; re-read real state.
+    const fresh = await this.store.get<TenantStorageQuota>(key);
+    if (!fresh) throw new ConflictError("Storage quota record vanished after creation race.", { tenantId });
+    return fresh;
+  }
+
+  /** storage-quota-scoping (D-2xx): the read route this exposes reuses `docarchive:read`
+   * (`READ_ONLY_ROLES`) — same tier as every other tenant-wide summary this module already
+   * serves (`listReviewQueue`, D-248), by direct analogy: a byte-count aggregate carries no more
+   * sensitivity than review-queue membership, and every role that can upload should be able to
+   * see why an upload might be refused. */
+  async getStorageQuotaUsage(ctx: RequestContext): Promise<StorageQuotaUsage> {
+    authorize({ context: ctx, action: "docarchive:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
+    const quota = await this.ensureStorageQuota(tenantId);
+    return projectStorageQuotaUsage(quota);
   }
 
   /** DRAFT -> RECEIVED. File presence/malware-scan-clean validation is the caller's
@@ -1178,6 +1248,35 @@ export class DocumentArchiveService {
       }
       throw err;
     }
+    return request;
+  }
+
+  /**
+   * A14 (Block 6, D-2xx) — closes a real, previously-unbuilt read gap found while implementing
+   * the frontend's "Solicitações avulsas e materializações" panel: `createDocumentRequest` (D-226
+   * Achado 2) and `materializeAttempt` (D-147) both write a `DocumentRequest` under the Subject's
+   * own partition (`documentRequestKey`/`DOCUMENT_REQUEST_SK_PREFIX`, identical convention to
+   * `listRequirements`/`REQUIREMENT_SK_PREFIX` just above), but no reader ever existed — a tenant
+   * caller had no way to see the DocumentRequests a Subject's Requirements had accumulated,
+   * avulso or series-materialized alike. Mechanical, same shape as `listRequirements`/
+   * `getRequirement` (a plain `queryByPk`/`store.get` over an existing, already-correct key
+   * layout) — no new domain concept, no new index. Reuses `docarchive:series-read` (never a new
+   * action) per the audited spec's own access model: the entire A14 screen, both panels, gates
+   * on that single read action for all roles including VIEWER.
+   */
+  async listDocumentRequests(ctx: RequestContext, subjectId: string): Promise<DocumentRequest[]> {
+    authorize({ context: ctx, action: "docarchive:series-read", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.store.queryByPk<DocumentRequest>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, DOCUMENT_REQUEST_SK_PREFIX);
+  }
+
+  /** Companion to `listDocumentRequests` above — same rationale, same mechanical gap (A14's "Ver"
+   * detail drawer needs a single-item read; the key is fully deterministic via
+   * `documentRequestKey`, same `store.get` shape as `getRequirement`/`getDocument`). */
+  async getDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string): Promise<DocumentRequest> {
+    authorize({ context: ctx, action: "docarchive:series-read", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
+    const request = await this.store.get<DocumentRequest>(documentRequestKey(tenantId, subjectId, documentRequestId));
+    if (!request) throw new NotFoundError("DocumentRequest not found.", { documentRequestId });
     return request;
   }
 

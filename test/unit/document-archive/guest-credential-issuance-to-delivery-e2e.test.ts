@@ -158,7 +158,7 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
       markerStore: new FakeMarkerStore(),
       emailProvider,
       notifyUncertainDelivery: async () => {},
-      guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+      guestUploadBaseUrl: "https://app.example.invalid/document-archive/guest/document-requests",
       now: () => "2026-01-01T00:06:00.000Z",
       newCorrelationId: () => "corr-delivery-1",
     };
@@ -171,7 +171,9 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
     // method the real HTTP guest handler calls, document-archive-guest-handlers.ts) accepts it.
     const guestLink = String(emailProvider.sent[0]?.renderContext["guestLink"]);
     const url = new URL(guestLink);
-    const token = url.searchParams.get("token");
+    // G02's real route contract is a PATH segment (`/document-requests/:token`), never a
+    // `?token=` query param (see deliver.ts's guestLink construction comment).
+    const token = url.pathname.split("/").pop();
     expect(token).toBe(deliveryRecord!.token);
 
     const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
@@ -214,7 +216,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
       markerStore: new FakeMarkerStore(),
       emailProvider,
       notifyUncertainDelivery: async () => {},
-      guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests",
+      guestUploadBaseUrl: "https://app.example.invalid/document-archive/guest/document-requests",
       now: () => "2026-01-01T00:06:00.000Z",
       newCorrelationId: () => "corr-delivery-2",
     };
@@ -225,7 +227,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
 
     // 4. The guest clicks the link — resolveCredential() accepts it, exactly like the avulso path.
     const guestLink = String(emailProvider.sent[0]?.renderContext["guestLink"]);
-    const token = new URL(guestLink).searchParams.get("token");
+    const token = new URL(guestLink).pathname.split("/").pop();
     expect(token).toBe(deliveryRecord!.token);
 
     const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
@@ -249,7 +251,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
 
     const emailProvider = new CapturingEmailProvider();
     const deliveryOutcome = await deliverGuestCredential(
-      { store, markerStore: new FakeMarkerStore(), emailProvider, notifyUncertainDelivery: async () => {}, guestUploadBaseUrl: "https://app.example.invalid/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-3" },
+      { store, markerStore: new FakeMarkerStore(), emailProvider, notifyUncertainDelivery: async () => {}, guestUploadBaseUrl: "https://app.example.invalid/document-archive/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-3" },
       deliveryRecord!,
     );
     expect(deliveryOutcome.kind).toBe("SKIPPED_NO_RECIPIENT_EMAIL");

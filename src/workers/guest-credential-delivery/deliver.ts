@@ -75,9 +75,11 @@ export interface GuestCredentialDeliveryDeps {
    * into the already-existing `guest-credential-delivery-failures` queue (composition root),
    * kept as an injected dependency so this worker stays AWS-SDK-free (AGENTS.md §7). */
   notifyUncertainDelivery: (alert: UncertainDeliveryAlert) => Promise<void>;
-  /** Placeholder frontend base URL, same documented posture as
-   * `document-chasing-dispatch/dispatch.ts`'s `guestUploadBaseUrl` (no real frontend domain
-   * exists yet, D-047). */
+  /** Base URL of G02's real route (`docs/frontend/prototype-screen-specs/
+   * G02-solicitacao-documento-convidado.md`'s own route contract:
+   * `/document-archive/guest/document-requests/:token`, a PATH segment — never `?token=`, the
+   * placeholder shape this deliberately superseded once the frontend route existed to conform
+   * to, Block 6/D-2xx). No trailing slash — `deliverGuestCredential` appends `/${token}`. */
   guestUploadBaseUrl: string;
   now: () => string;
   newCorrelationId: () => string;
@@ -122,7 +124,7 @@ export async function deliverGuestCredential(deps: GuestCredentialDeliveryDeps, 
   }
 
   const { claimId } = claim;
-  const guestLink = `${deps.guestUploadBaseUrl}?token=${encodeURIComponent(record.token)}`;
+  const guestLink = `${deps.guestUploadBaseUrl}/${encodeURIComponent(record.token)}`;
   try {
     await deps.emailProvider.send({
       to: request.recipientEmail,

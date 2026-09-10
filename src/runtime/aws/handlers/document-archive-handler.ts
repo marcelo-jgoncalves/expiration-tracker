@@ -24,11 +24,14 @@ import {
   handleListRequirements,
   handleSearchRequirements,
   handleListReviewQueue,
+  handleGetStorageUsage,
   handleUpdateRequirement,
   handleLinkEvidence,
   handleUnlinkEvidence,
   handleDeleteRequirement,
   handleCreateDocumentRequest,
+  handleListDocumentRequests,
+  handleGetDocumentRequest,
   handleCreateSeries,
   handleGetSeries,
   handleListSeries,
@@ -132,10 +135,23 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // G4 (D-247/D-24x): one-off ("avulso") DocumentRequest, outside any series.
         case "POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests":
           return await handleCreateDocumentRequest(deps, { ...base, body: parseBody(event) });
+        // A14 (Block 6, D-2xx): literal "document-requests" segment routed before the
+        // "{requirementId}" param route above (same "literal beats param" precedent as
+        // "compliance"/"search" elsewhere in this switch) — lists every DocumentRequest under a
+        // Subject, avulso and series-materialized alike (see `listDocumentRequests`'s doc
+        // comment for the real read gap this closes).
+        case "GET /document-archive/requirements/{subjectId}/document-requests":
+          return await handleListDocumentRequests(deps, base);
+        case "GET /document-archive/requirements/{subjectId}/document-requests/{documentRequestId}":
+          return await handleGetDocumentRequest(deps, base);
         // G2 (D-247/D-24x): review-queue listing (A13) - literal segment under /document-archive,
         // same Lambda, no path-parameter collision with anything above.
         case "GET /document-archive/reviews":
           return await handleListReviewQueue(deps, base);
+        // storage-quota-scoping (D-2xx): tenant-wide storage usage summary - literal segment,
+        // same "no path-parameter collision" reasoning as /reviews above.
+        case "GET /document-archive/storage-usage":
+          return await handleGetStorageUsage(deps, base);
         // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147) — subject-scoped series
         // routes. Tenant-facing only — the guest-facing surface stays on
         // document-archive-guest-handlers.ts, unchanged by this task.

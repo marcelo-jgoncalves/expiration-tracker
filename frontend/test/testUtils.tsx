@@ -23,6 +23,16 @@ function defaultActiveOrganizationValue(): ActiveOrganizationValue {
   };
 }
 
+/** D-2xx (Block 0): every real route lives under `/app/:orgId/...` now, and screen components
+ * build their own internal links via `useOrgPath()`, which reads that same `:orgId` param - so
+ * `routePath`/`initialEntry` given here are nested under an `/app/:orgId` prefix automatically
+ * (`orgId` = the resolved `activeOrganization.organizationId`, `TEST_ORGANIZATION_ID` by
+ * default), rather than requiring every call site to spell out the prefix itself. */
+function withOrgPrefix(entry: InitialEntry, orgId: string): InitialEntry {
+  if (typeof entry === "string") return `/app/${orgId}${entry}`;
+  return { ...entry, pathname: `/app/${orgId}${entry.pathname ?? ""}` };
+}
+
 /** Renders a routed component at a given path with its own isolated QueryClient (retry
  * disabled - tests assert on the first attempt's outcome, never a flaky retry timing race).
  * `initialEntry` accepts a plain path string, or `{ pathname, state }` to simulate a
@@ -36,13 +46,15 @@ export function renderAtRoute(
   initialEntry: InitialEntry,
   activeOrganization?: Partial<ActiveOrganizationValue>,
 ) {
+  const value = { ...defaultActiveOrganizationValue(), ...activeOrganization };
+  const orgId = value.organizationId ?? TEST_ORGANIZATION_ID;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <ActiveOrganizationContext.Provider value={{ ...defaultActiveOrganizationValue(), ...activeOrganization }}>
-        <MemoryRouter initialEntries={[initialEntry]}>
+      <ActiveOrganizationContext.Provider value={value}>
+        <MemoryRouter initialEntries={[withOrgPrefix(initialEntry, orgId)]}>
           <Routes>
-            <Route path={routePath} element={element} />
+            <Route path={`/app/:orgId${routePath}`} element={element} />
           </Routes>
         </MemoryRouter>
       </ActiveOrganizationContext.Provider>

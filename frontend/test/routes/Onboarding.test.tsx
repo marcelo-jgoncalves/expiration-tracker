@@ -41,7 +41,9 @@ describe("Onboarding", () => {
 
   // Wave B2B-14: the OTHER real case organizationSelectionRequired covers (1+ organizations,
   // none currently selected) - distinct from "zero organizations", never the create form.
-  it("shows a picker (never the create form) when 1+ usable organizations exist but none is selected", () => {
+  // A02 (D-255/D-256): renders a card grid (name + role) instead of a plain button list, but the
+  // create-organization form stays embedded below it (still reachable without a separate route).
+  it("shows an org card grid, each card labelled with name and role, when 1+ usable organizations exist but none is selected", () => {
     const selectMock = vi.fn();
     renderAtRoute(
       "/onboarding",
@@ -58,10 +60,52 @@ describe("Onboarding", () => {
       },
     );
 
-    expect(screen.getByText("Escolha uma organização")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Nome da organização/)).not.toBeInTheDocument();
+    expect(screen.getByText("Suas organizações")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    // Create-organization form remains embedded, reachable without a separate route.
+    expect(screen.getByLabelText(/Nome da organização/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Org B" }));
+    const cardB = screen.getByRole("button", { name: /Org B/ });
+    expect(cardB).toHaveTextContent("Member");
+    fireEvent.click(cardB);
     expect(selectMock).toHaveBeenCalledWith("org-b");
+  });
+
+  // A02 spec's suspended-membership disabled-card rule requires suspended-state data the BFF
+  // does not return today (D-255/D-256 investigation) - graceful degradation means every listed
+  // card is enabled/navigable, never a fabricated disabled state.
+  it("never disables a listed org card - suspended-Membership data is not available from the BFF today", () => {
+    renderAtRoute(
+      "/onboarding",
+      <Onboarding />,
+      "/onboarding",
+      {
+        organizationSelectionRequired: {
+          organizations: [{ organizationId: "org-a", displayName: "Org A", role: "OWNER", version: 1 }],
+        },
+        select: vi.fn(),
+      },
+    );
+    expect(screen.getByRole("button", { name: /Org A/ })).toBeEnabled();
+  });
+
+  // Codex block-review finding (D-256): org-card selection and the embedded create-organization
+  // form are two independent mutations of the same session's org-selection context - each must
+  // be disabled while the OTHER is in flight, so a user cannot start both nearly simultaneously.
+  it("disables the create-organization submit button while a card selection is in flight (switching)", () => {
+    renderAtRoute(
+      "/onboarding",
+      <Onboarding />,
+      "/onboarding",
+      {
+        organizationSelectionRequired: {
+          organizations: [{ organizationId: "org-a", displayName: "Org A", role: "OWNER", version: 1 }],
+        },
+        select: vi.fn(),
+        switching: true,
+      },
+    );
+    expect(screen.getByRole("button", { name: /Org A/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Criar organização" })).toBeDisabled();
   });
 });

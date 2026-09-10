@@ -11,7 +11,10 @@
  * rows, and there is exactly one record here.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
+import { useDocuments } from "../../hooks/useDocuments.js";
+import { useReminderPolicy } from "../../hooks/useReminderPolicy.js";
 import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
@@ -21,6 +24,7 @@ import { ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import "./ItemDetail.css";
 
 interface DetailField {
   label: string;
@@ -48,16 +52,68 @@ function DetailList({ fields }: { fields: DetailField[] }) {
  * failed, or permission-denied lookup silently renders nothing rather than blocking or
  * erroring the whole Detail page over an optional embellishment. */
 function RenewalLineage({ sourceItemId }: { sourceItemId: string }) {
+  const orgPath = useOrgPath();
   const query = useItem(sourceItemId);
   if (!query.data) return null;
   const source = query.data.item;
   return (
     <p className="u-text-secondary">
       Ciclo anterior:{" "}
-      <Link to={`/items/${source.itemId}`}>
+      <Link to={orgPath(`/items/${source.itemId}`)}>
         {source.name} (venceu em {formatAbsoluteDate(source.dueDate)})
       </Link>
     </p>
+  );
+}
+
+/** "Lembretes"/A06 entry card (Block 2, D-258) - the item->policy discovery route
+ * (`GET /items/{itemId}/reminder-policy`) unblocked this; the card is real, not decorative:
+ * it reflects the item's actual policy state (or its absence) via `useReminderPolicy`. */
+function reminderPolicyEntryNote(query: ReturnType<typeof useReminderPolicy>): string {
+  if (query.isError) return "Não foi possível carregar";
+  if (query.data === undefined) return "Ver lembretes";
+  if (query.data.policy === null) return "Nenhuma política configurada";
+  return query.data.policy.enabled ? "Ativa" : "Desabilitada";
+}
+
+function ReminderPolicyEntryCard({ itemId }: { itemId: string }) {
+  const orgPath = useOrgPath();
+  const query = useReminderPolicy(itemId);
+  return (
+    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/reminder-policy`)}>
+      <strong>Lembretes</strong>
+      <span className="u-text-secondary">{reminderPolicyEntryNote(query)}</span>
+    </Link>
+  );
+}
+
+function documentsEntryNote(query: ReturnType<typeof useDocuments>): string {
+  // Codex block-review finding (D-2xx): a persistent load failure must never read identically
+  // to "still loading" - both used to collapse into the same neutral prompt.
+  if (query.isError) return "Não foi possível carregar a contagem";
+  const count = query.data?.documents.filter((document) => document.status !== "DELETED").length;
+  if (count === undefined) return "Ver arquivos anexados";
+  return count === 0 ? "Nenhum anexo" : `${count} anexo(s)`;
+}
+
+function DocumentsEntryCard({ itemId }: { itemId: string }) {
+  const orgPath = useOrgPath();
+  const query = useDocuments(itemId);
+  return (
+    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/documents`)}>
+      <strong>Arquivos</strong>
+      <span className="u-text-secondary">{documentsEntryNote(query)}</span>
+    </Link>
+  );
+}
+
+function AuditEntryCard() {
+  const orgPath = useOrgPath();
+  return (
+    <Link className="ui-entry-card" to={orgPath("/activity")}>
+      <strong>Histórico de auditoria</strong>
+      <span className="u-text-secondary">Ver log de atividade</span>
+    </Link>
   );
 }
 
@@ -72,13 +128,14 @@ function DetailBody({
   justRenewed: boolean;
   copiedReminderPolicyIds: string[];
 }) {
+  const orgPath = useOrgPath();
   const now = new Date();
   const urgency = presentItemUrgency(item, now);
 
   return (
     <div>
       <PageHeader
-        above={<Link to="/items">← Voltar para Vencimentos</Link>}
+        above={<Link to={orgPath("/items")}>← Voltar para Vencimentos</Link>}
         title={item.name}
         description={
           // Urgency AND lifecycle status side by side, never merged into one token
@@ -90,7 +147,7 @@ function DetailBody({
         }
         actions={
           item.status === "ACTIVE" ? (
-            <ButtonLink to={`/items/${item.itemId}/renew`} variant="primary">
+            <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="primary">
               Renovar
             </ButtonLink>
           ) : null
@@ -133,6 +190,13 @@ function DetailBody({
           />
         </Panel>
       </Section>
+      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points">
+        <div className="ui-entry-card-grid">
+          <ReminderPolicyEntryCard itemId={item.itemId} />
+          <DocumentsEntryCard itemId={item.itemId} />
+          <AuditEntryCard />
+        </div>
+      </Section>
       {item.renewedFromId ? <RenewalLineage sourceItemId={item.renewedFromId} /> : null}
     </div>
   );
@@ -141,6 +205,7 @@ function DetailBody({
 export function ItemDetail() {
   const { itemId } = useParams<{ itemId: string }>();
   const location = useLocation();
+  const orgPath = useOrgPath();
   const query = useItem(itemId ?? "");
 
   if (!itemId) {
@@ -159,7 +224,7 @@ export function ItemDetail() {
           kind="unavailable"
           message="Este vencimento não foi encontrado."
           action={
-            <ButtonLink to="/items" variant="secondary">
+            <ButtonLink to={orgPath("/items")} variant="secondary">
               Voltar para Vencimentos
             </ButtonLink>
           }

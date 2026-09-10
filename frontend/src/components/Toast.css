@@ -1,0 +1,49 @@
+/* Toast (design-system.md §46) — see Toast.tsx's header comment. */
+
+/* Base state (no toast showing): NOT fixed/positioned at all - see Toast.tsx's header comment on
+   why the region always exists in the DOM but must not always be `position: fixed`. */
+.ui-toast-region--active {
+  position: fixed;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  pointer-events: none;
+}
+
+.ui-toast {
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-0);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  font-weight: var(--font-weight-medium);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ui-toast {
+    animation: ui-toast-in var(--duration-default) var(--easing-standard);
+  }
+}
+
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .ui-toast-region--active {
+    left: var(--space-5);
+    right: var(--space-5);
+    transform: none;
+  }
+  .ui-toast {
+    text-align: center;
+  }
+}

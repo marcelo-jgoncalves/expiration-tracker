@@ -11,8 +11,9 @@
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useOrgPath } from "../routing/useOrgPath.js";
 import type { ExpirationItem } from "../api/types.js";
-import { formatAbsoluteDate, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
+import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { ApiError } from "../api/errors.js";
 import { PageHeader, Panel } from "../components/ui/Layout.js";
@@ -20,6 +21,35 @@ import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
 import { useItemsDashboardBounded } from "../hooks/useItemsDashboard.js";
+import { useStorageQuota } from "../hooks/useStorageQuota.js";
+
+/**
+ * A03 (D-2xx addendum) conditional storage card — renders ONLY when `warningLevel` is
+ * WARNING/CRITICAL/OVER (>=80% of `limitBytes` committed); below that threshold this returns
+ * `null` and the card never appears at all (spec: "nunca aparece vazio ou desabilitado"). A
+ * failed/pending fetch also renders nothing here — this is a secondary, non-blocking signal on
+ * a page whose primary content (the items table below) must never wait on it.
+ */
+function StorageQuotaCard({ orgPath }: { orgPath: (path: string) => string }) {
+  const query = useStorageQuota();
+  if (!query.data) return null;
+  const usage = query.data.usage;
+  if (usage.warningLevel === "OK") return null;
+
+  const percent = Math.round(usage.usedPercent * 100);
+  return (
+    <Panel>
+      <p>
+        <strong>Armazenamento:</strong> {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
+      </p>
+      <progress value={Math.min(usage.usedPercent, 1)} max={1} aria-label="Percentual de armazenamento utilizado" style={{ width: "100%" }} />
+      {usage.warningLevel === "OVER" ? <p>Novos uploads bloqueados até liberar espaço — arquivos existentes não são afetados.</p> : null}
+      <p>
+        <Link to={orgPath("/settings")}>Gerenciar armazenamento</Link>
+      </p>
+    </Panel>
+  );
+}
 
 export function Overview() {
   // Wave B2B-10: previously duplicated apiClient.get() call inline with an unscoped queryKey
@@ -29,13 +59,14 @@ export function Overview() {
   // single bounded read, never the paginated "load more" the Collection needs).
   const query = useItemsDashboardBounded("ACTIVE");
   const now = useMemo(() => new Date(), []);
+  const orgPath = useOrgPath();
 
   const columns: DataTableColumn<ExpirationItem>[] = [
     {
       key: "name",
       header: "Vencimento",
       primary: true,
-      render: (item) => <Link to={`/items/${item.itemId}`}>{item.name}</Link>,
+      render: (item) => <Link to={orgPath(`/items/${item.itemId}`)}>{item.name}</Link>,
     },
     {
       key: "dueDate",
@@ -62,7 +93,7 @@ export function Overview() {
       title="Visão geral"
       description="Seus vencimentos ativos, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to="/items/new" variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary">
           Novo vencimento
         </ButtonLink>
       }
@@ -73,6 +104,7 @@ export function Overview() {
     return (
       <>
         {header}
+        <StorageQuotaCard orgPath={orgPath} />
         <Panel>
           <CollectionSkeleton label="Carregando seus vencimentos…" />
         </Panel>
@@ -85,6 +117,7 @@ export function Overview() {
     return (
       <>
         {header}
+        <StorageQuotaCard orgPath={orgPath} />
         <ErrorState message={message} onRetry={() => void query.refetch()} />
       </>
     );
@@ -96,11 +129,12 @@ export function Overview() {
     return (
       <>
         {header}
+        <StorageQuotaCard orgPath={orgPath} />
         <EmptyState
           kind="true-empty"
           message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
           action={
-            <ButtonLink to="/items/new" variant="primary">
+            <ButtonLink to={orgPath("/items/new")} variant="primary">
               Novo vencimento
             </ButtonLink>
           }
@@ -112,11 +146,12 @@ export function Overview() {
   return (
     <>
       {header}
+      <StorageQuotaCard orgPath={orgPath} />
       <Panel>
         <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
       <p>
-        <Link to="/items">Ver todos os vencimentos</Link>
+        <Link to={orgPath("/items")}>Ver todos os vencimentos</Link>
       </p>
     </>
   );

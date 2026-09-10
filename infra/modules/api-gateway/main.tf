@@ -148,6 +148,15 @@ locals {
     update  = { method = "PUT", path = "/reminders/policies/{policyId}" }
     disable = { method = "POST", path = "/reminders/policies/{policyId}/disable" }
   }
+
+  # D-258: item->policy discovery route, served by the SAME RemindersHandler Lambda/
+  # integration as reminders_routes above (no new function) but living under "/items/*",
+  # so it needs its own aws_apigatewayv2_route entry (kept out of `reminders_routes` since
+  # that map's for_each also drives `aws_lambda_permission.reminders`'s source_arn wildcard,
+  # which is scoped to "/reminders/policies*" and must not silently widen).
+  reminders_item_routes = {
+    get_by_item = { method = "GET", path = "/items/{itemId}/reminder-policy" }
+  }
 }
 
 resource "aws_apigatewayv2_route" "items" {
@@ -340,6 +349,28 @@ resource "aws_lambda_permission" "reminders" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/reminders/policies*"
+}
+
+# D-258: item->policy discovery, same RemindersHandler Lambda as above, routed under
+# "/items/*" so it needs its own route + invoke permission - same pattern as
+# `aws_lambda_permission.items_activity`/`items_dashboard_summary` for ItemsHandler above.
+resource "aws_apigatewayv2_route" "reminders_item" {
+  for_each = local.reminders_item_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "${each.value.method} ${each.value.path}"
+  target             = "integrations/${aws_apigatewayv2_integration.reminders.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_lambda_permission" "reminders_item" {
+  statement_id  = "AllowApiGatewayInvokeRemindersItem"
+  action        = "lambda:InvokeFunction"
+  function_name = var.reminders_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/reminder-policy"
 }
 
 # --- DocumentsHandler: /items/{itemId}/documents* (M6) ----------------------------------
@@ -716,9 +747,17 @@ locals {
     # service (createDocumentRequest, D-226 Achado 2) already existed, only this route was
     # missing.
     create_document_request = { method = "POST", path = "/document-archive/requirements/{subjectId}/{requirementId}/document-requests" }
+    # A14 (Block 6, D-2xx) - list/get DocumentRequest under a Subject (avulso + series-
+    # materialized alike); mechanical read gap closed on the same already-correct key layout,
+    # see DocumentArchiveService.listDocumentRequests's own doc comment.
+    list_document_requests = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests" }
+    get_document_request   = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" }
     # G2 (D-247/D-24x) - review-queue listing (A13); the sparse GSI5 index and RBAC action
     # already existed, only this route was missing.
     list_review_queue = { method = "GET", path = "/document-archive/reviews" }
+    # storage-quota-scoping (D-2xx) - tenant-wide storage usage summary; reuses docarchive:read,
+    # same "literal segment, no new Action" shape as list_review_queue above.
+    get_storage_usage = { method = "GET", path = "/document-archive/storage-usage" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate

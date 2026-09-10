@@ -393,6 +393,18 @@ export async function handleSearchRequirements(deps: DocumentArchiveHttpDeps, re
   });
 }
 
+/** storage-quota-scoping (D-2xx) — GET /document-archive/storage-usage. No query parameters,
+ * no schema needed (mirrors `handleGetDocument`'s no-params shape) — reuses `docarchive:read`
+ * (enforced inside `DocumentArchiveService.getStorageQuotaUsage`), same tier as every other
+ * tenant-wide summary this module serves. */
+export async function handleGetStorageUsage(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const context = await resolve(deps, req);
+    const usage = await deps.documentArchive.getStorageQuotaUsage(context);
+    return { statusCode: 200, body: { usage } };
+  });
+}
+
 /** G2 (D-247/D-24x) — GET /document-archive/reviews. Closes the named A13 blocker: the sparse
  * GSI5 review-queue index and the RBAC action (`docarchive:read`) already existed, only the
  * route/handler/query wiring was missing. `state` is required (see the schema's own comment for
@@ -492,6 +504,34 @@ export async function handleCreateDocumentRequest(deps: DocumentArchiveHttpDeps,
     const input: CreateDocumentRequestInput = { subjectId, requirementId, ...req.body };
     const documentRequest = await deps.documentArchive.createDocumentRequest(context, input);
     return { statusCode: 201, body: { documentRequest } };
+  });
+}
+
+/** A14 (Block 6, D-2xx) — closes the read gap named on `DocumentArchiveService.
+ * listDocumentRequests`'s own doc comment: mechanical GET routes over an already-correct key
+ * layout, same shape as `handleListRequirements`/`handleGetRequirement` below. */
+export async function handleListDocumentRequests(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const context = await resolve(deps, req);
+    const documentRequests = await deps.documentArchive.listDocumentRequests(context, subjectId);
+    return { statusCode: 200, body: { documentRequests } };
+  });
+}
+
+function requireDocumentRequestId(req: HttpRequest): string {
+  const documentRequestId = req.pathParameters?.["documentRequestId"];
+  if (!documentRequestId) throw new ValidationError("Missing documentRequestId path parameter.");
+  return documentRequestId;
+}
+
+export async function handleGetDocumentRequest(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const documentRequestId = requireDocumentRequestId(req);
+    const context = await resolve(deps, req);
+    const documentRequest = await deps.documentArchive.getDocumentRequest(context, subjectId, documentRequestId);
+    return { statusCode: 200, body: { documentRequest } };
   });
 }
 

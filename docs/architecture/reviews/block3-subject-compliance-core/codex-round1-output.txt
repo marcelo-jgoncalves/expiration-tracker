@@ -1,0 +1,2143 @@
+2026-09-10T10:48:24.074445Z ERROR codex_models_manager::manager: failed to load models cache: missing field `supports_parallel_tool_calls` at line 132 column 5
+OpenAI Codex v0.147.0
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: none
+reasoning summaries: none
+session id: 01a08aee-db3f-79e1-9056-fbe5aa508edb
+--------
+user
+You are reviewing Block 3 ("Subject compliance core") of a frontend implementation sequencing
+plan for expiration-tracker, a multi-tenant AWS-serverless micro-SaaS. Three screens were built
+this block: A08 (Fornecedores collection, extended from read-only to full CRUD), A09 (Subject
+Hub, replacing a narrow BLOCKER-C review-only SubjectDetail), and A11 (Requisitos documentais,
+a brand-new tenant-wide screen). No repo access - the full diff is pasted below. Use the
+block-boundary review checklist from docs/frontend/implementation-sequencing-plan.md section 4
+(paraphrased): (1) screen->action->role conformance including real backend authorization: (2)
+canonical :orgId-qualified routes; (3) real BFF/backend contracts, OCC/idempotency headers,
+correct error-category mapping; (4) every state named in each screen's audited spec is actually
+implemented; (5) epistemic integrity - UI never claims stronger outcomes than it has evidence
+for; (6) cross-screen journey integrity (deep links, return-context); (7) WCAG 2.2 AA, mobile
+parity; (8) only approved design-system components/tokens used; (9) new tests are non-tautological;
+(10) regression - nothing previously shipped breaks.
+
+Ground truth about real backend RBAC tiers (verified directly against
+src/modules/identity/domain/authorization.ts before this block was implemented, do not
+second-guess these without a specific counter-argument grounded in the pasted diff):
+subject:create/update = WRITE_ROLES(OWNER/ADMIN/MEMBER), subject:delete = ADMIN_ROLES(OWNER/ADMIN),
+docarchive:requirement-create/update = WRITE_ROLES, docarchive:requirement-delete = WRITE_ROLES
+(a deliberate, confirmed exception - NOT ADMIN_ROLES like most -delete actions in this codebase),
+docarchive:requirement-export = ADMIN_ROLES, docarchive:dossier-export = ADMIN_ROLES exclusive
+(no assignee exception, per an earlier decision D-205).
+
+Two backend gaps were found and handled with graceful degradation rather than blocking:
+(a) TrackedSubject has no ownerUserId/assigneeUserId field (a real, deliberately-scoped-out
+prior decision, not this block's bug) and no per-subject pending-requirement-count aggregation,
+so A08's list sorts alphabetically only, not pending-first as its spec describes; (b)
+docarchive:requirement-export (CSV) has no backend route/handler anywhere in the codebase, so
+A11 omits the "Exportar CSV" affordance entirely rather than wiring a dead endpoint. Please
+judge whether these are legitimate degradations (documented, not silently dropped) or whether
+either masks a defect the review should flag as blocking.
+
+Please give: (1) a numeric score out of 10 for this block's engineering quality, stated BEFORE
+you've seen any other score (blind); (2) a list of concrete, real findings (bug > overclaim >
+missing state > RBAC mismatch > test quality > style), each citing the specific file/line from
+the diff; (3) which findings you consider blocking vs. follow-up-acceptable.
+
+FULL DIFF FOLLOWS:
+
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 848346c..f159089 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -32,7 +32,9 @@ import { RenewItem } from "./routes/items/RenewItem.js";
+ import { ItemDocuments } from "./routes/items/ItemDocuments.js";
+ import { ItemReminderPolicy } from "./routes/items/ItemReminderPolicy.js";
+ import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
+-import { SubjectDetail } from "./routes/subjects/SubjectDetail.js";
++import { SubjectForm } from "./routes/subjects/SubjectForm.js";
++import { SubjectHub } from "./routes/subjects/SubjectHub.js";
++import { RequirementsCollection } from "./routes/RequirementsCollection.js";
+ import { Members } from "./routes/Members.js";
+ import { Settings } from "./routes/Settings.js";
+ import { ActivityLog } from "./routes/ActivityLog.js";
+@@ -89,7 +91,10 @@ export function App() {
+                 <Route path="items/:itemId/documents" element={<ItemDocuments />} />
+                 <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
+                 <Route path="subjects" element={<SubjectsCollection />} />
+-                <Route path="subjects/:subjectId" element={<SubjectDetail />} />
++                <Route path="subjects/new" element={<SubjectForm />} />
++                <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
++                <Route path="subjects/:subjectId" element={<SubjectHub />} />
++                <Route path="requirements" element={<RequirementsCollection />} />
+                 <Route path="members" element={<Members />} />
+                 <Route path="settings" element={<Settings />} />
+                 <Route path="activity" element={<ActivityLog />} />
+@@ -111,6 +116,8 @@ export function App() {
+                 <Route path="items/:itemId" element={null} />
+                 <Route path="items/:itemId/renew" element={null} />
+                 <Route path="subjects" element={null} />
++                <Route path="subjects/new" element={null} />
++                <Route path="subjects/:subjectId/edit" element={null} />
+                 <Route path="subjects/:subjectId" element={null} />
+                 <Route path="members" element={null} />
+                 <Route path="settings" element={null} />
+diff --git a/frontend/src/api/presentation.ts b/frontend/src/api/presentation.ts
+index 072fa9b..cffb71a 100644
+--- a/frontend/src/api/presentation.ts
++++ b/frontend/src/api/presentation.ts
+@@ -13,7 +13,7 @@
+  * Every function here is a pure, testable mapping - no component should invent its own label
+  * for a domain status.
+  */
+-import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus } from "./types.js";
++import type { ExpirationItem, ExpirationItemStatus, DocumentSubmissionStatus, DocumentStatus, RequirementAssignmentStatus, RequirementStatus, TrackedSubjectType } from "./types.js";
+ 
+ export interface StatusPresentation {
+   label: string;
+@@ -198,6 +198,47 @@ export function presentReminderChannelStatus(channel: "EMAIL" | "WHATSAPP"): Sta
+   return channel === "EMAIL" ? { label: "Ativo", tone: "neutral" } : { label: "Indisponível", tone: "neutral" };
+ }
+ 
++/** A08 (Block 3, D-2xx) - the real backend enum
++ * (`src/modules/subject/domain/tracked-subject.ts`'s `TrackedSubjectType`), never the free-text
++ * business description the pre-audit spec had (see A08-fornecedores.md's revision history). */
++export function presentSubjectType(type: TrackedSubjectType): string {
++  switch (type) {
++    case "COMPANY":
++      return "Empresa";
++    case "VENDOR":
++      return "Fornecedor";
++    case "CLIENT":
++      return "Cliente";
++    case "EMPLOYEE":
++      return "Colaborador";
++    case "ASSET":
++      return "Ativo";
++    case "LOCATION":
++      return "Unidade";
++    case "CUSTOM":
++      return "Personalizado";
++  }
++}
++
++/** A11 (Block 3, D-2xx) - `document-archive` module's `Requirement` (5-state, evidence-backed),
++ * distinct from `presentRequirementStatus` above (the legacy `RequirementAssignment`, A10).
++ * `NOT_APPLICABLE` gets its own label/tone pair, deliberately never collapsed into MISSING's
++ * text even though both could read as "not fulfilled" - the audit fix names this explicitly. */
++export function presentRequirementDocStatus(status: RequirementStatus): StatusPresentation {
++  switch (status) {
++    case "MISSING":
++      return { label: "Em falta", tone: "danger" };
++    case "PENDING":
++      return { label: "Pendente", tone: "warning" };
++    case "SATISFIED":
++      return { label: "Satisfeito", tone: "neutral" };
++    case "NOT_SATISFIED":
++      return { label: "Não satisfeito", tone: "danger" };
++    case "NOT_APPLICABLE":
++      return { label: "Não se aplica", tone: "neutral" };
++  }
++}
++
+ export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
+   switch (status) {
+     case "PENDING_UPLOAD":
+diff --git a/frontend/src/api/queryKeys.ts b/frontend/src/api/queryKeys.ts
+index 36f2c4a..b60a500 100644
+--- a/frontend/src/api/queryKeys.ts
++++ b/frontend/src/api/queryKeys.ts
+@@ -54,6 +54,11 @@ export const queryKeys = {
+   documentArchive: {
+     /** D-2xx storage-quota-scoping - tenant-wide summary, no sub-filters, one key per org. */
+     storageUsage: (organizationId: string) => ["org", organizationId, "documentArchive", "storageUsage"] as const,
++    /** A11 (Block 3, D-2xx) - tenant-wide Requirement search, one key per (org, status filter). */
++    requirementsSearch: (organizationId: string, status: string, namePrefix: string | undefined, assigneeUserId: string | undefined) =>
++      ["org", organizationId, "documentArchive", "requirements", "search", status, namePrefix ?? "", assigneeUserId ?? ""] as const,
++    /** A09 (Block 3, D-2xx) - Compliance panel, `GET .../requirements/{subjectId}/compliance`. */
++    subjectCompliance: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "compliance", subjectId] as const,
+   },
+   activity: {
+     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
+diff --git a/frontend/src/api/requirements.ts b/frontend/src/api/requirements.ts
+new file mode 100644
+index 0000000..2d019d2
+--- /dev/null
++++ b/frontend/src/api/requirements.ts
+@@ -0,0 +1,70 @@
++/**
++ * A09/A11 (Block 3, D-2xx) — `document-archive` module's evidence-backed Requirement
++ * (`src/modules/document-archive/http/document-archive-handlers.ts`), a distinct concept from
++ * `subjects.ts`'s legacy `RequirementAssignment` (see `types.ts`'s own doc comment on
++ * `Requirement`). Same one-layer convention: every call site goes through these functions,
++ * never `apiClient` inline.
++ */
++import { apiClient } from "./apiClient.js";
++import type {
++  CreateRequirementInput,
++  Requirement,
++  RequirementSearchPage,
++  RequirementStatus,
++  SubjectComplianceSummary,
++  UpdateRequirementInput,
++} from "./types.js";
++
++export interface RequirementSearchFilters {
++  status: RequirementStatus;
++  namePrefix?: string;
++  assigneeUserId?: string;
++  cursor?: string;
++}
++
++/** `GET /document-archive/requirements/search` - tenant-wide, `status` is required by the
++ * backend (no server-side "ALL" mode, same reasoning as the review queue's `state`) - A11
++ * fetches once per selected status tab/filter, never an unfiltered "all statuses" call. */
++export function searchRequirements(filters: RequirementSearchFilters, options?: { signal?: AbortSignal }): Promise<RequirementSearchPage> {
++  const params = new URLSearchParams({ status: filters.status });
++  if (filters.namePrefix) params.set("namePrefix", filters.namePrefix);
++  if (filters.assigneeUserId) params.set("assigneeUserId", filters.assigneeUserId);
++  if (filters.cursor) params.set("cursor", filters.cursor);
++  return apiClient.get<RequirementSearchPage>(`/document-archive/requirements/search?${params.toString()}`, { signal: options?.signal });
++}
++
++/** `GET /document-archive/requirements/{subjectId}/compliance` - A09's Compliance panel. */
++export function fetchSubjectCompliance(subjectId: string, options?: { signal?: AbortSignal }): Promise<{ compliance: SubjectComplianceSummary }> {
++  return apiClient.get<{ compliance: SubjectComplianceSummary }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/compliance`, { signal: options?.signal });
++}
++
++export function fetchRequirementsForSubject(subjectId: string, options?: { signal?: AbortSignal }): Promise<{ requirements: Requirement[] }> {
++  return apiClient.get<{ requirements: Requirement[] }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}`, { signal: options?.signal });
++}
++
++export function createRequirement(input: CreateRequirementInput): Promise<{ requirement: Requirement }> {
++  return apiClient.post<{ requirement: Requirement }>("/document-archive/requirements", input);
++}
++
++export function updateRequirement(subjectId: string, requirementId: string, input: UpdateRequirementInput, expectedVersion: number): Promise<{ requirement: Requirement }> {
++  return apiClient.request<{ requirement: Requirement }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}`, {
++    method: "PATCH",
++    body: input,
++    expectedVersion,
++  });
++}
++
++/** `POST .../delete` (not a DELETE verb - matches the real allowlisted route exactly).
++ * `docarchive:requirement-delete` is WRITE_ROLES, not ADMIN_ROLES - a deliberate, confirmed
++ * exception (see `authorization.ts`'s own tier for this action). */
++export function deleteRequirement(subjectId: string, requirementId: string, expectedVersion: number): Promise<void> {
++  return apiClient.post<void>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}/delete`, undefined, { expectedVersion });
++}
++
++export function linkEvidence(subjectId: string, requirementId: string, documentId: string, versionId: string, expectedVersion: number): Promise<{ requirement: Requirement }> {
++  return apiClient.post<{ requirement: Requirement }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}/link-evidence`, { documentId, versionId }, { expectedVersion });
++}
++
++export function unlinkEvidence(subjectId: string, requirementId: string, expectedVersion: number): Promise<{ requirement: Requirement }> {
++  return apiClient.post<{ requirement: Requirement }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}/unlink-evidence`, undefined, { expectedVersion });
++}
+diff --git a/frontend/src/api/subjects.ts b/frontend/src/api/subjects.ts
+index 8656a96..66f4200 100644
+--- a/frontend/src/api/subjects.ts
++++ b/frontend/src/api/subjects.ts
+@@ -7,18 +7,42 @@
+  */
+ import { apiClient } from "./apiClient.js";
+ import type {
++  CreateSubjectInput,
+   DocumentSubmissionsResponse,
+   RequirementAssignmentResponse,
+   RequirementAssignmentsResponse,
+   SubjectResponse,
+   SubjectsDashboardResponse,
+   TrackedSubjectStatus,
++  UpdateSubjectInput,
+ } from "./types.js";
+ 
+ export function fetchSubjectsDashboard(status: TrackedSubjectStatus, options?: { signal?: AbortSignal }): Promise<SubjectsDashboardResponse> {
+   return apiClient.get<SubjectsDashboardResponse>(`/subjects/dashboard?status=${encodeURIComponent(status)}`, { signal: options?.signal });
+ }
+ 
++/** A08 (Block 3, D-2xx) - full CRUD, matching `POST /subjects` (`handleCreateSubject`). Takes
++ * an idempotency key, same convention as `createItem` (mission §33-35). */
++export function createSubject(input: CreateSubjectInput, idempotencyKey: string): Promise<SubjectResponse> {
++  return apiClient.post<SubjectResponse>("/subjects", input, { idempotencyKey });
++}
++
++/** `PUT /subjects/{subjectId}` (`handleUpdateSubject`) - WRITE_ROLES, OCC via `expectedVersion`. */
++export function updateSubject(subjectId: string, input: UpdateSubjectInput, expectedVersion: number): Promise<SubjectResponse> {
++  return apiClient.put<SubjectResponse>(`/subjects/${encodeURIComponent(subjectId)}`, input, { expectedVersion });
++}
++
++/** `POST /subjects/{subjectId}/archive` - WRITE_ROLES (toggles ACTIVE<->ARCHIVED; "Reativar" and
++ * "Arquivar" are the same endpoint, the backend flips status from whatever it currently is). */
++export function archiveSubject(subjectId: string, expectedVersion: number): Promise<void> {
++  return apiClient.post<void>(`/subjects/${encodeURIComponent(subjectId)}/archive`, undefined, { expectedVersion });
++}
++
++/** `DELETE /subjects/{subjectId}` - ADMIN_ROLES only (`subject:delete`). */
++export function deleteSubject(subjectId: string, expectedVersion: number): Promise<void> {
++  return apiClient.delete<void>(`/subjects/${encodeURIComponent(subjectId)}`, { expectedVersion });
++}
++
+ export function fetchSubject(subjectId: string, options?: { signal?: AbortSignal }): Promise<SubjectResponse> {
+   return apiClient.get<SubjectResponse>(`/subjects/${encodeURIComponent(subjectId)}`, { signal: options?.signal });
+ }
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index cc322b5..9ff6d7b 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -92,6 +92,9 @@ export interface TrackedSubject {
+   type: TrackedSubjectType;
+   displayName: string;
+   notes?: string;
++  /** A08 (Block 3, D-2xx) - create-only durable external identifier (CNPJ, CRM id, etc.) -
++   * mirrors `src/modules/subject/domain/tracked-subject.ts`'s `externalId`. */
++  externalId?: string;
+   tags: string[];
+   status: TrackedSubjectStatus;
+   createdAt: string;
+@@ -139,6 +142,29 @@ export interface SubjectsDashboardResponse {
+   subjects: TrackedSubject[];
+ }
+ 
++/** A08 (Block 3, D-2xx) - mirrors `src/modules/subject/domain/tracked-subject.ts`'s
++ * `CreateSubjectInput`/`UpdateSubjectInput` exactly. `externalId` is create-only (no rename
++ * path on update - see that file's own doc comment on why). */
++export interface CreateSubjectInput {
++  type: TrackedSubjectType;
++  displayName: string;
++  notes?: string;
++  tags?: string[];
++  externalId?: string;
++}
++
++export interface UpdateSubjectInput {
++  displayName?: string;
++  notes?: string;
++  tags?: string[];
++}
++
++export interface SubjectSearchPage {
++  items: TrackedSubject[];
++  cursor: string | null;
++  scanLimitReached?: boolean;
++}
++
+ export interface RequirementAssignmentResponse {
+   assignment: RequirementAssignment;
+ }
+@@ -153,6 +179,62 @@ export interface DocumentSubmissionsResponse {
+ 
+ // Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.
+ 
++/** A09/A11 (Block 3, D-2xx) - `document-archive` module's evidence-backed `Requirement`
++ * (`src/modules/document-archive/domain/requirement.ts`). A DISTINCT concept from
++ * `RequirementAssignment` above (the legacy `subject` module one, MISSING/SATISFIED only, A10)
++ * - never rendered under the bare label "Requisito", always "Requisito documental" here, per
++ * the A11 spec's naming-collision verification. */
++export type RequirementStatus = "MISSING" | "PENDING" | "SATISFIED" | "NOT_SATISFIED" | "NOT_APPLICABLE";
++export type RequirementApplicability = "APPLICABLE" | "NOT_APPLICABLE";
++
++export interface Requirement {
++  requirementId: string;
++  subjectId: string;
++  name: string;
++  notes?: string;
++  applicability: RequirementApplicability;
++  assigneeUserId?: string;
++  evidenceVersionId?: string;
++  evidenceDocumentId?: string;
++  evidenceSeq?: number;
++  evidenceValidUntil?: string;
++  status: RequirementStatus;
++  createdAt: string;
++  updatedAt: string;
++  version: number;
++}
++
++export interface CreateRequirementInput {
++  subjectId: string;
++  name: string;
++  notes?: string;
++  applicability: RequirementApplicability;
++  assigneeUserId?: string;
++}
++
++export interface UpdateRequirementInput {
++  name?: string;
++  notes?: string;
++  applicability?: RequirementApplicability;
++  assigneeUserId?: string;
++}
++
++export interface RequirementSearchPage {
++  items: Requirement[];
++  cursor: string | null;
++  scanLimitReached?: boolean;
++}
++
++/** Roadmap P0.6 fatia 2 - `null` (never `0%`) when `totalRequirements === 0`, per A09's spec
++ * ("sempre mostrar numerador/denominador junto ao percentual"). */
++export interface SubjectComplianceSummary {
++  totalRequirements: number;
++  satisfiedCount: number;
++  expiringSoonCount: number;
++  missingCount: number;
++  compliancePercent: number | null;
++}
++
+ export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
+ export type MembershipStatus = "ACTIVE" | "SUSPENDED" | "REMOVED";
+ export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
+diff --git a/frontend/src/hooks/useArchiveSubject.ts b/frontend/src/hooks/useArchiveSubject.ts
+new file mode 100644
+index 0000000..b17939e
+--- /dev/null
++++ b/frontend/src/hooks/useArchiveSubject.ts
+@@ -0,0 +1,22 @@
++/** A08 (Block 3, D-2xx) - "Arquivar"/"Reativar" toggle (WRITE_ROLES, `subject:update` tier -
++ * same POST /subjects/{subjectId}/archive endpoint flips status either direction). */
++import { useQueryClient } from "@tanstack/react-query";
++import { useOccMutation } from "./useOccMutation.js";
++import { archiveSubject } from "../api/subjects.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++export function useArchiveSubject(subjectId: string) {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++
++  return useOccMutation<void, { expectedVersion: number }>({
++    mutationFn: ({ expectedVersion }) => archiveSubject(subjectId, expectedVersion),
++    onSuccess: () => {
++      if (!organizationId) return;
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.detail(organizationId, subjectId) });
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ACTIVE") });
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ARCHIVED") });
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useCreateRequirement.ts b/frontend/src/hooks/useCreateRequirement.ts
+new file mode 100644
+index 0000000..ab78c39
+--- /dev/null
++++ b/frontend/src/hooks/useCreateRequirement.ts
+@@ -0,0 +1,21 @@
++import { useMutation, useQueryClient } from "@tanstack/react-query";
++import { createRequirement } from "../api/requirements.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++import type { CreateRequirementInput, Requirement } from "../api/types.js";
++
++/** A11 (Block 3, D-2xx) - "Novo requisito" (WRITE_ROLES, `docarchive:requirement-create`).
++ * Not idempotent-key-wrapped (unlike item/subject creation) - the backend's `createRequirement`
++ * has no idempotency-key contract in `document-archive-handlers.ts` today, so wiring one here
++ * would silently claim a guarantee the backend doesn't provide. */
++export function useCreateRequirement() {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++  return useMutation<{ requirement: Requirement }, unknown, CreateRequirementInput>({
++    mutationFn: (input) => createRequirement(input),
++    onSuccess: () => {
++      if (organizationId) {
++        void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirements", "search"] });
++      }
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useCreateSubject.ts b/frontend/src/hooks/useCreateSubject.ts
+new file mode 100644
+index 0000000..9ba5e48
+--- /dev/null
++++ b/frontend/src/hooks/useCreateSubject.ts
+@@ -0,0 +1,23 @@
++/** A08 (Block 3, D-2xx) - "Novo fornecedor" (WRITE_ROLES, `subject:create`). Idempotent, same
++ * discipline as `useCreateItem` (a retry of the same submission must reuse the same key). */
++import { useQueryClient } from "@tanstack/react-query";
++import { useIdempotentMutation } from "./useIdempotentMutation.js";
++import { createSubject } from "../api/subjects.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++import type { CreateSubjectInput, SubjectResponse } from "../api/types.js";
++
++export const CREATE_SUBJECT_IDEMPOTENCY_STORAGE_KEY = "expiration-tracker:create-subject:idempotency-key";
++
++export function useCreateSubject() {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++
++  return useIdempotentMutation<SubjectResponse, CreateSubjectInput>({
++    persistenceKey: CREATE_SUBJECT_IDEMPOTENCY_STORAGE_KEY,
++    mutationFn: (input, key) => createSubject(input, key),
++    onSuccess: () => {
++      if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ACTIVE") });
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useDeleteRequirement.ts b/frontend/src/hooks/useDeleteRequirement.ts
+new file mode 100644
+index 0000000..e005d49
+--- /dev/null
++++ b/frontend/src/hooks/useDeleteRequirement.ts
+@@ -0,0 +1,17 @@
++import { useQueryClient } from "@tanstack/react-query";
++import { useOccMutation } from "./useOccMutation.js";
++import { deleteRequirement } from "../api/requirements.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++/** A11 (Block 3, D-2xx) - "Excluir" (WRITE_ROLES, not ADMIN_ROLES - `docarchive:requirement-
++ * delete`'s confirmed exception tier). */
++export function useDeleteRequirement(subjectId: string, requirementId: string) {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++  return useOccMutation<void, { expectedVersion: number }>({
++    mutationFn: ({ expectedVersion }) => deleteRequirement(subjectId, requirementId, expectedVersion),
++    onSuccess: () => {
++      if (organizationId) void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirements", "search"] });
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useDeleteSubject.ts b/frontend/src/hooks/useDeleteSubject.ts
+new file mode 100644
+index 0000000..7850bfe
+--- /dev/null
++++ b/frontend/src/hooks/useDeleteSubject.ts
+@@ -0,0 +1,22 @@
++/** A08/A09 (Block 3, D-2xx) - "Excluir" (ADMIN_ROLES only, `subject:delete`). The backend
++ * rejects deletion when active Requirements are still linked (`BUSINESS_RULE`) - the caller
++ * surfaces that as the "exclusão bloqueada" dialog per A08's spec, never a generic error. */
++import { useQueryClient } from "@tanstack/react-query";
++import { useOccMutation } from "./useOccMutation.js";
++import { deleteSubject } from "../api/subjects.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++export function useDeleteSubject(subjectId: string) {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++
++  return useOccMutation<void, { expectedVersion: number }>({
++    mutationFn: ({ expectedVersion }) => deleteSubject(subjectId, expectedVersion),
++    onSuccess: () => {
++      if (!organizationId) return;
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ACTIVE") });
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ARCHIVED") });
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useRequirementsForSubject.ts b/frontend/src/hooks/useRequirementsForSubject.ts
+new file mode 100644
+index 0000000..27c5af7
+--- /dev/null
++++ b/frontend/src/hooks/useRequirementsForSubject.ts
+@@ -0,0 +1,16 @@
++import { useQuery } from "@tanstack/react-query";
++import { fetchRequirementsForSubject } from "../api/requirements.js";
++import { retryPolicyFor } from "../api/retryPolicy.js";
++import type { Requirement } from "../api/types.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++/** A09's "Requisitos documentais" card count - `GET /document-archive/requirements/{subjectId}`. */
++export function useRequirementsForSubject(subjectId: string) {
++  const { organizationId, switching } = useActiveOrganization();
++  return useQuery<{ requirements: Requirement[] }, unknown>({
++    queryKey: ["org", organizationId ?? "", "documentArchive", "requirementsForSubject", subjectId] as const,
++    queryFn: ({ signal }) => fetchRequirementsForSubject(subjectId, { signal }),
++    enabled: Boolean(organizationId) && !switching && subjectId.length > 0,
++    retry: retryPolicyFor("safe-read"),
++  });
++}
+diff --git a/frontend/src/hooks/useRequirementsSearch.ts b/frontend/src/hooks/useRequirementsSearch.ts
+new file mode 100644
+index 0000000..e6d6382
+--- /dev/null
++++ b/frontend/src/hooks/useRequirementsSearch.ts
+@@ -0,0 +1,17 @@
++import { useQuery } from "@tanstack/react-query";
++import { searchRequirements } from "../api/requirements.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { retryPolicyFor } from "../api/retryPolicy.js";
++import type { RequirementSearchPage, RequirementStatus } from "../api/types.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++/** A11 (Block 3, D-2xx) - tenant-wide search, `status` required (no unfiltered mode). */
++export function useRequirementsSearch(status: RequirementStatus, namePrefix?: string, assigneeUserId?: string) {
++  const { organizationId, switching } = useActiveOrganization();
++  return useQuery<RequirementSearchPage, unknown>({
++    queryKey: queryKeys.documentArchive.requirementsSearch(organizationId ?? "", status, namePrefix, assigneeUserId),
++    queryFn: ({ signal }) => searchRequirements({ status, namePrefix, assigneeUserId }, { signal }),
++    enabled: Boolean(organizationId) && !switching,
++    retry: retryPolicyFor("safe-read"),
++  });
++}
+diff --git a/frontend/src/hooks/useSubjectCompliance.ts b/frontend/src/hooks/useSubjectCompliance.ts
+new file mode 100644
+index 0000000..1019c1c
+--- /dev/null
++++ b/frontend/src/hooks/useSubjectCompliance.ts
+@@ -0,0 +1,18 @@
++import { useQuery } from "@tanstack/react-query";
++import { fetchSubjectCompliance } from "../api/requirements.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { retryPolicyFor } from "../api/retryPolicy.js";
++import type { SubjectComplianceSummary } from "../api/types.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++
++/** A09 (Block 3, D-2xx) - Compliance panel loads independently of the destination-cards grid
++ * (spec: a panel failure never blocks the rest of the hub). */
++export function useSubjectCompliance(subjectId: string) {
++  const { organizationId, switching } = useActiveOrganization();
++  return useQuery<{ compliance: SubjectComplianceSummary }, unknown>({
++    queryKey: queryKeys.documentArchive.subjectCompliance(organizationId ?? "", subjectId),
++    queryFn: ({ signal }) => fetchSubjectCompliance(subjectId, { signal }),
++    enabled: Boolean(organizationId) && !switching && subjectId.length > 0,
++    retry: retryPolicyFor("safe-read"),
++  });
++}
+diff --git a/frontend/src/hooks/useUpdateRequirement.ts b/frontend/src/hooks/useUpdateRequirement.ts
+new file mode 100644
+index 0000000..559e1bd
+--- /dev/null
++++ b/frontend/src/hooks/useUpdateRequirement.ts
+@@ -0,0 +1,17 @@
++import { useQueryClient } from "@tanstack/react-query";
++import { useOccMutation } from "./useOccMutation.js";
++import { updateRequirement } from "../api/requirements.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++import type { Requirement, UpdateRequirementInput } from "../api/types.js";
++
++/** A11 (Block 3, D-2xx) - "Editar" (WRITE_ROLES, `docarchive:requirement-update`). */
++export function useUpdateRequirement(subjectId: string, requirementId: string) {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++  return useOccMutation<{ requirement: Requirement }, { input: UpdateRequirementInput; expectedVersion: number }>({
++    mutationFn: ({ input, expectedVersion }) => updateRequirement(subjectId, requirementId, input, expectedVersion),
++    onSuccess: () => {
++      if (organizationId) void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirements", "search"] });
++    },
++  });
++}
+diff --git a/frontend/src/hooks/useUpdateSubject.ts b/frontend/src/hooks/useUpdateSubject.ts
+new file mode 100644
+index 0000000..a8e09a5
+--- /dev/null
++++ b/frontend/src/hooks/useUpdateSubject.ts
+@@ -0,0 +1,23 @@
++/** A08/A09 (Block 3, D-2xx) - "Editar fornecedor" (WRITE_ROLES, `subject:update`). OCC via
++ * `expectedVersion`, same convention as every other mutation in this app. */
++import { useQueryClient } from "@tanstack/react-query";
++import { useOccMutation } from "./useOccMutation.js";
++import { updateSubject } from "../api/subjects.js";
++import { queryKeys } from "../api/queryKeys.js";
++import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
++import type { SubjectResponse, UpdateSubjectInput } from "../api/types.js";
++
++export function useUpdateSubject(subjectId: string) {
++  const queryClient = useQueryClient();
++  const { organizationId } = useActiveOrganization();
++
++  return useOccMutation<SubjectResponse, { input: UpdateSubjectInput; expectedVersion: number }>({
++    mutationFn: ({ input, expectedVersion }) => updateSubject(subjectId, input, expectedVersion),
++    onSuccess: () => {
++      if (!organizationId) return;
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.detail(organizationId, subjectId) });
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ACTIVE") });
++      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.dashboard(organizationId, "ARCHIVED") });
++    },
++  });
++}
+diff --git a/frontend/src/routes/RequirementsCollection.tsx b/frontend/src/routes/RequirementsCollection.tsx
+new file mode 100644
+index 0000000..68fff36
+--- /dev/null
++++ b/frontend/src/routes/RequirementsCollection.tsx
+@@ -0,0 +1,215 @@
++/**
++ * A11 — Requisitos documentais (Block 3, D-2xx), tenant-wide. Post-audit spec
++ * (`docs/frontend/prototype-screen-specs/A11-requisitos.md`): this screen DOES support
++ * `docarchive:requirement-create` (WRITE_ROLES) — the pre-audit spec's contradiction ("não são
++ * criados aqui") was corrected. `docarchive:requirement-delete` is WRITE_ROLES, a deliberate
++ * exception (not ADMIN_ROLES like most `-delete` actions) confirmed directly against
++ * `authorization.ts`.
++ *
++ * Known, named gaps (not mechanical wiring - real missing backend capability, implemented with
++ * graceful degradation rather than blocking the screen, per the A02/Block-1 precedent):
++ *  - `docarchive:requirement-export` (CSV) has no backend route/handler anywhere in
++ *    `document-archive-handlers.ts`/`proxy-allowlist.ts` - the "Exportar CSV" action is
++ *    OMITTED here rather than wired to a non-existent endpoint or shown disabled with no real
++ *    affordance behind it.
++ *  - Template-apply (`docarchive:requirementtemplate-apply`, opens A21) is Block 4 scope - "Ver
++ *    templates" is out of scope for this screen this block; omitted rather than a dead link.
++ *  - "Novo requisito" asks for a subjectId directly (no subject-name typeahead picker yet) -
++ *    same "operator supplies the id directly" precedent `SubjectDetail.tsx`'s legacy review flow
++ *    already established for `itemId`, not a fabricated shortcut.
++ */
++import { useState, type FormEvent } from "react";
++import { Link } from "react-router-dom";
++import { useOrgPath } from "../routing/useOrgPath.js";
++import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
++import { useCreateRequirement } from "../hooks/useCreateRequirement.js";
++import { useDeleteRequirement } from "../hooks/useDeleteRequirement.js";
++import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
++import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
++import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
++import { StatusBadge } from "../components/ui/StatusBadge.js";
++import { PageHeader, Toolbar } from "../components/ui/Layout.js";
++import { Button } from "../components/ui/Button.js";
++import { TextField } from "../components/forms/TextField.js";
++import { SelectField } from "../components/forms/SelectField.js";
++import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
++import { ApiError, isConflict } from "../api/errors.js";
++import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presentation.js";
++import type { Requirement, RequirementApplicability, RequirementStatus } from "../api/types.js";
++
++const STATUS_TABS: { value: "ALL" | RequirementStatus; label: string }[] = [
++  { value: "ALL", label: "Todos" },
++  { value: "MISSING", label: "Em falta" },
++  { value: "PENDING", label: "Pendente" },
++  { value: "SATISFIED", label: "Satisfeito" },
++  { value: "NOT_SATISFIED", label: "Não satisfeito" },
++  { value: "NOT_APPLICABLE", label: "Não se aplica" },
++];
++
++export function RequirementsCollection() {
++  const orgPath = useOrgPath();
++  const [statusTab, setStatusTab] = useState<"ALL" | RequirementStatus>("ALL");
++  const [searchTerm, setSearchTerm] = useState("");
++  const [showCreate, setShowCreate] = useState(false);
++  const role = useCurrentMembershipRole();
++  const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
++
++  const singleStatus = statusTab === "ALL" ? "MISSING" : statusTab;
++  const query = useRequirementsSearch(singleStatus, searchTerm || undefined);
++
++  // "Todos" needs every status merged - fetch the other 4 only when that tab is active, each
++  // its own independent query so one status's failure never blanks the others.
++  const missing = useRequirementsSearch("MISSING", searchTerm || undefined);
++  const pending = useRequirementsSearch("PENDING", searchTerm || undefined);
++  const satisfied = useRequirementsSearch("SATISFIED", searchTerm || undefined);
++  const notSatisfied = useRequirementsSearch("NOT_SATISFIED", searchTerm || undefined);
++  const notApplicable = useRequirementsSearch("NOT_APPLICABLE", searchTerm || undefined);
++
++  const allQueries = statusTab === "ALL" ? [missing, pending, satisfied, notSatisfied, notApplicable] : [query];
++  const isPending = allQueries.some((q) => q.isPending);
++  const isError = allQueries.every((q) => q.isError);
++
++  if (isPending) {
++    return <InitialLoading label="Carregando requisitos…" />;
++  }
++  if (isError) {
++    const first = allQueries[0];
++    const message = first?.error instanceof ApiError ? first.error.message : "Não foi possível carregar os requisitos.";
++    return <ErrorState message={message} onRetry={() => allQueries.forEach((q) => void q.refetch())} />;
++  }
++
++  const requirements: Requirement[] = statusTab === "ALL" ? allQueries.flatMap((q) => q.data?.items ?? []) : (query.data?.items ?? []);
++
++  return (
++    <div>
++      <PageHeader
++        title="Requisitos documentais"
++        description="Requisitos de documento, com evidência vinculada, em toda a organização."
++        actions={canWrite ? <Button variant="secondary" onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
++      />
++      {showCreate ? <CreateRequirementForm onClose={() => setShowCreate(false)} /> : null}
++      <Toolbar>
++        <nav aria-label="Filtrar por status">
++          {STATUS_TABS.map((tab) => (
++            <Button key={tab.value} variant={tab.value === statusTab ? "primary" : "secondary"} size="sm" aria-current={tab.value === statusTab ? "page" : undefined} onClick={() => setStatusTab(tab.value)}>
++              {tab.label}
++            </Button>
++          ))}
++        </nav>
++        <TextField id="requirements-search" label="Buscar requisitos" hint="Nome do requisito" value={searchTerm} onChange={setSearchTerm} />
++      </Toolbar>
++      {requirements.length === 0 ? (
++        <EmptyState
++          kind={searchTerm ? "filtered-empty" : "true-empty"}
++          message={searchTerm ? "Nenhum requisito encontrado para estes filtros." : "Nenhum requisito cadastrado ainda."}
++          action={searchTerm ? <Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar filtros</Button> : undefined}
++        />
++      ) : (
++        <DataTable
++          caption="Requisitos documentais"
++          rowKey={(r: Requirement) => r.requirementId}
++          rows={requirements}
++          columns={[
++            {
++              key: "name",
++              header: "Requisito",
++              primary: true,
++              render: (r) => (
++                <>
++                  <Link to={orgPath(`/subjects/${r.subjectId}`)}>{r.name}</Link>
++                  <CellSecondary>{r.subjectId}</CellSecondary>
++                </>
++              ),
++            },
++            { key: "assignee", header: "Responsável", render: (r) => r.assigneeUserId ?? "Sem responsável" },
++            { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.status)} /> },
++            { key: "validity", header: "Validade", numeric: true, render: (r) => (r.evidenceValidUntil ? formatAbsoluteDate(r.evidenceValidUntil) : "—") },
++            {
++              key: "actions",
++              header: "Ações",
++              actions: true,
++              render: (r) => (canWrite ? <RowActions requirement={r} /> : null),
++            },
++          ]}
++        />
++      )}
++    </div>
++  );
++}
++
++function RowActions({ requirement }: { requirement: Requirement }) {
++  const deleteMutation = useDeleteRequirement(requirement.subjectId, requirement.requirementId);
++  const [confirming, setConfirming] = useState(false);
++
++  async function handleDelete() {
++    try {
++      await deleteMutation.mutateAsync({ expectedVersion: requirement.version });
++      setConfirming(false);
++    } catch (err) {
++      if (isConflict(err)) return;
++    }
++  }
++
++  return confirming ? (
++    <span role="alertdialog" aria-label={`Excluir ${requirement.name}`}>
++      Excluir &quot;{requirement.name}&quot; ({requirement.subjectId})?{" "}
++      <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
++        Confirmar
++      </Button>{" "}
++      <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
++        Cancelar
++      </Button>
++    </span>
++  ) : (
++    <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
++      Excluir
++    </Button>
++  );
++}
++
++function CreateRequirementForm({ onClose }: { onClose: () => void }) {
++  const mutation = useCreateRequirement();
++  const [subjectId, setSubjectId] = useState("");
++  const [name, setName] = useState("");
++  const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
++  const [errors, setErrors] = useState<string[]>([]);
++
++  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!subjectId.trim() || !name.trim()) {
++      setErrors(["Informe o fornecedor (ID) e o nome do requisito."]);
++      return;
++    }
++    setErrors([]);
++    try {
++      await mutation.mutateAsync({ subjectId: subjectId.trim(), name: name.trim(), applicability });
++      onClose();
++    } catch (err) {
++      setErrors([err instanceof ApiError ? err.message : "Não foi possível criar este requisito."]);
++    }
++  }
++
++  return (
++    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
++      <FormErrorSummary errors={errors} />
++      <TextField id="req-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
++      <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
++      <SelectField
++        id="req-applicability"
++        label="Aplicabilidade"
++        value={applicability}
++        onChange={(v) => setApplicability(v as RequirementApplicability)}
++        options={[
++          { value: "APPLICABLE", label: "Aplicável" },
++          { value: "NOT_APPLICABLE", label: "Não se aplica" },
++        ]}
++      />
++      <Button type="submit" variant="primary" pending={mutation.isPending}>
++        {mutation.isPending ? "Criando…" : "Criar requisito"}
++      </Button>{" "}
++      <Button type="button" variant="secondary" onClick={onClose}>
++        Cancelar
++      </Button>
++    </form>
++  );
++}
+diff --git a/frontend/src/routes/subjects/SubjectDetail.tsx b/frontend/src/routes/subjects/SubjectDetail.tsx
+deleted file mode 100644
+index 9df8495..0000000
+--- a/frontend/src/routes/subjects/SubjectDetail.tsx
++++ /dev/null
+@@ -1,169 +0,0 @@
+-/**
+- * Subject Detail — BLOCKER-C review queue (Variante B, revisão humana explícita, decisão do
+- * Marcelo 2026-08-25): for each requirement not yet SATISFIED, the operator can expand it to
+- * see the uploaded evidence (DocumentSubmission list) and, having reviewed it, link an
+- * already-existing ExpirationItem to satisfy the requirement. Deliberately no auto-suggested
+- * item (BLOCKER-C's own investigation found DocumentSubmission carries no structured data -
+- * validity date, type - a safe automatic match could be built from; the operator supplies the
+- * itemId, same trust boundary the backend's own linkExpirationItem already enforces via
+- * ExpirationItemLookup, never accepted blindly).
+- */
+-import { useState, type FormEvent } from "react";
+-import { Link, useParams } from "react-router-dom";
+-import { useOrgPath } from "../../routing/useOrgPath.js";
+-import { useSubject } from "../../hooks/useSubject.js";
+-import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
+-import { useDocumentSubmissions } from "../../hooks/useDocumentSubmissions.js";
+-import { useLinkExpirationItem } from "../../hooks/useLinkExpirationItem.js";
+-import { useUnlinkExpirationItem } from "../../hooks/useUnlinkExpirationItem.js";
+-import { presentRequirementStatus, presentSubmissionStatus, formatAbsoluteDate } from "../../api/presentation.js";
+-import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
+-import { TextField } from "../../components/forms/TextField.js";
+-import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
+-import { ApiError, isConflict } from "../../api/errors.js";
+-import type { RequirementAssignment } from "../../api/types.js";
+-
+-const REVIEWABLE_STATUSES = new Set(["MISSING", "REQUESTED", "SUBMITTED", "UNDER_REVIEW", "REJECTED"]);
+-
+-export function SubjectDetail() {
+-  const { subjectId } = useParams<{ subjectId: string }>();
+-  const orgPath = useOrgPath();
+-  const subjectQuery = useSubject(subjectId ?? "");
+-  const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
+-
+-  if (!subjectId) return null; // unreachable - the route always supplies :subjectId
+-
+-  if (subjectQuery.isPending || assignmentsQuery.isPending) {
+-    return <InitialLoading label="Carregando fornecedor…" />;
+-  }
+-
+-  if (subjectQuery.isError) {
+-    const error = subjectQuery.error;
+-    if (error instanceof ApiError && error.category === "NOT_FOUND") {
+-      return <EmptyState kind="unavailable" message="Este fornecedor não foi encontrado." action={<Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>} />;
+-    }
+-    const message = error instanceof ApiError ? error.message : "Não foi possível carregar este fornecedor.";
+-    return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
+-  }
+-
+-  if (assignmentsQuery.isError) {
+-    const message = assignmentsQuery.error instanceof ApiError ? assignmentsQuery.error.message : "Não foi possível carregar os requisitos.";
+-    return <ErrorState message={message} onRetry={() => void assignmentsQuery.refetch()} />;
+-  }
+-
+-  const subject = subjectQuery.data.subject;
+-  const assignments = assignmentsQuery.data.assignments;
+-
+-  return (
+-    <div>
+-      <p>
+-        <Link to={orgPath("/subjects")}>← Voltar para Fornecedores</Link>
+-      </p>
+-      <h1>{subject.displayName}</h1>
+-      <p>{subject.type}</p>
+-      <h2>Requisitos</h2>
+-      {assignments.length === 0 ? (
+-        <EmptyState kind="true-empty" message="Nenhum requisito atribuído ainda." />
+-      ) : (
+-        <ul>
+-          {assignments.map((assignment) => (
+-            <RequirementRow key={assignment.assignmentId} subjectId={subjectId} assignment={assignment} />
+-          ))}
+-        </ul>
+-      )}
+-    </div>
+-  );
+-}
+-
+-function RequirementRow({ subjectId, assignment }: { subjectId: string; assignment: RequirementAssignment }) {
+-  const [expanded, setExpanded] = useState(false);
+-  const presentation = presentRequirementStatus(assignment.status);
+-  const canReview = REVIEWABLE_STATUSES.has(assignment.status);
+-
+-  return (
+-    <li>
+-      <span data-tone={presentation.tone}>[{presentation.label}]</span> <strong>{assignment.requirementName}</strong>
+-      {assignment.status === "SATISFIED" ? (
+-        <>
+-          {" "}
+-          — vinculado a <code>{assignment.linkedItemId}</code> <UnlinkButton subjectId={subjectId} assignment={assignment} />
+-        </>
+-      ) : canReview ? (
+-        <>
+-          {" "}
+-          <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+-            {expanded ? "Ocultar revisão" : "Revisar"}
+-          </button>
+-          {expanded ? <ReviewPanel subjectId={subjectId} assignment={assignment} /> : null}
+-        </>
+-      ) : null}
+-    </li>
+-  );
+-}
+-
+-function UnlinkButton({ subjectId, assignment }: { subjectId: string; assignment: RequirementAssignment }) {
+-  const mutation = useUnlinkExpirationItem(subjectId, assignment.assignmentId);
+-  return (
+-    <>
+-      <button type="button" disabled={mutation.isPending} onClick={() => mutation.mutate({ expectedVersion: assignment.version })}>
+-        Desvincular
+-      </button>
+-      {mutation.isConflict ? <span role="alert"> Este requisito mudou desde que a página carregou — atualize antes de tentar de novo.</span> : null}
+-    </>
+-  );
+-}
+-
+-function ReviewPanel({ subjectId, assignment }: { subjectId: string; assignment: RequirementAssignment }) {
+-  const submissionsQuery = useDocumentSubmissions(subjectId, assignment.assignmentId, true);
+-  const [itemId, setItemId] = useState("");
+-  const [generalErrors, setGeneralErrors] = useState<string[]>([]);
+-  const mutation = useLinkExpirationItem(subjectId, assignment.assignmentId);
+-
+-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+-    event.preventDefault();
+-    if (mutation.isPending || mutation.isConflict) return;
+-    if (!itemId.trim()) {
+-      setGeneralErrors(["Informe o ID do vencimento a vincular."]);
+-      return;
+-    }
+-    setGeneralErrors([]);
+-    try {
+-      await mutation.mutateAsync({ itemId: itemId.trim(), expectedVersion: assignment.version });
+-      setItemId("");
+-    } catch (err) {
+-      if (isConflict(err)) return; // surfaced by mutation.isConflict below.
+-      setGeneralErrors([err instanceof ApiError ? err.message : "Não foi possível vincular este vencimento."]);
+-    }
+-  }
+-
+-  return (
+-    <div>
+-      {submissionsQuery.isPending ? (
+-        <p>Carregando envios…</p>
+-      ) : submissionsQuery.isError ? (
+-        <p role="alert">Não foi possível carregar os envios deste requisito.</p>
+-      ) : submissionsQuery.data.submissions.length === 0 ? (
+-        <p>Nenhum documento enviado ainda para este requisito.</p>
+-      ) : (
+-        <ul>
+-          {submissionsQuery.data.submissions.map((submission) => {
+-            const status = presentSubmissionStatus(submission.status);
+-            return (
+-              <li key={submission.submissionId}>
+-                {submission.fileName} — <span data-tone={status.tone}>[{status.label}]</span> <span>{formatAbsoluteDate(submission.createdAt)}</span>
+-              </li>
+-            );
+-          })}
+-        </ul>
+-      )}
+-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+-        <FormErrorSummary errors={generalErrors} />
+-        {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize a página antes de tentar de novo.</p> : null}
+-        <TextField label="ID do vencimento a vincular" value={itemId} onChange={setItemId} required hint="O vencimento precisa já existir." />
+-        <button type="submit" disabled={mutation.isPending || mutation.isConflict}>
+-          {mutation.isPending ? "Vinculando…" : "Vincular"}
+-        </button>
+-      </form>
+-    </div>
+-  );
+-}
+diff --git a/frontend/src/routes/subjects/SubjectForm.tsx b/frontend/src/routes/subjects/SubjectForm.tsx
+new file mode 100644
+index 0000000..c267a7a
+--- /dev/null
++++ b/frontend/src/routes/subjects/SubjectForm.tsx
+@@ -0,0 +1,125 @@
++/**
++ * A08 (Block 3, D-2xx) — create/edit form for a Fornecedor (TrackedSubject). Two routes share
++ * this component (`/subjects/new`, `/subjects/:subjectId/edit`) rather than folding creation
++ * into the Subject Hub (A09) as that screen's spec literally describes — a deliberate,
++ * time-boxed simplification for this block: the Hub (SubjectHub.tsx) stays a pure detail/review
++ * surface, and this dedicated form covers both create and edit with one RBAC-checked component,
++ * same separation CreateItem/ItemDetail already use for A04/A05. Revisit only if a future audit
++ * names the merged-hub-as-create-form pattern as load-bearing for a real journey.
++ */
++import { useState, type FormEvent } from "react";
++import { useNavigate, useParams } from "react-router-dom";
++import { useOrgPath } from "../../routing/useOrgPath.js";
++import { useSubject } from "../../hooks/useSubject.js";
++import { useCreateSubject } from "../../hooks/useCreateSubject.js";
++import { useUpdateSubject } from "../../hooks/useUpdateSubject.js";
++import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
++import { TextField } from "../../components/forms/TextField.js";
++import { SelectField } from "../../components/forms/SelectField.js";
++import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
++import { PageHeader } from "../../components/ui/Layout.js";
++import { Button, ButtonLink } from "../../components/ui/Button.js";
++import { ApiError, isConflict } from "../../api/errors.js";
++import { presentSubjectType } from "../../api/presentation.js";
++import type { TrackedSubjectType } from "../../api/types.js";
++
++const TYPE_OPTIONS: TrackedSubjectType[] = ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"];
++
++export function SubjectForm() {
++  const { subjectId } = useParams<{ subjectId: string }>();
++  const isEdit = Boolean(subjectId);
++  const orgPath = useOrgPath();
++  const navigate = useNavigate();
++
++  const subjectQuery = useSubject(subjectId ?? "");
++  const createMutation = useCreateSubject();
++  const updateMutation = useUpdateSubject(subjectId ?? "");
++
++  const [displayName, setDisplayName] = useState("");
++  const [type, setType] = useState<TrackedSubjectType>("VENDOR");
++  const [externalId, setExternalId] = useState("");
++  const [notes, setNotes] = useState("");
++  const [hydrated, setHydrated] = useState(false);
++  const [generalErrors, setGeneralErrors] = useState<string[]>([]);
++
++  if (isEdit && subjectQuery.isPending) {
++    return <InitialLoading label="Carregando fornecedor…" />;
++  }
++  if (isEdit && subjectQuery.isError) {
++    const message = subjectQuery.error instanceof ApiError ? subjectQuery.error.message : "Não foi possível carregar este fornecedor.";
++    return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
++  }
++  if (isEdit && subjectQuery.data && !hydrated) {
++    setDisplayName(subjectQuery.data.subject.displayName);
++    setType(subjectQuery.data.subject.type);
++    setExternalId(subjectQuery.data.subject.externalId ?? "");
++    setNotes(subjectQuery.data.subject.notes ?? "");
++    setHydrated(true);
++  }
++
++  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!displayName.trim()) {
++      setGeneralErrors(["Informe o nome do fornecedor."]);
++      return;
++    }
++    setGeneralErrors([]);
++    try {
++      if (isEdit && subjectId && subjectQuery.data) {
++        await updateMutation.mutateAsync({
++          input: { displayName: displayName.trim(), notes: notes.trim() || undefined },
++          expectedVersion: subjectQuery.data.subject.version,
++        });
++        navigate(orgPath(`/subjects/${subjectId}`));
++      } else {
++        const result = await createMutation.mutateAsync({
++          type,
++          displayName: displayName.trim(),
++          notes: notes.trim() || undefined,
++          externalId: externalId.trim() || undefined,
++        });
++        createMutation.newIntent();
++        navigate(orgPath(`/subjects/${result.subject.subjectId}`));
++      }
++    } catch (err) {
++      if (isConflict(err)) return;
++      if (err instanceof ApiError && err.category === "CONFLICT") return;
++      const message = err instanceof ApiError ? err.message : "Não foi possível salvar este fornecedor.";
++      // A08 spec's "identificador duplicado" state: the backend enforces external-id
++      // uniqueness via SubjectExternalIdPointer and returns a CONFLICT/VALIDATION error whose
++      // message already names the field — surfaced verbatim, never replaced with a generic one.
++      setGeneralErrors([message]);
++    }
++  }
++
++  const pending = createMutation.isPending || updateMutation.isPending;
++  const isConflictState = isEdit ? updateMutation.isConflict : false;
++
++  return (
++    <div>
++      <PageHeader above={<ButtonLink variant="secondary" size="sm" to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")}>← Voltar</ButtonLink>} title={isEdit ? "Editar fornecedor" : "Novo fornecedor"} />
++      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
++        <FormErrorSummary errors={generalErrors} />
++        {isConflictState ? <p role="alert">Este fornecedor mudou desde que a página carregou — recarregue antes de salvar de novo.</p> : null}
++        <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} required />
++        {isEdit ? null : (
++          <>
++            <SelectField
++              id="subject-type"
++              label="Tipo"
++              value={type}
++              onChange={(v) => setType(v as TrackedSubjectType)}
++              required
++              options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
++            />
++            <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} hint="Não pode ser alterado depois de criado." />
++          </>
++        )}
++        <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
++        <Button type="submit" variant="primary" pending={pending}>
++          {pending ? "Salvando…" : "Salvar"}
++        </Button>
++      </form>
++    </div>
++  );
++}
+diff --git a/frontend/src/routes/subjects/SubjectHub.tsx b/frontend/src/routes/subjects/SubjectHub.tsx
+new file mode 100644
+index 0000000..e938227
+--- /dev/null
++++ b/frontend/src/routes/subjects/SubjectHub.tsx
+@@ -0,0 +1,207 @@
++/**
++ * A09 — Hub do fornecedor (Block 3, D-2xx). Replaces the narrow BLOCKER-C `SubjectDetail`
++ * (legacy `RequirementAssignment` review queue, A10's domain) with the full hub per the
++ * post-audit spec: Compliance panel (SLF-01-adjacent composition, `MetricCardGrid` for the
++ * destination-cards grid), `subject:delete` surface (was missing pre-audit), links to A11
++ * (filtered), A12 documents (degrades to A11 until a dedicated Documents Collection exists -
++ * same spec-named fallback), A14 requests, dossier export (`docarchive:dossier-export`,
++ * ADMIN_ROLES exclusive, D-205 - no assignee exception), and A10's "Rastreamento legado" card.
++ *
++ * A10 (Legacy Tracked Requirements) has an audited SPEC but no implemented frontend screen yet
++ * (Block 7 of the sequencing plan, not built in this block) - the legacy RequirementAssignment
++ * review workflow the OLD SubjectDetail rendered inline has no route to land on today. Per the
++ * spec's own instruction ("Se A10 ainda não estiver implementada, o card aparece com estado 'Em
++ * breve' desabilitado, não removido"), the card here is disabled rather than linking to a route
++ * that would 404 - this is the spec's own named fallback, not an improvised gap.
++ */
++import { useEffect, useRef, useState } from "react";
++import { Link, useNavigate, useParams } from "react-router-dom";
++import { useOrgPath } from "../../routing/useOrgPath.js";
++import { useSubject } from "../../hooks/useSubject.js";
++import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
++import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
++import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
++import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
++import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
++import { InlineNotice } from "../../components/ui/InlineNotice.js";
++import { MetricCardGrid, type MetricCardData } from "../../components/MetricCardGrid.js";
++import { PageHeader } from "../../components/ui/Layout.js";
++import { Button, ButtonLink } from "../../components/ui/Button.js";
++import { ApiError, isConflict } from "../../api/errors.js";
++import { presentSubjectType } from "../../api/presentation.js";
++
++export function SubjectHub() {
++  const { subjectId } = useParams<{ subjectId: string }>();
++  const orgPath = useOrgPath();
++  const navigate = useNavigate();
++  const role = useCurrentMembershipRole();
++  const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
++  const canAdmin = role === "OWNER" || role === "ADMIN";
++
++  const subjectQuery = useSubject(subjectId ?? "");
++  const complianceQuery = useSubjectCompliance(subjectId ?? "");
++  const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
++  const deleteMutation = useDeleteSubject(subjectId ?? "");
++  const [confirmingDelete, setConfirmingDelete] = useState(false);
++  const [deleteError, setDeleteError] = useState<string | undefined>();
++
++  if (!subjectId) return null; // unreachable - the route always supplies :subjectId
++
++  if (subjectQuery.isPending) {
++    return <InitialLoading label="Carregando fornecedor…" />;
++  }
++  if (subjectQuery.isError) {
++    const error = subjectQuery.error;
++    if (error instanceof ApiError && error.category === "NOT_FOUND") {
++      return <EmptyState kind="unavailable" message="Este fornecedor não foi encontrado." action={<Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>} />;
++    }
++    const message = error instanceof ApiError ? error.message : "Não foi possível carregar este fornecedor.";
++    return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
++  }
++
++  const subject = subjectQuery.data.subject;
++
++  async function handleDelete() {
++    try {
++      await deleteMutation.mutateAsync({ expectedVersion: subject.version });
++      navigate(orgPath("/subjects"));
++    } catch (err) {
++      if (isConflict(err)) return;
++      setDeleteError(err instanceof ApiError ? err.message : "Não foi possível excluir este fornecedor.");
++    }
++  }
++
++  const identifierLabel = subject.type === "COMPANY" || subject.type === "VENDOR" ? "CNPJ" : "Identificador";
++
++  const cards: MetricCardData[] = [
++    {
++      id: "requirements",
++      label: "Requisitos documentais",
++      to: orgPath(`/requirements?subjectId=${encodeURIComponent(subjectId)}`),
++      srDescription: "Ver requisitos documentais deste fornecedor",
++      critical: (complianceQuery.data?.compliance.missingCount ?? 0) > 0,
++      status: requirementsQuery.isPending
++        ? { kind: "loading" }
++        : requirementsQuery.isError
++          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
++          : { kind: "value", value: requirementsQuery.data.requirements.length },
++    },
++    {
++      id: "documents",
++      label: "Documentos",
++      // A12's dedicated Documents Collection doesn't exist yet - degrades to the same
++      // requirements list, filtered, per the spec's own named fallback.
++      to: orgPath(`/requirements?subjectId=${encodeURIComponent(subjectId)}`),
++      srDescription: "Ver documentos/evidências vinculados a este fornecedor",
++      status: requirementsQuery.isPending
++        ? { kind: "loading" }
++        : requirementsQuery.isError
++          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
++          : { kind: "value", value: requirementsQuery.data.requirements.filter((r) => r.evidenceVersionId).length },
++    },
++    {
++      id: "legacy-tracking",
++      label: "Rastreamento legado (requisitos acompanhados)",
++      to: "#",
++      srDescription: "Em breve - A10 ainda não implementada",
++      status: { kind: "value", value: "Em breve" },
++    },
++    {
++      id: "requests",
++      label: "Solicitações e recorrência",
++      // A14 (Block 6) doesn't exist yet either - same "Em breve" treatment as legacy-tracking,
++      // never a link to a route that doesn't exist.
++      to: "#",
++      srDescription: "Em breve - A14 ainda não implementada",
++      status: { kind: "value", value: "Em breve" },
++    },
++  ];
++
++  return (
++    <div>
++      <PageHeader
++        above={<ButtonLink variant="secondary" size="sm" to={orgPath("/subjects")}>← Voltar para Fornecedores</ButtonLink>}
++        title={subject.displayName}
++        description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
++        actions={
++          <>
++            {canWrite ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/edit`)}>Editar fornecedor</ButtonLink> : null}{" "}
++            {canAdmin ? (
++              <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
++                Excluir fornecedor
++              </Button>
++            ) : null}
++          </>
++        }
++      />
++      {subject.status === "ARCHIVED" ? (
++        <InlineNotice tone="neutral">Este fornecedor está arquivado. Novas evidências não são solicitadas automaticamente.</InlineNotice>
++      ) : null}
++      {confirmingDelete ? <DeleteConfirmDialog subjectName={subject.displayName} deleteError={deleteError} pending={deleteMutation.isPending} onCancel={() => setConfirmingDelete(false)} onConfirm={() => void handleDelete()} /> : null}
++
++      <CompliancePanel subjectId={subjectId} />
++
++      <MetricCardGrid cards={cards} />
++    </div>
++  );
++}
++
++/** Design system §48 - a destructive confirmation names the resource and the consequence, and
++ * initial focus lands on Cancel (never the destructive action) - done via a ref/effect rather
++ * than the `autoFocus` prop (`jsx-a11y/no-autofocus` - the rule's own reasoning about screen
++ * readers announcing focus jumps unexpectedly does not apply to a dialog that only exists
++ * because the user just triggered it, but the codebase has no other precedent to follow yet, so
++ * this stays the more conservative, lint-clean form). */
++function DeleteConfirmDialog({ subjectName, deleteError, pending, onCancel, onConfirm }: { subjectName: string; deleteError: string | undefined; pending: boolean; onCancel: () => void; onConfirm: () => void }) {
++  const cancelRef = useRef<HTMLButtonElement>(null);
++  useEffect(() => {
++    cancelRef.current?.focus();
++  }, []);
++
++  return (
++    <div role="alertdialog" aria-label={`Excluir ${subjectName}`}>
++      <p>Excluir &quot;{subjectName}&quot; permanentemente? Esta ação não pode ser desfeita e removerá o acesso a todos os requisitos vinculados a este fornecedor.</p>
++      {deleteError ? <p role="alert">{deleteError}</p> : null}
++      <button ref={cancelRef} type="button" className="ui-button ui-button--secondary" onClick={onCancel}>
++        Cancelar
++      </button>{" "}
++      <Button variant="danger" pending={pending} onClick={onConfirm}>
++        Confirmar exclusão
++      </Button>
++    </div>
++  );
++}
++
++function CompliancePanel({ subjectId }: { subjectId: string }) {
++  const complianceQuery = useSubjectCompliance(subjectId);
++
++  if (complianceQuery.isPending) {
++    return <InitialLoading label="Carregando conformidade…" />;
++  }
++  if (complianceQuery.isError) {
++    return (
++      <InlineNotice tone="warning" actions={<Button size="sm" variant="secondary" onClick={() => void complianceQuery.refetch()}>Tentar novamente</Button>}>
++        Não foi possível carregar os dados de conformidade.
++      </InlineNotice>
++    );
++  }
++
++  const { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent } = complianceQuery.data.compliance;
++
++  return (
++    <section aria-labelledby="compliance-heading">
++      <h2 id="compliance-heading">Conformidade</h2>
++      <p>
++        <strong style={{ fontSize: "2rem" }}>{compliancePercent === null ? "—" : `${compliancePercent}%`}</strong>{" "}
++        <span>
++          {satisfiedCount} de {totalRequirements} requisitos satisfeitos
++        </span>
++      </p>
++      <ul>
++        <li>{satisfiedCount} satisfeito(s)</li>
++        <li>{expiringSoonCount} vencendo em breve</li>
++        <li>{missingCount} em falta</li>
++      </ul>
++    </section>
++  );
++}
+diff --git a/frontend/src/routes/subjects/SubjectsCollection.tsx b/frontend/src/routes/subjects/SubjectsCollection.tsx
+index 311952c..ec46792 100644
+--- a/frontend/src/routes/subjects/SubjectsCollection.tsx
++++ b/frontend/src/routes/subjects/SubjectsCollection.tsx
+@@ -1,17 +1,31 @@
+ /**
+- * Fornecedores/Subjects collection (Fornecedor/Subject anchor, first real slice) - entry
+- * point for the BLOCKER-C review workflow (Variante B, Marcelo's decision 2026-08-25):
+- * an operator finds a subject here, then reviews its pending requirements/submissions on
+- * SubjectDetail. Deliberately no "create subject" affordance yet (subjects are created via
+- * the backend's other flows - CSV import, API - not a screen this slice builds); this is a
+- * read/review surface, not full CRUD, matching the narrower scope BLOCKER-C actually needs.
++ * A08 — Fornecedores (Block 3, D-2xx). Full CRUD per the post-audit spec
++ * (`docs/frontend/prototype-screen-specs/A08-fornecedores.md`): search, create, edit,
++ * archive/reactivate, delete — replacing the deliberately narrow BLOCKER-C read/review-only
++ * surface this route used to be (see this file's own prior header comment, now superseded).
++ *
++ * Search is client-side over the already-fetched status-filtered list (`useSubjectsDashboard`)
++ * rather than a second round-trip to `GET /subjects/search` — a real simplification versus the
++ * spec's implied server search, acceptable at this tenant's real data volume (GSI7 status list,
++ * not paginated) and consistent with "don't build search infra a screen doesn't need yet"
++ * (mission's deferred-complexity discipline). Revisit if a tenant's subject count outgrows a
++ * single unpaginated list.
+  */
++import { useMemo, useState } from "react";
+ import { Link, useSearchParams } from "react-router-dom";
+ import { useOrgPath } from "../../routing/useOrgPath.js";
+ import { useSubjectsDashboard } from "../../hooks/useSubjectsDashboard.js";
++import { useArchiveSubject } from "../../hooks/useArchiveSubject.js";
++import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
++import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
+ import { InitialLoading, ErrorState, EmptyState, BackgroundRefreshIndicator } from "../../components/AsyncStates.js";
+-import { ApiError } from "../../api/errors.js";
+-import type { TrackedSubjectStatus } from "../../api/types.js";
++import { ApiError, isConflict } from "../../api/errors.js";
++import { presentSubjectType } from "../../api/presentation.js";
++import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
++import { Button, ButtonLink } from "../../components/ui/Button.js";
++import { PageHeader, Toolbar } from "../../components/ui/Layout.js";
++import { TextField } from "../../components/forms/TextField.js";
++import type { TrackedSubject, TrackedSubjectStatus } from "../../api/types.js";
+ 
+ const STATUS_TABS: { value: TrackedSubjectStatus; label: string }[] = [
+   { value: "ACTIVE", label: "Ativos" },
+@@ -22,17 +36,40 @@ function isKnownStatus(value: string | null): value is TrackedSubjectStatus {
+   return value === "ACTIVE" || value === "ARCHIVED";
+ }
+ 
++function normalize(text: string): string {
++  return text
++    .toLowerCase()
++    .normalize("NFD")
++    .replace(/[̀-ͯ]/g, "");
++}
++
+ export function SubjectsCollection() {
+   const orgPath = useOrgPath();
+   const [searchParams, setSearchParams] = useSearchParams();
++  const [searchTerm, setSearchTerm] = useState("");
+   const statusParam = searchParams.get("status");
+   const status: TrackedSubjectStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
+   const query = useSubjectsDashboard(status);
++  const role = useCurrentMembershipRole();
++  const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
++  const canDelete = role === "OWNER" || role === "ADMIN";
+ 
+   function selectStatus(next: TrackedSubjectStatus) {
+     setSearchParams(next === "ACTIVE" ? {} : { status: next });
+   }
+ 
++  const allSubjects = useMemo(() => query.data?.subjects ?? [], [query.data]);
++  const filtered = useMemo(() => {
++    // Risk-led ordering (spec §Estrutura item 3): pending-count first, then alphabetical — no
++    // per-subject pending count is available from this backend yet (TrackedSubject carries no
++    // requirement-count denormalization), so this degrades to alphabetical-only until that
++    // aggregation exists (recorded as a named gap, D-2xx below).
++    const sorted = [...allSubjects].sort((a, b) => a.displayName.localeCompare(b.displayName, "pt-BR"));
++    if (!searchTerm.trim()) return sorted;
++    const needle = normalize(searchTerm.trim());
++    return sorted.filter((s) => normalize(s.displayName).includes(needle) || (s.externalId && normalize(s.externalId).includes(needle)));
++  }, [allSubjects, searchTerm]);
++
+   if (query.isPending) {
+     return <InitialLoading label="Carregando fornecedores…" />;
+   }
+@@ -46,39 +83,120 @@ export function SubjectsCollection() {
+     return <ErrorState message={message} onRetry={() => void query.refetch()} />;
+   }
+ 
+-  const subjects = query.data.subjects;
+   const isBackgroundRefreshing = query.isFetching && !query.isPending;
+ 
+   return (
+     <div>
+-      <h1>Fornecedores</h1>
+-      <nav aria-label="Filtrar por status">
+-        {STATUS_TABS.map((tab) => (
+-          <button key={tab.value} type="button" aria-current={tab.value === status ? "page" : undefined} onClick={() => selectStatus(tab.value)}>
+-            {tab.label}
+-          </button>
+-        ))}
+-      </nav>
+-      <p>
+-        <button type="button" onClick={() => void query.refetch()}>
+-          Atualizar
+-        </button>{" "}
++      <PageHeader
++        title="Fornecedores"
++        description="Terceiros que precisam manter documentação em dia com você."
++        actions={canWrite ? <ButtonLink variant="primary" to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
++      />
++      <Toolbar>
++        <nav aria-label="Filtrar por status">
++          {STATUS_TABS.map((tab) => (
++            <Button key={tab.value} variant={tab.value === status ? "primary" : "secondary"} size="sm" aria-current={tab.value === status ? "page" : undefined} onClick={() => selectStatus(tab.value)}>
++              {tab.label}
++            </Button>
++          ))}
++        </nav>
++        <TextField label="Buscar fornecedores" hint="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
+         {isBackgroundRefreshing ? <BackgroundRefreshIndicator /> : null}
+-      </p>
+-      {subjects.length === 0 ? (
++      </Toolbar>
++      {allSubjects.length === 0 ? (
+         <EmptyState
+           kind={status === "ACTIVE" ? "true-empty" : "filtered-empty"}
+-          message={status === "ACTIVE" ? "Nenhum fornecedor cadastrado ainda." : "Nenhum fornecedor neste status."}
++          message={status === "ACTIVE" ? "Nenhum fornecedor cadastrado ainda. Cadastre o primeiro fornecedor para começar a acompanhar a documentação dele." : "Nenhum fornecedor neste status."}
++          action={status === "ACTIVE" && canWrite ? <ButtonLink variant="primary" to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+         />
++      ) : filtered.length === 0 ? (
++        <EmptyState kind="filtered-empty" message={`Nenhum fornecedor encontrado para "${searchTerm}".`} action={<Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar busca</Button>} />
+       ) : (
+-        <ul>
+-          {subjects.map((subject) => (
+-            <li key={subject.subjectId}>
+-              <Link to={orgPath(`/subjects/${subject.subjectId}`)}>{subject.displayName}</Link> <span>{subject.type}</span>
+-            </li>
+-          ))}
+-        </ul>
++        <DataTable
++          caption="Fornecedores"
++          rowKey={(s: TrackedSubject) => s.subjectId}
++          rows={filtered}
++          columns={[
++            {
++              key: "name",
++              header: "Fornecedor",
++              primary: true,
++              render: (s) => (
++                <>
++                  <Link to={orgPath(`/subjects/${s.subjectId}`)}>{s.displayName}</Link>
++                  {s.externalId ? <CellSecondary>{s.externalId}</CellSecondary> : null}
++                </>
++              ),
++            },
++            { key: "type", header: "Tipo", render: (s) => presentSubjectType(s.type) },
++            {
++              key: "tags",
++              header: "Tags",
++              render: (s) => (s.tags.length ? s.tags.slice(0, 2).join(", ") + (s.tags.length > 2 ? ` +${s.tags.length - 2}` : "") : "—"),
++            },
++            {
++              key: "actions",
++              header: "Ações",
++              actions: true,
++              render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} orgPath={orgPath} />,
++            },
++          ]}
++        />
+       )}
+     </div>
+   );
+ }
++
++function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: TrackedSubject; canWrite: boolean; canDelete: boolean; orgPath: (p: string) => string }) {
++  const archiveMutation = useArchiveSubject(subject.subjectId);
++  const deleteMutation = useDeleteSubject(subject.subjectId);
++  const [confirmingDelete, setConfirmingDelete] = useState(false);
++  const [blockedReason, setBlockedReason] = useState<string | undefined>();
++
++  if (!canWrite) return null; // VIEWER: no row menu at all (hidden, not disabled) per RBAC table.
++
++  async function handleDelete() {
++    try {
++      await deleteMutation.mutateAsync({ expectedVersion: subject.version });
++      setConfirmingDelete(false);
++    } catch (err) {
++      if (isConflict(err)) return;
++      const message = err instanceof ApiError ? err.message : "Não foi possível excluir este fornecedor.";
++      setBlockedReason(message);
++    }
++  }
++
++  return (
++    <>
++      <ButtonLink size="sm" variant="secondary" to={orgPath(`/subjects/${subject.subjectId}/edit`)}>
++        Editar
++      </ButtonLink>{" "}
++      <Button size="sm" variant="secondary" disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate({ expectedVersion: subject.version })}>
++        {subject.status === "ARCHIVED" ? "Reativar" : "Arquivar"}
++      </Button>
++      {canDelete ? (
++        confirmingDelete ? (
++          <span role="alertdialog" aria-label={`Excluir ${subject.displayName}`}>
++            {" "}
++            Excluir &quot;{subject.displayName}&quot; permanentemente?{" "}
++            <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
++              Confirmar exclusão
++            </Button>{" "}
++            <Button size="sm" variant="secondary" onClick={() => setConfirmingDelete(false)}>
++              Cancelar
++            </Button>
++          </span>
++        ) : (
++          <>
++            {" "}
++            <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)}>
++              Excluir
++            </Button>
++          </>
++        )
++      ) : null}
++      {archiveMutation.isConflict ? <span role="alert"> Este fornecedor mudou desde que a página carregou — atualize antes de tentar de novo.</span> : null}
++      {blockedReason ? <span role="alert"> {blockedReason}</span> : null}
++    </>
++  );
++}
+diff --git a/frontend/src/shell/navigation.ts b/frontend/src/shell/navigation.ts
+index 3460adc..f8f770d 100644
+--- a/frontend/src/shell/navigation.ts
++++ b/frontend/src/shell/navigation.ts
+@@ -42,6 +42,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
+   { id: "overview", to: "/overview", label: "Visão geral" },
+   { id: "items", to: "/items", label: "Vencimentos" },
+   { id: "subjects", to: "/subjects", label: "Fornecedores" },
++  // A11 (Block 3, D-2xx) - `docarchive:requirement-read` is READ_ONLY_ROLES, every role sees
++  // this list (create/edit/delete are individually gated inside the screen itself).
++  { id: "requirements", to: "/requirements", label: "Requisitos" },
+   // Visible to every role, deliberately NOT ADMIN-gated (fixed after the Block 0 Codex review
+   // round caught this as a real RBAC-nav bug in the first draft): the backend action the roster
+   // GET actually authorizes against is `membership:list-members`, which is READ_ONLY_ROLES - every
+diff --git a/frontend/test/routes/RequirementsCollection.test.tsx b/frontend/test/routes/RequirementsCollection.test.tsx
+new file mode 100644
+index 0000000..31e90d0
+--- /dev/null
++++ b/frontend/test/routes/RequirementsCollection.test.tsx
+@@ -0,0 +1,63 @@
++import { describe, expect, it, beforeEach, vi } from "vitest";
++import { screen, waitFor, fireEvent } from "@testing-library/react";
++import { renderAtRoute } from "../testUtils.js";
++import { RequirementsCollection } from "../../src/routes/RequirementsCollection.js";
++import type { Requirement } from "../../src/api/types.js";
++
++const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
++vi.mock("../../src/api/apiClient.js", () => ({
++  apiClient: { get: getMock, post: vi.fn(), request: vi.fn() },
++}));
++
++function requirement(overrides: Partial<Requirement> = {}): Requirement {
++  return {
++    requirementId: "req-1",
++    subjectId: "subject-1",
++    name: "CND Federal",
++    applicability: "APPLICABLE",
++    status: "MISSING",
++    createdAt: "2026-01-01T00:00:00.000Z",
++    updatedAt: "2026-01-01T00:00:00.000Z",
++    version: 1,
++    ...overrides,
++  };
++}
++
++beforeEach(() => {
++  getMock.mockReset();
++});
++
++describe("RequirementsCollection (A11)", () => {
++  it("shows initial loading, then lists MISSING requirements by default", async () => {
++    getMock.mockImplementation((path: string) => {
++      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirement()], cursor: null });
++      return Promise.resolve({ items: [], cursor: null });
++    });
++    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
++
++    expect(screen.getByText("Carregando requisitos…")).toBeInTheDocument();
++    await waitFor(() => expect(screen.getByRole("link", { name: "CND Federal" })).toBeInTheDocument());
++  });
++
++  it("distinguishes NOT_APPLICABLE from MISSING with different labels", async () => {
++    getMock.mockImplementation((path: string) => {
++      if (path.includes("status=NOT_APPLICABLE")) return Promise.resolve({ items: [requirement({ requirementId: "req-2", status: "NOT_APPLICABLE", name: "Comprovante" })], cursor: null });
++      return Promise.resolve({ items: [], cursor: null });
++    });
++    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
++    await waitFor(() => expect(screen.getByRole("button", { name: "Não se aplica" })).toBeInTheDocument());
++    fireEvent.click(screen.getByRole("button", { name: "Não se aplica" }));
++
++    await waitFor(() => expect(screen.getByRole("link", { name: "Comprovante" })).toBeInTheDocument());
++    // NOT_APPLICABLE renders as a distinct badge label from MISSING's ("Em falta") - never
++    // collapsed into the same text, per the audit fix this screen implements.
++    expect(screen.getAllByText("Não se aplica").length).toBeGreaterThanOrEqual(2); // filter tab + status badge
++  });
++
++  it("shows the EMPTY_TRUE state when the organization has no requirements at all", async () => {
++    getMock.mockResolvedValue({ items: [], cursor: null });
++    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
++
++    await waitFor(() => expect(screen.getByText("Nenhum requisito cadastrado ainda.")).toBeInTheDocument());
++  });
++});
+diff --git a/frontend/test/routes/subjects/SubjectDetail.test.tsx b/frontend/test/routes/subjects/SubjectDetail.test.tsx
+deleted file mode 100644
+index 916b074..0000000
+--- a/frontend/test/routes/subjects/SubjectDetail.test.tsx
++++ /dev/null
+@@ -1,153 +0,0 @@
+-import { describe, expect, it, beforeEach, vi } from "vitest";
+-import { screen, waitFor, fireEvent } from "@testing-library/react";
+-import { renderAtRoute } from "../../testUtils.js";
+-import { SubjectDetail } from "../../../src/routes/subjects/SubjectDetail.js";
+-import type { TrackedSubject, RequirementAssignment, DocumentSubmission } from "../../../src/api/types.js";
+-
+-const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
+-vi.mock("../../../src/api/apiClient.js", () => ({
+-  apiClient: { get: getMock, post: postMock },
+-}));
+-
+-function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
+-  return {
+-    subjectId: "subject-1",
+-    tenantId: "t1",
+-    type: "VENDOR",
+-    displayName: "ACME Ltda",
+-    tags: [],
+-    status: "ACTIVE",
+-    createdAt: "2026-01-01T00:00:00.000Z",
+-    updatedAt: "2026-01-01T00:00:00.000Z",
+-    version: 1,
+-    ...overrides,
+-  };
+-}
+-
+-function assignment(overrides: Partial<RequirementAssignment> = {}): RequirementAssignment {
+-  return {
+-    assignmentId: "assignment-1",
+-    subjectId: "subject-1",
+-    tenantId: "t1",
+-    requirementName: "Seguro RC",
+-    status: "MISSING",
+-    createdAt: "2026-01-01T00:00:00.000Z",
+-    updatedAt: "2026-01-01T00:00:00.000Z",
+-    version: 1,
+-    ...overrides,
+-  };
+-}
+-
+-function submission(overrides: Partial<DocumentSubmission> = {}): DocumentSubmission {
+-  return {
+-    submissionId: "submission-1",
+-    subjectId: "subject-1",
+-    assignmentId: "assignment-1",
+-    documentRequestId: "request-1",
+-    fileName: "apolice.pdf",
+-    status: "CLEAN",
+-    createdAt: "2026-01-02T00:00:00.000Z",
+-    updatedAt: "2026-01-02T00:00:00.000Z",
+-    version: 1,
+-    ...overrides,
+-  };
+-}
+-
+-function mockGet(overrides: { assignments?: RequirementAssignment[]; submissions?: DocumentSubmission[] } = {}) {
+-  getMock.mockImplementation((path: string) => {
+-    if (path.includes("/submissions")) return Promise.resolve({ submissions: overrides.submissions ?? [submission({})] });
+-    if (path.includes("/requirements")) return Promise.resolve({ assignments: overrides.assignments ?? [assignment({})] });
+-    return Promise.resolve({ subject: subject({}) });
+-  });
+-}
+-
+-beforeEach(() => {
+-  getMock.mockReset();
+-  postMock.mockReset();
+-});
+-
+-describe("SubjectDetail (BLOCKER-C review queue)", () => {
+-  it("shows the subject and its requirement assignments with status labels", async () => {
+-    mockGet();
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-
+-    await waitFor(() => expect(screen.getByRole("heading", { name: "ACME Ltda" })).toBeInTheDocument());
+-    expect(screen.getByText("Seguro RC")).toBeInTheDocument();
+-    expect(screen.getByText("[Faltando]")).toBeInTheDocument();
+-  });
+-
+-  it("expanding a reviewable requirement loads and shows its submissions", async () => {
+-    mockGet();
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Revisar" })).toBeInTheDocument());
+-
+-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+-
+-    await waitFor(() => expect(screen.getByText(/apolice\.pdf/)).toBeInTheDocument());
+-    expect(screen.getByText(/Verificado \(segurança\)/)).toBeInTheDocument();
+-  });
+-
+-  it("shows a true-empty message when a reviewed requirement has no submissions yet", async () => {
+-    mockGet({ submissions: [] });
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Revisar" })).toBeInTheDocument());
+-
+-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+-
+-    await waitFor(() => expect(screen.getByText("Nenhum documento enviado ainda para este requisito.")).toBeInTheDocument());
+-  });
+-
+-  it("linking an item posts to the link route with the assignment's current version as If-Match", async () => {
+-    mockGet();
+-    postMock.mockResolvedValue({ assignment: assignment({ status: "SATISFIED", linkedItemId: "item-9", version: 2 }) });
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Revisar" })).toBeInTheDocument());
+-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+-    await waitFor(() => expect(screen.getByLabelText(/ID do vencimento/)).toBeInTheDocument());
+-
+-    fireEvent.change(screen.getByLabelText(/ID do vencimento/), { target: { value: "item-9" } });
+-    fireEvent.click(screen.getByRole("button", { name: "Vincular" }));
+-
+-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+-    const [path, body, options] = postMock.mock.calls[0] as [string, unknown, { expectedVersion?: number }];
+-    expect(path).toBe("/subjects/subject-1/requirements/assignment-1/link");
+-    expect(body).toEqual({ itemId: "item-9" });
+-    expect(options.expectedVersion).toBe(1);
+-  });
+-
+-  it("shows a validation error when submitting the link form without an itemId", async () => {
+-    mockGet();
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Revisar" })).toBeInTheDocument());
+-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Vincular" })).toBeInTheDocument());
+-
+-    fireEvent.click(screen.getByRole("button", { name: "Vincular" }));
+-
+-    expect(screen.getByText("Informe o ID do vencimento a vincular.")).toBeInTheDocument();
+-    expect(postMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("an already-SATISFIED requirement shows its linked item and an Unlink action instead of Revisar", async () => {
+-    mockGet({ assignments: [assignment({ status: "SATISFIED", linkedItemId: "item-9" })] });
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-
+-    await waitFor(() => expect(screen.getByText("item-9")).toBeInTheDocument());
+-    expect(screen.getByRole("button", { name: "Desvincular" })).toBeInTheDocument();
+-    expect(screen.queryByRole("button", { name: "Revisar" })).not.toBeInTheDocument();
+-  });
+-
+-  it("unlinking posts to the unlink route with the assignment's current version", async () => {
+-    mockGet({ assignments: [assignment({ status: "SATISFIED", linkedItemId: "item-9" })] });
+-    postMock.mockResolvedValue({ assignment: assignment({}) });
+-    renderAtRoute("/subjects/:subjectId", <SubjectDetail />, "/subjects/subject-1");
+-    await waitFor(() => expect(screen.getByRole("button", { name: "Desvincular" })).toBeInTheDocument());
+-
+-    fireEvent.click(screen.getByRole("button", { name: "Desvincular" }));
+-
+-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+-    const [path, , options] = postMock.mock.calls[0] as [string, unknown, { expectedVersion?: number }];
+-    expect(path).toBe("/subjects/subject-1/requirements/assignment-1/unlink");
+-    expect(options.expectedVersion).toBe(1);
+-  });
+-});
+diff --git a/frontend/test/routes/subjects/SubjectHub.test.tsx b/frontend/test/routes/subjects/SubjectHub.test.tsx
+new file mode 100644
+index 0000000..78f471d
+--- /dev/null
++++ b/frontend/test/routes/subjects/SubjectHub.test.tsx
+@@ -0,0 +1,78 @@
++import { describe, expect, it, beforeEach, vi } from "vitest";
++import { screen, waitFor } from "@testing-library/react";
++import { renderAtRoute } from "../../testUtils.js";
++import { SubjectHub } from "../../../src/routes/subjects/SubjectHub.js";
++import type { TrackedSubject } from "../../../src/api/types.js";
++
++const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
++vi.mock("../../../src/api/apiClient.js", () => ({
++  apiClient: { get: getMock, post: vi.fn() },
++}));
++
++function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
++  return {
++    subjectId: "subject-1",
++    tenantId: "t1",
++    type: "VENDOR",
++    displayName: "Conservare Facilities ME",
++    externalId: "14.221.900/0001-55",
++    tags: [],
++    status: "ACTIVE",
++    createdAt: "2026-01-01T00:00:00.000Z",
++    updatedAt: "2026-01-01T00:00:00.000Z",
++    version: 1,
++    ...overrides,
++  };
++}
++
++beforeEach(() => {
++  getMock.mockReset();
++  getMock.mockImplementation((path: string) => {
++    if (path.includes("/compliance")) {
++      return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
++    }
++    if (path.startsWith("/document-archive/requirements/")) {
++      return Promise.resolve({ requirements: [] });
++    }
++    if (path.startsWith("/subjects/")) {
++      return Promise.resolve({ subject: subject() });
++    }
++    return Promise.reject(new Error(`unexpected path ${path}`));
++  });
++});
++
++describe("SubjectHub (A09)", () => {
++  it("renders the subject name, type, and compliance numerator/denominator", async () => {
++    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
++
++    await waitFor(() => expect(screen.getByRole("heading", { name: "Conservare Facilities ME" })).toBeInTheDocument());
++    expect(screen.getByText(/Fornecedor.*14\.221\.900/)).toBeInTheDocument();
++    await waitFor(() => expect(screen.getByText("1 de 2 requisitos satisfeitos")).toBeInTheDocument());
++    expect(screen.getByText("50%")).toBeInTheDocument();
++  });
++
++  it("shows '—' (never 0%) when totalRequirements is 0", async () => {
++    getMock.mockImplementation((path: string) => {
++      if (path.includes("/compliance")) {
++        return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
++      }
++      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
++      return Promise.resolve({ subject: subject() });
++    });
++    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
++
++    await waitFor(() => expect(screen.getByText("—")).toBeInTheDocument());
++    expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument();
++  });
++
++  it("shows the archived InlineNotice for an ARCHIVED subject", async () => {
++    getMock.mockImplementation((path: string) => {
++      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
++      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
++      return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
++    });
++    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
++
++    await waitFor(() => expect(screen.getByText(/Este fornecedor está arquivado/)).toBeInTheDocument());
++  });
++});
+diff --git a/frontend/test/routes/subjects/SubjectsCollection.test.tsx b/frontend/test/routes/subjects/SubjectsCollection.test.tsx
+index 9b251ee..5b30a7c 100644
+--- a/frontend/test/routes/subjects/SubjectsCollection.test.tsx
++++ b/frontend/test/routes/subjects/SubjectsCollection.test.tsx
+@@ -42,7 +42,7 @@ describe("SubjectsCollection", () => {
+     getMock.mockResolvedValue({ subjects: [] });
+     renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
+ 
+-    await waitFor(() => expect(screen.getByText("Nenhum fornecedor cadastrado ainda.")).toBeInTheDocument());
++    await waitFor(() => expect(screen.getByText(/Nenhum fornecedor cadastrado ainda\./)).toBeInTheDocument());
+   });
+ 
+   it("switching to the Arquivados tab queries status=ARCHIVED", async () => {
+diff --git a/frontend/test/shell/navigation.test.ts b/frontend/test/shell/navigation.test.ts
+index 17de1b8..748b5b8 100644
+--- a/frontend/test/shell/navigation.test.ts
++++ b/frontend/test/shell/navigation.test.ts
+@@ -8,21 +8,21 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
+ 
+   it("shows Membros (roster is membership:list-members, READ_ONLY_ROLES) but hides Atividade for a VIEWER", () => {
+     const ids = getVisibleNavItems("VIEWER").map((item) => item.id);
+-    expect(ids).toEqual(["overview", "items", "subjects", "members", "settings"]);
++    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings"]);
+   });
+ 
+   it("shows Membros but hides Atividade for a MEMBER", () => {
+     const ids = getVisibleNavItems("MEMBER").map((item) => item.id);
+-    expect(ids).toEqual(["overview", "items", "subjects", "members", "settings"]);
++    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings"]);
+   });
+ 
+   it("shows every item for an ADMIN", () => {
+     const ids = getVisibleNavItems("ADMIN").map((item) => item.id);
+-    expect(ids).toEqual(["overview", "items", "subjects", "members", "settings", "activity"]);
++    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "activity"]);
+   });
+ 
+   it("shows every item for an OWNER", () => {
+     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
+-    expect(ids).toEqual(["overview", "items", "subjects", "members", "settings", "activity"]);
++    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "members", "settings", "activity"]);
+   });
+ });
+
+codex
+Nota cega: **5,2/10**.
+
+A base de contratos e RBAC está razoavelmente alinhada, mas há falhas bloqueantes em jornadas, tratamento de erros e completude dos dados. Os testes cobrem apenas o caminho feliz de leitura.
+
+## Achados bloqueantes
+
+1. **O filtro `subjectId` vindo do Hub é completamente ignorado.**  
+   `SubjectHub` cria links para `/requirements?subjectId=...`, inclusive para “Requisitos documentais” e “Documentos” ([SubjectHub.tsx:75](/frontend/src/routes/subjects/SubjectHub.tsx:75), [SubjectHub.tsx:91](/frontend/src/routes/subjects/SubjectHub.tsx:91)), mas `RequirementsCollection` só lê estado local de status e busca; nunca usa `useSearchParams` nem passa `subjectId` à consulta ([RequirementsCollection.tsx:51](/frontend/src/routes/RequirementsCollection.tsx:51), [RequirementsCollection.tsx:61](/frontend/src/routes/RequirementsCollection.tsx:61)).  
+   Resultado: ambos os cards abrem a coleção tenant-wide, não os dados daquele fornecedor. Isso quebra a principal jornada A09→A11 e torna a descrição acessível dos links enganosa.
+
+2. **A11 apresenta resultados incompletos como se fossem a coleção completa.**  
+   O contrato retorna `cursor` e `scanLimitReached` ([types.ts:217](/frontend/src/api/types.ts:217)), mas `useRequirementsSearch` não implementa paginação e `RequirementsCollection` ignora ambos ([useRequirementsSearch.ts:10](/frontend/src/hooks/useRequirementsSearch.ts:10), [RequirementsCollection.tsx:84](/frontend/src/routes/RequirementsCollection.tsx:84)).  
+   Em “Todos”, a tela combina apenas a primeira página de cada status e ainda declara “em toda a organização” ([RequirementsCollection.tsx:91](/frontend/src/routes/RequirementsCollection.tsx:91)). Isso viola integridade epistêmica: ausência na tabela não significa ausência no tenant.
+
+3. **Falhas parciais do filtro “Todos” são silenciosamente ocultadas.**  
+   `isError` só é verdadeiro se *todas* as cinco consultas falharem ([RequirementsCollection.tsx:75](/frontend/src/routes/RequirementsCollection.tsx:75)). Se quatro status carregarem e um falhar, a tela mostra uma lista parcial sem qualquer aviso. Esse comportamento, combinado com “Todos”, produz uma resposta factualmente incompleta apresentada como completa.
+
+4. **O conflito de identificador externo na criação é engolido, contrariando o comentário e a especificação.**  
+   O `catch` retorna imediatamente para qualquer `isConflict(err)` ([SubjectForm.tsx:80](/frontend/src/routes/subjects/SubjectForm.tsx:80)); portanto, o erro de identificador duplicado nunca chega a `setGeneralErrors`. O comentário logo abaixo afirma exatamente o contrário ([SubjectForm.tsx:84](/frontend/src/routes/subjects/SubjectForm.tsx:84)). Como criação não tem estado OCC visível equivalente a `updateMutation.isConflict`, o usuário fica sem feedback.
+
+5. **A exclusão de requisito falha silenciosamente para qualquer erro não-OCC.**  
+   `RowActions.handleDelete` só trata conflito com `return` e não registra nenhum outro erro ([RequirementsCollection.tsx:140](/frontend/src/routes/RequirementsCollection.tsx:140)). Autorização, regra de negócio, validação e falha transitória deixam o diálogo aberto sem explicação. Isso viola o requisito de mapeamento por categoria e o estado auditado de falha de mutação.
+
+6. **A11 não implementa edição, embora o bloco introduza o contrato e hook correspondentes.**  
+   Existe `useUpdateRequirement` ([useUpdateRequirement.ts:9](/frontend/src/hooks/useUpdateRequirement.ts:9)), porém as ações por linha oferecem somente “Excluir” ([RequirementsCollection.tsx:128](/frontend/src/routes/RequirementsCollection.tsx:128), [RequirementsCollection.tsx:155](/frontend/src/routes/RequirementsCollection.tsx:155)). Para WRITE_ROLES, `docarchive:requirement-update` é uma ação real e autorizada. Isso aparenta ser estado/ação auditada omitida, não degradação causada por lacuna de backend.
+
+7. **A09 anuncia exportação de dossiê, mas não a implementa.**  
+   O cabeçalho afirma que o Hub contém `docarchive:dossier-export`, exclusivo de ADMIN_ROLES ([SubjectHub.tsx:6](/frontend/src/routes/subjects/SubjectHub.tsx:6)), mas não existe botão, chamada de API ou estado de exportação no componente. Diferentemente do CSV de A11, o enunciado informa que essa autorização existe e não aponta ausência de handler. É uma ação auditada silenciosamente ausente.
+
+8. **A substituição de `SubjectDetail` remove uma jornada previamente funcional sem destino equivalente.**  
+   Foram removidos revisão de submissões, vinculação e desvinculação de vencimentos, juntamente com sete testes comportamentais ([SubjectDetail.test.tsx:67](/frontend/test/routes/subjects/SubjectDetail.test.tsx:67)). O Hub substituto oferece um card `to="#"` ([SubjectHub.tsx:103](/frontend/src/routes/subjects/SubjectHub.tsx:103)). Mesmo que A10 esteja planejada para o Bloco 7, isto é regressão de funcionalidade previamente entregue, portanto falha o item 10 do checklist. A instrução de mostrar “Em breve” pode justificar o novo desenho apenas se a retirada dessa funcionalidade tiver sido explicitamente aprovada; o diff sozinho não demonstra essa aprovação.
+
+## Achados importantes, aceitáveis como follow-up se os bloqueadores forem corrigidos
+
+9. **Cards “Em breve” não estão realmente desabilitados.**  
+   Os cards de A10 e A14 recebem `to: "#"`, portanto continuam semanticamente links acionáveis ([SubjectHub.tsx:103](/frontend/src/routes/subjects/SubjectHub.tsx:103), [SubjectHub.tsx:113](/frontend/src/routes/subjects/SubjectHub.tsx:113)). Isso contradiz o comentário “card disabled”, cria mudança de fragmento/foco sem resultado e prejudica usuários de teclado e leitores de tela.
+
+10. **Rota de edição expõe uma ação incompatível com VIEWER no frontend.**  
+    A coleção e o Hub escondem “Editar”, mas `/subjects/:subjectId/edit` monta `SubjectForm` sem qualquer verificação de papel ([App.tsx:94](/frontend/src/App.tsx:94), [SubjectForm.tsx:31](/frontend/src/routes/subjects/SubjectForm.tsx:31)). O backend continua sendo a barreira real e deve retornar autorização negada, portanto não é vulnerabilidade; ainda assim, viola screen→action→role e oferece ao VIEWER uma tela de edição funcional até o submit.
+
+11. **A mensagem de exclusão afirma um resultado incompatível com o contrato descrito pelo próprio diff.**  
+    O diálogo diz que a exclusão “removerá o acesso a todos os requisitos vinculados” ([SubjectHub.tsx:163](/frontend/src/routes/subjects/SubjectHub.tsx:163)), enquanto `useDeleteSubject` documenta que o backend bloqueia a exclusão quando existem requisitos ativos ([useDeleteSubject.ts:1](/frontend/src/hooks/useDeleteSubject.ts:1)). A mensagem deve explicar o bloqueio possível, não sugerir cascata confirmada.
+
+12. **Erros de arquivamento não-OCC também desaparecem.**  
+    A mutação é disparada diretamente ([SubjectsCollection.tsx:181](/frontend/src/routes/subjects/SubjectsCollection.tsx:181)); a UI só apresenta `archiveMutation.isConflict` ([SubjectsCollection.tsx:205](/frontend/src/routes/subjects/SubjectsCollection.tsx:205)). Falhas de autorização, validação ou rede não têm estado visível.
+
+13. **Os alert dialogs inline não implementam o comportamento acessível esperado de diálogo.**  
+    Na coleção e em A11 não há deslocamento/restauração de foco, Escape ou contenção de foco ([SubjectsCollection.tsx:185](/frontend/src/routes/subjects/SubjectsCollection.tsx:185), [RequirementsCollection.tsx:149](/frontend/src/routes/RequirementsCollection.tsx:149)). No Hub o foco inicial foi tratado, mas ainda não há contenção, Escape ou restauração ([SubjectHub.tsx:155](/frontend/src/routes/subjects/SubjectHub.tsx:155)). Além disso, o botão Cancelar usa HTML e classes internas diretamente em vez do componente aprovado `Button` ([SubjectHub.tsx:165](/frontend/src/routes/subjects/SubjectHub.tsx:165)).
+
+14. **Todas as cinco consultas de status são executadas mesmo fora da aba “Todos”.**  
+    Os cinco hooks são chamados incondicionalmente ([RequirementsCollection.tsx:66](/frontend/src/routes/RequirementsCollection.tsx:66)). Isso contradiz o comentário “fetch ... only when that tab is active” e aumenta carga e tráfego. É principalmente qualidade/performance, não defeito funcional imediato.
+
+15. **Os testes novos são pouco abrangentes e não protegem os riscos do bloco.**  
+    Não há testes para:
+
+    - links A09→A11 com filtro efetivamente aplicado;
+    - paginação ou `scanLimitReached`;
+    - falha parcial em “Todos”;
+    - RBAC de create/edit/delete/dossier export;
+    - OCC e headers de idempotência;
+    - erro de external ID duplicado;
+    - criação, edição ou exclusão de requisitos;
+    - exclusão bloqueada de fornecedor;
+    - acessibilidade dos diálogos;
+    - preservação da antiga jornada de revisão.
+
+    Os testes existentes de apresentação e estados básicos não são tautológicos, mas são insuficientes para o risco do diff. O teste de `NOT_APPLICABLE` usa uma asserção frágil de contagem de texto (`>= 2`) em vez de verificar especificamente o badge ([RequirementsCollection.test.tsx:52](/frontend/test/routes/RequirementsCollection.test.tsx:52)).
+
+## Avaliação das duas degradações declaradas
+
+- **Ordenação alfabética sem pending-first:** legítima e follow-up-aceitável. O backend realmente não fornece a agregação necessária, e o diff documenta claramente a limitação em [SubjectsCollection.tsx:54](/frontend/src/routes/subjects/SubjectsCollection.tsx:54). A UI também não inventa uma prioridade que não consegue provar.
+
+- **Omissão de “Exportar CSV” em A11:** legítima e follow-up-aceitável. Sem rota/handler, omitir o controle é melhor do que apresentar uma ação morta ou prometer exportação inexistente. Deve permanecer registrado como gap planejado. Isso não justifica, porém, a ausência separada do **dossier export** em A09, que o próprio diff afirma fazer parte do Hub.
+
+Conclusão: eu bloquearia o fechamento do bloco pelos achados **1–8**. Os demais podem seguir como follow-ups claramente registrados, embora 9, 11 e 15 devam ser resolvidos antes de considerar A09/A11 plenamente auditadas.
+tokens used
+36.162
+Nota cega: **5,2/10**.
+
+A base de contratos e RBAC está razoavelmente alinhada, mas há falhas bloqueantes em jornadas, tratamento de erros e completude dos dados. Os testes cobrem apenas o caminho feliz de leitura.
+
+## Achados bloqueantes
+
+1. **O filtro `subjectId` vindo do Hub é completamente ignorado.**  
+   `SubjectHub` cria links para `/requirements?subjectId=...`, inclusive para “Requisitos documentais” e “Documentos” ([SubjectHub.tsx:75](/frontend/src/routes/subjects/SubjectHub.tsx:75), [SubjectHub.tsx:91](/frontend/src/routes/subjects/SubjectHub.tsx:91)), mas `RequirementsCollection` só lê estado local de status e busca; nunca usa `useSearchParams` nem passa `subjectId` à consulta ([RequirementsCollection.tsx:51](/frontend/src/routes/RequirementsCollection.tsx:51), [RequirementsCollection.tsx:61](/frontend/src/routes/RequirementsCollection.tsx:61)).  
+   Resultado: ambos os cards abrem a coleção tenant-wide, não os dados daquele fornecedor. Isso quebra a principal jornada A09→A11 e torna a descrição acessível dos links enganosa.
+
+2. **A11 apresenta resultados incompletos como se fossem a coleção completa.**  
+   O contrato retorna `cursor` e `scanLimitReached` ([types.ts:217](/frontend/src/api/types.ts:217)), mas `useRequirementsSearch` não implementa paginação e `RequirementsCollection` ignora ambos ([useRequirementsSearch.ts:10](/frontend/src/hooks/useRequirementsSearch.ts:10), [RequirementsCollection.tsx:84](/frontend/src/routes/RequirementsCollection.tsx:84)).  
+   Em “Todos”, a tela combina apenas a primeira página de cada status e ainda declara “em toda a organização” ([RequirementsCollection.tsx:91](/frontend/src/routes/RequirementsCollection.tsx:91)). Isso viola integridade epistêmica: ausência na tabela não significa ausência no tenant.
+
+3. **Falhas parciais do filtro “Todos” são silenciosamente ocultadas.**  
+   `isError` só é verdadeiro se *todas* as cinco consultas falharem ([RequirementsCollection.tsx:75](/frontend/src/routes/RequirementsCollection.tsx:75)). Se quatro status carregarem e um falhar, a tela mostra uma lista parcial sem qualquer aviso. Esse comportamento, combinado com “Todos”, produz uma resposta factualmente incompleta apresentada como completa.
+
+4. **O conflito de identificador externo na criação é engolido, contrariando o comentário e a especificação.**  
+   O `catch` retorna imediatamente para qualquer `isConflict(err)` ([SubjectForm.tsx:80](/frontend/src/routes/subjects/SubjectForm.tsx:80)); portanto, o erro de identificador duplicado nunca chega a `setGeneralErrors`. O comentário logo abaixo afirma exatamente o contrário ([SubjectForm.tsx:84](/frontend/src/routes/subjects/SubjectForm.tsx:84)). Como criação não tem estado OCC visível equivalente a `updateMutation.isConflict`, o usuário fica sem feedback.
+
+5. **A exclusão de requisito falha silenciosamente para qualquer erro não-OCC.**  
+   `RowActions.handleDelete` só trata conflito com `return` e não registra nenhum outro erro ([RequirementsCollection.tsx:140](/frontend/src/routes/RequirementsCollection.tsx:140)). Autorização, regra de negócio, validação e falha transitória deixam o diálogo aberto sem explicação. Isso viola o requisito de mapeamento por categoria e o estado auditado de falha de mutação.
+
+6. **A11 não implementa edição, embora o bloco introduza o contrato e hook correspondentes.**  
+   Existe `useUpdateRequirement` ([useUpdateRequirement.ts:9](/frontend/src/hooks/useUpdateRequirement.ts:9)), porém as ações por linha oferecem somente “Excluir” ([RequirementsCollection.tsx:128](/frontend/src/routes/RequirementsCollection.tsx:128), [RequirementsCollection.tsx:155](/frontend/src/routes/RequirementsCollection.tsx:155)). Para WRITE_ROLES, `docarchive:requirement-update` é uma ação real e autorizada. Isso aparenta ser estado/ação auditada omitida, não degradação causada por lacuna de backend.
+
+7. **A09 anuncia exportação de dossiê, mas não a implementa.**  
+   O cabeçalho afirma que o Hub contém `docarchive:dossier-export`, exclusivo de ADMIN_ROLES ([SubjectHub.tsx:6](/frontend/src/routes/subjects/SubjectHub.tsx:6)), mas não existe botão, chamada de API ou estado de exportação no componente. Diferentemente do CSV de A11, o enunciado informa que essa autorização existe e não aponta ausência de handler. É uma ação auditada silenciosamente ausente.
+
+8. **A substituição de `SubjectDetail` remove uma jornada previamente funcional sem destino equivalente.**  
+   Foram removidos revisão de submissões, vinculação e desvinculação de vencimentos, juntamente com sete testes comportamentais ([SubjectDetail.test.tsx:67](/frontend/test/routes/subjects/SubjectDetail.test.tsx:67)). O Hub substituto oferece um card `to="#"` ([SubjectHub.tsx:103](/frontend/src/routes/subjects/SubjectHub.tsx:103)). Mesmo que A10 esteja planejada para o Bloco 7, isto é regressão de funcionalidade previamente entregue, portanto falha o item 10 do checklist. A instrução de mostrar “Em breve” pode justificar o novo desenho apenas se a retirada dessa funcionalidade tiver sido explicitamente aprovada; o diff sozinho não demonstra essa aprovação.
+
+## Achados importantes, aceitáveis como follow-up se os bloqueadores forem corrigidos
+
+9. **Cards “Em breve” não estão realmente desabilitados.**  
+   Os cards de A10 e A14 recebem `to: "#"`, portanto continuam semanticamente links acionáveis ([SubjectHub.tsx:103](/frontend/src/routes/subjects/SubjectHub.tsx:103), [SubjectHub.tsx:113](/frontend/src/routes/subjects/SubjectHub.tsx:113)). Isso contradiz o comentário “card disabled”, cria mudança de fragmento/foco sem resultado e prejudica usuários de teclado e leitores de tela.
+
+10. **Rota de edição expõe uma ação incompatível com VIEWER no frontend.**  
+    A coleção e o Hub escondem “Editar”, mas `/subjects/:subjectId/edit` monta `SubjectForm` sem qualquer verificação de papel ([App.tsx:94](/frontend/src/App.tsx:94), [SubjectForm.tsx:31](/frontend/src/routes/subjects/SubjectForm.tsx:31)). O backend continua sendo a barreira real e deve retornar autorização negada, portanto não é vulnerabilidade; ainda assim, viola screen→action→role e oferece ao VIEWER uma tela de edição funcional até o submit.
+
+11. **A mensagem de exclusão afirma um resultado incompatível com o contrato descrito pelo próprio diff.**  
+    O diálogo diz que a exclusão “removerá o acesso a todos os requisitos vinculados” ([SubjectHub.tsx:163](/frontend/src/routes/subjects/SubjectHub.tsx:163)), enquanto `useDeleteSubject` documenta que o backend bloqueia a exclusão quando existem requisitos ativos ([useDeleteSubject.ts:1](/frontend/src/hooks/useDeleteSubject.ts:1)). A mensagem deve explicar o bloqueio possível, não sugerir cascata confirmada.
+
+12. **Erros de arquivamento não-OCC também desaparecem.**  
+    A mutação é disparada diretamente ([SubjectsCollection.tsx:181](/frontend/src/routes/subjects/SubjectsCollection.tsx:181)); a UI só apresenta `archiveMutation.isConflict` ([SubjectsCollection.tsx:205](/frontend/src/routes/subjects/SubjectsCollection.tsx:205)). Falhas de autorização, validação ou rede não têm estado visível.
+
+13. **Os alert dialogs inline não implementam o comportamento acessível esperado de diálogo.**  
+    Na coleção e em A11 não há deslocamento/restauração de foco, Escape ou contenção de foco ([SubjectsCollection.tsx:185](/frontend/src/routes/subjects/SubjectsCollection.tsx:185), [RequirementsCollection.tsx:149](/frontend/src/routes/RequirementsCollection.tsx:149)). No Hub o foco inicial foi tratado, mas ainda não há contenção, Escape ou restauração ([SubjectHub.tsx:155](/frontend/src/routes/subjects/SubjectHub.tsx:155)). Além disso, o botão Cancelar usa HTML e classes internas diretamente em vez do componente aprovado `Button` ([SubjectHub.tsx:165](/frontend/src/routes/subjects/SubjectHub.tsx:165)).
+
+14. **Todas as cinco consultas de status são executadas mesmo fora da aba “Todos”.**  
+    Os cinco hooks são chamados incondicionalmente ([RequirementsCollection.tsx:66](/frontend/src/routes/RequirementsCollection.tsx:66)). Isso contradiz o comentário “fetch ... only when that tab is active” e aumenta carga e tráfego. É principalmente qualidade/performance, não defeito funcional imediato.
+
+15. **Os testes novos são pouco abrangentes e não protegem os riscos do bloco.**  
+    Não há testes para:
+
+    - links A09→A11 com filtro efetivamente aplicado;
+    - paginação ou `scanLimitReached`;
+    - falha parcial em “Todos”;
+    - RBAC de create/edit/delete/dossier export;
+    - OCC e headers de idempotência;
+    - erro de external ID duplicado;
+    - criação, edição ou exclusão de requisitos;
+    - exclusão bloqueada de fornecedor;
+    - acessibilidade dos diálogos;
+    - preservação da antiga jornada de revisão.
+
+    Os testes existentes de apresentação e estados básicos não são tautológicos, mas são insuficientes para o risco do diff. O teste de `NOT_APPLICABLE` usa uma asserção frágil de contagem de texto (`>= 2`) em vez de verificar especificamente o badge ([RequirementsCollection.test.tsx:52](/frontend/test/routes/RequirementsCollection.test.tsx:52)).
+
+## Avaliação das duas degradações declaradas
+
+- **Ordenação alfabética sem pending-first:** legítima e follow-up-aceitável. O backend realmente não fornece a agregação necessária, e o diff documenta claramente a limitação em [SubjectsCollection.tsx:54](/frontend/src/routes/subjects/SubjectsCollection.tsx:54). A UI também não inventa uma prioridade que não consegue provar.
+
+- **Omissão de “Exportar CSV” em A11:** legítima e follow-up-aceitável. Sem rota/handler, omitir o controle é melhor do que apresentar uma ação morta ou prometer exportação inexistente. Deve permanecer registrado como gap planejado. Isso não justifica, porém, a ausência separada do **dossier export** em A09, que o próprio diff afirma fazer parte do Hub.
+
+Conclusão: eu bloquearia o fechamento do bloco pelos achados **1–8**. Os demais podem seguir como follow-ups claramente registrados, embora 9, 11 e 15 devam ser resolvidos antes de considerar A09/A11 plenamente auditadas.

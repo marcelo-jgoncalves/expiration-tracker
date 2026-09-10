@@ -13,6 +13,12 @@ supersedes-in-scope: docs/frontend/interface-screen-and-state-inventory.md (17 S
   TAXONOMY DISCIPLINE is reused here, not reinvented, but its surface list is no longer current;
   not deleted, kept as historical record per docs/frontend/README.md convention)
 date: 2026-09-08/09
+addendum: 2026-09-09 (D-2xx, storage-quota-scoping) added A03's conditional storage-usage card and
+  A19's new storage subsection for the newly-scoped tenant storage quota capability — a REAL,
+  DATED ADDITION to this already-APPROVED document, not a retroactive rewrite. It does not touch
+  or re-score any of the original 25 screens/two convergence rounds above; see
+  docs/architecture/reviews/storage-quota-scoping/ for that addition's own (lighter-weight, see
+  its reconciliation.md process note) evidence trail.
 ---
 
 # Expiration Tracker — P0 Screen Inventory Plan
@@ -176,6 +182,14 @@ states, connections (entry points / links to-from), responsive treatment.
 - **Connects to**: each counter card → A04 (Expirations) or A11 (Requirements) pre-filtered to
   that condition; a "review" card → A13 if unblocked (§9).
 - **Responsive**: cards reflow 4→2→1 columns, severity order preserved at every width.
+- **Storage quota addition (storage-quota-scoping, D-2xx, added 2026-09-09 post-convergence —
+  see the front-matter note at the top of this document)**: a 5th card, `GET /document-archive/
+  storage-usage` (`docarchive:read`, all READ_ONLY_ROLES), rendered CONDITIONALLY — only once
+  `warningLevel` is `WARNING`/`CRITICAL`/`OVER` (>=80% of `limitBytes` committed). Below the
+  warning threshold the card is omitted entirely, consistent with A03's "what needs my attention
+  now" framing (the canonical, always-visible usage display lives in A19, not here). Shows used/
+  reserved/limit as a percentage bar plus a one-line explainer of what happens to new uploads at
+  OVER (hard-blocked, existing files unaffected) → links to A19's storage subsection.
 
 ### A04 — Expiration Collection
 - **Route**: `/app/:orgId/expirations`
@@ -470,6 +484,24 @@ states, connections (entry points / links to-from), responsive treatment.
 - **Connects to**: an issued invitation → accepted at A02; leaving/closing → back to A02.
 - **Responsive**: full parity; members as cards on mobile; the close-organization dialog is
   full-screen with forced focus on its confirmation control.
+- **Storage quota subsection (storage-quota-scoping, D-2xx, added 2026-09-09 post-convergence —
+  see the front-matter note at the top of this document)**: a third sub-tab/section,
+  `/app/:orgId/settings/storage`, the CANONICAL always-visible usage view (A03's card is only a
+  conditional summary that links here). **Data**: `usedBytes`/`reservedBytes`/`limitBytes`/
+  `availableBytes`/`usedPercent`/`warningLevel` from `GET /document-archive/storage-usage`.
+  **Actions**: read-only, `docarchive:read` (READ_ONLY_ROLES — every role that can upload should
+  be able to see why an upload might be refused; no admin-only gate on VIEWING usage, unlike the
+  Organization sub-tab's OWNER-only visibility — this is a different sensitivity class, an
+  aggregate byte count, not organization identity/lifecycle control). **States**: OK/WARNING
+  (>=80% committed)/CRITICAL (>=95%)/OVER (new uploads hard-blocked, existing files unaffected —
+  copy must say this explicitly, never a bare error); `reservedBytes` > 0 explained as "uploads
+  currently being processed," not exposed as a separate actionable number. Changing `limitBytes`
+  itself is **out of scope for this screen in P0** — no Action/route exists for it (the default
+  is a configurable constant, not tenant-editable yet, `storage-quota.ts`'s module doc comment) —
+  the screen shows the limit as read-only, with no edit affordance to avoid implying a capability
+  that does not exist.
+- **Responsive**: same parity discipline as the rest of A19; percentage bar remains legible at
+  narrow widths (label above the bar, never only a color to convey state).
 
 ### A20 — Document Types & Metadata Catalog
 - **Route**: `/app/:orgId/settings/document-types`, `/.../document-types/:documentTypeId`
@@ -549,7 +581,7 @@ states, connections (entry points / links to-from), responsive treatment.
 | `import:create/read/map/commit` | A15 |
 | `membership:*` | A19 (acceptance itself happens in A02) |
 | `organization:update-settings/close/cancel-close` | A19 |
-| `docarchive:create/read/upload/document-metadata-update` | A12 |
+| `docarchive:create/read/upload/document-metadata-update` | A12 (`docarchive:read` also reused, no new Action, by A13's review-queue listing (D-248) and by the storage-quota-scoping (D-2xx) usage summary on A03/A19) |
 | `docarchive:review` | A13, A12 |
 | `docarchive:requirement-*` | A11, with detail surfaced in A09 |
 | `docarchive:series-*` | A14 |
@@ -683,6 +715,12 @@ pure route-wiring of already-decided capabilities (level 2-3, Claude↔Codex pro
 - **G7 — `ExternalShareLink`** (P1 item, not P0): only the domain/persistence/service slice is
   implemented (D-241); no HTTP route exists; no P0 journey (including guest upload, which is a
   fully independent mechanism) depends on it. No "Share" control should appear in A12.
+- **G9 — tenant-editable `limitBytes`** (storage-quota-scoping, D-2xx, added 2026-09-09): no
+  Action/route exists to let a tenant change its own storage quota number — A19's storage
+  subsection is read-only on the limit by design (see A19's entry above). Viewing usage is fully
+  functional without it; the destination is a future billing/entitlements milestone (M12, still
+  blocked by D-052) or an explicit product decision to add a standalone admin override before
+  then — neither is an engineering blocker for shipping the read-only view now.
 - **G8 — internal/operational state** (chasing workers, automatic series materialization,
   notification attempts, entitlements, portfolio quotas, credential delivery internals): none of
   these have a human-facing `Action`/route by design — they are background automation, not consoles

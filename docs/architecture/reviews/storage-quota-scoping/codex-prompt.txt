@@ -1,0 +1,41 @@
+You are acting as an independent architecture reviewer (Codex role) in this repo's
+Claude<->Codex protocol (AGENTS.md section 4). Do NOT read
+docs/architecture/reviews/storage-quota-scoping/claude-proposal.md yet - propose blind first.
+
+Task: design storage quota tracking/enforcement for this multi-tenant SaaS. Tenants will NOT
+have unlimited storage. Today nothing tracks storage bytes per tenant. Full billing (M12) is
+blocked by D-052 (vendor decision, unrelated) - this must be decoupled from billing.
+
+Ground yourself in the real code first:
+- src/modules/subject/domain/entitlement.ts (TenantEntitlement: activeTrackedSubjectsLimit/Count
+  pattern, D-038)
+- src/modules/subject/application/subject-service.ts around line 98 (how the existing counter
+  gates creation, transactional increment/decrement)
+- src/modules/document-archive/domain/document-file.ts (DocumentFile, contentLength field)
+- src/modules/document-archive/application/document-archive-service.ts (reserveFiles method,
+  ~line 626, and commitUpload ~line 735) - the upload lifecycle
+- src/modules/document-archive/application/apply-file-scan-result.ts (confirmFileScanClean,
+  ~line 220 - the point a file becomes durably CLEAN)
+- src/modules/identity/domain/authorization.ts (READ_ONLY_ROLES/WRITE_ROLES tiers, how
+  docarchive:read/docarchive:upload are tiered)
+- docs/architecture/decisions-log.md D-248 (most recent real example of this codebase's route/
+  RBAC-reuse discipline)
+
+Answer with your own independent proposal (do not just agree with an assumed answer) covering:
+1. How to measure usage: incremental atomic counter (where exactly does it increment/decrement -
+   name the real hook point in the real code) vs S3 Inventory/CloudWatch (async/lagged) - which
+   do you recommend and why, grounded in what comparable products (Dropbox, Google Workspace,
+   Box, Notion, GitHub - whichever you can ground with real knowledge) actually do.
+2. Where the quota number lives (new entity vs extending TenantEntitlement) and how it stays
+   decoupled from M12/billing.
+3. Enforcement: hard block vs soft warning - your recommendation, and exactly where in the real
+   upload flow you'd gate it.
+4. Display: does this belong on the dashboard (A03), a settings screen (A19), a new screen, or
+   more than one of those - and what warning threshold (if any) you'd recommend.
+5. RBAC tier for a read endpoint exposing usage - which existing tier/Action this should reuse
+   or whether it needs a new Action, justified by analogy to how authorization.ts already tiers
+   other tenant-wide numeric summaries.
+
+Give a self-contained written proposal (not a diff, not code) of a few hundred words per section
+at most. Note explicitly wherever you are not fully certain vs. asserting a grounded fact from
+the actual code you read.

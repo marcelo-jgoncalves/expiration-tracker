@@ -150,6 +150,14 @@ export class DocumentRequestRecurrenceService {
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
+  /** Pre-existing gap, found (not introduced) by Codex review round 1 of D-264 (Block 6, A14
+   * frontend): no existence/status fence on `input.subjectId`/`input.requirementId` and no
+   * uniqueness constraint against another ACTIVE series for the same Requirement — two concurrent
+   * callers (or a direct API call bypassing A14's own client-side `requirementsWithoutActiveSeries`
+   * filter) can create an orphaned or duplicate series. Real since D-147; only now reachable via a
+   * real UI. Left unfixed here deliberately — a uniqueness fence needs a transactional
+   * design decision (a pointer row keyed by requirementId, same shape as `RequirementNamePointer`)
+   * that deserves its own scoping, not a rushed patch. Named in decisions-log D-264. */
   async createSeries(ctx: RequestContext, input: CreateDocumentRequestSeriesInput): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = authorizedTenantId(ctx);

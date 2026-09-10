@@ -120,6 +120,25 @@ export async function handleGetPolicy(deps: ReminderHttpDeps, req: HttpRequest):
   });
 }
 
+function requireItemId(req: HttpRequest): string {
+  const itemId = req.pathParameters?.["itemId"];
+  if (!itemId) throw new ValidationError("Missing itemId path parameter.");
+  return itemId;
+}
+
+/** D-258: item->policy discovery route (`GET /items/{itemId}/reminder-policy`) - see the
+ * service method's docstring for why this was previously unreachable. `policy: null` (200,
+ * never 404) when the item has no policy yet - a legitimate state A06 renders explicitly. */
+export async function handleGetPolicyByItem(deps: ReminderHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const itemId = requireItemId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const policy = await deps.policies.getPolicyForItem(context, itemId);
+    return { statusCode: 200, body: { policy } };
+  });
+}
+
 export async function handleUpdatePolicy(deps: ReminderHttpDeps, req: HttpRequest<PutPolicyInput>): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const policyId = requirePolicyId(req);

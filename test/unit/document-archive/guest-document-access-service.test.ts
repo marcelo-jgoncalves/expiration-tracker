@@ -11,6 +11,8 @@ import { epochSecondsFromIso, issueRequestAccessCredential, requestAccessCredent
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { DocumentVersion } from "../../../src/modules/document-archive/domain/document-version.js";
+import { trackedSubjectKeyForFence } from "../../../src/modules/document-archive/domain/requirement-template.js";
+import { requirementKey } from "../../../src/modules/document-archive/domain/requirement.js";
 
 const PEPPER = "test-pepper-value";
 const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
@@ -93,6 +95,39 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     expect(resolved.request.status).toBe("REQUESTED");
     const stored = await store.get<DocumentRequest>(documentRequestKey(TENANT, SUBJECT, "docreq-1"));
     expect(stored?.status).toBe("OPENED");
+  });
+
+  describe("subjectDisplayName / requirementName enrichment (G02, Block 6, D-2xx)", () => {
+    it("resolveCredential and startGuestSession both return the Subject/Requirement's real display names", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent({ ...(trackedSubjectKeyForFence(TENANT, SUBJECT) as { PK: string; SK: string }), entityType: "TrackedSubject", displayName: "Atlas Schindler" });
+      await store.putIfAbsent({ ...(requirementKey(TENANT, SUBJECT, REQUIREMENT) as { PK: string; SK: string }), entityType: "Requirement", name: "CND Federal" });
+      const service = makeService(store);
+
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const resolved = await service.resolveCredential(issued.token, { ip: "1.1.1.1" });
+      expect(resolved.subjectDisplayName).toBe("Atlas Schindler");
+      expect(resolved.requirementName).toBe("CND Federal");
+
+      const issued2 = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(issued2.token, { ip: "1.1.1.1" });
+      expect(session.subjectDisplayName).toBe("Atlas Schindler");
+      expect(session.requirementName).toBe("CND Federal");
+    });
+
+    it("degrades to undefined (never throws) when the Subject/Requirement no longer exist", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      const service = makeService(store);
+
+      const issued = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const resolved = await service.resolveCredential(issued.token, { ip: "1.1.1.1" });
+      expect(resolved.subjectDisplayName).toBeUndefined();
+      expect(resolved.requirementName).toBeUndefined();
+    });
   });
 
   describe("anti-enumeration: every failure mode collapses to the same generic error", () => {

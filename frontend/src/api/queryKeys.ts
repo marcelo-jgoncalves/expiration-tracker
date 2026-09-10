@@ -32,6 +32,13 @@ export const queryKeys = {
       [...queryKeys.items.dashboardAll(organizationId), "page", status] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
+    /** A07 (Block 2 D-2xx) - generic per-item document attachments, `GET
+     * /items/{itemId}/documents`. Nested under `items` (not a sibling top-level key) because a
+     * document's whole lifecycle is scoped to exactly one item, same convention as
+     * `subjects.requirements`/`subjects.submissions` below. */
+    documents: (organizationId: string, itemId: string) => ["org", organizationId, "items", "documents", itemId] as const,
+    /** A06 (Block 2 D-258) - item->policy discovery, `GET /items/{itemId}/reminder-policy`. */
+    reminderPolicy: (organizationId: string, itemId: string) => ["org", organizationId, "items", "reminderPolicy", itemId] as const,
   },
   subjects: {
     dashboard: (organizationId: string, status: string) => ["org", organizationId, "subjects", "dashboard", status] as const,
@@ -43,6 +50,40 @@ export const queryKeys = {
   organizations: {
     members: (organizationId: string) => ["org", organizationId, "members"] as const,
     invitations: (organizationId: string) => ["org", organizationId, "invitations"] as const,
+  },
+  documentArchive: {
+    /** D-2xx storage-quota-scoping - tenant-wide summary, no sub-filters, one key per org. */
+    storageUsage: (organizationId: string) => ["org", organizationId, "documentArchive", "storageUsage"] as const,
+    /** A11 (Block 3, D-2xx) - tenant-wide Requirement search, one key per (org, status filter). */
+    requirementsSearch: (organizationId: string, status: string, namePrefix: string | undefined, assigneeUserId: string | undefined) =>
+      ["org", organizationId, "documentArchive", "requirements", "search", status, namePrefix ?? "", assigneeUserId ?? ""] as const,
+    /** A09 (Block 3, D-2xx) - Compliance panel, `GET .../requirements/{subjectId}/compliance`. */
+    subjectCompliance: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "compliance", subjectId] as const,
+    /** A20 (Block 4, D-2xx) - DocumentType catalog, one key per (org, status) - same "no
+     * unfiltered ALL mode" discipline as `requirementsSearch` above. */
+    documentTypes: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "documentTypes", "list", status] as const,
+    documentType: (organizationId: string, documentTypeId: string) => ["org", organizationId, "documentArchive", "documentTypes", "detail", documentTypeId] as const,
+    /** A21 (Block 4, D-2xx) - RequirementTemplate catalog. */
+    requirementTemplates: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "list", status] as const,
+    requirementTemplate: (organizationId: string, templateId: string) => ["org", organizationId, "documentArchive", "requirementTemplates", "detail", templateId] as const,
+    /** A13 (Block 5, D-2xx) - review queue, one key per (org, state) - `GET .../reviews?state=`
+     * has no server-side "ALL" mode, same one-required-discriminator discipline as
+     * `requirementsSearch` above. */
+    reviewQueue: (organizationId: string, state: string) => ["org", organizationId, "documentArchive", "reviews", state] as const,
+    /** A12 (Block 5, D-2xx) - Document Detail/Version History. Document metadata and its version
+     * list are two independent queries/keys (never merged) - same discipline as
+     * `requirementsSearch`/`reviewQueue` above, and the two are invalidated together on every
+     * write since a version-list change (accept/reject/commit) can also change the Document's
+     * `currentVersionId`. */
+    document: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "detail", documentId] as const,
+    documentVersions: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "versions", documentId] as const,
+    /** A14 (Block 6, D-2xx) - the two panels of "Solicitações e recorrência" are independent
+     * queries/keys, same discipline as `document`/`documentVersions` above - a series mutation
+     * (create/cancel/materialize/recipient) never needs to invalidate the requests list, and
+     * vice versa, except materialize which touches both (its own hook invalidates both keys
+     * explicitly, never by accident of a shared key). */
+    series: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "series", subjectId] as const,
+    documentRequests: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "documentRequests", subjectId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in

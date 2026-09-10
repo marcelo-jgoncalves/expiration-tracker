@@ -124,6 +124,11 @@ export async function handleGetGuestRequest(deps: GuestArchiveHttpDeps, req: Gue
           status: resolved.request.status,
           deadline: resolved.request.deadline,
         },
+        // G02 (Block 6, D-2xx) — see ResolvedCredential's own doc comment (guest-document-
+        // access-service.ts): best-effort display names, absent when the Subject/Requirement no
+        // longer exists.
+        subjectDisplayName: resolved.subjectDisplayName,
+        requirementName: resolved.requirementName,
       },
     };
   });
@@ -143,7 +148,7 @@ export async function handleStartGuestSession(deps: GuestArchiveHttpDeps, req: G
         buildSetCookieHeader(GUEST_SESSION_COOKIE_NAME, result.session.token, { httpOnly: true, maxAgeSeconds: 30 * 60 }),
         buildSetCookieHeader(GUEST_CSRF_COOKIE_NAME, result.session.csrfToken, { httpOnly: false, maxAgeSeconds: 30 * 60 }),
       ],
-      body: { expiresAt: result.expiresAt },
+      body: { expiresAt: result.expiresAt, subjectDisplayName: result.subjectDisplayName, requirementName: result.requirementName },
     };
   });
 }
@@ -171,6 +176,16 @@ export async function handleListGuestDocumentTypes(deps: GuestArchiveHttpDeps, r
 export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest<SubmitEvidenceInput>): Promise<GuestArchiveHttpResponse> {
   return withErrorMapping(async () => {
     requireToken(req); // Presence-checked for route symmetry/observability; resolution is by session cookie, not the path token.
+    // Pre-existing gap, found (not introduced) by Codex review round 1 of D-264 (Block 6, G02
+    // frontend): the session cookie (GUEST_SESSION_COOKIE_NAME) is a single global cookie per
+    // browser, never bound to/verified against THIS route's own `token` path segment. Two guest
+    // links open in two tabs of the same browser share one cookie jar - the second `session`
+    // mint overwrites the first tab's cookie, so the first tab's later `uploads` call resolves
+    // against the SECOND session/DocumentRequest, not its own. Real since D-146 (a single-link-
+    // at-a-time design); only now reachable via a real multi-tab UI. Fixing this means binding
+    // the session to its issuing token (or scoping the cookie name by token) - a session-identity
+    // design change that deserves its own scoping, not a rushed patch. Named in decisions-log
+    // D-264.
     if (!req.body) throw new ValidationError("Missing request body.");
     validateAgainstSchema(SUBMIT_EVIDENCE_SCHEMA_ID, req.body);
 

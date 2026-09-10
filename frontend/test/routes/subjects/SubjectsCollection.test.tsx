@@ -35,14 +35,14 @@ describe("SubjectsCollection", () => {
 
     expect(screen.getByText("Carregando fornecedores…")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "ACME Ltda" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "ACME Ltda" })).toHaveAttribute("href", "/subjects/subject-1");
+    expect(screen.getByRole("link", { name: "ACME Ltda" })).toHaveAttribute("href", "/app/org-1/subjects/subject-1");
   });
 
   it("shows the true-empty state for a genuinely empty ACTIVE list", async () => {
     getMock.mockResolvedValue({ subjects: [] });
     renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
 
-    await waitFor(() => expect(screen.getByText("Nenhum fornecedor cadastrado ainda.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Nenhum fornecedor cadastrado ainda\./)).toBeInTheDocument());
   });
 
   it("switching to the Arquivados tab queries status=ARCHIVED", async () => {

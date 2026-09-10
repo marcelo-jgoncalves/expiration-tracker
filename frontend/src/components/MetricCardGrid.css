@@ -1,0 +1,70 @@
+/* MetricCardGrid (D-2xx, Block 0 - SLF-01 remediation). Reflow, not truncation, on narrow
+   viewports (A03's revised spec: 4-across -> 2 -> 1). The exact column count for a given grid is
+   the CALLER's concern (how many cards it renders), so this only ever describes ONE column
+   count per breakpoint band, generically, via auto-fit - a caller with 5 cards and a caller with
+   4 both reflow correctly without this file needing to know which. */
+.ui-metric-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.ui-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  background: var(--color-surface-default);
+  text-decoration: none;
+  color: inherit;
+}
+
+.ui-metric-card--link:hover,
+.ui-metric-card--link:focus-visible {
+  border-color: var(--color-border-strong);
+}
+
+/* The ONE visually-dominant card (see MetricCardGrid.tsx header comment) - colored surface AND a
+   larger counter typeface, composition-level hierarchy rather than a tinted number alone. */
+.ui-metric-card--critical {
+  background: var(--color-status-critical-bg);
+  border-color: var(--color-status-critical-border);
+}
+
+.ui-metric-card__count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-800);
+  line-height: var(--line-height-800);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-metric-card__count--critical {
+  font-size: var(--font-size-900);
+  line-height: var(--line-height-900);
+  color: var(--color-status-critical-fg);
+}
+
+.ui-metric-card__label {
+  font-size: var(--font-size-300);
+  color: var(--color-text-secondary);
+}
+
+.ui-metric-card--loading .ui-metric-card__skeleton-bar {
+  display: block;
+  width: 3rem;
+  height: var(--line-height-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
+
+.ui-metric-card--error {
+  align-items: flex-start;
+}
+
+.ui-metric-card__error-message {
+  margin: 0;
+  color: var(--color-text-danger);
+  font-size: var(--font-size-300);
+}

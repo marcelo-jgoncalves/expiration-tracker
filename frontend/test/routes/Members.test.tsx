@@ -85,6 +85,56 @@ describe("Members", () => {
     expect(screen.getByRole("button", { name: "Revogar" })).toBeInTheDocument();
   });
 
+  // A19 audit CRITICAL finding #3 (D-25x): membership:role-change is ADMIN_ROLES in the backend
+  // matrix, but promoting/demoting the OWNER tier specifically requires an OWNER actor
+  // (OwnerTierChangeRequiresOwnerError, authorization.ts comment on membership:role-change) - a
+  // carve-out the generic authorize() matrix can't express and the frontend previously didn't
+  // mirror at all, letting an ADMIN pick "Owner" in the dropdown for a guaranteed backend 403.
+  it("lets an OWNER actor select the Owner role for another member", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2", role: "MEMBER" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    const select = await screen.findByLabelText(new RegExp("^Papel de user-2"));
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).toContain("OWNER");
+  });
+
+  it("hides the Owner option from an ADMIN actor's role dropdown", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2", role: "MEMBER" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    const select = await screen.findByLabelText(new RegExp("^Papel de user-2"));
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).not.toContain("OWNER");
+  });
+
+  it("renders an existing OWNER's role as plain text (not editable) to a non-OWNER actor", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "owner-1", role: "OWNER" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByText("owner-1")).toBeInTheDocument());
+    expect(screen.queryByLabelText(new RegExp("^Papel de owner-1"))).not.toBeInTheDocument();
+    expect(screen.getByText("OWNER")).toBeInTheDocument();
+  });
+
   it("submits the invite form with the entered email and default role", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [] });

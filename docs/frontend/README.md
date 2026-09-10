@@ -171,9 +171,42 @@ do frontend continua NÃO INICIADA** — este documento é só o planejamento, a
 Marcelo; os 3 blockers que a impediam de começar pelas telas A13/A14/A16 especificamente já não
 existem mais.
 
+## Prototype Screen Specs (2026-09-09) — saída do Claude Design a partir do plano acima
+
+`docs/frontend/prototype-screen-specs/` — pacote de 25 especificações de tela (componentes/props/
+dados de exemplo/RBAC concretos por tela): 24 geradas por uma sessão separada do Claude Design a
+partir do `p0-screen-inventory-plan.md`, recebido como .zip e reorganizado/renomeado nesta sessão
+(arquivos originais tinham numeração sequencial sem relação com os IDs de tela; renomeados para
+`<ID>-slug.md` correspondendo 1:1 aos IDs do plano), mais A10 (Legacy Tracked Requirements) —
+**lacuna real do pacote original, fechada em 2026-09-10**: escrita do zero nesta sessão (nunca
+gerada pelo Claude Design) e já auditada (WORLD-CLASS-READY). Material de apoio de implementação,
+não passou pelo protocolo Claude↔Codex, não é normativo acima do plano. Ver
+`prototype-screen-specs/README.md` para o índice completo e a nota de proveniência.
+
+## Screen Spec Audit Rubric (2026-09-09, D-250) — instrumento para auditar as 24 specs acima
+
+`docs/frontend/screen-spec-audit-rubric.md` — rubric consolidado para auditar cada spec em
+`prototype-screen-specs/` em duas dimensões: os 8 eixos funcionais já convergidos em D-247 (100
+pts, reusados sem alteração) + 8 eixos novos de excelência visual V1-V8 (100 pts) grounded em
+pesquisa real (Linear/Stripe/Emil Kowalski, tipografia/spacing/cor/motion/anti-"generic SaaS UI"),
+combinados 60% funcional / 40% visual com gates não-compensatórios. Endereça diretamente a
+avaliação de Marcelo de que as specs são funcionalmente boas mas "não tão profissionais e
+world-class" quanto ele gostaria — trata `design-system.md` como precedente reconciliável, não
+cerca fixa (taxonomia SPEC GAP/SYSTEM GAP/SYSTEM CONSTRAINT/JUSTIFIED EXCEPTION/SYSTEM EVOLUTION
+CANDIDATE para cada achado que conflite com o sistema atual). Produzido via protocolo
+Claude↔Codex (1 rodada cega + 1 reconciliação, Codex 8,8/9,3 auto-nota, Claude 9,1/9,4 avaliando a
+rodada de Codex por inteiro — ambos ≥9,0). **Instrumento pronto; a auditoria real das 24 specs
+ainda NÃO FOI EXECUTADA** — é o próximo passo explícito (ver `NEXT_SESSION_PROMPT.md`), antes de
+qualquer código de frontend. Ver D-250 (`decisions-log.md`) e
+`docs/architecture/reviews/frontend-visual-excellence-rubric-scoping/` para o trilho completo.
+
 ## Próxima etapa
 
-**User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
+**Auditoria das 24 prototype screen specs contra o `screen-spec-audit-rubric.md` (D-250)** — passo
+imediato seguinte, mais específico que a nota geral de "frontend adiado" abaixo: aplicar o rubric
+consolidado a cada spec em `prototype-screen-specs/` (uma por vez ou em lotes), produzindo um
+registro de auditoria por tela (template §6 do rubric) antes de qualquer código de frontend ser
+escrito. **User Validation** — ainda não iniciada (o roteiro formal de entrevista fica para `User Validation
 Planning`, não produzido em `interface-validation-readiness.md` §23 por decisão explícita de
 escopo). Recebe como input o protótipo já com Participant Mode isolado (`prototype/`, ver
 `prototype/README.md` para como rodar — Participant Mode é o default, `?mode=evaluator` ativa o
