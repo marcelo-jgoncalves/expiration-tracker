@@ -751,7 +751,7 @@ locals {
     # materialized alike); mechanical read gap closed on the same already-correct key layout,
     # see DocumentArchiveService.listDocumentRequests's own doc comment.
     list_document_requests = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests" }
-    get_document_request    = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" }
+    get_document_request   = { method = "GET", path = "/document-archive/requirements/{subjectId}/document-requests/{documentRequestId}" }
     # G2 (D-247/D-24x) - review-queue listing (A13); the sparse GSI5 index and RBAC action
     # already existed, only this route was missing.
     list_review_queue = { method = "GET", path = "/document-archive/reviews" }

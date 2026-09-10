@@ -202,11 +202,11 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host_header" {
 # --- CloudFront distribution: two origins, three behaviors ----------------------------------
 
 locals {
-  bff_origin_id      = "bff-api"
-  spa_origin_id      = "spa-s3"
+  bff_origin_id          = "bff-api"
+  spa_origin_id          = "spa-s3"
   resource_api_origin_id = "resource-api"
   # Custom origin needs the bare hostname; aws_apigatewayv2_api.api_endpoint is a full https:// URL.
-  bff_origin_domain      = replace(var.bff_api_endpoint, "https://", "")
+  bff_origin_domain          = replace(var.bff_api_endpoint, "https://", "")
   resource_api_origin_domain = replace(var.resource_api_endpoint, "https://", "")
 
   # Every method client.ts can send as a mutation (src/api/client.ts's MUTATING_METHODS) plus
