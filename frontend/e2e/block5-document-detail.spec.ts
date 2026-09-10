@@ -121,9 +121,14 @@ test("E2E-B5-D04: the 3-step upload wizard reserves a version, uploads a file, t
   });
   // Same-origin presigned URL — an external domain would be blocked by the app's own CSP
   // `connect-src 'self'` (a real constraint found while writing this test, not a mocking
-  // artifact: a genuine presigned storage URL is same-origin-exempt in production because it's
-  // never fetched via this app's own origin's CSP, but this test's mock has to stay same-origin
-  // to exercise the code path at all under the page's real CSP).
+  // artifact). Correction (Codex review round 1 of the ADR-0013/D-265 guest-storage
+  // implementation, `block6-requests-guest.spec.ts`): a genuine presigned S3 URL is NOT actually
+  // CSP-exempt in production — it's genuinely cross-origin and this app's real `connect-src
+  // 'self'` would block it in a real browser today, a real pre-existing production gap this
+  // comment previously described incorrectly (named honestly now in decisions-log.md/
+  // NEXT_SESSION_PROMPT.md). This test's mock still stays same-origin, same as before — only to
+  // exercise the rest of the code path under the page's real CSP, not because the real URL would
+  // actually be exempt.
   await page.route("**/bff/api/document-archive/documents/doc-1/versions/2/files", (route) =>
     route.fulfill({
       json: {

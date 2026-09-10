@@ -13,7 +13,7 @@
  * "expired" from "wrong token" from "session gone" from "CSRF mismatch") rather than
  * re-deriving a friendlier message per HTTP status.
  */
-import type { GuestDocumentTypeOption, GuestStartSessionResult, GuestSubmitEvidenceResult } from "./types.js";
+import type { GuestConfirmUploadResult, GuestDocumentTypeOption, GuestStartSessionResult, GuestSubmitEvidenceResult } from "./types.js";
 
 export class GuestUnavailableError extends Error {
   constructor() {
@@ -76,14 +76,21 @@ export function listGuestDocumentTypes(token: string): Promise<{ documentTypes: 
 
 /** `POST .../uploads` — layer 3, idempotent evidence submission. Reads the session from the
  * HttpOnly cookie server-side (never sent here) — only the CSRF header/cookie pair travels
- * explicitly. See this module's header comment for the real, named gap: the backend accepts
- * `fileName` as metadata only — no file bytes are transmitted or stored by this call, or by any
- * route this module or the backend expose (confirmed by reading `guest-document-access-
- * service.ts`'s `submitEvidence` directly — no S3/file-storage integration exists in the guest
- * path at all, unlike the tenant-authenticated `reserveFiles`/`commitUpload` flow `api/
- * documentArchive.ts` uses). `docs/architecture/decisions-log.md`/`NEXT_SESSION_PROMPT.md` name
- * this explicitly as a real, pre-existing backend limitation — not something this call site
- * invents or hides. */
-export function submitGuestEvidence(token: string, input: { fileName: string; documentTypeId: string; idempotencyKey: string }): Promise<GuestSubmitEvidenceResult> {
+ * explicitly. ADR-0013 (D-265) closed the real, pre-existing gap this module's earlier header
+ * comment named: `submitEvidence` now persists a real `DocumentFile` (PENDING_UPLOAD) and, when
+ * `uploadUrl` comes back present, the caller is expected to PUT the actual bytes to it and then
+ * confirm via `confirmGuestUpload` — see `GuestDocumentRequest.tsx` for the full 3-call flow. */
+export function submitGuestEvidence(
+  token: string,
+  input: { fileName: string; documentTypeId: string; mediaType: string; contentLength: number; checksumSha256: string; idempotencyKey: string },
+): Promise<GuestSubmitEvidenceResult> {
   return request<GuestSubmitEvidenceResult>(`/document-archive/guest/document-requests/${encodeURIComponent(token)}/uploads`, { method: "POST", body: input, csrf: true });
+}
+
+/** `PATCH .../uploads` — ADR-0013 (D-265), called immediately after the browser's direct-to-S3
+ * PUT resolves with a 2xx. Narrows the race against the reconciliation worker's TIMEOUT sweep
+ * down to this call's own round-trip — see `GuestDocumentAccessService.confirmUploadInFlight`'s
+ * doc comment for the full guarantee. Same session/CSRF discipline as `submitGuestEvidence`. */
+export function confirmGuestUpload(token: string, input: { idempotencyKey: string }): Promise<GuestConfirmUploadResult> {
+  return request<GuestConfirmUploadResult>(`/document-archive/guest/document-requests/${encodeURIComponent(token)}/uploads`, { method: "PATCH", body: input, csrf: true });
 }

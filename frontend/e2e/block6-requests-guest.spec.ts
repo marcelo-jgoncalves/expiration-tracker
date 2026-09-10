@@ -158,8 +158,11 @@ test("E2E-B6-07: a valid link shows the requester/requirement names and complete
   await page.route("**/document-archive/guest/document-requests/*/document-types", (route) => route.fulfill({ json: { documentTypes: [{ documentTypeId: "dt-1", displayName: "CND Federal (Receita Federal)" }] } }));
   let uploadedBody: Record<string, unknown> | undefined;
   await page.route("**/document-archive/guest/document-requests/*/uploads", (route) => {
+    // ADR-0013 (D-265) — no uploadUrl offered (nothing to PUT), but confirmUploadInFlight (PATCH)
+    // is ALWAYS called regardless, and its own {extended} return is what decides success.
+    if (route.request().method() === "PATCH") return route.fulfill({ status: 200, json: { extended: true } });
     uploadedBody = route.request().postDataJSON() as Record<string, unknown>;
-    return route.fulfill({ status: 201, json: { documentId: "doc-1", versionId: "ver-1", seq: 1 } });
+    return route.fulfill({ status: 201, json: { documentId: "doc-1", versionId: "ver-1", seq: 1, fileId: "file-1" } });
   });
 
   await page.goto("/document-archive/guest/document-requests/tok-1");
@@ -178,6 +181,56 @@ test("E2E-B6-07: a valid link shows the requester/requirement names and complete
   await expect(page.getByRole("heading", { name: "Evidência enviada" })).toBeVisible();
   await expect(page.getByText(/esta confirmação não significa que o documento foi aprovado/)).toBeVisible();
   expect(uploadedBody?.["documentTypeId"]).toBe("dt-1");
+});
+
+test("E2E-B6-07b (ADR-0013/D-265): when uploadUrl is offered, PUTs the real bytes to S3 then confirms via PATCH before the final state", async ({ page }) => {
+  await mockG02Session(page, true, { subjectDisplayName: "Atlas Schindler", requirementName: "CND Federal" });
+  await page.route("**/document-archive/guest/document-requests/*/document-types", (route) => route.fulfill({ json: { documentTypes: [{ documentTypeId: "dt-1", displayName: "CND Federal (Receita Federal)" }] } }));
+
+  let putCalled = false;
+  let confirmCalled = false;
+  // Same-origin mock URL, deliberately. Codex review round 1 (D-265 implementation) confirmed a
+  // real, PRE-EXISTING gap this mock's older comment (and block5-document-detail.spec.ts's A12
+  // upload-wizard test, which set the same precedent) got WRONG: a real presigned S3 URL is
+  // genuinely cross-origin and is NOT CSP-exempt — `connect-src 'self'` (`frontend/index.html`,
+  // `infra/modules/spa-hosting/variables.tf`) would block it in a real browser today, for BOTH
+  // this guest path and the authenticated A07/A12 path (the quarantine bucket also has no
+  // `aws_s3_bucket_cors_configuration`, so even a relaxed CSP wouldn't be enough alone). This is
+  // real, not introduced by ADR-0013, and out of scope for it to fix (ADR-0013 only reuses the
+  // existing pipeline, never touches CSP/CORS) — named honestly here and in
+  // decisions-log.md/NEXT_SESSION_PROMPT.md as a production-blocking gap for BOTH upload paths,
+  // requiring its own Type 1 decision (CloudFront-proxied same-origin upload vs. a scoped
+  // `connect-src`+bucket CORS allowlist vs. another transport). This mock stays same-origin only
+  // to exercise the rest of the code path under the page's real CSP.
+  await page.route("**/mock-storage/g02-upload", (route) => {
+    putCalled = true;
+    expect(route.request().method()).toBe("PUT");
+    return route.fulfill({ status: 200, body: "" });
+  });
+  await page.route("**/document-archive/guest/document-requests/*/uploads", (route) => {
+    if (route.request().method() === "PATCH") {
+      confirmCalled = true;
+      expect(putCalled).toBe(true); // PUT must complete before confirm is ever called.
+      return route.fulfill({ status: 200, json: { extended: true } });
+    }
+    return route.fulfill({
+      status: 201,
+      json: { documentId: "doc-1", versionId: "ver-1", seq: 1, fileId: "file-1", uploadUrl: "/mock-storage/g02-upload", requiredHeaders: {} },
+    });
+  });
+
+  await page.goto("/document-archive/guest/document-requests/tok-1");
+  await page.getByLabel(/Tipo de documento \*/).selectOption("dt-1");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Arquivo" })).toBeVisible();
+  await page.setInputFiles('input[type="file"]', { name: "cnd.pdf", mimeType: "application/pdf", buffer: Buffer.from("conteudo") });
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Revisar e enviar" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Enviar evidência" }).click();
+  await expect(page.getByRole("heading", { name: "Evidência enviada" })).toBeVisible();
+  expect(putCalled).toBe(true);
+  expect(confirmCalled).toBe(true);
 });
 
 test("E2E-B6-08: G02 has no AppShell/nav chrome at all", async ({ page }) => {
