@@ -65,7 +65,7 @@ Evidência de design: `docs/architecture/decisions-log.md` D-249,
 6. bulk actions — 🟢 FECHADO POR COMPLETO (D-206/D-207/D-209/D-210).
 7. metadata configurável por Document Type — 🟢 FECHADO POR COMPLETO (D-218 a D-221).
 8. compartilhamento externo seguro (`ExternalShareLink`) — 🟡 design `APPROVED` (D-225), **slice 1/3 IMPLEMENTADO (D-241, domínio+persistência+serviço de aplicação, testado, gate local verde)**. Slices 2/3 (rota HTTP anônima, rotas autenticadas+RBAC+schemas, terraform) PAUSADAS deliberadamente — Marcelo pediu fechar o P0 inteiro antes de qualquer item novo do P1; retomar só depois disso. Último item do backlog P1 a implementar.
-- **P2** (não escopado): assinatura eletrônica; API pública; webhooks; integrações de calendário; compliance score avançado.
+- **P2** (não escopado): assinatura eletrônica; API pública; webhooks; integrações de calendário; compliance score avançado; **assistente de IA conversacional no produto** (ex. "quais fornecedores vencem em breve"/explicar documento sinalizado, via API do Claude direto — não MCP/Claude Code — item novo, 2026-09-11, ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §5; validado por pesquisa de mercado como tendência real de diferenciação em SaaS de compliance, mas não escopado nem priorizado).
 - **Futuro** (sem gatilho comercial): portal completo do cliente; SSO/SCIM/controles enterprise.
 
 ## Full-audit round2 (`docs/engineering/joint-review-criteria.md`) — estado por eixo, 2026-09-07/08
