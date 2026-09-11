@@ -37,6 +37,7 @@ export interface NavItem {
 }
 
 const ADMIN_ROLES: readonly MembershipRole[] = ["ADMIN", "OWNER"];
+const OWNER_ROLES: readonly MembershipRole[] = ["OWNER"];
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "overview", to: "/overview", label: "Visão geral" },
@@ -67,6 +68,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // A21 (Block 4, D-2xx) - `docarchive:requirementtemplate-read` is READ_ONLY_ROLES, every role
   // browses (apply/administer are individually gated inside the screen itself).
   { id: "requirement-templates", to: "/settings/requirement-templates", label: "Templates de requisitos" },
+  // A22 (Block 7, D-267) - `tenant:configure-document-request-delivery` is OWNER_ROLES
+  // EXCLUSIVE (`authorization.ts:307`), stricter than the ADMIN_ROLES tier below - no other
+  // role sees this entry at all, matching the spec's explicit "totalmente ausentes" instruction.
+  { id: "request-delivery", to: "/settings/request-delivery", label: "Entrega de solicitação", allowedRoles: OWNER_ROLES },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.

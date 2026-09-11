@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
 import { SubjectHub } from "../../../src/routes/subjects/SubjectHub.js";
 import type { TrackedSubject } from "../../../src/api/types.js";
@@ -34,6 +34,12 @@ beforeEach(() => {
     if (path.startsWith("/document-archive/requirements/")) {
       return Promise.resolve({ requirements: [] });
     }
+    // A10 (Block 7, D-267) - `RequirementAssignment` list (subject module), distinct from
+    // `/document-archive/requirements/` above - must be matched BEFORE the generic
+    // "/subjects/" fallback below, which would otherwise wrongly answer it with a Subject.
+    if (path.includes("/requirements")) {
+      return Promise.resolve({ assignments: [] });
+    }
     if (path.startsWith("/subjects/")) {
       return Promise.resolve({ subject: subject() });
     }
@@ -51,19 +57,34 @@ describe("SubjectHub (A09)", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
+  it("A10 (Block 7): renders 'Rastreamento legado' as a real link with the assignment count, not 'Em breve' text", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
+      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
+      if (path.includes("/requirements")) return Promise.resolve({ assignments: [{ assignmentId: "a1" }, { assignmentId: "a2" }] });
+      return Promise.resolve({ subject: subject() });
+    });
+    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+
+    const link = await screen.findByRole("link", { name: /Rastreamento legado/ });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/subjects/subject-1/tracking"));
+    expect(within(link).getByText("2")).toBeInTheDocument();
+  });
+
   it("shows '—' (never 0%) when totalRequirements is 0", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) {
         return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       }
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
+      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       return Promise.resolve({ subject: subject() });
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument());
-    // Scoped to the compliance panel's percentage element - the page also renders an em dash as
-    // a plain separator elsewhere ("Rastreamento legado — Em breve...").
+    // Scoped to the compliance panel's percentage element - the page also renders an em dash
+    // elsewhere too (e.g. "Solicitações e recorrência — Em breve...").
     const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
     expect(section?.querySelector("strong")?.textContent).toBe("—");
   });
@@ -72,6 +93,7 @@ describe("SubjectHub (A09)", () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
+      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");

@@ -48,7 +48,10 @@ import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { ToastProvider } from "./components/Toast.js";
 import { SubjectRequests } from "./routes/subjects/SubjectRequests.js";
+import { Tracking } from "./routes/subjects/Tracking.js";
+import { RequestDeliverySettings } from "./routes/subjects/RequestDeliverySettings.js";
 import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
+import { LegacyGuestUpload } from "./routes/guest/LegacyGuestUpload.js";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -112,6 +115,10 @@ export function App() {
                     route opens the series detail overlay on top of the same two panels. */}
                 <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
+                {/* A10 (Block 7, D-267) - Rastreamento legado, reached only from A09's card
+                    ("Rastreamento legado"), no top-level nav entry of its own. */}
+                <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
+                <Route path="subjects/:subjectId/tracking/:assignmentId" element={<Tracking />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}
                 <Route path="reviews" element={<ReviewQueue />} />
@@ -128,6 +135,10 @@ export function App() {
                     spec's own route contract. */}
                 <Route path="settings/requirement-templates" element={<RequirementTemplatesScreen />} />
                 <Route path="settings/requirement-templates/:templateId" element={<RequirementTemplatesScreen />} />
+                {/* A22 (Block 7, D-267) - OWNER-only, own route guard inside the component
+                    (Navigate away for non-OWNER) - matches A20/A21's nested-under-settings
+                    route contract. */}
+                <Route path="settings/request-delivery" element={<RequestDeliverySettings />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
@@ -156,6 +167,10 @@ export function App() {
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requests" element={null} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={null} />
+                {/* A10 (Block 7, D-267) - added here from the start, same healing-forward
+                    discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/tracking" element={null} />
+                <Route path="subjects/:subjectId/tracking/:assignmentId" element={null} />
                 {/* A11 (Block 3, D-2xx) - was missing from this list entirely (real gap, found
                     by the Block 3 E2E/accessibility gap closure, D-2xx): `page.goto("/requirements")`
                     and any real bookmark/link to the bare path 404'd via the catch-all `*` route
@@ -173,6 +188,9 @@ export function App() {
                 <Route path="settings/document-types/:documentTypeId" element={null} />
                 <Route path="settings/requirement-templates" element={null} />
                 <Route path="settings/requirement-templates/:templateId" element={null} />
+                {/* A22 (Block 7, D-267) - added here from the start, same healing-forward
+                    discipline as A20/A21. */}
+                <Route path="settings/request-delivery" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />
@@ -194,6 +212,11 @@ export function App() {
                   ProtectedRoute/AuthProvider gating (G02's own spec: "esta tela é estruturalmente
                   separada do app autenticado"). No AppShell, no org context, no RBAC. */}
               <Route path="document-archive/guest/document-requests/:token" element={<GuestDocumentRequest />} />
+              {/* G01 (Block 7, D-267) - legacy guest upload (M10, D-037), same public/no-AppShell
+                  posture as G02 above - the bare path is also the API's own info-fetch path,
+                  which is why the CloudFront routing gap this block closed uses a distinct
+                  "/info" alias instead of this page route (see guestLegacyUpload.ts). */}
+              <Route path="guest/document-requests/:token" element={<LegacyGuestUpload />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             </ToastProvider>

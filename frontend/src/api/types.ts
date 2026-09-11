@@ -112,9 +112,23 @@ export interface RequirementAssignment {
   notes?: string;
   status: RequirementAssignmentStatus;
   linkedItemId?: string;
+  /** A10 (Block 7, D-2xx) - "Última atualização manual" in the Snapshot block; present only
+   * once the assignment has been linked to an item at least once (mirrors the backend's own
+   * `satisfiedAt?` on `RequirementAssignment`, `requirement-assignment.ts`). */
+  satisfiedAt?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
+}
+
+export interface AssignRequirementInput {
+  requirementName: string;
+  notes?: string;
+}
+
+export interface UpdateRequirementAssignmentInput {
+  requirementName?: string;
+  notes?: string;
 }
 
 /** Same lifecycle vocabulary as Document (src/modules/document/domain/document.ts) - a
@@ -175,6 +189,83 @@ export interface RequirementAssignmentsResponse {
 
 export interface DocumentSubmissionsResponse {
   submissions: DocumentSubmission[];
+}
+
+/**
+ * A10 (Block 7, D-2xx) - `subject` module's legacy `DocumentRequest`
+ * (`src/modules/subject/domain/document-request.ts`, D-037) - a DISTINCT backend entity from
+ * `DocumentRequest`/`DocumentRequestStatus` further below (the `document-archive` module's own
+ * type, A14/G02), even though both happen to share the same status vocabulary and type name in
+ * their respective backend modules. Named `Legacy*` here specifically to avoid that collision -
+ * never import one where the other is expected.
+ */
+export type LegacyDocumentRequestStatus = "REQUESTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "REVOKED";
+
+export interface LegacyDocumentRequest {
+  documentRequestId: string;
+  subjectId: string;
+  assignmentId: string;
+  recipientEmail: string;
+  recipientDisplayName?: string;
+  requestedAt: string;
+  deadline?: string;
+  status: LegacyDocumentRequestStatus;
+  lastOpenedAt?: string;
+  submissionCount: number;
+  lastSubmissionId?: string;
+  revokedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateLegacyDocumentRequestInput {
+  recipientEmail: string;
+  recipientDisplayName?: string;
+  deadline?: string;
+}
+
+/** `guestToken` is returned ONLY at creation time (`document-request-service.ts`'s own doc
+ * comment: "retornado UMA ÚNICA VEZ, nunca reconstruível depois") - never persisted, never
+ * refetchable from `listLegacyDocumentRequests`/`getLegacyDocumentRequest`. A10's "Copiar link do
+ * convidado" affordance therefore only ever works in the moment right after creation, a real,
+ * confirmed consequence of the backend's own security model (never a UI bug to "fix" by trying
+ * to surface a copy affordance on a request loaded from history). */
+export interface CreatedLegacyDocumentRequest {
+  request: LegacyDocumentRequest;
+  guestToken: string;
+  initialInviteDeliveryStatus?: "SENT" | "FAILED" | "DISABLED_BY_KILL_SWITCH";
+}
+
+/** A22 (Block 7, D-2xx) - tenant-wide preference (`document-request-delivery-preference.ts`),
+ * default `MANUAL` until ever configured. */
+export type DocumentRequestDeliveryMode = "MANUAL" | "EMAIL";
+
+/**
+ * G01 (Block 7, D-2xx) - `guest-submission-service.ts`'s public response shapes (M10, D-037),
+ * the legacy single-step guest upload. Deliberately minimal, same posture as `GuestStartSession
+ * Result`/`GuestDocumentTypeOption` above - never leaks more than the upload UI needs.
+ */
+export interface LegacyGuestRequestInfo {
+  requirementName: string;
+  deadline?: string;
+  allowedMediaTypes: string[];
+  maxUploadBytes: number;
+  requesterDisplayName: string;
+}
+
+export interface LegacyGuestSubmissionInput {
+  fileName: string;
+  mediaType: string;
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export interface LegacyGuestSubmissionResult {
+  submissionId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
 }
 
 // Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.

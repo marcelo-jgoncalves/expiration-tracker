@@ -59,6 +59,13 @@
   align-items: center;
   justify-content: center;
   transition: border-color var(--duration-fast) var(--easing-standard);
+  /* Real, pre-existing bug found by A22's E2E spec (Block 7, D-267) - the first automated test
+     to ever click through this component. `.ui-radio__input` is visually-hidden (clip-path
+     pattern) but still occupies real layout space its absolute positioning can place under this
+     decorative (aria-hidden) sibling, which was intercepting the click instead of letting it
+     reach the label/input beneath - the same latent gap likely exists in Checkbox.css's
+     `.ui-checkbox__box` (untouched here, out of this block's scope). */
+  pointer-events: none;
 }
 
 .ui-radio__dot::after {

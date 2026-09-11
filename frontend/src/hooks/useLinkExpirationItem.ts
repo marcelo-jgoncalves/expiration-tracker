@@ -20,7 +20,11 @@ export function useLinkExpirationItem(subjectId: string, assignmentId: string) {
   return useOccMutation<RequirementAssignmentResponse, LinkVariables>({
     mutationFn: ({ itemId, expectedVersion }) => linkExpirationItem(subjectId, assignmentId, itemId, expectedVersion),
     onSuccess: () => {
-      if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+      if (!organizationId) return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+      // A10 (Block 7, D-2xx) - this mutation is now also reachable from the assignment detail
+      // page (Snapshot's "Vincular item"), not just the BLOCKER-C list this hook originated in.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignmentId) });
     },
   });
 }

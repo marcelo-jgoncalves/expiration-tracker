@@ -7,13 +7,19 @@
  */
 import { apiClient } from "./apiClient.js";
 import type {
+  AssignRequirementInput,
+  CreateLegacyDocumentRequestInput,
+  CreatedLegacyDocumentRequest,
   CreateSubjectInput,
+  DocumentRequestDeliveryMode,
   DocumentSubmissionsResponse,
+  LegacyDocumentRequest,
   RequirementAssignmentResponse,
   RequirementAssignmentsResponse,
   SubjectResponse,
   SubjectsDashboardResponse,
   TrackedSubjectStatus,
+  UpdateRequirementAssignmentInput,
   UpdateSubjectInput,
 } from "./types.js";
 
@@ -64,4 +70,70 @@ export function linkExpirationItem(subjectId: string, assignmentId: string, item
 
 export function unlinkExpirationItem(subjectId: string, assignmentId: string, expectedVersion: number): Promise<RequirementAssignmentResponse> {
   return apiClient.post<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/unlink`, undefined, { expectedVersion });
+}
+
+// --- A10 (Block 7, D-2xx) - Legacy Tracked Requirements -------------------------------------
+
+/** `POST /subjects/{subjectId}/requirements` - `requirement:assign`, WRITE_ROLES. */
+export function assignRequirement(subjectId: string, input: AssignRequirementInput): Promise<RequirementAssignmentResponse> {
+  return apiClient.post<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements`, input);
+}
+
+/** `GET /subjects/{subjectId}/requirements/{assignmentId}` - single-assignment detail, A10's
+ * Snapshot + timeline page. */
+export function fetchRequirementAssignment(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<RequirementAssignmentResponse> {
+  return apiClient.get<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, { signal: options?.signal });
+}
+
+/** `PUT /subjects/{subjectId}/requirements/{assignmentId}` - `requirement:update`, WRITE_ROLES.
+ * Name/notes only - status is never editable here (link/unlink above is the only status path). */
+export function updateRequirementAssignment(subjectId: string, assignmentId: string, input: UpdateRequirementAssignmentInput, expectedVersion: number): Promise<RequirementAssignmentResponse> {
+  return apiClient.put<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, input, { expectedVersion });
+}
+
+/** `DELETE /subjects/{subjectId}/requirements/{assignmentId}` - `requirement:delete`, ADMIN_ROLES
+ * only. Soft-delete (backend sets `deletedAt`) - the assignment disappears from the list. */
+export function deleteRequirementAssignment(subjectId: string, assignmentId: string, expectedVersion: number): Promise<void> {
+  return apiClient.delete<void>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, { expectedVersion });
+}
+
+/** `POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests` -
+ * `requirement:request-document`, WRITE_ROLES. Distinct from A14's `createDocumentRequest`
+ * (`documentRequests.ts`, `document-archive` module) - see `LegacyDocumentRequest`'s own doc
+ * comment in `types.ts` for why these are never conflated despite the similar name. */
+export function createLegacyDocumentRequest(subjectId: string, assignmentId: string, input: CreateLegacyDocumentRequestInput): Promise<CreatedLegacyDocumentRequest> {
+  return apiClient.post<CreatedLegacyDocumentRequest>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/document-requests`, input);
+}
+
+/** `GET /subjects/{subjectId}/requirements/{assignmentId}/document-requests` -
+ * `requirement:read`, all roles - full history for this assignment's timeline. */
+export function listLegacyDocumentRequests(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<{ requests: LegacyDocumentRequest[] }> {
+  return apiClient.get<{ requests: LegacyDocumentRequest[] }>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/document-requests`, { signal: options?.signal });
+}
+
+/** `POST /subjects/{subjectId}/document-requests/{documentRequestId}/revoke` -
+ * `requirement:update` (same tier as edit, not a dedicated capability - confirmed against
+ * `document-request-service.ts#revokeDocumentRequest`). */
+export function revokeLegacyDocumentRequest(subjectId: string, documentRequestId: string, expectedVersion: number): Promise<void> {
+  return apiClient.post<void>(`/subjects/${encodeURIComponent(subjectId)}/document-requests/${encodeURIComponent(documentRequestId)}/revoke`, undefined, { expectedVersion });
+}
+
+// --- A22 (Block 7, D-2xx) - Request Delivery Settings ----------------------------------------
+
+/** `GET /subjects/document-request-delivery-preference` - `tenant:configure-document-request
+ * -delivery`, OWNER_ROLES only. Tenant-wide, no subjectId - default `MANUAL` until configured. */
+export function fetchDocumentRequestDeliveryPreference(options?: { signal?: AbortSignal }): Promise<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }> {
+  return apiClient.get<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }>("/subjects/document-request-delivery-preference", { signal: options?.signal });
+}
+
+/** `PUT /subjects/document-request-delivery-preference` - the client never supplies
+ * `expectedVersion` (`document-request-service.ts#setDocumentRequestDeliveryPreference` reads the
+ * current row and computes it server-side in the same call), but a genuine `ConflictError`
+ * (category `CONFLICT`, 409) IS still possible - the server-side read-then-conditional-write can
+ * still race against a concurrent save and throw on `isTransactionCanceled`. The frontend must
+ * still handle `isConflict(err)` distinctly (see `RequestDeliverySettings.tsx`), matching A22's
+ * spec OCC-conflict state - this is a narrower race window than client-supplied OCC, never an
+ * absent one. */
+export function updateDocumentRequestDeliveryPreference(mode: DocumentRequestDeliveryMode): Promise<void> {
+  return apiClient.put<void>("/subjects/document-request-delivery-preference", { initialInviteDeliveryDefault: mode });
 }

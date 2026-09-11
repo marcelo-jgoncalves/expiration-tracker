@@ -15,7 +15,10 @@ export function useUnlinkExpirationItem(subjectId: string, assignmentId: string)
   return useOccMutation<RequirementAssignmentResponse, UnlinkVariables>({
     mutationFn: ({ expectedVersion }) => unlinkExpirationItem(subjectId, assignmentId, expectedVersion),
     onSuccess: () => {
-      if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+      if (!organizationId) return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+      // A10 (Block 7, D-2xx) - see useLinkExpirationItem's own comment.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignmentId) });
     },
   });
 }
