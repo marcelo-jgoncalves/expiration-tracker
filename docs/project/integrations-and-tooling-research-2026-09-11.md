@@ -132,6 +132,50 @@ cliente).
   uso pesado de fork/Workflow desta sessão; vale rodar periodicamente para ver onde o gasto se
   concentra.
 
+## 7. Conectores recomendados por fase (aprofundamento, 2026-09-11)
+
+**Acionável agora:**
+- **Conector HubSpot** (primeira parte, real) — lê contatos/negociações/empresas/tickets/histórico
+  de engajamento, e cria nota/tarefa/atualiza registro em linguagem natural de dentro de uma sessão
+  Claude; desde meados de 2026 roda consultas analíticas baseadas em SQL, então agregações entre
+  objetos (ex. "quais negociações estão paradas há mais de 30 dias") voltam calculadas, não
+  estimadas. Utilizável assim que o tier grátis de CRM do HubSpot (já recomendado) estiver
+  configurado — ganho de fase de vendas sem custo extra.
+
+**Real, mas não necessário aqui:**
+- **Conector GitHub** — consenso é que agrega pouco sobre o `gh` CLI já usado nesta própria sessão:
+  o CLI dá saída estruturada (`--json`) que o Claude já processa direto, sem overhead extra de
+  token de MCP, e já conduz todo o ciclo de vida de PR/CI deste projeto. Não vale adicionar.
+- **Conector Google Drive** — real, mas capacidade assimétrica: cria arquivo novo e lê/resume
+  Docs/Sheets/Slides/PDF existentes, mas **não edita, renomeia nem organiza nada que já esteja no
+  Drive**. Como este projeto já versiona todo doc de planejamento em git/markdown (estritamente
+  melhor para diff/histórico que Drive), não fecha nenhuma lacuna real — pular a menos que Marcelo
+  comece a compartilhar documento com alguém não-técnico de fora.
+
+**Relevante só quando houver usuário/receita real:**
+- **Conector Stripe** (primeira parte, leitura/escrita completa: payment intents, reembolsos,
+  criar/cancelar assinatura, CRUD de cliente, configurar invoice/produto, consulta conversacional de
+  receita) — só relevante se o projeto algum dia adotar Stripe; irrelevante ao caminho recomendado
+  via Asaas. Limitação real de qualquer forma: **sem gatilho de evento** — nada dispara numa cobrança
+  falha, só sob pergunta/agendamento, nunca notificação proativa.
+- **Asaas** — confirmado, não existe conector MCP/Claude para o Asaas (busca direta, nada
+  encontrado). Qualquer automação futura de billing via Claude passaria pela API REST própria do
+  Asaas via script/tool customizado, não um conector.
+- **Conector Slack** (primeira parte) — real, capacidade concreta além do padrão de heartbeat/
+  notificação preso ao terminal desta sessão: busca/lê canais, threads, DMs e arquivos
+  compartilhados; rascunha, revisa e posta mensagem direto; referencia canvases do Slack. Deixaria
+  Marcelo dar/receber status assíncrono do celular sem terminal aberto, e o Claude postar
+  atualização proativa num canal que ele acompanha — o único conector aqui que fecha uma lacuna real
+  de "não dá pra fazer isso hoje". Ressalva: exige plano Claude Pro/Max (individual) ou Team/
+  Enterprise com conector habilitado por admin — não disponível no plano Free.
+
+**Conclusão, priorizada**: conector HubSpot é o único que vale habilitar agora (custo zero extra,
+valor de fase de vendas). Slack é o próximo mais concreto se Marcelo estiver em plano pago e quiser
+status assíncrono fora do terminal. GitHub e Google Drive agregariam custo/complexidade sem fechar
+lacuna real dado o tooling atual (`gh` CLI, docs versionados em git). A questão do conector Stripe/
+Asaas é discutível até um gateway de billing ser de fato implementado — e não existe conector Asaas
+de qualquer forma.
+
 ## Fontes
 
 - [Gateways de Pagamento no Brasil: Comparativo 2026](https://fwctecnologia.com/en/blog/post/payment-gateways-brazil-comparison-2026)
@@ -160,3 +204,8 @@ cliente).
 - [Anthropic Startup Program: How to Get $25K in Credits (2026)](https://aicreditmart.com/ai-credits-providers/anthropic-startup-program-how-to-get-25k-in-credits-2026/)
 - [ccusage: Finally Know How Much Claude Code Is Actually Costing You](https://dev.to/stevengonsalvez/ccusage-finally-know-how-much-claude-code-is-actually-costing-you-1873)
 - [How to monitor Claude Code token usage in software engineering](https://www.faros.ai/blog/claude-code-token-usage)
+- [Introducing the HubSpot Connector for Claude](https://developers.hubspot.com/changelog/hubspot-connector-for-claude)
+- [GitHub MCP vs gh CLI for Claude Code](https://docs.bswen.com/blog/2026-03-23-github-mcp-vs-gh-cli-claude/)
+- [Claude's Google Drive Integration: What Works and Where the Gaps Are](https://pranoti.thesciencetalk.com/perspectives/google-drive-sheets-claude-update-2026/)
+- [Claude + Stripe: What the Integration Can (and Can't) Do in 2026](https://www.usecarly.com/blog/claude-stripe-integration/)
+- [Claude Cowork Slack integration: A complete guide for teams in 2026](https://www.eesel.ai/blog/claude-cowork-slack-integration)
