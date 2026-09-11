@@ -18,12 +18,21 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
 
   it("shows every item for an ADMIN", () => {
     const ids = getVisibleNavItems("ADMIN").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "activity", "reports"]);
   });
 
   it("shows every item for an OWNER, including the OWNER-exclusive 'request-delivery' (A22)", () => {
     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "activity", "reports"]);
+  });
+
+  // A16 (Block 10, D-2xx) - `item:export`/`docarchive:requirement-export`/
+  // `reports:subscription-manage` are all ADMIN_ROLES exclusively - no READ_ONLY_ROLES exception,
+  // unlike "document-types"/"requirement-templates"/"reviews" above.
+  it("hides 'Relatórios' from every non-ADMIN role", () => {
+    for (const role of ["VIEWER", "MEMBER"] as const) {
+      expect(getVisibleNavItems(role).map((item) => item.id)).not.toContain("reports");
+    }
   });
 
   // A22 (Block 7, D-267) - `tenant:configure-document-request-delivery` is OWNER_ROLES
