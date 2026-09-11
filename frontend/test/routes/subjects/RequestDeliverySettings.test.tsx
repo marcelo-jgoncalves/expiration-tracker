@@ -97,6 +97,24 @@ describe("RequestDeliverySettings (A22, Block 7)", () => {
     expect(screen.getByLabelText("E-mail automático")).toBeChecked();
   });
 
+  // Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: the radios stayed
+  // interactive mid-save, letting a user flip the visible selection to a value the server never
+  // actually received before the toast confirmed success.
+  it("disables the radios while a save is in flight", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    getMock.mockResolvedValue({ initialInviteDeliveryDefault: "MANUAL" });
+    let resolvePut: (() => void) | undefined;
+    putMock.mockReturnValue(new Promise<void>((resolve) => (resolvePut = resolve)));
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByLabelText("Entrega manual")).toBeChecked());
+    screen.getByRole("button", { name: "Salvar padrão" }).click();
+
+    await waitFor(() => expect(screen.getByLabelText("Entrega manual")).toBeDisabled());
+    expect(screen.getByLabelText("E-mail automático")).toBeDisabled();
+    resolvePut?.();
+  });
+
   it("shows an error state with retry when the initial GET fails", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
     getMock.mockRejectedValue(new Error("down"));

@@ -170,8 +170,11 @@ module "subjects_handler" {
     DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED = tostring(var.document_request_initial_invite_email_enabled)
     SES_FROM_ADDRESS                              = var.ses_from_address
     SES_CONFIGURATION_SET                         = module.ses_notifications.configuration_set_name
-    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - mesmo placeholder documentado do
-    # document_chasing_dispatch_handler (ver comentário lá).
+    # Block 7 (G01, D-267) - the condition that justified leaving this unset ("frontend não tem
+    # milestone atribuído ainda", D-047) is now obsolete: G01's real frontend page exists and
+    # consumes this exact link. Same var.app_origin + path convention as the guest_upload_base_url
+    # wired for document_archive_guest_handler above, never a second competing source of truth.
+    GUEST_UPLOAD_BASE_URL = "${var.app_origin}/guest/document-requests"
   })
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
@@ -1647,10 +1650,9 @@ module "document_chasing_dispatch_handler" {
     GUEST_TOKEN_PEPPER    = random_password.guest_token_pepper.result
     SES_FROM_ADDRESS      = var.ses_from_address
     SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
-    # GUEST_UPLOAD_BASE_URL deliberadamente NÃO setado - código tem um placeholder documentado
-    # (https://app.example.invalid/guest/document-requests, mesma postura já aceita para
-    # cors_allow_origins, implementation-blueprint.md §4.2) até existir domínio real de
-    # frontend (D-047: frontend não tem milestone atribuído ainda).
+    # Block 7 (G01, D-267) - see subjects_handler's own comment on this same variable; the
+    # D-047 condition that justified leaving it unset is now obsolete.
+    GUEST_UPLOAD_BASE_URL = "${var.app_origin}/guest/document-requests"
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [

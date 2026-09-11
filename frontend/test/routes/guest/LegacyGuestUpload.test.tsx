@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { LegacyGuestUpload } from "../../../src/routes/guest/LegacyGuestUpload.js";
+import { GuestTransientError } from "../../../src/api/guestLegacyUpload.js";
 
 const { fetchInfoMock, submitMock, computeChecksumSha256Mock, uploadDocumentBytesMock } = vi.hoisted(() => ({
   fetchInfoMock: vi.fn(),
@@ -66,7 +67,12 @@ describe("LegacyGuestUpload (G01, Block 7)", () => {
     expect(screen.getByText("Conservare Facilities ME", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("Certidão de Regularidade FGTS", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText(/Prazo: /)).toBeInTheDocument();
-    expect(screen.getByText(/uso único e não requer login/)).toBeInTheDocument();
+    // Codex review round 1 (Block 7, D-267) BLOQUEANTE finding, corrected: the backend does not
+    // actually invalidate this token after a submission (guest-submission-service.ts's own
+    // resolveToken accepts SUBMITTED/COMPLETED) - the copy never claims "uso único", an honest
+    // match to the real backend contract rather than the spec's aspirational claim.
+    expect(screen.getByText(/não requer login/)).toBeInTheDocument();
+    expect(screen.queryByText(/uso único/)).not.toBeInTheDocument();
   });
 
   it("rejects a file over the max size with a specific inline error, Enviar stays disabled", async () => {
@@ -142,5 +148,19 @@ describe("LegacyGuestUpload (G01, Block 7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remover" }));
     await waitFor(() => expect(screen.queryByText(/Selecionado: certidao.pdf/)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+  });
+
+  // Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: a network/5xx failure on the
+  // info fetch used to collapse into the SAME permanent "link unavailable" state as an actually
+  // invalid token - a real, recoverable failure presented as an unrecoverable one.
+  it("shows a retryable transient-error state (never the permanent 'unavailable' state) on a network/5xx failure", async () => {
+    fetchInfoMock.mockRejectedValueOnce(new GuestTransientError()).mockResolvedValueOnce({ request: REQUEST_INFO });
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByText(/Não foi possível carregar esta página no momento/)).toBeInTheDocument());
+    expect(screen.queryByText("Este link não está disponível")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Enviar documento solicitado" })).toBeInTheDocument());
   });
 });

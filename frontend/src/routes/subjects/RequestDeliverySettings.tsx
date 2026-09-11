@@ -108,7 +108,16 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
 
   return (
     <Panel>
-      <RadioGroup legend="Modo de entrega padrão" options={DELIVERY_OPTIONS} value={current} onChange={(value) => setSelection(value as DocumentRequestDeliveryMode)} required />
+      <RadioGroup
+        legend="Modo de entrega padrão"
+        // Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: the radios stayed
+        // interactive while a save was in flight - a user could flip the visible selection
+        // mid-request and then see a success toast for a value the server never actually saved.
+        options={DELIVERY_OPTIONS.map((option) => ({ ...option, disabled: mutation.isPending }))}
+        value={current}
+        onChange={(value) => setSelection(value as DocumentRequestDeliveryMode)}
+        required
+      />
       <InlineNotice tone="neutral">Alterar este padrão afeta apenas novos convites — nunca revoga um link já emitido.</InlineNotice>
       {conflict ? (
         <InlineNotice tone="warning" announce="alert">

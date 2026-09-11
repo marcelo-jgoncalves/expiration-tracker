@@ -272,7 +272,9 @@ export async function dispatchChasingOccurrence(deps: ChasingDispatchDeps, comma
     throw err;
   }
 
-  const guestLink = `${deps.guestUploadBaseUrl}?token=${encodeURIComponent(issued.token)}`;
+  // Block 7 (G01, D-267) - path-based, same fix/reasoning as document-request-service.ts's own
+  // initial-invite guestLink construction.
+  const guestLink = `${deps.guestUploadBaseUrl}/${encodeURIComponent(issued.token)}`;
   const requesterName = await deps.resolveOrganizationDisplayName({ tenantId });
   try {
     await deps.emailProvider.send({

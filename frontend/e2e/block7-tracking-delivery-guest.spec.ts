@@ -128,6 +128,10 @@ test("E2E-B7-05: revoking an active request calls the real revoke route", async 
 
   await page.goto("/subjects/subject-1/tracking/a1");
   await page.getByRole("button", { name: "Revogar" }).click();
+  // Codex review round 1 (Block 7, D-267) ALTO finding, corrected: revoking now requires an
+  // explicit confirmation naming the consequence, never an immediate one-click action.
+  await expect(page.getByText(/O link do convidado deixará de funcionar imediatamente/)).toBeVisible();
+  await page.getByRole("button", { name: "Confirmar revogação" }).click();
   await expect.poll(() => revoked).toBe(true);
   await expect(page.getByText("Solicitação revogada")).toBeVisible();
 });

@@ -211,7 +211,12 @@ export class DocumentRequestService {
     // Best-effort, fora da transação acima (D-049): falha de SES nunca desfaz a criação do
     // request - o token continua disponível na resposta para fallback manual.
     await this.writeInitialInviteAudit(ctx, documentRequestId, "INITIAL_INVITE_EMAIL_REQUESTED", {});
-    const guestLink = `${this.guestUploadBaseUrl}?token=${encodeURIComponent(issued.token)}`;
+    // Block 7 (G01, D-267) - path-based, matching the real SPA route contract
+    // (`/guest/document-requests/:token`, `LegacyGuestUpload.tsx`) - a query-string token here
+    // (`?token=...`, the pre-existing form) never matched any route the frontend actually
+    // serves, a real bug this block's Codex review round caught since G01 is the first thing
+    // that ever consumed this link end-to-end.
+    const guestLink = `${this.guestUploadBaseUrl}/${encodeURIComponent(issued.token)}`;
     // D-129 (GTR-01 supersession): requester identity is the Organization's displayName, never
     // a per-user field. sanitizeTenantText's fallback applies identically to the guest-facing
     // page (guest-submission-service.ts) if the Organization never set one (should not happen

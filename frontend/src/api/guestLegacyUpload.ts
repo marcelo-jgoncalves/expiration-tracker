@@ -13,10 +13,15 @@
  * (`guest-documents-handler.ts`) that answers with the exact same data, addressable by its own
  * CloudFront behavior without hijacking the page route.
  *
- * Every failure collapses to `GuestUnavailableError` (mirrors `GuestUnavailableError` in
- * `guestDocumentArchive.ts` and the backend's own `GuestTokenInvalidError` - anti-enumeration
- * discipline: the guest never learns whether a token was invalid, expired, revoked, or already
- * used, see `GuestLinkUnavailable`'s own header comment).
+ * Every failure the backend attributes to the TOKEN ITSELF (401 - `GuestTokenInvalidError`,
+ * `guest-submission-service.ts`'s own single error for invalid/expired/revoked/wrong-secret)
+ * collapses to `GuestUnavailableError` - anti-enumeration discipline, the guest never learns
+ * which of those internal causes applied (see `GuestLinkUnavailable`'s own header comment).
+ *
+ * Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: a genuinely TRANSIENT failure
+ * (network unreachable, a 5xx from the Lambda/CloudFront itself) is NOT a token problem and must
+ * never be presented as "this link is unavailable" (a false, unrecoverable claim) - it throws
+ * `GuestTransientError` instead, so the caller can offer a real "tentar novamente" affordance.
  */
 import type { LegacyGuestRequestInfo, LegacyGuestSubmissionInput, LegacyGuestSubmissionResult } from "./types.js";
 
@@ -24,6 +29,13 @@ export class GuestUnavailableError extends Error {
   constructor() {
     super("Guest access unavailable.");
     this.name = "GuestUnavailableError";
+  }
+}
+
+export class GuestTransientError extends Error {
+  constructor() {
+    super("Guest access temporarily unavailable.");
+    this.name = "GuestTransientError";
   }
 }
 
@@ -40,8 +52,9 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch {
-    throw new GuestUnavailableError();
+    throw new GuestTransientError();
   }
+  if (response.status >= 500) throw new GuestTransientError();
   if (!response.ok) throw new GuestUnavailableError();
   return (await response.json()) as T;
 }

@@ -157,6 +157,49 @@ describe("Tracking (A10, Block 7) - list", () => {
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/subjects/subject-1/requirements", { requirementName: "Alvará" }));
   });
+
+  // Codex review round 1 (Block 7, D-267) BLOQUEANTE finding, corrected: the guest token is
+  // returned ONLY at creation - a MANUAL default (or a failed/kill-switched EMAIL attempt)
+  // used to discard it entirely, leaving the operator with no way to ever share the link.
+  it("'Solicitar documento' shows a copyable guest link when delivery is MANUAL (the token would otherwise be lost forever)", async () => {
+    withRole("OWNER");
+    getMock.mockImplementation((path: string) => {
+      if (path.endsWith("/requirements")) return Promise.resolve({ assignments: [assignment()] });
+      if (path.startsWith("/subjects/")) return Promise.resolve({ subject: subject() });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    postMock.mockResolvedValue({ request: { documentRequestId: "r1" }, guestToken: "tok-abc123" });
+    renderList();
+
+    await waitFor(() => expect(screen.getByText("Certidão de regularidade")).toBeInTheDocument());
+    screen.getByRole("button", { name: "Solicitar documento" }).click();
+    const input = await screen.findByLabelText(/Destinatário/);
+    fireEvent.change(input, { target: { value: "fornecedor@example.com" } });
+    screen.getByRole("button", { name: "Solicitar" }).click();
+
+    await waitFor(() => expect(screen.getByText(/tok-abc123/)).toBeInTheDocument());
+    expect(screen.getByText(/Este link só é exibido agora/)).toBeInTheDocument();
+  });
+
+  it("'Solicitar documento' shows a warning (not silent success) when EMAIL delivery failed, still with the copyable link", async () => {
+    withRole("OWNER");
+    getMock.mockImplementation((path: string) => {
+      if (path.endsWith("/requirements")) return Promise.resolve({ assignments: [assignment()] });
+      if (path.startsWith("/subjects/")) return Promise.resolve({ subject: subject() });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    postMock.mockResolvedValue({ request: { documentRequestId: "r1" }, guestToken: "tok-xyz789", initialInviteDeliveryStatus: "FAILED" });
+    renderList();
+
+    await waitFor(() => expect(screen.getByText("Certidão de regularidade")).toBeInTheDocument());
+    screen.getByRole("button", { name: "Solicitar documento" }).click();
+    const input = await screen.findByLabelText(/Destinatário/);
+    fireEvent.change(input, { target: { value: "fornecedor@example.com" } });
+    screen.getByRole("button", { name: "Solicitar" }).click();
+
+    await waitFor(() => expect(screen.getByText(/e-mail não pôde ser enviado automaticamente/)).toBeInTheDocument());
+    expect(screen.getByText(/tok-xyz789/)).toBeInTheDocument();
+  });
 });
 
 describe("Tracking (A10, Block 7) - detail (Snapshot + Timeline)", () => {
@@ -204,7 +247,11 @@ describe("Tracking (A10, Block 7) - detail (Snapshot + Timeline)", () => {
 
     await waitFor(() => expect(screen.getByText(/fornecedor@example.com/)).toBeInTheDocument());
     expect(screen.getByText("Aguardando abertura")).toBeInTheDocument();
+    // Codex review round 1 (Block 7, D-267) ALTO finding, corrected: "Revogar" now opens a
+    // confirmation dialog (naming the recipient/consequence) before actually revoking.
     screen.getByRole("button", { name: "Revogar" }).click();
+    await waitFor(() => expect(screen.getByText(/O link do convidado deixará de funcionar imediatamente/)).toBeInTheDocument());
+    screen.getByRole("button", { name: "Confirmar revogação" }).click();
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/subjects/subject-1/document-requests/r1/revoke", undefined, { expectedVersion: 1 }));
   });

@@ -19,6 +19,18 @@
     border-color var(--duration-fast) var(--easing-standard);
 }
 
+/* Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: a real `<button>` element
+   gets the browser's native focus-visible outline for free, but `.ui-button` classes are also
+   applied to a `<label>` wrapping a visually-hidden `<input type="file">` (G01/G02's own file
+   picker) - a `<label>` itself is never focusable, so the input's OWN focus ring (if any) is
+   invisible/clipped by `.u-visually-hidden`. `:focus-within` on the label makes keyboard focus
+   on that hidden input visible on the button-styled label itself, matching the same
+   outline/token every other focusable control in this design system already uses. */
+.ui-button:focus-within {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
 .ui-button--sm {
   min-height: var(--control-height-sm);
   padding: var(--space-2) var(--space-4);

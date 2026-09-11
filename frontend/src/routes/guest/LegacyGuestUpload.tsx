@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { fetchLegacyGuestRequestInfo, submitLegacyGuestUpload } from "../../api/guestLegacyUpload.js";
+import { fetchLegacyGuestRequestInfo, submitLegacyGuestUpload, GuestTransientError } from "../../api/guestLegacyUpload.js";
 import { computeChecksumSha256, uploadDocumentBytes } from "../../api/documents.js";
 import { GuestLinkUnavailable } from "../../components/GuestLinkUnavailable.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
@@ -63,9 +63,21 @@ export function LegacyGuestUpload() {
     );
   }
 
-  // Anti-enumeration collapse (per spec): invalid/expired/revoked/not-found/already-used token
-  // are five internal causes producing exactly ONE external state - never distinguished here.
+  // Anti-enumeration collapse (per spec): invalid/expired/revoked/not-found token are internal
+  // causes producing exactly ONE external state - never distinguished here. A TRANSIENT failure
+  // (network/5xx, `GuestTransientError`) is a different, real, recoverable case - Codex review
+  // round 1 finding, corrected: collapsing it into "link unavailable" was a false, unrecoverable
+  // claim about the guest's OWN request, not about the token.
   if (infoQuery.isError) {
+    if (infoQuery.error instanceof GuestTransientError) {
+      return (
+        <GuestShell>
+          <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void infoQuery.refetch()}>Tentar novamente</Button>}>
+            Não foi possível carregar esta página no momento. Verifique sua conexão e tente novamente.
+          </InlineNotice>
+        </GuestShell>
+      );
+    }
     return (
       <GuestShell>
         <GuestLinkUnavailable requestedItem="documento" />
@@ -143,7 +155,7 @@ function GuestShell({ description, deadline, children }: { description?: React.R
         {children}
         {deadline ? (
           <p className="guest-footer">
-            Prazo: {new Date(deadline).toLocaleDateString("pt-BR")} · Este link é de uso único e não requer login.
+            Prazo: {new Date(deadline).toLocaleDateString("pt-BR")} · Este link não requer login.
           </p>
         ) : null}
       </div>

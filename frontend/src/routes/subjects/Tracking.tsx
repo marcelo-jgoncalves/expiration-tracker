@@ -30,7 +30,10 @@
  */
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useOrgPath } from "../../routing/useOrgPath.js";
+import { useActiveOrganization } from "../../auth/ActiveOrganizationContext.js";
+import { queryKeys } from "../../api/queryKeys.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
 import { useRequirementAssignment } from "../../hooks/useRequirementAssignment.js";
@@ -293,6 +296,8 @@ function AssignDialog({ subjectId, onClose, showToast }: { subjectId: string; on
 
 function EditDialog({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const mutation = useUpdateRequirementAssignment(subjectId, assignment.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [requirementName, setRequirementName] = useState(assignment.requirementName);
   const [notes, setNotes] = useState(assignment.notes ?? "");
   const [errors, setErrors] = useState<string[]>([]);
@@ -309,6 +314,13 @@ function EditDialog({ subjectId, assignment, onClose, showToast }: { subjectId: 
     } catch (err) {
       if (isConflict(err)) {
         setConflict(true);
+        // Codex review round 1 (Block 7, D-267) ALTO finding, corrected: without this, the
+        // cached assignment (and its stale `version`) never refreshes - reopening "Editar"
+        // would submit the exact same stale version and repeat the same 409 forever.
+        if (organizationId) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignment.assignmentId) });
+        }
         return;
       }
       setErrors([err instanceof ApiError ? err.message : "Não foi possível atualizar o vínculo."]);
@@ -339,6 +351,8 @@ function EditDialog({ subjectId, assignment, onClose, showToast }: { subjectId: 
 
 function DeleteDialog({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const mutation = useDeleteRequirementAssignment(subjectId, assignment.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | undefined>();
 
   async function handleConfirm() {
@@ -350,6 +364,7 @@ function DeleteDialog({ subjectId, assignment, onClose, showToast }: { subjectId
     } catch (err) {
       if (isConflict(err)) {
         setError("Este vínculo foi alterado por outra pessoa. Recarregue a lista antes de excluir.");
+        if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
         return;
       }
       setError(err instanceof ApiError ? err.message : "Não foi possível excluir o vínculo.");
@@ -380,6 +395,8 @@ function DeleteDialog({ subjectId, assignment, onClose, showToast }: { subjectId
 function LinkItemDialog({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const itemsQuery = useItemsDashboardBounded("ACTIVE");
   const mutation = useLinkExpirationItem(subjectId, assignment.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [item, setItem] = useState<ExpirationItem | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -397,6 +414,10 @@ function LinkItemDialog({ subjectId, assignment, onClose, showToast }: { subject
     } catch (err) {
       if (isConflict(err)) {
         setErrors(["Este vínculo foi alterado por outra pessoa. Feche e reabra para ver os valores atuais."]);
+        if (organizationId) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignment.assignmentId) });
+        }
         return;
       }
       setErrors([err instanceof ApiError ? err.message : "Não foi possível vincular o item."]);
@@ -436,6 +457,8 @@ function LinkItemDialog({ subjectId, assignment, onClose, showToast }: { subject
 
 function UnlinkItemDialog({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const mutation = useUnlinkExpirationItem(subjectId, assignment.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | undefined>();
 
   async function handleConfirm() {
@@ -447,6 +470,10 @@ function UnlinkItemDialog({ subjectId, assignment, onClose, showToast }: { subje
     } catch (err) {
       if (isConflict(err)) {
         setError("Este vínculo foi alterado por outra pessoa. Recarregue antes de desvincular.");
+        if (organizationId) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, subjectId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignment.assignmentId) });
+        }
         return;
       }
       setError(err instanceof ApiError ? err.message : "Não foi possível desvincular o item.");
@@ -471,10 +498,31 @@ function UnlinkItemDialog({ subjectId, assignment, onClose, showToast }: { subje
   );
 }
 
+/** Codex review round 1 (Block 7, D-267) BLOQUEANTE finding, corrected: the guest link's token
+ * is returned ONLY once, at creation (`CreatedLegacyDocumentRequest`'s own doc comment in
+ * `types.ts`) - the previous version of this dialog discarded it entirely on success, which
+ * meant a MANUAL default (or an EMAIL delivery that failed/was kill-switched) left the operator
+ * with NO way to ever obtain the link. Built client-side from the token (never from the
+ * backend's own `guestLink` field, which had a separate real bug - see D-267's decisions-log
+ * entry) - the SPA already knows its own real route contract (`/guest/document-requests/:token`). */
+function buildGuestLink(token: string): string {
+  return `${window.location.origin}/guest/document-requests/${encodeURIComponent(token)}`;
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function RequestDocumentDialog({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const mutation = useCreateLegacyDocumentRequest(subjectId, assignment.assignmentId);
   const [email, setEmail] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [created, setCreated] = useState<{ guestLink: string; deliveryStatus?: "SENT" | "FAILED" | "DISABLED_BY_KILL_SWITCH" } | undefined>();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -484,12 +532,41 @@ function RequestDocumentDialog({ subjectId, assignment, onClose, showToast }: { 
     }
     setErrors([]);
     try {
-      await mutation.mutateAsync({ recipientEmail: email.trim() });
+      const result = await mutation.mutateAsync({ recipientEmail: email.trim() });
       showToast("Solicitação criada");
-      onClose();
+      setCreated({ guestLink: buildGuestLink(result.guestToken), deliveryStatus: result.initialInviteDeliveryStatus });
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar a solicitação."]);
     }
+  }
+
+  if (created) {
+    const emailFailed = created.deliveryStatus === "FAILED" || created.deliveryStatus === "DISABLED_BY_KILL_SWITCH";
+    return (
+      <Dialog title="Solicitação criada" onClose={onClose}>
+        {emailFailed ? (
+          <InlineNotice tone="warning">O e-mail não pôde ser enviado automaticamente. Copie o link abaixo e compartilhe manualmente.</InlineNotice>
+        ) : created.deliveryStatus === "SENT" ? (
+          <InlineNotice tone="neutral">O link também foi enviado por e-mail ao destinatário.</InlineNotice>
+        ) : (
+          <InlineNotice tone="neutral">Copie o link abaixo e compartilhe com o destinatário — a entrega automática por e-mail está desativada para esta organização.</InlineNotice>
+        )}
+        <p>
+          <strong>Link do convidado:</strong> <code style={{ wordBreak: "break-all" }}>{created.guestLink}</code>
+        </p>
+        <p>Este link só é exibido agora — não é possível recuperá-lo depois.</p>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={() => void copyToClipboard(created.guestLink).then((ok) => showToast(ok ? "Link copiado" : "Não foi possível copiar automaticamente — selecione e copie o texto acima."))}
+        >
+          Copiar link
+        </Button>{" "}
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Fechar
+        </Button>
+      </Dialog>
+    );
   }
 
   return (
@@ -497,7 +574,7 @@ function RequestDocumentDialog({ subjectId, assignment, onClose, showToast }: { 
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={errors} />
         <TextField id="request-email" label="Destinatário" value={email} onChange={setEmail} required hint="E-mail que receberá o link de convidado." />
-        <InlineNotice tone="neutral">Um link de convidado sem login será gerado e enviado a este e-mail.</InlineNotice>
+        <InlineNotice tone="neutral">Um link de convidado sem login será gerado. A entrega por e-mail depende da configuração de "Entrega de solicitação" da organização.</InlineNotice>
         <Button type="submit" variant="primary" pending={mutation.isPending}>
           {mutation.isPending ? "Solicitando…" : "Solicitar"}
         </Button>{" "}
@@ -600,6 +677,8 @@ function TrackingDetail({ subjectId, assignmentId }: { subjectId: string; assign
 function DeleteDialogWithRedirect({ subjectId, assignment, onClose, showToast }: { subjectId: string; assignment: RequirementAssignment; onClose: () => void; showToast: (message: string) => void }) {
   const orgPath = useOrgPath();
   const mutation = useDeleteRequirementAssignment(subjectId, assignment.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | undefined>();
 
   async function handleConfirm() {
@@ -611,6 +690,7 @@ function DeleteDialogWithRedirect({ subjectId, assignment, onClose, showToast }:
     } catch (err) {
       if (isConflict(err)) {
         setError("Este vínculo foi alterado por outra pessoa. Recarregue a página antes de excluir.");
+        if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.assignmentDetail(organizationId, subjectId, assignment.assignmentId) });
         return;
       }
       setError(err instanceof ApiError ? err.message : "Não foi possível excluir o vínculo.");
@@ -674,7 +754,14 @@ function Timeline({ subjectId, requests, canWrite, showToast }: { subjectId: str
 function TimelineEntry({ subjectId, request, canWrite, showToast }: { subjectId: string; request: LegacyDocumentRequest; canWrite: boolean; showToast: (message: string) => void }) {
   const submissionsQuery = useDocumentSubmissions(subjectId, request.assignmentId, true);
   const revokeMutation = useRevokeLegacyDocumentRequest(subjectId, request.assignmentId);
+  const queryClient = useQueryClient();
+  const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | undefined>();
+  // Codex review round 1 (Block 7, D-267) ALTO finding, corrected: revoking immediately
+  // invalidates the guest link with no confirmation, despite the spec's own explicit
+  // confirmation-dialog requirement for this exact action (naming the recipient + consequence,
+  // same discipline as A14's cancel-series dialog).
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
   const isActive = request.status === "REQUESTED" || request.status === "OPENED";
 
   async function handleRevoke() {
@@ -682,9 +769,11 @@ function TimelineEntry({ subjectId, request, canWrite, showToast }: { subjectId:
     try {
       await revokeMutation.mutateAsync({ documentRequestId: request.documentRequestId, expectedVersion: request.version });
       showToast("Solicitação revogada");
+      setConfirmingRevoke(false);
     } catch (err) {
       if (isConflict(err)) {
         setError("Esta solicitação foi alterada por outra pessoa.");
+        if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.legacyDocumentRequests(organizationId, subjectId, request.assignmentId) });
         return;
       }
       setError(err instanceof ApiError ? err.message : "Não foi possível revogar a solicitação.");
@@ -699,16 +788,38 @@ function TimelineEntry({ subjectId, request, canWrite, showToast }: { subjectId:
         Solicitação enviada para {request.recipientEmail} · <StatusBadge presentation={presentLegacyDocumentRequestStatus(request.status)} />
       </p>
       {isActive && canWrite ? (
-        <Button size="sm" variant="ghost" pending={revokeMutation.isPending} onClick={() => void handleRevoke()}>
-          {revokeMutation.isPending ? "Revogando…" : "Revogar"}
+        <Button size="sm" variant="ghost" onClick={() => setConfirmingRevoke(true)}>
+          Revogar
         </Button>
       ) : null}
-      {error ? (
-        <InlineNotice tone="critical" announce="alert">
-          {error}
-        </InlineNotice>
+      {confirmingRevoke ? (
+        <Dialog title="Revogar solicitação" variant="alertdialog" onClose={() => setConfirmingRevoke(false)}>
+          <p>
+            Revogar a solicitação enviada para {request.recipientEmail}? O link do convidado deixará de funcionar imediatamente. Submissões já recebidas permanecem.
+          </p>
+          {error ? (
+            <InlineNotice tone="critical" announce="alert">
+              {error}
+            </InlineNotice>
+          ) : null}
+          <Button variant="secondary" onClick={() => setConfirmingRevoke(false)}>
+            Cancelar
+          </Button>{" "}
+          <Button variant="danger" pending={revokeMutation.isPending} onClick={() => void handleRevoke()}>
+            {revokeMutation.isPending ? "Revogando…" : "Confirmar revogação"}
+          </Button>
+        </Dialog>
       ) : null}
-      {ownSubmissions.length > 0 ? (
+      {submissionsQuery.isPending ? (
+        <p>Carregando envios…</p>
+      ) : submissionsQuery.isError ? (
+        // ALTO finding, corrected: a failed submissions fetch used to render as an empty list
+        // ("Nenhum envio"), indistinguishable from a request that genuinely never received a
+        // file - an operator could wrongly conclude no evidence was ever submitted.
+        <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void submissionsQuery.refetch()}>Tentar novamente</Button>}>
+          Não foi possível carregar os envios desta solicitação.
+        </InlineNotice>
+      ) : ownSubmissions.length > 0 ? (
         <ul>
           {ownSubmissions.map((s) => (
             <li key={s.submissionId}>
