@@ -45,3 +45,12 @@
   text-align: center;
   margin: var(--space-4) 0;
 }
+
+/* G01 (Block 7, D-267) - reuses this same file/classes rather than forking a near-identical
+   sheet for a 40px card-width difference (G02's spec: 520px; G01's: 480px) - a deliberate,
+   documented simplification, not an oversight. */
+.guest-footer {
+  margin-top: var(--space-5);
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}

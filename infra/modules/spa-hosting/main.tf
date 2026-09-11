@@ -344,6 +344,36 @@ resource "aws_cloudfront_distribution" "spa" {
     compress                   = true
   }
 
+  # A10/G01 (Block 7, D-267) - the legacy guest surface (M10, D-037) had NO CloudFront route at
+  # all until this block; its bare page route "/guest/document-requests/{token}" is the SAME
+  # path the Lambda's own GET route answers (JSON), so - mirroring the /document-archive/guest/*
+  # behaviors above exactly - the SPA never fetches that bare path directly. It calls the "/info"
+  # alias instead (`guest-documents-handler.ts`), leaving the bare path to fall through to the
+  # default (S3/SPA) behavior below for the guest's actual first-load page navigation.
+  ordered_cache_behavior {
+    path_pattern               = "/guest/document-requests/*/info"
+    target_origin_id           = local.resource_api_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = local.guest_allowed_methods
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.bff_edge_floor.id
+    compress                   = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern               = "/guest/document-requests/*/uploads"
+    target_origin_id           = local.resource_api_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = local.guest_allowed_methods
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.bff_edge_floor.id
+    compress                   = true
+  }
+
   # SPA (S3) — the CloudFront Function is associated HERE ONLY, never on the /bff behaviors
   # above. No custom_error_response is used anywhere in this distribution for 403/404 SPA
   # routing - that was the Rodada 2 blocking finding this design specifically avoids.

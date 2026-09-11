@@ -46,6 +46,20 @@ export const queryKeys = {
     requirements: (organizationId: string, subjectId: string) => ["org", organizationId, "subjects", "requirements", subjectId] as const,
     submissions: (organizationId: string, subjectId: string, assignmentId: string) =>
       ["org", organizationId, "subjects", "submissions", subjectId, assignmentId] as const,
+    /** A10 (Block 7, D-2xx) - single-assignment detail (Snapshot + timeline), distinct from the
+     * `requirements` list key above - same discipline as `documentArchive.document`/`document`
+     * being independent of its own list key. */
+    assignmentDetail: (organizationId: string, subjectId: string, assignmentId: string) =>
+      ["org", organizationId, "subjects", "assignmentDetail", subjectId, assignmentId] as const,
+    /** A10 (Block 7, D-2xx) - legacy `DocumentRequest`s under one `RequirementAssignment`
+     * (`subject` module, NEVER the same cache entry as `documentArchive.documentRequests` above -
+     * distinct backend entities that happen to share a type name, see `types.ts`'s own doc
+     * comment on `LegacyDocumentRequest`). */
+    legacyDocumentRequests: (organizationId: string, subjectId: string, assignmentId: string) =>
+      ["org", organizationId, "subjects", "legacyDocumentRequests", subjectId, assignmentId] as const,
+    /** A22 (Block 7, D-2xx) - tenant-wide, OWNER-only preference, no sub-filters. */
+    documentRequestDeliveryPreference: (organizationId: string) =>
+      ["org", organizationId, "subjects", "documentRequestDeliveryPreference"] as const,
   },
   organizations: {
     members: (organizationId: string) => ["org", organizationId, "members"] as const,

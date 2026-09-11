@@ -21,9 +21,17 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
     expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "activity"]);
   });
 
-  it("shows every item for an OWNER", () => {
+  it("shows every item for an OWNER, including the OWNER-exclusive 'request-delivery' (A22)", () => {
     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "activity"]);
+  });
+
+  // A22 (Block 7, D-267) - `tenant:configure-document-request-delivery` is OWNER_ROLES
+  // EXCLUSIVE, stricter than "activity" (ADMIN/OWNER) above - no other role sees this entry.
+  it("hides 'Entrega de solicitação' from every non-OWNER role", () => {
+    for (const role of ["VIEWER", "MEMBER", "ADMIN"] as const) {
+      expect(getVisibleNavItems(role).map((item) => item.id)).not.toContain("request-delivery");
+    }
   });
 
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES: every real

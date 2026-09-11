@@ -46,6 +46,12 @@ async function handleGuestRoute(event: APIGatewayProxyEventV2): Promise<APIGatew
       switch (routeKey) {
         case "GET /guest/document-requests/{token}":
           return await handleGetGuestRequest(deps, base);
+        // Block 7 (A10/G01, D-267) - same handler as the bare route above, addressed at a
+        // distinct path so CloudFront can route it without hijacking the SPA's own client-side
+        // page route at the bare "/guest/document-requests/{token}" (G02 solved the identical
+        // collision the same way: never call the bare token path directly from the browser).
+        case "GET /guest/document-requests/{token}/info":
+          return await handleGetGuestRequest(deps, base);
         case "POST /guest/document-requests/{token}/uploads":
           return await handleStartGuestSubmission(deps, { ...base, body: parseBody(event) });
         default:

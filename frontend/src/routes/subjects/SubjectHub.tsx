@@ -9,16 +9,10 @@
  * exception; the backend's own confirm/generate step is a separate not-yet-built fatia, so this
  * never claims a downloadable file exists - see `DossierExportAction` below).
  *
- * A10 (Legacy Tracked Requirements) and A14 (Requests & Recurrence) have audited SPECs but no
- * implemented frontend screens yet (Blocks 6/7 of the sequencing plan, not built in this block).
- * The legacy RequirementAssignment review workflow the OLD SubjectDetail rendered inline
- * (submission review, link/unlink an ExpirationItem) has NO equivalent surface anywhere today -
- * this is a genuine, temporary capability gap, not silently dropped: recorded explicitly in
- * D-2xx (decisions-log.md) as an authorized consequence of this block's replace-not-extend
- * instruction, to be closed when A10 ships in Block 7. Per the spec's own instruction ("Se A10
- * ainda não estiver implementada, o card aparece com estado 'Em breve' desabilitado, não
- * removido"), both destinations render as plain non-interactive text (never a `<Link>` to a
- * route that would 404 - see the `comingSoon` list, not `MetricCardGrid`, below).
+ * A14 (Requests & Recurrence) has an audited SPEC but no implemented frontend screen yet (Block
+ * 6 of the sequencing plan, still not built). A10 (Legacy Tracked Requirements) shipped in Block
+ * 7 (D-267) - its card below is now a real `MetricCardGrid` entry, not the "Em breve" placeholder
+ * text A14 still uses (see the `comingSoon` list below, now A14-only).
  */
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -26,6 +20,7 @@ import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
+import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
 import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
@@ -48,6 +43,7 @@ export function SubjectHub() {
   const subjectQuery = useSubject(subjectId ?? "");
   const complianceQuery = useSubjectCompliance(subjectId ?? "");
   const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
+  const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -106,16 +102,24 @@ export function SubjectHub() {
           ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
           : { kind: "value", value: requirementsQuery.data.requirements.filter((r) => r.evidenceVersionId).length },
     },
+    {
+      id: "legacy-tracking",
+      label: "Rastreamento legado",
+      to: orgPath(`/subjects/${subjectId}/tracking`),
+      srDescription: "Ver vínculos do mecanismo antigo de acompanhamento deste fornecedor",
+      status: assignmentsQuery.isPending
+        ? { kind: "loading" }
+        : assignmentsQuery.isError
+          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void assignmentsQuery.refetch() }
+          : { kind: "value", value: assignmentsQuery.data.assignments.length },
+    },
   ];
 
-  // "Em breve" destinations (A10/A14, not built yet) are deliberately NOT `MetricCardGrid`
-  // entries - that component always renders a real `<Link>` for a "value" status, so a `to="#"`
-  // placeholder would still be a semantically-actionable, keyboard-focusable dead link (Codex
-  // Block 3 review round 1 finding 9). Rendered as plain, genuinely non-interactive text instead.
-  const comingSoon = [
-    { id: "legacy-tracking", label: "Rastreamento legado (requisitos acompanhados)", note: "Em breve - A10 ainda não implementada nesta versão." },
-    { id: "requests", label: "Solicitações e recorrência", note: "Em breve - A14 ainda não implementada nesta versão." },
-  ];
+  // "Em breve" (A14, not built yet) is deliberately NOT a `MetricCardGrid` entry - that
+  // component always renders a real `<Link>` for a "value" status, so a `to="#"` placeholder
+  // would still be a semantically-actionable, keyboard-focusable dead link (Codex Block 3 review
+  // round 1 finding 9). Rendered as plain, genuinely non-interactive text instead.
+  const comingSoon = [{ id: "requests", label: "Solicitações e recorrência", note: "Em breve - A14 ainda não implementada nesta versão." }];
 
   return (
     <div>

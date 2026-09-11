@@ -25,6 +25,7 @@ import type {
   TrackedSubjectType,
   DocumentRequest,
   DocumentRequestSeriesStatus,
+  LegacyDocumentRequestStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -310,6 +311,29 @@ export function presentDocumentRequestSeriesStatus(status: DocumentRequestSeries
  * comment for the real, confirmed gap this deviates from the spec's "Entrega da credencial"
  * column). Plain text, not a StatusBadge, matching the spec's own "(texto: ...)" phrasing.
  */
+/** A10 (Block 7, D-2xx) - `LegacyDocumentRequest.status` (subject module, distinct from
+ * `DocumentRequestSeriesStatus` above - see `LegacyDocumentRequest`'s own doc comment in
+ * `types.ts`). Never "Enviada" as a delivery confirmation (same discipline as A14's
+ * `presentGuestLinkState` - the system confirms link ISSUANCE, never receipt). */
+export function presentLegacyDocumentRequestStatus(status: LegacyDocumentRequestStatus): StatusPresentation {
+  switch (status) {
+    case "REQUESTED":
+      return { label: "Aguardando abertura", tone: "neutral" };
+    case "OPENED":
+      return { label: "Aberta pelo destinatário", tone: "neutral" };
+    case "SUBMITTED":
+      return { label: "Aguardando revisão", tone: "warning" };
+    case "COMPLETED":
+      return { label: "Concluída", tone: "neutral" };
+    case "CANCELLED":
+      return { label: "Cancelada", tone: "neutral" };
+    case "EXPIRED":
+      return { label: "Expirada", tone: "warning" };
+    case "REVOKED":
+      return { label: "Revogada", tone: "neutral" };
+  }
+}
+
 export function presentGuestLinkState(request: Pick<DocumentRequest, "status" | "deadline">, now: Date): string {
   if (request.status === "SUBMITTED" || request.status === "COMPLETED") return "Resolvido (submissão recebida)";
   if (request.status === "REVOKED") return "Revogado";
