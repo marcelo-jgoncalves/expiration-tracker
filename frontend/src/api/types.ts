@@ -893,3 +893,90 @@ export interface GuestSubmitEvidenceResult {
 export interface GuestConfirmUploadResult {
   extended: boolean;
 }
+
+/**
+ * A15 (Block 9) — CSV bulk import (`src/modules/import/`, D-042/D-192). Mirrors
+ * `ImportJob`/`ColumnMapping`/`ImportFieldCatalogEntry` (`src/modules/import/domain/import-job.ts`)
+ * field-for-field against the real backend code, not the aspirational screen spec — two real
+ * gaps found while verifying: (1) `POST /imports` (`ReserveImportInput` below) has NO
+ * `targetEntityType` input at all — every job this screen can ever create is hardcoded
+ * `"TrackedSubject"` server-side (`ImportService.reserveImport`), so `Document`/`Requirement`
+ * import (mentioned in the prose spec) has no real entry point yet; (2) dedupe is automatic-skip
+ * only (`SKIP_DUPLICATE` rows are counted in `duplicateRows`, never created NOR updated) — there
+ * is no per-row "Atualizar existente/Criar como novo" choice anywhere in the backend, and no
+ * endpoint at all exposes per-row preview/outcome data (`ImportRowOutcome` is DynamoDB-only,
+ * never queried by any allowlisted route) — so this screen's preview/result steps can only ever
+ * show the aggregate counters below, never a per-row table.
+ */
+export type ImportTargetEntityType = "TrackedSubject" | "Document" | "Requirement";
+
+export type ImportJobStatus = "UPLOADED" | "AWAITING_MAPPING" | "PARSING" | "PREVIEW_READY" | "COMMITTING" | "COMMITTED" | "FAILED" | "EXPIRED";
+
+/** Only the `TrackedSubject` variant is reachable from this screen (see the module doc comment
+ * above) — `Document`/`Requirement` are kept here only because they are real variants of the
+ * backend's own discriminated union (`import-job.ts`), never actually producible by this UI. */
+export type ColumnMapping =
+  | { schemaVersion: 1; targetKind: "TrackedSubject"; columns: { displayName: string; type: string; externalId?: string; notes?: string; tags?: string } }
+  | {
+      schemaVersion: 1;
+      targetKind: "Document";
+      columns: { subjectRef: string; subjectRefKind: "EXTERNAL_ID" | "SUBJECT_ID"; documentTypeRef: string; documentTypeRefKind: "DOCUMENT_TYPE_ID" | "DISPLAY_NAME"; hasValidity: string; externalId?: string };
+    }
+  | {
+      schemaVersion: 1;
+      targetKind: "Requirement";
+      columns: { subjectRef: string; subjectRefKind: "EXTERNAL_ID" | "SUBJECT_ID"; name: string; notes?: string; applicability?: string; externalId?: string };
+    };
+
+export interface ImportJob {
+  jobId: string;
+  tenantId: string;
+  targetEntityType: ImportTargetEntityType;
+  status: ImportJobStatus;
+  checksumSha256?: string;
+  columnMapping?: ColumnMapping;
+  columnMappingSha256?: string;
+  totalRows?: number;
+  acceptedRows?: number;
+  rejectedRows?: number;
+  duplicateRows?: number;
+  lastCommittedRowNumber?: number;
+  failureReason?: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface ReserveImportInput {
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export interface ReserveImportResult {
+  jobId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+export interface GetImportJobResult {
+  job: ImportJob;
+}
+
+export interface ImportFieldCatalogEntry {
+  field: string;
+  required: boolean;
+}
+
+export interface ImportJobSchemaResult {
+  targetEntityType: ImportTargetEntityType;
+  fields: ImportFieldCatalogEntry[];
+  headers: string[];
+  sampleRows: string[][];
+  objectETag: string | undefined;
+}
+
+export interface SubmitImportMappingResult {
+  status: ImportJobStatus;
+}

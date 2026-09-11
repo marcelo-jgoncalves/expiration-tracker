@@ -99,6 +99,14 @@ export const queryKeys = {
     series: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "series", subjectId] as const,
     documentRequests: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "documentRequests", subjectId] as const,
   },
+  imports: {
+    /** A15 (Block 9) — one key per job, polled while the job is in a transient status (see
+     * `hooks/useImportJob.ts`). No list/collection key exists — there is no "list my import
+     * jobs" endpoint in the real backend, only `GET /imports/{jobId}` for a job you already
+     * have the id of. */
+    detail: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "detail", jobId] as const,
+    schema: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "schema", jobId] as const,
+  },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
      * this key - `month`/`resourceType` ARE part of the key since a different filter is
