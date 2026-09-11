@@ -86,6 +86,52 @@ cliente).
   produto genuína e validada por mercado, não só ferramenta interna. **Movido para o backlog P2 —
   ver `NEXT_SESSION_PROMPT.md`.**
 
+## 6. Ferramentas/recursos GRATUITOS do Claude/Anthropic (aprofundamento, 2026-09-11)
+
+- **Claude for Startups Program** (`claude.com/programs/startups`) — **até US$25.000 em créditos
+  gratuitos de API** + rate limits prioritários. Elegibilidade: empresa fundada nos últimos 4 anos,
+  nunca ter recebido crédito de startup da Anthropic antes, **financiamento de VC não é exigido**.
+  Ressalvas reais: só API/Console de primeira parte (não via AWS Bedrock — irrelevante aqui, já que
+  o projeto já usa acesso de API de primeira parte), créditos expiram 12 meses após a concessão, não
+  renovável. **Achado mais concreto e acionável desta pesquisa** — o projeto se encaixa no perfil
+  (pré-lançamento, fundado recentemente, sem crédito prévio). Ação depende de Marcelo (cadastro/
+  aplicação com dados da empresa) — ver pendência em `NEXT_SESSION_PROMPT.md`.
+- **Skills de projeto** (`.claude/skills/`, `SKILL.md` + scripts auxiliares) — já usamos skills
+  prontas (code-review, security-review, etc.); Marcelo poderia autorar uma skill específica deste
+  projeto (ex. "rodar o gate local completo", "checar status do bloco N") para virar um comando de
+  uma palavra em vez de um prompt multi-etapa repetido. Gratuito, sem ressalva.
+- **Hooks** (scripts determinísticos em pontos do ciclo de vida — PreToolUse, PostToolUse,
+  SessionStart) — poderiam impor regras do projeto mecanicamente em vez de depender só de o agente
+  ler o `AGENTS.md` toda vez (ex. um hook `PreToolUse` bloqueando `git commit` em `main`, ou
+  bloqueando `terraform apply` fora do caminho de CI/CD). Gratuito, sem ressalva — é uma lacuna real
+  frente ao que o `AGENTS.md` hoje pede que o agente se autopoliciе. **Sugestão concreta de
+  engenharia, não só pesquisa** — vale considerar implementar.
+- **Plugins** — empacotam skills/hooks/subagentes/slash-commands numa unidade versionável e
+  compartilhável; só vale a pena quando já houver um conjunto estável de automações específicas do
+  projeto para empacotar — não urgente pré-lançamento.
+- **Preço da API Claude**: não existe tier gratuito para acesso direto à API (isso é exclusivo do
+  chat consumidor claude.ai). Alavancas de custo relevantes para um uso pesado de agentes em
+  background como esta sessão: **prompt caching** (leitura em cache custa ~10% da tarifa base de
+  input, ~90% de economia — já ajuda implicitamente o padrão de fork/workflow desta sessão, que
+  reaproveita contexto em cache); **Batch API** (50% de desconto em input+output, assíncrono em até
+  24h — encaixe real para qualquer trabalho não-tempo-real que o projeto rodar em escala no futuro,
+  ex. geração de relatório em lote; não se aplica a trabalho interativo de agente); níveis de modelo
+  (set/2026): Haiku 4.5 US$1/US$5 por milhão de tokens, Sonnet 5 US$3/US$15, Opus 5 US$5/US$25,
+  Fable 5 US$10/US$50 — vale escolher Haiku para tarefas baratas/mecânicas em background, já que o
+  projeto roda muitas.
+- **Connector Directory oficial da Anthropic** — 369+ conectores em meados de 2026 (GitHub, Google
+  Drive, Slack, Notion, Confluence, Gmail/Calendar, Zoom entre eles) — **ressalva real**: um plano
+  Free (não pago) do claude.ai é limitado a UM conector customizado via URL MCP remota; planos pagos
+  não têm esse mesmo teto. Uso concreto para este projeto (fundador solo): Slack (atualização de
+  status assíncrona sem precisar de terminal aberto) ou Google Drive (se algum doc de planejamento
+  viver fora do repo).
+- **Visibilidade de custo/uso, gratuita e standalone**: `/cost` (comando nativo do Claude Code,
+  detalhamento de custo/token em tempo real da sessão, zero setup); `ccusage` (`npx ccusage@latest`,
+  CLI open-source gratuita, lê o JSONL local da sessão, sem chave de API, sem chamada de rede —
+  detalhamento diário/por modelo, tracking de janela de faturamento de 5 horas) — relevante dado o
+  uso pesado de fork/Workflow desta sessão; vale rodar periodicamente para ver onde o gasto se
+  concentra.
+
 ## Fontes
 
 - [Gateways de Pagamento no Brasil: Comparativo 2026](https://fwctecnologia.com/en/blog/post/payment-gateways-brazil-comparison-2026)
@@ -105,3 +151,12 @@ cliente).
 - [20 Best Claude Connectors with actual day-to-day value in 2026 | Composio](https://composio.dev/content/best-claude-connectors)
 - [New from Anthropic: A Connector Directory for Slack, Figma, and More](https://news.frozenlight.ai/post/frozenlight/689/anthropic-connector-directory-for-slack-figma-and-more/)
 - [AI-Powered SaaS Features That Can Differentiate Your Product in 2026](https://aipxperts.com/blog/ai-powered-saas-features-that-can-differentiate-your-product-in-2026/)
+- [Claude Code Changelog (September 2026)](https://www.gradually.ai/en/changelogs/claude-code/)
+- [Claude Code Skills in 2026: The Complete Guide (vs Hooks, vs Subagents, vs MCP)](https://www.totalum.app/blog/claude-code-skills-totalum)
+- [Claude Cost Optimization 2026: Batch API (50% Off) and Prompt Caching (90% Off)](https://pecollective.com/tools/claude-pricing-guide/)
+- [Claude pricing in 2026: every plan, API rate, and what it actually costs](https://www.cloudzero.com/blog/claude-pricing/)
+- [GitHub - awesome-claude-connectors (1,625 MCP integrations catalog)](https://github.com/rdmgator12/awesome-claude-connectors)
+- [Claude for Startups Program 2026: Apply for Free Anthropic Claude API Credits](https://opportunitiesforyouth.org/2026/08/11/claude-for-startups/)
+- [Anthropic Startup Program: How to Get $25K in Credits (2026)](https://aicreditmart.com/ai-credits-providers/anthropic-startup-program-how-to-get-25k-in-credits-2026/)
+- [ccusage: Finally Know How Much Claude Code Is Actually Costing You](https://dev.to/stevengonsalvez/ccusage-finally-know-how-much-claude-code-is-actually-costing-you-1873)
+- [How to monitor Claude Code token usage in software engineering](https://www.faros.ai/blog/claude-code-token-usage)

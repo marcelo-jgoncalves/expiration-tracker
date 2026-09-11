@@ -91,6 +91,7 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
 6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
 7. Frontend completo do P0 (item 11) — adiado para depois do P0 fechar.
+8. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 
 ## Próxima ação recomendada
 
