@@ -72,6 +72,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // EXCLUSIVE (`authorization.ts:307`), stricter than the ADMIN_ROLES tier below - no other
   // role sees this entry at all, matching the spec's explicit "totalmente ausentes" instruction.
   { id: "request-delivery", to: "/settings/request-delivery", label: "Entrega de solicitação", allowedRoles: OWNER_ROLES },
+  // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES (`authorization.ts:294`) -
+  // every real role edits their OWN preferences, no restriction here.
+  { id: "notification-preferences", to: "/settings/notifications", label: "Minhas preferências de notificação" },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.

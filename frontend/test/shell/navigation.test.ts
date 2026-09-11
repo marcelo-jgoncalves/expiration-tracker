@@ -8,22 +8,31 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
 
   it("shows Membros (roster is membership:list-members, READ_ONLY_ROLES) but hides Atividade for a VIEWER", () => {
     const ids = getVisibleNavItems("VIEWER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
   });
 
   it("shows Membros but hides Atividade for a MEMBER", () => {
     const ids = getVisibleNavItems("MEMBER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
   });
 
   it("shows every item for an ADMIN", () => {
     const ids = getVisibleNavItems("ADMIN").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences", "activity"]);
   });
 
   it("shows every item for an OWNER, including the OWNER-exclusive 'request-delivery' (A22)", () => {
     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "notification-preferences", "activity"]);
+  });
+
+  // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES: every real Membership
+  // tier, including VIEWER, sees this nav entry (mutation is scoped to the caller's own
+  // preferences inside the screen itself, same discipline as A11/A20/A21/A13 above).
+  it("shows Minhas preferências de notificação to every role, including VIEWER", () => {
+    for (const role of ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const) {
+      expect(getVisibleNavItems(role).map((item) => item.id)).toContain("notification-preferences");
+    }
   });
 
   // A22 (Block 7, D-267) - `tenant:configure-document-request-delivery` is OWNER_ROLES

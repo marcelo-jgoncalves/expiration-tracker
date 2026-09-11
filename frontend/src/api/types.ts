@@ -893,3 +893,33 @@ export interface GuestSubmitEvidenceResult {
 export interface GuestConfirmUploadResult {
   extended: boolean;
 }
+
+/**
+ * A18 (Block 8, D-2xx) — `notification/domain/notification-preferences.ts`. Per-user, distinct
+ * from A06's per-item/per-org Reminder Policy — this is "how do I, personally, receive
+ * reminders," never a workspace-wide setting.
+ */
+export type NotificationConsentSource = "ONBOARDING" | "USER_SETTINGS" | "MIGRATED_DEFAULT";
+
+export interface NotificationQuietHours {
+  enabled: boolean;
+  startLocal: string; // HH:mm
+  endLocal: string; // HH:mm
+  timeZone: string; // IANA
+}
+
+export interface NotificationPreferences {
+  emailEnabled: boolean;
+  locale: string;
+  quietHours: NotificationQuietHours | null;
+  consentSource: NotificationConsentSource;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateNotificationPreferencesInput {
+  emailEnabled: boolean;
+  locale: string;
+  quietHours: NotificationQuietHours | null;
+}

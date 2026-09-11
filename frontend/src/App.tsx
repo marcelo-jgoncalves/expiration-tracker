@@ -43,6 +43,7 @@ import { RequirementTemplatesScreen } from "./routes/requirement-templates/Requi
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
 import { ActivityLog } from "./routes/ActivityLog.js";
+import { NotificationPreferences } from "./routes/NotificationPreferences.js";
 import { AcceptInvitation } from "./routes/AcceptInvitation.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
@@ -139,6 +140,10 @@ export function App() {
                     (Navigate away for non-OWNER) - matches A20/A21's nested-under-settings
                     route contract. */}
                 <Route path="settings/request-delivery" element={<RequestDeliverySettings />} />
+                {/* A18 (Block 8, D-2xx) - per-user, READ_ONLY_ROLES (every role edits only their
+                    own preferences), no route guard needed - same "no restriction" posture as
+                    Settings/Members below. */}
+                <Route path="settings/notifications" element={<NotificationPreferences />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
@@ -191,6 +196,9 @@ export function App() {
                 {/* A22 (Block 7, D-267) - added here from the start, same healing-forward
                     discipline as A20/A21. */}
                 <Route path="settings/request-delivery" element={null} />
+                {/* A18 (Block 8, D-2xx) - added here from the start, same healing-forward
+                    discipline as A20/A21/A22. */}
+                <Route path="settings/notifications" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />
