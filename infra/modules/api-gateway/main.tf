@@ -557,7 +557,11 @@ resource "aws_apigatewayv2_integration" "guest_documents" {
 
 locals {
   guest_documents_routes = {
-    get_request      = { method = "GET", path = "/guest/document-requests/{token}" }
+    get_request = { method = "GET", path = "/guest/document-requests/{token}" }
+    # Block 7 (A10/G01, D-267) - same handler as get_request above, addressed at its own path so
+    # CloudFront can route the SPA's real fetch calls here without hijacking the bare page route
+    # (see guest-documents-handler.ts's own comment - identical to G02's own bare-path collision).
+    get_request_info = { method = "GET", path = "/guest/document-requests/{token}/info" }
     start_submission = { method = "POST", path = "/guest/document-requests/{token}/uploads" }
   }
 }
