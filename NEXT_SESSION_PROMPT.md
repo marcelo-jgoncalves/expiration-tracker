@@ -32,25 +32,7 @@
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 
-Marcelo identificou um gap real de produto: tenants não terão armazenamento ilimitado, e nada
-rastreava bytes de armazenamento por tenant. **Mecanismo de backend (tracking/enforcement/leitura)
-totalmente IMPLEMENTADO e testado** (D-249) — `TenantStorageQuota` (document-archive/domain),
-enforcement fail-closed em `reserveFiles()`, contabilidade de 3 estados (`usedBytes`/
-`reservedBytes`), rota `GET /document-archive/storage-usage` (`docarchive:read`). **A UI real
-(A03/A19) foi CONSTRUÍDA no Bloco 1 (D-255/D-256, 2026-09-10)** — `StorageQuotaCard` condicional em
-`Overview.tsx` + `StorageSection` dedicada em `Settings.tsx`, ambas reais e testadas (achado da
-revisão holística do frontend, D-271: esta seção ainda dizia "permanece NÃO CONSTRUÍDA", stale desde
-o Bloco 1 — corrigido aqui). **Número da quota CONFIRMADO por Marcelo
-(2026-09-09) após pesquisa de mercado**: 8GB — `DEFAULT_STORAGE_QUOTA_BYTES` (constante nomeada,
-`src/modules/document-archive/domain/storage-quota.ts`) ajustado de 5GB (exemplo ilustrativo
-original) para 8GB, deliberadamente acima da faixa "plano padrão" observada nos concorrentes
-diretos de rastreamento de vencimento (Remindax/Expiration Reminder/ExpiryEdge: 100MB-1GB na
-entrada, 5-50GB em planos pagos) — já que o nicho mais próximo do modelo de dados deste produto
-(compliance de fornecedor, CertFocus/bcs nos EUA, Econsulte/SoftExpert/Valide no Brasil) trata
-storage como não-diferencial, frequentemente ilimitado. Pesquisa completa:
-`docs/architecture/reviews/storage-quota-scoping/market-research-storage-limits-2026-09-09.md`.
-Evidência de design: `docs/architecture/decisions-log.md` D-249,
-`docs/architecture/reviews/storage-quota-scoping/`.
+🟢 FECHADO POR COMPLETO — backend (tracking/enforcement/leitura, `TenantStorageQuota`) e UI real (`StorageQuotaCard`/`StorageSection`, Bloco 1/D-255-256) implementados e testados. Quota default 8GB, confirmada por Marcelo após pesquisa de mercado. Detalhe completo: `docs/architecture/decisions-log.md` D-249, `docs/architecture/reviews/storage-quota-scoping/`.
 
 ## Backlog pós-lançamento P1 (autorizado 2026-09-04)
 
@@ -106,11 +88,7 @@ Documento completo: `docs/engineering/reviews/external-audit-2026-09-11-critica-
 
 **Análise geral do frontend + rodada Codex holística: CONCLUÍDA (D-271)**. E-023 (eixo mais perto do gate de engenharia): achado mecânico resolvido (D-272), só falta decisão de Marcelo (`coverage.thresholds`).
 
-**`ExternalShareLink` slice 2/3 FECHADA (D-273), 2026-09-12 — todo item do backlog P1 exceto o item 3 (OCR/full-text, bloqueado por decisão de Marcelo) está fechado.** Mergeado `develop→main` e APLICADO em `dev` com sucesso (CD run 34704323049, 0 erro).
-
-**Achado real de infra encontrado e corrigido nesta mesma sessão (D-275), decisão-independente**: 4 recursos `aws_lambda_permission.*_task_from_state_machine` (extraction-workflow, item 3 ainda não instanciado) eram perpetuamente não-convergentes — TODO `terraform apply` deste repositório, mesmo tocando algo não relacionado, substituía os 4. Causa raiz confirmada contra o estado real de `dev`: `function_name` declarado errado (alias-qualificado, deveria ser `function_arn` puro). Corrigido e reverificado — `terraform plan` foi de "4 to replace" para "0 to add/destroy".
-
-**D-273 (`ExternalShareLink` slice 2/3) mergeado `develop→main` (PR #303) e APLICADO em `dev` com sucesso** (CD run 34704323049, `Apply complete! Resources: 19 added, 96 changed, 4 destroyed` — exatamente o plano previsto, 0 erro). E-016 (`QUEUE_BASE_NAMES`) e os 2 achados menores de E-021 (fan-out + duplicação de hidratação GSI4) **CORRIGIDOS (D-274)**.
+**`ExternalShareLink` slice 2/3 FECHADA (D-273)** — todo item do backlog P1 exceto o item 3 (OCR/full-text, bloqueado por decisão de Marcelo) está fechado. Mergeado/deployado em `dev` com sucesso (CD run 34704323049). Achado incidental de drift de Terraform (4 `aws_lambda_permission` perpetuamente não-convergentes) também corrigido na mesma sessão (D-275). E-016/E-021 (achados menores) **CORRIGIDOS (D-274)**.
 
 **Próximo passo imediato**: E-017 (gate de evidência ponta-a-ponta para fechar item de ROADMAP, limite de profundidade de subagente) é o único item decisão-independente restante do full-audit round2 ainda não tocado. E-015/E-019 dependem mais de decisão/produto que de engenharia pura. EMF/dashboard operacional (E-021) seguem nomeados, não triviais.
 
