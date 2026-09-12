@@ -110,6 +110,10 @@ import docarchiveRequirementSearchRequestV1 from "../../../schemas/api/docarchiv
 import itemSearchRequestV1 from "../../../schemas/api/item-search-request.v1.json";
 import docarchiveShareLinkCreateRequestV1 from "../../../schemas/api/docarchive-share-link-create-request.v1.json";
 import docarchiveShareLinkRevokeRequestV1 from "../../../schemas/api/docarchive-share-link-revoke-request.v1.json";
+// P2.1 (external audit 2026-09-11) - internal async-boundary runtime validation, never an
+// HTTP request schema.
+import outboxRecordV1 from "../../../schemas/events/outbox-record.v1.json";
+import reminderReconciliationEventV1 from "../../../schemas/events/reminder-reconciliation-event.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -245,4 +249,6 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   itemSearchRequestV1,
   docarchiveShareLinkCreateRequestV1,
   docarchiveShareLinkRevokeRequestV1,
+  outboxRecordV1,
+  reminderReconciliationEventV1,
 ]);

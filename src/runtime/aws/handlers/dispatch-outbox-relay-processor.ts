@@ -9,8 +9,16 @@ import type { DynamoDBRecord } from "aws-lambda";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { relayStreamRecord, type RelayDeps } from "../../../workers/dispatch-outbox-relay/relay.js";
 import type { OutboxRecord } from "../../../shared/outbox/outbox.js";
+import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import type { SecureLogger } from "../../../shared/observability/logger.js";
+
+// P2.1 (external audit 2026-09-11): this boundary used to go straight from `unmarshall` to a
+// bare TypeScript cast, with no runtime check that the Streams image actually has the shape
+// `OutboxRecord` claims - same class of gap `reminder-dispatch-handler.ts`'s
+// `DISPATCH_COMMAND_SCHEMA_ID` validation already closes for its own SQS boundary, mirrored
+// here rather than invented fresh.
+const OUTBOX_RECORD_SCHEMA_ID = "https://expiration-tracker/schemas/events/outbox-record.v1.json";
 
 export async function processStreamRecords(
   deps: Omit<RelayDeps, "leaseOwner">,
@@ -25,8 +33,20 @@ export async function processStreamRecords(
     if (!image) continue;
 
     try {
-      const item = unmarshall(image as Record<string, never>) as OutboxRecord;
-      if (item.entityType !== "OutboxEvent") continue;
+      const raw: unknown = unmarshall(image as Record<string, never>);
+      // Streams captures EVERY write to this table, not just OutboxEvent rows - this filter
+      // stays BEFORE schema validation so every other entity type flowing through the same
+      // stream is skipped silently, same as always, never validated against (and never
+      // spamming a schema-invalid error for) a schema it was never meant to match.
+      if ((raw as { entityType?: unknown }).entityType !== "OutboxEvent") continue;
+
+      const { valid, errors } = defaultSchemaRegistry.validate(OUTBOX_RECORD_SCHEMA_ID, raw);
+      if (!valid) {
+        logger.error("dispatch-outbox-relay schema-invalid OutboxEvent image", { eventID: record.eventID, errors });
+        batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
+        continue;
+      }
+      const item = raw as OutboxRecord;
 
       // m5-observability-design.md #2: DynamoDB Streams fallback is the record's own
       // SequenceNumber, not eventId (that fallback is the sweeper's, via

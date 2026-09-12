@@ -17,6 +17,7 @@ import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity
 import { policyKey, type ReminderPolicy } from "../../../modules/reminder/domain/reminder-policy.js";
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import type { ReminderOccurrence } from "../../../modules/reminder/domain/reminder-occurrence.js";
+import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 
@@ -39,10 +40,23 @@ export interface ReminderReconciliationEvent {
  * run (every 5 min for claims, daily for DST) rather than blocking this one. */
 const MAX_PAGES = 25;
 
-export async function handler(event: ReminderReconciliationEvent): Promise<void> {
+const RECONCILIATION_EVENT_SCHEMA_ID = "https://expiration-tracker/schemas/events/reminder-reconciliation-event.v1.json";
+
+export async function handler(event: unknown): Promise<void> {
   // m5-observability-design.md #2: EventBridge Scheduler producer, no upstream request to
   // inherit a correlationId from - new UUID per invocation.
-  await runWithContext({ correlationId: randomUUID() }, () => handleReconciliation(event));
+  await runWithContext({ correlationId: randomUUID() }, async () => {
+    // P2.1 (external audit 2026-09-11): `event` was previously typed (not runtime-validated)
+    // as `ReminderReconciliationEvent` straight off the Lambda invocation - a TS annotation
+    // enforces nothing at runtime. Same schema-registry pattern reminder-dispatch-handler.ts's
+    // `DISPATCH_COMMAND_SCHEMA_ID` already uses for its own boundary, mirrored here.
+    const { valid, errors } = defaultSchemaRegistry.validate(RECONCILIATION_EVENT_SCHEMA_ID, event);
+    if (!valid) {
+      logger.error("reminder-reconciliation schema-invalid event", { errors });
+      throw new Error("schema-invalid ReminderReconciliationEvent");
+    }
+    await handleReconciliation(event as ReminderReconciliationEvent);
+  });
 }
 
 async function handleReconciliation(event: ReminderReconciliationEvent): Promise<void> {
