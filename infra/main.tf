@@ -3158,9 +3158,20 @@ resource "aws_lambda_event_source_mapping" "textract_task_from_completion_queue"
 # than "*") is safe to create ahead of time (`local.extraction_state_machine_arn`, already
 # defined above, is deterministic even before that state machine is created).
 resource "aws_lambda_permission" "textract_task_from_state_machine" {
-  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
-  action        = "lambda:InvokeFunction"
-  function_name = module.textract_task_handler.live_alias_arn
+  statement_id = "AllowInvokeFromDocumentExtractionStateMachine"
+  action       = "lambda:InvokeFunction"
+  # `function_name` must be the UNQUALIFIED function ARN (`function_arn`, never
+  # `live_alias_arn`, which is already alias-qualified and redundant with `qualifier` below) -
+  # confirmed by reading the real deployed state directly (`terraform plan` against `dev`):
+  # AWS's own read-back of this resource's FunctionName always normalizes to the plain function
+  # ARN, so a declared `live_alias_arn` (or, tried first, the bare function NAME) never
+  # converges against it - both made this resource perpetually non-convergent, replaced on
+  # EVERY `terraform apply` on this repo regardless of what the apply was actually about,
+  # confirmed by 2 consecutive unrelated deploys (2026-09-12) each showing the identical
+  # 4-resource replacement. Found and fixed incidentally while verifying an unrelated deploy's
+  # plan output; re-verified against real `dev` state after the fix (0 replacements, not just
+  # `terraform validate` passing).
+  function_name = module.textract_task_handler.function_arn
   qualifier     = module.textract_task_handler.live_alias_name
   principal     = "states.amazonaws.com"
   source_arn    = local.extraction_state_machine_arn
@@ -3221,9 +3232,12 @@ module "pdf_parser_task_handler" {
 # `RunDeterministicParser` invocation permission for Step Functions - same "deployable, not
 # yet wired" posture as `aws_lambda_permission.textract_task_from_state_machine` above.
 resource "aws_lambda_permission" "pdf_parser_task_from_state_machine" {
-  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
-  action        = "lambda:InvokeFunction"
-  function_name = module.pdf_parser_task_handler.live_alias_arn
+  statement_id = "AllowInvokeFromDocumentExtractionStateMachine"
+  action       = "lambda:InvokeFunction"
+  # function_arn (unqualified), never live_alias_arn/function_name - see
+  # textract_task_from_state_machine's own comment above for why (perpetual non-convergent
+  # replace, found and re-verified against real dev state 2026-09-12).
+  function_name = module.pdf_parser_task_handler.function_arn
   qualifier     = module.pdf_parser_task_handler.live_alias_name
   principal     = "states.amazonaws.com"
   source_arn    = local.extraction_state_machine_arn
@@ -3306,9 +3320,12 @@ module "bedrock_extraction_task_handler" {
 # `RunBedrock` invocation permission for Step Functions - same "deployable, not yet wired"
 # posture as the other task-handler permissions above.
 resource "aws_lambda_permission" "bedrock_extraction_task_from_state_machine" {
-  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
-  action        = "lambda:InvokeFunction"
-  function_name = module.bedrock_extraction_task_handler.live_alias_arn
+  statement_id = "AllowInvokeFromDocumentExtractionStateMachine"
+  action       = "lambda:InvokeFunction"
+  # function_arn (unqualified), never live_alias_arn/function_name - see
+  # textract_task_from_state_machine's own comment above for why (perpetual non-convergent
+  # replace, found and re-verified against real dev state 2026-09-12).
+  function_name = module.bedrock_extraction_task_handler.function_arn
   qualifier     = module.bedrock_extraction_task_handler.live_alias_name
   principal     = "states.amazonaws.com"
   source_arn    = local.extraction_state_machine_arn
@@ -3365,9 +3382,12 @@ module "extraction_validation_task_handler" {
 # PersistExtractedFields/MarkPendingConfirmation/CompleteRun) - one permission covers all of
 # them, since `lambda:InvokeFunction` isn't per-state.
 resource "aws_lambda_permission" "extraction_validation_task_from_state_machine" {
-  statement_id  = "AllowInvokeFromDocumentExtractionStateMachine"
-  action        = "lambda:InvokeFunction"
-  function_name = module.extraction_validation_task_handler.live_alias_arn
+  statement_id = "AllowInvokeFromDocumentExtractionStateMachine"
+  action       = "lambda:InvokeFunction"
+  # function_arn (unqualified), never live_alias_arn/function_name - see
+  # textract_task_from_state_machine's own comment above for why (perpetual non-convergent
+  # replace, found and re-verified against real dev state 2026-09-12).
+  function_name = module.extraction_validation_task_handler.function_arn
   qualifier     = module.extraction_validation_task_handler.live_alias_name
   principal     = "states.amazonaws.com"
   source_arn    = local.extraction_state_machine_arn

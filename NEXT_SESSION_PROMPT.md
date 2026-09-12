@@ -108,6 +108,8 @@ Achados adicionais não verificados linha a linha ainda (ver documento completo)
 
 **`ExternalShareLink` slice 2/3 FECHADA (D-273), 2026-09-12 — todo item do backlog P1 exceto o item 3 (OCR/full-text, bloqueado por decisão de Marcelo) está fechado.** Mergeado `develop→main` e APLICADO em `dev` com sucesso (CD run 34704323049, 0 erro).
 
+**Achado real de infra encontrado e corrigido nesta mesma sessão (D-275), decisão-independente**: 4 recursos `aws_lambda_permission.*_task_from_state_machine` (extraction-workflow, item 3 ainda não instanciado) eram perpetuamente não-convergentes — TODO `terraform apply` deste repositório, mesmo tocando algo não relacionado, substituía os 4. Causa raiz confirmada contra o estado real de `dev`: `function_name` declarado errado (alias-qualificado, deveria ser `function_arn` puro). Corrigido e reverificado — `terraform plan` foi de "4 to replace" para "0 to add/destroy".
+
 **D-273 (`ExternalShareLink` slice 2/3) mergeado `develop→main` (PR #303) e APLICADO em `dev` com sucesso** (CD run 34704323049, `Apply complete! Resources: 19 added, 96 changed, 4 destroyed` — exatamente o plano previsto, 0 erro). E-016 (`QUEUE_BASE_NAMES`) e os 2 achados menores de E-021 (fan-out + duplicação de hidratação GSI4) **CORRIGIDOS (D-274)**.
 
 **Próximo passo imediato**: E-017 (gate de evidência ponta-a-ponta para fechar item de ROADMAP, limite de profundidade de subagente) é o único item decisão-independente restante do full-audit round2 ainda não tocado. E-015/E-019 dependem mais de decisão/produto que de engenharia pura. EMF/dashboard operacional (E-021) seguem nomeados, não triviais.
