@@ -86,7 +86,7 @@ async function setup() {
   await store.putIfAbsent(request);
   await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
 
-  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, () => NOW);
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, PEPPER, () => NOW);
   const guestAccess = new GuestDocumentAccessService({
     store,
     tableName: "test-table",

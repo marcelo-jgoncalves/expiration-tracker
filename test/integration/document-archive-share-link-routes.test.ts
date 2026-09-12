@@ -180,7 +180,7 @@ describe("ExternalShareLink HTTP routes (D-225/D-241 slice 2/3)", () => {
       store,
       tableName: "MainTable",
       ids: makeIds(),
-      rateLimiter: new DocumentArchiveGuestRateLimiter(store, () => NOW),
+      rateLimiter: new DocumentArchiveGuestRateLimiter(store, IP_AUDIT_PEPPER, () => NOW),
       fileStore: fakeFileStore(),
       pepper: PEPPER,
       ipAuditPepper: IP_AUDIT_PEPPER,

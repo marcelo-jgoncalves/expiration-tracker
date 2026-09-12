@@ -176,7 +176,7 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
     const token = url.pathname.split("/").pop();
     expect(token).toBe(deliveryRecord!.token);
 
-    const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+    const rateLimiter = new DocumentArchiveGuestRateLimiter(store, PEPPER);
     const guestAccess = new GuestDocumentAccessService({ store, tableName: MAIN_TABLE, ids, rateLimiter, pepper: PEPPER, quarantineBucket: "test-quarantine-bucket", signer: { presignUpload: async () => ({ uploadUrl: "https://example/x", requiredHeaders: {} }) }, now: () => "2026-01-01T00:10:00.000Z" });
     const resolved = await guestAccess.resolveCredential(token!, { ip: "203.0.113.1" });
     expect(resolved.credential.documentRequestId).toBe(request.documentRequestId);
@@ -230,7 +230,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
     const token = new URL(guestLink).pathname.split("/").pop();
     expect(token).toBe(deliveryRecord!.token);
 
-    const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+    const rateLimiter = new DocumentArchiveGuestRateLimiter(store, PEPPER);
     const guestAccess = new GuestDocumentAccessService({ store, tableName: MAIN_TABLE, ids, rateLimiter, pepper: PEPPER, quarantineBucket: "test-quarantine-bucket", signer: { presignUpload: async () => ({ uploadUrl: "https://example/x", requiredHeaders: {} }) }, now: () => "2026-01-01T00:10:00.000Z" });
     const resolved = await guestAccess.resolveCredential(token!, { ip: "203.0.113.1" });
     expect(resolved.credential.documentRequestId).toBe(request.documentRequestId);

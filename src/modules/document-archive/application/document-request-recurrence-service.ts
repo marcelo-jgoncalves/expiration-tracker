@@ -15,20 +15,25 @@
  * `DocumentArchiveService`'s authorize-gated methods.
  */
 import { randomUUID } from "node:crypto";
-import { buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { buildConditionalDelete, buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdate, isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
+import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { authorize, authorizedTenantId, authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
+import { requirementKey } from "../domain/requirement.js";
+import { SUBJECT_STATUS_ACCEPTING_REQUIREMENTS, trackedSubjectKeyForFence } from "../domain/requirement-template.js";
 import {
+  activeDocumentRequestSeriesPointerKey,
   computeSeriesOccurrenceId,
   documentRequestSeriesGsi1Keys,
   documentRequestSeriesKey,
   DOCUMENT_REQUEST_SERIES_SK_PREFIX,
+  type ActiveDocumentRequestSeriesPointer,
   type CreateDocumentRequestSeriesInput,
   type DocumentRequestSeries,
 } from "../domain/document-request-series.js";
@@ -150,14 +155,24 @@ export class DocumentRequestRecurrenceService {
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
-  /** Pre-existing gap, found (not introduced) by Codex review round 1 of D-264 (Block 6, A14
-   * frontend): no existence/status fence on `input.subjectId`/`input.requirementId` and no
-   * uniqueness constraint against another ACTIVE series for the same Requirement — two concurrent
-   * callers (or a direct API call bypassing A14's own client-side `requirementsWithoutActiveSeries`
-   * filter) can create an orphaned or duplicate series. Real since D-147; only now reachable via a
-   * real UI. Left unfixed here deliberately — a uniqueness fence needs a transactional
-   * design decision (a pointer row keyed by requirementId, same shape as `RequirementNamePointer`)
-   * that deserves its own scoping, not a rushed patch. Named in decisions-log D-264. */
+  /** P0.3 (external audit 2026-09-11) closes the gap D-264 named and deliberately deferred
+   * (Codex review round 1, Block 6/A14 frontend): `createSeries` now fences, in ONE
+   * `TransactWriteItems` (`executeTenantBusinessMutation` — tenant-ACTIVE fence + this
+   * method's own entries):
+   *   1. `TrackedSubject` exists AND is `ACTIVE` (`trackedSubjectKeyForFence`/
+   *      `SUBJECT_STATUS_ACCEPTING_REQUIREMENTS` — the EXACT same fence
+   *      `DocumentArchiveService.createRequirement`'s `buildSubjectFence` already uses, not a
+   *      new pattern);
+   *   2. `Requirement` exists at `requirementKey(tenantId, input.subjectId, input.requirementId)`
+   *      — this key is ALREADY subject-scoped (`PK: TENANT#t#SUBJECT#s`), so a Requirement that
+   *      exists but belongs to a DIFFERENT Subject fails this check by construction, no separate
+   *      ownership assertion needed;
+   *   3. no other ACTIVE series exists for this Requirement — `ActiveDocumentRequestSeriesPointer`
+   *      (`activeDocumentRequestSeriesPointerKey`, `document-request-series.ts`), `Put`
+   *      `attribute_not_exists(PK)`, same "conditional Put on a dedicated PK" uniqueness
+   *      mechanism as `RequirementNamePointer`/`ExternalShareLinkPointer` — never a new one.
+   * `cancelSeries` deletes the pointer in the SAME transaction as the status transition, so a
+   * cancelled series immediately frees its Requirement for a new one. */
   async createSeries(ctx: RequestContext, input: CreateDocumentRequestSeriesInput): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = authorizedTenantId(ctx);
@@ -183,8 +198,28 @@ export class DocumentRequestRecurrenceService {
       version: 1,
       ...documentRequestSeriesGsi1Keys(tenantId, "ACTIVE", cycleStartAt, seriesId),
     };
-    const created = await this.store.putIfAbsent(series);
-    if (!created) throw new ConflictError("DocumentRequestSeries already exists.", { seriesId });
+    const pointer: ActiveDocumentRequestSeriesPointer = {
+      ...activeDocumentRequestSeriesPointerKey(tenantId, input.requirementId),
+      entityType: "ActiveDocumentRequestSeriesPointer",
+      tenantId,
+      requirementId: input.requirementId,
+      seriesId,
+      createdAt: now,
+    };
+    const entries: TransactWriteEntry[] = [
+      buildExistenceConditionCheck({ tableName: this.tableName, key: trackedSubjectKeyForFence(tenantId, input.subjectId), extra: { status: SUBJECT_STATUS_ACCEPTING_REQUIREMENTS } }),
+      buildExistenceConditionCheck({ tableName: this.tableName, key: requirementKey(tenantId, input.subjectId, input.requirementId), extra: { requirementId: input.requirementId } }),
+      { Put: buildVersionedCreate(this.tableName, series as unknown as Record<string, unknown> & EntityKey) },
+      { Put: buildVersionedCreate(this.tableName, pointer as unknown as Record<string, unknown> & EntityKey) },
+    ];
+    try {
+      await executeTenantBusinessMutation({ store: this.store, tableName: this.tableName, tenantId, entries });
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        throw new ConflictError("Subject/Requirement does not exist or is not active, or this Requirement already has an ACTIVE series.", { subjectId: input.subjectId, requirementId: input.requirementId });
+      }
+      throw err;
+    }
     return series;
   }
 
@@ -204,10 +239,17 @@ export class DocumentRequestRecurrenceService {
     return this.store.queryByPk<DocumentRequestSeries>(`TENANT#${ctx.tenant.tenantId}#SUBJECT#${subjectId}`, DOCUMENT_REQUEST_SERIES_SK_PREFIX);
   }
 
+  /** P0.3 (external audit 2026-09-11) — also deletes the `ActiveDocumentRequestSeriesPointer`
+   * `createSeries` created, in the SAME transaction, freeing the Requirement for a new series
+   * immediately. Rejects an already-`CANCELLED` series up front (same guard
+   * `updateSeriesRecipient` already applies) rather than only via the pointer-delete's own
+   * condition — an already-cancelled series has no pointer left to delete, so silently
+   * re-succeeding would be a no-op that looks like it did something. */
   async cancelSeries(ctx: RequestContext, subjectId: string, seriesId: string, expectedVersion: number): Promise<DocumentRequestSeries> {
     authorize({ context: ctx, action: "docarchive:series-cancel", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = authorizedTenantId(ctx);
     const current = await this.getSeriesUnchecked(tenantId, subjectId, seriesId);
+    if (current.status !== "ACTIVE") throw new ConflictError("DocumentRequestSeries is already cancelled.", { seriesId });
     const now = this.now();
     const set = { status: "CANCELLED" as const, ...documentRequestSeriesGsi1Keys(tenantId, "CANCELLED", current.nextDueAt, seriesId) };
     const update = buildVersionedUpdate({
@@ -218,8 +260,15 @@ export class DocumentRequestRecurrenceService {
       set,
       now,
     });
+    const pointerDelete = buildConditionalDelete({
+      tableName: this.tableName,
+      key: activeDocumentRequestSeriesPointerKey(tenantId, current.requirementId),
+      conditionExpression: "attribute_exists(PK) AND #seriesId = :self",
+      names: { "#seriesId": "seriesId" },
+      values: { ":self": seriesId },
+    });
     try {
-      await this.store.transactWrite([{ Update: update }]);
+      await this.store.transactWrite([{ Update: update }, { Delete: pointerDelete }]);
     } catch (err) {
       if (isTransactionCanceled(err)) throw new ConflictError("DocumentRequestSeries was concurrently modified.", { seriesId });
       throw err;

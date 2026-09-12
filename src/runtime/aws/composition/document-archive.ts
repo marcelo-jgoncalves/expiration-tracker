@@ -71,7 +71,10 @@ export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableNa
 export function buildExternalShareAnonymousDeps(client: DynamoDBDocumentClient, tableName: string, pepper: string, ipAuditPepper: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
-  const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+  // P2.2 (external audit): the rate limiter's IP dimension is hashed with a pepper, never
+  // stored raw - reuses ipAuditPepper (already the dedicated "pseudonymize IP for this Lambda"
+  // secret) rather than requiring yet another one for the same purpose.
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, ipAuditPepper);
   const fileStore = new S3ExternalShareLinkFileStore(new S3Client({}));
   const shareLinks = new ExternalShareLinkService({ store, tableName, ids, rateLimiter, fileStore, pepper, ipAuditPepper });
   return { shareLinks };
@@ -123,7 +126,8 @@ export function buildDocumentArchiveWorkerDeps(
 export function buildDocumentArchiveGuestDeps(client: DynamoDBDocumentClient, tableName: string, guestAccessPepper: string, quarantineBucket: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
-  const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+  // P2.2 (external audit): reuses guestAccessPepper - same guest surface, not a new domain.
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, guestAccessPepper);
   const signer = new S3UploadUrlSigner(new S3Client({}));
   const guestAccess = new GuestDocumentAccessService({ store, tableName, ids, rateLimiter, pepper: guestAccessPepper, quarantineBucket, signer });
   return { store, guestAccess };

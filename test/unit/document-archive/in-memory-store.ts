@@ -1,5 +1,6 @@
 import type { DocumentArchiveStore, EntityKey, IndexPage, IndexPageInput, TransactWriteEntry } from "../../../src/modules/document-archive/ports/document-archive-store.js";
 import { documentTypeKey, type DocumentType } from "../../../src/modules/document-archive/domain/document-type.js";
+import { requirementKey, requirementGsi1Keys, type Requirement } from "../../../src/modules/document-archive/domain/requirement.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
@@ -36,6 +37,30 @@ export function seedActiveTrackedSubject(tenantId: string, subjectId: string): R
     updatedAt: "2026-01-01T00:00:00.000Z",
     version: 1,
   } as unknown as Record<string, unknown> & EntityKey;
+}
+
+/** P0.3 (external audit 2026-09-11): `DocumentRequestRecurrenceService.createSeries()`'s new
+ * transactional `ConditionCheck` requires a real `Requirement` row to exist at
+ * `requirementKey(tenantId, subjectId, requirementId)` — same fixture-seeding shape as
+ * `seedActiveTrackedSubject` above. */
+export function seedActiveRequirement(tenantId: string, subjectId: string, requirementId: string): Record<string, unknown> & EntityKey {
+  const authTenantId = authorizedTenantIdFromPersistedEntity({ tenantId });
+  const now = "2026-01-01T00:00:00.000Z";
+  const requirement: Requirement = {
+    ...requirementKey(authTenantId, subjectId, requirementId),
+    entityType: "Requirement",
+    requirementId,
+    tenantId,
+    subjectId,
+    name: requirementId,
+    applicability: "APPLICABLE",
+    status: "MISSING",
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    ...requirementGsi1Keys(authTenantId, "MISSING", now, requirementId),
+  };
+  return requirement as unknown as Record<string, unknown> & EntityKey;
 }
 
 /** D-173 item 3: `createDocument()`'s transactional `ConditionCheck` requires a real

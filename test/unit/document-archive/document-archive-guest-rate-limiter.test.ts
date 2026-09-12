@@ -1,18 +1,21 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { DocumentArchiveGuestRateLimiter } from "../../../src/modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import { QuotaExceededError } from "../../../src/shared/errors/app-error.js";
 import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
 
+const IP_HASH_PEPPER = "test-ip-hash-pepper";
+
 describe("DocumentArchiveGuestRateLimiter (D-143 Decision 4: multidimensional requestId+IP, D-146)", () => {
   it("allows calls under the limit", async () => {
-    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), () => "2026-09-01T00:00:00.000Z");
+    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), IP_HASH_PEPPER, () => "2026-09-01T00:00:00.000Z");
     for (let i = 0; i < 3; i++) {
       await expect(limiter.consumeBoth({ requestKey: "sel-1", ip: "1.2.3.4", limit: 5, windowSeconds: 60 })).resolves.toBeUndefined();
     }
   });
 
   it("throws QuotaExceededError once the requestKey dimension is exhausted", async () => {
-    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), () => "2026-09-01T00:00:00.000Z");
+    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), IP_HASH_PEPPER, () => "2026-09-01T00:00:00.000Z");
     for (let i = 0; i < 2; i++) {
       await limiter.consumeBoth({ requestKey: "sel-2", ip: `9.9.9.${i}`, limit: 2, windowSeconds: 60 });
     }
@@ -20,7 +23,7 @@ describe("DocumentArchiveGuestRateLimiter (D-143 Decision 4: multidimensional re
   });
 
   it("throws QuotaExceededError once the IP dimension is exhausted, even with a fresh requestKey each time", async () => {
-    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), () => "2026-09-01T00:00:00.000Z");
+    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), IP_HASH_PEPPER, () => "2026-09-01T00:00:00.000Z");
     for (let i = 0; i < 2; i++) {
       await limiter.consumeBoth({ requestKey: `sel-fresh-${i}`, ip: "5.5.5.5", limit: 2, windowSeconds: 60 });
     }
@@ -28,7 +31,7 @@ describe("DocumentArchiveGuestRateLimiter (D-143 Decision 4: multidimensional re
   });
 
   it("never includes the correlatable key in the thrown error's details (anti-enumeration)", async () => {
-    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), () => "2026-09-01T00:00:00.000Z");
+    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), IP_HASH_PEPPER, () => "2026-09-01T00:00:00.000Z");
     await limiter.consumeBoth({ requestKey: "sel-3", ip: "1.1.1.1", limit: 1, windowSeconds: 60 });
     try {
       await limiter.consumeBoth({ requestKey: "sel-3", ip: "1.1.1.2", limit: 1, windowSeconds: 60 });
@@ -41,10 +44,39 @@ describe("DocumentArchiveGuestRateLimiter (D-143 Decision 4: multidimensional re
 
   it("resets after the window expires (fresh window, same key)", async () => {
     let now = "2026-09-01T00:00:00.000Z";
-    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), () => now);
+    const limiter = new DocumentArchiveGuestRateLimiter(new InMemoryDocumentArchiveStore(), IP_HASH_PEPPER, () => now);
     await limiter.consumeBoth({ requestKey: "sel-4", ip: "2.2.2.2", limit: 1, windowSeconds: 60 });
     await expect(limiter.consumeBoth({ requestKey: "sel-4", ip: "2.2.2.3", limit: 1, windowSeconds: 60 })).rejects.toThrow(QuotaExceededError);
     now = "2026-09-01T00:02:00.000Z"; // 2 minutes later, window (60s) has expired.
     await expect(limiter.consumeBoth({ requestKey: "sel-4", ip: "2.2.2.4", limit: 1, windowSeconds: 60 })).resolves.toBeUndefined();
+  });
+
+  // P2.2 (external audit 2026-09-11): the raw IP must never be persisted - only its HMAC hash.
+  it("never persists the raw IP - the DynamoDB key is the HMAC hash, not the plaintext address", async () => {
+    const store = new InMemoryDocumentArchiveStore();
+    const limiter = new DocumentArchiveGuestRateLimiter(store, IP_HASH_PEPPER, () => "2026-09-01T00:00:00.000Z");
+    const ip = "203.0.113.42";
+    await limiter.consumeBoth({ requestKey: "sel-5", ip, limit: 5, windowSeconds: 60 });
+
+    const rawIpKey = await store.get({ PK: `DOCARCHIVEGUESTIP#${ip}#RATE`, SK: "RATE" });
+    expect(rawIpKey).toBeUndefined();
+
+    const expectedHash = createHmac("sha256", IP_HASH_PEPPER).update(ip).digest("hex");
+    const hashedIpKey = await store.get({ PK: `DOCARCHIVEGUESTIP#${expectedHash}#RATE`, SK: "RATE" });
+    expect(hashedIpKey).toBeDefined();
+  });
+
+  it("a different ip hash pepper produces a different hash for the same IP (real HMAC, not a pass-through)", async () => {
+    const ip = "203.0.113.42";
+    const storeA = new InMemoryDocumentArchiveStore();
+    const storeB = new InMemoryDocumentArchiveStore();
+    await new DocumentArchiveGuestRateLimiter(storeA, "pepper-a", () => "2026-09-01T00:00:00.000Z").consumeBoth({ requestKey: "sel-6", ip, limit: 5, windowSeconds: 60 });
+    await new DocumentArchiveGuestRateLimiter(storeB, "pepper-b", () => "2026-09-01T00:00:00.000Z").consumeBoth({ requestKey: "sel-6", ip, limit: 5, windowSeconds: 60 });
+
+    const hashA = createHmac("sha256", "pepper-a").update(ip).digest("hex");
+    const hashB = createHmac("sha256", "pepper-b").update(ip).digest("hex");
+    expect(hashA).not.toBe(hashB);
+    expect(await storeA.get({ PK: `DOCARCHIVEGUESTIP#${hashA}#RATE`, SK: "RATE" })).toBeDefined();
+    expect(await storeB.get({ PK: `DOCARCHIVEGUESTIP#${hashB}#RATE`, SK: "RATE" })).toBeDefined();
   });
 });

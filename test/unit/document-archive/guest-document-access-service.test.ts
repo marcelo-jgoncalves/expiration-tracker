@@ -90,7 +90,7 @@ async function seedRequest(store: InMemoryDocumentArchiveStore, overrides: Parti
 }
 
 function makeService(store: InMemoryDocumentArchiveStore, signer: UploadUrlSigner = makeSigner()) {
-  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, () => NOW);
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, PEPPER, () => NOW);
   return new GuestDocumentAccessService({ store, tableName: "test-table", ids: makeIds(), rateLimiter, pepper: PEPPER, quarantineBucket: "test-quarantine-bucket", signer, now: () => NOW });
 }
 

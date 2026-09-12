@@ -4,7 +4,7 @@
  * and the full create -> materialize x2 -> advanceCycle -> materialize integration flow.
  */
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveRequirement, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
 import { DocumentRequestRecurrenceService } from "../../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import { computeSeriesOccurrenceId } from "../../../src/modules/document-archive/domain/document-request-series.js";
 import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/authorization.js";
@@ -42,8 +42,16 @@ function makeIds(): DocumentArchiveIdGenerator {
   };
 }
 
+/** P0.3 (external audit 2026-09-11): `createSeries()` now fences on TenantLifecycleRecord/
+ * TrackedSubject/Requirement all existing — seeded here for the default "tenant-1"/"subject-1"/
+ * "req-1" combination every test in this file (except the RBAC-denial test, which never reaches
+ * the fence) uses. */
 function makeService(now = "2026-09-01T00:00:00.000Z") {
-  const store = new InMemoryDocumentArchiveStore();
+  const store = new InMemoryDocumentArchiveStore([
+    seedActiveTenantLifecycle("tenant-1"),
+    seedActiveTrackedSubject("tenant-1", "subject-1"),
+    seedActiveRequirement("tenant-1", "subject-1", "req-1"),
+  ]);
   const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => now });
   return { store, service };
 }
@@ -83,6 +91,51 @@ describe("DocumentRequestRecurrenceService.createSeries", () => {
     await expect(service.createSeries(ctx({ tenant: { tenantId: "tenant-1", roles: ["VIEWER"] } }), { subjectId: "s", requirementId: "r", cadence: { intervalDays: 1 } })).rejects.toBeInstanceOf(
       AuthorizationDeniedError,
     );
+  });
+
+  // P0.3 (external audit 2026-09-11): createSeries fences existence/status of Subject and
+  // Requirement, and enforces at most one ACTIVE series per Requirement, all in one transaction.
+  describe("P0.3 fences: existence/status/uniqueness", () => {
+    it("rejects creating a series for a Subject that doesn't exist", async () => {
+      const { store } = makeService();
+      const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
+      await expect(service.createSeries(ctx(), { subjectId: "no-such-subject", requirementId: "req-1", cadence: { intervalDays: 90 } })).rejects.toThrow(ConflictError);
+    });
+
+    it("rejects creating a series for a Requirement that doesn't exist", async () => {
+      const { service } = makeService();
+      await expect(service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "no-such-requirement", cadence: { intervalDays: 90 } })).rejects.toThrow(ConflictError);
+    });
+
+    it("rejects creating a series for a Requirement that exists but belongs to a DIFFERENT Subject", async () => {
+      const { store, service } = makeService();
+      await store.putIfAbsent(seedActiveTrackedSubject("tenant-1", "subject-2"));
+      // "req-1" only exists under subject-1's partition (seeded by makeService) - claiming it
+      // belongs to subject-2 must fail, never silently succeed against the wrong partition.
+      await expect(service.createSeries(ctx(), { subjectId: "subject-2", requirementId: "req-1", cadence: { intervalDays: 90 } })).rejects.toThrow(ConflictError);
+    });
+
+    it("rejects a second ACTIVE series for a Requirement that already has one", async () => {
+      const { service } = makeService();
+      await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+      await expect(service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 30 } })).rejects.toThrow(ConflictError);
+    });
+
+    it("allows a new ACTIVE series for the same Requirement after the first one is cancelled", async () => {
+      const { service } = makeService();
+      const first = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+      await service.cancelSeries(ctx(), "subject-1", first.seriesId, first.version);
+      const second = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 30 } });
+      expect(second.status).toBe("ACTIVE");
+      expect(second.seriesId).not.toBe(first.seriesId);
+    });
+
+    it("rejects cancelling an already-cancelled series", async () => {
+      const { service } = makeService();
+      const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
+      const cancelled = await service.cancelSeries(ctx(), "subject-1", series.seriesId, series.version);
+      await expect(service.cancelSeries(ctx(), "subject-1", series.seriesId, cancelled.version)).rejects.toThrow(ConflictError);
+    });
   });
 });
 
