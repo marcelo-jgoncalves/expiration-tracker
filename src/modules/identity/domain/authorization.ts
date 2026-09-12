@@ -185,6 +185,15 @@ export type Action =
   // `docarchive:requirement-export`/`item:export` (a full-Subject export is the same bulk
   // cross-Requirement disclosure those already gate), covers preview+confirm+download.
   | "docarchive:dossier-export"
+  // D-225/D-241 (ExternalShareLink, slice 2/3, backlog P1 item 8/19): same tier/rationale as
+  // `docarchive:dossier-export` above (ADMIN_ROLES, no assignee exception - creating/revoking/
+  // listing anonymous, unauthenticated access to a tenant Document is a disclosure decision, not
+  // day-to-day content work). The anonymous visitor's OWN access never passes through this
+  // module at all - `ExternalShareLinkService.resolveForAnonymousAccess` never calls
+  // `RequestContext`/`authorize()`, validated only by the bearer token (Decision 1/5).
+  | "docarchive:share-link-create"
+  | "docarchive:share-link-revoke"
+  | "docarchive:share-link-list"
   // D-218 (Roadmap P1, "metadata configurável por Document Type"): field/option CATALOG
   // mutation (create/rename/archive/reactivate a metadata field or one of its SINGLE_SELECT
   // options) is ADMIN_ROLES, same tier as `docarchive:documenttype-*` above — a metadata field
@@ -336,6 +345,9 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "activity:read": ADMIN_ROLES,
   "reports:subscription-manage": ADMIN_ROLES,
   "docarchive:dossier-export": ADMIN_ROLES,
+  "docarchive:share-link-create": ADMIN_ROLES,
+  "docarchive:share-link-revoke": ADMIN_ROLES,
+  "docarchive:share-link-list": ADMIN_ROLES,
   "docarchive:documenttype-metadata-manage": ADMIN_ROLES,
   "docarchive:document-metadata-update": WRITE_ROLES,
   "docarchive:documenttype-create": ADMIN_ROLES,

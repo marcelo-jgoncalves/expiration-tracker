@@ -59,6 +59,9 @@ import {
   handlePreviewDossierExport,
   handleConfirmDossierExport,
   handleDownloadDossierExport,
+  handleCreateShareLink,
+  handleRevokeShareLink,
+  handleListShareLinks,
   type DocumentArchiveHttpDeps,
 } from "../../../modules/document-archive/http/document-archive-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -75,9 +78,14 @@ if (!quarantineBucket) throw new Error("QUARANTINE_BUCKET_NAME env var is requir
 // handleDownloadDossierExport.
 const reportExportsBucketName = process.env["REPORT_EXPORTS_BUCKET_NAME"];
 if (!reportExportsBucketName) throw new Error("REPORT_EXPORTS_BUCKET_NAME env var is required.");
+// D-225/D-241 (ExternalShareLink slice 2/3) - own pepper, never shared with
+// DOCARCHIVE_GUEST_ACCESS_PEPPER/GUEST_TOKEN_PEPPER (distinct credential shape, distinct blast
+// radius, same reasoning those two already keep from each other).
+const shareLinkPepper = process.env["DOCARCHIVE_SHARE_LINK_PEPPER"];
+if (!shareLinkPepper) throw new Error("DOCARCHIVE_SHARE_LINK_PEPPER env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { documentArchive, recurrence, dossierExportStore } = buildDocumentArchiveDeps(client, tableName, quarantineBucket, reportExportsBucketName);
-const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota, dossierExportStore };
+const { documentArchive, recurrence, dossierExportStore, shareLinks } = buildDocumentArchiveDeps(client, tableName, quarantineBucket, reportExportsBucketName, shareLinkPepper);
+const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota, dossierExportStore, shareLinks };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentArchiveRoute(event));
@@ -215,6 +223,15 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // D-205 fatia 3 — download.
         case "GET /document-archive/subjects/{subjectId}/dossier/{runId}/download":
           return await handleDownloadDossierExport(deps, base);
+        // D-225/D-241 (ExternalShareLink slice 2/3, backlog P1 item 8) - authenticated/admin
+        // side only. The anonymous visitor's own route lives on a SEPARATE Lambda
+        // (external-share-handler.ts), never here.
+        case "POST /document-archive/documents/{documentId}/share-links":
+          return await handleCreateShareLink(deps, { ...base, body: parseBody(event) });
+        case "PATCH /document-archive/documents/{documentId}/share-links/{shareId}/revoke":
+          return await handleRevokeShareLink(deps, { ...base, body: parseBody(event) });
+        case "GET /document-archive/documents/{documentId}/share-links":
+          return await handleListShareLinks(deps, base);
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

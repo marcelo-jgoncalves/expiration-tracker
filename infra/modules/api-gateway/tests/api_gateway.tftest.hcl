@@ -51,6 +51,8 @@ run "jwt_authorizer_attached_to_every_route" {
     document_archive_function_name       = "document-archive"
     document_archive_guest_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:document-archive-guest/invocations"
     document_archive_guest_function_name = "document-archive-guest"
+    external_share_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:external-share/invocations"
+    external_share_function_name         = "external-share"
     bulk_actions_invoke_arn              = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:bulk-actions/invocations"
     bulk_actions_function_name           = "bulk-actions"
     whatsapp_webhook_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:whatsapp-webhook/invocations"
@@ -95,9 +97,13 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "Every /items* route must be JWT-authorized with the shared authorizer"
   }
 
+  # Pre-existing drift found while wiring D-225/D-241 (ExternalShareLink slice 2/3): this count
+  # (and the subjects/guest_documents/imports ones below) never followed several route
+  # additions since this assertion was last updated - corrected to the real current count, same
+  # "mechanical correction, not a new decision" class as the reports_invoke_arn gap fix above.
   assert {
-    condition     = length(aws_apigatewayv2_route.items) == 10
-    error_message = "Expected exactly 10 /items* routes (create, dashboard, get, update, delete, archive, renew, add_watcher, remove_watcher, list_watchers)"
+    condition     = length(aws_apigatewayv2_route.items) == 13
+    error_message = "Expected exactly 13 /items* routes (create, dashboard, search, get, update, delete, archive, renew, add_watcher, remove_watcher, list_watchers, list_activity, dashboard_summary)"
   }
 
   assert {
@@ -288,8 +294,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.subjects) == 21
-    error_message = "Expected exactly 21 /subjects* routes (create, dashboard, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference, list/get_submission)"
+    condition     = length(aws_apigatewayv2_route.subjects) == 22
+    error_message = "Expected exactly 22 /subjects* routes (create, dashboard, search, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference, list/get_submission)"
   }
 
   # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission read routes.
@@ -404,8 +410,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.guest_documents) == 2
-    error_message = "Expected exactly 2 /guest/document-requests/* routes (get_request, start_submission)"
+    condition     = length(aws_apigatewayv2_route.guest_documents) == 3
+    error_message = "Expected exactly 3 /guest/document-requests/* routes (get_request, get_request_info, start_submission)"
   }
 
   assert {
@@ -454,8 +460,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.imports) == 3
-    error_message = "Expected exactly 3 /imports* routes (reserve, get, commit)"
+    condition     = length(aws_apigatewayv2_route.imports) == 5
+    error_message = "Expected exactly 5 /imports* routes (reserve, get, commit, schema, mapping)"
   }
 
   assert {

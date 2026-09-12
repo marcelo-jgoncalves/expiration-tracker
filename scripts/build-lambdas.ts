@@ -136,6 +136,10 @@ const HANDLERS = [
   // (INSERT-only) consumer — the delivery worker D-222/D-227 named as missing; emails the
   // guest link, closing the end-to-end issuance-to-delivery cycle.
   "guest-credential-delivery-handler",
+  // D-225/D-241 (ExternalShareLink slice 2/3, backlog P1 item 8): the anonymous visitor's own
+  // route, GET /external-share/{shareId}/{token} — dedicated Lambda, authorization_type = NONE,
+  // same isolation posture as document-archive-guest-handler above.
+  "external-share-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {

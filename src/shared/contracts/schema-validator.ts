@@ -108,6 +108,8 @@ import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1
 import subjectSearchRequestV1 from "../../../schemas/api/subject-search-request.v1.json";
 import docarchiveRequirementSearchRequestV1 from "../../../schemas/api/docarchive-requirement-search-request.v1.json";
 import itemSearchRequestV1 from "../../../schemas/api/item-search-request.v1.json";
+import docarchiveShareLinkCreateRequestV1 from "../../../schemas/api/docarchive-share-link-create-request.v1.json";
+import docarchiveShareLinkRevokeRequestV1 from "../../../schemas/api/docarchive-share-link-revoke-request.v1.json";
 
 export class SchemaRegistry {
   private readonly ajv: Ajv2020;
@@ -241,4 +243,6 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   subjectSearchRequestV1,
   docarchiveRequirementSearchRequestV1,
   itemSearchRequestV1,
+  docarchiveShareLinkCreateRequestV1,
+  docarchiveShareLinkRevokeRequestV1,
 ]);

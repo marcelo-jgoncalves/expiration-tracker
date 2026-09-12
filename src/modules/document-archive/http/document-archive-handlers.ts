@@ -6,7 +6,7 @@
  * route in the system.
  */
 import { AppError, AuthorizationError, ConflictError, ValidationError, toAppError } from "../../../shared/errors/app-error.js";
-import { AuthorizationDeniedError, authorizedTenantId } from "../../identity/domain/authorization.js";
+import { AuthorizationDeniedError, authorize, authorizedTenantId } from "../../identity/domain/authorization.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { encodeSearchCursor, decodeSearchCursor } from "../../../shared/domain/search-cursor.js";
@@ -24,6 +24,7 @@ import type { CreateDocumentTypeInput, CreateDocumentTypeMetadataFieldInput, Doc
 import type { DocumentMetadataValueInput } from "../domain/document.js";
 import type { CreateRequirementTemplateInput, RequirementTemplate, UpdateRequirementTemplateInput } from "../domain/requirement-template.js";
 import type { DossierExportFormat, DossierExportStore } from "../ports/dossier-export-store.js";
+import type { ExternalShareLinkService } from "../application/external-share-link-service.js";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -66,6 +67,8 @@ const DOSSIER_CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarc
 const DOCUMENTTYPE_METADATA_FIELD_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-create-request.v1.json";
 const DOCUMENTTYPE_METADATA_FIELD_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-documenttype-metadata-field-update-request.v1.json";
 const DOCUMENT_METADATA_VALUES_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json";
+const SHARE_LINK_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-share-link-create-request.v1.json";
+const SHARE_LINK_REVOKE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-share-link-revoke-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -90,6 +93,11 @@ export interface DocumentArchiveHttpDeps {
   /** D-205 fatia 3 (decision 9): only the dossier download route needs this - optional so every
    * OTHER caller of this Lambda/module (all the routes above) keeps working unchanged. */
   dossierExportStore?: DossierExportStore;
+  /** D-225/D-241/D-2xx (ExternalShareLink slice 2/3) — optional for the same reason
+   * `dossierExportStore` above is: only the 3 share-link routes need it, every other route on
+   * this Lambda keeps working unchanged. This service never calls `authorize()` itself (its own
+   * doc comment) — these handlers call it explicitly before every call into it. */
+  shareLinks?: ExternalShareLinkService;
 }
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
@@ -909,6 +917,95 @@ export async function handleDownloadDossierExport(deps: DocumentArchiveHttpDeps,
     }
     const downloadUrl = await deps.dossierExportStore.presignDownload({ tenantId: authorizedTenantId(context), subjectId, runId, format, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS });
     return { statusCode: 200, body: { downloadUrl, expiresInSeconds: DOSSIER_DOWNLOAD_PRESIGN_TTL_SECONDS } };
+  });
+}
+
+// --- ExternalShareLink (D-225/D-241/D-2xx, slice 2/3) — authenticated/admin side only. The
+// anonymous visitor's own route lives on a SEPARATE Lambda (document-archive-guest-handler.ts),
+// never here - `ExternalShareLinkService.resolveForAnonymousAccess` never touches this file. ----
+
+function requireShareId(req: HttpRequest): string {
+  const shareId = req.pathParameters?.["shareId"];
+  if (!shareId) throw new ValidationError("Missing shareId path parameter.");
+  return shareId;
+}
+
+/** `ExternalShareLinkService` never calls `authorize()` itself (its own doc comment - callers
+ * pass an already-`AuthorizedTenantId`), unlike `documentArchive`/`recurrence` above whose
+ * services call `authorize()` internally - these 3 handlers call it explicitly, same one-liner
+ * repeated 3x rather than folding into `resolve()` (which every OTHER route on this Lambda also
+ * calls, most of which authorize a DIFFERENT action). */
+export async function handleCreateShareLink(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ ttlDays?: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.shareLinks) throw new Error("handleCreateShareLink requires shareLinks to be wired.");
+    const documentId = requireDocumentId(req);
+    if (req.body !== undefined) validateAgainstSchema(SHARE_LINK_CREATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    authorize({ context, action: "docarchive:share-link-create", resource: { tenantId: context.tenant.tenantId } });
+    const { link, token: compoundToken } = await deps.shareLinks.createShareLink({
+      tenantId: authorizedTenantId(context),
+      documentId,
+      createdByUserId: context.principal.userId,
+      ttlDays: req.body?.ttlDays,
+    });
+    // The service returns `shareId.selector.secret` as one compound string (its own internal
+    // convenience - see external-share-link-service.ts's own tests, which split it the same
+    // way). The HTTP boundary's job is to hand back the 2 values the anonymous route's
+    // `GET /external-share/{shareId}/{token}` path actually needs, already split - never make
+    // every caller of this API re-derive that parsing contract itself. `shareId` here is the
+    // SAME value as `link`'s own SK suffix (ExternalShareLink has no plain shareId field), just
+    // read off the already-split token instead of re-parsing SK.
+    const [shareId, selector, secret] = compoundToken.split(".");
+    // `token` (the selector.secret bearer credential, ready to drop straight into the anonymous
+    // route's {token} path segment) is returned ONLY on this response - same one-shot-reveal
+    // discipline as every other credential this codebase issues (guest tokens, invitation
+    // tokens) - never persisted raw, never retrievable again after this.
+    return { statusCode: 201, body: { link, shareId, token: `${selector}.${secret}` } };
+  });
+}
+
+export async function handleRevokeShareLink(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.shareLinks) throw new Error("handleRevokeShareLink requires shareLinks to be wired.");
+    const documentId = requireDocumentId(req);
+    const shareId = requireShareId(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(SHARE_LINK_REVOKE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    authorize({ context, action: "docarchive:share-link-revoke", resource: { tenantId: context.tenant.tenantId } });
+    await deps.shareLinks.revokeShareLink({
+      tenantId: authorizedTenantId(context),
+      documentId,
+      shareId,
+      expectedVersion: req.body.expectedVersion,
+      revokedByUserId: context.principal.userId,
+    });
+    return { statusCode: 204, body: {} };
+  });
+}
+
+function requireShareLinkStatus(req: HttpRequest): "ACTIVE" | "REVOKED" {
+  const raw = req.queryStringParameters?.["status"];
+  if (raw !== "ACTIVE" && raw !== "REVOKED") throw new ValidationError("status query parameter must be 'ACTIVE' or 'REVOKED'.", { status: raw });
+  return raw;
+}
+
+export async function handleListShareLinks(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!deps.shareLinks) throw new Error("handleListShareLinks requires shareLinks to be wired.");
+    const documentId = requireDocumentId(req);
+    const status = requireShareLinkStatus(req);
+    const context = await resolve(deps, req);
+    authorize({ context, action: "docarchive:share-link-list", resource: { tenantId: context.tenant.tenantId } });
+    const signature = { mode: "SHARE_LINK", documentId, status };
+    const cursorRaw = req.queryStringParameters?.["cursor"];
+    const { items, lastEvaluatedKey } = await deps.shareLinks.listShareLinks({
+      tenantId: authorizedTenantId(context),
+      documentId,
+      status,
+      exclusiveStartKey: cursorRaw ? decodeSearchCursor(cursorRaw, signature) : undefined,
+    });
+    return { statusCode: 200, body: { links: items, cursor: lastEvaluatedKey ? encodeSearchCursor(signature, lastEvaluatedKey) : undefined } };
   });
 }
 

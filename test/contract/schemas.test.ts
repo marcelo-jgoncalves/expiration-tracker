@@ -1954,4 +1954,38 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-metadata-values-update-request.v1.json", { expectedDocumentVersion: 1, values: { "field-x": { valueType: "TEXT", optionId: "opt-1" } } });
     expect(valid).toBe(false);
   });
+
+  // D-225/D-241 (ExternalShareLink slice 2/3, backlog P1 item 8).
+  it("accepts a valid docarchive-share-link-create-request.v1 with ttlDays", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-create-request.v1.json", { ttlDays: 7 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid docarchive-share-link-create-request.v1 with no body at all (ttlDays optional)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-create-request.v1.json", {});
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-share-link-create-request.v1 with ttlDays above the 30-day cap", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-create-request.v1.json", { ttlDays: 31 });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-share-link-create-request.v1 with an unknown extra property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-create-request.v1.json", { ttlDays: 7, extra: "nope" });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid docarchive-share-link-revoke-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-revoke-request.v1.json", { expectedVersion: 1 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-share-link-revoke-request.v1 missing expectedVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-revoke-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
 });

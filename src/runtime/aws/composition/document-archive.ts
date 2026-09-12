@@ -7,6 +7,8 @@ import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/
 import { DocumentArchiveService } from "../../../modules/document-archive/application/document-archive-service.js";
 import { DocumentArchiveGuestRateLimiter } from "../../../modules/document-archive/application/document-archive-guest-rate-limiter.js";
 import { GuestDocumentAccessService } from "../../../modules/document-archive/application/guest-document-access-service.js";
+import { ExternalShareLinkService } from "../../../modules/document-archive/application/external-share-link-service.js";
+import { S3ExternalShareLinkFileStore } from "../../../modules/document-archive/persistence/s3-external-share-link-file-store.js";
 import { DocumentRequestRecurrenceService } from "../../../modules/document-archive/application/document-request-recurrence-service.js";
 import { DocumentRequestCredentialIssuanceService } from "../../../modules/document-archive/application/document-request-credential-issuance-service.js";
 import { DynamoDbGuestCredentialDeliveryMarkerStore } from "../../../modules/document-archive/persistence/dynamodb-guest-credential-delivery-marker-store.js";
@@ -31,7 +33,7 @@ import { buildMemberEligibilityChecker } from "./expiration.js";
  * dossier download route) keeps working unchanged - only `document-archive-handler.ts`'s
  * download route actually needs `dossierExportStore` wired. Reuses D-204's `report_exports`
  * bucket under a distinct key prefix, never a new bucket. */
-export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableName: string, quarantineBucket: string, reportExportsBucketName?: string) {
+export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableName: string, quarantineBucket: string, reportExportsBucketName?: string, shareLinkPepper?: string) {
   const store = new DynamoDbDocumentArchiveStore(client, tableName);
   const ids = new UlidIdGenerator();
   const signer = new S3UploadUrlSigner(new S3Client({}));
@@ -46,11 +48,33 @@ export function buildDocumentArchiveDeps(client: DynamoDBDocumentClient, tableNa
   // gives for hosting Requirement in the same class rather than a new one).
   const recurrence = new DocumentRequestRecurrenceService({ store, tableName, ids });
   const dossierExportStore = reportExportsBucketName ? new S3DossierExportStore(new S3Client({}), reportExportsBucketName) : undefined;
+  // D-225/D-241 (ExternalShareLink slice 2/3): optional, same reasoning as dossierExportStore
+  // above. Built WITHOUT rateLimiter/fileStore/ipAuditPepper deliberately (see
+  // ExternalShareLinkServiceDeps's own doc comment) - this Lambda only ever calls
+  // createShareLink/revokeShareLink/listShareLinks, never resolveForAnonymousAccess, so it never
+  // needs the extra clean-bucket S3 IAM grant buildExternalShareAnonymousDeps below requires.
+  const shareLinks = shareLinkPepper ? new ExternalShareLinkService({ store, tableName, ids, pepper: shareLinkPepper }) : undefined;
   // `ids` is also returned directly (not just embedded in the services above) - D-166's
   // DocumentFileReconciliationWorker needs it for `apply-file-scan-result.ts`'s
   // `ApplyFileScanResultDeps` shape (unused by `applyFileScanTimeout` itself, but the type is
   // shared with `applyFileScanResult`/`confirmFileScanClean`, which do use it).
-  return { store, ids, documentArchive, recurrence, dossierExportStore };
+  return { store, ids, documentArchive, recurrence, dossierExportStore, shareLinks };
+}
+
+/** D-225/D-241 (ExternalShareLink slice 2/3): composition root for the DEDICATED anonymous
+ * Lambda (external-share-handler.ts, authorization_type = NONE), same isolation posture as
+ * buildDocumentArchiveGuestDeps below. Builds the FULL ExternalShareLinkService (rateLimiter/
+ * fileStore/ipAuditPepper included) - this is the only composition that ever calls
+ * resolveForAnonymousAccess. `pepper` and `ipAuditPepper` are two DIFFERENT secrets (Decision
+ * 11 - separate crypto domains, a leak of one must never compromise the other), never the same
+ * env var. */
+export function buildExternalShareAnonymousDeps(client: DynamoDBDocumentClient, tableName: string, pepper: string, ipAuditPepper: string) {
+  const store = new DynamoDbDocumentArchiveStore(client, tableName);
+  const ids = new UlidIdGenerator();
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store);
+  const fileStore = new S3ExternalShareLinkFileStore(new S3Client({}));
+  const shareLinks = new ExternalShareLinkService({ store, tableName, ids, rateLimiter, fileStore, pepper, ipAuditPepper });
+  return { shareLinks };
 }
 
 /** D-205 fatia 2: composition root for the DossierExportGenerationWorker Lambda. Reuses the SAME

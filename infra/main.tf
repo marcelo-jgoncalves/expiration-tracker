@@ -445,6 +445,17 @@ data "aws_iam_policy_document" "document_archive_presign_quarantine_put" {
   }
 }
 
+# D-225/D-241 (ExternalShareLink slice 2/3) — own pepper, never GUEST_TOKEN_PEPPER/
+# DOCARCHIVE_GUEST_ACCESS_PEPPER (distinct credential shape, distinct blast radius). Shared
+# verbatim between document_archive_handler (mints the token via createShareLink) and
+# external_share_handler below (validates it via resolveForAnonymousAccess) — same cross-Lambda
+# pepper-reuse precedent document_request_credential_issuance_handler already establishes for
+# DOCARCHIVE_GUEST_ACCESS_PEPPER.
+resource "random_password" "docarchive_share_link_pepper" {
+  length  = 64
+  special = false
+}
+
 module "document_archive_handler" {
   source = "./modules/lambda-function"
 
@@ -459,6 +470,10 @@ module "document_archive_handler" {
     # (below) write to - see report_exports_read's own comment (D-215) for why this reference
     # works despite being defined later in file order.
     REPORT_EXPORTS_BUCKET_NAME = aws_s3_bucket.report_exports.bucket
+    # D-225/D-241 (ExternalShareLink slice 2/3) — the 3 authenticated share-link routes only
+    # (createShareLink/revokeShareLink/listShareLinks); this Lambda never resolves the anonymous
+    # visitor's route, so it needs no clean-bucket S3 grant beyond what it already has.
+    DOCARCHIVE_SHARE_LINK_PEPPER = random_password.docarchive_share_link_pepper.result
   })
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
@@ -497,6 +512,53 @@ module "document_archive_guest_handler" {
     # ADR-0013 (D-265) — same policy document already granted to document_archive_handler above
     # (line ~462), reused verbatim, never a second IAM statement for the same bucket/action.
     data.aws_iam_policy_document.document_archive_presign_quarantine_put.json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- ExternalShareHandler: GET /external-share/{shareId}/{token} (D-225/D-241) -------------
+# The anonymous visitor's own route — DEDICATED Lambda from document_archive_guest_handler
+# above, own pepper PAIR (never document_archive_guest_access_pepper/GUEST_TOKEN_PEPPER — a
+# distinct credential shape, Decision 2), own minimal IAM: read-only against the CLEAN bucket
+# only (never quarantine — this route only ever serves an already-scanned-clean file), no write
+# action of any kind.
+resource "random_password" "external_share_ip_audit_pepper" {
+  length  = 64
+  special = false
+}
+
+# Decision 11 (estado-final-consolidado.md): the anonymous-access audit events' ipHash uses its
+# OWN pepper, never docarchive_share_link_pepper above — separate crypto domains, a leak of one
+# must never compromise the other.
+data "aws_iam_policy_document" "external_share_clean_object_read" {
+  statement {
+    sid       = "ReadCleanObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:GetObjectVersion"]
+    resources = ["${module.document_buckets.clean_bucket_arn}/*"]
+  }
+  statement {
+    sid       = "DecryptCleanObjects"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [module.document_buckets.clean_kms_key_arn]
+  }
+}
+
+module "external_share_handler" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-external-share-handler"
+  handler_name   = "external-share-handler"
+  source_dir     = "${local.dist_dir}/external-share-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    DOCARCHIVE_SHARE_LINK_PEPPER   = random_password.docarchive_share_link_pepper.result
+    EXTERNAL_SHARE_IP_AUDIT_PEPPER = random_password.external_share_ip_audit_pepper.result
+  })
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    data.aws_iam_policy_document.external_share_clean_object_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -729,6 +791,8 @@ module "api" {
   document_archive_function_name       = module.document_archive_handler.function_name
   document_archive_guest_invoke_arn    = module.document_archive_guest_handler.live_alias_invoke_arn
   document_archive_guest_function_name = module.document_archive_guest_handler.function_name
+  external_share_invoke_arn            = module.external_share_handler.live_alias_invoke_arn
+  external_share_function_name         = module.external_share_handler.function_name
   whatsapp_webhook_invoke_arn          = module.whatsapp_webhook_handler.live_alias_invoke_arn
   whatsapp_webhook_function_name       = module.whatsapp_webhook_handler.function_name
   tags                                 = { Project = local.project_name, Environment = var.environment }

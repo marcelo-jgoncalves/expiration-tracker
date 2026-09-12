@@ -803,6 +803,13 @@ locals {
     preview_dossier_export  = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier" }
     confirm_dossier_export  = { method = "POST", path = "/document-archive/subjects/{subjectId}/dossier/{runId}/confirm" }
     download_dossier_export = { method = "GET", path = "/document-archive/subjects/{subjectId}/dossier/{runId}/download" }
+
+    # D-225/D-241 (ExternalShareLink slice 2/3, backlog P1 item 8) - authenticated/admin side
+    # only, same Lambda. The anonymous visitor's own route lives on the SEPARATE
+    # external_share_handler below, authorization_type = NONE.
+    create_share_link = { method = "POST", path = "/document-archive/documents/{documentId}/share-links" }
+    list_share_links  = { method = "GET", path = "/document-archive/documents/{documentId}/share-links" }
+    revoke_share_link = { method = "PATCH", path = "/document-archive/documents/{documentId}/share-links/{shareId}/revoke" }
   }
 }
 
@@ -868,4 +875,32 @@ resource "aws_lambda_permission" "document_archive_guest" {
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/document-archive/guest*"
+}
+
+# --- ExternalShareHandler: GET /external-share/{shareId}/{token} (D-225/D-241) -------------
+# The anonymous visitor's own route — DEDICATED Lambda from document_archive_guest above (own
+# pepper pair, own IAM: clean-bucket read only, never quarantine), same authorization_type =
+# NONE posture.
+
+resource "aws_apigatewayv2_integration" "external_share" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.external_share_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "external_share" {
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /external-share/{shareId}/{token}"
+  target             = "integrations/${aws_apigatewayv2_integration.external_share.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "external_share" {
+  statement_id  = "AllowApiGatewayInvokeExternalShare"
+  action        = "lambda:InvokeFunction"
+  function_name = var.external_share_function_name
+  principal     = "apigateway.amazonaws.com"
+  qualifier     = "live"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/external-share*"
 }
