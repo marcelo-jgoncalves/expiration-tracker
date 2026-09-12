@@ -43,6 +43,7 @@ import { RequirementTemplatesScreen } from "./routes/requirement-templates/Requi
 import { Members } from "./routes/Members.js";
 import { Settings } from "./routes/Settings.js";
 import { ActivityLog } from "./routes/ActivityLog.js";
+import { NotificationPreferences } from "./routes/NotificationPreferences.js";
 import { AcceptInvitation } from "./routes/AcceptInvitation.js";
 import { NotFound } from "./routes/NotFound.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
@@ -50,8 +51,11 @@ import { ToastProvider } from "./components/Toast.js";
 import { SubjectRequests } from "./routes/subjects/SubjectRequests.js";
 import { Tracking } from "./routes/subjects/Tracking.js";
 import { RequestDeliverySettings } from "./routes/subjects/RequestDeliverySettings.js";
+import { DossierExport } from "./routes/subjects/DossierExport.js";
+import { Reports } from "./routes/Reports.js";
 import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
 import { LegacyGuestUpload } from "./routes/guest/LegacyGuestUpload.js";
+import { ImportWizard } from "./routes/imports/ImportWizard.js";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -119,6 +123,9 @@ export function App() {
                     ("Rastreamento legado"), no top-level nav entry of its own. */}
                 <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
                 <Route path="subjects/:subjectId/tracking/:assignmentId" element={<Tracking />} />
+                {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
+                    top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
+                <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}
                 <Route path="reviews" element={<ReviewQueue />} />
@@ -139,9 +146,23 @@ export function App() {
                     (Navigate away for non-OWNER) - matches A20/A21's nested-under-settings
                     route contract. */}
                 <Route path="settings/request-delivery" element={<RequestDeliverySettings />} />
+                {/* A18 (Block 8, D-2xx) - per-user, READ_ONLY_ROLES (every role edits only their
+                    own preferences), no route guard needed - same "no restriction" posture as
+                    Settings/Members below. */}
+                <Route path="settings/notifications" element={<NotificationPreferences />} />
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
+                {/* A15 (Block 9) - Importação em massa (CSV), `import:read` (all roles) for the
+                    `:jobId` route, `import:create` (WRITE_ROLES) gated inside the component for
+                    the `new` route - same "gate inside the screen, not the route" discipline as
+                    A22/Settings.tsx below. Two paths, one component: `ImportWizard` branches on
+                    whether `:jobId` is present (see its own header comment). */}
+                <Route path="imports/new" element={<ImportWizard />} />
+                <Route path="imports/:jobId" element={<ImportWizard />} />
+                {/* A16 (Block 10, D-2xx) - Relatórios e exportações, ADMIN_ROLES-only own route
+                    guard inside the component, same pattern as A22. */}
+                <Route path="reports" element={<Reports />} />
               </Route>
               {/* Root path - a plain, ungated redirect to the (also legacy, also gated below)
                   "/overview" path, exactly what the pre-migration index route did. Kept OUTSIDE
@@ -171,6 +192,9 @@ export function App() {
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/tracking" element={null} />
                 <Route path="subjects/:subjectId/tracking/:assignmentId" element={null} />
+                {/* A17 (Block 10, D-2xx) - added here from the start, same healing-forward
+                    discipline as A10/A13/A20/A21/A22, not a repeat of A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/dossier" element={null} />
                 {/* A11 (Block 3, D-2xx) - was missing from this list entirely (real gap, found
                     by the Block 3 E2E/accessibility gap closure, D-2xx): `page.goto("/requirements")`
                     and any real bookmark/link to the bare path 404'd via the catch-all `*` route
@@ -191,9 +215,19 @@ export function App() {
                 {/* A22 (Block 7, D-267) - added here from the start, same healing-forward
                     discipline as A20/A21. */}
                 <Route path="settings/request-delivery" element={null} />
+                {/* A18 (Block 8, D-2xx) - added here from the start, same healing-forward
+                    discipline as A20/A21/A22. */}
+                <Route path="settings/notifications" element={null} />
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />
+                {/* A15 (Block 9) - added here from the start, same healing-forward discipline
+                    as A20/A21/A22 above. */}
+                <Route path="imports/new" element={null} />
+                <Route path="imports/:jobId" element={null} />
+                {/* A16 (Block 10, D-2xx) - added here from the start, same healing-forward
+                    discipline as A20/A21/A22. */}
+                <Route path="reports" element={null} />
               </Route>
               {/* Sibling of the two groups above, never nested under ActiveOrganizationProvider/
                   OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships

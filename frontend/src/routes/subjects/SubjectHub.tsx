@@ -4,10 +4,12 @@
  * post-audit spec: Compliance panel (SLF-01-adjacent composition, `MetricCardGrid` for the
  * destination-cards grid), `subject:delete` surface (was missing pre-audit), links to A11
  * (filtered by `?subjectId=`, honored on A11's side), A12 documents (degrades to A11 until a
- * dedicated Documents Collection exists - same spec-named fallback), and a real (preview-only)
- * dossier export action (`docarchive:dossier-export`, ADMIN_ROLES exclusive, D-205 - no assignee
- * exception; the backend's own confirm/generate step is a separate not-yet-built fatia, so this
- * never claims a downloadable file exists - see `DossierExportAction` below).
+ * dedicated Documents Collection exists - same spec-named fallback), and a link to A17's full
+ * dossier export wizard (`docarchive:dossier-export`, ADMIN_ROLES exclusive, D-205 - no assignee
+ * exception). A17 shipped in Block 10 (D-2xx) with the real confirm/generate/download flow - this
+ * Hub previously had its own preview-only inline stub (`DossierExportAction`, Block 3) since
+ * generation didn't exist yet; that stub is gone, replaced by this plain link now that A17 is the
+ * real, complete screen.
  *
  * A14 (Requests & Recurrence) has an audited SPEC but no implemented frontend screen yet (Block
  * 6 of the sequencing plan, still not built). A10 (Legacy Tracked Requirements) shipped in Block
@@ -30,7 +32,6 @@ import { PageHeader } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
-import { previewDossierExport } from "../../api/requirements.js";
 
 export function SubjectHub() {
   const { subjectId } = useParams<{ subjectId: string }>();
@@ -130,7 +131,7 @@ export function SubjectHub() {
         actions={
           <>
             {canWrite ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/edit`)}>Editar fornecedor</ButtonLink> : null}{" "}
-            {canAdmin ? <DossierExportAction subjectId={subjectId} /> : null}{" "}
+            {canAdmin ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/dossier`)}>Exportar dossiê</ButtonLink> : null}{" "}
             {canAdmin ? (
               <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
                 Excluir fornecedor
@@ -158,38 +159,6 @@ export function SubjectHub() {
   );
 }
 
-/** `docarchive:dossier-export`, ADMIN_ROLES exclusive (D-205, no assignee exception). Real
- * preview step only - the backend's own generation worker (PDF/XLSX) is a separate, not-yet-
- * built fatia (`document-archive-handlers.ts`'s own doc comment on `handleConfirmDossierExport`)
- * - never claims a downloadable file exists (Codex Block 3 review round 1 finding 7: a prior
- * version of this header claimed dossier export was "in the Hub" with zero implementation). */
-function DossierExportAction({ subjectId }: { subjectId: string }) {
-  const [state, setState] = useState<{ kind: "idle" } | { kind: "pending" } | { kind: "done"; rowCount: number } | { kind: "error"; message: string }>({ kind: "idle" });
-
-  async function handlePreview() {
-    setState({ kind: "pending" });
-    try {
-      const result = await previewDossierExport(subjectId);
-      setState({ kind: "done", rowCount: result.rows.length });
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof ApiError ? err.message : "Não foi possível pré-visualizar o dossiê." });
-    }
-  }
-
-  return (
-    <>
-      <Button variant="secondary" pending={state.kind === "pending"} onClick={() => void handlePreview()}>
-        Pré-visualizar dossiê
-      </Button>
-      {state.kind === "done" ? (
-        <InlineNotice tone="info" announce="status">
-          Pré-visualização gerada ({state.rowCount} requisito(s)). A geração do arquivo para download ainda não está disponível nesta versão.
-        </InlineNotice>
-      ) : null}
-      {state.kind === "error" ? <span role="alert"> {state.message}</span> : null}
-    </>
-  );
-}
 
 /** Design system §48 - a destructive confirmation names the resource and the consequence, and
  * initial focus lands on Cancel (never the destructive action) - done via a ref/effect rather

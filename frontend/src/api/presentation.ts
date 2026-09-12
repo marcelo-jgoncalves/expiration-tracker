@@ -26,6 +26,7 @@ import type {
   DocumentRequest,
   DocumentRequestSeriesStatus,
   LegacyDocumentRequestStatus,
+  ImportJobStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -331,6 +332,31 @@ export function presentLegacyDocumentRequestStatus(status: LegacyDocumentRequest
       return { label: "Expirada", tone: "warning" };
     case "REVOKED":
       return { label: "Revogada", tone: "neutral" };
+  }
+}
+
+/** A15 (Block 9) — `ImportJobStatus` label only (the wizard step itself is derived from status
+ * separately, `routes/imports/ImportWizard.tsx`) - this is only for a short status word shown
+ * inside the persistent job summary. `EXPIRED` is real in the type (7-day TTL,
+ * `import-job.ts`'s `IMPORT_JOB_TTL_SECONDS`) but no code path in the backend ever sets it today
+ * — included for an exhaustive switch, never actually reachable yet. */
+export function presentImportJobStatus(status: ImportJobStatus): StatusPresentation {
+  switch (status) {
+    case "UPLOADED":
+    case "AWAITING_MAPPING":
+      return { label: "Aguardando processamento", tone: "neutral" };
+    case "PARSING":
+      return { label: "Processando", tone: "neutral" };
+    case "PREVIEW_READY":
+      return { label: "Pré-visualização pronta", tone: "neutral" };
+    case "COMMITTING":
+      return { label: "Importando", tone: "neutral" };
+    case "COMMITTED":
+      return { label: "Concluído", tone: "neutral" };
+    case "FAILED":
+      return { label: "Falhou", tone: "danger" };
+    case "EXPIRED":
+      return { label: "Expirado", tone: "warning" };
   }
 }
 

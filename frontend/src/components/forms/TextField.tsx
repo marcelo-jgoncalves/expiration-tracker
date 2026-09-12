@@ -21,7 +21,7 @@ export interface TextFieldProps {
   hint?: string;
   required?: boolean;
   maxLength?: number;
-  type?: "text" | "date";
+  type?: "text" | "date" | "time";
   autoComplete?: string;
   multiline?: boolean;
   /** Stable id, so an error summary can link to this control. */

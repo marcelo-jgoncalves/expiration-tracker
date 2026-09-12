@@ -38,6 +38,13 @@ export interface NavItem {
 
 const ADMIN_ROLES: readonly MembershipRole[] = ["ADMIN", "OWNER"];
 const OWNER_ROLES: readonly MembershipRole[] = ["OWNER"];
+// A15 (Block 9) - `import:create/map/commit` (the only actions this entry point exists to
+// reach - starting a new import) are WRITE_ROLES (`authorization.ts:308/310/311`); `import:read`
+// itself is READ_ONLY_ROLES (every role), but a VIEWER has no useful action at `/imports/new`
+// (they can only ever land on a specific existing job's read-only summary via a direct link,
+// never discover one from this nav entry) - same "hide the whole nav entry when the role has no
+// write action behind it" discipline as `request-delivery` below, not a second RBAC tier.
+const WRITE_ROLES: readonly MembershipRole[] = ["OWNER", "ADMIN", "MEMBER"];
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "overview", to: "/overview", label: "Visão geral" },
@@ -59,6 +66,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // live inside the Members screen itself (Members.tsx's own `canManageMembers`), never at the
   // nav-visibility level - hiding the whole nav entry for a role that can legitimately view the
   // roster would be an access REDUCTION the real RBAC matrix never asked for.
+  // A15 (Block 9) - Importação em massa (CSV), reached from this entry point at
+  // `/imports/new` (WRITE_ROLES only - see the comment on `WRITE_ROLES` above). A job already in
+  // progress is reached via its own persistent `/imports/:jobId` link (e.g. bookmarked, or
+  // resumed from wherever it was started), never from this list.
+  { id: "imports", to: "/imports/new", label: "Importar CSV", allowedRoles: WRITE_ROLES },
   { id: "members", to: "/members", label: "Membros" },
   { id: "settings", to: "/settings", label: "Configurações" },
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES, every role
@@ -72,10 +84,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // EXCLUSIVE (`authorization.ts:307`), stricter than the ADMIN_ROLES tier below - no other
   // role sees this entry at all, matching the spec's explicit "totalmente ausentes" instruction.
   { id: "request-delivery", to: "/settings/request-delivery", label: "Entrega de solicitação", allowedRoles: OWNER_ROLES },
+  // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES (`authorization.ts:294`) -
+  // every real role edits their OWN preferences, no restriction here.
+  { id: "notification-preferences", to: "/settings/notifications", label: "Minhas preferências de notificação" },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.
   { id: "activity", to: "/activity", label: "Atividade", allowedRoles: ADMIN_ROLES },
+  // A16 (Block 10, D-2xx) - `item:export`/`docarchive:requirement-export`/
+  // `reports:subscription-manage` are all ADMIN_ROLES exclusively (authorization.ts) - no
+  // READ_ONLY_ROLES exception exists for this screen, unlike "members"/"requirements" above.
+  { id: "reports", to: "/reports", label: "Relatórios", allowedRoles: ADMIN_ROLES },
 ];
 
 /**

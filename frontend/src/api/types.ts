@@ -893,3 +893,196 @@ export interface GuestSubmitEvidenceResult {
 export interface GuestConfirmUploadResult {
   extended: boolean;
 }
+
+/**
+ * A18 (Block 8, D-2xx) — `notification/domain/notification-preferences.ts`. Per-user, distinct
+ * from A06's per-item/per-org Reminder Policy — this is "how do I, personally, receive
+ * reminders," never a workspace-wide setting.
+ */
+export type NotificationConsentSource = "ONBOARDING" | "USER_SETTINGS" | "MIGRATED_DEFAULT";
+
+export interface NotificationQuietHours {
+  enabled: boolean;
+  startLocal: string; // HH:mm
+  endLocal: string; // HH:mm
+  timeZone: string; // IANA
+}
+
+export interface NotificationPreferences {
+  emailEnabled: boolean;
+  locale: string;
+  quietHours: NotificationQuietHours | null;
+  consentSource: NotificationConsentSource;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// --- A16 (Block 10, D-2xx) - Reports & Exports ----------------------------------------------
+
+/** The 7 fixed CSV reports `ReportsService` exposes (D-195) - never user-defined. */
+export type ReportKey =
+  | "expired-items"
+  | "expiring-soon-items"
+  | "renewed-items"
+  | "expiration-items-by-assignee"
+  | "missing-requirements"
+  | "requirements-by-subject"
+  | "requirements-by-assignee";
+
+/** `src/modules/reports/domain/report-subscription.ts`'s exact type union - a subscription
+ * selects a non-empty SUBSET of these 7, never one report per subscription (a real deviation
+ * from the prototype spec's "Relatório" singular column, confirmed directly against the
+ * domain type before typing this - see Reports.tsx's own header comment). */
+export type ReportSubscriptionReportType =
+  | "EXPIRED_ITEMS"
+  | "EXPIRING_SOON_ITEMS"
+  | "RENEWED_ITEMS"
+  | "EXPIRATION_ITEMS_BY_ASSIGNEE"
+  | "MISSING_REQUIREMENTS"
+  | "REQUIREMENTS_BY_SUBJECT"
+  | "REQUIREMENTS_BY_ASSIGNEE";
+
+/** v1 backend supports only WEEKLY (`ReportSubscriptionCadence` in the domain file) - never
+ * Diária/Mensal, despite the prototype spec naming those options. */
+export interface ReportSubscription {
+  subscriptionId: string;
+  reportTypes: readonly ReportSubscriptionReportType[];
+  dayOfWeek: number; // ISO 8601: 1=Monday..7=Sunday
+  localTime: string; // "HH:mm"
+  timeZone: string; // IANA
+  recipientUserIds: readonly string[];
+  nextRunAt: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateNotificationPreferencesInput {
+  emailEnabled: boolean;
+  locale: string;
+  quietHours: NotificationQuietHours | null;
+}
+
+/**
+ * A15 (Block 9) — CSV bulk import (`src/modules/import/`, D-042/D-192). Mirrors
+ * `ImportJob`/`ColumnMapping`/`ImportFieldCatalogEntry` (`src/modules/import/domain/import-job.ts`)
+ * field-for-field against the real backend code, not the aspirational screen spec — two real
+ * gaps found while verifying: (1) `POST /imports` (`ReserveImportInput` below) has NO
+ * `targetEntityType` input at all — every job this screen can ever create is hardcoded
+ * `"TrackedSubject"` server-side (`ImportService.reserveImport`), so `Document`/`Requirement`
+ * import (mentioned in the prose spec) has no real entry point yet; (2) dedupe is automatic-skip
+ * only (`SKIP_DUPLICATE` rows are counted in `duplicateRows`, never created NOR updated) — there
+ * is no per-row "Atualizar existente/Criar como novo" choice anywhere in the backend, and no
+ * endpoint at all exposes per-row preview/outcome data (`ImportRowOutcome` is DynamoDB-only,
+ * never queried by any allowlisted route) — so this screen's preview/result steps can only ever
+ * show the aggregate counters below, never a per-row table.
+ */
+export type ImportTargetEntityType = "TrackedSubject" | "Document" | "Requirement";
+
+export type ImportJobStatus = "UPLOADED" | "AWAITING_MAPPING" | "PARSING" | "PREVIEW_READY" | "COMMITTING" | "COMMITTED" | "FAILED" | "EXPIRED";
+
+/** Only the `TrackedSubject` variant is reachable from this screen (see the module doc comment
+ * above) — `Document`/`Requirement` are kept here only because they are real variants of the
+ * backend's own discriminated union (`import-job.ts`), never actually producible by this UI. */
+export type ColumnMapping =
+  | { schemaVersion: 1; targetKind: "TrackedSubject"; columns: { displayName: string; type: string; externalId?: string; notes?: string; tags?: string } }
+  | {
+      schemaVersion: 1;
+      targetKind: "Document";
+      columns: { subjectRef: string; subjectRefKind: "EXTERNAL_ID" | "SUBJECT_ID"; documentTypeRef: string; documentTypeRefKind: "DOCUMENT_TYPE_ID" | "DISPLAY_NAME"; hasValidity: string; externalId?: string };
+    }
+  | {
+      schemaVersion: 1;
+      targetKind: "Requirement";
+      columns: { subjectRef: string; subjectRefKind: "EXTERNAL_ID" | "SUBJECT_ID"; name: string; notes?: string; applicability?: string; externalId?: string };
+    };
+
+export interface ImportJob {
+  jobId: string;
+  tenantId: string;
+  targetEntityType: ImportTargetEntityType;
+  status: ImportJobStatus;
+  checksumSha256?: string;
+  columnMapping?: ColumnMapping;
+  columnMappingSha256?: string;
+  totalRows?: number;
+  acceptedRows?: number;
+  rejectedRows?: number;
+  duplicateRows?: number;
+  lastCommittedRowNumber?: number;
+  failureReason?: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface ReserveImportInput {
+  contentLength: number;
+  checksumSha256: string;
+}
+
+export interface ReserveImportResult {
+  jobId: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+export interface GetImportJobResult {
+  job: ImportJob;
+}
+
+export interface ImportFieldCatalogEntry {
+  field: string;
+  required: boolean;
+}
+
+export interface ImportJobSchemaResult {
+  targetEntityType: ImportTargetEntityType;
+  fields: ImportFieldCatalogEntry[];
+  headers: string[];
+  sampleRows: string[][];
+  objectETag: string | undefined;
+}
+
+export interface SubmitImportMappingResult {
+  status: ImportJobStatus;
+}
+
+export interface CreateReportSubscriptionInput {
+  reportTypes: readonly ReportSubscriptionReportType[];
+  dayOfWeek: number;
+  localTime: string;
+  timeZone: string;
+  recipientUserIds: readonly string[];
+}
+
+export interface ReportSubscriptionsResponse {
+  subscriptions: ReportSubscription[];
+  /** Present when DynamoDB paginated the underlying query - `handleListReportSubscriptions`
+   * (`reports-handler.ts`) surfaces this key but accepts NO cursor input at all (confirmed
+   * directly against the handler - `listSubscriptions(context)` takes no pagination argument), so
+   * there is no way for this frontend to actually fetch the remaining pages. Its only real use
+   * here is a truthiness check: if present, the list below is genuinely incomplete and the UI
+   * must say so rather than presenting the count as a total. */
+  lastEvaluatedKey?: unknown;
+}
+
+// --- A17 (Block 10, D-2xx) - Subject Dossier Export -----------------------------------------
+
+export type DossierExportRunStatus = "PREVIEW_READY" | "CONFIRMED" | "GENERATING" | "READY" | "FAILED" | "TOO_LARGE";
+
+export interface DossierExportRun {
+  runId: string;
+  subjectId: string;
+  status: DossierExportRunStatus;
+  scopeHash: string;
+  createdAt: string;
+  updatedAt: string;
+  generatedAt?: string;
+  failureReason?: string;
+}
+
+export type DossierExportFormat = "pdf" | "xlsx";

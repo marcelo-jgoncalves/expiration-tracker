@@ -1,0 +1,26 @@
+/* A16 (Block 10, D-2xx) — grid of report cards, per spec's `repeat(auto-fill, minmax(260px,1fr))`.
+   A new pattern (action card, not a metric/link card) — MetricCardGrid does not fit (its cards are
+   counter+link, not title+note+button), so this is its own small, scoped stylesheet rather than a
+   forced reuse. */
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-6);
+}
+
+.reports-card__title {
+  font-weight: var(--font-weight-medium);
+  margin: 0 0 var(--space-2);
+}
+
+.reports-card__note {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+  margin: 0 0 var(--space-4);
+}
+
+.reports-subscriptions__header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-4);
+}
