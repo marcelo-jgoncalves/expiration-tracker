@@ -9,7 +9,17 @@
  * dependency for it). Scoped to the tenantless `DOCARCHIVEGUEST#...`/`DOCARCHIVEGUESTIP#...`
  * namespaces — resolution happens before `tenantId` is known, same reasoning as
  * `GuestRateLimiter`.
+ *
+ * P2.2 (external audit 2026-09-11, corrected 2026-09-12): the IP dimension's key used to embed
+ * the caller's raw IP address in plaintext (`DOCARCHIVEGUESTIP#<ip>#RATE`), persisted at rest
+ * (bounded by `purgeAfterTtl`, but still plaintext PII sitting in the table until then). Now
+ * HMAC-hashed with a caller-supplied pepper before use, same `createHmac("sha256", pepper)`
+ * primitive already used by `external-share-link.ts`/`request-access-credential.ts` — this is a
+ * pseudonymization hash, not a credential secret, so callers deliberately reuse whatever pepper
+ * is already in scope for their own surface (guest access pepper, or `ExternalShareLinkService`'s
+ * own dedicated `ipAuditPepper`) rather than requiring a brand new one.
  */
+import { createHmac } from "node:crypto";
 import { QuotaExceededError } from "../../../shared/errors/app-error.js";
 import { epochSecondsFromIso } from "../domain/request-access-credential.js";
 import type { DocumentArchiveStore, EntityKey } from "../ports/document-archive-store.js";
@@ -29,8 +39,13 @@ const MAX_CONTENTION_RETRIES = 20;
 export class DocumentArchiveGuestRateLimiter {
   constructor(
     private readonly store: DocumentArchiveStore,
+    private readonly ipHashPepper: string,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
+
+  private hashIp(ip: string): string {
+    return createHmac("sha256", this.ipHashPepper).update(ip).digest("hex");
+  }
 
   /** Consumes both dimensions — by `requestId`-derived selector AND by caller IP — in the FIRST
    * limit-exceeded order, never consuming the second dimension after the first already rejected
@@ -40,7 +55,7 @@ export class DocumentArchiveGuestRateLimiter {
    * generic anti-enumeration error, never surface 429 differently from 401 on this path. */
   async consumeBoth(input: { requestKey: string; ip: string; limit: number; windowSeconds: number }): Promise<void> {
     await this.consume({ PK: `DOCARCHIVEGUEST#${input.requestKey}#RATE`, SK: "RATE" }, input.limit, input.windowSeconds);
-    await this.consume({ PK: `DOCARCHIVEGUESTIP#${input.ip}#RATE`, SK: "RATE" }, input.limit, input.windowSeconds);
+    await this.consume({ PK: `DOCARCHIVEGUESTIP#${this.hashIp(input.ip)}#RATE`, SK: "RATE" }, input.limit, input.windowSeconds);
   }
 
   private async consume(key: { PK: string; SK: "RATE" }, limit: number, windowSeconds: number): Promise<void> {

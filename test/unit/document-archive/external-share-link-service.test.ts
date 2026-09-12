@@ -52,7 +52,7 @@ function fakeFileStore(): ExternalShareLinkFileStore & { calls: number } {
 }
 
 function makeService(store: InMemoryDocumentArchiveStore, fileStore: ExternalShareLinkFileStore, now: () => string = () => NOW) {
-  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, now);
+  const rateLimiter = new DocumentArchiveGuestRateLimiter(store, IP_AUDIT_PEPPER, now);
   const ids = makeIds();
   return { service: new ExternalShareLinkService({ store, tableName: "test-table", ids, rateLimiter, fileStore, pepper: PEPPER, ipAuditPepper: IP_AUDIT_PEPPER, now }), ids };
 }

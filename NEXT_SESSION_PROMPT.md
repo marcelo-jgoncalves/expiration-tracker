@@ -83,9 +83,9 @@ Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eix
 ## Auditoria crítica externa recebida 2026-09-12 (~8,2/10, não é rodada Claude↔Codex)
 
 Documento completo: `docs/engineering/reviews/external-audit-2026-09-11-critica-repositorio.md`. 3 achados novos verificados diretamente contra código/GitHub real antes de registrar aqui (nunca aceitos só por alegação):
-- **CI de `main` exige só o check `guardrails`** (confirmado via `gh api .../protection`) — `frontend`/`terraform`/`dynamodb-integration` rodam mas não bloqueiam merge se falharem. Achado novo, correção barata (required-status-check agregador).
+- **CI de `main` exige só o check `guardrails`** (confirmado via `gh api .../protection`) — `frontend`/`terraform`/`dynamodb-integration` rodam mas não bloqueiam merge se falharem. Achado novo, correção barata (required-status-check agregador). **PRÓXIMO A CORRIGIR**.
 - **`ReminderPolicy` permite N policies por item, frontend modela 1** — sem uniqueness fence (D-258 já citava como pendência menor; a auditoria eleva a P0). Decisão de domínio pendente: 1:1 com fence transacional vs. N explícito em toda a stack.
-- **IP bruto na PK do guest rate limiter** (`document-archive-guest-rate-limiter.ts`, confirmado) — sem HMAC. Correção barata de privacidade.
+- **IP bruto na PK do guest rate limiter** (`document-archive-guest-rate-limiter.ts`) — **CORRIGIDO (D-276, 2026-09-12)**: HMAC-SHA256 com pepper já existente na composição (nunca um secret novo), aplica tanto ao `GuestDocumentAccessService` quanto ao `ExternalShareLinkService` (mesma classe compartilhada).
 
 Achados adicionais não verificados linha a linha ainda (ver documento completo): falta suíte "Real System E2E" contra `dev` (não mockada); `RequestContext` caro no hot path; Reminder Producer não sustenta o SLO declarado; Capacity Model desatualizado; sem load testing; frontend sem code-splitting; 2 boundaries async sem schema runtime validation. Achados que a auditoria cita mas já eram rastreados aqui (não são novidade): CSP/CORS, guest session binding, `createSeries` unicidade, filas do `reset-dev-data.ts`, `coverage.thresholds`.
 
