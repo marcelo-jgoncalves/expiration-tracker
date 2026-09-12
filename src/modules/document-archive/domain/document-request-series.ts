@@ -91,6 +91,30 @@ export function documentRequestSeriesKey(tenantId: AuthorizedTenantId, subjectId
   return { PK: `TENANT#${tenantId}#SUBJECT#${subjectId}`, SK: `SERIES#${seriesId}` };
 }
 
+/**
+ * P0.3 (external audit 2026-09-11) — at most one ACTIVE `DocumentRequestSeries` per
+ * Requirement, enforced by a sparse uniqueness pointer, same "conditional Put on a dedicated
+ * PK" mechanism already in production for `requirementNamePointerKey`/`ExternalShareLinkPointer`/
+ * `InvitationDedupPointer` (a decided, already-approved pattern — not a new one, see
+ * `document-request-recurrence-service.ts`'s `createSeries` doc comment for the full
+ * transaction shape). Keyed by `requirementId` alone (never `subjectId`) — `requirementId` is a
+ * fresh ULID, globally unique within the tenant, so no `subjectId` scoping is needed for
+ * correctness; scoping by `requirementId` alone is also simpler for `cancelSeries` to address
+ * without re-deriving a subject-scoped key.
+ */
+export interface ActiveDocumentRequestSeriesPointer extends EntityKey {
+  SK: "POINTER";
+  entityType: "ActiveDocumentRequestSeriesPointer";
+  tenantId: string;
+  requirementId: string;
+  seriesId: string;
+  createdAt: string;
+}
+
+export function activeDocumentRequestSeriesPointerKey(tenantId: AuthorizedTenantId, requirementId: string): { PK: string; SK: "POINTER" } {
+  return { PK: `TENANT#${tenantId}#REQACTIVESERIES#${requirementId}`, SK: "POINTER" };
+}
+
 export const DOCUMENT_REQUEST_SERIES_SK_PREFIX = "SERIES#";
 
 /**

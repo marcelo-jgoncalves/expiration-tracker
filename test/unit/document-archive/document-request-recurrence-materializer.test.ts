@@ -1,7 +1,7 @@
 /** D-147: the periodic "what's due" materializer worker (`scanActiveSeries` -> materialize
  * attempt 1 of any due, not-yet-attempted cycle). */
 import { describe, expect, it } from "vitest";
-import { InMemoryDocumentArchiveStore } from "./in-memory-store.js";
+import { InMemoryDocumentArchiveStore, seedActiveRequirement, seedActiveTenantLifecycle, seedActiveTrackedSubject } from "./in-memory-store.js";
 import { DocumentRequestRecurrenceService } from "../../../src/modules/document-archive/application/document-request-recurrence-service.js";
 import { runDocumentRequestRecurrenceMaterializer } from "../../../src/workers/document-request-recurrence/materializer.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
@@ -38,7 +38,12 @@ function makeIds(): DocumentArchiveIdGenerator {
 
 describe("runDocumentRequestRecurrenceMaterializer", () => {
   it("materializes attempt 1 for a due series with no attempt yet, skips a not-yet-due series", async () => {
-    const store = new InMemoryDocumentArchiveStore();
+    const store = new InMemoryDocumentArchiveStore([
+      seedActiveTenantLifecycle("tenant-1"),
+      seedActiveTrackedSubject("tenant-1", "subject-1"),
+      seedActiveRequirement("tenant-1", "subject-1", "req-1"),
+      seedActiveRequirement("tenant-1", "subject-1", "req-2"),
+    ]);
     const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
 
     const dueSeries = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, firstDueAt: "2026-08-31T00:00:00.000Z" });
@@ -58,7 +63,7 @@ describe("runDocumentRequestRecurrenceMaterializer", () => {
   });
 
   it("skips a due series that already has an attempt for its current cycle (never auto-retries)", async () => {
-    const store = new InMemoryDocumentArchiveStore();
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle("tenant-1"), seedActiveTrackedSubject("tenant-1", "subject-1"), seedActiveRequirement("tenant-1", "subject-1", "req-1")]);
     const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
     const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
     await service.materializeAttempt(ctx(), "subject-1", series.seriesId, series.version);
@@ -69,7 +74,7 @@ describe("runDocumentRequestRecurrenceMaterializer", () => {
   });
 
   it("is idempotent against a duplicate run for the same due cycle (second run materializes nothing new)", async () => {
-    const store = new InMemoryDocumentArchiveStore();
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle("tenant-1"), seedActiveTrackedSubject("tenant-1", "subject-1"), seedActiveRequirement("tenant-1", "subject-1", "req-1")]);
     const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
     await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 } });
 
@@ -87,7 +92,7 @@ describe("runDocumentRequestRecurrenceMaterializer", () => {
   // D-230 — closes D-228's named pendency: proves the PERIODIC worker (not just the interactive
   // materializeAttempt) copies series.recipientEmail onto the DocumentRequest it materializes.
   it("copies series.recipientEmail onto the DocumentRequest it materializes", async () => {
-    const store = new InMemoryDocumentArchiveStore();
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle("tenant-1"), seedActiveTrackedSubject("tenant-1", "subject-1"), seedActiveRequirement("tenant-1", "subject-1", "req-1")]);
     const service = new DocumentRequestRecurrenceService({ store, tableName: "MainTable", ids: makeIds(), now: () => "2026-09-01T00:00:00.000Z" });
     const series = await service.createSeries(ctx(), { subjectId: "subject-1", requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
 
