@@ -124,3 +124,51 @@ describe("dispatch-outbox-relay-handler processStreamRecords - partial batch fai
     expect(secondParsed.correlationId).toBe("cor-2");
   });
 });
+
+// P2.1 (external audit 2026-09-11): unmarshall -> bare TS cast replaced with real schema
+// validation - these prove the two properties that actually matter for that fix.
+describe("dispatch-outbox-relay-handler processStreamRecords - schema validation (P2.1)", () => {
+  function makeDeps() {
+    const store = new FakeRelayStore();
+    return { store, now: () => "2026-08-19T10:00:05.000Z", senders: {} };
+  }
+
+  it("skips a Streams image for a different entityType silently - never validated against, never a batch item failure", async () => {
+    const logger = new SecureLogger({ sink: () => {}, now: () => "2026-08-19T10:00:05.000Z" });
+    const record: DynamoDBRecord = {
+      eventID: "evt-other",
+      eventName: "INSERT",
+      dynamodb: { SequenceNumber: "seq-other", NewImage: marshall({ entityType: "SomeOtherRow", PK: "x", SK: "y" }) as never },
+    };
+
+    const batchItemFailures = await processStreamRecords(makeDeps(), logger, [record]);
+    expect(batchItemFailures).toEqual([]);
+  });
+
+  it("rejects a schema-invalid OutboxEvent image (missing eventId) as a batch item failure, with a schema-invalid log line", async () => {
+    const lines: string[] = [];
+    const logger = new SecureLogger({ sink: (_level, line) => lines.push(line), now: () => "2026-08-19T10:00:05.000Z" });
+    const malformed = outboxRecord() as unknown as Record<string, unknown>;
+    delete malformed["eventId"];
+    const record: DynamoDBRecord = {
+      eventID: "evt-bad",
+      eventName: "INSERT",
+      dynamodb: { SequenceNumber: "seq-bad", NewImage: marshall(malformed) as never },
+    };
+
+    const batchItemFailures = await processStreamRecords(makeDeps(), logger, [record]);
+    expect(batchItemFailures).toEqual([{ itemIdentifier: "evt-bad" }]);
+    expect(lines.some((line) => line.includes("schema-invalid OutboxEvent image"))).toBe(true);
+  });
+
+  it("still processes a well-formed record normally when it is the ONLY record (schema validation isn't a no-op)", async () => {
+    const store = new FakeRelayStore();
+    const logger = new SecureLogger({ sink: () => {}, now: () => "2026-08-19T10:00:05.000Z" });
+    const deps = { store, now: () => "2026-08-19T10:00:05.000Z", senders: { SQS_REMINDER_DISPATCH_V1: async () => {} } };
+    const record = streamRecord("evt-ok", outboxRecord({ eventId: "evt-ok" }));
+
+    const batchItemFailures = await processStreamRecords(deps, logger, [record]);
+    expect(batchItemFailures).toEqual([]);
+    expect(store.published.has("TENANT#t1#OUTBOX#202608#EVENT#2026-08-19T10:00:00.000Z#evt-1")).toBe(true);
+  });
+});

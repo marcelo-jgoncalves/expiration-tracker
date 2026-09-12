@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/outbox-record.v1.json",
+  "title": "OutboxRecord v1",
+  "description": "P2.1 (external audit 2026-09-11): runtime shape check for a DynamoDB Streams image of an OutboxEvent row (src/shared/outbox/outbox.ts's OutboxRecord), consumed by DispatchOutboxRelay (dispatch-outbox-relay-processor.ts). This is an internal single-table row, not an external event/queue envelope - deliberately does NOT enumerate OutboxDestination/eventType/aggregateType as closed sets (both grow routinely as new producers are added; a closed enum here would need updating every time, the exact kind of schema drift this check exists to catch, not create). Validates presence/type of the fields the relay actually reads (PK/SK/status/payload/tenantId/eventType/destination), never the full DynamoDB item verbatim.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["PK", "SK", "entityType", "tenantId", "eventId", "eventType", "aggregateType", "aggregateId", "aggregateVersion", "status", "occurredAt", "payload", "publishAttempts", "nextAttemptAt", "createdAt"],
+  "properties": {
+    "PK": { "type": "string", "minLength": 1 },
+    "SK": { "type": "string", "minLength": 1 },
+    "entityType": { "const": "OutboxEvent" },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": { "type": "string", "minLength": 1 },
+    "aggregateType": { "type": "string", "minLength": 1 },
+    "aggregateId": { "type": "string", "minLength": 1 },
+    "aggregateVersion": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["PENDING", "PUBLISHED"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" },
+    "publishAttempts": { "type": "integer", "minimum": 0 },
+    "nextAttemptAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "destination": { "type": "string", "minLength": 1 },
+    "correlationId": { "type": "string" }
+  }
+}

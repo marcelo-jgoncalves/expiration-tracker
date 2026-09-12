@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/events/reminder-reconciliation-event.v1.json",
+  "title": "ReminderReconciliationEvent v1",
+  "description": "P2.1 (external audit 2026-09-11): runtime shape check for the EventBridge Scheduler input consumed by reminder-reconciliation-handler.ts (m3.5-runtime-design.md 'Reconciliação'). Scheduler's Lambda target passes `input` verbatim at the top level (no `detail` envelope) - this schema matches that shape exactly, never the legacy EventBridge Rules `detail` wrapper.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "scheduledTime"],
+  "properties": {
+    "mode": { "enum": ["CLAIMS", "DST"] },
+    "scheduledTime": { "type": "string", "format": "date-time" }
+  }
+}
