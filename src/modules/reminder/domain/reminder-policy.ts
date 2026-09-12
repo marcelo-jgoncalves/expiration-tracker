@@ -67,12 +67,30 @@ export function policyKey(tenantId: string, policyId: string): { PK: string; SK:
  * holds nothing but the policyId itself (no `enabled`, no version - both would just be
  * one more place to go stale) - every reader must dereference the real `ReminderPolicy`
  * row before acting on it.
+ *
+ * LEGACY (P0.4, D-XXX): one pointer PER POLICY (`SK=POLICYREF#<policyId>`) - this is the
+ * shape that let 2+ ITEM-scoped policies coexist for the same item undetected (no
+ * uniqueness fence). Superseded by `activePolicyPointerKey()` below (fixed `SK`, at most
+ * one per item). No code writes this shape anymore after the P0.4 migration deploy -
+ * kept only so the one-time migration script can find and retire the historical rows.
  */
 export function policyRefKey(tenantId: string, itemId: string, policyId: string): { PK: string; SK: string } {
   return { PK: `TENANT#${tenantId}#ITEM#${itemId}`, SK: `POLICYREF#${policyId}` };
 }
 
 export const POLICY_REF_SK_PREFIX = "POLICYREF#";
+
+/**
+ * P0.4 uniqueness fix (Claude<->Codex protocol, `docs/architecture/decisions-log.md`
+ * D-XXX): fixed `SK` (no `policyId` suffix) - at most ONE row can ever exist per item,
+ * enforced by `attribute_not_exists(PK)` on first write and an ownership
+ * (`policyId = :policyId`) condition on every later write that touches it. This is the
+ * ONLY discovery pointer format any code writes going forward; `policyRefKey` above is
+ * read-only history from here on.
+ */
+export function activePolicyPointerKey(tenantId: string, itemId: string): { PK: string; SK: "POLICYREF" } {
+  return { PK: `TENANT#${tenantId}#ITEM#${itemId}`, SK: "POLICYREF" };
+}
 
 export interface PolicyRef extends EntityKey {
   entityType: "ReminderPolicyRef";

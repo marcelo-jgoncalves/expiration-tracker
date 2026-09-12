@@ -39,7 +39,7 @@ import { createDocumentClient } from "../src/shared/dynamodb/client.js";
 import { DynamoDbReminderStore } from "../src/modules/reminder/persistence/dynamodb-reminder-store.js";
 import { ReminderMaterializer } from "../src/modules/reminder/application/reminder-materializer.js";
 import type { ReminderStore } from "../src/modules/reminder/ports/reminder-store.js";
-import { policyRefKey, type ReminderPolicy } from "../src/modules/reminder/domain/reminder-policy.js";
+import { activePolicyPointerKey, type PolicyRef, type ReminderPolicy } from "../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey, type ExpirationItem } from "../src/modules/expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../src/modules/identity/domain/authorization.js";
 import { defaultShardConfig } from "../src/modules/reminder/domain/shard-config.js";
@@ -108,14 +108,22 @@ export async function processPage(
 
     if (dryRun) continue;
 
+    // P0.4 (decisions-log.md D-XXX): writes the FIXED pointer now (at most one per item) -
+    // `putIfAbsent`'s plain attribute_not_exists is correct here (this script only ever
+    // fills in a MISSING pointer, never repairs/reassigns an existing one - that is the
+    // P0.4 migration script's job). When 2+ ITEM-scoped policies pre-date this pointer for
+    // the same item, only the first one processed wins it; every other pre-existing
+    // duplicate must not also materialize here (that would be the exact duplicate-reminder
+    // bug this project's P0.4 fix exists to close) - `ownsPointer` gates it.
     const pointerCreated = await store.putIfAbsent({
-      ...policyRefKey(policy.tenantId, policy.itemId, policy.policyId),
+      ...activePolicyPointerKey(policy.tenantId, policy.itemId),
       entityType: "ReminderPolicyRef",
       policyId: policy.policyId,
     });
     if (pointerCreated) pointersWritten += 1;
 
-    if (!policy.enabled) continue;
+    const ownsPointer = pointerCreated || (await store.get<PolicyRef>(activePolicyPointerKey(policy.tenantId, policy.itemId)))?.policyId === policy.policyId;
+    if (!ownsPointer || !policy.enabled) continue;
     const result = await materializer.materialize({
       tenantId: policy.tenantId,
       itemId: policy.itemId,

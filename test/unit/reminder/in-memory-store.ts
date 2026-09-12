@@ -20,6 +20,32 @@ function cancellationReasons(entries: TransactWriteEntry[], failedIndex: number)
   return entries.map((_, i) => (i === failedIndex ? { Code: "ConditionalCheckFailed" } : { Code: "None" }));
 }
 
+/**
+ * Small generic evaluator for the condition-clause shapes this codebase's builders
+ * actually produce (attribute_exists/attribute_not_exists, and `<attr> = :value`
+ * equality, ANDed/ORed at a single level - never deeper nesting) - P0.4 added the first
+ * Put/Delete conditions beyond the two hardcoded shapes this fake originally special-
+ * cased, so conditions are now evaluated structurally instead of by substring matching.
+ */
+function evalClause(clause: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  const trimmed = clause.trim();
+  const notExists = /^attribute_not_exists\((\w+)\)$/.exec(trimmed);
+  if (notExists) return existing?.[notExists[1]!] === undefined;
+  const exists = /^attribute_exists\((\w+)\)$/.exec(trimmed);
+  if (exists) return existing?.[exists[1]!] !== undefined;
+  const eq = /^([#\w]+)\s*=\s*(:\w+)$/.exec(trimmed);
+  if (eq) {
+    const rawAttr = eq[1]!;
+    const attr = rawAttr.startsWith("#") ? (names[rawAttr] ?? rawAttr) : rawAttr;
+    return existing !== undefined && existing[attr] === values[eq[2]!];
+  }
+  throw new Error(`InMemoryReminderStore: unsupported condition clause: ${clause}`);
+}
+
+function evalCondition(expression: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  return expression.split(" OR ").some((orGroup) => orGroup.split(" AND ").every((clause) => evalClause(clause, existing, names, values)));
+}
+
 export class InMemoryReminderStore implements ReminderStore, ReminderProducerStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
 
@@ -45,23 +71,26 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
   async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
     entries.forEach((entry, index) => {
       if ("Put" in entry) {
-        const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
-        if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
+        const existing = this.items.get(this.k(entry.Put.Item as unknown as EntityKey));
+        if (!evalCondition(entry.Put.ConditionExpression, existing, entry.Put.ExpressionAttributeNames ?? {}, entry.Put.ExpressionAttributeValues ?? {})) {
           throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Put", CancellationReasons: cancellationReasons(entries, index) };
         }
       } else if ("ConditionCheck" in entry) {
         const existing = this.items.get(this.k(entry.ConditionCheck.Key));
-        const values = entry.ConditionCheck.ExpressionAttributeValues ?? {};
-        const names = entry.ConditionCheck.ExpressionAttributeNames ?? {};
-        const ok =
-          !!existing &&
-          Object.entries(names).every(([placeholder, attr]) => existing[attr] === values[`:${placeholder.slice(1)}`]);
-        if (!ok) {
+        if (!evalCondition(entry.ConditionCheck.ConditionExpression, existing, entry.ConditionCheck.ExpressionAttributeNames ?? {}, entry.ConditionCheck.ExpressionAttributeValues ?? {})) {
           throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on ConditionCheck", CancellationReasons: cancellationReasons(entries, index) };
         }
       } else if ("Delete" in entry) {
         // Unconditional deletes (no ConditionExpression) always succeed, matching real
-        // DynamoDB semantics (deleting an absent key is a no-op, not an error).
+        // DynamoDB semantics (deleting an absent key is a no-op, not an error). P0.4 added
+        // the first CONDITIONED Delete (pointer ownership) - evaluated the same way as
+        // Put/ConditionCheck when present.
+        if (entry.Delete.ConditionExpression) {
+          const existing = this.items.get(this.k(entry.Delete.Key));
+          if (!evalCondition(entry.Delete.ConditionExpression, existing, entry.Delete.ExpressionAttributeNames ?? {}, entry.Delete.ExpressionAttributeValues ?? {})) {
+            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Delete", CancellationReasons: cancellationReasons(entries, index) };
+          }
+        }
       } else {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));

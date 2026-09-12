@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryReminderStore } from "./in-memory-store.js";
 import { ReminderMaterializer } from "../../../src/modules/reminder/application/reminder-materializer.js";
-import { policyRefKey } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { activePolicyPointerKey } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import type { ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
 import { decodeKey, encodeKey, parseArgs, processPage } from "../../../scripts/backfill-reminder-policies.js";
@@ -79,7 +79,7 @@ describe("backfill-reminder-policies: processPage", () => {
     expect(result.itemScoped).toBe(1);
     expect(result.pointersWritten).toBe(1);
     expect(result.occurrencesCreated).toBe(1);
-    expect(await store.get(policyRefKey(TENANT, "item1", "p1"))).toBeDefined();
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeDefined();
   });
 
   it("is idempotent: running the same page twice does not duplicate the pointer or the occurrence", async () => {
@@ -227,6 +227,6 @@ describe("backfill-reminder-policies: processPage", () => {
     expect(result.itemScoped).toBe(1);
     expect(result.pointersWritten).toBe(0);
     expect(result.occurrencesCreated).toBe(0);
-    expect(await store.get(policyRefKey(TENANT, "item1", "p1"))).toBeUndefined();
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeUndefined();
   });
 });

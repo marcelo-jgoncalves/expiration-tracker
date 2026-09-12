@@ -33,7 +33,7 @@ import type { UnifiedValidityState } from "../../../shared/domain/validity-state
 import { runPagedSearch, SEARCH_PAGE_SIZE } from "../../../shared/domain/paged-search.js";
 import { buildAuditEvent, appendAuditToTransaction, type AuditAction } from "../domain/audit-event.js";
 import { buildTenantAuditEvent, appendTenantAuditToTransaction, buildExportLockItem, appendExportLockToTransaction } from "../../activity/domain/tenant-audit-event.js";
-import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
+import { policyKey, activePolicyPointerKey, POLICY_REF_SK_PREFIX, type ReminderPolicy, type PolicyRef } from "../../reminder/domain/reminder-policy.js";
 import { deriveCoreUserDataMaintenanceDue, coreUserDataGsi8Keys } from "../../../shared/core-user-data-gsi8.js";
 import {
   isTransactionCanceled,
@@ -541,14 +541,40 @@ export class ExpirationService {
     return { item: newItem, copiedReminderPolicyIds };
   }
 
-  /** Discovery read (eventually consistent, same as every other queryByPk caller in this
-   * codebase) of an item's current ITEM-scoped ReminderPolicy ids via its POLICYREF#
-   * pointers - informational only (used for the renewal notice on an idempotency replay,
-   * never for a correctness decision), same non-authoritative status trigger.ts's pointer
-   * reads always have. */
+  /** Discovery read of an item's current ITEM-scoped ReminderPolicy ids - informational
+   * only (used for the renewal notice on an idempotency replay, never for a correctness
+   * decision), same non-authoritative status trigger.ts's pointer reads always have. */
   private async findItemPolicyIds(tenantId: AuthorizedTenantId, forItemId: string): Promise<string[]> {
-    const pointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, forItemId).PK, POLICY_REF_SK_PREFIX);
-    return pointers.map((pointer) => pointer.policyId);
+    const policy = await this.resolveCurrentItemPolicy(tenantId, forItemId);
+    return policy ? [policy.policyId] : [];
+  }
+
+  /**
+   * P0.4 uniqueness fix (Claude<->Codex protocol, decisions-log.md D-XXX): resolves an
+   * item's CURRENT (at most one, going forward) live ITEM-scoped policy via the fixed
+   * discovery pointer, falling back to the legacy per-policy `POLICYREF#` pointers only
+   * for an item that hasn't gone through the P0.4 migration/self-heal yet - same
+   * fixed-then-legacy discipline as `ReminderPolicyService.getPolicyForItem` and the
+   * materialization-trigger worker (never trusted without dereferencing/re-validating).
+   */
+  private async resolveCurrentItemPolicy(tenantId: AuthorizedTenantId, forItemId: string): Promise<ReminderPolicy | undefined> {
+    const validate = (policy: ReminderPolicy | undefined): policy is ReminderPolicy =>
+      !!policy && !policy.deletedAt && policy.tenantId === tenantId && policy.scope === "ITEM" && policy.itemId === forItemId;
+
+    const fixedRef = await this.store.get<PolicyRef>(activePolicyPointerKey(tenantId, forItemId));
+    if (fixedRef) {
+      const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, fixedRef.policyId));
+      if (validate(policy)) return policy;
+    }
+
+    const legacyPointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, forItemId).PK, POLICY_REF_SK_PREFIX);
+    const candidates: ReminderPolicy[] = [];
+    for (const pointer of legacyPointers) {
+      const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, pointer.policyId));
+      if (validate(policy)) candidates.push(policy);
+    }
+    if (candidates.length === 0) return undefined;
+    return candidates.reduce((latest, candidate) => (candidate.updatedAt > latest.updatedAt ? candidate : latest));
   }
 
   private async completeRenewal(
@@ -639,15 +665,16 @@ export class ExpirationService {
     // due-date-changed event already appended above - the reminder-materialization-trigger
     // worker re-reads the new item's pointers at processing time (trigger.ts's "pure
     // invalidation signal" design, §7), so no separate reminder.policy-changed.v1 is needed.
+    // P0.4 (Claude<->Codex protocol, decisions-log.md D-XXX): at most ONE ITEM-scoped
+    // policy can be live for the source item going forward (enforced by the fixed
+    // pointer's uniqueness fence) - `resolveCurrentItemPolicy` resolves exactly that one
+    // (fixed pointer first, legacy fallback only pre-migration). Looping over every
+    // legacy `POLICYREF#` pointer here (pre-P0.4 behavior) would both perpetuate any
+    // pre-existing duplicate onto the new item AND attempt 2+ Puts at the new item's SAME
+    // fixed-pointer key inside one TransactWriteItems, which DynamoDB rejects outright.
     const copiedReminderPolicyIds: string[] = [];
-    const sourcePointers = await this.store.queryByPk<PolicyRef>(itemKey(tenantId, itemId).PK, POLICY_REF_SK_PREFIX);
-    for (const pointer of sourcePointers) {
-      const sourcePolicy = await this.store.get<ReminderPolicy>(policyKey(source.tenantId, pointer.policyId));
-      // Orphaned/stale pointer (reminder-delivery-pipeline.md §5) - never trusted, silently
-      // skipped, same defensive re-validation trigger.ts's onItemDueDateChanged performs
-      // before using any pointer.
-      if (!sourcePolicy || sourcePolicy.deletedAt || sourcePolicy.scope !== "ITEM" || sourcePolicy.itemId !== itemId) continue;
-
+    const sourcePolicy = await this.resolveCurrentItemPolicy(tenantId, itemId);
+    if (sourcePolicy) {
       const newPolicyId = this.ids.newPolicyId();
       const newPolicy: ReminderPolicy = {
         ...policyKey(source.tenantId, newPolicyId),
@@ -671,8 +698,8 @@ export class ExpirationService {
       entries.push({
         Put: {
           TableName: this.tableName,
-          Item: { ...policyRefKey(source.tenantId, newItemId, newPolicyId), entityType: "ReminderPolicyRef", policyId: newPolicyId, tenantId: source.tenantId },
-          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+          Item: { ...activePolicyPointerKey(source.tenantId, newItemId), entityType: "ReminderPolicyRef", policyId: newPolicyId, tenantId: source.tenantId },
+          ConditionExpression: "attribute_not_exists(PK)",
         },
       });
       copiedReminderPolicyIds.push(newPolicyId);
