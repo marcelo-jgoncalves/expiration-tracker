@@ -11,21 +11,21 @@
  * Never trusts the GSI4 projection's own `status` — each pointer is hydrated with a strongly
  * consistent `get` against the base partition before its `status` is inspected, same discipline
  * `OnboardingStateResolver` already applies (physical model §6: GSI4 is never a source of
- * authorization).
+ * authorization). Hydration itself is `hydrateMembershipsFromGsi4()` (shared with
+ * `onboarding-state.ts`, E-021 full-audit round2 — bounded concurrency instead of an unbounded
+ * `Promise.all`, one concurrent GetItem per organization on every request-context resolution).
  */
-import { membershipKey, type Membership } from "../domain/membership.js";
+import type { Membership } from "../domain/membership.js";
 import { organizationKey, type Organization } from "../domain/organization.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
+import { hydrateMembershipsFromGsi4 } from "./hydrate-memberships.js";
 
 export async function resolveActiveMembership(organizations: OrganizationStore, userId: string): Promise<Membership[]> {
   const pointers = await organizations.queryGsi4<Membership>({ gsi4pk: `USER#${userId}` });
-  // Same GSI4-hydration provenance as onboarding-state.ts's resolver above.
-  const hydrated = await Promise.all(
-    pointers.map((pointer) => organizations.get<Membership>(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: pointer.organizationId }), userId))),
-  );
-  return hydrated.filter((membership): membership is Membership => membership !== undefined && membership.status === "ACTIVE");
+  const hydrated = await hydrateMembershipsFromGsi4(organizations, userId, pointers);
+  return hydrated.filter((membership) => membership.status === "ACTIVE");
 }
 
 export interface UsableOrganization {

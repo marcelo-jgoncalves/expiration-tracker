@@ -18,11 +18,14 @@
  * trusted from that projection directly: GSI4 is eventually consistent and physical model §6 is
  * explicit that it must never be an authorization source. Each pointer is re-read from the base
  * partition via `membershipKey()` (strongly consistent `get`, same guarantee `organization-store.ts`
- * documents) before its `status` is inspected — "hydration", not a raw GSI4 read.
+ * documents) before its `status` is inspected — "hydration", not a raw GSI4 read. Hydration itself
+ * is `hydrateMembershipsFromGsi4()` (shared with `resolve-active-membership.ts`, E-021 full-audit
+ * round2 — this used to be an unbounded `Promise.all`, one concurrent GetItem per organization on
+ * every request-context resolution).
  */
-import { membershipKey, type Membership } from "../domain/membership.js";
+import type { Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
-import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
+import { hydrateMembershipsFromGsi4 } from "./hydrate-memberships.js";
 
 export type OnboardingState = "HAS_USABLE_MEMBERSHIP" | "SUSPENDED_ONLY" | "NO_TENANT_NO_MEMBERSHIP";
 
@@ -31,13 +34,7 @@ export class OnboardingStateResolver {
 
   async resolve(userId: string): Promise<OnboardingState> {
     const pointers = await this.store.queryGsi4<Membership>({ gsi4pk: `USER#${userId}` });
-
-    // `pointer` is a GSI4 projection just read back from the repository (never trusted for status,
-    // per the file header) - the same repository-read provenance authorizedTenantIdFromPersistedEntity() requires.
-    const hydrated = await Promise.all(
-      pointers.map((pointer) => this.store.get<Membership>(membershipKey(authorizedTenantIdFromPersistedEntity({ tenantId: pointer.organizationId }), userId))),
-    );
-    const memberships = hydrated.filter((membership): membership is Membership => membership !== undefined);
+    const memberships = await hydrateMembershipsFromGsi4(this.store, userId, pointers);
 
     if (memberships.some((membership) => membership.status === "ACTIVE")) {
       return "HAS_USABLE_MEMBERSHIP";

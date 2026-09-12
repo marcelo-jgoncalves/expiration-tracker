@@ -56,19 +56,35 @@ export const ALLOWED_SESSION_TABLE = "exptrk-dev-bff-session";
 export const ALLOWED_BUCKET = "exptrk-dev-extraction-transient";
 export const EXPECTED_ACCOUNT_ID = "975707451904";
 
+/** E-016 (full-audit round2, achado real): esta lista tinha ficado desatualizada em relação às
+ * filas `sqs-worker-queue` reais definidas em `infra/main.tf` conforme o produto cresceu pós-B2B
+ * — 6 filas reais nunca foram adicionadas aqui, então nunca eram purgadas por um dev-reset
+ * (`guest-credential-issuance`, `whatsapp-deliver`, `import-parse-dispatch`,
+ * `requirement-evidence-refresh`, `report-subscription-delivery`, `dossier-export`).
+ * Deliberadamente NÃO inclui `guest-credential-delivery-failures` (`aws_sqs_queue` avulso em
+ * `main.tf`, sem DLQ própria — adicioná-la aqui faria `resolveQueueUrls` lançar
+ * `QueueDoesNotExist` ao tentar resolver o sufixo `-dlq` inexistente, quebrando o script
+ * inteiro). Toda entrada aqui precisa ter um par `${base}`/`${base}-dlq` real (garantido pelo
+ * módulo `./modules/sqs-worker-queue`, nunca assumido). */
 export const QUEUE_BASE_NAMES = [
   "document-chasing-dispatch",
+  "dossier-export",
   "extraction-starter",
+  "guest-credential-issuance",
   "import-commit",
   "import-parse",
+  "import-parse-dispatch",
   "malware-result",
   "notification-email-deliver",
   "notification-router",
   "reminder-dispatch",
   "reminder-materialization-trigger",
+  "report-subscription-delivery",
+  "requirement-evidence-refresh",
   "ses-callback",
   "textract-completion",
   "upload-finalizer",
+  "whatsapp-deliver",
 ] as const;
 
 export function queueNames(): string[] {

@@ -203,11 +203,30 @@ describe("reset-dev-data: assertAllEmpty (final verification, fail-loud)", () =>
 });
 
 describe("reset-dev-data: queueNames", () => {
-  // Mutação: esquecer o sufixo `-dlq` para metade das filas faria este teste (24 = 12*2) falhar.
-  it("returns 24 names (12 base queues + their DLQs)", () => {
+  // Mutação: esquecer o sufixo `-dlq` para metade das filas faria este teste (36 = 18*2) falhar.
+  it("returns 36 names (18 base queues + their DLQs)", () => {
     const names = queueNames();
-    expect(names).toHaveLength(24);
+    expect(names).toHaveLength(36);
     expect(names).toContain("exptrk-dev-upload-finalizer-dlq");
     expect(names).toContain("exptrk-dev-reminder-dispatch");
+  });
+
+  // E-016 (full-audit round2): these 6 real sqs-worker-queue instances (infra/main.tf) had
+  // never been added to QUEUE_BASE_NAMES since they were created - a dev-reset never purged
+  // them. Named individually so a future regression (one silently dropped again) fails loudly
+  // instead of just moving the total count.
+  it("includes every queue added since the list was last updated (E-016)", () => {
+    const names = queueNames();
+    for (const base of [
+      "guest-credential-issuance",
+      "whatsapp-deliver",
+      "import-parse-dispatch",
+      "requirement-evidence-refresh",
+      "report-subscription-delivery",
+      "dossier-export",
+    ]) {
+      expect(names).toContain(`exptrk-dev-${base}`);
+      expect(names).toContain(`exptrk-dev-${base}-dlq`);
+    }
   });
 });
