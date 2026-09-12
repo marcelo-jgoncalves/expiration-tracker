@@ -39,8 +39,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgPath } from "../../routing/useOrgPath.js";
+import { useActiveOrganization } from "../../auth/ActiveOrganizationContext.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
+import { queryKeys } from "../../api/queryKeys.js";
 import { previewDossierExport, confirmDossierExport, pollDossierExportRun, downloadDossierExport, type DossierPreviewRow } from "../../api/requirements.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { InitialLoading, ErrorState, EmptyState, AsyncFeedback } from "../../components/AsyncStates.js";
@@ -62,6 +64,7 @@ const POLL_RETRY_COUNT = 2;
 export function DossierExport() {
   const { subjectId = "" } = useParams<{ subjectId: string }>();
   const orgPath = useOrgPath();
+  const { organizationId, switching } = useActiveOrganization();
   const role = useCurrentMembershipRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const runId = searchParams.get("runId") ?? undefined;
@@ -97,9 +100,12 @@ export function DossierExport() {
   }, [subjectId, runId, canExport]);
 
   const pollQuery = useQuery<{ status: DossierExportRunStatus }, unknown>({
-    queryKey: ["dossier-export-run", subjectId, runId],
-    queryFn: () => pollDossierExportRun(subjectId, runId ?? ""),
-    enabled: Boolean(runId) && canExport,
+    // Holistic frontend review fix: this key used to be a bare `["dossier-export-run", ...]`
+    // array, outside the `["org", organizationId, ...]` prefix org-switch cancellation relies on
+    // (ActiveOrganizationContext.tsx) - switching organizations mid-poll never cancelled it.
+    queryKey: queryKeys.documentArchive.dossierRun(organizationId ?? "", subjectId, runId ?? ""),
+    queryFn: ({ signal }) => pollDossierExportRun(subjectId, runId ?? "", { signal }),
+    enabled: Boolean(runId) && canExport && Boolean(organizationId) && !switching,
     retry: POLL_RETRY_COUNT,
     refetchInterval: (query) => (query.state.data && GENERATING_STATUSES.has(query.state.data.status) ? POLL_INTERVAL_MS : false),
   });

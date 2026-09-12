@@ -101,9 +101,15 @@ export function confirmDossierExport(subjectId: string, runId: string, scopeHash
  * not yet `READY`, this throws a `ConflictError` whose `details.status` carries the run's real
  * current `DossierExportRunStatus` (`CONFIRMED`/`GENERATING`/`FAILED`/`TOO_LARGE`) -
  * `pollDossierExportRun` below is the only intended caller during the `generating` stage. */
-export function downloadDossierExport(subjectId: string, runId: string, format: DossierExportFormat): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+export function downloadDossierExport(
+  subjectId: string,
+  runId: string,
+  format: DossierExportFormat,
+  options?: { signal?: AbortSignal },
+): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
   return apiClient.get<{ downloadUrl: string; expiresInSeconds: number }>(
     `/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier/${encodeURIComponent(runId)}/download?format=${format}`,
+    { signal: options?.signal },
   );
 }
 
@@ -112,9 +118,9 @@ export function downloadDossierExport(subjectId: string, runId: string, format: 
  * Never surfaces the download URL as a side effect of polling (a poll during `generating` should
  * never silently trigger anything download-shaped) - callers that want the URL call
  * `downloadDossierExport` again explicitly once this reports `READY`. */
-export async function pollDossierExportRun(subjectId: string, runId: string): Promise<{ status: DossierExportRunStatus }> {
+export async function pollDossierExportRun(subjectId: string, runId: string, options?: { signal?: AbortSignal }): Promise<{ status: DossierExportRunStatus }> {
   try {
-    await downloadDossierExport(subjectId, runId, "pdf");
+    await downloadDossierExport(subjectId, runId, "pdf", options);
     return { status: "READY" };
   } catch (err) {
     if (isConflict(err) && typeof err.details?.["status"] === "string") {

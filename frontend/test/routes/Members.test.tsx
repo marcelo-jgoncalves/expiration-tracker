@@ -152,4 +152,40 @@ describe("Members", () => {
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/organizations/members/invite", { email: "convidado@acme.com", role: "MEMBER" }));
   });
+
+  // Holistic frontend review finding: a failed invitations load used to render nothing at all,
+  // indistinguishable from "no invitations pending" - an admin had no way to tell a real backend
+  // failure apart from a genuinely empty list.
+  it("shows a distinct error state (not silence) when pending invitations fail to load", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({})] });
+      if (path === "/organizations/invitations") return Promise.reject(new Error("network down"));
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByText("Não foi possível carregar os convites pendentes.")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+  });
+
+  // Holistic frontend review finding: a failed member removal had no error rendering at all -
+  // the button just went back to its idle state with no feedback that nothing happened.
+  it("shows a visible error when removing a member fails", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    deleteMock.mockRejectedValue(new Error("Não foi possível remover este membro."));
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remover" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Remover" }));
+
+    await waitFor(() => expect(screen.getByText("Não foi possível remover este membro.")).toBeInTheDocument());
+  });
 });

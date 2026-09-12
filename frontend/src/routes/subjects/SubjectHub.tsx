@@ -11,10 +11,10 @@
  * generation didn't exist yet; that stub is gone, replaced by this plain link now that A17 is the
  * real, complete screen.
  *
- * A14 (Requests & Recurrence) has an audited SPEC but no implemented frontend screen yet (Block
- * 6 of the sequencing plan, still not built). A10 (Legacy Tracked Requirements) shipped in Block
- * 7 (D-267) - its card below is now a real `MetricCardGrid` entry, not the "Em breve" placeholder
- * text A14 still uses (see the `comingSoon` list below, now A14-only).
+ * A14 (Requests & Recurrence, Block 6) and A10 (Legacy Tracked Requirements, Block 7, D-267) both
+ * shipped real screens and are both real `MetricCardGrid` entries below - the "requests" card was
+ * stuck as a non-interactive "Em breve" placeholder text long after A14 actually shipped (holistic
+ * frontend review finding, fixed here) until this comment/fix.
  */
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -23,6 +23,7 @@ import { useSubject } from "../../hooks/useSubject.js";
 import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
 import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
+import { useDocumentRequestSeries } from "../../hooks/useDocumentRequestSeries.js";
 import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
@@ -45,6 +46,7 @@ export function SubjectHub() {
   const complianceQuery = useSubjectCompliance(subjectId ?? "");
   const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
   const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
+  const seriesQuery = useDocumentRequestSeries(subjectId ?? "");
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -114,13 +116,22 @@ export function SubjectHub() {
           ? { kind: "error", message: "Indisponível no momento", onRetry: () => void assignmentsQuery.refetch() }
           : { kind: "value", value: assignmentsQuery.data.assignments.length },
     },
+    {
+      // A14 (Block 6, D-2xx) shipped with real routes (`/subjects/:subjectId/requests`) long
+      // before this file was last touched (Blocks 7/10) - this card was stuck as a non-interactive
+      // "Em breve" placeholder the whole time (holistic frontend review finding, D-27x), leaving
+      // A14 unreachable from its intended A09 entry point even though the screen itself worked.
+      id: "requests",
+      label: "Solicitações e recorrência",
+      to: orgPath(`/subjects/${subjectId}/requests`),
+      srDescription: "Ver solicitações de documento e séries recorrentes deste fornecedor",
+      status: seriesQuery.isPending
+        ? { kind: "loading" }
+        : seriesQuery.isError
+          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void seriesQuery.refetch() }
+          : { kind: "value", value: seriesQuery.data.series.filter((s) => s.status === "ACTIVE").length },
+    },
   ];
-
-  // "Em breve" (A14, not built yet) is deliberately NOT a `MetricCardGrid` entry - that
-  // component always renders a real `<Link>` for a "value" status, so a `to="#"` placeholder
-  // would still be a semantically-actionable, keyboard-focusable dead link (Codex Block 3 review
-  // round 1 finding 9). Rendered as plain, genuinely non-interactive text instead.
-  const comingSoon = [{ id: "requests", label: "Solicitações e recorrência", note: "Em breve - A14 ainda não implementada nesta versão." }];
 
   return (
     <div>
@@ -143,18 +154,20 @@ export function SubjectHub() {
       {subject.status === "ARCHIVED" ? (
         <InlineNotice tone="neutral">Este fornecedor está arquivado. Novas evidências não são solicitadas automaticamente.</InlineNotice>
       ) : null}
-      {confirmingDelete ? <DeleteConfirmDialog subjectName={subject.displayName} deleteError={deleteError} pending={deleteMutation.isPending} onCancel={() => setConfirmingDelete(false)} onConfirm={() => void handleDelete()} /> : null}
+      {confirmingDelete ? (
+        <DeleteConfirmDialog
+          subjectName={subject.displayName}
+          deleteError={deleteError}
+          isConflict={deleteMutation.isConflict}
+          pending={deleteMutation.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => void handleDelete()}
+        />
+      ) : null}
 
       <CompliancePanel subjectId={subjectId} />
 
       <MetricCardGrid cards={cards} />
-      <ul>
-        {comingSoon.map((item) => (
-          <li key={item.id}>
-            <strong>{item.label}</strong> · <span>{item.note}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -166,7 +179,21 @@ export function SubjectHub() {
  * readers announcing focus jumps unexpectedly does not apply to a dialog that only exists
  * because the user just triggered it, but the codebase has no other precedent to follow yet, so
  * this stays the more conservative, lint-clean form). */
-function DeleteConfirmDialog({ subjectName, deleteError, pending, onCancel, onConfirm }: { subjectName: string; deleteError: string | undefined; pending: boolean; onCancel: () => void; onConfirm: () => void }) {
+function DeleteConfirmDialog({
+  subjectName,
+  deleteError,
+  isConflict,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  subjectName: string;
+  deleteError: string | undefined;
+  isConflict: boolean;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     cancelRef.current?.focus();
@@ -179,6 +206,9 @@ function DeleteConfirmDialog({ subjectName, deleteError, pending, onCancel, onCo
           a future guard or a genuine backend error is always possible) - never phrase this as a
           guaranteed cascade. */}
       <p>Excluir &quot;{subjectName}&quot; permanentemente? Esta ação não pode ser desfeita, se concluída. Se houver requisitos ativos vinculados, a exclusão pode ser recusada pelo servidor.</p>
+      {/* Holistic frontend review finding: `handleDelete` used to `return` silently on a
+          conflict, leaving this dialog open with no feedback at all. */}
+      {isConflict ? <p role="alert">Este fornecedor foi alterado por outra pessoa — feche e reabra este diálogo para ver o estado atual antes de tentar excluir de novo.</p> : null}
       {deleteError ? <p role="alert">{deleteError}</p> : null}
       <button ref={cancelRef} type="button" className="ui-button ui-button--secondary" onClick={onCancel}>
         Cancelar
