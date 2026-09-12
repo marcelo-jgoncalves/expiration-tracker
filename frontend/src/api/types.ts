@@ -918,6 +918,46 @@ export interface NotificationPreferences {
   updatedAt: string;
 }
 
+// --- A16 (Block 10, D-2xx) - Reports & Exports ----------------------------------------------
+
+/** The 7 fixed CSV reports `ReportsService` exposes (D-195) - never user-defined. */
+export type ReportKey =
+  | "expired-items"
+  | "expiring-soon-items"
+  | "renewed-items"
+  | "expiration-items-by-assignee"
+  | "missing-requirements"
+  | "requirements-by-subject"
+  | "requirements-by-assignee";
+
+/** `src/modules/reports/domain/report-subscription.ts`'s exact type union - a subscription
+ * selects a non-empty SUBSET of these 7, never one report per subscription (a real deviation
+ * from the prototype spec's "Relatório" singular column, confirmed directly against the
+ * domain type before typing this - see Reports.tsx's own header comment). */
+export type ReportSubscriptionReportType =
+  | "EXPIRED_ITEMS"
+  | "EXPIRING_SOON_ITEMS"
+  | "RENEWED_ITEMS"
+  | "EXPIRATION_ITEMS_BY_ASSIGNEE"
+  | "MISSING_REQUIREMENTS"
+  | "REQUIREMENTS_BY_SUBJECT"
+  | "REQUIREMENTS_BY_ASSIGNEE";
+
+/** v1 backend supports only WEEKLY (`ReportSubscriptionCadence` in the domain file) - never
+ * Diária/Mensal, despite the prototype spec naming those options. */
+export interface ReportSubscription {
+  subscriptionId: string;
+  reportTypes: readonly ReportSubscriptionReportType[];
+  dayOfWeek: number; // ISO 8601: 1=Monday..7=Sunday
+  localTime: string; // "HH:mm"
+  timeZone: string; // IANA
+  recipientUserIds: readonly string[];
+  nextRunAt: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UpdateNotificationPreferencesInput {
   emailEnabled: boolean;
   locale: string;
@@ -1010,3 +1050,39 @@ export interface ImportJobSchemaResult {
 export interface SubmitImportMappingResult {
   status: ImportJobStatus;
 }
+
+export interface CreateReportSubscriptionInput {
+  reportTypes: readonly ReportSubscriptionReportType[];
+  dayOfWeek: number;
+  localTime: string;
+  timeZone: string;
+  recipientUserIds: readonly string[];
+}
+
+export interface ReportSubscriptionsResponse {
+  subscriptions: ReportSubscription[];
+  /** Present when DynamoDB paginated the underlying query - `handleListReportSubscriptions`
+   * (`reports-handler.ts`) surfaces this key but accepts NO cursor input at all (confirmed
+   * directly against the handler - `listSubscriptions(context)` takes no pagination argument), so
+   * there is no way for this frontend to actually fetch the remaining pages. Its only real use
+   * here is a truthiness check: if present, the list below is genuinely incomplete and the UI
+   * must say so rather than presenting the count as a total. */
+  lastEvaluatedKey?: unknown;
+}
+
+// --- A17 (Block 10, D-2xx) - Subject Dossier Export -----------------------------------------
+
+export type DossierExportRunStatus = "PREVIEW_READY" | "CONFIRMED" | "GENERATING" | "READY" | "FAILED" | "TOO_LARGE";
+
+export interface DossierExportRun {
+  runId: string;
+  subjectId: string;
+  status: DossierExportRunStatus;
+  scopeHash: string;
+  createdAt: string;
+  updatedAt: string;
+  generatedAt?: string;
+  failureReason?: string;
+}
+
+export type DossierExportFormat = "pdf" | "xlsx";

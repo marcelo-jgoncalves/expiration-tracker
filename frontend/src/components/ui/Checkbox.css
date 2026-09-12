@@ -9,6 +9,15 @@
 }
 
 .ui-checkbox__label {
+  /* Block 10 finding, real E2E reproduction: without a positioned ancestor, the absolutely
+     positioned `.ui-checkbox__input` below resolves its containing block against whatever
+     positioned ancestor is nearest UP THE TREE (often none, i.e. the initial containing block) -
+     with 2+ checkboxes on one page, every input then collapses toward that SAME faraway point
+     instead of each staying local to its own label, so a real click aimed at one checkbox's
+     accessible input can land on/near a DIFFERENT checkbox's input, or get blocked entirely.
+     `position: relative` here (no visual effect - no offset applied) makes this label itself the
+     containing block, keeping the real input correctly local to this exact checkbox. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
@@ -33,6 +42,13 @@
 }
 
 .ui-checkbox__box {
+  /* Block 10 finding (same latent gap Block 7's Codex round found and fixed in RadioGroup.css,
+     flagged then as "likely the same here, out of scope" - now hit directly, real Playwright
+     E2E reproduction): without this, this decorative box sits visually on top of the
+     absolutely-positioned 1x1px real input and physically intercepts a real click/tap aimed at
+     the input's own tiny hit area, even though the surrounding <label> still works by virtue of
+     its native label-click-forwards-to-control behavior for a click anywhere ELSE in the label. */
+  pointer-events: none;
   flex: none;
   width: 20px;
   height: 20px;

@@ -44,7 +44,7 @@ describe("ActivityLog (D-149)", () => {
     expect(getMock).not.toHaveBeenCalled();
   });
 
-  it("renders the feed as prose lines (never raw JSON) for an ADMIN", async () => {
+  it("renders the feed as a DataTable (action in <code>, never raw JSON) for an ADMIN", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({
       entries: [entry({ auditEventId: "evt-1", action: "CREATE", resourceType: "ExpirationItem", resourceId: "item-1" })],
@@ -54,9 +54,50 @@ describe("ActivityLog (D-149)", () => {
 
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
-    await waitFor(() => expect(screen.getByText(/CREATE/)).toBeInTheDocument());
-    expect(screen.getByText(/ExpirationItem item-1/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("CREATE").tagName).toBe("CODE"));
+    expect(screen.getByText("ExpirationItem — item-1")).toBeInTheDocument();
     expect(screen.queryByText(/{.*}/)).not.toBeInTheDocument();
+  });
+
+  it("shows 'Usuário não identificado' for a USER actor with no userId (never claims a specific unproven cause)", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+    getMock.mockResolvedValue({ entries: [entry({ actor: { type: "USER" } })], cursor: null, hasMore: false });
+
+    renderAtRoute("/activity", <ActivityLog />, "/activity");
+
+    await waitFor(() => expect(screen.getByText("Usuário não identificado")).toBeInTheDocument());
+  });
+
+  it("shows 'Todos os eventos foram carregados.' once hasMore is false and there are entries", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+    getMock.mockResolvedValue({ entries: [entry({})], cursor: null, hasMore: false });
+
+    renderAtRoute("/activity", <ActivityLog />, "/activity");
+
+    await waitFor(() => expect(screen.getByText("Todos os eventos foram carregados.")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Carregar mais" })).not.toBeInTheDocument();
+  });
+
+  // Codex review round (Block 10) finding: TanStack Query v5 sets the infinite query's overall
+  // `isError` on a `fetchNextPage()` failure too, while still preserving already-loaded `data` -
+  // this used to be checked with a plain `query.isError`, blanking the whole table on a
+  // next-page failure. Now only a genuine INITIAL-load failure does that.
+  it("a fetchNextPage() failure keeps every already-loaded row visible and shows an inline retry, never blanking the table", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+    let call = 0;
+    getMock.mockImplementation(() => {
+      call += 1;
+      if (call === 1) return Promise.resolve({ entries: [entry({ auditEventId: "evt-1" })], cursor: "next-1", hasMore: true });
+      return Promise.reject(new Error("down"));
+    });
+
+    renderAtRoute("/activity", <ActivityLog />, "/activity");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Carregar mais" })).toBeInTheDocument());
+    screen.getByRole("button", { name: "Carregar mais" }).click();
+
+    await waitFor(() => expect(screen.getByText("Não foi possível carregar mais eventos.")).toBeInTheDocument());
+    expect(screen.getByText("CREATE")).toBeInTheDocument();
   });
 
   it("shows a 'Carregar mais' button when hasMore is true, and fetches the next page via the returned cursor on click", async () => {
@@ -82,6 +123,6 @@ describe("ActivityLog (D-149)", () => {
 
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
-    await waitFor(() => expect(screen.getByText(/Nenhum evento de atividade/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Nenhum evento registrado ainda.")).toBeInTheDocument());
   });
 });

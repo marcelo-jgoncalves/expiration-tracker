@@ -111,6 +111,9 @@ export const queryKeys = {
     detail: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "detail", jobId] as const,
     schema: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "schema", jobId] as const,
   },
+  reports: {
+    subscriptions: (organizationId: string) => ["org", organizationId, "reports", "subscriptions"] as const,
+  },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
      * this key - `month`/`resourceType` ARE part of the key since a different filter is

@@ -51,6 +51,8 @@ import { ToastProvider } from "./components/Toast.js";
 import { SubjectRequests } from "./routes/subjects/SubjectRequests.js";
 import { Tracking } from "./routes/subjects/Tracking.js";
 import { RequestDeliverySettings } from "./routes/subjects/RequestDeliverySettings.js";
+import { DossierExport } from "./routes/subjects/DossierExport.js";
+import { Reports } from "./routes/Reports.js";
 import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
 import { LegacyGuestUpload } from "./routes/guest/LegacyGuestUpload.js";
 import { ImportWizard } from "./routes/imports/ImportWizard.js";
@@ -121,6 +123,9 @@ export function App() {
                     ("Rastreamento legado"), no top-level nav entry of its own. */}
                 <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
                 <Route path="subjects/:subjectId/tracking/:assignmentId" element={<Tracking />} />
+                {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
+                    top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
+                <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}
                 <Route path="reviews" element={<ReviewQueue />} />
@@ -155,6 +160,9 @@ export function App() {
                     whether `:jobId` is present (see its own header comment). */}
                 <Route path="imports/new" element={<ImportWizard />} />
                 <Route path="imports/:jobId" element={<ImportWizard />} />
+                {/* A16 (Block 10, D-2xx) - Relatórios e exportações, ADMIN_ROLES-only own route
+                    guard inside the component, same pattern as A22. */}
+                <Route path="reports" element={<Reports />} />
               </Route>
               {/* Root path - a plain, ungated redirect to the (also legacy, also gated below)
                   "/overview" path, exactly what the pre-migration index route did. Kept OUTSIDE
@@ -184,6 +192,9 @@ export function App() {
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/tracking" element={null} />
                 <Route path="subjects/:subjectId/tracking/:assignmentId" element={null} />
+                {/* A17 (Block 10, D-2xx) - added here from the start, same healing-forward
+                    discipline as A10/A13/A20/A21/A22, not a repeat of A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/dossier" element={null} />
                 {/* A11 (Block 3, D-2xx) - was missing from this list entirely (real gap, found
                     by the Block 3 E2E/accessibility gap closure, D-2xx): `page.goto("/requirements")`
                     and any real bookmark/link to the bare path 404'd via the catch-all `*` route
@@ -214,6 +225,9 @@ export function App() {
                     as A20/A21/A22 above. */}
                 <Route path="imports/new" element={null} />
                 <Route path="imports/:jobId" element={null} />
+                {/* A16 (Block 10, D-2xx) - added here from the start, same healing-forward
+                    discipline as A20/A21/A22. */}
+                <Route path="reports" element={null} />
               </Route>
               {/* Sibling of the two groups above, never nested under ActiveOrganizationProvider/
                   OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships

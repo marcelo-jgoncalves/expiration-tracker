@@ -91,6 +91,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.
   { id: "activity", to: "/activity", label: "Atividade", allowedRoles: ADMIN_ROLES },
+  // A16 (Block 10, D-2xx) - `item:export`/`docarchive:requirement-export`/
+  // `reports:subscription-manage` are all ADMIN_ROLES exclusively (authorization.ts) - no
+  // READ_ONLY_ROLES exception exists for this screen, unlike "members"/"requirements" above.
+  { id: "reports", to: "/reports", label: "Relatórios", allowedRoles: ADMIN_ROLES },
 ];
 
 /**

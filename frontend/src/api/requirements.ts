@@ -6,8 +6,12 @@
  * never `apiClient` inline.
  */
 import { apiClient } from "./apiClient.js";
+import { isConflict } from "./errors.js";
 import type {
   CreateRequirementInput,
+  DossierExportFormat,
+  DossierExportRun,
+  DossierExportRunStatus,
   Requirement,
   RequirementSearchPage,
   RequirementStatus,
@@ -69,12 +73,12 @@ export function unlinkEvidence(subjectId: string, requirementId: string, expecte
   return apiClient.post<{ requirement: Requirement }>(`/document-archive/requirements/${encodeURIComponent(subjectId)}/${encodeURIComponent(requirementId)}/unlink-evidence`, undefined, { expectedVersion });
 }
 
-/** A09 (Block 3, D-2xx) - `docarchive:dossier-export`, ADMIN_ROLES exclusive (D-205). Real
- * two-step preview/confirm flow (`document-archive-handlers.ts`'s own doc comment: "Generation
- * itself (PDF/XLSX) is fatia 2, not built yet - confirm only dispatches the outbox event that
- * fatia 2's worker will eventually consume") - the frontend implements exactly the preview step
- * that exists, and is honest that a downloadable file is not available yet (never claims a
- * result the backend itself cannot produce). */
+/** A09/A17 (Blocks 3+10, D-2xx) - `docarchive:dossier-export`, ADMIN_ROLES exclusive (D-205).
+ * Real 3-step preview/confirm/download flow - generation (PDF/XLSX) and the download route are
+ * now both real (D-205 fatia 3, `handleDownloadDossierExport`), confirmed directly against
+ * `document-archive-handlers.ts` before building A17 (this comment previously said generation
+ * "was not built yet" - that was true when A09's own preview-only stub was written in Block 3,
+ * stale by the time A17 shipped in Block 10). */
 export interface DossierPreviewRow {
   requirementId: string;
   name: string;
@@ -82,6 +86,40 @@ export interface DossierPreviewRow {
   evidenceValidUntil?: string;
   assigneeUserId?: string;
 }
-export function previewDossierExport(subjectId: string): Promise<{ run: { runId: string; scopeHash: string }; rows: DossierPreviewRow[] }> {
-  return apiClient.post<{ run: { runId: string; scopeHash: string }; rows: DossierPreviewRow[] }>(`/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier`, undefined);
+export function previewDossierExport(subjectId: string): Promise<{ run: DossierExportRun; rows: DossierPreviewRow[] }> {
+  return apiClient.post<{ run: DossierExportRun; rows: DossierPreviewRow[] }>(`/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier`, undefined);
+}
+
+export function confirmDossierExport(subjectId: string, runId: string, scopeHash: string): Promise<{ run: DossierExportRun }> {
+  return apiClient.post<{ run: DossierExportRun }>(`/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier/${encodeURIComponent(runId)}/confirm`, { scopeHash });
+}
+
+/** `GET .../dossier/{runId}/download?format=pdf|xlsx` - never file bytes, only a freshly minted
+ * presigned S3 URL. ALSO doubles as this flow's only status-polling mechanism (there is no
+ * dedicated "get run" HTTP route - confirmed directly against `document-archive-handlers.ts`,
+ * same real gap this codebase's report-subscription-run download already has): while the run is
+ * not yet `READY`, this throws a `ConflictError` whose `details.status` carries the run's real
+ * current `DossierExportRunStatus` (`CONFIRMED`/`GENERATING`/`FAILED`/`TOO_LARGE`) -
+ * `pollDossierExportRun` below is the only intended caller during the `generating` stage. */
+export function downloadDossierExport(subjectId: string, runId: string, format: DossierExportFormat): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+  return apiClient.get<{ downloadUrl: string; expiresInSeconds: number }>(
+    `/document-archive/subjects/${encodeURIComponent(subjectId)}/dossier/${encodeURIComponent(runId)}/download?format=${format}`,
+  );
+}
+
+/** Polls run status by attempting the download route and reading the outcome - see
+ * `downloadDossierExport`'s own comment for why this is the only real status signal available.
+ * Never surfaces the download URL as a side effect of polling (a poll during `generating` should
+ * never silently trigger anything download-shaped) - callers that want the URL call
+ * `downloadDossierExport` again explicitly once this reports `READY`. */
+export async function pollDossierExportRun(subjectId: string, runId: string): Promise<{ status: DossierExportRunStatus }> {
+  try {
+    await downloadDossierExport(subjectId, runId, "pdf");
+    return { status: "READY" };
+  } catch (err) {
+    if (isConflict(err) && typeof err.details?.["status"] === "string") {
+      return { status: err.details["status"] as DossierExportRunStatus };
+    }
+    throw err;
+  }
 }
