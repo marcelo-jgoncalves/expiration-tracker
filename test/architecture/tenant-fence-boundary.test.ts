@@ -18,7 +18,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { acquireFixtureLock } from "./fixture-lock.js";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 const FIXTURE_DIR_NAME = "__tenant_fence_boundary_test_fixtures__";
@@ -60,8 +61,19 @@ function cleanFixtures(): void {
 }
 
 describe("architecture: tenant fence structural boundary (no-raw-dynamodb-writes-outside-lanes)", () => {
-  beforeAll(() => {
+  let releaseFixtureLock: (() => void) | undefined;
+
+  beforeAll(async () => {
+    // D-272 (E-023 flaky-suite root cause) - see fixture-lock.ts's header comment and
+    // system-mutation-allowlist.test.ts's matching beforeAll for the full writeup: this file's
+    // depcruise runs scan the whole `src` tree, so it needs the same cross-process exclusivity
+    // as that file's tsc runs, for the same reason.
+    releaseFixtureLock = await acquireFixtureLock();
     cleanFixtures(); // safety net in case a prior interrupted run left fixtures behind
+  }, 11 * 60_000); // see system-mutation-allowlist.test.ts's matching beforeAll for why this
+  // needs to exceed fixture-lock.ts's own 10-minute acquire timeout.
+  afterAll(() => {
+    releaseFixtureLock?.();
   });
   afterEach(() => {
     cleanFixtures();

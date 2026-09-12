@@ -192,4 +192,15 @@ describe("proxy-allowlist", () => {
   it("does not match the G3 report routes with an unallowlisted method (fails without the fix)", () => {
     expect(matchAllowlistedRoute("POST", "/reports/expired-items")).toBeUndefined();
   });
+
+  // D-225/D-241 (ExternalShareLink slice 2/3): the 3 authenticated admin routes.
+  it("matches the ExternalShareLink authenticated routes", () => {
+    expect(matchAllowlistedRoute("POST", "/document-archive/documents/doc-1/share-links")).toBeDefined();
+    expect(matchAllowlistedRoute("GET", "/document-archive/documents/doc-1/share-links")).toBeDefined();
+    expect(matchAllowlistedRoute("PATCH", "/document-archive/documents/doc-1/share-links/share-1/revoke")).toBeDefined();
+  });
+
+  it("never matches /external-share/* - the anonymous visitor route is public, no-JWT, a separate Lambda", () => {
+    expect(matchAllowlistedRoute("GET", "/external-share/share-1/some-token")).toBeUndefined();
+  });
 });

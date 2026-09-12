@@ -83,11 +83,22 @@ export interface ExternalShareLinkServiceDeps {
   store: DocumentArchiveStore;
   tableName: string;
   ids: DocumentArchiveIdGenerator;
-  rateLimiter: DocumentArchiveGuestRateLimiter;
-  fileStore: ExternalShareLinkFileStore;
+  /** `rateLimiter`/`fileStore`/`ipAuditPepper` are only touched by `resolveForAnonymousAccess`
+   * (the anonymous visitor's own entry point) — optional so the authenticated tenant Lambda
+   * (`document-archive-handler.ts`, which only calls `createShareLink`/`revokeShareLink`/
+   * `listShareLinks`) can construct this service without the extra S3/rate-limiter IAM grants
+   * that route never needs, same "optional dep, only wired where needed" pattern this module's
+   * HTTP layer already uses for `dossierExportStore`. */
+  rateLimiter?: DocumentArchiveGuestRateLimiter;
+  fileStore?: ExternalShareLinkFileStore;
   /** Own pepper, never shared with `RequestAccessCredential`/`GuestSession`'s pepper (design
    * Decision 2). */
   pepper: string;
+  /** Decision 11 (estado-final-consolidado.md) — the anonymous-access audit events' `ipHash`
+   * uses ITS OWN pepper, never `pepper` above (separate crypto domains: a leak of one must never
+   * compromise the other). Optional for the same reason `rateLimiter`/`fileStore` are — only
+   * `resolveForAnonymousAccess` needs it. */
+  ipAuditPepper?: string;
   now?: () => string;
 }
 
@@ -118,9 +129,10 @@ export class ExternalShareLinkService {
   private readonly store: DocumentArchiveStore;
   private readonly tableName: string;
   private readonly ids: DocumentArchiveIdGenerator;
-  private readonly rateLimiter: DocumentArchiveGuestRateLimiter;
-  private readonly fileStore: ExternalShareLinkFileStore;
+  private readonly rateLimiter?: DocumentArchiveGuestRateLimiter;
+  private readonly fileStore?: ExternalShareLinkFileStore;
   private readonly pepper: string;
+  private readonly ipAuditPepper?: string;
   private readonly now: () => string;
 
   constructor(deps: ExternalShareLinkServiceDeps) {
@@ -130,6 +142,7 @@ export class ExternalShareLinkService {
     this.rateLimiter = deps.rateLimiter;
     this.fileStore = deps.fileStore;
     this.pepper = deps.pepper;
+    this.ipAuditPepper = deps.ipAuditPepper;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -323,6 +336,9 @@ export class ExternalShareLinkService {
    * dummy-safe secret compare -> link status/expiry -> tenant ACTIVE -> file freshness -> presign.
    */
   async resolveForAnonymousAccess(rawToken: string, requestContext: { ip: string }): Promise<ResolvedExternalShareLinkAccess> {
+    if (!this.rateLimiter || !this.fileStore || !this.ipAuditPepper) {
+      throw new Error("ExternalShareLinkService.resolveForAnonymousAccess requires rateLimiter/fileStore/ipAuditPepper to be wired.");
+    }
     // Decision 3: the route is `GET /external-share/{shareId}/{token}` — `shareId` is
     // logging-only (the pointer's own `shareId` is the sole resolution authority, see
     // `externalShareLinkPointerKey`'s doc comment); this function receives only the `token` path
@@ -351,7 +367,7 @@ export class ExternalShareLinkService {
 
     const tenant = await this.store.get<TenantLifecycleRecord>(tenantLifecycleKey(tenantId));
     if (!tenant || tenant.status !== TENANT_ACTIVE_STATUS) {
-      auditExternalShareLinkTenantInactiveBlocked({ tenantId, documentId: pointer.documentId, shareId: pointer.shareId, ipHash: hmacExternalShareLinkCrypto.hash(this.pepper, requestContext.ip) });
+      auditExternalShareLinkTenantInactiveBlocked({ tenantId, documentId: pointer.documentId, shareId: pointer.shareId, ipHash: hmacExternalShareLinkCrypto.hash(this.ipAuditPepper, requestContext.ip) });
       throw new ExternalShareLinkInvalidError();
     }
 
@@ -367,7 +383,7 @@ export class ExternalShareLinkService {
       expiresInSeconds: SHARE_LINK_PRESIGN_TTL_SECONDS,
     });
 
-    auditExternalShareLinkPresignIssued({ tenantId, documentId: link.documentId, shareId: pointer.shareId, ipHash: hmacExternalShareLinkCrypto.hash(this.pepper, requestContext.ip) });
+    auditExternalShareLinkPresignIssued({ tenantId, documentId: link.documentId, shareId: pointer.shareId, ipHash: hmacExternalShareLinkCrypto.hash(this.ipAuditPepper, requestContext.ip) });
 
     return {
       documentTypeNameSnapshot: link.documentTypeNameSnapshot,

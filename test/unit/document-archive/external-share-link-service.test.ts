@@ -17,6 +17,7 @@ import { externalShareLinkGsi1Keys, externalShareLinkKey, type ExternalShareLink
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const PEPPER = "share-link-service-test-pepper";
+const IP_AUDIT_PEPPER = "share-link-service-test-ip-audit-pepper";
 const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const NOW = "2026-09-08T00:00:00.000Z";
 
@@ -53,7 +54,7 @@ function fakeFileStore(): ExternalShareLinkFileStore & { calls: number } {
 function makeService(store: InMemoryDocumentArchiveStore, fileStore: ExternalShareLinkFileStore, now: () => string = () => NOW) {
   const rateLimiter = new DocumentArchiveGuestRateLimiter(store, now);
   const ids = makeIds();
-  return { service: new ExternalShareLinkService({ store, tableName: "test-table", ids, rateLimiter, fileStore, pepper: PEPPER, now }), ids };
+  return { service: new ExternalShareLinkService({ store, tableName: "test-table", ids, rateLimiter, fileStore, pepper: PEPPER, ipAuditPepper: IP_AUDIT_PEPPER, now }), ids };
 }
 
 async function seedTenant(store: InMemoryDocumentArchiveStore, status: "ACTIVE" | "HELD" = "ACTIVE"): Promise<void> {

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-share-link-revoke-request.v1.json",
+  "title": "DocArchiveShareLinkRevokeRequest v1",
+  "description": "PATCH /document-archive/documents/{documentId}/share-links/{shareId}/revoke request body. D-225/D-241/D-2xx (ExternalShareLink slice 2/3), Decision 7.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedVersion"],
+  "properties": {
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  }
+}

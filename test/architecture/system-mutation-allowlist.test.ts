@@ -25,8 +25,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SystemMutationOperation } from "../../src/shared/tenant-lifecycle/system-mutation.js";
+import { acquireFixtureLock } from "./fixture-lock.js";
 
 /**
  * Codex round 3 (D-076 re-review) BLOCKING finding: the fixture-based bypass tests below only
@@ -94,8 +95,25 @@ describe("architecture: SystemMutationOperation allowlist is closed at compile t
     expect(true).toBe(true);
   });
 
-  beforeAll(() => {
+  let releaseFixtureLock: (() => void) | undefined;
+
+  beforeAll(async () => {
+    // D-272 (E-023 flaky-suite root cause): `tsc -p tsconfig.json --noEmit` compiles the WHOLE
+    // tree (tsconfig.json's `include` is `["src", "infra", "test", "scripts"]`), so this file's
+    // tsc invocations are exposed to whatever fixtures ANY other process - including a
+    // completely separate `npm test` run - has on disk under `src/` at that moment (most
+    // concretely `tenant-fence-boundary.test.ts`'s own bypass fixtures). Hold this lock for the
+    // whole file's lifetime, not just one test, so no other process's fixtures can exist on disk
+    // while this file's tsc scans run. See `fixture-lock.ts`'s own header comment for the full
+    // root-cause writeup.
+    releaseFixtureLock = await acquireFixtureLock();
     cleanFixtures(); // safety net in case a prior interrupted run left a fixture behind
+  }, 11 * 60_000); // longer than fixture-lock.ts's own 10-minute acquire timeout, so THAT
+  // timeout's descriptive error fires instead of vitest's generic "Hook timed out" - waiting on
+  // another process's ENTIRE test-file run (which can legitimately take minutes) is expected,
+  // not a bug, so the default 10s hook timeout would fire on every real cross-process wait.
+  afterAll(() => {
+    releaseFixtureLock?.();
   });
   afterEach(() => {
     cleanFixtures();

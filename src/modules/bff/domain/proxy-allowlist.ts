@@ -174,6 +174,13 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/subjects/{subjectId}/dossier/{runId}/confirm" },
   // D-205 fatia 3 — also JSON envelope (`{downloadUrl}`), same reasoning.
   { method: "GET", pathTemplate: "/document-archive/subjects/{subjectId}/dossier/{runId}/download" },
+  // D-225/D-241 (ExternalShareLink slice 2/3, backlog P1 item 8) — authenticated/admin side
+  // only, same JSON-envelope reasoning as every other route above. The anonymous visitor's own
+  // route (/external-share/{shareId}/{token}) is NEVER proxied through the BFF — it is public,
+  // no-JWT, on a separate Lambda entirely.
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/share-links" },
+  { method: "GET", pathTemplate: "/document-archive/documents/{documentId}/share-links" },
+  { method: "PATCH", pathTemplate: "/document-archive/documents/{documentId}/share-links/{shareId}/revoke" },
   // ReportSubscription CRUD (D-204 decision 1, Roadmap P1 item 15, implemented D-213) — JSON
   // envelope, no content-disposition/CSV gap the GET /reports/* report routes above have (those
   // are deliberately NOT proxied through the BFF, see reports-handler.ts's own comment).

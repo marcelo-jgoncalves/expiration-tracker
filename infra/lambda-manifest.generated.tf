@@ -29,6 +29,7 @@ output "lambda_function_names" {
     module.outbox_sweeper.function_name,
     module.document_archive_handler.function_name,
     module.document_archive_guest_handler.function_name,
+    module.external_share_handler.function_name,
     module.document_request_credential_issuance_handler.function_name,
     module.guest_credential_delivery_handler.function_name,
     module.bff_handler.function_name,
@@ -95,6 +96,7 @@ output "lambda_published_versions" {
     (module.outbox_sweeper.function_name)                               = module.outbox_sweeper.published_version
     (module.document_archive_handler.function_name)                     = module.document_archive_handler.published_version
     (module.document_archive_guest_handler.function_name)               = module.document_archive_guest_handler.published_version
+    (module.external_share_handler.function_name)                       = module.external_share_handler.published_version
     (module.document_request_credential_issuance_handler.function_name) = module.document_request_credential_issuance_handler.published_version
     (module.guest_credential_delivery_handler.function_name)            = module.guest_credential_delivery_handler.published_version
     (module.bff_handler.function_name)                                  = module.bff_handler.published_version

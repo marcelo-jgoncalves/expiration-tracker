@@ -180,6 +180,16 @@ variable "document_archive_guest_function_name" {
   type        = string
 }
 
+variable "external_share_invoke_arn" {
+  description = "Invoke ARN of the ExternalShareHandler Lambda (D-225/D-241, ExternalShareLink) — backs GET /external-share/{shareId}/{token}, a PUBLIC (authorization_type = NONE) route, same posture as DocumentArchiveGuestHandler."
+  type        = string
+}
+
+variable "external_share_function_name" {
+  description = "Function name of the ExternalShareHandler Lambda, for the API Gateway invoke permission."
+  type        = string
+}
+
 variable "cors_allow_origins" {
   description = "CORS allowed origins. CDK construct uses a documented placeholder (\"https://app.example.invalid\") pending a real frontend domain decision — same posture here."
   type        = list(string)
