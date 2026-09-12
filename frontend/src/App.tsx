@@ -53,6 +53,7 @@ import { Tracking } from "./routes/subjects/Tracking.js";
 import { RequestDeliverySettings } from "./routes/subjects/RequestDeliverySettings.js";
 import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
 import { LegacyGuestUpload } from "./routes/guest/LegacyGuestUpload.js";
+import { ImportWizard } from "./routes/imports/ImportWizard.js";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -147,6 +148,13 @@ export function App() {
                 <Route path="members" element={<Members />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="activity" element={<ActivityLog />} />
+                {/* A15 (Block 9) - Importação em massa (CSV), `import:read` (all roles) for the
+                    `:jobId` route, `import:create` (WRITE_ROLES) gated inside the component for
+                    the `new` route - same "gate inside the screen, not the route" discipline as
+                    A22/Settings.tsx below. Two paths, one component: `ImportWizard` branches on
+                    whether `:jobId` is present (see its own header comment). */}
+                <Route path="imports/new" element={<ImportWizard />} />
+                <Route path="imports/:jobId" element={<ImportWizard />} />
               </Route>
               {/* Root path - a plain, ungated redirect to the (also legacy, also gated below)
                   "/overview" path, exactly what the pre-migration index route did. Kept OUTSIDE
@@ -202,6 +210,10 @@ export function App() {
                 <Route path="members" element={null} />
                 <Route path="settings" element={null} />
                 <Route path="activity" element={null} />
+                {/* A15 (Block 9) - added here from the start, same healing-forward discipline
+                    as A20/A21/A22 above. */}
+                <Route path="imports/new" element={null} />
+                <Route path="imports/:jobId" element={null} />
               </Route>
               {/* Sibling of the two groups above, never nested under ActiveOrganizationProvider/
                   OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships

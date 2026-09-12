@@ -11,19 +11,35 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
     expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
   });
 
-  it("shows Membros but hides Atividade for a MEMBER", () => {
+  // A15 (Block 9) - "Importar CSV" is WRITE_ROLES only (`import:create/map/commit`) - a MEMBER
+  // sees it, a VIEWER (above) does not.
+  it("shows Membros AND Importar CSV, but hides Atividade, for a MEMBER", () => {
     const ids = getVisibleNavItems("MEMBER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "imports", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
   });
 
   it("shows every item for an ADMIN", () => {
     const ids = getVisibleNavItems("ADMIN").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences", "activity"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "imports", "members", "settings", "document-types", "requirement-templates", "notification-preferences", "activity"]);
   });
 
   it("shows every item for an OWNER, including the OWNER-exclusive 'request-delivery' (A22)", () => {
     const ids = getVisibleNavItems("OWNER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "request-delivery", "notification-preferences", "activity"]);
+    expect(ids).toEqual([
+      "overview",
+      "items",
+      "subjects",
+      "requirements",
+      "reviews",
+      "imports",
+      "members",
+      "settings",
+      "document-types",
+      "requirement-templates",
+      "request-delivery",
+      "notification-preferences",
+      "activity",
+    ]);
   });
 
   // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES: every real Membership
@@ -32,6 +48,15 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
   it("shows Minhas preferências de notificação to every role, including VIEWER", () => {
     for (const role of ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const) {
       expect(getVisibleNavItems(role).map((item) => item.id)).toContain("notification-preferences");
+    }
+  });
+
+  // A15 (Block 9) - same discipline as A22's `request-delivery` above: a role with no write
+  // action behind the nav entry never sees it at all.
+  it("hides 'Importar CSV' from VIEWER only", () => {
+    expect(getVisibleNavItems("VIEWER").map((item) => item.id)).not.toContain("imports");
+    for (const role of ["MEMBER", "ADMIN", "OWNER"] as const) {
+      expect(getVisibleNavItems(role).map((item) => item.id)).toContain("imports");
     }
   });
 

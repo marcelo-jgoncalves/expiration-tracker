@@ -38,6 +38,13 @@ export interface NavItem {
 
 const ADMIN_ROLES: readonly MembershipRole[] = ["ADMIN", "OWNER"];
 const OWNER_ROLES: readonly MembershipRole[] = ["OWNER"];
+// A15 (Block 9) - `import:create/map/commit` (the only actions this entry point exists to
+// reach - starting a new import) are WRITE_ROLES (`authorization.ts:308/310/311`); `import:read`
+// itself is READ_ONLY_ROLES (every role), but a VIEWER has no useful action at `/imports/new`
+// (they can only ever land on a specific existing job's read-only summary via a direct link,
+// never discover one from this nav entry) - same "hide the whole nav entry when the role has no
+// write action behind it" discipline as `request-delivery` below, not a second RBAC tier.
+const WRITE_ROLES: readonly MembershipRole[] = ["OWNER", "ADMIN", "MEMBER"];
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "overview", to: "/overview", label: "Visão geral" },
@@ -59,6 +66,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // live inside the Members screen itself (Members.tsx's own `canManageMembers`), never at the
   // nav-visibility level - hiding the whole nav entry for a role that can legitimately view the
   // roster would be an access REDUCTION the real RBAC matrix never asked for.
+  // A15 (Block 9) - Importação em massa (CSV), reached from this entry point at
+  // `/imports/new` (WRITE_ROLES only - see the comment on `WRITE_ROLES` above). A job already in
+  // progress is reached via its own persistent `/imports/:jobId` link (e.g. bookmarked, or
+  // resumed from wherever it was started), never from this list.
+  { id: "imports", to: "/imports/new", label: "Importar CSV", allowedRoles: WRITE_ROLES },
   { id: "members", to: "/members", label: "Membros" },
   { id: "settings", to: "/settings", label: "Configurações" },
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES, every role
