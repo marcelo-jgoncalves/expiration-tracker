@@ -40,6 +40,11 @@ beforeEach(() => {
     if (path.includes("/requirements")) {
       return Promise.resolve({ assignments: [] });
     }
+    // A14 (Block 6) - active-series count for the "Solicitações e recorrência" card (holistic
+    // frontend review fix - this card used to be a dead "Em breve" placeholder).
+    if (path.startsWith("/document-archive/series/")) {
+      return Promise.resolve({ series: [] });
+    }
     if (path.startsWith("/subjects/")) {
       return Promise.resolve({ subject: subject() });
     }
@@ -62,6 +67,7 @@ describe("SubjectHub (A09)", () => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
       if (path.includes("/requirements")) return Promise.resolve({ assignments: [{ assignmentId: "a1" }, { assignmentId: "a2" }] });
+      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject() });
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
@@ -71,6 +77,24 @@ describe("SubjectHub (A09)", () => {
     expect(within(link).getByText("2")).toBeInTheDocument();
   });
 
+  it("A14 (Block 6, holistic frontend review fix): renders 'Solicitações e recorrência' as a real link with the active-series count, never 'Em breve' text", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
+      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
+      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
+      if (path.startsWith("/document-archive/series/")) {
+        return Promise.resolve({ series: [{ status: "ACTIVE" }, { status: "ACTIVE" }, { status: "CANCELLED" }] });
+      }
+      return Promise.resolve({ subject: subject() });
+    });
+    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+
+    const link = await screen.findByRole("link", { name: /Solicitações e recorrência/ });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/subjects/subject-1/requests"));
+    expect(within(link).getByText("2")).toBeInTheDocument();
+    expect(screen.queryByText(/Em breve/)).not.toBeInTheDocument();
+  });
+
   it("shows '—' (never 0%) when totalRequirements is 0", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) {
@@ -78,13 +102,14 @@ describe("SubjectHub (A09)", () => {
       }
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
       if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
+      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject() });
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument());
-    // Scoped to the compliance panel's percentage element - the page also renders an em dash
-    // elsewhere too (e.g. "Solicitações e recorrência — Em breve...").
+    // Scoped to the compliance panel's percentage element - the page also renders other em
+    // dashes now too (e.g. a loading MetricCard before its query resolves).
     const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
     expect(section?.querySelector("strong")?.textContent).toBe("—");
   });
@@ -94,6 +119,7 @@ describe("SubjectHub (A09)", () => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
       if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
+      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
     });
     renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");

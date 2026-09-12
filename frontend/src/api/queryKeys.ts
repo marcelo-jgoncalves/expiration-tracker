@@ -98,6 +98,11 @@ export const queryKeys = {
      * explicitly, never by accident of a shared key). */
     series: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "series", subjectId] as const,
     documentRequests: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "documentRequests", subjectId] as const,
+    /** A17 (Block 10, D-2xx) - dossier export run status polling (holistic frontend review fix:
+     * this used to be a bare `["dossier-export-run", subjectId, runId]` key, outside the
+     * `["org", organizationId, ...]` prefix every org-switch cancellation (`ActiveOrganizationContext.tsx`)
+     * relies on - switching organizations mid-poll never cancelled it). */
+    dossierRun: (organizationId: string, subjectId: string, runId: string) => ["org", organizationId, "documentArchive", "dossierRun", subjectId, runId] as const,
   },
   notifications: {
     /** A18 (Block 8, D-2xx) - per-user, no sub-filters (one record per user per tenant). */

@@ -209,6 +209,10 @@ function RowActions({ requirement }: { requirement: Requirement }) {
       <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
         Cancelar
       </Button>
+      {/* Holistic frontend review finding: a conflict on delete used to `return` silently in
+          `handleDelete` above, never rendering anything - the same class of gap already fixed for
+          SubjectsCollection.tsx's archive/reactivate action (Codex Block 3 round 1 finding 12). */}
+      {deleteMutation.isConflict ? <span role="alert"> Este requisito foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</span> : null}
       {deleteError ? <span role="alert"> {deleteError}</span> : null}
     </span>
   ) : (

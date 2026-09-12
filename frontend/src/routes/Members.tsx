@@ -17,6 +17,7 @@ import { ApiError } from "../api/errors.js";
 import { isValidationError } from "../api/validation.js";
 import type { Member, MembershipRole } from "../api/types.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
@@ -111,7 +112,27 @@ function MembersTable({ members, canManage, actorRole }: { members: Member[]; ca
     },
   ];
 
-  return <DataTable caption="Membros ativos" columns={columns} rows={members} rowKey={(m) => m.userId} />;
+  // Holistic frontend review finding: role-change/removal mutations had no error rendering at
+  // all - a failed request (network, OCC conflict, backend authorization) previously disappeared
+  // silently, with no distinct feedback that the action didn't take effect.
+  const changeRoleError = changeRole.isError ? (changeRole.error instanceof ApiError ? changeRole.error.message : "Não foi possível alterar o papel deste membro.") : undefined;
+  const removeMemberError = removeMember.isError ? (removeMember.error instanceof ApiError ? removeMember.error.message : "Não foi possível remover este membro.") : undefined;
+
+  return (
+    <>
+      <DataTable caption="Membros ativos" columns={columns} rows={members} rowKey={(m) => m.userId} />
+      {changeRoleError ? (
+        <InlineNotice tone="critical" announce="alert">
+          {changeRoleError}
+        </InlineNotice>
+      ) : null}
+      {removeMemberError ? (
+        <InlineNotice tone="critical" announce="alert">
+          {removeMemberError}
+        </InlineNotice>
+      ) : null}
+    </>
+  );
 }
 
 export function Members() {
@@ -159,29 +180,55 @@ export function Members() {
       <Panel>
         {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} actorRole={role} />}
       </Panel>
-      {manage && invitationsQuery.data && invitationsQuery.data.invitations.length > 0 ? (
+      {manage ? (
         <Section heading="Convites pendentes" headingId="pending-invitations">
-          <Panel>
-            <DataTable
-              caption="Convites pendentes"
-              columns={[
-                { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
-                { key: "role", header: "Papel", render: (i) => i.role },
-                { key: "status", header: "Status", render: (i) => i.status },
-                {
-                  key: "actions",
-                  header: "Ações",
-                  render: (i) => (
-                    <Button variant="tertiary" size="sm" onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
-                      Revogar
-                    </Button>
-                  ),
-                },
-              ]}
-              rows={invitationsQuery.data.invitations}
-              rowKey={(i) => i.invitationId}
-            />
-          </Panel>
+          {/* Holistic frontend review finding: loading, error, and genuine-empty were all
+              collapsed into "render nothing" (`invitationsQuery.data && ...length > 0`) - an
+              admin who hit a load failure had no way to distinguish it from "no invitations". */}
+          {invitationsQuery.isPending ? (
+            <Panel>
+              <CollectionSkeleton label="Carregando convites…" />
+            </Panel>
+          ) : invitationsQuery.isError ? (
+            <Panel>
+              <ErrorState
+                message={invitationsQuery.error instanceof ApiError ? invitationsQuery.error.message : "Não foi possível carregar os convites pendentes."}
+                onRetry={() => void invitationsQuery.refetch()}
+              />
+            </Panel>
+          ) : invitationsQuery.data.invitations.length === 0 ? (
+            <Panel>
+              <EmptyState kind="true-empty" message="Nenhum convite pendente." />
+            </Panel>
+          ) : (
+            <Panel>
+              <DataTable
+                caption="Convites pendentes"
+                columns={[
+                  { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
+                  { key: "role", header: "Papel", render: (i) => i.role },
+                  { key: "status", header: "Status", render: (i) => i.status },
+                  {
+                    key: "actions",
+                    header: "Ações",
+                    render: (i) => (
+                      <Button variant="tertiary" size="sm" onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
+                        Revogar
+                      </Button>
+                    ),
+                  },
+                ]}
+                rows={invitationsQuery.data.invitations}
+                rowKey={(i) => i.invitationId}
+              />
+              {/* Holistic frontend review finding: revocation had no error rendering at all. */}
+              {revokeInvitation.isError ? (
+                <InlineNotice tone="critical" announce="alert">
+                  {revokeInvitation.error instanceof ApiError ? revokeInvitation.error.message : "Não foi possível revogar este convite."}
+                </InlineNotice>
+              ) : null}
+            </Panel>
+          )}
         </Section>
       ) : null}
     </>

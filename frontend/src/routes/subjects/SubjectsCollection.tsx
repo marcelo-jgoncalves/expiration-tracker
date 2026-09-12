@@ -214,6 +214,10 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
         )
       ) : null}
       {archiveMutation.isConflict ? <span role="alert"> Este fornecedor mudou desde que a página carregou — atualize antes de tentar de novo.</span> : null}
+      {/* Holistic frontend review finding: the delete path's `handleDelete` swallowed a conflict
+          silently (mirrors the exact archive/reactivate gap Codex Block 3 round 1 finding 12
+          already fixed above - that fix was never applied to its sibling delete action). */}
+      {deleteMutation.isConflict ? <span role="alert"> Este fornecedor foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</span> : null}
       {blockedReason ? <span role="alert"> {blockedReason}</span> : null}
     </>
   );
