@@ -25,7 +25,7 @@
  */
 import type { ExpirationItem } from "../../modules/expiration/domain/expiration-item.js";
 import { itemKey } from "../../modules/expiration/domain/expiration-item.js";
-import { policyKey, POLICY_REF_SK_PREFIX, type PolicyRef, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
+import { policyKey, activePolicyPointerKey, POLICY_REF_SK_PREFIX, type PolicyRef, type ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
 import type { ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
 import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
@@ -85,10 +85,27 @@ async function reconcileCurrentTarget(
 }
 
 /**
+ * Dereferences one candidate pointer (fixed or legacy) into a validated, still-live
+ * ITEM-scoped policy for this exact item - `undefined` for anything orphaned/stale/
+ * tombstoned (P0.4: a `deletedAt`-tombstoned policy is treated exactly like a missing
+ * one, never a live target - Claude<->Codex protocol Round 4 finding). Never trusted
+ * without this re-check, same discipline the module header describes.
+ */
+async function derefItemPolicy(deps: TriggerDeps, tenantId: string, itemId: string, policyId: string): Promise<ReminderPolicy | undefined> {
+  const policy = await getPolicy(deps, tenantId, policyId);
+  if (!policy || policy.deletedAt || policy.tenantId !== tenantId || policy.scope !== "ITEM" || policy.itemId !== itemId) {
+    return undefined;
+  }
+  return policy;
+}
+
+/**
  * `expiration.item-due-date-changed.v1`: item is (or should be) ACTIVE with a current due
- * date - discover its ITEM-scoped policies via the POLICYREF# pointer partition (§5, never
- * authoritative - every pointer is re-dereferenced and validated), reconcile+materialize
- * each, then run the pre-existing itemVersion staleness safety net.
+ * date - discover its ITEM-scoped policy via the fixed pointer (P0.4: at most one per
+ * item), falling back to the legacy per-policy `POLICYREF#` pointers only for an item
+ * that hasn't gone through the P0.4 migration/self-heal yet (§5, never authoritative -
+ * every pointer is re-dereferenced and validated), reconcile+materialize, then run the
+ * pre-existing itemVersion staleness safety net.
  */
 async function onItemDueDateChanged(deps: TriggerDeps, event: { tenantId: string; itemId: string }): Promise<TriggerResult> {
   const item = await getItem(deps, authorizedTenantIdFromPersistedEntity(event), event.itemId);
@@ -100,23 +117,39 @@ async function onItemDueDateChanged(deps: TriggerDeps, event: { tenantId: string
   }
 
   const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
-  const pointers = await deps.store.queryByItem<PolicyRef>(event.tenantId, event.itemId, POLICY_REF_SK_PREFIX);
 
   let reconciled = 0;
   let materialized = 0;
   let skippedOrphanedPointers = 0;
+  let policiesFound = 0;
 
-  for (const pointer of pointers) {
-    const policy = await getPolicy(deps, event.tenantId, pointer.policyId);
-    if (!policy || policy.tenantId !== event.tenantId || policy.scope !== "ITEM" || policy.itemId !== event.itemId) {
-      // Orphaned/stale pointer (§5) - never trusted, silently skipped. Corrected by the
-      // next successful policy-changed event for this policy, or by the backfill script.
-      skippedOrphanedPointers += 1;
-      continue;
+  const fixedRef = await deps.store.get<PolicyRef>(activePolicyPointerKey(event.tenantId, event.itemId));
+  if (fixedRef) {
+    const policy = await derefItemPolicy(deps, event.tenantId, event.itemId, fixedRef.policyId);
+    if (policy) {
+      policiesFound += 1;
+      const result = await reconcileCurrentTarget(deps, materializer, event.tenantId, item, policy);
+      reconciled += result.reconciled;
+      materialized += result.materialized;
+    } else {
+      skippedOrphanedPointers += 1; // stale fixed pointer - never trusted, same discipline as legacy pointers below.
     }
-    const result = await reconcileCurrentTarget(deps, materializer, event.tenantId, item, policy);
-    reconciled += result.reconciled;
-    materialized += result.materialized;
+  }
+
+  if (policiesFound === 0) {
+    // Legacy fallback (pre-P0.4-migration window only, read-only - see reminder-policy.ts
+    // POLICY_REF_SK_PREFIX doc): only consulted when the fixed pointer found nothing valid.
+    const pointers = await deps.store.queryByItem<PolicyRef>(event.tenantId, event.itemId, POLICY_REF_SK_PREFIX);
+    for (const pointer of pointers) {
+      const policy = await derefItemPolicy(deps, event.tenantId, event.itemId, pointer.policyId);
+      if (!policy) {
+        skippedOrphanedPointers += 1; // Corrected by the next policy-changed event, the backfill script, or the P0.4 migration.
+        continue;
+      }
+      const result = await reconcileCurrentTarget(deps, materializer, event.tenantId, item, policy);
+      reconciled += result.reconciled;
+      materialized += result.materialized;
+    }
   }
 
   await materializer.cancelStaleOccurrences({ tenantId: event.tenantId, itemId: event.itemId, currentItemVersion: item.version });
@@ -148,7 +181,10 @@ async function onPolicyChanged(
     return EMPTY_RESULT;
   }
 
-  const currentTarget = policy.scope === "ITEM" ? policy.itemId! : null;
+  // P0.4 (Claude<->Codex protocol Round 4 finding): a soft-deleted (tombstoned) policy is
+  // never a current target, exactly like one whose scope left ITEM - its retirement event
+  // still needs `previousItemId` reconciled below, just never re-materialized as live.
+  const currentTarget = policy.scope === "ITEM" && !policy.deletedAt ? policy.itemId! : null;
   const targets = [...new Set([event.previousItemId, currentTarget].filter((t): t is string => t !== null))];
 
   const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);

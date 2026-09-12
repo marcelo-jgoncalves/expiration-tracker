@@ -25,7 +25,7 @@ import { buildExistenceConditionCheck, buildVersionedCreate, buildVersionedUpdat
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { itemKey } from "../../expiration/domain/expiration-item.js";
-import { policyKey, policyRefKey, POLICY_REF_SK_PREFIX, validatePolicyScope, type ReminderPolicy, type PolicyRef, type PutPolicyInput } from "../domain/reminder-policy.js";
+import { policyKey, activePolicyPointerKey, POLICY_REF_SK_PREFIX, validatePolicyScope, type ReminderPolicy, type PolicyRef, type PutPolicyInput } from "../domain/reminder-policy.js";
 import { isTransactionCanceled, type ReminderStore, type TransactWriteEntry } from "../ports/reminder-store.js";
 import type { ReminderIdGenerator } from "./id-generator.js";
 
@@ -113,38 +113,49 @@ export class ReminderPolicyService {
    * round 1): gating a pure read behind WRITE_ROLES locked VIEWER out of A06 entirely, even
    * though the screen itself renders a read-only view for VIEWER.
    *
-   * Codex review finding (D-258 round 1): `trigger.ts`'s own comment on this exact pointer
-   * partition says "discover its ITEM-scoped **policies**" (plural) - the domain does not
-   * actually enforce at most one ITEM-scoped policy per item (`createPolicy` never checks for
-   * an existing pointer before writing a new one), so blindly trusting `refs[0]` could surface
-   * the wrong policy, and a stale/orphaned pointer (left behind by a partial historical write,
-   * never authoritative per §5) could point at a policy that no longer targets this item at
-   * all. Every candidate is dereferenced and validated exactly like
-   * `reminder-materialization-trigger/trigger.ts`'s `onItemDueDateChanged` already does
-   * (scope/itemId/tenantId re-checked, orphans silently skipped) - among the surviving valid
-   * candidates, the most recently updated one is returned deterministically (never an
-   * unvalidated `refs[0]`). A06's UI only ever creates one ITEM-scoped policy per item through
-   * its own save flow; true concurrent multi-policy creation remains a known, pre-existing
-   * domain gap (not introduced here) worth a dedicated uniqueness fix later, not silently
-   * widened by this discovery route.
+   * P0.4 uniqueness fix (Claude<->Codex protocol, decisions-log.md D-XXX): the domain now
+   * enforces at most one live ITEM-scoped policy per item via the fixed
+   * `activePolicyPointerKey()` pointer, so the fixed pointer is tried FIRST and, once
+   * valid, is authoritative-enough to return directly - no more "most recently updated
+   * among candidates" ambiguity. The legacy per-policy `POLICYREF#` prefix query below is
+   * a READ-ONLY fallback for the one-time migration window only (an item whose policies
+   * predate this deploy and haven't been migrated yet still has only legacy pointers) -
+   * every write path (`createPolicy`/`updatePolicy`) writes ONLY the fixed pointer from
+   * now on, so this fallback stops being exercised for a given item the moment the P0.4
+   * migration script (or any subsequent edit, which self-heals the fixed pointer) runs
+   * for it. Same orphan-tolerance discipline as before: nothing here is ever trusted
+   * without dereferencing and re-validating the real `ReminderPolicy` row.
    */
   async getPolicyForItem(ctx: RequestContext, itemId: string): Promise<ReminderPolicy | null> {
     const tenantId = authorizedTenantId(ctx);
     authorize({ context: ctx, action: "reminder:read", resource: { tenantId } });
+
+    const fixedRef = await this.store.get<PolicyRef>(activePolicyPointerKey(tenantId, itemId));
+    if (fixedRef) {
+      const policy = await this.validItemPolicyOrUndefined(tenantId, itemId, fixedRef.policyId);
+      if (policy) return policy;
+      // Fixed pointer exists but is stale/orphaned - fall through to the legacy scan
+      // below rather than trusting it; never returned as-is.
+    }
 
     const refs = await this.store.queryByItem<PolicyRef>(tenantId, itemId, POLICY_REF_SK_PREFIX);
     if (refs.length === 0) return null;
 
     const candidates: ReminderPolicy[] = [];
     for (const ref of refs) {
-      const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, ref.policyId));
-      if (!policy || policy.deletedAt || policy.tenantId !== tenantId || policy.scope !== "ITEM" || policy.itemId !== itemId) {
-        continue; // orphaned/stale pointer (§5) - never trusted, same discipline as the trigger worker.
-      }
-      candidates.push(policy);
+      const policy = await this.validItemPolicyOrUndefined(tenantId, itemId, ref.policyId);
+      if (policy) candidates.push(policy);
     }
     if (candidates.length === 0) return null;
     return candidates.reduce((latest, candidate) => (candidate.updatedAt > latest.updatedAt ? candidate : latest));
+  }
+
+  private async validItemPolicyOrUndefined(tenantId: string, itemId: string, policyId: string): Promise<ReminderPolicy | undefined> {
+    const policy = await this.store.get<ReminderPolicy>(policyKey(tenantId, policyId));
+    if (!policy || policy.deletedAt || policy.tenantId !== tenantId || policy.scope !== "ITEM" || policy.itemId !== itemId) {
+      return undefined; // orphaned/stale pointer (§5) - never trusted, same discipline as the trigger worker.
+    }
+    return policy;
   }
 
   async updatePolicy(
@@ -185,23 +196,21 @@ export class ReminderPolicyService {
     // §5's pointer-move invariant: remove the OLD pointer whenever the policy stops being
     // this exact ITEM's policy (scope left ITEM, or itemId changed) - BEFORE adding a new
     // one, so a move and a plain re-save of the same itemId are told apart correctly.
+    // P0.4: the Delete itself carries the ownership condition (`policyId = :policyId`) -
+    // never a separate ConditionCheck on the same key, which TransactWriteItems forbids
+    // alongside another action on that same item (Claude<->Codex protocol Round 4 finding).
     const movedAwayFromItem = policy.scope === "ITEM" && (input.scope !== "ITEM" || input.itemId !== policy.itemId);
     if (movedAwayFromItem) {
-      entries.push({ Delete: { TableName: this.tableName, Key: policyRefKey(tenantId, policy.itemId!, policyId) } });
+      entries.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: activePolicyPointerKey(tenantId, policy.itemId!),
+          ConditionExpression: "policyId = :ownedPolicyId",
+          ExpressionAttributeValues: { ":ownedPolicyId": policyId },
+        },
+      });
     }
-    // Only write a NEW pointer when the target item actually changed (or scope just became
-    // ITEM) - re-Put-ing an unchanged pointer with attribute_not_exists would otherwise
-    // fail its own condition every time an unrelated field (e.g. triggers) is edited.
-    // Codex implementation-review finding (real defect): an earlier version passed
-    // `itemId: undefined` for the unchanged-target case to suppress the pointer Put, but
-    // that ALSO suppressed the item existence/ACTIVE/tenant ConditionCheck entirely - a
-    // same-item policy edit could commit without ever re-asserting its target is still
-    // valid, even though every OTHER ITEM-scoped write does. The two concerns (which
-    // itemId's existence to assert vs. whether to also write a pointer for it) are now
-    // separated: `itemId` always carries the real target when scope is ITEM;
-    // `skipPointerWrite` alone controls the pointer.
-    const needsNewPointer = input.scope === "ITEM" && (policy.scope !== "ITEM" || input.itemId !== policy.itemId);
-    this.appendItemLinkage(entries, { tenantId, itemId: input.scope === "ITEM" ? input.itemId : undefined, scope: input.scope, policyId, skipPointerWrite: !needsNewPointer });
+    this.appendItemLinkage(entries, { tenantId, itemId: input.scope === "ITEM" ? input.itemId : undefined, scope: input.scope, policyId });
 
     this.appendPolicyChangedEvent(
       entries,
@@ -268,10 +277,22 @@ export class ReminderPolicyService {
     return policy;
   }
 
-  /** Appends the ITEM-existence ConditionCheck + (unless `skipPointerWrite`) the new pointer Put, when `itemId` is present. */
+  /**
+   * Appends the ITEM-existence ConditionCheck plus an upsert-style conditioned Put of the
+   * fixed pointer, whenever `itemId` is present (P0.4 uniqueness fix, protocol Round 5-6).
+   * A single Put handles every case without a separate branch:
+   *  - `attribute_not_exists(PK)`: no fixed pointer exists yet for this item (first-ever
+   *    policy, a move onto a previously policy-less item, or a pre-P0.4 item whose fixed
+   *    pointer this same edit lazily self-heals) - creates it.
+   *  - `policyId = :policyId`: a fixed pointer already exists and belongs to THIS policy
+   *    (a same-item, no-move edit) - the Put is an idempotent no-op overwrite, which is
+   *    also the ownership fence Codex's Round 4 review required (an edit whose pointer
+   *    belongs to a DIFFERENT policyId fails this condition and the whole transaction is
+   *    rejected, never silently committed over a stale/foreign pointer).
+   */
   private appendItemLinkage(
     entries: TransactWriteEntry[],
-    input: { tenantId: AuthorizedTenantId; itemId: string | undefined; scope: PutPolicyInput["scope"]; policyId: string; skipPointerWrite?: boolean },
+    input: { tenantId: AuthorizedTenantId; itemId: string | undefined; scope: PutPolicyInput["scope"]; policyId: string },
   ): void {
     if (input.scope !== "ITEM" || !input.itemId) return;
     entries.push(
@@ -281,15 +302,14 @@ export class ReminderPolicyService {
         extra: { tenantId: input.tenantId, status: "ACTIVE" },
       }),
     );
-    if (!input.skipPointerWrite) {
-      entries.push({
-        Put: {
-          TableName: this.tableName,
-          Item: { ...policyRefKey(input.tenantId, input.itemId, input.policyId), entityType: "ReminderPolicyRef", policyId: input.policyId, tenantId: input.tenantId },
-          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
-        },
-      });
-    }
+    entries.push({
+      Put: {
+        TableName: this.tableName,
+        Item: { ...activePolicyPointerKey(input.tenantId, input.itemId), entityType: "ReminderPolicyRef", policyId: input.policyId, tenantId: input.tenantId },
+        ConditionExpression: "attribute_not_exists(PK) OR policyId = :policyId",
+        ExpressionAttributeValues: { ":policyId": input.policyId },
+      },
+    });
   }
 
   private appendPolicyChangedEvent(

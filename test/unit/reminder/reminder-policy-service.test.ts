@@ -7,7 +7,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-store.js";
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
-import { policyKey, policyRefKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { policyKey, activePolicyPointerKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -107,7 +107,7 @@ describe("ReminderPolicyService - createPolicy", () => {
       rule: { name: "r", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
     });
 
-    const pointer = await store.get(policyRefKey(TENANT, "item1", policy.policyId));
+    const pointer = await store.get(activePolicyPointerKey(TENANT, "item1"));
     expect(pointer).toBeDefined();
     expect((pointer as unknown as { policyId: string }).policyId).toBe(policy.policyId);
     expect((pointer as unknown as { tenantId: string }).tenantId).toBe(TENANT);
@@ -223,22 +223,41 @@ describe("ReminderPolicyService - getPolicyForItem (D-258 discovery)", () => {
     expect(await service.getPolicyForItem(ctx, "item1")).toBeNull();
   });
 
-  it("Codex review finding (D-258 round 1): when more than one valid ITEM-scoped policy pointer exists for an item (domain does not enforce 1:1), the most recently updated one is returned deterministically, never an unvalidated refs[0]", async () => {
-    const older = await service.createPolicy(ctx, {
+  it("P0.4 uniqueness fix (Claude<->Codex protocol, decisions-log.md D-XXX): rejects creating a second ITEM-scoped policy for an item that already has one live", async () => {
+    await service.createPolicy(ctx, {
       scope: "ITEM",
       itemId: "item1",
       rule: { name: "older", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
     });
-    const laterService = new ReminderPolicyService({ store, tableName: TABLE, ids: makeReminderIdGenerator(), now: () => "2026-08-02T00:00:00.000Z" });
-    const newer = await laterService.createPolicy(ctx, {
-      scope: "ITEM",
-      itemId: "item1",
-      rule: { name: "newer", triggers: [{ triggerId: "t2", offsetIso: "-P3D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
-    });
-    expect(older.policyId).not.toBe(newer.policyId);
+
+    await expect(
+      service.createPolicy(ctx, {
+        scope: "ITEM",
+        itemId: "item1",
+        rule: { name: "newer", triggers: [{ triggerId: "t2", offsetIso: "-P3D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"] },
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("legacy-pointer fallback (pre-P0.4-migration window): when 2+ legacy POLICYREF# pointers exist for an item (never producible by current code, only by historical/pre-migration data), the most recently updated candidate is returned deterministically, never an unvalidated refs[0]", async () => {
+    // Simulates data from before the P0.4 uniqueness fix: 2 legacy per-policy pointers for
+    // the same item, no fixed pointer yet - the exact shape getPolicyForItem's fallback
+    // path exists to tolerate until the migration script (or a self-healing edit) runs.
+    const older: import("../../../src/modules/reminder/domain/reminder-policy.js").ReminderPolicy = {
+      PK: "TENANT#t1#POLICY#older", SK: "META", entityType: "ReminderPolicy", policyId: "older", tenantId: TENANT, scope: "ITEM", itemId: "item1",
+      name: "older", triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }], timeZone: "America/Sao_Paulo", channels: ["EMAIL"],
+      enabled: true, version: 1, createdAt: NOW, updatedAt: NOW,
+    };
+    const newer: import("../../../src/modules/reminder/domain/reminder-policy.js").ReminderPolicy = {
+      ...older, PK: "TENANT#t1#POLICY#newer", policyId: "newer", name: "newer", updatedAt: "2026-08-02T00:00:00.000Z",
+    };
+    await store.putIfAbsent(older);
+    await store.putIfAbsent(newer);
+    await store.putIfAbsent({ PK: "TENANT#t1#ITEM#item1", SK: "POLICYREF#older", entityType: "ReminderPolicyRef", policyId: "older", tenantId: TENANT });
+    await store.putIfAbsent({ PK: "TENANT#t1#ITEM#item1", SK: "POLICYREF#newer", entityType: "ReminderPolicyRef", policyId: "newer", tenantId: TENANT });
 
     const found = await service.getPolicyForItem(ctx, "item1");
-    expect(found?.policyId).toBe(newer.policyId);
+    expect(found?.policyId).toBe("newer");
     expect(found?.name).toBe("newer");
   });
 });
@@ -271,8 +290,8 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
     );
     expect(updated.itemId).toBe("item2");
 
-    expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeUndefined();
-    const newPointer = await store.get(policyRefKey(TENANT, "item2", policy.policyId));
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeUndefined();
+    const newPointer = await store.get(activePolicyPointerKey(TENANT, "item2"));
     expect(newPointer).toBeDefined();
 
     const events = outboxEvents(store).filter((e) => e["eventType"] === "reminder.policy-changed.v1");
@@ -291,7 +310,7 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
 
     await service.updatePolicy(ctx, policy.policyId, { scope: "TEMPLATE", rule: { name: "r", triggers: policy.triggers, timeZone: policy.timeZone, channels: policy.channels } }, 1);
 
-    expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeUndefined();
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeUndefined();
     const events = outboxEvents(store).filter((e) => e["eventType"] === "reminder.policy-changed.v1");
     const updateEvent = events[1]!;
     expect((updateEvent["payload"] as { itemId?: string }).itemId).toBeNull();
@@ -312,7 +331,7 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
       1,
     );
     expect(updated.name).toBe("renamed");
-    expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeDefined();
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeDefined();
   });
 
   it("rejects a same-item update (unrelated field edit) when the target item is no longer ACTIVE (Codex implementation-review finding: this integrity check must not be skipped just because the pointer write is)", async () => {
@@ -363,7 +382,7 @@ describe("ReminderPolicyService - disablePolicy", () => {
 
     await service.disablePolicy(ctx, policy.policyId, 1);
 
-    expect(await store.get(policyRefKey(TENANT, "item1", policy.policyId))).toBeDefined();
+    expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeDefined();
     const events = outboxEvents(store).filter((e) => e["eventType"] === "reminder.policy-changed.v1");
     const disableEvent = events[1]!;
     expect((disableEvent["payload"] as { itemId?: string }).itemId).toBe("item1");
