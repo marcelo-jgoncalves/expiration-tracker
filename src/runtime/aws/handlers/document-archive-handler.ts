@@ -67,6 +67,7 @@ import {
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
+import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -87,16 +88,22 @@ const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { documentArchive, recurrence, dossierExportStore, shareLinks } = buildDocumentArchiveDeps(client, tableName, quarantineBucket, reportExportsBucketName, shareLinkPepper);
 const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota, dossierExportStore, shareLinks };
 
-export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
-  return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentArchiveRoute(event));
-}
+const NAMESPACE = "ExpirationTracker/DocumentArchive";
+
+export const handler = withHandlerTiming<APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2>(
+  NAMESPACE,
+  "document-archive handler",
+  (event) => runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentArchiveRoute(event)),
+);
 
 async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   const claims = extractClaims(event);
   const base = { requestId: event.requestContext.requestId, correlationId: ulid(), claims, pathParameters: event.pathParameters, queryStringParameters: event.queryStringParameters, headers: event.headers };
   const routeKey = event.routeKey; // e.g. "POST /document-archive/documents"
 
-  const response = await (async () => {
+  // PERF-02 slice 2: see items-handler.ts's identical comment - business_operation_ms covers
+  // the whole dispatch (RequestContext resolve+quota+business), not business logic alone.
+  const response = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "document-archive business operation timing", async () => (async () => {
     try {
       switch (routeKey) {
         case "POST /document-archive/documents":
@@ -239,7 +246,7 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
       const appError = toAppError(err);
       return { statusCode: appError.category === "VALIDATION" ? 400 : 500, body: appError.toJSON() };
     }
-  })();
+  })());
 
   return toApiGatewayResult(response);
 }

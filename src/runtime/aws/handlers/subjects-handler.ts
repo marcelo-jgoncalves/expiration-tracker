@@ -39,6 +39,7 @@ import {
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
+import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -62,9 +63,13 @@ const { subjects, requirements } = buildSubjectDeps(client, tableName);
 const { requests: documentRequests } = buildDocumentRequestDeps(client, tableName, guestTokenPepper, initialInviteEmailEnabled, sesFromAddress, sesConfigurationSet, guestUploadBaseUrl);
 const deps: RequirementHttpDeps & SubjectHttpDeps & DocumentRequestHttpDeps = { resolver, quota, subjects, requirements, documentRequests };
 
-export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
-  return runWithContext({ correlationId: event.requestContext.requestId }, () => handleSubjectsRoute(event));
-}
+const NAMESPACE = "ExpirationTracker/Subjects";
+
+export const handler = withHandlerTiming<APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2>(
+  NAMESPACE,
+  "subjects handler",
+  (event) => runWithContext({ correlationId: event.requestContext.requestId }, () => handleSubjectsRoute(event)),
+);
 
 async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   const claims = extractClaims(event);
@@ -78,7 +83,9 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
   };
   const routeKey = event.routeKey;
 
-  const response = await (async () => {
+  // PERF-02 slice 2: see items-handler.ts's identical comment - business_operation_ms covers
+  // the whole dispatch (RequestContext resolve+quota+business), not business logic alone.
+  const response = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "subjects business operation timing", async () => (async () => {
     try {
       switch (routeKey) {
         case "POST /subjects":
@@ -135,7 +142,7 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
       const appError = toAppError(err);
       return { statusCode: appError.category === "VALIDATION" ? 400 : 500, body: appError.toJSON() };
     }
-  })();
+  })());
 
   return toApiGatewayResult(response);
 }

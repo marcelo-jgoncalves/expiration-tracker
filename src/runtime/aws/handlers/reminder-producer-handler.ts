@@ -11,6 +11,7 @@ import { runProducerTick, shouldAlarm } from "../../../workers/reminder-producer
 import { defaultShardConfig } from "../../../modules/reminder/domain/shard-config.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 import { ValidationError } from "../../../shared/errors/app-error.js";
 
 const client = createDocumentClient();
@@ -18,12 +19,13 @@ const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const deps = buildReminderProducerDeps(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "reminder-producer" } });
+const NAMESPACE = "ExpirationTracker/ReminderProducer";
 
 export interface ReminderProducerEvent {
   scheduledTime: string;
 }
 
-export async function handler(event: ReminderProducerEvent): Promise<void> {
+export const handler = withHandlerTiming<ReminderProducerEvent, void>(NAMESPACE, "reminder-producer handler", async (event) => {
   if (!event.scheduledTime) {
     throw new ValidationError("reminder-producer: missing scheduledTime in event payload.");
   }
@@ -34,7 +36,9 @@ export async function handler(event: ReminderProducerEvent): Promise<void> {
   // m5-observability-design.md #2: EventBridge Scheduler producer, no upstream request to
   // inherit a correlationId from - new UUID per invocation.
   await runWithContext({ correlationId: randomUUID() }, async () => {
-    const result = await runProducerTick({ ...deps, shardConfig: defaultShardConfig() }, tickMinute);
+    const result = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "reminder-producer business operation timing", () =>
+      runProducerTick({ ...deps, shardConfig: defaultShardConfig() }, tickMinute),
+    );
     logger.info("reminder-producer tick complete", {
       scanned: result.scanned,
       claimed: result.claimed.length,
@@ -54,4 +58,4 @@ export async function handler(event: ReminderProducerEvent): Promise<void> {
       throw new Error(alarm.reason);
     }
   });
-}
+});

@@ -8,11 +8,14 @@ import { useQuery } from "@tanstack/react-query";
 import { getImportRowResults } from "../api/imports.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import type { GetImportRowResultsResult } from "../api/types.js";
 
 const DISABLED_QUERY_KEY = ["imports", "rowResults", "disabled"] as const;
 
+// PERF-10: NEAR_REALTIME, same reasoning as `useImportJobSchema` - drill-down into a job the
+// user is actively working through.
 export function useImportRowResults(jobId: string | undefined, enabled: boolean) {
   const { organizationId } = useActiveOrganization();
   const isEnabled = Boolean(jobId && organizationId && enabled);
@@ -22,5 +25,6 @@ export function useImportRowResults(jobId: string | undefined, enabled: boolean)
     queryFn: ({ signal }) => getImportRowResults(jobId as string, { signal }),
     enabled: isEnabled,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.NEAR_REALTIME,
   });
 }

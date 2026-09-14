@@ -2,10 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchNotificationPreferences } from "../api/notifications.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { NotificationPreferences } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
-/** A18 (Block 8, D-2xx) - every real role reads/edits only their own preferences. */
+/** A18 (Block 8, D-2xx) - every real role reads/edits only their own preferences. PERF-10:
+ * NEAR_REALTIME - the settings screen must show the value the user just saved, never a cached
+ * pre-save read; `useUpdateNotificationPreferences` also invalidates this key on success. */
 export function useNotificationPreferences() {
   const { organizationId, switching } = useActiveOrganization();
   return useQuery<{ preferences: NotificationPreferences }, unknown>({
@@ -13,5 +16,6 @@ export function useNotificationPreferences() {
     queryFn: ({ signal }) => fetchNotificationPreferences({ signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: Boolean(organizationId) && !switching,
+    staleTime: STALE_TIME.NEAR_REALTIME,
   });
 }

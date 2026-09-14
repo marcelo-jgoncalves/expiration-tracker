@@ -8,6 +8,7 @@ import { buildReminderDispatchDeps } from "../composition/reminder.js";
 import { dispatchOccurrence } from "../../../workers/reminder-dispatch/dispatch.js";
 import type { DispatchCommand } from "../../../workers/reminder-producer/producer.js";
 import { correlationIdFromSqsRecord, runWithContext } from "../../../shared/observability/context.js";
+import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { emitMetric } from "../../../shared/observability/metrics.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
@@ -33,7 +34,9 @@ const DISPATCH_COMMAND_SCHEMA_ID = "https://expiration-tracker/schemas/queues/re
 // avoids adding a 4th unbounded fan-out on top).
 const BATCH_CONCURRENCY = 5;
 
-export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
+const NAMESPACE = "ExpirationTracker/ReminderDispatch";
+
+export const handler = withHandlerTiming<SQSEvent, SQSBatchResponse>(NAMESPACE, "reminder-dispatch handler", async (event) => {
   const results = await mapWithConcurrency(event.Records, BATCH_CONCURRENCY, async (record) => {
     await processRecord(record);
   });
@@ -46,7 +49,7 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
     if (!result.ok) batchItemFailures.push({ itemIdentifier: event.Records[i]!.messageId });
   });
   return { batchItemFailures };
-}
+});
 
 // D-170: extracted so `handler` can run this per-record body under mapWithConcurrency -
 // failure is now signaled by throwing (mapWithConcurrency captures it into that record's own
@@ -87,7 +90,7 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
       // once known, without mutating the outer per-record context (AsyncLocalStorage.run
       // composition).
       await runWithContext({ correlationId: command.correlationId ?? fallbackCorrelationId, tenantId: command.tenantId }, async () => {
-        const outcome = await dispatchOccurrence(deps, command);
+        const outcome = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "reminder-dispatch business operation timing", () => dispatchOccurrence(deps, command));
         logger.info("reminder-dispatch outcome", { messageId: record.messageId, outcome: outcome.kind });
         // E-018/E-021 (D-290) - Outcome is one of dispatch.ts's own 5 closed kinds
         // (TRIGGERED/ALREADY_TRIGGERED/CANCELLED_STALE/SKIPPED_NOT_CLAIMED/

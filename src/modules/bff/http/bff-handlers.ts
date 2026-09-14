@@ -4,6 +4,8 @@
  * so every handler here is responsible for its own cookie/CSRF verification.
  */
 import { AppError, AuthenticationError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { logger } from "../../../shared/observability/logger.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 import { BffAuthService } from "../application/bff-auth-service.js";
 import { ProxyService } from "../application/proxy-service.js";
 import { checkCsrf } from "../domain/csrf.js";
@@ -30,6 +32,16 @@ const STATUS_BY_CATEGORY: Record<string, number> = {
   DEPENDENCY_UNAVAILABLE: 503,
   INTERNAL: 500,
 };
+
+// PERF-02: same per-service EMF namespace convention as the other handler files (e.g.
+// "ExpirationTracker/ReminderDispatch" in reminder-dispatch-handler.ts, D-290).
+const METRICS_NAMESPACE = "ExpirationTracker/BFF";
+
+/** Low-cardinality status class ("2xx"/"4xx"/"5xx"/...) - never the raw status code as a metric
+ * dimension (metrics.ts's own dimension-discipline rule). */
+function statusClass(statusCode: number): string {
+  return `${Math.floor(statusCode / 100)}xx`;
+}
 
 function toErrorResponse(err: unknown): BffHttpResponse {
   const appError = err instanceof AppError ? err : toAppError(err);
@@ -296,7 +308,10 @@ export async function handleAcceptInvitation(deps: BffHttpDeps, req: BffHttpRequ
 export async function handleProxy(deps: BffHttpDeps, req: BffHttpRequest, backendPath: string, queryString: string | undefined): Promise<BffHttpResponse> {
   try {
     const cookies = cookiesOf(req);
+
+    const sessionResolveStart = Date.now();
     const session = await deps.auth.resolveSession(cookies[SESSION_COOKIE_NAME]);
+    const sessionResolveMs = Date.now() - sessionResolveStart;
 
     if (!checkCsrf({
       method: req.method,
@@ -308,7 +323,19 @@ export async function handleProxy(deps: BffHttpDeps, req: BffHttpRequest, backen
       return { statusCode: 403, body: { code: "CSRF_CHECK_FAILED", category: "AUTHORIZATION", message: "CSRF check failed.", retryable: false } };
     }
 
+    const proxyStart = Date.now();
     const result = await deps.proxy.forward(session, { method: req.method, path: backendPath, queryString, headers: req.headers, body: req.body });
+    const proxyMs = Date.now() - proxyStart;
+
+    // PERF-02: BFF-side timing for the two steps handleProxy actually performs, plus the
+    // backend's response status class. Emitted right here (rather than only in
+    // src/runtime/aws/handlers/*.ts, metrics.ts's usual convention) because handleProxy IS the
+    // HTTP boundary for /bff/api/* - there is no intervening service layer to push this into.
+    logger.info("bff proxy timing", { sessionResolveMs, proxyMs, backendStatus: result.statusCode });
+    emitMetric(METRICS_NAMESPACE, { name: "bff.session_resolve_ms", value: sessionResolveMs, unit: "Milliseconds" });
+    emitMetric(METRICS_NAMESPACE, { name: "bff.proxy_ms", value: proxyMs, unit: "Milliseconds" });
+    emitMetric(METRICS_NAMESPACE, { name: "bff.backend_status", value: 1, unit: "Count", dimensions: { StatusClass: statusClass(result.statusCode) } });
+
     // G3 follow-up: not every proxied route returns JSON (the 7 CSV report routes return
     // text/csv - see proxy-allowlist.ts's own comment on those entries). JSON.parse()ing every
     // response unconditionally corrupted/500'd those - only parse when the backend actually

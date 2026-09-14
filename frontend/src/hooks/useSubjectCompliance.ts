@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchSubjectCompliance } from "../api/requirements.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { SubjectComplianceSummary } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -14,5 +15,6 @@ export function useSubjectCompliance(subjectId: string) {
     queryFn: ({ signal }) => fetchSubjectCompliance(subjectId, { signal }),
     enabled: Boolean(organizationId) && !switching && subjectId.length > 0,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }
