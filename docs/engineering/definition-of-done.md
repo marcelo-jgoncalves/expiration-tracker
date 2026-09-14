@@ -70,3 +70,25 @@ Nível 1-2 não exige a linha formal (custo desproporcional ao risco, `principle
 ## Aplicação prática (TodoWrite)
 
 Um item só vira `completed` depois do gate do seu nível já ter rodado, passado, e (nível 3+) da linha `DoD:` estar registrada. Se o gate falhar, o item permanece `in_progress` (ou volta para `pending` com o achado registrado) — nunca marcar `completed` de forma otimista para "corrigir depois".
+
+## Gate de fechamento de item de ROADMAP (granularidade maior que todo list, E-017/AI-INC-004)
+
+Achado real, não hipotético: D-227 declarou fechado o "item 9 do roadmap P0" (ciclo guest de emissão de credencial) com a fatia de consumidor/armazenamento pronta, suíte verde, CI verde e deploy bem-sucedido — mas o worker de entrega real (que um guest precisava para receber o link) nunca tinha sido construído, só descoberto depois por verificação ao vivo pós-merge (D-228, registrado como AI-INC-004 em `ai-governance.md` §5). "Suíte verde + CI verde + deploy bem-sucedido" provou que cada fatia individual funcionava isoladamente, nunca que o fluxo ponta a ponta funcionava — nenhum teste cobria o elo faltante porque o elo faltante era um componente inteiro, não um bug dentro de um componente existente.
+
+Este documento (§"Regra central" acima) já cobre item de todo list/task de sessão. A regra abaixo é a mesma disciplina aplicada a uma granularidade maior — um item do roadmap de lançamento (`docs/project/roadmap-competitivo-2026-09-01.md`) ou do backlog P1/P2, cada um tipicamente composto de várias fatias/waves/todo-items menores.
+
+**Regra**: um item de ROADMAP só pode ser marcado 🟢 (concluído) quando a linha que o declara concluído (em `NEXT_SESSION_PROMPT.md`/`decisions-log.md`, o mesmo lugar onde já é registrado hoje) cita explicitamente **qual evidência prova o fluxo PONTA A PONTA**, não apenas que cada fatia interna estava verde isoladamente. Formas aceitas de evidência ponta a ponta (pelo menos uma, citada por nome, nunca só "tudo passou"):
+
+1. Um teste de integração/e2e real exercitando o fluxo completo por um gatilho real (ex. `test/integration/*.test.ts` chamando os handlers HTTP reais em sequência, como `document-archive-share-link-routes.test.ts` já faz para create→list→resolve→revoke) — não apenas unit tests de cada peça isolada.
+2. Verificação ao vivo pós-deploy contra `dev` real, citando o comando/consulta que confirma o efeito observável fim-a-fim (ex. `aws lambda list-event-source-mappings` confirmando que o worker que faltava em D-227 agora existe e está ligado à fila certa; um `aws dynamodb query` confirmando que um registro passou pelo pipeline inteiro).
+3. Quando nenhuma das duas acima for possível ainda (ex. bloqueio externo/jurídico, como o próprio item WhatsApp usuário real, E-019), a linha do roadmap NÃO é marcada 🟢 — fica 🟡/nomeada explicitamente como "engenharia completa, fluxo ponta a ponta não verificado/bloqueado por X", nunca 🟢 com a lacuna só mencionada em prosa.
+
+**O que isso não exige**: não retroage sobre itens já fechados antes deste documento existir (mesma aplicação prospectiva da regra central acima); não exige um teste e2e novo para cada fatia menor dentro do item (o gate central de todo-list já cobre isso) — só exige que a linha de fechamento do ITEM DE ROADMAP cite a evidência de que as fatias, juntas, produzem o efeito fim-a-fim prometido.
+
+## Limite de profundidade de redelegação de subagente (E-017/AI-INC-001/AI-INC-003)
+
+Achado real, recorrente 2x (AI-INC-001 2026-08-20, AI-INC-003 2026-09-07, ambos em `ai-governance.md` §5): um agente redelega repetidamente a mesma tarefa para um novo subagente sem nenhum produzir progresso real (diff/commit/resultado concreto), até uma sessão orquestradora ou o Marcelo intervir diretamente. A causa raiz registrada nos dois incidentes foi idêntica e nunca corrigida: "o mecanismo de verificar progresso antes de redelegar continua inexistente".
+
+**Regra**: antes de delegar uma tarefa a um subagente que ela mesma poderia redelegar a outro subagente (ou seja, antes de criar um segundo nível de delegação para a MESMA unidade de trabalho), verificar explicitamente se o nível anterior produziu progresso real — um diff, um resultado de comando, um achado concreto, não apenas um relatório dizendo "delego a seguir". Sem essa verificação, a tarefa é assumida e executada diretamente pela sessão que detectou a estagnação, nunca redelegada uma terceira vez. Concretamente: **no máximo 1 nível de subagente sem produzir progresso real verificável antes de escalar para execução direta** — o mesmo limite que AI-INC-003 já tinha nomeado como ação pendente, agora formalizado aqui em vez de ficar só registrado como incidente.
+
+Isso não proíbe delegação em cadeia legítima (um subagente que genuinamente precisa de um sub-subagente especializado para uma sub-tarefa DIFERENTE, com progresso real em cada nível) — o gatilho é especificamente a MESMA tarefa sendo redelegada sem produzir nada de novo, o padrão observado nos dois incidentes reais.
