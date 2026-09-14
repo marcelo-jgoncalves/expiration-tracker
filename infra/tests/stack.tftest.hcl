@@ -314,6 +314,15 @@ run "gsi4_access_granted_only_to_identity_context_lambdas" {
     condition     = anytrue([for p in module.test_ping_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
     error_message = "TestPingHandler must have a policy referencing GSI4 (real.resolve() call in test-route-handler.ts)"
   }
+  # Regression coverage for the 2026-09-14 live `dev` bug (storage-usage/review-queue 500s):
+  # document_archive_handler calls resolve(deps, req) -> deps.resolver.resolve() on every route
+  # (document-archive-handlers.ts), same as every other Lambda in this list, but was missed when
+  # the rest were fixed (D-116) - confirmed absent from infra/main.tf's
+  # document_archive_handler module until this fix.
+  assert {
+    condition     = anytrue([for p in module.document_archive_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    error_message = "DocumentArchiveHandler must have a policy referencing GSI4 - document-archive-handlers.ts's resolve() calls deps.resolver.resolve() on every route"
+  }
 
   # Representative sample of Lambdas that must NOT reference GSI4 - workers/handlers that
   # only destructure `quota` from buildIdentityDeps() (never `resolver`), or don't use

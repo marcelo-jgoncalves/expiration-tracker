@@ -34,6 +34,21 @@ export interface NavItem {
   /** `undefined` = visible to every role. Otherwise the exact allow-list of roles that see this
    * item at all. */
   allowedRoles?: readonly MembershipRole[];
+  /** Passed straight through to `NavLink`'s own `end` prop (AppShell.tsx) - `true` means this
+   * item is only "active" on an EXACT match of `to`, never a route nested under it. Real bug
+   * fixed here (previously named as a known gap in NotificationPreferences.tsx's own header
+   * comment, never actually fixed until now): "settings" is the only item whose own path
+   * (`/settings`) is also a literal PREFIX of four other, separate nav items' own paths
+   * (`/settings/document-types`, `/settings/requirement-templates`, `/settings/request-delivery`,
+   * `/settings/notifications`) - without `end`, NavLink's default "active if the current path
+   * starts with `to`" rule kept "Configurações" highlighted while on any of those four screens,
+   * clearing only once the user navigated to a route that does NOT share the `/settings` prefix
+   * (e.g. "Atividade") - never on a plain sibling like "Vencimentos" that never shared the
+   * prefix to begin with, which is what made the bug look intermittent. Every other item here is
+   * either a true leaf (no nav entry nests under it) or - "document-types"/"requirement-
+   * templates" - itself owns a deeper `:id` detail route that must STILL highlight it, so those
+   * two correctly keep the default (`end: undefined`, i.e. non-exact) behavior. */
+  end?: boolean;
 }
 
 const ADMIN_ROLES: readonly MembershipRole[] = ["ADMIN", "OWNER"];
@@ -72,7 +87,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // resumed from wherever it was started), never from this list.
   { id: "imports", to: "/imports/new", label: "Importar CSV", allowedRoles: WRITE_ROLES },
   { id: "members", to: "/members", label: "Membros" },
-  { id: "settings", to: "/settings", label: "Configurações" },
+  { id: "settings", to: "/settings", label: "Configurações", end: true },
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES, every role
   // browses the catalog (mutation is individually gated inside the screen, same discipline as
   // "requirements" above).

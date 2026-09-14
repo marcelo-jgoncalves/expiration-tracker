@@ -109,6 +109,19 @@ import listActivityRequestV1 from "../../../schemas/api/list-activity-request.v1
 import subjectSearchRequestV1 from "../../../schemas/api/subject-search-request.v1.json";
 import docarchiveRequirementSearchRequestV1 from "../../../schemas/api/docarchive-requirement-search-request.v1.json";
 import itemSearchRequestV1 from "../../../schemas/api/item-search-request.v1.json";
+// G2 (D-247/D-24x) - GET /document-archive/reviews. Schema file existed under schemas/api/ and
+// was wired into REVIEW_QUEUE_SEARCH_SCHEMA_ID (document-archive-handlers.ts) but was never
+// added here, so `defaultSchemaRegistry` (the only registry a real Lambda uses) never had it -
+// every real invocation threw "Unknown schema $id" (test/contract/schemas.test.ts's
+// `loadAllSchemasFromDisk()` walks every file under schemas/ directly and so never caught this
+// production-runtime-only gap - see the new defaultSchemaRegistry-specific test added there).
+import docarchiveReviewQueueSearchRequestV1 from "../../../schemas/api/docarchive-review-queue-search-request.v1.json";
+// G4 (D-247/D-24x) — POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests
+// (handleCreateDocumentRequest). Same gap class as docarchiveReviewQueueSearchRequestV1 above:
+// the schema file existed and REQUEST_CREATE_SCHEMA_ID referenced it, but it was never added to
+// `defaultSchemaRegistry` - found by the generic "every *_SCHEMA_ID constant must resolve"
+// regression test added alongside the review-queue fix (test/contract/schemas.test.ts).
+import docarchiveRequestCreateRequestV1 from "../../../schemas/api/docarchive-request-create-request.v1.json";
 import docarchiveShareLinkCreateRequestV1 from "../../../schemas/api/docarchive-share-link-create-request.v1.json";
 import docarchiveShareLinkRevokeRequestV1 from "../../../schemas/api/docarchive-share-link-revoke-request.v1.json";
 // P2.1 (external audit 2026-09-11) - internal async-boundary runtime validation, never an
@@ -251,6 +264,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   itemSearchRequestV1,
   docarchiveShareLinkCreateRequestV1,
   docarchiveShareLinkRevokeRequestV1,
+  docarchiveReviewQueueSearchRequestV1,
+  docarchiveRequestCreateRequestV1,
   outboxRecordV1,
   reminderReconciliationEventV1,
 ]);

@@ -63,11 +63,15 @@
  * assertive is a conservative (more, not less, noticeable) substitution for polite, not a broken
  * experience.
  *
- * **Real, pre-existing gap, NOT introduced by this block**: `AppShell.tsx`'s `NavLink` has no
- * `end` prop, so a nested settings route (this one, and A20/A21/A22 before it) matches BOTH its
- * own nav item and the parent "Configurações" item's `aria-current="page"` simultaneously. Fixing
- * it means touching shared shell code affecting four existing screens at once - out of scope for
- * a single-screen block, named here rather than silently patched.
+ * **FIXED (2026-09-14, live `dev` bug report)**: the gap named here previously — `AppShell.tsx`'s
+ * `NavLink` for "Configurações" had no `end` prop, so this nested settings route (and A20/A21/A22
+ * before it) kept the parent "Configurações" item's `aria-current="page"` active even after
+ * navigating to a DIFFERENT nested settings screen, clearing only once the user left the whole
+ * `/settings/*` prefix entirely (e.g. via "Atividade") - never on first navigating away from THIS
+ * screen to some plain sibling. Fixed at the root in `navigation.ts`/`AppShell.tsx`: `NavItem` now
+ * carries an optional `end` flag, set `true` only for the top-level "settings" entry (the one
+ * whose own path is a literal prefix of four other real nav items' paths) - this screen's own nav
+ * highlighting is unaffected, it was never the item with the bug.
  */
 import { useEffect, useRef, useState } from "react";
 import { useNotificationPreferences } from "../hooks/useNotificationPreferences.js";
