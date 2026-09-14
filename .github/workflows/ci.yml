@@ -188,6 +188,21 @@ jobs:
       - name: SPA build artifact policy (ADR-0011)
         run: node ../scripts/check-spa-build-artifacts.mjs dist
 
+      # PERF-14 (regression gate, slice 1/2): fails the PR if the entry chunk (JS+CSS every
+      # visitor downloads before any route renders) grows past budget. Only the entry chunk is
+      # gated, not the aggregate of all lazy route chunks from PERF-09's code splitting - those
+      # legitimately grow as the app grows. See docs/engineering/performance/results/
+      # PERF-14-regression-gates.md for the budget numbers and reasoning.
+      - name: Bundle budget (PERF-14)
+        run: node scripts/check-bundle-budget.mjs
+
+      # PERF-14 (regression gate, slice 2/2): Lighthouse CI against the built dist/ (static
+      # server, no backend needed) for the Overview route. Thresholds are a loose regression
+      # net (Lighthouse's lab-simulated throttling produces different absolute numbers than
+      # PERF-03's raw Playwright measurements - see PERF-14-regression-gates.md).
+      - name: Lighthouse CI (PERF-14)
+        run: npx lhci autorun
+
       - name: Dependency audit (production - blocking)
         run: npm audit --omit=dev --audit-level=high
 

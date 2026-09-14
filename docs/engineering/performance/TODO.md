@@ -94,7 +94,13 @@ itens de acompanhamento fora do programa de performance.
 
 ## Fechamento
 
-- [ ] PERF-14 — Regression gates (bundle budget CI, Lighthouse CI, k6 smoke em PR, synthetic canaries, alarms de latência/throttle/backlog, dashboard consolidado) — só depois de baseline confiável existir
+- [~] PERF-14 — Regression gates (bundle budget CI, Lighthouse CI, k6 smoke em PR, synthetic canaries, alarms de latência/throttle/backlog, dashboard consolidado) — só depois de baseline confiável existir
+  - [x] Bundle budget CI gate — `frontend/scripts/check-bundle-budget.mjs`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
+  - [x] Lighthouse CI gate — `@lhci/cli` + `frontend/lighthouserc.json`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
+  - [ ] k6 smoke em PR — **bloqueado**: quota de Lambda Concurrent Executions ainda em 10 na conta `dev` (PERF-01), pendente de ação manual do Marcelo.
+  - [ ] Synthetic canaries — **bloqueado**: infra ainda não provisionada + mesma dependência de quota acima.
+  - [ ] Alarms de latência/throttle/backlog — **bloqueado**: métricas EMF customizadas do PERF-02 não estão chegando ao CloudWatch nesta conta (achado PERF-04/PERF-08), nada para alarmar ainda.
+  - [ ] Dashboard consolidado — **bloqueado**: depende dos 2 itens acima (canaries + métricas reais).
 - [ ] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle)
 
 ---
