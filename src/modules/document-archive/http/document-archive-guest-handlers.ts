@@ -188,17 +188,15 @@ export async function handleListGuestDocumentTypes(deps: GuestArchiveHttpDeps, r
 
 export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest<SubmitEvidenceInput>): Promise<GuestArchiveHttpResponse> {
   return withErrorMapping(async () => {
-    requireToken(req); // Presence-checked for route symmetry/observability; resolution is by session cookie, not the path token.
-    // Pre-existing gap, found (not introduced) by Codex review round 1 of D-264 (Block 6, G02
-    // frontend): the session cookie (GUEST_SESSION_COOKIE_NAME) is a single global cookie per
-    // browser, never bound to/verified against THIS route's own `token` path segment. Two guest
-    // links open in two tabs of the same browser share one cookie jar - the second `session`
-    // mint overwrites the first tab's cookie, so the first tab's later `uploads` call resolves
-    // against the SECOND session/DocumentRequest, not its own. Real since D-146 (a single-link-
-    // at-a-time design); only now reachable via a real multi-tab UI. Fixing this means binding
-    // the session to its issuing token (or scoping the cookie name by token) - a session-identity
-    // design change that deserves its own scoping, not a rushed patch. Named in decisions-log
-    // D-264.
+    const pathToken = requireToken(req);
+    // P0.2 (auditoria externa 2026-09-11, D-283, protocolo Claude↔Codex 1 rodada 9,4/10 APPROVED,
+    // docs/architecture/reviews/guest-session-binding-scoping/): the session cookie
+    // (GUEST_SESSION_COOKIE_NAME) is a single global cookie per browser — two guest links open in
+    // two tabs of the same browser share one cookie jar, so the second `session` mint used to
+    // overwrite the first tab's cookie and the first tab's later `uploads` call would resolve
+    // against the SECOND session/DocumentRequest, not its own. Closed by passing this route's own
+    // `pathToken` down to the service, which binds it to the resolved session's
+    // `credentialSelectorHash` before any side effect (see `submitEvidence()`).
     // ADR-0013 (D-265) implementation, Codex review round 1: a missing body used to throw a
     // differentiated `ValidationError` (400 with detail) while an invalid one collapsed to the
     // generic guest error — an anti-enumeration leak the schema-validation collapse below was
@@ -216,6 +214,7 @@ export async function handleSubmitEvidence(deps: GuestArchiveHttpDeps, req: Gues
 
     const result = await deps.guestAccess.submitEvidence(
       sessionToken,
+      pathToken,
       { ip: req.sourceIp, csrfCookieValue: cookies[GUEST_CSRF_COOKIE_NAME], csrfHeaderValue },
       req.body,
     );
@@ -231,7 +230,7 @@ const CONFIRM_UPLOAD_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarch
  * of method), same session-cookie/CSRF discipline. */
 export async function handleConfirmUpload(deps: GuestArchiveHttpDeps, req: GuestArchiveHttpRequest<{ idempotencyKey: string }>): Promise<GuestArchiveHttpResponse> {
   return withErrorMapping(async () => {
-    requireToken(req);
+    const pathToken = requireToken(req);
     // Same anti-enumeration collapse as handleSubmitEvidence above — missing and invalid bodies
     // must be indistinguishable to the caller.
     if (!req.body) throw new GuestAccessInvalidError();
@@ -248,6 +247,7 @@ export async function handleConfirmUpload(deps: GuestArchiveHttpDeps, req: Guest
 
     const result = await deps.guestAccess.confirmUploadInFlight(
       sessionToken,
+      pathToken,
       { ip: req.sourceIp, csrfCookieValue: cookies[GUEST_CSRF_COOKIE_NAME], csrfHeaderValue },
       req.body.idempotencyKey,
     );

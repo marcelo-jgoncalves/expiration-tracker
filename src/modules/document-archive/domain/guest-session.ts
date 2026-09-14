@@ -31,8 +31,11 @@ export interface GuestSession extends EntityKey {
   subjectId: string;
   requirementId: string;
   documentRequestId: string;
-  /** The credential's own `selectorHash` this session was minted from — audit trail only, never
-   * used for authorization (the session is self-sufficient once minted). */
+  /** The credential's own `selectorHash` this session was minted from. P0.2 (D-283): also used
+   * to bind a mutating call's path token to the session that must handle it — every mutation
+   * that accepts an explicit path token re-derives that token's selector hash and compares it
+   * against this field before any side effect, closing the multi-tab cookie-collision gap
+   * (`guest-document-access-service.ts`'s `assertPathTokenBoundToSession`). */
   credentialSelectorHash: string;
   csrfTokenHash: string;
   expiresAt: string;

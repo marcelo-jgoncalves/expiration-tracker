@@ -101,14 +101,14 @@ async function setup() {
 
   const credential = await guestAccess.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
   const session = await guestAccess.startGuestSession(credential.token, { ip: "1.1.1.1" });
-  return { deps, session };
+  return { deps, session, credential };
 }
 
 describe("document-archive-guest-handlers.ts — HTTP-level (ADR-0013/D-265)", () => {
   it("handleSubmitEvidence: a genuinely valid body reaches the service and returns 201 (proves the schema is registered in defaultSchemaRegistry)", async () => {
-    const { deps, session } = await setup();
+    const { deps, session, credential } = await setup();
     const response = await handleSubmitEvidence(deps, {
-      pathParameters: { token: "irrelevant-for-resolution" },
+      pathParameters: { token: credential.token },
       headers: {
         cookie: `${GUEST_SESSION_COOKIE_NAME}=${session.session.token}; ${GUEST_CSRF_COOKIE_NAME}=${session.session.csrfToken}`,
         "x-csrf-token": session.session.csrfToken,
@@ -153,9 +153,9 @@ describe("document-archive-guest-handlers.ts — HTTP-level (ADR-0013/D-265)", (
   });
 
   it("handleConfirmUpload: a genuinely valid body reaches the service and returns 200 with {extended:true} (proves the confirm schema is registered in defaultSchemaRegistry)", async () => {
-    const { deps, session } = await setup();
+    const { deps, session, credential } = await setup();
     const submit = await handleSubmitEvidence(deps, {
-      pathParameters: { token: "irrelevant-for-resolution" },
+      pathParameters: { token: credential.token },
       headers: {
         cookie: `${GUEST_SESSION_COOKIE_NAME}=${session.session.token}; ${GUEST_CSRF_COOKIE_NAME}=${session.session.csrfToken}`,
         "x-csrf-token": session.session.csrfToken,
@@ -166,7 +166,7 @@ describe("document-archive-guest-handlers.ts — HTTP-level (ADR-0013/D-265)", (
     expect(submit.statusCode).toBe(201);
 
     const confirm = await handleConfirmUpload(deps, {
-      pathParameters: { token: "irrelevant-for-resolution" },
+      pathParameters: { token: credential.token },
       headers: {
         cookie: `${GUEST_SESSION_COOKIE_NAME}=${session.session.token}; ${GUEST_CSRF_COOKIE_NAME}=${session.session.csrfToken}`,
         "x-csrf-token": session.session.csrfToken,
@@ -194,6 +194,29 @@ describe("document-archive-guest-handlers.ts — HTTP-level (ADR-0013/D-265)", (
     expect(response.statusCode).toBe(401);
     expect(response.body["code"]).toBe("GUEST_ACCESS_INVALID");
     expect(response.body["details"]).toBeUndefined();
+  });
+
+  it("handleSubmitEvidence: a path token that doesn't match the session's own credential is rejected (P0.2, D-283)", async () => {
+    const { deps, session } = await setup();
+    const response = await handleSubmitEvidence(deps, {
+      pathParameters: { token: "irrelevant-for-resolution" },
+      headers: {
+        cookie: `${GUEST_SESSION_COOKIE_NAME}=${session.session.token}; ${GUEST_CSRF_COOKIE_NAME}=${session.session.csrfToken}`,
+        "x-csrf-token": session.session.csrfToken,
+      },
+      sourceIp: "1.1.1.1",
+      body: {
+        fileName: "certidao.pdf",
+        documentTypeId: "ALVARA",
+        mediaType: "application/pdf",
+        contentLength: 1024,
+        checksumSha256: "a".repeat(64),
+        idempotencyKey: "idem-http-mismatch",
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body["code"]).toBe("GUEST_ACCESS_INVALID");
   });
 
   it("handleSubmitEvidence/handleConfirmUpload: a missing body collapses to the same generic error as an invalid one (Codex round 1 medium finding)", async () => {

@@ -348,6 +348,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
 
     const result = await service.submitEvidence(
       session.session.token,
+      credential.token,
       { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken },
       { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-1" },
     );
@@ -362,6 +363,95 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     expect(request?.submissionCount).toBe(1);
   });
 
+  /** P0.2 (D-283, docs/architecture/reviews/guest-session-binding-scoping/, Codex round 1
+   * 9,4/10 APPROVED) — the multi-tab cookie-collision fix: a mutation's path token must be bound
+   * to the session that resolves it. */
+  describe("submitEvidence/confirmUploadInFlight: P0.2 path-token binding (D-283)", () => {
+    it("submitEvidence: a session resolved from a DIFFERENT credential's path token is rejected with the same generic error", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credentialA = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const credentialB = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const sessionA = await service.startGuestSession(credentialA.token, { ip: "1.1.1.1" });
+
+      // Simulates the 2-tab cookie collision: tab A's session cookie, but tab B's path token.
+      await expect(
+        service.submitEvidence(
+          sessionA.session.token,
+          credentialB.token,
+          { ip: "1.1.1.1", csrfCookieValue: sessionA.session.csrfToken, csrfHeaderValue: sessionA.session.csrfToken },
+          { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-mismatch" },
+        ),
+      ).rejects.toThrow(GuestAccessInvalidError);
+
+      // Never created anything — the mismatch must be caught before any side effect.
+      const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
+      expect(allVersions).toHaveLength(0);
+    });
+
+    it("submitEvidence: the SAME credential's token that minted the session is accepted", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+
+      const result = await service.submitEvidence(
+        session.session.token,
+        credential.token,
+        { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken },
+        { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-match" },
+      );
+      expect(result.seq).toBe(1);
+    });
+
+    it("submitEvidence: a malformed path token is rejected generically, never distinguished from any other guest-auth failure", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
+
+      await expect(
+        service.submitEvidence(
+          session.session.token,
+          "not-a-well-formed-token",
+          { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken },
+          { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-malformed" },
+        ),
+      ).rejects.toThrow(GuestAccessInvalidError);
+    });
+
+    it("confirmUploadInFlight: a session resolved from a DIFFERENT credential's path token is rejected, never extends the deadline", async () => {
+      const store = new InMemoryDocumentArchiveStore();
+      await seedTenant(store);
+      await seedRequest(store);
+      await store.putIfAbsent(seedActiveDocumentType(TENANT, "ALVARA"));
+      const service = makeService(store);
+      const credentialA = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const credentialB = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
+      const sessionA = await service.startGuestSession(credentialA.token, { ip: "1.1.1.1" });
+      const csrfA = { ip: "1.1.1.1", csrfCookieValue: sessionA.session.csrfToken, csrfHeaderValue: sessionA.session.csrfToken };
+
+      const submitted = await service.submitEvidence(sessionA.session.token, credentialA.token, csrfA, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-confirm-mismatch" });
+
+      await expect(
+        service.confirmUploadInFlight(sessionA.session.token, credentialB.token, csrfA, "idem-confirm-mismatch"),
+      ).rejects.toThrow(GuestAccessInvalidError);
+
+      const key = documentFileKey(TENANT, submitted.documentId, submitted.seq, submitted.fileId);
+      const fileAfter = await store.get<DocumentFile>(key);
+      expect(fileAfter?.deadlineExtended).toBeUndefined();
+    });
+  });
+
   it("submitEvidence: replaying the same idempotencyKey (same payload) never double-creates a DocumentVersion, returns original snapshot", async () => {
     const store = new InMemoryDocumentArchiveStore();
     await seedTenant(store);
@@ -372,8 +462,8 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
     const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-    const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay" });
-    const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay" });
+    const first = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay" });
+    const second = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay" });
     expect(second).toEqual(first);
 
     const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
@@ -392,6 +482,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     await expect(
       service.submitEvidence(
         session.session.token,
+      credential.token,
         { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: "attacker-supplied-value" },
         { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-2" },
       ),
@@ -408,7 +499,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
 
     await expect(
-      service.submitEvidence(session.session.token, { ip: "1.1.1.1", csrfCookieValue: undefined, csrfHeaderValue: undefined }, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-3" }),
+      service.submitEvidence(session.session.token, credential.token, { ip: "1.1.1.1", csrfCookieValue: undefined, csrfHeaderValue: undefined }, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-3" }),
     ).rejects.toThrow(GuestAccessInvalidError);
   });
 
@@ -429,7 +520,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t2" });
+      const result = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t2" });
       const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
       expect(document?.documentTypeId).toBe("ALVARA");
       expect((document as unknown as Record<string, unknown>)["GSI2SK"]).toBe(`DOCTYPE#ALVARA#DOCUMENT#${result.documentId}`);
@@ -449,7 +540,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
       await expect(
-        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t3" }),
+        service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t3" }),
       ).rejects.toThrow(GuestAccessInvalidError);
     });
 
@@ -479,7 +570,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
       await expect(
-        service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t4" }),
+        service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t4" }),
       ).rejects.toThrow(GuestAccessInvalidError);
     });
 
@@ -496,8 +587,8 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-same" });
-      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-same" });
+      const first = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-same" });
+      const second = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-same" });
       expect(second).toEqual(first);
     });
 
@@ -516,8 +607,8 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-diff" });
-      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-diff" });
+      const first = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-diff" });
+      const second = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "NAO_EXISTE", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-replay-diff" });
       expect(second).toEqual(first);
 
       const allVersions = store.allItems().filter((i) => i["entityType"] === "DocumentVersion");
@@ -538,8 +629,8 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const first = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-new-1" });
-      const second = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao2.pdf", documentTypeId: "CERTIDAO", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-new-2" });
+      const first = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-new-1" });
+      const second = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao2.pdf", documentTypeId: "CERTIDAO", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-new-2" });
       expect(second.documentId).not.toBe(first.documentId);
 
       const secondDocument = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${second.documentId}`, SK: "METADATA" });
@@ -565,7 +656,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
 
-      const result = await service.submitEvidence(session.session.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t9" });
+      const result = await service.submitEvidence(session.session.token, credential.token, csrf, { fileName: "certidao.pdf", documentTypeId: "ALVARA", mediaType: "application/pdf", contentLength: 1024, checksumSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "idem-t9" });
       const document = await store.get<Document>({ PK: `TENANT#${TENANT}#DOCUMENT#${result.documentId}`, SK: "METADATA" });
       expect(document?.documentTypeId).toBe("ALVARA");
       expect(document?.documentTypeId).not.toBe(REQUIREMENT);
@@ -584,14 +675,14 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
       const credential = await service.issueCredential({ tenantId: TENANT, subjectId: SUBJECT, requirementId: REQUIREMENT, documentRequestId: "docreq-1", expiresAt: "2026-12-31T00:00:00.000Z" });
       const session = await service.startGuestSession(credential.token, { ip: "1.1.1.1" });
       const csrf = { ip: "1.1.1.1", csrfCookieValue: session.session.csrfToken, csrfHeaderValue: session.session.csrfToken };
-      return { store, service, sessionToken: session.session.token, csrf };
+      return { store, service, sessionToken: session.session.token, pathToken: credential.token, csrf };
     }
 
     it("creates a PENDING_UPLOAD DocumentFile with a GSI8 pointer and returns a presigned uploadUrl", async () => {
       const signer = makeSigner();
-      const { store, service, sessionToken, csrf } = await setup(signer);
+      const { store, service, sessionToken, pathToken, csrf } = await setup(signer);
 
-      const result = await service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-file-1" });
+      const result = await service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-file-1" });
       expect(result.uploadUrl).toBeDefined();
       expect(result.requiredHeaders).toBeDefined();
       expect(result.fileId).toBeDefined();
@@ -607,40 +698,40 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     });
 
     it("rejects an unsupported mediaType, an oversized contentLength, and a malformed checksumSha256 — all with the generic guest error", async () => {
-      const { service, sessionToken, csrf } = await setup();
-      await expect(service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, mediaType: "application/zip", idempotencyKey: "idem-bad-1" })).rejects.toThrow(GuestAccessInvalidError);
-      await expect(service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, contentLength: 10 * 1024 * 1024 + 1, idempotencyKey: "idem-bad-2" })).rejects.toThrow(GuestAccessInvalidError);
-      await expect(service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, checksumSha256: "not-a-real-checksum", idempotencyKey: "idem-bad-3" })).rejects.toThrow(GuestAccessInvalidError);
+      const { service, sessionToken, pathToken, csrf } = await setup();
+      await expect(service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, mediaType: "application/zip", idempotencyKey: "idem-bad-1" })).rejects.toThrow(GuestAccessInvalidError);
+      await expect(service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, contentLength: 10 * 1024 * 1024 + 1, idempotencyKey: "idem-bad-2" })).rejects.toThrow(GuestAccessInvalidError);
+      await expect(service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, checksumSha256: "not-a-real-checksum", idempotencyKey: "idem-bad-3" })).rejects.toThrow(GuestAccessInvalidError);
     });
 
     it("confirmUploadInFlight extends the deadline exactly once (idempotent on a second call)", async () => {
-      const { store, service, sessionToken, csrf } = await setup();
-      const result = await service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-confirm-1" });
+      const { store, service, sessionToken, pathToken, csrf } = await setup();
+      const result = await service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-confirm-1" });
 
-      const first = await service.confirmUploadInFlight(sessionToken, csrf, "idem-confirm-1");
+      const first = await service.confirmUploadInFlight(sessionToken, pathToken, csrf, "idem-confirm-1");
       expect(first).toEqual({ extended: true });
 
       const file = await store.get<DocumentFile>(documentFileKey(TENANT, result.documentId, result.seq, result.fileId));
       expect(file?.deadlineExtended).toBe(true);
 
-      const second = await service.confirmUploadInFlight(sessionToken, csrf, "idem-confirm-1");
+      const second = await service.confirmUploadInFlight(sessionToken, pathToken, csrf, "idem-confirm-1");
       expect(second).toEqual({ extended: true }); // idempotent — never a conflict on a repeat call.
     });
 
     it("confirmUploadInFlight never accepts a loose idempotencyKey — an unknown one is the generic guest error", async () => {
-      const { service, sessionToken, csrf } = await setup();
-      await expect(service.confirmUploadInFlight(sessionToken, csrf, "unknown-key")).rejects.toThrow(GuestAccessInvalidError);
+      const { service, sessionToken, pathToken, csrf } = await setup();
+      await expect(service.confirmUploadInFlight(sessionToken, pathToken, csrf, "unknown-key")).rejects.toThrow(GuestAccessInvalidError);
     });
 
     it("confirmUploadInFlight is a no-op once the file already reached a terminal scanStatus", async () => {
-      const { store, service, sessionToken, csrf } = await setup();
-      const result = await service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-terminal-1" });
+      const { store, service, sessionToken, pathToken, csrf } = await setup();
+      const result = await service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-terminal-1" });
 
       const key = documentFileKey(TENANT, result.documentId, result.seq, result.fileId);
       const file = await store.get<DocumentFile>(key);
       await store.transactWrite([{ Update: buildVersionedUpdate({ tableName: "test-table", key, tenantId: TENANT, expectedVersion: file!.version, set: { scanStatus: "TIMEOUT" }, remove: ["GSI8PK", "GSI8SK"] }) }]);
 
-      const outcome = await service.confirmUploadInFlight(sessionToken, csrf, "idem-terminal-1");
+      const outcome = await service.confirmUploadInFlight(sessionToken, pathToken, csrf, "idem-terminal-1");
       expect(outcome).toEqual({ extended: false });
     });
 
@@ -649,8 +740,8 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
     // has already lapsed must report {extended:false}, never resurrect a dead reservation just
     // because PENDING_UPLOAD is technically "non-terminal".
     it("confirmUploadInFlight reports {extended:false} for a PENDING_UPLOAD file whose original deadline already lapsed (never uploaded, retried too late)", async () => {
-      const { store, service, sessionToken, csrf } = await setup();
-      const result = await service.submitEvidence(sessionToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-expired-1" });
+      const { store, service, sessionToken, pathToken, csrf } = await setup();
+      const result = await service.submitEvidence(sessionToken, pathToken, csrf, { ...VALID_INPUT, idempotencyKey: "idem-expired-1" });
 
       const key = documentFileKey(TENANT, result.documentId, result.seq, result.fileId);
       const file = await store.get<DocumentFile>(key);
@@ -669,7 +760,7 @@ describe("GuestDocumentAccessService (D-143 Decision 4, D-146)", () => {
         },
       ]);
 
-      const outcome = await service.confirmUploadInFlight(sessionToken, csrf, "idem-expired-1");
+      const outcome = await service.confirmUploadInFlight(sessionToken, pathToken, csrf, "idem-expired-1");
       expect(outcome).toEqual({ extended: false });
       const fileAfter = await store.get<DocumentFile>(key);
       expect(fileAfter?.deadlineExtended).not.toBe(true); // never resurrected.
