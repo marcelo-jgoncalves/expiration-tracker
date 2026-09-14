@@ -25,7 +25,7 @@ Sintoma: alarme `ReminderDispatchErrorsAlarm` (`infra/lib/reminder-observability
 1. Confirmar severidade pela matriz acima (backlog sustentado > 15min = SEV-2).
 2. Checar `CloudWatch Logs` de `ReminderDispatch` (via `SecureLogger`, correlável por `correlationId`) para a causa: timeout de dependência, erro de contrato, exceção não tratada.
 3. Se erro isolado e não recorrente: sem ação, monitorar próxima janela de 5min (o alarme exige 3 janelas consecutivas — `evaluationPeriods: 3`).
-4. Se sustentado: verificar se é problema de código (rollback via §6.6 abaixo) ou de dependência externa (DynamoDB throttling, SQS indisponível — ver AWS Health Dashboard).
+4. Se sustentado: verificar se é problema de código (rollback via `.github/workflows/rollback.yml` — reverte os aliases `live` das Lambdas ao deployment saudável anterior, ~30-90s, D-232 corrigiu o mecanismo real após um achado de auditoria; nunca `terraform apply` para reverter código) ou de dependência externa (DynamoDB throttling, SQS indisponível — ver AWS Health Dashboard).
 5. Mensagens que excederem `maxReceiveCount` (`infra/lib/reminder-queue.ts`) vão para a DLQ — seguir runbook §3.
 6. Após mitigação: confirmar que `DispatchQueueBacklogAlarm` volta a `OK`, que o backlog decresce continuamente (mesmo critério do SLO de pico extremo, `slo.md` §3), e abrir post-mortem se SEV-1/2 (§4 abaixo).
 
@@ -38,6 +38,10 @@ Sintoma: alarme de idade da DLQ (`reminder-queue.ts`, threshold 1h/4h já fixado
 4. Redrive real (Camada 3 de teste ainda pendente contra AWS real, `NEXT_SESSION_PROMPT.md` — este passo é o procedimento a seguir quando executado, não evidência de que já foi testado): `aws sqs start-message-move-task` (SQS `StartMessageMoveTask`) ou console, sempre em lote pequeno primeiro, confirmando processamento com sucesso antes do lote completo.
 5. Toda ocorrência de trabalho na DLQ deve ser reconstruível a partir do DynamoDB/outbox (`disaster-recovery.md` §5) — se uma mensagem não tiver como ser reconstruída, isso é bug de design a corrigir, não a aceitar como perda silenciosa.
 6. Escalonamento em 4h sem resolução (limiar já fixado em `slo.md` §1) → SEV-1 se afetar múltiplos tenants continuamente.
+
+**Lacuna fechada (2026-09-14, achado nomeado em D-228/D-229, `docs/engineering/decisions-log.md` E-020)**: os passos acima aplicam-se sem alteração aos alarmes abaixo, antes sem nenhuma entrada de runbook nomeada:
+- `${name_prefix}-guest-credential-delivery-failures-dlq-age` (D-228, `infra/main.tf`'s `guest_credential_delivery_failures_not_empty`) — DLQ da entrega de credencial guest (D-146/D-233); mesma disciplina de identificar poison message vs. dependência externa (SES) antes de redrive.
+- `${name_prefix}-whatsapp-deliver-dlq-age` (D-229, fila WhatsApp via módulo genérico `sqs-worker-queue`, DLQ+alarme de idade por construção — a mesma disciplina de `email_deliver_queue`, nunca reusa a fila de e-mail, ADR-0008) — mesmo procedimento; se o canal WhatsApp estiver indisponível, ver também o kill-switch em §4 abaixo antes de qualquer redrive.
 
 ## 4. Runbook — Provedor de notificação indisponível (SES/Telegram/WhatsApp)
 
