@@ -636,6 +636,11 @@ locals {
   notifications_routes = {
     get    = { method = "GET", path = "/notifications/preferences" }
     update = { method = "PUT", path = "/notifications/preferences" }
+    # D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
+    # non-blocking gap (no real user could opt in to WhatsApp even with the rest of the
+    # program fully wired). Same Lambda/authorizer as the routes above, same action name
+    # (notification:configure) - a user managing their own channel consent.
+    whatsapp_opt_in = { method = "POST", path = "/notifications/whatsapp-opt-in" }
   }
 }
 
@@ -655,7 +660,7 @@ resource "aws_lambda_permission" "notifications" {
   function_name = var.notifications_function_name
   principal     = "apigateway.amazonaws.com"
   qualifier     = "live"
-  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications/preferences"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/notifications*"
 }
 
 # --- ImportsHandler: /imports* (M11, D-042 - CSV import de TrackedSubject) -----------------

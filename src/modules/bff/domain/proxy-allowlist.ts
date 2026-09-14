@@ -57,6 +57,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/import-jobs/{jobId}/mapping" },
   { method: "GET", pathTemplate: "/notifications/preferences" },
   { method: "PUT", pathTemplate: "/notifications/preferences" },
+  // D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
+  // non-blocking gap in the WhatsApp roadmap item (all 5 engineering slices closed, but no
+  // real user could opt in until now).
+  { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in" },
   { method: "POST", pathTemplate: "/reminders/policies" },
   { method: "GET", pathTemplate: "/reminders/policies/{policyId}" },
   { method: "PUT", pathTemplate: "/reminders/policies/{policyId}" },
