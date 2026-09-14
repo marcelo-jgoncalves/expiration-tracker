@@ -39,6 +39,7 @@ import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules
 import type { DomainEvent } from "../../shared/contracts/events.js";
 import { parseChasingGsi3Sk } from "../../modules/subject/domain/document-chasing.js";
 import { claimChasingOccurrence, type ChasingDispatchCommand } from "../../modules/subject/application/document-chasing-producer.js";
+import { mapWithConcurrency } from "../../shared/concurrency/map-with-concurrency.js";
 
 export interface DispatchCommand {
   /**
@@ -74,7 +75,26 @@ export interface ProducerDeps {
   now: () => string;
   /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (§9.5). */
   claimTtlMs?: number;
-  /** Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md §9.3 example: [M-5min, M]). */
+  /**
+   * Lookback window in minutes, inclusive of the current minute (implementation-blueprint.md
+   * §9.3 example: [M-5min, M]). Default raised from 5 to 15 (PERF-12 1k load test,
+   * docs/engineering/performance/results/PERF-12-async-pipeline-1k.md): under a realistic
+   * burst (many occurrences due the same minute) the producer's 10s timeout could be
+   * exceeded for several consecutive minutes, and any occurrence still SCHEDULED once its
+   * minute aged out of a 5-minute lookback was never reconciled by any other pass (see
+   * reconciliation.ts's own file header - CLAIMS reconciliation only reverts already-CLAIMED
+   * occurrences, DST reconciliation only re-materializes missing ones; neither covers
+   * "SCHEDULED, past lookback, never claimed"). 15 minutes gives roughly 2x margin over the
+   * observed 7-minute burst-recovery window, at a bounded extra cost (shardCount ×
+   * lookbackMinutes extra GSI3 partition queries per NORMAL tick, most of them empty) - a
+   * dedicated reconciliation pass for this case was considered but rejected: GSI3 query
+   * access is deliberately isolated to ONLY this worker (reminder-store.ts's own doc comment,
+   * enforced by test/integration/gsi3-isolation.test.ts and infra/main.tf's "the ONLY
+   * function granted gsi3_read" policy comment) - widening the SAME worker's own lookback,
+   * combined with the timeout raise and the parallelism below (both fix the actual cause,
+   * this is the safety net), stays inside that existing boundary instead of punching a new
+   * hole in it.
+   */
   lookbackMinutes?: number;
   /** Deterministic-in-tests ID generator for the durable outbox event written in the same
    * transaction as the claim (M3.5 "Decisão central: outbox durável" - see runProducerTick). */
@@ -101,6 +121,23 @@ function minuteFloor(d: Date): Date {
 }
 
 /**
+ * PERF-12 1k load test finding (docs/engineering/performance/results/PERF-12-async-pipeline-1k.md):
+ * this loop used to process one occurrence at a time - one `store.get` + one
+ * `store.transactWrite` per occurrence, fully sequential - inside a Lambda with (at the time)
+ * a 10s timeout. With ~250 occurrences concentrated in one shard/minute under a realistic
+ * burst, that budget was nowhere near enough, the function was killed mid-loop repeatedly, and
+ * occurrences that hadn't been claimed yet eventually aged out of the lookback window,
+ * permanently stuck in SCHEDULED. Bounded concurrency here mirrors the exact pattern already
+ * used for the same reason in reminder-dispatch-handler.ts (D-170) - each occurrence's own
+ * `transactWrite` stays a single, independent atomic conditional claim (never merged across
+ * occurrences), so parallelizing here does not touch the transactional or idempotency
+ * guarantees of any individual claim, only how many claims run concurrently. A plain numeric
+ * constant, not unbounded `Promise.all`, to keep the burst of concurrent DynamoDB round trips
+ * per invocation predictable.
+ */
+const PRODUCER_CLAIM_CONCURRENCY = 8;
+
+/**
  * Pure alarm decision, extracted so the Lambda handler's "when should this tick throw" logic
  * is unit-testable without mocking the whole handler/composition root (achado real de revisão
  * adversarial, D-039/D-046/D-048: an earlier version of this fail-closed path was silently
@@ -122,7 +159,7 @@ export function shouldAlarm(result: ProducerTickResult): { alarm: boolean; reaso
 /** Runs one producer tick for wall-clock minute `tickMinute` (already floored to the minute by the caller/Lambda trigger). */
 export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Promise<ProducerTickResult> {
   const generations = activeGenerations(deps.shardConfig, deps.now());
-  const lookback = deps.lookbackMinutes ?? 5;
+  const lookback = deps.lookbackMinutes ?? 15;
   const claimTtlMs = deps.claimTtlMs ?? 2 * 60_000;
 
   const minutesToScan: Date[] = [];
@@ -148,14 +185,21 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
       partitions += partitionKeys.length;
       for (const gsi3pk of partitionKeys) {
         const rows = await deps.store.queryGsi3<{ PK: string; SK: string; GSI3SK: string }>({ gsi3pk });
-        for (const row of rows) {
+        // PERF-12: this used to be `for (const row of rows)`, one `get`+`transactWrite` pair
+        // processed strictly sequentially - see PRODUCER_CLAIM_CONCURRENCY's doc comment for
+        // why bounded concurrency replaces that here. `seen`/`claimed`/`failed`/
+        // `chasingClaimed`/counters are shared mutable state across concurrent callbacks, but
+        // every access happens either synchronously (no `await` in between, so the JS event
+        // loop cannot interleave two callbacks' synchronous sections) or as an atomic
+        // push/increment - never a race in practice under Node's single-threaded model.
+        await mapWithConcurrency(rows, PRODUCER_CLAIM_CONCURRENCY, async (row) => {
           scanned += 1;
 
           // M10 cluster 4: try the chasing shape FIRST (never throws, `undefined` on no
           // match) - the reminder branch below is completely unchanged otherwise.
           const chasingParsed = parseChasingGsi3Sk(row.GSI3SK);
           if (chasingParsed) {
-            if (seen.has(chasingParsed.occurrenceId)) continue;
+            if (seen.has(chasingParsed.occurrenceId)) return;
             seen.add(chasingParsed.occurrenceId);
             try {
               const outcome = await claimChasingOccurrence(
@@ -167,7 +211,7 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
             } catch (err) {
               failed.push({ occurrenceId: chasingParsed.occurrenceId, tenantId: chasingParsed.tenantId, error: err });
             }
-            continue;
+            return;
           }
 
           let reminderParsed: { tenantId: string; occurrenceId: string };
@@ -177,17 +221,17 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
             // Fail-closed (D-039): neither pattern matched - never process a row we can't
             // identify, never skip it silently either. Alarm-worthy, surfaced via the tick result.
             unknownEntityType += 1;
-            continue;
+            return;
           }
           const { tenantId, occurrenceId } = reminderParsed;
-          if (seen.has(occurrenceId)) continue;
+          if (seen.has(occurrenceId)) return;
           seen.add(occurrenceId);
 
           try {
             const occurrence = await deps.store.get<ReminderOccurrence>({ PK: row.PK, SK: row.SK });
             if (!occurrence || occurrence.status !== "SCHEDULED") {
               // Already claimed/cancelled/triggered by a prior tick or race - not a failure.
-              continue;
+              return;
             }
 
             const claimExpiresAt = new Date(Date.parse(deps.now()) + claimTtlMs).toISOString();
@@ -265,11 +309,11 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
           } catch (err) {
             if (isTransactionCanceled(err)) {
               // Lost the claim race to a concurrent producer tick - not a failure to retry.
-              continue;
+              return;
             }
             failed.push({ occurrenceId, tenantId, error: err });
           }
-        }
+        });
       }
     }
   }
