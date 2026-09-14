@@ -12,15 +12,17 @@ import { UlidIdGenerator } from "../ids.js";
 import { buildSubjectDeps } from "./subject.js";
 import type { TenantQuotaService } from "../../../modules/identity/application/quota.js";
 
-export function buildImportHttpDeps(client: DynamoDBDocumentClient, tableName: string, rawBucket: string, quota: TenantQuotaService) {
+export function buildImportHttpDeps(client: DynamoDBDocumentClient, tableName: string, rawBucket: string, planBucket: string, quota: TenantQuotaService) {
   const store = new DynamoDbImportStore(client, tableName);
   const signer = new S3UploadUrlSigner(new S3Client({}));
   const ids = new UlidIdGenerator();
   // D-192 slice 9: getImportJobSchema()/submitImportMapping() read the raw CSV back (header
   // sniff) - same bucket/object shape the parse worker already reads, via the module's own
   // small S3 port (never DocumentObjectStore - see ports/import-object-store.ts's header comment).
+  // D-292: getImportRowResults() reads the plan NDJSON back from the SAME bucket the parse
+  // worker writes it to (planBucket) - never a second bucket/convention.
   const objectStore = new S3ImportObjectStore(new S3Client({}));
-  const imports = new ImportService({ store, tableName, rawBucket, ids, signer, quota, objectStore });
+  const imports = new ImportService({ store, tableName, rawBucket, planBucket, ids, signer, quota, objectStore });
   return { store, imports };
 }
 

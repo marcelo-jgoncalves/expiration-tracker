@@ -17,15 +17,15 @@
  *     is no per-row "Atualizar existente/Criar como novo" choice anywhere in the backend, so the
  *     spec's dedupe radio-per-row block does not exist here — the preview step states the real
  *     automatic-skip behavior instead.
- *  3. No endpoint exposes per-row preview/outcome data (`ImportRowOutcome` is DynamoDB-only,
- *     queried by no allowlisted route) — the preview/result steps can only show the aggregate
- *     counters `GET /imports/{jobId}` actually returns (`totalRows`/`acceptedRows`/
- *     `rejectedRows`/`duplicateRows`), never a per-row `DataTable`, and there is no "ver
- *     relatório de erros" link (nothing to link to). A commit that FAILS (`ENTITLEMENT_EXCEEDED`/
- *     `TENANT_NOT_ACTIVE`/plan-integrity mismatch) also has no retry endpoint — `requestCommit()`
- *     requires `PREVIEW_READY`, which a failed job can never return to — so "Tentar novamente"
- *     is honestly "envie o mesmo arquivo de novo" (dedupe skips the rows already committed),
- *     never a literal retry of the same job.
+ *  3. ~~No endpoint exposes per-row preview/outcome data~~ **CLOSED (D-292)** — `GET
+ *     /import-jobs/{jobId}/row-results` now merges the plan (S3, already knew every REJECT/
+ *     SKIP_DUPLICATE row) with `ImportRowOutcome` (DynamoDB, already knew every CREATE_*
+ *     row's COMMITTED/FAILED fate) into one per-row view, consumed by `RowResultsTable` below
+ *     in both the preview and commit-result steps. A commit that FAILS
+ *     (`ENTITLEMENT_EXCEEDED`/`TENANT_NOT_ACTIVE`/plan-integrity mismatch) still has no retry
+ *     endpoint — `requestCommit()` requires `PREVIEW_READY`, which a failed job can never
+ *     return to — so "Tentar novamente" is honestly "envie o mesmo arquivo de novo" (dedupe
+ *     skips the rows already committed), never a literal retry of the same job.
  *
  * Real limits used in copy/validation below are the backend's actual ceilings
  * (`import-job.ts`'s `MAX_IMPORT_FILE_BYTES`/`MAX_IMPORT_ROWS` — 5 MiB / 5,000 rows), not the
@@ -49,15 +49,17 @@ import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.j
 import { useReserveImport } from "../../hooks/useReserveImport.js";
 import { useImportJob } from "../../hooks/useImportJob.js";
 import { useImportJobSchema } from "../../hooks/useImportJobSchema.js";
+import { useImportRowResults } from "../../hooks/useImportRowResults.js";
 import { useSubmitImportMapping } from "../../hooks/useSubmitImportMapping.js";
 import { useRequestImportCommit } from "../../hooks/useRequestImportCommit.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { PageHeader, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
-import type { ImportJob, ImportJobStatus, ColumnMapping, MembershipRole } from "../../api/types.js";
+import type { ImportJob, ImportJobStatus, ColumnMapping, MembershipRole, ImportRowResult } from "../../api/types.js";
 import "./ImportWizard.css";
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
@@ -184,6 +186,84 @@ function presentFailureReason(reason: string | undefined, labels: Record<string,
   if (!reason) return "Motivo não informado.";
   const friendly = labels[reason];
   return friendly ? `${friendly} (${reason})` : `Falha não classificada (${reason}).`;
+}
+
+// D-292 — A15 per-row drill-down. Only the TrackedSubject-relevant rejection/skip codes: this
+// screen never creates Document/Requirement rows (see this file's own header comment §1), so
+// their codes are deliberately never listed here.
+const ROW_REASON_LABELS: Record<string, string> = {
+  MISSING_DISPLAY_NAME: "Nome não informado.",
+  MISSING_TYPE: "Tipo não informado.",
+  INVALID_TYPE: "Tipo inválido.",
+  DISPLAY_NAME_TOO_LONG: "Nome excede o tamanho máximo.",
+  TOO_MANY_TAGS: "Excesso de tags.",
+  TAG_TOO_LONG: "Uma tag excede o tamanho máximo.",
+  CONTROL_CHARACTER_IN_FIELD: "Caractere de controle inválido num campo.",
+  DUPLICATE_EXTERNAL_ID_IN_FILE: "ID externo duplicado dentro do próprio arquivo.",
+  EXTERNAL_ID_ALREADY_EXISTS: "Já existe um Fornecedor com este ID externo.",
+  DISPLAY_NAME_ALREADY_EXISTS: "Já existe um Fornecedor com este nome.",
+};
+
+const ROW_STATUS_LABELS: Record<ImportRowResult["status"], { label: string; tone: "neutral" | "warning" | "danger" }> = {
+  COMMITTED: { label: "Criado", tone: "neutral" },
+  FAILED: { label: "Falhou", tone: "danger" },
+  REJECTED: { label: "Rejeitada", tone: "warning" },
+  SKIPPED: { label: "Duplicata ignorada", tone: "warning" },
+  PENDING: { label: "Pronta para importar", tone: "neutral" },
+};
+
+/** D-292 — closes A15's per-row drill-down gap (previously a real documented backend
+ * limitation, §3 of this file's own header comment). Reused by both `PreviewStep` (before
+ * commit — CREATE_* rows show PENDING, nothing has been attempted yet) and `CommitStep`'s
+ * COMMITTED branch (final outcomes). Renders every row - `MAX_IMPORT_ROWS` (5,000) keeps this a
+ * bounded, scrollable table, never paginated (no backend cursor exists for this read, matching
+ * the "no pagination" simplicity the rest of this screen already has). */
+function RowResultsTable({ jobId, enabled }: { jobId: string; enabled: boolean }) {
+  const rowResultsQuery = useImportRowResults(jobId, enabled);
+
+  if (!enabled) return null;
+  if (rowResultsQuery.isPending) return <p>Carregando detalhe por linha…</p>;
+  if (rowResultsQuery.isError) {
+    return (
+      <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void rowResultsQuery.refetch()}>Tentar novamente</Button>}>
+        Não foi possível carregar o detalhe por linha.
+      </InlineNotice>
+    );
+  }
+
+  const results = rowResultsQuery.data.results;
+  if (results.length === 0) return null;
+
+  return (
+    <details className="import-wizard__row-results">
+      <summary>Ver detalhe por linha ({results.length})</summary>
+      <div className="import-wizard__row-results-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Linha</th>
+              <th>Status</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((row) => {
+              const status = ROW_STATUS_LABELS[row.status];
+              return (
+                <tr key={row.rowNumber}>
+                  <td>{row.rowNumber}</td>
+                  <td>
+                    <StatusBadge presentation={{ label: status.label, tone: status.tone }} />
+                  </td>
+                  <td>{row.status === "FAILED" ? presentFailureReason(row.reason, COMMIT_FAILURE_LABELS) : row.status === "REJECTED" || row.status === "SKIPPED" ? presentFailureReason(row.reason, ROW_REASON_LABELS) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -630,8 +710,7 @@ function PreviewStep({
       <InlineNotice tone="neutral">
         <p>
           {accepted} de {total} linha{total === 1 ? "" : "s"} válida{accepted === 1 ? "" : "s"}. Linhas inválidas não bloqueiam a importação das demais — cada
-          linha é processada de forma independente, mas o resumo mostra apenas os totais de linhas válidas, com erro e duplicadas (não há um relatório por
-          linha nesta versão).
+          linha é processada de forma independente.
         </p>
       </InlineNotice>
       {duplicate > 0 ? (
@@ -654,6 +733,7 @@ function PreviewStep({
           <p>{errorMessage(commit.error, "Não foi possível iniciar a importação.")}</p>
         </InlineNotice>
       ) : null}
+      <RowResultsTable jobId={jobId} enabled />
       {canWrite ? (
         <div className="import-wizard__actions">
           <Button variant="ghost" onClick={() => navigate(orgPath("/imports/new"))}>
@@ -707,6 +787,7 @@ function CommitStep({
         <p className="u-text-secondary">
           Este resumo permanece disponível neste mesmo link (<code>/imports/{jobId}</code>) mesmo depois de sair desta tela.
         </p>
+        <RowResultsTable jobId={jobId} enabled />
         <div className="import-wizard__actions">
           <ButtonLink variant="secondary" to={orgPath("/subjects")}>
             Ver Fornecedores

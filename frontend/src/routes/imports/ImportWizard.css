@@ -109,3 +109,35 @@
     transform: translateX(250%);
   }
 }
+
+/* D-292 — A15 per-row drill-down. */
+.import-wizard__row-results {
+  margin-top: var(--space-4);
+}
+
+.import-wizard__row-results summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.import-wizard__row-results-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+  margin-top: var(--space-2);
+  border: var(--border-width-thin) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.import-wizard__row-results-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.import-wizard__row-results-scroll th,
+.import-wizard__row-results-scroll td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width-thin) solid var(--color-border-default);
+}

@@ -113,6 +113,17 @@ export async function handleGetImportJob(deps: ImportHttpDeps, req: HttpRequest)
   });
 }
 
+/** `GET /import-jobs/{jobId}/row-results` (D-292) — closes A15's per-row drill-down gap. */
+export async function handleGetImportRowResults(deps: ImportHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const jobId = requireJobId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiQuota(deps.quota, context);
+    const results = await deps.imports.getImportRowResults(context, jobId);
+    return { statusCode: 200, body: { results } };
+  });
+}
+
 export async function handleGetImportJobSchema(deps: ImportHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const jobId = requireJobId(req);

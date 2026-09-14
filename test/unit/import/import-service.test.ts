@@ -14,6 +14,7 @@ import { tenantQuotaKey, type TenantQuotaRecord } from "../../../src/modules/ide
 const TENANT = "tenant-1";
 const TABLE = "MainTable";
 const RAW_BUCKET = "import-raw-bucket";
+const PLAN_BUCKET = "import-plan-bucket";
 const VALID_SHA256 = "a".repeat(64);
 const NOW = "2026-08-23T12:00:00.000Z";
 
@@ -58,6 +59,7 @@ describe("ImportService (M11, D-042)", () => {
       store,
       tableName: TABLE,
       rawBucket: RAW_BUCKET,
+      planBucket: PLAN_BUCKET,
       ids: { newImportJobId: () => `importjob-${++counter}` },
       signer: { presignUpload: async (input) => ({ uploadUrl: `https://s3.example/${input.key}`, requiredHeaders: {} }) },
       quota,
@@ -371,6 +373,103 @@ describe("ImportService (M11, D-042)", () => {
       // Only ONE outbox record was ever produced - the loser never got far enough to dispatch.
       const outboxRecords = store.allItems().filter((i) => i["entityType"] === "OutboxEvent");
       expect(outboxRecords).toHaveLength(1);
+    });
+  });
+
+  describe("getImportRowResults (D-292, A15 drill-down gap)", () => {
+    async function seedJobWithPlan(jobId: string, planEntries: unknown[]): Promise<ImportJob> {
+      const job: ImportJob = {
+        ...importJobKey(TENANT, jobId),
+        entityType: "ImportJob",
+        jobId,
+        tenantId: TENANT,
+        targetEntityType: "TrackedSubject",
+        status: "PREVIEW_READY",
+        createdByUserId: "user-1",
+        expiresAt: "2026-08-30T12:00:00.000Z",
+        createdAt: NOW,
+        updatedAt: NOW,
+        version: 1,
+      };
+      await store.putIfAbsent(job);
+      const content = planEntries.map((e) => JSON.stringify(e)).join("\n");
+      const key = `tenant/${TENANT}/imports/${jobId}/plan/page-0.jsonl`;
+      objectStore.seed(PLAN_BUCKET, key, content);
+      const updated = { ...job, planObjectKey: key, planSha256: "irrelevant-for-these-tests" };
+      await store.update<ImportJob>(updated);
+      return updated;
+    }
+
+    it("merges REJECT/SKIP_DUPLICATE plan entries with ImportRowOutcome rows for CREATE_* entries into one sorted list", async () => {
+      const jobId = "rowresults-1";
+      await seedJobWithPlan(jobId, [
+        { rowNumber: 1, action: "REJECT", reason: "MISSING_TYPE", field: "type" },
+        { rowNumber: 2, action: "SKIP_DUPLICATE", reason: "EXTERNAL_ID_ALREADY_EXISTS", externalId: "ext-1", displayName: "ACME" },
+        { rowNumber: 3, action: "CREATE_SUBJECT", row: { rowNumber: 3, displayName: "Beta", type: "VENDOR", tags: [], warnings: [] } },
+      ]);
+      await store.putIfAbsent({
+        PK: `TENANT#${TENANT}#IMPORTJOB#${jobId}`,
+        SK: "ROWOUTCOME#000003",
+        entityType: "ImportRowOutcome",
+        tenantId: TENANT,
+        jobId,
+        rowNumber: 3,
+        outcome: "COMMITTED",
+        entityId: "subject-99",
+        createdAt: NOW,
+      });
+
+      const results = await service.getImportRowResults(ctx(), jobId);
+      expect(results).toEqual([
+        { rowNumber: 1, status: "REJECTED", reason: "MISSING_TYPE", field: "type" },
+        { rowNumber: 2, status: "SKIPPED", reason: "EXTERNAL_ID_ALREADY_EXISTS" },
+        { rowNumber: 3, status: "COMMITTED", entityId: "subject-99" },
+      ]);
+    });
+
+    it("a CREATE_* row with no ImportRowOutcome yet is PENDING (partially-committed job, cursor hasn't reached it)", async () => {
+      const jobId = "rowresults-2";
+      await seedJobWithPlan(jobId, [{ rowNumber: 1, action: "CREATE_SUBJECT", row: { rowNumber: 1, displayName: "ACME", type: "VENDOR", tags: [], warnings: [] } }]);
+      const results = await service.getImportRowResults(ctx(), jobId);
+      expect(results).toEqual([{ rowNumber: 1, status: "PENDING" }]);
+    });
+
+    it("throws ConflictError when the job has no plan yet (still PARSING, never reached PREVIEW_READY)", async () => {
+      const jobId = "rowresults-3";
+      const job: ImportJob = {
+        ...importJobKey(TENANT, jobId),
+        entityType: "ImportJob",
+        jobId,
+        tenantId: TENANT,
+        targetEntityType: "TrackedSubject",
+        status: "PARSING",
+        createdByUserId: "user-1",
+        expiresAt: "2026-08-30T12:00:00.000Z",
+        createdAt: NOW,
+        updatedAt: NOW,
+        version: 1,
+      };
+      await store.putIfAbsent(job);
+      await expect(service.getImportRowResults(ctx(), jobId)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("throws NotFoundError for a job that doesn't exist", async () => {
+      await expect(service.getImportRowResults(ctx(), "does-not-exist")).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("cross-tenant: a job belonging to a different tenant is never readable, same NotFoundError collapse as getImportJob", async () => {
+      const jobId = "rowresults-4";
+      await seedJobWithPlan(jobId, [{ rowNumber: 1, action: "CREATE_SUBJECT", row: { rowNumber: 1, displayName: "ACME", type: "VENDOR", tags: [], warnings: [] } }]);
+      await identityStore.putIfAbsent({
+        ...tenantLifecycleKey("tenant-2"),
+        entityType: "TenantLifecycleRecord",
+        tenantId: "tenant-2",
+        status: "ACTIVE",
+        createdAt: NOW,
+        updatedAt: NOW,
+        version: 1,
+      });
+      await expect(service.getImportRowResults(ctxFor("tenant-2"), jobId)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

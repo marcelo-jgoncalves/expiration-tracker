@@ -479,8 +479,17 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.imports) == 5
-    error_message = "Expected exactly 5 /imports* routes (reserve, get, commit, schema, mapping)"
+    condition     = length(aws_apigatewayv2_route.imports) == 6
+    error_message = "Expected exactly 6 /imports* routes (reserve, get, commit, schema, mapping, row_results)"
+  }
+
+  # D-292: closes A15's per-row drill-down gap.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.imports : r.route_key],
+      "GET /import-jobs/{jobId}/row-results",
+    )
+    error_message = "GET /import-jobs/{jobId}/row-results route must exist"
   }
 
   assert {

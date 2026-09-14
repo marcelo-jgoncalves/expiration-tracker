@@ -9,6 +9,7 @@ import {
   handleRequestImportCommit,
   handleGetImportJobSchema,
   handleSubmitImportMapping,
+  handleGetImportRowResults,
   type ImportHttpDeps,
 } from "../../../modules/import/http/import-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -18,10 +19,12 @@ import { runWithContext } from "../../../shared/observability/context.js";
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 const rawBucket = process.env["IMPORT_RAW_BUCKET_NAME"];
+const planBucket = process.env["IMPORT_PLAN_BUCKET_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!rawBucket) throw new Error("IMPORT_RAW_BUCKET_NAME env var is required.");
+if (!planBucket) throw new Error("IMPORT_PLAN_BUCKET_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { imports } = buildImportHttpDeps(client, tableName, rawBucket, quota);
+const { imports } = buildImportHttpDeps(client, tableName, rawBucket, planBucket, quota);
 const deps: ImportHttpDeps = { resolver, imports, quota };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
@@ -44,6 +47,8 @@ async function handleImportsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer
           return await handleRequestImportCommit(deps, base);
         case "GET /import-jobs/{jobId}/schema":
           return await handleGetImportJobSchema(deps, base);
+        case "GET /import-jobs/{jobId}/row-results":
+          return await handleGetImportRowResults(deps, base);
         case "POST /import-jobs/{jobId}/mapping":
           return await handleSubmitImportMapping(deps, { ...base, body: parseBody(event) });
         default:

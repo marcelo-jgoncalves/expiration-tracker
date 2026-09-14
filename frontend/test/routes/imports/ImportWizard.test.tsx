@@ -58,6 +58,16 @@ function job(overrides: Partial<ImportJob> = {}): ImportJob {
 function mockGetJob(currentJob: ImportJob) {
   getMock.mockImplementation((path: string) => {
     if (path === "/imports/job-1") return Promise.resolve({ job: currentJob });
+    if (path === "/import-jobs/job-1/row-results") return Promise.reject(new Error("no row-results mocked for this test"));
+    return Promise.reject(new Error("unexpected GET " + path));
+  });
+}
+
+/** D-292 — same as `mockGetJob` but also serves `GET /import-jobs/{jobId}/row-results`. */
+function mockGetJobWithRowResults(currentJob: ImportJob, results: { rowNumber: number; status: string; reason?: string; field?: string; entityId?: string }[]) {
+  getMock.mockImplementation((path: string) => {
+    if (path === "/imports/job-1") return Promise.resolve({ job: currentJob });
+    if (path === "/import-jobs/job-1/row-results") return Promise.resolve({ results });
     return Promise.reject(new Error("unexpected GET " + path));
   });
 }
@@ -211,6 +221,45 @@ describe("ImportWizard — resuming /imports/:jobId at every real status", () =>
     await waitFor(() => expect(screen.getByText(/Importação concluída/)).toBeInTheDocument());
     expect(screen.getByText(/7 fornecedores processados, 2 duplicata\(s\) ignorada\(s\), 1 linha\(s\) ignorada\(s\) por erro/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ver Fornecedores" })).toHaveAttribute("href", "/app/org-1/subjects");
+  });
+
+  it("D-292: COMMITTED shows the row-results drill-down with the entity a COMMITTED row actually created", async () => {
+    mockAsRole("OWNER");
+    mockGetJobWithRowResults(job({ status: "COMMITTED", acceptedRows: 1, duplicateRows: 0, rejectedRows: 0 }), [
+      { rowNumber: 1, status: "COMMITTED", entityId: "subject-42" },
+    ]);
+    renderAtRoute("/imports/:jobId", <ImportWizard />, "/imports/job-1");
+
+    await waitFor(() => expect(screen.getByText(/Importação concluída/)).toBeInTheDocument());
+    const summary = await screen.findByText("Ver detalhe por linha (1)");
+    fireEvent.click(summary);
+    expect(screen.getByText("Criado")).toBeInTheDocument();
+  });
+
+  it("D-292: PREVIEW_READY's row-results drill-down shows real per-row status/reason once expanded", async () => {
+    mockAsRole("OWNER");
+    mockGetJobWithRowResults(job({ status: "PREVIEW_READY" }), [
+      { rowNumber: 1, status: "REJECTED", reason: "MISSING_TYPE", field: "type" },
+      { rowNumber: 2, status: "SKIPPED", reason: "EXTERNAL_ID_ALREADY_EXISTS" },
+      { rowNumber: 3, status: "PENDING" },
+    ]);
+    renderAtRoute("/imports/:jobId", <ImportWizard />, "/imports/job-1");
+
+    await waitFor(() => expect(screen.getByText("Pré-visualizar e deduplicar")).toBeInTheDocument());
+    const summary = await screen.findByText("Ver detalhe por linha (3)");
+    fireEvent.click(summary);
+    expect(screen.getByText("Tipo não informado. (MISSING_TYPE)")).toBeInTheDocument();
+    expect(screen.getByText("Já existe um Fornecedor com este ID externo. (EXTERNAL_ID_ALREADY_EXISTS)")).toBeInTheDocument();
+    expect(screen.getByText("Pronta para importar")).toBeInTheDocument();
+  });
+
+  it("D-292: a failed row-results fetch shows a retry notice, never a silent empty drill-down", async () => {
+    mockAsRole("OWNER");
+    mockGetJob(job({ status: "PREVIEW_READY" })); // row-results path rejects by default in mockGetJob
+    renderAtRoute("/imports/:jobId", <ImportWizard />, "/imports/job-1");
+
+    await waitFor(() => expect(screen.getByText("Pré-visualizar e deduplicar")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Não foi possível carregar o detalhe por linha.")).toBeInTheDocument());
   });
 
   it("FAILED during parsing (never reached preview - totalRows undefined) offers 'Enviar outro arquivo', never 'Tentar novamente' on the same job", async () => {

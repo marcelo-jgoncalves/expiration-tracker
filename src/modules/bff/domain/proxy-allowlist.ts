@@ -55,6 +55,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // D-192 slice 9 (bulk-import-documents-requirements-scoping/estado-final-consolidado.md §3).
   { method: "GET", pathTemplate: "/import-jobs/{jobId}/schema" },
   { method: "POST", pathTemplate: "/import-jobs/{jobId}/mapping" },
+  // D-292: closes A15's per-row drill-down gap.
+  { method: "GET", pathTemplate: "/import-jobs/{jobId}/row-results" },
   { method: "GET", pathTemplate: "/notifications/preferences" },
   { method: "PUT", pathTemplate: "/notifications/preferences" },
   // D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,

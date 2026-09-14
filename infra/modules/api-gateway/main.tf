@@ -686,6 +686,8 @@ locals {
     # not nested under the v1 CSV-subject-only "/imports" surface).
     schema  = { method = "GET", path = "/import-jobs/{jobId}/schema" }
     mapping = { method = "POST", path = "/import-jobs/{jobId}/mapping" }
+    # D-292: closes A15's per-row drill-down gap (D-269/D-271).
+    row_results = { method = "GET", path = "/import-jobs/{jobId}/row-results" }
   }
 }
 

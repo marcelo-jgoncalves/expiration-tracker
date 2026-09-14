@@ -10,6 +10,7 @@ import { uploadDocumentBytes, computeChecksumSha256 } from "./documents.js";
 import type {
   ColumnMapping,
   GetImportJobResult,
+  GetImportRowResultsResult,
   ImportJobSchemaResult,
   ReserveImportInput,
   ReserveImportResult,
@@ -32,6 +33,12 @@ export function getImportJobSchema(jobId: string, options?: { signal?: AbortSign
 
 export function submitImportMapping(jobId: string, columnMapping: ColumnMapping, expectedVersion: number): Promise<SubmitImportMappingResult> {
   return apiClient.post<SubmitImportMappingResult>(`/import-jobs/${encodeURIComponent(jobId)}/mapping`, { columnMapping }, { expectedVersion });
+}
+
+/** D-292 — closes A15's per-row drill-down gap. Readable once a plan exists (`PREVIEW_READY`
+ * onward, 409 before that). */
+export function getImportRowResults(jobId: string, options?: { signal?: AbortSignal }): Promise<GetImportRowResultsResult> {
+  return apiClient.get<GetImportRowResultsResult>(`/import-jobs/${encodeURIComponent(jobId)}/row-results`, { signal: options?.signal });
 }
 
 /** 202 Accepted, empty body (`{}`) — the real commit runs async; the caller must poll
