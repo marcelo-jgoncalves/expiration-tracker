@@ -255,9 +255,19 @@ module "memberships_handler" {
 module "reminder_producer" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-reminder-producer"
-  handler_name                   = "reminder-producer-handler"
-  source_dir                     = "${local.dist_dir}/reminder-producer-handler"
+  function_name = "${local.name_prefix}-reminder-producer"
+  handler_name  = "reminder-producer-handler"
+  source_dir    = "${local.dist_dir}/reminder-producer-handler"
+  # PERF-12 1k load test (docs/engineering/performance/results/PERF-12-async-pipeline-1k.md):
+  # the CDK-inherited 10s default was exceeded for 7 straight minutes under a realistic burst
+  # (many occurrences due the same minute), fully sequential per-occurrence processing, no
+  # parallelism at the time. Raised to 60s: producer.ts now processes occurrences with bounded
+  # concurrency (PRODUCER_CLAIM_CONCURRENCY=8), so a get+transactWrite pair costing tens of ms
+  # (PERF-12's own measurement) puts a burst of ~1,000 occurrences well under this budget even
+  # with generous headroom for DynamoDB latency variance - not raised to Lambda's 900s max,
+  # which would let a genuinely pathological tick run for 15 minutes before EventBridge's next
+  # 1-minute-later invocation piles another one on top of it.
+  timeout_seconds                = 60
   adot_layer_arn                 = var.adot_layer_arn
   environment_variables          = local.common_env
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
