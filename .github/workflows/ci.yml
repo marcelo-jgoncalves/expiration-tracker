@@ -319,5 +319,7 @@ jobs:
       - name: Terraform test (recreates test/infra/stack.test.ts's assertions - see ADR-0009)
         run: terraform test -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
 
+      # -parallelism=20: same 2026-09-14 pipeline speedup review as cd.yml's apply step - kept
+      # in sync so plan-time here and apply-time in CD use the same concurrency ceiling.
       - name: Terraform plan (dev) — never apply here
-        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}" -lock-timeout=60s
+        run: terraform plan -input=false -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}" -lock-timeout=60s -parallelism=20
