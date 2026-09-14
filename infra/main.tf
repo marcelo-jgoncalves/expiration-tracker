@@ -1218,6 +1218,30 @@ resource "aws_lambda_event_source_mapping" "notification_whatsapp_outbox_relay_f
   function_response_types = ["ReportBatchItemFailures"]
 }
 
+# --- Operational dashboard (E-018/E-021, D-290) --------------------------------------------
+# Aggregate CloudWatch dashboard combining native Lambda/SQS/DynamoDB metrics (zero new
+# instrumentation) with the 3 custom EMF outcome metrics emitted by the 4 functions below,
+# plus 2 Logs Insights widgets for per-tenant investigation (never a metric dimension - see
+# src/shared/observability/metrics.ts). Protocol Claude↔Codex APPROVED, 3 rounds, 6,8→7,2→9,2,
+# docs/architecture/reviews/emf-metrics-dashboard-scoping/.
+module "observability_dashboard" {
+  source = "./modules/observability-dashboard"
+
+  name_prefix = local.name_prefix
+  aws_region  = var.aws_region
+  table_name  = module.table.table_name
+
+  reminder_dispatch_function_name = module.reminder_dispatch.function_name
+  reminder_dispatch_queue_name    = module.dispatch_queue.queue_name
+
+  notification_email_outbox_relay_function_name    = module.notification_email_outbox_relay.function_name
+  notification_whatsapp_outbox_relay_function_name = module.notification_whatsapp_outbox_relay.function_name
+
+  guest_credential_delivery_function_name = module.guest_credential_delivery_handler.function_name
+
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
 # D-197 fatia 3/5 (D-10): first external-vendor secret in this repo. One JSON secret (access
 # token, app secret, phone number id, WABA id, verify token) - see
 # secrets-manager-whatsapp-config.ts's header comment for why not five separate secrets.

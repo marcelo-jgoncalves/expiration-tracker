@@ -13,6 +13,7 @@ import { deliverGuestCredential } from "../../../workers/guest-credential-delive
 import type { GuestCredentialDeliveryRecord } from "../../../modules/document-archive/domain/guest-credential-delivery.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -53,6 +54,14 @@ export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatch
         await runWithContext({ correlationId: streamRecord.eventID ?? "unknown", tenantId: record.tenantId }, async () => {
           const outcome = await deliverGuestCredential(deps, record);
           logger.info("guest-credential-delivery outcome", { documentRequestId: record.documentRequestId, outcome: outcome.kind });
+          // E-018/E-021 (D-290): Outcome is one of deliver.ts's own 9 closed kinds (SENT/
+          // ALREADY_DELIVERED/SKIPPED_REQUEST_NOT_FOUND/SKIPPED_STALE_GENERATION/
+          // SKIPPED_NO_RECIPIENT_EMAIL/SKIPPED_LEASE_ACTIVE/SEND_FAILED/
+          // SEND_UNCERTAIN_NOT_RETRIED/PREVIOUSLY_UNCERTAIN) - the existing
+          // guest-credential-delivery-failures queue/alarm already aggregates uncertain/failed
+          // deliveries (D-233), this metric adds per-outcome diagnosability on top, not a new
+          // alert where none existed before.
+          emitMetric("ExpirationTracker/GuestCredentialDelivery", { name: "GuestCredentialDeliveryOutcome", value: 1, unit: "Count", dimensions: { Outcome: outcome.kind } });
           // D-233: SKIPPED_LEASE_ACTIVE must be retried like SEND_FAILED, never treated as a
           // completed/successful invocation - it's how a redelivery keeps happening until the
           // claim's lease expires and reconciles (see deliver.ts's header comment).
@@ -61,7 +70,8 @@ export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatch
           }
         });
       } catch (err) {
-        logger.error("guest-credential-delivery failed", { eventID: streamRecord.eventID, error: err instanceof Error ? err.message : String(err) });
+        logger.error("guest-credential-delivery failed", { eventID: streamRecord.eventID, outcome: "HANDLER_ERROR", error: err instanceof Error ? err.message : String(err) });
+        emitMetric("ExpirationTracker/GuestCredentialDelivery", { name: "GuestCredentialDeliveryOutcome", value: 1, unit: "Count", dimensions: { Outcome: "HANDLER_ERROR" } });
         batchItemFailures.push({ itemIdentifier: streamRecord.eventID ?? "" });
       }
     });

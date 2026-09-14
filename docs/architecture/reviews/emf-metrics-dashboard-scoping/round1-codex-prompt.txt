@@ -1,0 +1,21 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, ver AGENTS.md §4). Avalie a proposta de design abaixo (Rodada 1) para fechar o achado E-018/E-021 do full-audit round2: nenhum arquivo de métrica customizada (EMF) nem dashboard CloudWatch existe, apesar de múltiplas rodadas de auditoria nomearem isso como gap real ("Observabilidade Operacional & Visão por Tenant", 11% de peso no `joint-review-criteria.md`).
+
+Leia o arquivo completo em docs/architecture/reviews/emf-metrics-dashboard-scoping/round1-claude-proposal.md (relativo à raiz do repo) antes de avaliar — ele contém contexto verificado no código, pesquisa externa (AWS EMF best practices), e o design proposto em detalhe.
+
+Verifique especificamente, lendo o código real do repositório (não confie cegamente na descrição da proposta):
+1. src/shared/observability/logger.ts (confirmar o comentário citado sobre tenantId nunca virar dimensão de métrica EMF)
+2. src/workers/reminder-dispatch/dispatch.ts, src/workers/dispatch-outbox-relay/relay.ts, src/workers/guest-credential-delivery/deliver.ts (confirmar que nenhuma métrica customizada existe hoje nesses 3 arquivos, e que os pontos de sucesso/falha que a proposta nomeia realmente existem no código como descrito)
+3. infra/modules/ (confirmar que nenhum aws_cloudwatch_dashboard existe em nenhum módulo, e checar o padrão de infra/modules/alert-topic ou reminder-observability para avaliar se o novo módulo proposto segue a mesma convenção)
+4. docs/architecture/m5-observability-design.md §1 (confirmar que "dashboard CloudWatch consolidado por tenant" foi mesmo registrado como fora de escopo deliberado, "fica para uma sessão de produto")
+
+Dê uma nota de 0 a 10 (não arredondada) avaliando:
+- Correção técnica: o mecanismo EMF (console.log com bloco _aws.CloudWatchMetrics) está descrito corretamente? A restrição de nunca usar tenantId como dimensão é tecnicamente justificada (custo/cardinalidade) e é a decisão certa dado o contexto deste projeto?
+- Completude: falta algum caso real (ex: o que acontece se emitMetric() lançar? algum pipeline mais crítico que os 3 escolhidos deveria estar no escopo desta rodada? o dashboard cobre os sinais certos para um operador real diagnosticar um incidente?)?
+- Proporcionalidade: o escopo de 3 pipelines de 30 workers é razoável para uma primeira rodada, ou está sub/superdimensionado?
+- Pesquisa externa: a fonte AWS citada sobre EMF/dimensões de alta cardinalidade é usada corretamente, ou existe um padrão AWS mais adequado (ex. CloudWatch Contributor Insights) para o objetivo de "visão por tenant" que a proposta descartou sem considerar?
+- Achados REAIS de bugs/gaps na proposta (não estilo, não preferência).
+
+Formato da resposta:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: lista numerada, cada um com severidade (BLOQUEANTE/MENOR) e localização específica na proposta ou no código

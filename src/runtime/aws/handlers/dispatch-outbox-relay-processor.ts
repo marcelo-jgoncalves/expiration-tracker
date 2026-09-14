@@ -12,6 +12,7 @@ import type { OutboxRecord } from "../../../shared/outbox/outbox.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import type { SecureLogger } from "../../../shared/observability/logger.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 
 // P2.1 (external audit 2026-09-11): this boundary used to go straight from `unmarshall` to a
 // bare TypeScript cast, with no runtime check that the Streams image actually has the shape
@@ -52,7 +53,12 @@ export async function processStreamRecords(
       // SequenceNumber, not eventId (that fallback is the sweeper's, via
       // outboxRecordCorrelationId - a different source per the design's table).
       const correlationId = item.correlationId ?? record.dynamodb?.SequenceNumber ?? record.eventID ?? "unknown";
-      await runWithContext({ correlationId }, async () => {
+      // E-018/E-021 (D-290): tenantId added here specifically so the outcome log line below
+      // carries it - Logs Insights per-tenant investigation queries (`infra/modules/
+      // observability-dashboard/`) rely on it, same as guest-credential-delivery-handler.ts
+      // already did before this change (this was the one pipeline of the 3 missing it, Codex
+      // round 2 finding).
+      await runWithContext({ correlationId, tenantId: item.tenantId }, async () => {
         // try/catch stays INSIDE runWithContext so a failure log still carries this
         // record's correlationId - a catch wrapping runWithContext itself would run after
         // AsyncLocalStorage.run() already restored the outer (empty) context. This is also
@@ -61,11 +67,17 @@ export async function processStreamRecords(
         try {
           const outcome = await relayStreamRecord({ ...deps, leaseOwner: `relay-${record.eventID}` }, item);
           logger.info("dispatch-outbox-relay outcome", { eventId: item.eventId, outcome: outcome.kind });
+          // Outcome is one of relay.ts's own 5 closed kinds (PUBLISHED/SKIPPED_WRONG_DESTINATION/
+          // SKIPPED_ALREADY_PUBLISHED/SKIPPED_LEASE_HELD/FAILED) - never DeliverySucceeded/Failed,
+          // this only proves the message reached the right queue, never that a recipient
+          // actually received it (Codex round 1 naming finding).
+          emitMetric("ExpirationTracker/DispatchOutboxRelay", { name: "OutboxPublishOutcome", value: 1, unit: "Count", dimensions: { Outcome: outcome.kind } });
           if (outcome.kind === "FAILED") {
             batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
           }
         } catch (err) {
-          logger.error("dispatch-outbox-relay failed", { eventID: record.eventID, error: err instanceof Error ? err.message : String(err) });
+          logger.error("dispatch-outbox-relay failed", { eventID: record.eventID, outcome: "HANDLER_ERROR", error: err instanceof Error ? err.message : String(err) });
+          emitMetric("ExpirationTracker/DispatchOutboxRelay", { name: "OutboxPublishOutcome", value: 1, unit: "Count", dimensions: { Outcome: "HANDLER_ERROR" } });
           batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
         }
       });

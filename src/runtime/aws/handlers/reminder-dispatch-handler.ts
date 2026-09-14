@@ -9,6 +9,7 @@ import { dispatchOccurrence } from "../../../workers/reminder-dispatch/dispatch.
 import type { DispatchCommand } from "../../../workers/reminder-producer/producer.js";
 import { correlationIdFromSqsRecord, runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import { toAppError } from "../../../shared/errors/app-error.js";
 import { mapWithConcurrency } from "../../../shared/concurrency/map-with-concurrency.js";
@@ -88,6 +89,11 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
       await runWithContext({ correlationId: command.correlationId ?? fallbackCorrelationId, tenantId: command.tenantId }, async () => {
         const outcome = await dispatchOccurrence(deps, command);
         logger.info("reminder-dispatch outcome", { messageId: record.messageId, outcome: outcome.kind });
+        // E-018/E-021 (D-290) - Outcome is one of dispatch.ts's own 5 closed kinds
+        // (TRIGGERED/ALREADY_TRIGGERED/CANCELLED_STALE/SKIPPED_NOT_CLAIMED/
+        // ABORTED_FRESHNESS_RACE), never a high-cardinality value - see metrics.ts's own doc
+        // comment on dimension discipline.
+        emitMetric("ExpirationTracker/ReminderDispatch", { name: "OccurrenceDispatchOutcome", value: 1, unit: "Count", dimensions: { Outcome: outcome.kind } });
       });
     } catch (err) {
       if (!schemaInvalid) {
@@ -96,6 +102,7 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
         // diagnostic metadata only (see app-error.ts's isRetryable() doc comment).
         const appErr = toAppError(err);
         logger.error("reminder-dispatch failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+        emitMetric("ExpirationTracker/ReminderDispatch", { name: "OccurrenceDispatchOutcome", value: 1, unit: "Count", dimensions: { Outcome: "HANDLER_ERROR" } });
       }
       throw err;
     }
