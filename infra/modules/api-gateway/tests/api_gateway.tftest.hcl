@@ -304,8 +304,17 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.subjects) == 22
-    error_message = "Expected exactly 22 /subjects* routes (create, dashboard, search, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, get/update_delivery_preference, list/get_submission)"
+    condition     = length(aws_apigatewayv2_route.subjects) == 23
+    error_message = "Expected exactly 23 /subjects* routes (create, dashboard, search, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, list_chasing_occurrences, get/update_delivery_preference, list/get_submission)"
+  }
+
+  # D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence).
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.subjects : r.route_key],
+      "GET /subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences",
+    )
+    error_message = "GET .../document-requests/{documentRequestId}/chasing-occurrences route must exist"
   }
 
   # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission read routes.

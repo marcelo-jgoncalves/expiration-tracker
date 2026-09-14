@@ -33,6 +33,7 @@ import {
   handleRevokeDocumentRequest,
   handleGetDocumentRequestDeliveryPreference,
   handleUpdateDocumentRequestDeliveryPreference,
+  handleListDocumentChasingOccurrences,
   type DocumentRequestHttpDeps,
 } from "../../../modules/subject/http/document-request-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
@@ -121,6 +122,8 @@ async function handleSubjectsRoute(event: APIGatewayProxyEventV2WithJWTAuthorize
           return await handleGetDocumentRequest(deps, base);
         case "POST /subjects/{subjectId}/document-requests/{documentRequestId}/revoke":
           return await handleRevokeDocumentRequest(deps, base);
+        case "GET /subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences":
+          return await handleListDocumentChasingOccurrences(deps, base);
         case "GET /subjects/document-request-delivery-preference":
           return await handleGetDocumentRequestDeliveryPreference(deps, base);
         case "PUT /subjects/document-request-delivery-preference":

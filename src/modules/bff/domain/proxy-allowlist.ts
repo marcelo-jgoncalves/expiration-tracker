@@ -88,6 +88,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" },
   { method: "GET", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}" },
   { method: "POST", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" },
+  // D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence).
+  { method: "GET", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences" },
   // Wave B2B-8 (D-099).
   { method: "POST", pathTemplate: "/organizations/members/invite" },
   { method: "POST", pathTemplate: "/organizations/invitations/{invitationId}/revoke" },
