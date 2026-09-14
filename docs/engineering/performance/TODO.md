@@ -80,7 +80,7 @@ itens de acompanhamento fora do programa de performance.
 - [ ] PERF-06 — Edge/CloudFront/latência Brasil (PriceClass_100 vs All, cache HIT/MISS, benchmark us-east-1 vs sa-east-1)
 - [ ] PERF-07 — Fan-out de requests por tela (inventário por tela; critério para endpoint composto; não criar GraphQL improvisado)
 - [ ] PERF-08 — RequestContext (medir antes; fast path só depois; avaliar BatchGet/paralelismo; nunca enfraquecer tenant isolation/RBAC)
-- [ ] PERF-09 — Frontend code splitting (route-level lazy/Suspense; bundle analyzer; prefetch seletivo em idle)
+- [x] PERF-09 — Frontend code splitting (route-level lazy/Suspense; bundle analyzer; prefetch seletivo em idle) — feito: ~30 rotas em `React.lazy`, `rollup-plugin-visualizer` instalado, prefetch idle para Items/Subjects a partir de Overview. Initial-load bundle 517,4→~280,8KB raw (-46%), ~140,1→~86,7KB gzip (-38%); 1→63 chunks JS. 158/158 e2e + 407/407 unit tests passando. Ver `results/PERF-03-bundle-baseline.md` (seção "depois do code splitting").
 - [ ] PERF-10 — Cache/freshness TanStack Query (inventariar hooks; classes STATICISH/REFERENCE/OPERATIONAL/NEAR_REALTIME; mutations com invalidação precisa)
 
 ## Ciclo C (após Ciclo B)
