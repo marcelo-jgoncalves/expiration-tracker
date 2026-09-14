@@ -122,7 +122,7 @@ async function main() {
       if (r.status !== 201) throw new Error(`create item failed tenant ${i}: ${JSON.stringify(r)}`);
       if (n === 1) itemId = r.json.item?.itemId ?? r.json.itemId;
     }
-    let subjectId = null;
+    let subjectId;
     {
       const r = await apiPost(page, "/bff/api/subjects", { type: "VENDOR", displayName: `PERF LoadTest Vendor ${i}` }, csrfToken);
       if (r.status !== 201) throw new Error(`create subject failed tenant ${i}: ${JSON.stringify(r)}`);
