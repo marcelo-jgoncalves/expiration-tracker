@@ -133,8 +133,8 @@ além do aumento de quota.
 
 ## Conclusão — a conta dev está estrangulando os testes?
 
-**Ainda não, mas está no limiar — e vai estrangular assim que a carga de teste (PERF-04/PERF-05/PERF-11)
-começar.**
+**Situação original (na data deste registro): ainda não, mas no limiar — estrangularia assim que a
+carga de teste começasse. Atualização 2026-09-14: quota aumentada para 1000, bloqueio removido.**
 
 Evidências:
 - A quota de conta é 10, compartilhada entre 62 funções `exptrk-dev-*` + 10 funções de outro projeto.
@@ -170,6 +170,12 @@ Evidências:
      etapa fica pendente de ação manual do Marcelo no Console AWS.
    - Verificado antes da tentativa: **não havia pedido de aumento pendente** para essa quota
      (`list-requested-service-quota-change-history-by-quota` retornou lista vazia).
+   - **Resolvido em 2026-09-14**: Marcelo abriu o caso manual no AWS Console (Account and billing
+     support) usando o texto preparado nesta sessão. Aprovado pela AWS no mesmo dia — quota
+     confirmada em **1000** via `get-service-quota` (`aws --profile claude-dev service-quotas
+     get-service-quota --service-code lambda --quota-code L-B99A9384 --region us-east-1`, valor
+     retornado: `1000.0`). **Bloqueio removido** — PERF-11 (load testing) e PERF-12 (SQS/reminder
+     pipeline volumes) já podem prosseguir.
 2. Considerar `ReservedConcurrentExecutions` em `bff-handler`/`items-handler`/`subjects-handler` (funções
    síncronas, latência sensível) para isolá-las do pool competido por funções assíncronas em lote, mesmo
    após o aumento de quota — evita que um pico assíncrono (ex.: reprocessamento de outbox) throttle

@@ -25,7 +25,7 @@ registrada em `docs/engineering/performance/results/`.
 - [x] Procurar throttling (ConcurrentExecutions ≈ quota + Throttles > 0) — encontrado 1 evento real (`dispatch-outbox-relay`, 2026-09-12 19:03 -03:00), coincidindo com pico de ConcurrentExecutions=10 de conta
 - [x] Verificar quota/throttling API Gateway — quotas padrão (10k/5k req/s) muito acima do uso (85–128 req/7d); sem throttling (4xx=0)
 - [x] Verificar SQS event source mappings (batch size, MaximumConcurrency, reserved concurrency) — BatchSize=10 em todos, sem MaximumConcurrency e sem reserved concurrency configurados em nenhuma função
-- [~] Se quota ainda = 10: solicitar aumento para 100 (via AWS Support/Service Quotas — não contornar via código) — **tentado via CLI (autorizado por Marcelo), falhou**: `IllegalArgumentException`, o valor 10 é restrição de conta nova (default AWS real é 1000), Service Quotas API só aceita pedidos >1000. Requer caso manual no AWS Console (Account and billing support) — API de Support exige plano Business/Enterprise que esta conta não tem. **Pendente de ação manual do Marcelo.**
+- [x] Se quota ainda = 10: solicitar aumento para 100 (via AWS Support/Service Quotas — não contornar via código) — tentativa via CLI falhou (`IllegalArgumentException`, restrição de conta nova, API só aceita >1000 default). **Resolvido 2026-09-14**: Marcelo abriu caso manual no AWS Console, aprovado no mesmo dia — quota confirmada em **1000** via `get-service-quota`. Bloqueio de PERF-11/12 removido.
 - [x] Registrar `results/PERF-01-account-quotas.md`
 - Critério de saída: **ainda não estrangulou as 7 funções-alvo diretamente na janela observada (uso manual, baixo volume), mas a conta já bateu no teto de 10 execuções concorrentes duas vezes em 7 dias e gerou 1 throttle real — quota compartilhada por 62+10 funções na conta é insuficiente para suportar os testes de carga dos próximos experimentos (PERF-04/05/11) sem aumento prévio.**
 
@@ -97,8 +97,8 @@ itens de acompanhamento fora do programa de performance.
 - [~] PERF-14 — Regression gates (bundle budget CI, Lighthouse CI, k6 smoke em PR, synthetic canaries, alarms de latência/throttle/backlog, dashboard consolidado) — só depois de baseline confiável existir
   - [x] Bundle budget CI gate — `frontend/scripts/check-bundle-budget.mjs`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [x] Lighthouse CI gate — `@lhci/cli` + `frontend/lighthouserc.json`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
-  - [ ] k6 smoke em PR — **bloqueado**: quota de Lambda Concurrent Executions ainda em 10 na conta `dev` (PERF-01), pendente de ação manual do Marcelo.
-  - [ ] Synthetic canaries — **bloqueado**: infra ainda não provisionada + mesma dependência de quota acima.
+  - [ ] k6 smoke em PR — **desbloqueado 2026-09-14**: quota de Lambda Concurrent Executions em 1000 na conta `dev` (PERF-01). Ainda não implementado — próximo passo.
+  - [ ] Synthetic canaries — **desbloqueado quanto à quota**; ainda depende de infra não provisionada.
   - [ ] Alarms de latência/throttle/backlog — **bloqueado**: métricas EMF customizadas do PERF-02 não estão chegando ao CloudWatch nesta conta (achado PERF-04/PERF-08), nada para alarmar ainda.
   - [ ] Dashboard consolidado — **bloqueado**: depende dos 2 itens acima (canaries + métricas reais).
 - [ ] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle)
