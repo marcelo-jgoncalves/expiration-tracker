@@ -124,6 +124,8 @@ export const queryKeys = {
   },
   reports: {
     subscriptions: (organizationId: string) => ["org", organizationId, "reports", "subscriptions"] as const,
+    /** D-293 - A16 execution history. */
+    subscriptionRuns: (organizationId: string, subscriptionId: string) => ["org", organizationId, "reports", "subscriptionRuns", subscriptionId] as const,
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in

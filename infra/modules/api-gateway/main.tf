@@ -259,6 +259,8 @@ locals {
     subscription_list   = { method = "GET", path = "/reports/subscriptions" }
     subscription_get    = { method = "GET", path = "/reports/subscriptions/{subscriptionId}" }
     subscription_delete = { method = "POST", path = "/reports/subscriptions/{subscriptionId}/delete" }
+    # D-293: closes A16's execution-history gap.
+    subscription_runs_list = { method = "GET", path = "/reports/subscriptions/{subscriptionId}/runs" }
     # D-204 decision 7 (fatia 3) — same Lambda/integration, JSON envelope (`{downloadUrl}`).
     subscription_run_download = { method = "GET", path = "/reports/subscriptions/{subscriptionId}/runs/{runId}/download" }
   }

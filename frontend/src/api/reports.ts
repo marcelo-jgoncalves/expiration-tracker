@@ -24,14 +24,15 @@
  *     recreates") - "Editar" is never offered as a fabricated single action; Reports.tsx instead
  *     explains this and offers delete+recreate as two explicit steps, never masked as one atomic
  *     "edit".
- *  5. There is NO route to list a subscription's past runs, and `ReportSubscription` carries no
- *     `lastRunAt`/"última execução" field at all - only `nextRunAt`. The spec's run-history
- *     Drawer is not buildable; Reports.tsx shows "Próxima execução" instead and omits the
- *     history feature entirely (named gap, not a silent omission).
+ *  5. ~~There is NO route to list a subscription's past runs~~ **CLOSED (D-293)** - `GET
+ *     .../subscriptions/{subscriptionId}/runs` now merges the durable `ReportSubscriptionRun`/
+ *     `ReportDeliveryAttempt` rows the delivery worker already wrote since D-204 decision 5.
+ *     `ReportSubscription` still carries no `lastRunAt` field itself - the history comes from
+ *     this separate route, never a field on the subscription object.
  */
 import { apiClient } from "./apiClient.js";
 import { ApiError } from "./errors.js";
-import type { CreateReportSubscriptionInput, ReportKey, ReportSubscription, ReportSubscriptionsResponse } from "./types.js";
+import type { CreateReportSubscriptionInput, ListSubscriptionRunsResult, ReportKey, ReportSubscription, ReportSubscriptionsResponse } from "./types.js";
 
 const REPORT_PATHS: Record<ReportKey, string> = {
   "expired-items": "/reports/expired-items",
@@ -112,8 +113,18 @@ export function deleteReportSubscription(subscriptionId: string, expectedVersion
   return apiClient.post<void>(`/reports/subscriptions/${encodeURIComponent(subscriptionId)}/delete`, { expectedVersion }, { expectedVersion });
 }
 
-// NOTE: `GET .../subscriptions/{id}/runs/{runId}/download` is a real, allowlisted backend route,
-// but there is no route to LIST a subscription's runs and `ReportSubscription` carries no run
-// history at all - a runId is only ever learned from a delivery e-mail, never discoverable in
-// this UI. No wrapper is added here since nothing in this screen has a runId to call it with
-// (deviation 5 above) - a future screen reachable FROM that e-mail link would add it then.
+/** D-293 - closes A16's execution-history gap. ADMIN-only (`reports:subscription-manage`, same
+ * tier as the CRUD above - a run's recipient list can include other members). */
+export function listSubscriptionRuns(subscriptionId: string, options?: { signal?: AbortSignal }): Promise<ListSubscriptionRunsResult> {
+  return apiClient.get<ListSubscriptionRunsResult>(`/reports/subscriptions/${encodeURIComponent(subscriptionId)}/runs`, { signal: options?.signal });
+}
+
+/** `GET .../runs/{runId}/download` - real, allowlisted backend route, now reachable for real:
+ * `listSubscriptionRuns` above is what makes a `runId` discoverable in this UI at all (D-293) -
+ * before this, a runId was only ever learned from a delivery e-mail. Returns `{downloadUrl}`, a
+ * short-lived presigned S3 URL - the caller navigates the browser to it to trigger the save. */
+export function downloadSubscriptionRun(subscriptionId: string, runId: string): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+  return apiClient.get<{ downloadUrl: string; expiresInSeconds: number }>(
+    `/reports/subscriptions/${encodeURIComponent(subscriptionId)}/runs/${encodeURIComponent(runId)}/download`,
+  );
+}

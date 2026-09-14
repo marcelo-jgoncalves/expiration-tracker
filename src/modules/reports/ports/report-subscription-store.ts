@@ -34,4 +34,11 @@ export interface ReportSubscriptionStore {
   /** Eventually consistent GSI1 query, one physical page per call (D-136/D-E cursor-skip
    * lesson - never an internal multi-call accumulate-then-slice loop). */
   queryGsi1Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi1PageInput): Promise<Gsi1Page<T>>;
+  /** D-293 (A16 execution-history gap) - base-table query by PK + optional SK prefix, same
+   * shape as `subject`/`import` modules' own `queryByPk` - lists every `ReportSubscriptionRun`/
+   * `ReportDeliveryAttempt` row under a subscription/run's partition. Accumulates every page
+   * internally (bounded: a subscription realistically has, at most, a few hundred runs given
+   * D-235's 30-day TTL, never thousands) - unlike `queryGsi1Page` above, which is deliberately
+   * one-page-at-a-time for a tenant-wide, potentially large collection. */
+  queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]>;
 }

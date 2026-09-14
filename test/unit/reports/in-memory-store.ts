@@ -144,6 +144,10 @@ export class InMemoryReportSubscriptionStore {
     };
   }
 
+  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+    return [...this.items.values()].filter((item) => item.PK === pk && (skPrefix === undefined || String(item.SK).startsWith(skPrefix))) as unknown as T[];
+  }
+
   allItems(): (Record<string, unknown> & EntityKey)[] {
     return [...this.items.values()];
   }

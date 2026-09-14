@@ -255,6 +255,17 @@ export async function handleListReportSubscriptions(deps: ReportsHttpDeps, req: 
   });
 }
 
+/** GET /reports/subscriptions/{subscriptionId}/runs (D-293) — closes A16's execution-history
+ * gap. Read-only, ADMIN-only (same tier as the CRUD above). */
+export async function handleListSubscriptionRuns(deps: ReportsHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subscriptionId = requireSubscriptionId(req);
+    const context = await resolveContext(deps, req);
+    const runs = await deps.subscriptions.listSubscriptionRuns(context, subscriptionId);
+    return { statusCode: 200, body: { runs } };
+  });
+}
+
 export async function handleDeleteReportSubscription(deps: ReportsHttpDeps, req: HttpRequest<{ expectedVersion: number }>): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subscriptionId = requireSubscriptionId(req);

@@ -32,6 +32,8 @@ import {
   type ReportSubscriptionCadence,
   type ReportSubscriptionReportType,
 } from "../domain/report-subscription.js";
+import type { ReportSubscriptionRun } from "../domain/report-subscription-run.js";
+import type { ReportDeliveryAttempt, ReportDeliveryAttemptStatus } from "../domain/report-delivery-attempt.js";
 
 export interface CreateReportSubscriptionInput {
   reportTypes: readonly ReportSubscriptionReportType[];
@@ -158,4 +160,59 @@ export class ReportSubscriptionService {
       throw err;
     }
   }
+
+  /**
+   * `GET /reports/subscriptions/{subscriptionId}/runs` (D-293) — closes A16's execution-history
+   * gap (D-270/D-271). Read-only, ADMIN-only (`reports:subscription-manage`, same tier as the
+   * CRUD above — a run's recipient list can include other tenant members, so this is an admin
+   * view of the subscription's own history, never scoped down to "runs I personally received").
+   * Both `ReportSubscriptionRun` and `ReportDeliveryAttempt` have been durably written by
+   * `report-subscription-delivery/delivery.ts` since D-204 decision 5 with no route reading them
+   * together — this only merges what already exists, no new persistence, no new data model.
+   * Bounded by D-235's 30-day TTL (a subscription realistically accumulates, at most, a few
+   * hundred runs — never unbounded), so this reads every run in one pass rather than adding
+   * cursor-based pagination for a collection that structurally cannot grow large.
+   */
+  async listSubscriptionRuns(ctx: RequestContext, subscriptionId: string): Promise<ReportSubscriptionRunSummary[]> {
+    authorize({ context: ctx, action: "reports:subscription-manage", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = ctx.tenant.tenantId;
+    await this.getSubscriptionUnchecked(tenantId, subscriptionId);
+
+    const subscriptionPk = reportSubscriptionKey(tenantId, subscriptionId).PK;
+    const runs = await this.store.queryByPk<ReportSubscriptionRun>(subscriptionPk, "RUN#");
+
+    const summaries = await Promise.all(
+      runs.map(async (run): Promise<ReportSubscriptionRunSummary> => {
+        const attempts = await this.store.queryByPk<ReportDeliveryAttempt>(`${subscriptionPk}#RUN#${run.runId}`, "ATTEMPT#");
+        const attemptCounts: Record<ReportDeliveryAttemptStatus, number> = { PREPARED: 0, SUBMITTING: 0, ACCEPTED: 0, FAILED_RETRYABLE: 0, FAILED_TERMINAL: 0, UNKNOWN: 0 };
+        for (const attempt of attempts) attemptCounts[attempt.status] += 1;
+        return {
+          runId: run.runId,
+          scheduledFor: run.scheduledFor,
+          reportTypes: run.reportTypes,
+          recipientCount: run.recipientUserIds.length,
+          createdAt: run.createdAt,
+          attemptCounts,
+        };
+      }),
+    );
+
+    // Most recent first — runId is a ULID (`scheduler.ts`'s `newEventId()`), so SK order from
+    // queryByPk is chronological ascending; reversed here rather than requesting descending
+    // order from the store (queryByPk has no `ascending` option, unlike queryGsi1Page — adding
+    // one for a collection this small would be over-engineering, principles.md #1).
+    return summaries.sort((a, b) => (a.runId < b.runId ? 1 : -1));
+  }
+}
+
+/** D-293 — one row per `ReportSubscriptionRun`, with delivery attempt outcomes summarized by
+ * count (never the raw per-recipient attempt list — an admin history view needs "how many
+ * succeeded/failed", not every individual recipient's row). */
+export interface ReportSubscriptionRunSummary {
+  runId: string;
+  scheduledFor: string;
+  reportTypes: readonly ReportSubscriptionReportType[];
+  recipientCount: number;
+  createdAt: string;
+  attemptCounts: Record<ReportDeliveryAttemptStatus, number>;
 }
