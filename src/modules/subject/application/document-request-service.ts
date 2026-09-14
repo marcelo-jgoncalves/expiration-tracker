@@ -9,6 +9,7 @@ import { ConflictError, NotFoundError, QuotaExceededError } from "../../../share
 import { buildVersionedCreate, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { requirementAssignmentKey, REQUIREMENT_ASSIGNMENT_SK_PREFIX, type RequirementAssignment } from "../domain/requirement-assignment.js";
 import { documentRequestKey, type DocumentRequest, type CreateDocumentRequestInput } from "../domain/document-request.js";
+import type { DocumentChasingOccurrence } from "../domain/document-chasing.js";
 import { guestTokenPointerKey, issueGuestToken, epochSecondsFromIso, GUEST_TOKEN_TTL_SECONDS, type GuestTokenPointer } from "../domain/guest-token.js";
 import { buildSubjectAuditEvent, appendSubjectAuditToTransaction, type SubjectAuditAction, type SubjectAuditResourceType } from "../domain/audit-event.js";
 import {
@@ -331,15 +332,44 @@ export class DocumentRequestService {
     return request;
   }
 
+  /** D-288 — Bloco 7's A10 timeline never showed `DocumentChasingOccurrence` entries
+   * ("Lembrete automático agendado/enviado") because no HTTP route existed to read them
+   * (`decisions-log.md` roadmap item 9, `frontend/src/routes/subjects/Tracking.tsx`'s own
+   * documented deviation #1). `assignmentId` is deliberately derived from the resolved
+   * `DocumentRequest` itself (never taken as a caller-supplied parameter) — same discipline
+   * `readActiveRequest`'s own `entityType` filter already applies, so a caller can never probe
+   * with a mismatched assignmentId and get a different (empty vs. populated) result depending on
+   * whether it happens to be right. Precise SK prefix (`...#DOCREQ#<documentRequestId>#CHASING#`,
+   * WITH the documentRequestId, unlike `listDocumentRequests` above) so this never also matches
+   * `DocumentChasingIntent` rows (`...#CHASINGINTENT#...`) or another documentRequestId's own
+   * occurrences under the same assignment — read-only, same `requirement:read` action as every
+   * other read on this aggregate family. */
+  async listDocumentChasingOccurrences(ctx: RequestContext, subjectId: string, documentRequestId: string): Promise<DocumentChasingOccurrence[]> {
+    const tenantId = authorizedTenantId(ctx);
+    const request = await this.readActiveRequest(tenantId, subjectId, documentRequestId);
+    authorize({ context: ctx, action: "requirement:read", resource: { tenantId: request.tenantId } });
+    const rows = await this.store.queryByPk<DocumentChasingOccurrence>(
+      requirementAssignmentKey(tenantId, subjectId, request.assignmentId).PK,
+      `REQASSIGN#${request.assignmentId}#DOCREQ#${documentRequestId}#CHASING#`,
+    );
+    return rows;
+  }
+
   async listDocumentRequests(ctx: RequestContext, subjectId: string, assignmentId: string): Promise<DocumentRequest[]> {
     const tenantId = authorizedTenantId(ctx);
     const assignment = await this.readActiveAssignment(tenantId, subjectId, assignmentId);
     authorize({ context: ctx, action: "requirement:read", resource: { tenantId: assignment.tenantId } });
-    const rows = await this.store.queryByPk<DocumentRequest>(
+    // D-288 real bug found while scoping the A10 chasing-occurrence read route: `DocumentChasingOccurrence`/
+    // `DocumentChasingIntent` (document-chasing.ts) share this exact SK prefix
+    // (`REQASSIGN#<assignmentId>#DOCREQ#<documentRequestId>#CHASING[...]`), so a caller with any
+    // chasing row under this assignment used to get those rows back here too, mistyped as
+    // DocumentRequest and returned verbatim to the HTTP response — filtering by entityType closes
+    // this at the one place the two families' key ranges actually collide.
+    const rows = await this.store.queryByPk<DocumentRequest & { entityType?: string }>(
       requirementAssignmentKey(tenantId, subjectId, assignmentId).PK,
       `REQASSIGN#${assignmentId}#DOCREQ#`,
     );
-    return rows;
+    return rows.filter((r) => r.entityType === "DocumentRequest");
   }
 
   async revokeDocumentRequest(ctx: RequestContext, subjectId: string, documentRequestId: string, expectedVersion: number): Promise<void> {

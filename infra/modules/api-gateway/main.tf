@@ -457,6 +457,9 @@ locals {
     list_document_requests  = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
     get_document_request    = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}" }
     revoke_document_request = { method = "POST", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" }
+    # D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence,
+    # frontend/src/routes/subjects/Tracking.tsx's own documented deviation #1).
+    list_chasing_occurrences = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences" }
     # M10 cluster 4 (D-049): preferência de TENANT (não por subject) para o convite inicial
     # automatizado - fora do namespace /{subjectId}/... de propósito.
     get_delivery_preference    = { method = "GET", path = "/subjects/document-request-delivery-preference" }

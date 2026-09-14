@@ -97,6 +97,21 @@ export async function handleGetDocumentRequest(deps: DocumentRequestHttpDeps, re
   });
 }
 
+/** GET /subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences — D-288.
+ * Closes the A10 timeline gap (`frontend/src/routes/subjects/Tracking.tsx`'s documented
+ * deviation #1: automated reminder entries were omitted, never fabricated, because this route
+ * never existed). Read-only, same `requirement:read` action as `handleGetDocumentRequest`. */
+export async function handleListDocumentChasingOccurrences(deps: DocumentRequestHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const subjectId = requireSubjectId(req);
+    const documentRequestId = requireDocumentRequestId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeQuota(deps, context);
+    const occurrences = await deps.documentRequests.listDocumentChasingOccurrences(context, subjectId, documentRequestId);
+    return { statusCode: 200, body: { occurrences } };
+  });
+}
+
 export async function handleRevokeDocumentRequest(deps: DocumentRequestHttpDeps, req: HttpRequest): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
