@@ -65,7 +65,13 @@ registrada em `docs/engineering/performance/results/`.
 - Saída: `docs/engineering/performance/results/PERF-05-power-tuning.md` — tabela memória x Lambda com recomendação. Nenhuma mudança de memória foi aplicada em produção (diagnóstico apenas).
 - **Reuso futuro**: stack `perf-tuning-lambda-power-tuning` (conta `975707451904`, `us-east-1`) fica implantado — state machine `arn:aws:states:us-east-1:975707451904:stateMachine:powerTuningStateMachine-26d9cbc0-b061-11f1-b8bc-0affce8a4e05` — reaproveitável por PERF-11 (load testing) ou por uma nova rodada de tuning; pode ser destruído a qualquer momento sem efeito no produto (`aws cloudformation delete-stack --stack-name perf-tuning-lambda-power-tuning`).
 
-**Fim do Ciclo A**: nova análise profunda com os dados coletados antes de iniciar o Ciclo B.
+**Fim do Ciclo A**: nova análise profunda com os dados coletados antes de iniciar o Ciclo B. **Feito** —
+`docs/engineering/performance/results/CICLO-A-analise.md`. Recomendações: (1) resolver a quota Lambda
+antes de qualquer teste de concorrência — pendente de ação manual do Marcelo; (2) priorizar PERF-09
+(code splitting) dentro do Ciclo B, evidência mais forte já coletada; (3) PERF-08 só terá decomposição
+fina depois que a instrumentação do PERF-02 for implantada em `dev`; (4) 2 bugs reais encontrados
+incidentalmente (IAM gap em Document Archive, 500 em reports por JSON.parse de CSV) precisam virar
+itens de acompanhamento fora do programa de performance.
 
 ---
 
