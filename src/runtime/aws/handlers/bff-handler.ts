@@ -7,6 +7,8 @@ import { buildBffDeps } from "../composition/bff.js";
 import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleAcceptInvitation, handleListOrganizations, handleSelectOrganization, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest, BffHttpResponse } from "../../../modules/bff/http/http-types.js";
 import { runWithContext } from "../../../shared/observability/context.js";
+import { logger } from "../../../shared/observability/logger.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -63,8 +65,22 @@ function toApiGatewayResult(res: BffHttpResponse): APIGatewayProxyStructuredResu
 
 const BFF_API_PREFIX = "/bff/api";
 
+// PERF-02: standard cold-start detection pattern - true only for the very first invocation of a
+// given Lambda execution environment, then flipped and never reset for the life of that
+// environment (module-level state survives across warm invocations, not across cold ones).
+let isColdStart = true;
+
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
-  return runWithContext({ correlationId: event.requestContext.requestId }, () => route(event));
+  const coldStart = isColdStart;
+  isColdStart = false;
+  const start = Date.now();
+  try {
+    return await runWithContext({ correlationId: event.requestContext.requestId }, () => route(event));
+  } finally {
+    const totalMs = Date.now() - start;
+    logger.info("bff handler total timing", { totalMs, coldStart });
+    emitMetric("ExpirationTracker/BFF", { name: "bff.total_ms", value: totalMs, unit: "Milliseconds", dimensions: { cold_start: String(coldStart) } });
+  }
 }
 
 async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {

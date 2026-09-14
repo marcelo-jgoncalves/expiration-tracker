@@ -5,6 +5,7 @@
  * for whether a call is forwarded at all.
  */
 import { NotFoundError } from "../../../shared/errors/app-error.js";
+import { getContext } from "../../../shared/observability/context.js";
 import { matchAllowlistedRoute } from "../domain/proxy-allowlist.js";
 import type { Session } from "../domain/session.js";
 
@@ -59,6 +60,15 @@ export class ProxyService {
     // browser sending this header has zero effect on what actually reaches the resource API.
     if (session.activeOrganizationId) {
       headers["x-organization-id"] = session.activeOrganizationId;
+    }
+    // PERF-02: fixes the BFF->resource-API leg of correlation propagation (m5-observability-
+    // design.md #2's correlationId, carried via runWithContext/getContext.ts - the same field
+    // reminder-dispatch-handler.ts nests into its own SQS records). No existing header name
+    // convention was found for this hop (only the SQS MessageAttribute "correlationId" -
+    // outbox.ts/context.ts), so "x-correlation-id" is used as the de facto standard header name.
+    const correlationId = getContext()?.correlationId;
+    if (correlationId) {
+      headers["x-correlation-id"] = correlationId;
     }
 
     const url = `${this.apiBaseUrl}${req.path}${req.queryString ? `?${req.queryString}` : ""}`;
