@@ -21,6 +21,7 @@ import {
   handleDownloadReportSubscriptionRun,
   handleGetReportSubscription,
   handleListReportSubscriptions,
+  handleListSubscriptionRuns,
   handleReportsRoute,
   type CsvHttpResponse,
   type HttpResponse,
@@ -63,6 +64,8 @@ async function handleReportsRequest(event: APIGatewayProxyEventV2WithJWTAuthoriz
       return toApiGatewayResult(await handleGetReportSubscription(deps, base));
     case "POST /reports/subscriptions/{subscriptionId}/delete":
       return toApiGatewayResult(await handleDeleteReportSubscription(deps, { ...base, body: parseBody(event) }));
+    case "GET /reports/subscriptions/{subscriptionId}/runs":
+      return toApiGatewayResult(await handleListSubscriptionRuns(deps, base));
     case "GET /reports/subscriptions/{subscriptionId}/runs/{runId}/download":
       return toApiGatewayResult(await handleDownloadReportSubscriptionRun(deps, base));
     default: {

@@ -12,17 +12,20 @@
  *  3. Recipients are existing org members only (`recipientUserIds`) - no ad-hoc e-mails.
  *  4. No update route exists - "Editar" is never offered as a fabricated atomic action; deleting
  *     and recreating is the only real path, presented as two explicit steps.
- *  5. No route lists a subscription's past runs and there is no `lastRunAt` field - the run
- *     history Drawer is not buildable. "Próxima execução" (`nextRunAt`, which IS real) is shown
- *     instead of "Última execução".
+ *  5. ~~No route lists a subscription's past runs~~ **CLOSED (D-293)** - `SubscriptionHistoryDialog`
+ *     below consumes `GET .../subscriptions/{subscriptionId}/runs` for real, showing real
+ *     scheduled-for/recipient-count/delivery-outcome per run, with a download link once
+ *     delivery has actually resolved. "Próxima execução" (`nextRunAt`) stays in the main table -
+ *     history lives in the dialog, never duplicated inline.
  */
 import { useState, type FormEvent } from "react";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useReportSubscriptions } from "../hooks/useReportSubscriptions.js";
 import { useCreateReportSubscription } from "../hooks/useCreateReportSubscription.js";
 import { useDeleteReportSubscription } from "../hooks/useDeleteReportSubscription.js";
+import { useReportSubscriptionRuns } from "../hooks/useReportSubscriptionRuns.js";
 import { useMembers } from "../hooks/useMembers.js";
-import { downloadReportCsv } from "../api/reports.js";
+import { downloadReportCsv, downloadSubscriptionRun } from "../api/reports.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import type { CreateReportSubscriptionInput, MembershipRole, ReportKey, ReportSubscription, ReportSubscriptionReportType } from "../api/types.js";
 import { CollectionSkeleton, EmptyState } from "../components/AsyncStates.js";
@@ -169,6 +172,7 @@ function SubscriptionsPanel({
   onRemove: (subscription: ReportSubscription) => void;
 }) {
   const query = useReportSubscriptions(enabled);
+  const [historyFor, setHistoryFor] = useState<ReportSubscription | undefined>(undefined);
 
   return (
     <Section heading="Assinaturas" headingId="reports-subscriptions" annotation={query.data ? `(${query.data.subscriptions.length})` : undefined}>
@@ -193,9 +197,10 @@ function SubscriptionsPanel({
           {query.data.lastEvaluatedKey ? (
             <InlineNotice tone="neutral">Há mais assinaturas do que esta lista mostra - a busca por mais páginas ainda não é suportada.</InlineNotice>
           ) : null}
-          <SubscriptionsTable subscriptions={query.data.subscriptions} onRemove={onRemove} />
+          <SubscriptionsTable subscriptions={query.data.subscriptions} onRemove={onRemove} onViewHistory={setHistoryFor} />
         </>
       )}
+      {historyFor ? <SubscriptionHistoryDialog subscription={historyFor} onClose={() => setHistoryFor(undefined)} /> : null}
     </Section>
   );
 }
@@ -209,9 +214,11 @@ function subscriptionReportsLabel(subscription: ReportSubscription): string {
 function SubscriptionsTable({
   subscriptions,
   onRemove,
+  onViewHistory,
 }: {
   subscriptions: ReportSubscription[];
   onRemove: (subscription: ReportSubscription) => void;
+  onViewHistory: (subscription: ReportSubscription) => void;
 }) {
   const columns: DataTableColumn<ReportSubscription>[] = [
     { key: "reports", header: "Relatórios", primary: true, render: (s) => subscriptionReportsLabel(s) },
@@ -223,13 +230,89 @@ function SubscriptionsTable({
       header: "Ações",
       actions: true,
       render: (s) => (
-        <Button size="sm" variant="danger" onClick={() => onRemove(s)}>
-          Remover
-        </Button>
+        <>
+          <Button size="sm" variant="secondary" onClick={() => onViewHistory(s)}>
+            Ver histórico
+          </Button>{" "}
+          <Button size="sm" variant="danger" onClick={() => onRemove(s)}>
+            Remover
+          </Button>
+        </>
       ),
     },
   ];
   return <DataTable caption="Assinaturas de relatório" columns={columns} rows={subscriptions} rowKey={(s) => s.subscriptionId} />;
+}
+
+const ATTEMPT_STATUS_LABELS: Record<string, string> = {
+  ACCEPTED: "entregue",
+  FAILED_TERMINAL: "falhou",
+  FAILED_RETRYABLE: "falhou (retentando)",
+  SUBMITTING: "enviando",
+  PREPARED: "preparado",
+  UNKNOWN: "desconhecido",
+};
+
+/** D-293 — closes A16's execution-history gap. ADMIN-only (same tier as the CRUD/create
+ * dialog above), read-only. Each real run offers a download link once at least one delivery
+ * attempt exists (`downloadSubscriptionRun` reuses the same RBAC the backend already enforces —
+ * a run with zero ACCEPTED/FAILED_TERMINAL attempts is still in flight, download not yet
+ * meaningful). */
+function SubscriptionHistoryDialog({ subscription, onClose }: { subscription: ReportSubscription; onClose: () => void }) {
+  const runsQuery = useReportSubscriptionRuns(subscription.subscriptionId, true);
+  const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
+
+  async function handleDownload(runId: string) {
+    setDownloadError(undefined);
+    try {
+      const { downloadUrl } = await downloadSubscriptionRun(subscription.subscriptionId, runId);
+      window.location.assign(downloadUrl);
+    } catch (err) {
+      setDownloadError(err instanceof ApiError ? err.message : "Não foi possível baixar este relatório.");
+    }
+  }
+
+  return (
+    <Dialog title={`Histórico — ${subscriptionReportsLabel(subscription)}`} onClose={onClose}>
+      {runsQuery.isPending ? (
+        <p>Carregando histórico…</p>
+      ) : runsQuery.isError ? (
+        <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void runsQuery.refetch()}>Tentar novamente</Button>}>
+          Não foi possível carregar o histórico de execução.
+        </InlineNotice>
+      ) : runsQuery.data.runs.length === 0 ? (
+        <p>Esta assinatura ainda não foi executada.</p>
+      ) : (
+        <ul className="reports-subscription-history">
+          {runsQuery.data.runs.map((run) => {
+            const delivered = run.attemptCounts.ACCEPTED > 0 || run.attemptCounts.FAILED_TERMINAL > 0;
+            const statusSummary = (Object.entries(run.attemptCounts) as [string, number][])
+              .filter(([, count]) => count > 0)
+              .map(([status, count]) => `${count} ${ATTEMPT_STATUS_LABELS[status] ?? status}`)
+              .join(", ");
+            return (
+              <li key={run.runId}>
+                <p>
+                  {new Date(run.scheduledFor).toLocaleString("pt-BR")} · {run.recipientCount} destinatário(s)
+                  {statusSummary ? ` · ${statusSummary}` : " · aguardando envio"}
+                </p>
+                {delivered ? (
+                  <Button size="sm" variant="secondary" onClick={() => void handleDownload(run.runId)}>
+                    Baixar
+                  </Button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {downloadError ? (
+        <InlineNotice tone="critical" announce="alert">
+          {downloadError}
+        </InlineNotice>
+      ) : null}
+    </Dialog>
+  );
 }
 
 const RECIPIENT_LIMIT = 10;

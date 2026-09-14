@@ -1108,6 +1108,28 @@ export interface ReportSubscriptionsResponse {
   lastEvaluatedKey?: unknown;
 }
 
+/**
+ * D-293 - closes A16's execution-history gap (previously a real backend limitation, this file's
+ * own header comment deviation #5 and `Reports.tsx`'s own header comment). One entry per real
+ * `ReportSubscriptionRun`, with delivery outcomes summarized by count (never the raw per-
+ * recipient attempt list - an admin history view needs "how many succeeded/failed", not every
+ * individual recipient's row).
+ */
+export type ReportDeliveryAttemptStatus = "PREPARED" | "SUBMITTING" | "ACCEPTED" | "FAILED_RETRYABLE" | "FAILED_TERMINAL" | "UNKNOWN";
+
+export interface ReportSubscriptionRunSummary {
+  runId: string;
+  scheduledFor: string;
+  reportTypes: readonly ReportSubscriptionReportType[];
+  recipientCount: number;
+  createdAt: string;
+  attemptCounts: Record<ReportDeliveryAttemptStatus, number>;
+}
+
+export interface ListSubscriptionRunsResult {
+  runs: ReportSubscriptionRunSummary[];
+}
+
 // --- A17 (Block 10, D-2xx) - Subject Dossier Export -----------------------------------------
 
 export type DossierExportRunStatus = "PREVIEW_READY" | "CONFIRMED" | "GENERATING" | "READY" | "FAILED" | "TOO_LARGE";

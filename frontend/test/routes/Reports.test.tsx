@@ -140,6 +140,75 @@ describe("Reports (A16, Block 10)", () => {
     expect(screen.queryByText(/última execução/i)).not.toBeInTheDocument();
   });
 
+  it("D-293: 'Ver histórico' opens a dialog with real run history, and a download link only for a run that actually delivered", async () => {
+    withRole("ADMIN");
+    getMock.mockImplementation((path: string) => {
+      if (path === "/reports/subscriptions") return Promise.resolve({ subscriptions: [subscription()] });
+      if (path === "/reports/subscriptions/sub-1/runs") {
+        return Promise.resolve({
+          runs: [
+            {
+              runId: "01ARZ3NDEKTSV4RRFFQ69G5FBW",
+              scheduledFor: "2026-09-15T11:00:00.000Z",
+              reportTypes: ["MISSING_REQUIREMENTS"],
+              recipientCount: 1,
+              createdAt: "2026-09-15T11:00:00.000Z",
+              attemptCounts: { PREPARED: 0, SUBMITTING: 0, ACCEPTED: 1, FAILED_RETRYABLE: 0, FAILED_TERMINAL: 0, UNKNOWN: 0 },
+            },
+            {
+              runId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              scheduledFor: "2026-09-08T11:00:00.000Z",
+              reportTypes: ["MISSING_REQUIREMENTS"],
+              recipientCount: 1,
+              createdAt: "2026-09-08T11:00:00.000Z",
+              attemptCounts: { PREPARED: 0, SUBMITTING: 1, ACCEPTED: 0, FAILED_RETRYABLE: 0, FAILED_TERMINAL: 0, UNKNOWN: 0 },
+            },
+          ],
+        });
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    render();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver histórico" })).toBeInTheDocument());
+    screen.getByRole("button", { name: "Ver histórico" }).click();
+
+    await waitFor(() => expect(screen.getByText(/1 entregue/)).toBeInTheDocument());
+    expect(screen.getByText(/1 enviando/)).toBeInTheDocument();
+    // Only the delivered run (ACCEPTED>0) gets a download button - the in-flight one does not.
+    expect(screen.getAllByRole("button", { name: "Baixar" })).toHaveLength(1);
+  });
+
+  it("D-293: a subscription that never ran shows an honest empty history, never a fabricated run", async () => {
+    withRole("ADMIN");
+    getMock.mockImplementation((path: string) => {
+      if (path === "/reports/subscriptions") return Promise.resolve({ subscriptions: [subscription()] });
+      if (path === "/reports/subscriptions/sub-1/runs") return Promise.resolve({ runs: [] });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    render();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver histórico" })).toBeInTheDocument());
+    screen.getByRole("button", { name: "Ver histórico" }).click();
+
+    await waitFor(() => expect(screen.getByText("Esta assinatura ainda não foi executada.")).toBeInTheDocument());
+  });
+
+  it("D-293: a failed history fetch shows a retry notice, never a silent empty list", async () => {
+    withRole("ADMIN");
+    getMock.mockImplementation((path: string) => {
+      if (path === "/reports/subscriptions") return Promise.resolve({ subscriptions: [subscription()] });
+      if (path === "/reports/subscriptions/sub-1/runs") return Promise.reject(new Error("network error"));
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    render();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver histórico" })).toBeInTheDocument());
+    screen.getByRole("button", { name: "Ver histórico" }).click();
+
+    await waitFor(() => expect(screen.getByText("Não foi possível carregar o histórico de execução.")).toBeInTheDocument());
+  });
+
   it("creates a subscription with the selected reports/day/time/recipients", async () => {
     withRole("ADMIN");
     getMock.mockImplementation((path: string) => {

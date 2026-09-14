@@ -54,4 +54,26 @@ export class DynamoDbReportSubscriptionStore implements ReportSubscriptionStore 
       throw mapDynamoError(err, "ReportSubscriptionStore.queryGsi1Page");
     }
   }
+
+  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+    try {
+      const items: T[] = [];
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const result = await this.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: skPrefix ? "PK = :pk AND begins_with(SK, :prefix)" : "PK = :pk",
+            ExpressionAttributeValues: skPrefix ? { ":pk": pk, ":prefix": skPrefix } : { ":pk": pk },
+            ExclusiveStartKey: exclusiveStartKey,
+          }),
+        );
+        items.push(...((result.Items ?? []) as T[]));
+        exclusiveStartKey = result.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+      return items;
+    } catch (err) {
+      throw mapDynamoError(err, "ReportSubscriptionStore.queryByPk");
+    }
+  }
 }

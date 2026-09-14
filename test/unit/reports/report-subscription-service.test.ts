@@ -137,3 +137,79 @@ describe("ReportSubscriptionService.deleteSubscription (D-213)", () => {
     await expect(service.deleteSubscription(ctx(), created.subscriptionId, created.version + 1)).rejects.toThrow(ConflictError);
   });
 });
+
+describe("ReportSubscriptionService.listSubscriptionRuns (D-293, A16 execution-history gap)", () => {
+  function runRow(subscriptionId: string, runId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> & EntityKey {
+    const pk = reportSubscriptionKey(TENANT, subscriptionId).PK;
+    return {
+      PK: pk,
+      SK: `RUN#${runId}`,
+      entityType: "ReportSubscriptionRun",
+      runId,
+      subscriptionId,
+      tenantId: TENANT,
+      scheduledFor: "2026-09-09T09:00:00.000Z",
+      reportTypes: ["EXPIRED_ITEMS"],
+      recipientUserIds: ["user-a"],
+      createdAt: NOW,
+      purgeAfterTtl: 9999999999,
+      ...overrides,
+    };
+  }
+
+  function attemptRow(subscriptionId: string, runId: string, recipientUserId: string, status: string): Record<string, unknown> & EntityKey {
+    const pk = `${reportSubscriptionKey(TENANT, subscriptionId).PK}#RUN#${runId}`;
+    return {
+      PK: pk,
+      SK: `ATTEMPT#${recipientUserId}`,
+      entityType: "ReportDeliveryAttempt",
+      tenantId: TENANT,
+      subscriptionId,
+      runId,
+      recipientUserId,
+      status,
+      version: 1,
+      createdAt: NOW,
+      updatedAt: NOW,
+      purgeAfterTtl: 9999999999,
+    };
+  }
+
+  it("merges ReportSubscriptionRun rows with their ReportDeliveryAttempt outcome counts, most recent run first", async () => {
+    const subscriptionId = "reportsub-1";
+    const { service } = makeService([
+      { ...reportSubscriptionKey(TENANT, subscriptionId), entityType: "ReportSubscription", subscriptionId, tenantId: TENANT, reportTypes: ["EXPIRED_ITEMS"], cadence: "WEEKLY", dayOfWeek: 3, localTime: "09:00", timeZone: "UTC", recipientUserIds: ["user-a", "user-b"], createdBy: "user-1", nextRunAt: "2026-09-16T09:00:00.000Z", version: 1, createdAt: NOW, updatedAt: NOW },
+      runRow(subscriptionId, "01ARZ3NDEKTSV4RRFFQ69G5FAV", { recipientUserIds: ["user-a", "user-b"] }),
+      runRow(subscriptionId, "01ARZ3NDEKTSV4RRFFQ69G5FBW", { scheduledFor: "2026-09-16T09:00:00.000Z" }),
+      attemptRow(subscriptionId, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "user-a", "ACCEPTED"),
+      attemptRow(subscriptionId, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "user-b", "FAILED_TERMINAL"),
+    ]);
+
+    const runs = await service.listSubscriptionRuns(ctx(), subscriptionId);
+    expect(runs.map((r) => r.runId)).toEqual(["01ARZ3NDEKTSV4RRFFQ69G5FBW", "01ARZ3NDEKTSV4RRFFQ69G5FAV"]); // most recent (higher ULID) first.
+    const firstRun = runs.find((r) => r.runId === "01ARZ3NDEKTSV4RRFFQ69G5FAV")!;
+    expect(firstRun.attemptCounts).toEqual({ PREPARED: 0, SUBMITTING: 0, ACCEPTED: 1, FAILED_RETRYABLE: 0, FAILED_TERMINAL: 1, UNKNOWN: 0 });
+    expect(firstRun.recipientCount).toBe(2);
+    const secondRun = runs.find((r) => r.runId === "01ARZ3NDEKTSV4RRFFQ69G5FBW")!;
+    expect(secondRun.attemptCounts).toEqual({ PREPARED: 0, SUBMITTING: 0, ACCEPTED: 0, FAILED_RETRYABLE: 0, FAILED_TERMINAL: 0, UNKNOWN: 0 }); // no attempts written yet for this run.
+  });
+
+  it("returns an empty array for a real subscription that has never run yet, never an error", async () => {
+    const { service } = makeService();
+    const created = await service.createSubscription(ctx(), VALID_INPUT);
+    const runs = await service.listSubscriptionRuns(ctx(), created.subscriptionId);
+    expect(runs).toEqual([]);
+  });
+
+  it("throws NotFoundError for a subscription that doesn't exist", async () => {
+    const { service } = makeService();
+    await expect(service.listSubscriptionRuns(ctx(), "does-not-exist")).rejects.toThrow(NotFoundError);
+  });
+
+  it("VIEWER/MEMBER roles are denied (ADMIN-only, same tier as the CRUD - a run's history can include other members' delivery status)", async () => {
+    const { service } = makeService();
+    const created = await service.createSubscription(ctx(), VALID_INPUT);
+    await expect(service.listSubscriptionRuns(ctxAs(["VIEWER"]), created.subscriptionId)).rejects.toThrow(AuthorizationDeniedError);
+    await expect(service.listSubscriptionRuns(ctxAs(["MEMBER"]), created.subscriptionId)).rejects.toThrow(AuthorizationDeniedError);
+  });
+});
