@@ -16,7 +16,8 @@
  */
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useRouteUsefulContentTiming } from "./observability/routeTiming.js";
 import { AuthProvider } from "./auth/AuthContext.js";
 import { ActiveOrganizationProvider } from "./auth/ActiveOrganizationContext.js";
 import { OnboardingGate } from "./auth/OnboardingGate.js";
@@ -82,12 +83,22 @@ function withOrgGates(children: ReactNode) {
   );
 }
 
+/** PERF-02 scaffolding: reports `ET_ROUTE_USEFUL_CONTENT_MS` on every route change. Needs
+ * `useLocation`, so it must render inside `BrowserRouter` - kept as its own component (instead
+ * of calling the hook directly in `App`) purely so its intent reads clearly at the call site. */
+function RouteUsefulContentTracker() {
+  const location = useLocation();
+  useRouteUsefulContentTiming(location.pathname);
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
+            <RouteUsefulContentTracker />
             {/* A14 (Block 6, D-2xx) - first real usage of Toast (design-system.md §46). Wrapped
                 here, above every route including G02's fully public one, so the live region is
                 always registered - G02 itself never calls useToast() (its own confirmations are
