@@ -57,12 +57,13 @@ registrada em `docs/engineering/performance/results/`.
 - Critério de saída: **parcialmente atingido**. % cold start: 3,9%/5,5%/2,7%/10,0% (BFF/Items/Subjects/Doc-Archive, 7d). Overhead do BFF: ~56ms p50 (~21%) via Duration nativa. Tempo do resource handler: Items p50=213ms/p95=1005ms, Subjects p50=213ms/p95=647ms. **Share do RequestContext: não respondido** — achado novo: as métricas EMF customizadas do PERF-02 (`bff.session_resolve_ms`, `bff.proxy_ms`, `lambda.request_context_ms`, `lambda.business_operation_ms`) não estão chegando ao CloudWatch nesta conta (nenhum namespace `ExpirationTracker/BFF`/`RequestContext`/`Items`/`Subjects` existe; busca em log bruto por essas métricas retorna zero apesar de centenas de invocações confirmadas) — só `ExpirationTracker/DispatchOutboxRelay` funciona. Requer investigação separada (possível interferência do ADOT com a extração EMF nas funções atrás do API Gateway) antes de fechar esse critério.
 
 ### PERF-05 — Lambda Power Tuning
-- [ ] Selecionar funções: BFF, Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch, Dossier Generator, PDF Parser
-- [ ] Testar 256/512/1024/1769 MB por função
-- [ ] Coletar cold InitDuration, warm Duration, p50/p95/p99, MaxMemoryUsed, custo estimado
-- [ ] Escolher configuração por melhor ponto latência x custo x tail latency (não "a mais rápida")
-- [ ] Experimento isolado ADOT ON vs OFF (função de teste apenas, não remover de produção com base nisso)
-- Saída: tabela memória x Lambda com recomendação.
+- [x] Selecionar funções: BFF, Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch, Dossier Generator, PDF Parser — todas as 8 existem em `dev` e foram alvo de teste
+- [x] Testar 256/512/1024/1769 MB por função — 7/8 com dado útil; `pdf-parser-task-handler` não mediu de forma significativa (payload de negócio `RunDeterministicParserInput` não reconstruído; ver doc de resultado)
+- [ ] Coletar cold InitDuration, warm Duration, p50/p95/p99, MaxMemoryUsed, custo estimado — **parcial**: a ferramenta de power tuning só dá duração média de `num=10` invocações e custo, não percentis nem cold InitDuration separado; ficou pendente cruzar com CloudWatch Logs Insights (metodologia de PERF-02) se granularidade maior for necessária
+- [x] Escolher configuração por melhor ponto latência x custo x tail latency (não "a mais rápida") — feito para as 7 funções com dado; recomendação forte só para `reminder-producer` (1769 MB, único teste com lógica de negócio real exercitada), demais recomendações são de baixa confiança (payload sintético não exercita lógica de negócio, ver caveat na doc)
+- [ ] Experimento isolado ADOT ON vs OFF (função de teste apenas, não remover de produção com base nisso) — **não executado nesta rodada**, fora do escopo pedido
+- Saída: `docs/engineering/performance/results/PERF-05-power-tuning.md` — tabela memória x Lambda com recomendação. Nenhuma mudança de memória foi aplicada em produção (diagnóstico apenas).
+- **Reuso futuro**: stack `perf-tuning-lambda-power-tuning` (conta `975707451904`, `us-east-1`) fica implantado — state machine `arn:aws:states:us-east-1:975707451904:stateMachine:powerTuningStateMachine-26d9cbc0-b061-11f1-b8bc-0affce8a4e05` — reaproveitável por PERF-11 (load testing) ou por uma nova rodada de tuning; pode ser destruído a qualquer momento sem efeito no produto (`aws cloudformation delete-stack --stack-name perf-tuning-lambda-power-tuning`).
 
 **Fim do Ciclo A**: nova análise profunda com os dados coletados antes de iniciar o Ciclo B.
 
