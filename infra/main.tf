@@ -479,8 +479,9 @@ module "document_archive_handler" {
   # handler calls buildIdentityDeps(...).resolver.resolve() (document-archive-handler.ts) like
   # every other route Lambda in this D-116 finding class, and was missed when the rest were
   # fixed - every route here (reads and writes alike) was failing with "DynamoDB access
-  # denied during OrganizationStore.queryGsi4" (confirmed live in `dev` 2026-09-14, e.g. GET
-  # /document-archive/storage-usage's "Não foi possível carregar o uso de armazenamento").
+  # denied during OrganizationStore.queryGsi4" (found during PERF-04 test-tenant prep, confirmed
+  # live in `dev` 2026-09-14, e.g. GET /document-archive/storage-usage's "Não foi possível
+  # carregar o uso de armazenamento").
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi4_read_policy_json,
