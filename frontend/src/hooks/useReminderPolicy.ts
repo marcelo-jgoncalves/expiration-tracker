@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getPolicyForItem } from "../api/reminderPolicy.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { ItemReminderPolicyResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -14,5 +15,6 @@ export function useReminderPolicy(itemId: string) {
     queryFn: ({ signal }) => getPolicyForItem(itemId, { signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: Boolean(organizationId) && !switching && itemId.length > 0,
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }

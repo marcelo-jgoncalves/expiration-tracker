@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listReportSubscriptions } from "../api/reports.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import type { ReportSubscriptionsResponse } from "../api/types.js";
 
@@ -17,5 +18,6 @@ export function useReportSubscriptions(enabled: boolean) {
     queryFn: ({ signal }) => listReportSubscriptions({ signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: enabled && Boolean(organizationId) && !switching,
+    staleTime: STALE_TIME.REFERENCE,
   });
 }

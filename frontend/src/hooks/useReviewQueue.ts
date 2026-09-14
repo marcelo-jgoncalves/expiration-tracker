@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listReviewQueue } from "../api/reviews.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { ReviewQueuePage, ReviewQueueState } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -15,5 +16,6 @@ export function useReviewQueue(state: ReviewQueueState, enabled = true) {
     queryFn: ({ signal }) => listReviewQueue(state, undefined, { signal }),
     enabled: Boolean(organizationId) && !switching && enabled,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }

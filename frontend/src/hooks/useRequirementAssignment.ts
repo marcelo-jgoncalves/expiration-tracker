@@ -2,10 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchRequirementAssignment } from "../api/subjects.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { RequirementAssignmentResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
-/** A10 (Block 7, D-2xx) - single-assignment detail (Snapshot + timeline page). */
+/** A10 (Block 7, D-2xx) - single-assignment detail (Snapshot + timeline page). PERF-10:
+ * REFERENCE - assignment detail changes with normal review/document activity, not instant to
+ * instant. */
 export function useRequirementAssignment(subjectId: string, assignmentId: string) {
   const { organizationId, switching } = useActiveOrganization();
   return useQuery<RequirementAssignmentResponse, unknown>({
@@ -13,5 +16,6 @@ export function useRequirementAssignment(subjectId: string, assignmentId: string
     queryFn: ({ signal }) => fetchRequirementAssignment(subjectId, assignmentId, { signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: Boolean(organizationId) && !switching && subjectId.length > 0 && assignmentId.length > 0,
+    staleTime: STALE_TIME.REFERENCE,
   });
 }

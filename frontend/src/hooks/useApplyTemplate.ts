@@ -23,6 +23,9 @@ export function useApplyTemplate(templateId: string) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, variables.subjectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.documentArchive.subjectCompliance(organizationId, variables.subjectId) });
       void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirements", "search"] });
+      // PERF-10 fix: A09's "Requisitos documentais" count card (`useRequirementsForSubject`)
+      // reads the same Requirements this mutation creates in bulk - previously missed.
+      void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirementsForSubject", variables.subjectId] });
     },
   });
 }

@@ -8,9 +8,11 @@ import { useQuery } from "@tanstack/react-query";
 import { getDocument, listDocumentVersions } from "../api/documentArchive.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { DocumentArchiveDocument, DocumentArchiveVersion } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
+// PERF-10: OPERATIONAL - document metadata/version history changes with routine review activity.
 export function useDocument(documentId: string) {
   const { organizationId, switching } = useActiveOrganization();
   return useQuery<{ document: DocumentArchiveDocument }, unknown>({
@@ -18,6 +20,7 @@ export function useDocument(documentId: string) {
     queryFn: ({ signal }) => getDocument(documentId, { signal }),
     enabled: Boolean(organizationId) && !switching && Boolean(documentId),
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }
 
@@ -28,5 +31,6 @@ export function useDocumentVersions(documentId: string) {
     queryFn: ({ signal }) => listDocumentVersions(documentId, { signal }),
     enabled: Boolean(organizationId) && !switching && Boolean(documentId),
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }
