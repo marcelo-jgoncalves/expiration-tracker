@@ -44,7 +44,7 @@ registrada em `docs/engineering/performance/results/`.
 - [ ] Rodar DevTools/Lighthouse/Playwright/RUM/Profiler nas jornadas J01–J08 (Login→Overview, Overview→Items, Overview→Subjects, Subjects→SubjectHub, SubjectHub→Requirements, Requirements→DocumentDetail, Reports, Settings)
 - [ ] Coletar por jornada: TTFB, DCL, Load, LCP, INP, CLS, JS transferred, JS parse/exec, nº requests, time-to-useful-data
 - [ ] Guardar waterfalls (screenshots) de J01, J04, J06
-- [ ] Registrar bundle baseline atual (JS raw/gzip, CSS raw/gzip) — referência do plano: ~480KB raw / ~135KB gzip
+- [x] Registrar bundle baseline atual (JS raw/gzip, CSS raw/gzip) — referência do plano: ~480KB raw / ~135KB gzip — ver `docs/engineering/performance/results/PERF-03-bundle-baseline.md` (517,4 KB raw / 140,1 KB gzip total, sem code-splitting)
 - [ ] Repetir com Fast 4G + CPU throttling
 - Critério de saída: separar tempo gasto em frontend vs. espera de API.
 
