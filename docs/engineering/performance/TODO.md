@@ -41,12 +41,12 @@ registrada em `docs/engineering/performance/results/`.
 - Critério de saída: para uma request qualquer, decompor BFF/RequestContext/Business/DynamoDB em ms. **Atingido** para as 6 funções-alvo cobertas (BFF, Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch) e para os 4 itens restantes (cold start, Application Signals, RUM, correlation ID) — cold start e correlation ID resolvidos por análise/documentação (sem mudança de código necessária além do já existente), Application Signals é decisão de não fazer por ora, RUM tem scaffolding de frontend pronto (app monitor AWS + pacote `aws-rum-web` ficam como pré-requisito de infra fora desta fatia).
 
 ### PERF-03 — Baseline frontend/browser
-- [ ] Rodar DevTools/Lighthouse/Playwright/RUM/Profiler nas jornadas J01–J08 (Login→Overview, Overview→Items, Overview→Subjects, Subjects→SubjectHub, SubjectHub→Requirements, Requirements→DocumentDetail, Reports, Settings)
-- [ ] Coletar por jornada: TTFB, DCL, Load, LCP, INP, CLS, JS transferred, JS parse/exec, nº requests, time-to-useful-data
-- [ ] Guardar waterfalls (screenshots) de J01, J04, J06
+- [x] Rodar Playwright nas jornadas J01–J08 (Login→Overview, Overview→Items, Overview→Subjects, Subjects→SubjectHub, SubjectHub→Requirements, Requirements→DocumentDetail, Reports, Settings) — backend mockado via `page.route()` (mesmo padrão de `frontend/e2e/*.spec.ts`, sem BFF/AWS real alcançável); harness em `docs/engineering/performance/traces/perf-03-journeys.mjs`. **Não rodado**: DevTools/Lighthouse/RUM/CPU-Profiler manuais — só Playwright/Performance API, ver ressalvas no relatório.
+- [x] Coletar por jornada: TTFB, DCL, Load, LCP, CLS, JS transferred, JS parse/exec (aprox.), nº requests, time-to-useful-data — ver `results/PERF-03-frontend-baseline.md`. **INP não medido** (nem aproximado) em nenhuma jornada — requer RUM de interação real, não fabricado.
+- [x] Guardar waterfalls de J01, J04, J06 — como HAR (`context.recordHar`, substituto documentado por `page.screenshot()` não capturar rede) + screenshot da tela final, em `docs/engineering/performance/screenshots/J0{1,4,6}-*`
 - [x] Registrar bundle baseline atual (JS raw/gzip, CSS raw/gzip) — referência do plano: ~480KB raw / ~135KB gzip — ver `docs/engineering/performance/results/PERF-03-bundle-baseline.md` (517,4 KB raw / 140,1 KB gzip total, sem code-splitting)
-- [ ] Repetir com Fast 4G + CPU throttling
-- Critério de saída: separar tempo gasto em frontend vs. espera de API.
+- [x] Repetir com Fast 4G + CPU throttling — feito para J01 e J04 (execução única, não mediana, por corte de tempo); J02/J03/J05–J08 permanecem só unthrottled — follow-up se o programa julgar necessário.
+- Critério de saída: **Parcialmente atingido.** Com o backend mockado (latência ~0), a medição não separa "espera de API real" (isso é escopo de PERF-04) — o que ficou demonstrado é que, sem throttling, a duração observada é quase 100% frontend (bundle único sem code-splitting, parse/exec ~35-48ms até DCL), e sob Fast 4G+CPU 4x o tempo até conteúdo útil sobe ~10x (164ms→1.615ms em J01) quase inteiramente por download+parse/exec do bundle de 477,6 KB, não por latência de API (que segue mockada e instantânea mesmo sob throttling de rede simulada). A separação "frontend vs. espera de API real" só fecha combinando com os números de PERF-04.
 
 ### PERF-04 — Baseline BFF / HTTP / Resource Lambda
 - [ ] Selecionar endpoints representativos (`/bff/session`, items/dashboard, subjects/dashboard, subject/{id}, document-archive, reports)
