@@ -232,6 +232,30 @@ describe("handleProxy", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ items: [] });
   });
+
+  // G3 follow-up bug: the 7 CSV report routes (reports-handler.ts) return text/csv, not JSON -
+  // handleProxy used to JSON.parse() every backend body unconditionally, 500ing on any real CSV
+  // response ("Unexpected token 'i', \"itemId,nam\"... is not valid JSON"). Confirms the fix:
+  // a non-JSON content-type is passed through untouched, never parsed, with isRawBody set so
+  // the API Gateway adapter also skips JSON.stringify() on the way back out.
+  it("passes a CSV backend response through untouched instead of JSON.parse()ing it", async () => {
+    const csvBody = 'itemId,name\n"item-1","Contract A"\n';
+    const backend: BackendFetcher = {
+      fetch: async () => ({
+        statusCode: 200,
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="report.csv"' },
+        body: csvBody,
+      }),
+    };
+    const { deps } = buildDeps(backend);
+    const { sessionCookie } = await loginViaHttp(deps);
+    const res = await handleProxy(deps, authenticatedRequest({ sessionCookie, method: "GET", path: "/bff/api/reports/expiring-soon-items" }), "/reports/expiring-soon-items", undefined);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe(csvBody);
+    expect(res.isRawBody).toBe(true);
+    expect(res.headers?.["content-type"]).toBe("text/csv; charset=utf-8");
+    expect(res.headers?.["content-disposition"]).toBe('attachment; filename="report.csv"');
+  });
 });
 
 describe("handleCreateOrganization", () => {

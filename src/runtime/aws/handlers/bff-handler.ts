@@ -58,7 +58,10 @@ function toApiGatewayResult(res: BffHttpResponse): APIGatewayProxyStructuredResu
     statusCode: res.statusCode,
     headers: { "content-type": "application/json", "cache-control": "no-store", ...SECURITY_HEADERS, ...res.headers },
     cookies: res.cookies,
-    body: JSON.stringify(res.body ?? {}),
+    // isRawBody (proxied non-JSON bodies, e.g. CSV reports - see handleProxy) must be sent
+    // through byte-for-byte; JSON.stringify()ing an already-CSV string would wrap it in quotes
+    // and escape it, corrupting the download for every other handler's JSON body untouched.
+    body: res.isRawBody ? (res.body as string) : JSON.stringify(res.body ?? {}),
   };
 }
 
