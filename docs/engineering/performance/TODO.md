@@ -20,14 +20,14 @@ registrada em `docs/engineering/performance/results/`.
 - Critério de saída: um teste é reproduzível exatamente a partir do registro. **Atingido.**
 
 ### PERF-01 — Inventário de ambiente e quotas
-- [ ] Verificar quota atual de Lambda Concurrent Executions na conta `dev` (hipótese: ainda 10)
-- [ ] Coletar CloudWatch 24h/7d: ConcurrentExecutions, UnreservedConcurrentExecutions, Throttles, Invocations, Errors, Duration — para BFF, Items, Subjects, Document Archive, Reports, Reminder Producer, Reminder Dispatch
-- [ ] Procurar throttling (ConcurrentExecutions ≈ quota + Throttles > 0)
-- [ ] Verificar quota/throttling API Gateway
-- [ ] Verificar SQS event source mappings (batch size, MaximumConcurrency, reserved concurrency)
-- [ ] Se quota ainda = 10: solicitar aumento para 100 (via AWS Support/Service Quotas — não contornar via código)
-- [ ] Registrar `results/PERF-01-account-quotas.md`
-- Critério de saída: responder se a conta `dev` está estrangulando os testes.
+- [x] Verificar quota atual de Lambda Concurrent Executions na conta `dev` (hipótese: ainda 10) — confirmado: ainda 10 (`L-B99A9384`)
+- [x] Coletar CloudWatch 24h/7d: ConcurrentExecutions, UnreservedConcurrentExecutions, Throttles, Invocations, Errors, Duration — para BFF, Items, Subjects, Document Archive, Reports, Reminder Producer, Reminder Dispatch
+- [x] Procurar throttling (ConcurrentExecutions ≈ quota + Throttles > 0) — encontrado 1 evento real (`dispatch-outbox-relay`, 2026-09-12 19:03 -03:00), coincidindo com pico de ConcurrentExecutions=10 de conta
+- [x] Verificar quota/throttling API Gateway — quotas padrão (10k/5k req/s) muito acima do uso (85–128 req/7d); sem throttling (4xx=0)
+- [x] Verificar SQS event source mappings (batch size, MaximumConcurrency, reserved concurrency) — BatchSize=10 em todos, sem MaximumConcurrency e sem reserved concurrency configurados em nenhuma função
+- [ ] Se quota ainda = 10: solicitar aumento para 100 (via AWS Support/Service Quotas — não contornar via código) — **não executado**; comando pronto documentado em `results/PERF-01-account-quotas.md`, decisão de disparo fica para a sessão/usuário (sem pedido pendente hoje)
+- [x] Registrar `results/PERF-01-account-quotas.md`
+- Critério de saída: **ainda não estrangulou as 7 funções-alvo diretamente na janela observada (uso manual, baixo volume), mas a conta já bateu no teto de 10 execuções concorrentes duas vezes em 7 dias e gerou 1 throttle real — quota compartilhada por 62+10 funções na conta é insuficiente para suportar os testes de carga dos próximos experimentos (PERF-04/05/11) sem aumento prévio.**
 
 ### PERF-02 — Instrumentação e observabilidade
 - [ ] Adicionar spans/timers: BFF_SESSION_RESOLVE, BFF_PROXY, REQUEST_CONTEXT, BUSINESS_OPERATION, DYNAMODB
