@@ -30,15 +30,15 @@ registrada em `docs/engineering/performance/results/`.
 - Critério de saída: **ainda não estrangulou as 7 funções-alvo diretamente na janela observada (uso manual, baixo volume), mas a conta já bateu no teto de 10 execuções concorrentes duas vezes em 7 dias e gerou 1 throttle real — quota compartilhada por 62+10 funções na conta é insuficiente para suportar os testes de carga dos próximos experimentos (PERF-04/05/11) sem aumento prévio.**
 
 ### PERF-02 — Instrumentação e observabilidade
-- [ ] Adicionar spans/timers: BFF_SESSION_RESOLVE, BFF_PROXY, REQUEST_CONTEXT, BUSINESS_OPERATION, DYNAMODB
-- [ ] BFF: registrar `bff.total_ms`, `bff.session_resolve_ms`, `bff.proxy_ms`, `bff.backend_status`, `cold_start`
-- [ ] Resource Lambdas: `lambda.total_ms`, `request_context_ms`, `business_operation_ms`
-- [ ] DynamoDB: usar tracing existente (evitar console.log ad hoc)
-- [ ] Cold start: coletar InitDuration, Duration, MaxMemoryUsed, PostRuntimeExtensionsDuration
-- [ ] Avaliar CloudWatch Application Signals primeiro só em BFF/Items/Subjects/Document Archive
-- [ ] Preparar CloudWatch RUM no frontend (sampling baixo, dev apenas, sem dados sensíveis); métrica própria `ET_ROUTE_USEFUL_CONTENT_MS`
-- [ ] Garantir correlation ID de ponta a ponta (browser → BFF → resource API → Lambda)
-- Critério de saída: para uma request qualquer, decompor BFF/RequestContext/Business/DynamoDB em ms.
+- [x] Adicionar spans/timers: BFF_SESSION_RESOLVE, BFF_PROXY, REQUEST_CONTEXT, BUSINESS_OPERATION, DYNAMODB — via `withHandlerTiming`/`timeSpan` (`src/shared/observability/handler-timing.ts`)
+- [x] BFF: registrar `bff.total_ms`, `bff.session_resolve_ms`, `bff.proxy_ms`, `bff.backend_status`, `cold_start` — commit slice 1
+- [x] Resource Lambdas: `lambda.total_ms`, `request_context_ms`, `business_operation_ms` — cobertos: Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch (commit slice 2). **Pendente**: outros ~54 handlers (workers/purge/extraction/delivery) ainda sem o helper — follow-up, não bloqueia critério de saída.
+- [x] DynamoDB: usar tracing existente (evitar console.log ad hoc) — middleware em `shared/dynamodb/client.ts`, `dynamodb.operation_ms` por operação, sem payload
+- [ ] Cold start: coletar InitDuration, Duration, MaxMemoryUsed, PostRuntimeExtensionsDuration — **pendente**: isso vem nativamente do CloudWatch Lambda Insights/relatório de plataforma (REPORT lines), não requer código; falta habilitar/confirmar Lambda Insights nas funções-alvo e documentar como consultar
+- [ ] Avaliar CloudWatch Application Signals primeiro só em BFF/Items/Subjects/Document Archive — **pendente**, é decisão/análise, não código
+- [ ] Preparar CloudWatch RUM no frontend (sampling baixo, dev apenas, sem dados sensíveis); métrica própria `ET_ROUTE_USEFUL_CONTENT_MS` — **pendente**, greenfield no frontend
+- [~] Garantir correlation ID de ponta a ponta (browser → BFF → resource API → Lambda) — **parcial**: perna BFF→resource-API fechada (`x-correlation-id`, commit slice 1); browser→BFF e o ulid interno de cada resource Lambda ainda desconectados
+- Critério de saída: para uma request qualquer, decompor BFF/RequestContext/Business/DynamoDB em ms. **Atingido para as 6 funções-alvo cobertas** (BFF, Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch); cold start nativo, Application Signals, RUM e correlation ID completo continuam pendentes.
 
 ### PERF-03 — Baseline frontend/browser
 - [ ] Rodar DevTools/Lighthouse/Playwright/RUM/Profiler nas jornadas J01–J08 (Login→Overview, Overview→Items, Overview→Subjects, Subjects→SubjectHub, SubjectHub→Requirements, Requirements→DocumentDetail, Reports, Settings)
