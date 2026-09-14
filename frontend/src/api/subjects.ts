@@ -11,6 +11,7 @@ import type {
   CreateLegacyDocumentRequestInput,
   CreatedLegacyDocumentRequest,
   CreateSubjectInput,
+  DocumentChasingOccurrence,
   DocumentRequestDeliveryMode,
   DocumentSubmissionsResponse,
   LegacyDocumentRequest,
@@ -116,6 +117,16 @@ export function listLegacyDocumentRequests(subjectId: string, assignmentId: stri
  * `document-request-service.ts#revokeDocumentRequest`). */
 export function revokeLegacyDocumentRequest(subjectId: string, documentRequestId: string, expectedVersion: number): Promise<void> {
   return apiClient.post<void>(`/subjects/${encodeURIComponent(subjectId)}/document-requests/${encodeURIComponent(documentRequestId)}/revoke`, undefined, { expectedVersion });
+}
+
+/** `GET .../document-requests/{documentRequestId}/chasing-occurrences` - `requirement:read`,
+ * all roles (D-288). Closes A10's timeline gap - the "Lembrete automático agendado/enviado"
+ * entries the spec always called for but this route never existed to serve. */
+export function listDocumentChasingOccurrences(subjectId: string, documentRequestId: string, options?: { signal?: AbortSignal }): Promise<{ occurrences: DocumentChasingOccurrence[] }> {
+  return apiClient.get<{ occurrences: DocumentChasingOccurrence[] }>(
+    `/subjects/${encodeURIComponent(subjectId)}/document-requests/${encodeURIComponent(documentRequestId)}/chasing-occurrences`,
+    { signal: options?.signal },
+  );
 }
 
 // --- A22 (Block 7, D-2xx) - Request Delivery Settings ----------------------------------------

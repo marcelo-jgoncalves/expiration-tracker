@@ -239,6 +239,7 @@ describe("Tracking (A10, Block 7) - detail (Snapshot + Timeline)", () => {
         });
       }
       if (path.endsWith("/submissions")) return Promise.resolve({ submissions: [] });
+      if (path.endsWith("/chasing-occurrences")) return Promise.resolve({ occurrences: [] });
       if (path.endsWith("/requirements/a1")) return Promise.resolve({ assignment: assignment() });
       return Promise.reject(new Error(`unexpected path ${path}`));
     });
@@ -254,6 +255,79 @@ describe("Tracking (A10, Block 7) - detail (Snapshot + Timeline)", () => {
     screen.getByRole("button", { name: "Confirmar revogação" }).click();
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/subjects/subject-1/document-requests/r1/revoke", undefined, { expectedVersion: 1 }));
+  });
+
+  it("D-288: renders real DocumentChasingOccurrence entries in the timeline (closes the previously-documented deviation #1)", async () => {
+    withRole("OWNER");
+    getMock.mockImplementation((path: string) => {
+      if (path.endsWith("/document-requests")) {
+        return Promise.resolve({
+          requests: [
+            {
+              documentRequestId: "r1",
+              subjectId: "subject-1",
+              assignmentId: "a1",
+              recipientEmail: "fornecedor@example.com",
+              requestedAt: "2026-01-05T00:00:00.000Z",
+              status: "REQUESTED",
+              submissionCount: 0,
+              createdAt: "2026-01-05T00:00:00.000Z",
+              updatedAt: "2026-01-05T00:00:00.000Z",
+              version: 1,
+            },
+          ],
+        });
+      }
+      if (path.endsWith("/submissions")) return Promise.resolve({ submissions: [] });
+      if (path.endsWith("/chasing-occurrences")) {
+        return Promise.resolve({
+          occurrences: [
+            { occurrenceId: "occ-1", documentRequestId: "r1", tier: "T7", scheduledAt: "2026-01-24T00:00:00.000Z", status: "SCHEDULED" },
+            { occurrenceId: "occ-2", documentRequestId: "r1", tier: "T3", scheduledAt: "2026-01-28T00:00:00.000Z", status: "SCHEDULED" },
+            { occurrenceId: "occ-3", documentRequestId: "r1", tier: "EXPIRED", scheduledAt: "2026-01-31T00:00:00.000Z", status: "TRIGGERED" },
+          ],
+        });
+      }
+      if (path.endsWith("/requirements/a1")) return Promise.resolve({ assignment: assignment() });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText(/Lembrete \(7 dias antes do prazo\)/)).toBeInTheDocument());
+    expect(screen.getByText(/Lembrete \(3 dias antes do prazo\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Lembrete \(prazo expirado\)/)).toBeInTheDocument();
+    expect(screen.getByText("Enviado")).toBeInTheDocument(); // TRIGGERED status label for the EXPIRED-tier occurrence.
+  });
+
+  it("D-288: a failed chasing-occurrences fetch shows a retry notice, never a silent empty state indistinguishable from 'no reminders scheduled'", async () => {
+    withRole("OWNER");
+    getMock.mockImplementation((path: string) => {
+      if (path.endsWith("/document-requests")) {
+        return Promise.resolve({
+          requests: [
+            {
+              documentRequestId: "r1",
+              subjectId: "subject-1",
+              assignmentId: "a1",
+              recipientEmail: "fornecedor@example.com",
+              requestedAt: "2026-01-05T00:00:00.000Z",
+              status: "REQUESTED",
+              submissionCount: 0,
+              createdAt: "2026-01-05T00:00:00.000Z",
+              updatedAt: "2026-01-05T00:00:00.000Z",
+              version: 1,
+            },
+          ],
+        });
+      }
+      if (path.endsWith("/submissions")) return Promise.resolve({ submissions: [] });
+      if (path.endsWith("/chasing-occurrences")) return Promise.reject(new Error("network error"));
+      if (path.endsWith("/requirements/a1")) return Promise.resolve({ assignment: assignment() });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText(/Não foi possível carregar os lembretes automáticos/)).toBeInTheDocument());
   });
 
   it("shows 'Item vinculado não está mais disponível' when the linked item fetch fails (archived/deleted item)", async () => {

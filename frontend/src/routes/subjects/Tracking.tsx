@@ -8,10 +8,9 @@
  *
  * Real, confirmed deviations from the audited spec (investigated directly, never silent):
  *
- *  1. **No chasing-occurrence data anywhere in the timeline.** There is no HTTP route to read
- *     `DocumentChasingOccurrence` (confirmed: no handler in `src/modules/subject/http/` references
- *     it). The spec's "Lembrete automático agendado/enviado" timeline entries are OMITTED — never
- *     fabricated placeholder data.
+ *  1. ~~No chasing-occurrence data anywhere in the timeline.~~ **CLOSED (D-288)** - `GET
+ *     .../chasing-occurrences` now exists and is consumed by `TimelineEntry` below, showing the
+ *     spec's "Lembrete automático agendado/enviado" entries for real.
  *  2. **The list's "Atividade recente" column cannot show per-request/submission status.** That
  *     would require fetching each assignment's `DocumentRequest` history individually (a real
  *     N+1 — no bulk/tenant-wide endpoint exists), which no other list screen in this codebase does
@@ -46,6 +45,7 @@ import { useCreateLegacyDocumentRequest } from "../../hooks/useCreateLegacyDocum
 import { useRevokeLegacyDocumentRequest } from "../../hooks/useRevokeLegacyDocumentRequest.js";
 import { useLegacyDocumentRequests } from "../../hooks/useLegacyDocumentRequests.js";
 import { useDocumentSubmissions } from "../../hooks/useDocumentSubmissions.js";
+import { useDocumentChasingOccurrences } from "../../hooks/useDocumentChasingOccurrences.js";
 import { useItemsDashboardBounded } from "../../hooks/useItemsDashboard.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -61,7 +61,14 @@ import { Combobox } from "../../components/ui/Combobox.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../../api/errors.js";
-import { presentRequirementStatus, presentLegacyDocumentRequestStatus, presentSubmissionStatus, formatAbsoluteDate } from "../../api/presentation.js";
+import {
+  presentRequirementStatus,
+  presentLegacyDocumentRequestStatus,
+  presentSubmissionStatus,
+  presentDocumentChasingTier,
+  presentDocumentChasingOccurrenceStatus,
+  formatAbsoluteDate,
+} from "../../api/presentation.js";
 import type { ExpirationItem, LegacyDocumentRequest, RequirementAssignment } from "../../api/types.js";
 
 const WRITE_ROLES: ReadonlySet<string> = new Set(["OWNER", "ADMIN", "MEMBER"]);
@@ -753,6 +760,10 @@ function Timeline({ subjectId, requests, canWrite, showToast }: { subjectId: str
 
 function TimelineEntry({ subjectId, request, canWrite, showToast }: { subjectId: string; request: LegacyDocumentRequest; canWrite: boolean; showToast: (message: string) => void }) {
   const submissionsQuery = useDocumentSubmissions(subjectId, request.assignmentId, true);
+  // D-288 - closes the deviation #1 this component used to document: "Lembrete automático
+  // agendado/enviado" entries are real now, never fabricated (an empty/error state below never
+  // invents a placeholder entry).
+  const chasingQuery = useDocumentChasingOccurrences(subjectId, request.documentRequestId, true);
   const revokeMutation = useRevokeLegacyDocumentRequest(subjectId, request.assignmentId);
   const queryClient = useQueryClient();
   const { organizationId } = useActiveOrganization();
@@ -826,6 +837,27 @@ function TimelineEntry({ subjectId, request, canWrite, showToast }: { subjectId:
               Arquivo enviado: {s.fileName} · <StatusBadge presentation={presentSubmissionStatus(s.status)} />
             </li>
           ))}
+        </ul>
+      ) : null}
+      {chasingQuery.isPending ? (
+        <p>Carregando lembretes…</p>
+      ) : chasingQuery.isError ? (
+        // Same discipline as the submissions fetch above - a failed fetch never collapses to
+        // "nenhum lembrete", which would be indistinguishable from a request with no automated
+        // reminders scheduled at all.
+        <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void chasingQuery.refetch()}>Tentar novamente</Button>}>
+          Não foi possível carregar os lembretes automáticos desta solicitação.
+        </InlineNotice>
+      ) : chasingQuery.data.occurrences.length > 0 ? (
+        <ul>
+          {[...chasingQuery.data.occurrences]
+            .sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1))
+            .map((occurrence) => (
+              <li key={occurrence.occurrenceId}>
+                {presentDocumentChasingTier(occurrence.tier)} · {formatAbsoluteDate(occurrence.scheduledAt)} ·{" "}
+                <StatusBadge presentation={presentDocumentChasingOccurrenceStatus(occurrence.status)} />
+              </li>
+            ))}
         </ul>
       ) : null}
     </li>
