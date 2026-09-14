@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { fetchActivity } from "../api/activity.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { ActivityPageResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -20,5 +21,6 @@ export function useActivity(filters: { month?: string; resourceType?: string; en
     // gate is UX only, but there's no reason to spend the network call on a denied view).
     enabled: Boolean(organizationId) && !switching && filters.enabled,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }

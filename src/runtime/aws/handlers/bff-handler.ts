@@ -7,6 +7,7 @@ import { buildBffDeps } from "../composition/bff.js";
 import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleAcceptInvitation, handleListOrganizations, handleSelectOrganization, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest, BffHttpResponse } from "../../../modules/bff/http/http-types.js";
 import { runWithContext } from "../../../shared/observability/context.js";
+import { withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -63,9 +64,15 @@ function toApiGatewayResult(res: BffHttpResponse): APIGatewayProxyStructuredResu
 
 const BFF_API_PREFIX = "/bff/api";
 
-export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
-  return runWithContext({ correlationId: event.requestContext.requestId }, () => route(event));
-}
+// PERF-02 slice 2: total_ms/cold_start now come from the shared withHandlerTiming helper (see
+// handler-timing.ts), which standardizes the metric name as "lambda.total_ms" across every
+// handler (slice 1 originally emitted it as "bff.total_ms" - no external consumer depended on
+// that name yet, so this rename is safe).
+export const handler = withHandlerTiming<APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2>(
+  "ExpirationTracker/BFF",
+  "bff handler",
+  (event) => runWithContext({ correlationId: event.requestContext.requestId }, () => route(event)),
+);
 
 async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const req = toBffRequest(event);

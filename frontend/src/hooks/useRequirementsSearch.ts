@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { searchRequirements } from "../api/requirements.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { RequirementSearchPage, RequirementStatus } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -16,5 +17,6 @@ export function useRequirementsSearch(status: RequirementStatus, namePrefix?: st
     queryFn: ({ signal }) => searchRequirements({ status, namePrefix, assigneeUserId }, { signal }),
     enabled: Boolean(organizationId) && !switching && enabled,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }

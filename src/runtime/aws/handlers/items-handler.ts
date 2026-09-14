@@ -28,6 +28,7 @@ import { handleGetDashboardSummary, type DashboardHttpDeps } from "../../../modu
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
+import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -38,19 +39,29 @@ const { activity } = buildActivityDeps(client, tableName);
 const { dashboard } = buildDashboardDeps(client, tableName);
 const deps: ExpirationHttpDeps & ItemWatchHttpDeps & ActivityHttpDeps & DashboardHttpDeps = { resolver, expiration, watches, activity, dashboard, quota };
 
-export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
-  // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
-  // is the ambient log correlationId; the pure business correlationId (ulid, below) that
-  // flows into DomainEvent.correlationId is unrelated and stays exactly as before.
-  return runWithContext({ correlationId: event.requestContext.requestId }, () => handleItemsRoute(event));
-}
+const NAMESPACE = "ExpirationTracker/Items";
+
+// m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
+// is the ambient log correlationId; the pure business correlationId (ulid, below) that
+// flows into DomainEvent.correlationId is unrelated and stays exactly as before.
+export const handler = withHandlerTiming<APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2>(
+  NAMESPACE,
+  "items handler",
+  (event) => runWithContext({ correlationId: event.requestContext.requestId }, () => handleItemsRoute(event)),
+);
 
 async function handleItemsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   const claims = extractClaims(event);
   const base = { requestId: event.requestContext.requestId, correlationId: ulid(), claims, pathParameters: event.pathParameters, queryStringParameters: event.queryStringParameters, headers: event.headers };
   const routeKey = event.routeKey; // e.g. "POST /items", "GET /items/{itemId}"
 
-  const response = await (async () => {
+  // PERF-02 slice 2: this switch's own bodies interleave RequestContext resolution
+  // (deps.resolver.resolve, timed separately/uniformly at its own choke point - see
+  // resolve-request-context.ts) with actual business logic per-route - they aren't cleanly
+  // separable here without touching every module http handler function individually, so
+  // business_operation_ms covers the whole dispatch (resolve+quota+business), not business
+  // logic alone. Compare against lambda.request_context_ms in dashboards to estimate the split.
+  const response = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "items business operation timing", async () => (async () => {
     try {
       switch (routeKey) {
         case "POST /items":
@@ -92,7 +103,7 @@ async function handleItemsRoute(event: APIGatewayProxyEventV2WithJWTAuthorizer):
       const appError = toAppError(err);
       return { statusCode: appError.category === "VALIDATION" ? 400 : 500, body: appError.toJSON() };
     }
-  })();
+  })());
 
   return toApiGatewayResult(response);
 }

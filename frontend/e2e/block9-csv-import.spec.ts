@@ -115,7 +115,7 @@ test("E2E-B9-03 (denial): a VIEWER has no nav entry point and cannot start or ac
   await expect(page.getByLabel("Selecionar arquivo")).toHaveCount(0);
 
   await page.goto("/imports/job-1");
-  await expect(page.getByText("Pré-visualizar e deduplicar")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pré-visualizar e deduplicar" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirmar importação" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Voltar" })).toHaveCount(0);
 });
