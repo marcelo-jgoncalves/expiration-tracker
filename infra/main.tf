@@ -2731,6 +2731,10 @@ module "imports_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     IMPORT_RAW_BUCKET_NAME = module.import_bucket.bucket_name
+    # D-292: getImportRowResults() reads the plan NDJSON back - same bucket
+    # ReadImportRawObjectForSchemaAndMapping already grants s3:GetObject/kms:Decrypt on
+    # (wildcarded to the whole bucket), no new IAM statement needed.
+    IMPORT_PLAN_BUCKET_NAME = module.import_bucket.bucket_name
   })
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [

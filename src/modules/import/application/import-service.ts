@@ -30,6 +30,8 @@ import {
 import { isTransactionCanceled, type ImportStore, type TransactWriteEntry } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import { parseCsv } from "./csv-parser.js";
+import type { ImportRowOutcome } from "../domain/import-row-outcome.js";
+import { mergeImportRowResults, type ImportRowResult } from "../domain/import-row-result.js";
 import type { UploadUrlSigner } from "../../document/ports/upload-url-signer.js";
 import type { ImportIdGenerator } from "./id-generator.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
@@ -75,6 +77,11 @@ export interface ImportServiceDeps {
    * the raw CSV to sniff headers). Optional so every pre-existing test/composition that never
    * exercises those two new methods keeps working unchanged. */
   objectStore?: ImportObjectStore;
+  /** D-292 (A15 drill-down): only required by `getImportRowResults()`, which reads the plan
+   * NDJSON back from S3 (same bucket `import-parse-service.ts` already writes it to — see
+   * `IMPORT_PLAN_BUCKET_NAME` in composition/infra). Optional for the same reason `objectStore`
+   * is. */
+  planBucket?: string;
   now?: () => string;
 }
 
@@ -119,6 +126,7 @@ export class ImportService {
   private readonly signer: UploadUrlSigner;
   private readonly quota: TenantQuotaService;
   private readonly objectStore: ImportObjectStore | undefined;
+  private readonly planBucket: string | undefined;
   private readonly now: () => string;
   private readonly idempotency: IdempotencyStore;
 
@@ -130,6 +138,7 @@ export class ImportService {
     this.signer = deps.signer;
     this.quota = deps.quota;
     this.objectStore = deps.objectStore;
+    this.planBucket = deps.planBucket;
     this.now = deps.now ?? (() => new Date().toISOString());
     const adapter: DynamoLike = {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
@@ -283,6 +292,30 @@ export class ImportService {
     const job = await this.store.get<ImportJob>(importJobKey(ctx.tenant.tenantId, jobId));
     if (!job) throw new NotFoundError("ImportJob not found.", { jobId });
     return job;
+  }
+
+  /**
+   * `GET /import-jobs/{jobId}/row-results` (D-292) — closes A15's per-row drill-down gap
+   * (D-269/D-271). Read-only merge of 2 already-durable sources (see `import-row-result.ts`'s
+   * own doc comment for why): the plan NDJSON in S3 (knows every REJECT/SKIP_DUPLICATE row —
+   * these never reach the commit worker) and `ImportRowOutcome` (knows every CREATE_* row's
+   * real COMMITTED/FAILED fate). Readable at any job status once a plan exists (`PREVIEW_READY`
+   * onward) — a job still `PARSING` has no plan yet, 409; rows that ARE in the plan but not yet
+   * committed (job `COMMIT_REQUESTED`/partially through its resumable cursor) show `PENDING`,
+   * never omitted.
+   */
+  async getImportRowResults(ctx: RequestContext, jobId: string): Promise<ImportRowResult[]> {
+    authorize({ context: ctx, action: "import:read", resource: { tenantId: ctx.tenant.tenantId } });
+    const job = await this.store.get<ImportJob>(importJobKey(ctx.tenant.tenantId, jobId));
+    if (!job) throw new NotFoundError("ImportJob not found.", { jobId });
+    if (!job.planObjectKey) {
+      throw new ConflictError(`ImportJob row results are only readable once a plan exists (current status: ${job.status}).`, { jobId, status: job.status });
+    }
+    if (!this.objectStore || !this.planBucket) throw new Error("ImportService.objectStore/planBucket dependencies required for getImportRowResults().");
+
+    const planBytes = await this.objectStore.getObject(this.planBucket, job.planObjectKey);
+    const outcomes = await this.store.queryByPk<ImportRowOutcome>(importJobKey(ctx.tenant.tenantId, jobId).PK, "ROWOUTCOME#");
+    return mergeImportRowResults(planBytes.toString("utf-8"), outcomes);
   }
 
   /**

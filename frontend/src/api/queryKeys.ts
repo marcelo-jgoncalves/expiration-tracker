@@ -119,6 +119,8 @@ export const queryKeys = {
      * have the id of. */
     detail: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "detail", jobId] as const,
     schema: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "schema", jobId] as const,
+    /** D-292 — A15 per-row drill-down. */
+    rowResults: (organizationId: string, jobId: string) => ["org", organizationId, "imports", "rowResults", jobId] as const,
   },
   reports: {
     subscriptions: (organizationId: string) => ["org", organizationId, "reports", "subscriptions"] as const,

@@ -1069,6 +1069,26 @@ export interface SubmitImportMappingResult {
   status: ImportJobStatus;
 }
 
+/**
+ * D-292 — closes A15's per-row drill-down gap (previously documented as a real backend
+ * limitation, `ImportWizard.tsx`'s own header comment §3). `reason` is deliberately one unified
+ * string field across 3 different backend vocabularies (rejection code / skip reason / failure
+ * reason) — the UI only ever needs "why", never which of the 3 it came from.
+ */
+export type ImportRowResultStatus = "COMMITTED" | "FAILED" | "REJECTED" | "SKIPPED" | "PENDING";
+
+export interface ImportRowResult {
+  rowNumber: number;
+  status: ImportRowResultStatus;
+  reason?: string;
+  field?: string;
+  entityId?: string;
+}
+
+export interface GetImportRowResultsResult {
+  results: ImportRowResult[];
+}
+
 export interface CreateReportSubscriptionInput {
   reportTypes: readonly ReportSubscriptionReportType[];
   dayOfWeek: number;
