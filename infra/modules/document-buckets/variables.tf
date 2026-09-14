@@ -24,3 +24,16 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "cors_allowed_origins" {
+  description = <<-EOT
+    P0.1 (auditoria externa 2026-09-11, D-283) - origins allowed to PUT directly to the
+    quarantine bucket via a presigned URL (the real browser->S3 upload path,
+    s3-upload-url-signer.ts). Empty by default (no CORS configuration is created at all) so a
+    caller that never sets this keeps today's behavior unchanged; the SPA's own origin (the
+    CloudFront distribution domain, var.app_origin at the root module) is the only real value
+    ever expected here. Never applied to the clean bucket - no client ever PUTs there directly.
+  EOT
+  type        = list(string)
+  default     = []
+}

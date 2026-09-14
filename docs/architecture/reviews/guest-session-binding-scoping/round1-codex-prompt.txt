@@ -1,0 +1,22 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker, ver AGENTS.md §4). Avalie a proposta de design abaixo (Rodada 1) para fechar o achado P0.2 da auditoria externa 2026-09-11: GuestSession não está vinculada ao credential/token do path, permitindo que duas abas com dois links de guest diferentes colidam (a sessão da segunda aba sobrescreve o cookie global da primeira, e mutações da primeira aba passam a resolver contra o DocumentRequest errado).
+
+Leia o arquivo completo em docs/architecture/reviews/guest-session-binding-scoping/round1-claude-proposal.md (relativo à raiz do repo) antes de avaliar — ele contém contexto verificado no código, pesquisa externa (OWASP IDOR/Session Management), checklist de critérios derivado da pesquisa, e o design proposto em detalhe.
+
+Verifique especificamente, lendo o código real do repositório (não confie cegamente na descrição da proposta):
+1. src/modules/document-archive/domain/guest-session.ts (campos documentRequestId/credentialSelectorHash, confirmar que já existem e o que documentam hoje)
+2. src/modules/document-archive/application/guest-document-access-service.ts (submitEvidence()/confirmUploadInFlight(), resolveSession(), parseRequestAccessToken, hmacRequestAccessCrypto.hash — confirmar que o parser e o HMAC já existem e podem ser reaproveitados como a proposta diz)
+3. src/modules/document-archive/http/document-archive-guest-handlers.ts (handleSubmitEvidence linhas ~192-201 e handleConfirmUpload — confirmar o comentário existente sobre requireToken ser "for route symmetry/observability" e nunca usado para autorização)
+4. src/modules/document-archive/domain/request-access-credential.ts (confirmar que RequestAccessCredential e GuestSession usam o mesmo esquema selector.secret)
+5. Qualquer outra rota guest que resolva só por path token (handleGetGuestRequest/handleStartGuestSession/handleListGuestDocumentTypes) — confirmar se a proposta está certa que elas não precisam de mudança
+
+Dê uma nota de 0 a 10 (não arredondada) avaliando:
+- Correção técnica: o vínculo por credentialSelectorHash realmente fecha o cenário de 2 abas sem quebrar nenhum fluxo legítimo (guest com uma única aba, sessão renovada, etc.)?
+- Segurança: a comparação sem timingSafeEqual é de fato segura (comparação de identificador não-secreto, não de segredo)? O colapso no mesmo erro genérico realmente evita uma nova superfície de enumeração/timing?
+- Completude: falta algum caso real (ex: sessão expirada durante o vínculo, path token de formato inválido, DocumentRequest cancelado entre a emissão da sessão e a mutação)?
+- Escopo: a proposta reabre alguma decisão já aprovada sem necessidade (ex: reautenticar o secret do credential), ou expande escopo além do gap nomeado (as 2 rotas afetadas)?
+- Achados REAIS de bugs/gaps na proposta (não estilo, não preferência).
+
+Formato da resposta:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: lista numerada, cada um com severidade (BLOQUEANTE/MENOR) e localização específica na proposta ou no código

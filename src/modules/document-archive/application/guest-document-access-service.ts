@@ -405,6 +405,24 @@ export class GuestDocumentAccessService {
     return { session: pointer, request };
   }
 
+  /** P0.2 (D-283, docs/architecture/reviews/guest-session-binding-scoping/) — binds a mutation's
+   * own path token to the session that resolved it, closing the multi-tab cookie-collision gap:
+   * two guest links open in two tabs of the same browser share one cookie jar, so the SECOND
+   * `session` mint used to silently overwrite the FIRST tab's cookie, and the first tab's later
+   * mutation would resolve against the wrong `DocumentRequest`. Re-derives the path token's
+   * SELECTOR hash only (never re-authenticates its secret — the session already proved possession
+   * at mint time, Decision 4) and compares it against the session's own `credentialSelectorHash`.
+   * `===` (not `timingSafeEqual`) is correct here — this compares an opaque resource identifier,
+   * not a secret. Any mismatch collapses into the same generic `GuestAccessInvalidError` as every
+   * other guest-auth failure mode (Codex review round 1: never a differentiated error revealing
+   * which of the two — path or session — was "wrong"). */
+  private assertPathTokenBoundToSession(rawPathToken: string, session: GuestSession): void {
+    const parsed = parseRequestAccessToken(rawPathToken);
+    if (!parsed) throw new GuestAccessInvalidError();
+    const pathSelectorHash = hmacRequestAccessCrypto.hash(this.pepper, parsed.selector);
+    if (pathSelectorHash !== session.credentialSelectorHash) throw new GuestAccessInvalidError();
+  }
+
   /** Double-submit CSRF check shared by `submitEvidence()`/`confirmUploadInFlight()` (Codex
    * review round 1, D-265 implementation: this was copy-pasted between the two before, real
    * drift risk the ADR's own "reused, not duplicated" intent named). Cookie and header must both
@@ -432,10 +450,12 @@ export class GuestDocumentAccessService {
    * identical CLEAN-eligibility path an authenticated upload already does today. */
   async submitEvidence(
     rawSessionToken: string,
+    rawPathToken: string,
     requestContext: { ip: string; csrfCookieValue: string | undefined; csrfHeaderValue: string | undefined },
     input: SubmitEvidenceInput,
   ): Promise<SubmitEvidenceResult> {
     const resolved = await this.resolveSession(rawSessionToken, requestContext);
+    this.assertPathTokenBoundToSession(rawPathToken, resolved.session);
     this.assertCsrf(requestContext, resolved.session);
 
     const tenantId = authorizedTenantIdFromPersistedEntity(resolved.session);
@@ -703,10 +723,12 @@ export class GuestDocumentAccessService {
    */
   async confirmUploadInFlight(
     rawSessionToken: string,
+    rawPathToken: string,
     requestContext: { ip: string; csrfCookieValue: string | undefined; csrfHeaderValue: string | undefined },
     idempotencyKey: string,
   ): Promise<{ extended: boolean }> {
     const resolved = await this.resolveSession(rawSessionToken, requestContext);
+    this.assertPathTokenBoundToSession(rawPathToken, resolved.session);
     this.assertCsrf(requestContext, resolved.session);
 
     const tenantId = authorizedTenantIdFromPersistedEntity(resolved.session);
