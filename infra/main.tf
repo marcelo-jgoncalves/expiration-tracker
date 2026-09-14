@@ -889,6 +889,14 @@ module "spa_hosting" {
   bff_api_endpoint      = module.bff_api.api_endpoint
   resource_api_endpoint = module.api.api_endpoint
   tags                  = { Project = local.project_name, Environment = var.environment }
+  # P0.1 (auditoria externa 2026-09-11, D-283) - overrides the module's own default CSP only to
+  # add the quarantine bucket's virtual-hosted-style S3 origin to connect-src, the host
+  # AWS SDK v3's getSignedUrl already generates by default (confirmed in
+  # s3-upload-url-signer.ts) for the real browser->S3 presigned PUT. Every other directive is a
+  # literal copy of the module's own default (variables.tf's spa_content_security_policy) -
+  # never silently diverges if that default changes for an unrelated reason, since both live in
+  # the same PR review surface.
+  spa_content_security_policy = "default-src 'self'; connect-src 'self' https://${module.document_buckets.quarantine_bucket_name}.s3.${var.aws_region}.amazonaws.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
 }
 
 # --- WAF (M10, D-037) — REMOVIDO (D-051): AWS WAFv2 não suporta associação com API Gateway
@@ -1526,6 +1534,11 @@ module "document_buckets" {
 
   name_prefix = local.name_prefix
   tags        = { Project = local.project_name, Environment = var.environment }
+  # P0.1 (D-283) - allows the SPA's own origin to PUT directly to the quarantine bucket via a
+  # presigned URL, same var.app_origin placeholder-until-verified posture already documented at
+  # module.spa_hosting below (a placeholder domain on the very first apply, before the real
+  # distribution domain is known and fed back via `-var app_origin=...`).
+  cors_allowed_origins = [var.app_origin]
 }
 
 module "malware_result_queue" {

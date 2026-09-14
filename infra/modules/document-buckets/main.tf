@@ -81,6 +81,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "quarantine" {
   }
 }
 
+# P0.1 (auditoria externa 2026-09-11, D-283) - the guest/authenticated upload flow signs a
+# presigned PUT for the browser to call directly against this bucket
+# (s3-upload-url-signer.ts's getSignedUrl); without CORS on the bucket itself, the browser
+# blocks that cross-origin PUT before it ever leaves the client, independent of any CSP
+# connect-src allowance (CORS and CSP are two separate browser gates, both required). Created
+# only when the caller supplies at least one origin - a fresh `terraform apply` with no SPA
+# domain known yet keeps producing zero resources here, same posture var.app_origin's own
+# placeholder-until-verified comment (main.tf) already documents for the CSP.
+resource "aws_s3_bucket_cors_configuration" "quarantine" {
+  count  = length(var.cors_allowed_origins) > 0 ? 1 : 0
+  bucket = aws_s3_bucket.quarantine.id
+
+  cors_rule {
+    allowed_origins = var.cors_allowed_origins
+    allowed_methods = ["PUT"]
+    allowed_headers = ["*"]
+    max_age_seconds = 3000
+  }
+}
+
 resource "aws_s3_bucket_policy" "quarantine" {
   bucket = aws_s3_bucket.quarantine.id
   policy = jsonencode({
