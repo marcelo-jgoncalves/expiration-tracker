@@ -49,6 +49,7 @@ registrada em `docs/engineering/performance/results/`.
 - Critério de saída: **Parcialmente atingido.** Com o backend mockado (latência ~0), a medição não separa "espera de API real" (isso é escopo de PERF-04) — o que ficou demonstrado é que, sem throttling, a duração observada é quase 100% frontend (bundle único sem code-splitting, parse/exec ~35-48ms até DCL), e sob Fast 4G+CPU 4x o tempo até conteúdo útil sobe ~10x (164ms→1.615ms em J01) quase inteiramente por download+parse/exec do bundle de 477,6 KB, não por latência de API (que segue mockada e instantânea mesmo sob throttling de rede simulada). A separação "frontend vs. espera de API real" só fecha combinando com os números de PERF-04.
 
 ### PERF-04 — Baseline BFF / HTTP / Resource Lambda
+- Tenant de teste pronto (usuário reaproveitado, organização criada, dados semeados via API, sessão obtida via script Playwright) — ver `baseline/PERF-04-test-tenant.md`.
 - [ ] Selecionar endpoints representativos (`/bff/session`, items/dashboard, subjects/dashboard, subject/{id}, document-archive, reports)
 - [ ] Teste warm: 50 requests, concurrency=1, descartar cold; coletar p50/p75/p90/p95/p99
 - [ ] Teste cold: 10–20 amostras isoladas
