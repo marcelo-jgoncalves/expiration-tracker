@@ -91,7 +91,23 @@ itens de acompanhamento fora do programa de performance.
 - [x] PERF-11 — Load testing HTTP (k6; cenários A–D; ramp 1→100 VU; stop conditions definidas) — k6 v2.0.0 já instalado, ramp real executado contra `dev` ao vivo com o tenant PERF real. **Achado principal: o ramp não conseguiu testar capacidade de Lambda/API Gateway/DynamoDB** — bateu antes num limitador de aplicação (`quotaType: "API_REQUEST"`, `limit: 100, windowSeconds: 60`, por tenant, `src/modules/identity/application/quota.ts`), não relacionado a infraestrutura. Confirmado via CloudWatch: zero throttles, zero erros, concorrência de Lambda no pico de só 34 (quota de conta = 1000) durante todo o teste — a infra nem chegou perto do limite. Scenario D rodou o ramp completo 1→5→10→25 VU (interrompido em 25 VU: erro passou de 0%→44.62%→100%, stop condition de erro >1% atingida entre 5 e 10 VU); Scenarios A/B/C rodados até 10 VU (mesma stop condition atingida já em VU=1-10, decisão consciente de não repetir o mesmo achado em mais 3 scripts até 50/100 VU — ver justificativa no doc). Scripts em `performance/k6/` (4 cenários + config compartilhada). Ver `results/PERF-11-load-testing.md`.
   - Critério de saída: **capacidade atual** = ~100 req/60s por tenant (limite de aplicação, não de infra) — não foi possível medir capacidade real de Lambda/DynamoDB porque o rate limiter bloqueia antes. **Primeiro gargalo** = quota de aplicação `API_REQUEST` (by design, não bug). **Ponto de saturação de Lambda/DynamoDB** = não atingido/não medido nesta rodada — exigiria múltiplos tenants de teste para espalhar a carga acima do teto de 100/tenant/min (recomendação para PERF-11-b, fora de escopo aqui).
   - **Follow-up PERF-11-b** (pedido pelo Marcelo após este resultado): ramp repetido com **10 tenants sintéticos** (10 usuários Cognito, 1 organização cada — o produto limita 1 org/usuário, então não deu para reaproveitar 1 único usuário) para tentar passar da quota por tenant. Foi mais longe (VU=25, ~15,6 req/s agregados vs. VU=10/~5,9 req/s do PERF-11 original) mas **ainda não encontrou nenhum gargalo real de infraestrutura** — o teto continua sendo a mesma quota `API_REQUEST`, agora agregada em 10 baldes (concorrência de Lambda no pico só 39/1000, zero throttles/erros). Ver `results/PERF-11b-multi-tenant-load-testing.md`.
-- [ ] PERF-12 — Async/SQS/Reminder pipeline (Producer, Dispatch, Outbox relay; volumes 1k→1M; redesign só se benchmark provar necessidade)
+- [~] PERF-12 — Async/SQS/Reminder pipeline (Producer, Dispatch, Outbox relay; volumes 1k→1M; redesign só se benchmark provar necessidade)
+  - [x] 1k — medido ao vivo (tenant PERF reaproveitado, 1.000 items+policies via API real, todas as
+    occurrences agendadas para o mesmo minuto). **Achado real, não hipotético**: o
+    `reminder-producer` estourou o timeout de Lambda (10s) por 7 minutos seguidos processando o
+    burst (loop sequencial, sem paralelismo), e ~440 das 1.000 occurrences saíram da janela de
+    lookback (5 min) antes de serem reivindicadas — ficaram presas em `SCHEDULED` **permanentemente**,
+    sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
+    esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
+    o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
+  - [ ] 10k — **pendente de revisão do achado de 1k por Marcelo antes de prosseguir** (ver "Próximos
+    passos" no doc de resultado — recomendação é corrigir o Producer antes de escalar o teste).
+  - [ ] 100k — pendente (depende da decisão acima).
+  - [ ] 1M — pendente (depende da decisão acima).
+  - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
+    retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
+  - [ ] 17.6 (redesenho horizontal) — não avaliado; decisão de Marcelo após ver o achado de correção
+    do Producer.
 - [x] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real). Critério de saída: inventário completo (1 tabela de negócio single-table, `exptrk-dev-table`, on-demand, 9 GSIs, + 2 tabelas auxiliares de sessão/guest-delivery); Contributor Insights habilitado nas 3 tabelas (era DISABLED) — capability verified, sem dados ainda (tráfego dev insuficiente); 3 personas modeladas por leitura de código (não medição empírica) — PK por entidade evita hot partition estrutural na tabela base, GSI1 (`ITEMSTATUS#ACTIVE`) tem risco moderado de concentração de escrita em tenant "large" sob rajada, GSI8/GSI3 concentram por design (mitigado via IAM `LeadingKeys` por worker); CloudWatch 7 dias confirma ZERO throttling/erros de sistema e consumo de capacidade desprezível (pico 4 RCU / 10 WCU por datapoint de 5min) — latência p95 do PERF-04 NÃO é causada por capacidade DynamoDB. Ver `docs/engineering/performance/results/PERF-13-dynamodb-capacity.md`.
 
 ## Fechamento
