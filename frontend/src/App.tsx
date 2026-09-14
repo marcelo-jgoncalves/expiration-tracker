@@ -14,7 +14,7 @@
  * the existing E2E suite's `page.goto("/items")`-style calls heal forward to the new contract
  * instead of 404ing.
  */
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useRouteUsefulContentTiming } from "./observability/routeTiming.js";
@@ -25,38 +25,80 @@ import { ProtectedRoute } from "./auth/ProtectedRoute.js";
 import { OrgRouteGuard } from "./routing/OrgRouteGuard.js";
 import { LegacyOrgRedirect } from "./routing/LegacyOrgRedirect.js";
 import { AppShell } from "./shell/AppShell.js";
-import { Overview } from "./routes/Overview.js";
-import { ItemsCollection } from "./routes/items/ItemsCollection.js";
-import { ItemDetail } from "./routes/items/ItemDetail.js";
-import { CreateItem } from "./routes/items/CreateItem.js";
-import { RenewItem } from "./routes/items/RenewItem.js";
-import { ItemDocuments } from "./routes/items/ItemDocuments.js";
-import { ItemReminderPolicy } from "./routes/items/ItemReminderPolicy.js";
-import { SubjectsCollection } from "./routes/subjects/SubjectsCollection.js";
-import { SubjectForm } from "./routes/subjects/SubjectForm.js";
-import { SubjectHub } from "./routes/subjects/SubjectHub.js";
-import { RequirementsCollection } from "./routes/RequirementsCollection.js";
-import { ReviewQueue } from "./routes/ReviewQueue.js";
-import { DocumentDetail } from "./routes/DocumentDetail.js";
-import { DocumentTypesCollection } from "./routes/document-types/DocumentTypesCollection.js";
-import { DocumentTypeEditor } from "./routes/document-types/DocumentTypeEditor.js";
-import { RequirementTemplatesScreen } from "./routes/requirement-templates/RequirementTemplatesScreen.js";
-import { Members } from "./routes/Members.js";
-import { Settings } from "./routes/Settings.js";
-import { ActivityLog } from "./routes/ActivityLog.js";
-import { NotificationPreferences } from "./routes/NotificationPreferences.js";
-import { AcceptInvitation } from "./routes/AcceptInvitation.js";
-import { NotFound } from "./routes/NotFound.js";
+import { InitialLoading } from "./components/AsyncStates.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { ToastProvider } from "./components/Toast.js";
-import { SubjectRequests } from "./routes/subjects/SubjectRequests.js";
-import { Tracking } from "./routes/subjects/Tracking.js";
-import { RequestDeliverySettings } from "./routes/subjects/RequestDeliverySettings.js";
-import { DossierExport } from "./routes/subjects/DossierExport.js";
-import { Reports } from "./routes/Reports.js";
-import { GuestDocumentRequest } from "./routes/guest/GuestDocumentRequest.js";
-import { LegacyGuestUpload } from "./routes/guest/LegacyGuestUpload.js";
-import { ImportWizard } from "./routes/imports/ImportWizard.js";
+import { prefetchOverviewNextRoutes } from "./routing/prefetch.js";
+
+// PERF-09 (Ciclo B) - route-level code splitting. Every top-level route screen below is its own
+// chunk (React.lazy + Suspense fallback), so the initial bundle carries only the router shell,
+// auth/tenant gating, AppShell and shared providers - not every screen's own code. Split at the
+// route granularity established by App's own Route list below, never per sub-component (that
+// would trade one big request for many small ones with no real benefit - see PERF-09 task notes).
+const Overview = lazy(() => import("./routes/Overview.js").then((m) => ({ default: m.Overview })));
+const ItemsCollection = lazy(() =>
+  import("./routes/items/ItemsCollection.js").then((m) => ({ default: m.ItemsCollection })),
+);
+const ItemDetail = lazy(() => import("./routes/items/ItemDetail.js").then((m) => ({ default: m.ItemDetail })));
+const CreateItem = lazy(() => import("./routes/items/CreateItem.js").then((m) => ({ default: m.CreateItem })));
+const RenewItem = lazy(() => import("./routes/items/RenewItem.js").then((m) => ({ default: m.RenewItem })));
+const ItemDocuments = lazy(() =>
+  import("./routes/items/ItemDocuments.js").then((m) => ({ default: m.ItemDocuments })),
+);
+const ItemReminderPolicy = lazy(() =>
+  import("./routes/items/ItemReminderPolicy.js").then((m) => ({ default: m.ItemReminderPolicy })),
+);
+const SubjectsCollection = lazy(() =>
+  import("./routes/subjects/SubjectsCollection.js").then((m) => ({ default: m.SubjectsCollection })),
+);
+const SubjectForm = lazy(() => import("./routes/subjects/SubjectForm.js").then((m) => ({ default: m.SubjectForm })));
+const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
+const RequirementsCollection = lazy(() =>
+  import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
+);
+const ReviewQueue = lazy(() => import("./routes/ReviewQueue.js").then((m) => ({ default: m.ReviewQueue })));
+const DocumentDetail = lazy(() => import("./routes/DocumentDetail.js").then((m) => ({ default: m.DocumentDetail })));
+const DocumentTypesCollection = lazy(() =>
+  import("./routes/document-types/DocumentTypesCollection.js").then((m) => ({
+    default: m.DocumentTypesCollection,
+  })),
+);
+const DocumentTypeEditor = lazy(() =>
+  import("./routes/document-types/DocumentTypeEditor.js").then((m) => ({ default: m.DocumentTypeEditor })),
+);
+const RequirementTemplatesScreen = lazy(() =>
+  import("./routes/requirement-templates/RequirementTemplatesScreen.js").then((m) => ({
+    default: m.RequirementTemplatesScreen,
+  })),
+);
+const Members = lazy(() => import("./routes/Members.js").then((m) => ({ default: m.Members })));
+const Settings = lazy(() => import("./routes/Settings.js").then((m) => ({ default: m.Settings })));
+const ActivityLog = lazy(() => import("./routes/ActivityLog.js").then((m) => ({ default: m.ActivityLog })));
+const NotificationPreferences = lazy(() =>
+  import("./routes/NotificationPreferences.js").then((m) => ({ default: m.NotificationPreferences })),
+);
+const AcceptInvitation = lazy(() =>
+  import("./routes/AcceptInvitation.js").then((m) => ({ default: m.AcceptInvitation })),
+);
+const NotFound = lazy(() => import("./routes/NotFound.js").then((m) => ({ default: m.NotFound })));
+const SubjectRequests = lazy(() =>
+  import("./routes/subjects/SubjectRequests.js").then((m) => ({ default: m.SubjectRequests })),
+);
+const Tracking = lazy(() => import("./routes/subjects/Tracking.js").then((m) => ({ default: m.Tracking })));
+const RequestDeliverySettings = lazy(() =>
+  import("./routes/subjects/RequestDeliverySettings.js").then((m) => ({ default: m.RequestDeliverySettings })),
+);
+const DossierExport = lazy(() =>
+  import("./routes/subjects/DossierExport.js").then((m) => ({ default: m.DossierExport })),
+);
+const Reports = lazy(() => import("./routes/Reports.js").then((m) => ({ default: m.Reports })));
+const GuestDocumentRequest = lazy(() =>
+  import("./routes/guest/GuestDocumentRequest.js").then((m) => ({ default: m.GuestDocumentRequest })),
+);
+const LegacyGuestUpload = lazy(() =>
+  import("./routes/guest/LegacyGuestUpload.js").then((m) => ({ default: m.LegacyGuestUpload })),
+);
+const ImportWizard = lazy(() => import("./routes/imports/ImportWizard.js").then((m) => ({ default: m.ImportWizard })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,6 +134,19 @@ function RouteUsefulContentTracker() {
   return null;
 }
 
+/** PERF-09: on the Overview route (the landing screen after login for every role), schedule an
+ * idle-time prefetch of the two most likely next destinations - Items and Subjects, both
+ * top-of-nav entries (`shell/navigation.ts`) and both linked directly from Overview's own content
+ * (see Overview.tsx's "Ver todos os vencimentos" / item links). Kept to this single call site
+ * (not "prefetch everything") - see `routing/prefetch.ts` for why these two and not the rest. */
+function IdlePrefetch() {
+  const location = useLocation();
+  if (location.pathname === "/overview" || location.pathname.endsWith("/overview")) {
+    prefetchOverviewNextRoutes();
+  }
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -99,11 +154,16 @@ export function App() {
         <BrowserRouter>
           <AuthProvider>
             <RouteUsefulContentTracker />
+            <IdlePrefetch />
             {/* A14 (Block 6, D-2xx) - first real usage of Toast (design-system.md §46). Wrapped
                 here, above every route including G02's fully public one, so the live region is
                 always registered - G02 itself never calls useToast() (its own confirmations are
                 InlineNotice/AsyncFeedback per spec, never a toast a guest could miss). */}
             <ToastProvider>
+            {/* PERF-09 - one Suspense boundary above the whole route tree. Every route component
+                above is now a separate lazy chunk; this fallback is what renders while that
+                chunk downloads/parses on first visit to a given route. */}
+            <Suspense fallback={<InitialLoading />}>
             <Routes>
               <Route
                 path="app/:orgId"
@@ -264,6 +324,7 @@ export function App() {
               <Route path="guest/document-requests/:token" element={<LegacyGuestUpload />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
             </ToastProvider>
           </AuthProvider>
         </BrowserRouter>
