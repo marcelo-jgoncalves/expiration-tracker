@@ -59,6 +59,15 @@ export default tseslint.config(
     },
   },
   {
+    // Ad-hoc diagnostic/measurement scripts (Performance Program, docs/engineering/performance/
+    // TODO.md) - one-off Node harnesses that report to stdout, not application code. Same
+    // treatment as scripts/**/*.mjs above.
+    files: ["docs/engineering/performance/traces/**/*.mjs"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     // Architecture boundary, IDE-speed layer only (Engineering Maturity Review G10,
     // 2026-08-19). IMPORTANT: no-restricted-imports matches the literal import-specifier
     // TEXT, not the resolved module graph - it cannot see a transitive re-export (domain

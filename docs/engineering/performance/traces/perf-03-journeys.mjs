@@ -191,7 +191,7 @@ async function measureJourney(browser, name, { throttle = false } = {}) {
       try {
         const body = await response.body();
         jsBytes += body.length;
-      } catch (e) {
+      } catch {
         // navigated away / opaque response, ignore
       }
       const timing = response.request().timing();
@@ -206,13 +206,13 @@ async function measureJourney(browser, name, { throttle = false } = {}) {
   await page.goto(`${BASE_URL}${journey.path}`, { waitUntil: "domcontentloaded" });
   await journey.steps(page);
   // "Time to useful data": wait for the journey's defining content locator to be visible.
-  let usefulDataMs = null;
+  let usefulDataMs;
   try {
     const locatorStr = journey.usefulData;
     const parts = locatorStr.split(", ");
     await Promise.race(parts.map((sel) => page.locator(sel).first().waitFor({ state: "visible", timeout: 10000 })));
     usefulDataMs = Date.now() - t0;
-  } catch (e) {
+  } catch {
     usefulDataMs = null; // could not confirm within timeout
   }
   await page.waitForLoadState("networkidle").catch(() => {});
