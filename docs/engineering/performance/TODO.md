@@ -50,11 +50,11 @@ registrada em `docs/engineering/performance/results/`.
 
 ### PERF-04 — Baseline BFF / HTTP / Resource Lambda
 - Tenant de teste pronto (usuário reaproveitado, organização criada, dados semeados via API, sessão obtida via script Playwright) — ver `baseline/PERF-04-test-tenant.md`.
-- [ ] Selecionar endpoints representativos (`/bff/session`, items/dashboard, subjects/dashboard, subject/{id}, document-archive, reports)
-- [ ] Teste warm: 50 requests, concurrency=1, descartar cold; coletar p50/p75/p90/p95/p99
-- [ ] Teste cold: 10–20 amostras isoladas
-- [ ] Comparar BFF x chamada direta ao Resource API (medir overhead estrutural do BFF, sem mudar produto)
-- Critério de saída: saber % cold start, overhead do BFF, tempo do resource handler, share do RequestContext.
+- [x] Selecionar endpoints representativos (`/bff/session`, items/dashboard, subjects/dashboard, subject/{id}, document-archive, reports) — 4 endpoints medidos (`session`, `items/dashboard`, `subjects/dashboard`, `subjects/{id}`); `reports/expiring-soon-items` excluído (bug 500 conhecido); `document-archive` excluído (**novo achado**: todas as rotas de leitura testadas também retornam 500 por gap de IAM `OrganizationStore.queryGsi4`, não só a escrita já documentada)
+- [x] Teste warm: 50 requests, concurrency=1, descartar cold; coletar p50/p75/p90/p95/p99 — `results/PERF-04-bff-lambda-baseline.md`, harness `traces/perf-04-latency.mjs`
+- [x] Teste cold: 10–20 amostras isoladas — feito via CloudWatch Logs Insights sobre tráfego real (não forçado sinteticamente, per instrução da tarefa); 3,9% (BFF)/5,5% (Items)/2,7% (Subjects)/10,0% (Document Archive) em janela de 7 dias, InitDuration ~1,8–2,2s
+- [~] Comparar BFF x chamada direta ao Resource API (medir overhead estrutural do BFF, sem mudar produto) — **não realizado, time-boxed**: App Client Cognito do tenant só permite `ALLOW_USER_SRP_AUTH` (sem password/admin grant), obter access token bruto exigiria implementar SRP handshake manualmente (sem lib pronta no repo); usada como proxy a comparação `Duration` BFF vs. resource Lambda via REPORT line (~56ms overhead no p50, ~21%)
+- Critério de saída: **parcialmente atingido**. % cold start: 3,9%/5,5%/2,7%/10,0% (BFF/Items/Subjects/Doc-Archive, 7d). Overhead do BFF: ~56ms p50 (~21%) via Duration nativa. Tempo do resource handler: Items p50=213ms/p95=1005ms, Subjects p50=213ms/p95=647ms. **Share do RequestContext: não respondido** — achado novo: as métricas EMF customizadas do PERF-02 (`bff.session_resolve_ms`, `bff.proxy_ms`, `lambda.request_context_ms`, `lambda.business_operation_ms`) não estão chegando ao CloudWatch nesta conta (nenhum namespace `ExpirationTracker/BFF`/`RequestContext`/`Items`/`Subjects` existe; busca em log bruto por essas métricas retorna zero apesar de centenas de invocações confirmadas) — só `ExpirationTracker/DispatchOutboxRelay` funciona. Requer investigação separada (possível interferência do ADOT com a extração EMF nas funções atrás do API Gateway) antes de fechar esse critério.
 
 ### PERF-05 — Lambda Power Tuning
 - [ ] Selecionar funções: BFF, Items, Subjects, Document Archive, Reminder Producer, Reminder Dispatch, Dossier Generator, PDF Parser
