@@ -309,7 +309,20 @@ export async function handleProxy(deps: BffHttpDeps, req: BffHttpRequest, backen
     }
 
     const result = await deps.proxy.forward(session, { method: req.method, path: backendPath, queryString, headers: req.headers, body: req.body });
-    return { statusCode: result.statusCode, headers: result.headers, body: result.body ? JSON.parse(result.body) : {} };
+    // G3 follow-up: not every proxied route returns JSON (the 7 CSV report routes return
+    // text/csv - see proxy-allowlist.ts's own comment on those entries). JSON.parse()ing every
+    // response unconditionally corrupted/500'd those - only parse when the backend actually
+    // says it sent JSON; otherwise pass the body through untouched (isRawBody: true tells the
+    // API Gateway adapter to skip JSON.stringify() on the way back out).
+    const contentType = result.headers["content-type"];
+    const isJson = contentType === undefined || contentType.startsWith("application/json");
+    if (!result.body) {
+      return { statusCode: result.statusCode, headers: result.headers, body: {} };
+    }
+    if (isJson) {
+      return { statusCode: result.statusCode, headers: result.headers, body: JSON.parse(result.body) };
+    }
+    return { statusCode: result.statusCode, headers: result.headers, body: result.body, isRawBody: true };
   } catch (err) {
     return toErrorResponse(err);
   }
