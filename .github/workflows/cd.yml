@@ -77,9 +77,16 @@ jobs:
         run: npm ci
         working-directory: .
 
-      # Same gates as ci.yml's `guardrails` job — never deploy on a build that would have
-      # failed CI (belt-and-suspenders: branch protection should already guarantee this).
+      # Same gates as ci.yml's `guardrails` job. Only re-run here on a manual `workflow_dispatch`
+      # (no upstream CI-success guarantee for that trigger). On the normal `workflow_run` path
+      # this is deliberately SKIPPED: line 56's `if` already requires CI's conclusion to be
+      # `success`, and the checkout above pins the exact same `head_sha` CI just validated - a
+      # second full typecheck/lint/boundaries/test pass here is a pure ~2min tax on every deploy
+      # for zero additional safety (2026-09-14 pipeline speedup review). If branch protection
+      # config ever changes to allow a non-green push straight to `main`, this gap would need
+      # revisiting - it currently cannot happen (branch protection requires CI to pass).
       - name: Typecheck + lint + boundaries + tests
+        if: github.event_name == 'workflow_dispatch'
         run: |
           npm run typecheck
           npm run lint
@@ -143,14 +150,19 @@ jobs:
       # freshly-recomputed plan - closes the real finding that the plan shown in the log and
       # the plan actually applied could silently diverge between two separate `terraform`
       # invocations.
+      # -parallelism=20 (default 10, 2026-09-14 pipeline speedup review): this config manages
+      # ~70+ Lambda functions plus their IAM/permissions/event-source-mappings - the default
+      # ceiling on concurrent resource operations was the dominant cost of a large apply (up to
+      # ~12min observed on a big diff). Not raised further than this without evidence - AWS API
+      # rate limits (IAM/Lambda control-plane) push back before Terraform's own scheduler does.
       - name: Terraform plan (saved to file, visible in the run log before anything changes)
         run: |
-          terraform plan -input=false -out=tfplan \
+          terraform plan -input=false -out=tfplan -parallelism=20 \
             -var-file=env/dev.tfvars -var="aws_account_id=${{ steps.account.outputs.id }}"
           terraform show -no-color tfplan
 
       - name: Terraform apply (dev) — applies the exact plan file above
-        run: terraform apply -auto-approve -input=false tfplan
+        run: terraform apply -auto-approve -input=false -parallelism=20 tfplan
 
       - name: Get Terraform outputs
         id: tf
