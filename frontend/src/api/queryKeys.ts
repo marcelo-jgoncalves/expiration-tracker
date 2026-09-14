@@ -57,6 +57,10 @@ export const queryKeys = {
      * comment on `LegacyDocumentRequest`). */
     legacyDocumentRequests: (organizationId: string, subjectId: string, assignmentId: string) =>
       ["org", organizationId, "subjects", "legacyDocumentRequests", subjectId, assignmentId] as const,
+    /** D-288 - A10 timeline's automated-reminder entries, keyed per documentRequestId (never
+     * per assignment - occurrences belong to a single DocumentRequest). */
+    documentChasingOccurrences: (organizationId: string, subjectId: string, documentRequestId: string) =>
+      ["org", organizationId, "subjects", "documentChasingOccurrences", subjectId, documentRequestId] as const,
     /** A22 (Block 7, D-2xx) - tenant-wide, OWNER-only preference, no sub-filters. */
     documentRequestDeliveryPreference: (organizationId: string) =>
       ["org", organizationId, "subjects", "documentRequestDeliveryPreference"] as const,

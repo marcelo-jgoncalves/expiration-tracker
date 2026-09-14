@@ -27,6 +27,8 @@ import type {
   DocumentRequestSeriesStatus,
   LegacyDocumentRequestStatus,
   ImportJobStatus,
+  DocumentChasingTier,
+  DocumentChasingOccurrenceStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -332,6 +334,32 @@ export function presentLegacyDocumentRequestStatus(status: LegacyDocumentRequest
       return { label: "Expirada", tone: "warning" };
     case "REVOKED":
       return { label: "Revogada", tone: "neutral" };
+  }
+}
+
+/** D-288 - A10 timeline's automated-reminder entries. T7/T3 are upcoming (days before the
+ * deadline); EXPIRED fires once the deadline itself has passed. */
+export function presentDocumentChasingTier(tier: DocumentChasingTier): string {
+  switch (tier) {
+    case "T7":
+      return "Lembrete (7 dias antes do prazo)";
+    case "T3":
+      return "Lembrete (3 dias antes do prazo)";
+    case "EXPIRED":
+      return "Lembrete (prazo expirado)";
+  }
+}
+
+export function presentDocumentChasingOccurrenceStatus(status: DocumentChasingOccurrenceStatus): StatusPresentation {
+  switch (status) {
+    case "SCHEDULED":
+      return { label: "Agendado", tone: "neutral" };
+    case "CLAIMED":
+      return { label: "Enviando…", tone: "neutral" };
+    case "TRIGGERED":
+      return { label: "Enviado", tone: "neutral" };
+    case "CANCELLED":
+      return { label: "Cancelado", tone: "neutral" };
   }
 }
 

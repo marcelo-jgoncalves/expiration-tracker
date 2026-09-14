@@ -237,6 +237,24 @@ export interface CreatedLegacyDocumentRequest {
   initialInviteDeliveryStatus?: "SENT" | "FAILED" | "DISABLED_BY_KILL_SWITCH";
 }
 
+/**
+ * D-288 - `DocumentChasingOccurrence` (`src/modules/subject/domain/document-chasing.ts`), the
+ * automated-reminder entries A10's timeline was missing (Bloco 7, D-267's documented deviation
+ * #1). `tier` T7/T3 are upcoming reminders relative to the request's deadline; EXPIRED fires
+ * once the deadline itself passes - never a 4th tier, the backend materializes exactly these 3
+ * per DocumentRequest.
+ */
+export type DocumentChasingTier = "T7" | "T3" | "EXPIRED";
+export type DocumentChasingOccurrenceStatus = "SCHEDULED" | "CLAIMED" | "CANCELLED" | "TRIGGERED";
+
+export interface DocumentChasingOccurrence {
+  occurrenceId: string;
+  documentRequestId: string;
+  tier: DocumentChasingTier;
+  scheduledAt: string;
+  status: DocumentChasingOccurrenceStatus;
+}
+
 /** A22 (Block 7, D-2xx) - tenant-wide preference (`document-request-delivery-preference.ts`),
  * default `MANUAL` until ever configured. */
 export type DocumentRequestDeliveryMode = "MANUAL" | "EMAIL";
