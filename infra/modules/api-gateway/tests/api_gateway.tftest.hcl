@@ -190,17 +190,17 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "POST /reminders/policies/{policyId}/disable route must exist"
   }
 
-  # Every /notifications/preferences route exists and is JWT-authorized.
+  # Every /notifications* route exists and is JWT-authorized.
   assert {
     condition = alltrue([
       for r in aws_apigatewayv2_route.notifications : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
     ])
-    error_message = "Every /notifications/preferences route must be JWT-authorized with the shared authorizer"
+    error_message = "Every /notifications* route must be JWT-authorized with the shared authorizer"
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.notifications) == 2
-    error_message = "Expected exactly 2 /notifications/preferences routes (get, update)"
+    condition     = length(aws_apigatewayv2_route.notifications) == 3
+    error_message = "Expected exactly 3 /notifications* routes (get/update preferences, whatsapp-opt-in)"
   }
 
   assert {
@@ -209,6 +209,16 @@ run "jwt_authorizer_attached_to_every_route" {
       "PUT /notifications/preferences",
     )
     error_message = "PUT /notifications/preferences route must exist"
+  }
+
+  # D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
+  # non-blocking gap in the WhatsApp roadmap item.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.notifications : r.route_key],
+      "POST /notifications/whatsapp-opt-in",
+    )
+    error_message = "POST /notifications/whatsapp-opt-in route must exist"
   }
 
   # D-129 (GTR-01 supersession): /profile routes removed entirely - no assertion left for them.

@@ -8,6 +8,7 @@ import { SesEmailAdapter, createSesClient } from "../../../modules/notification/
 import { WhatsAppCloudApiAdapter, type WhatsAppCloudApiConfig } from "../../../modules/notification/providers/whatsapp-cloud-api-adapter.js";
 import { whatsAppOptInKey, type WhatsAppOptIn } from "../../../modules/notification/domain/whatsapp-opt-in.js";
 import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
+import { WhatsAppOptInService } from "../../../modules/notification/application/whatsapp-opt-in-service.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { buildTenantManagerLookup } from "./reminder.js";
 import { UlidIdGenerator } from "../ids.js";
@@ -15,7 +16,8 @@ import { UlidIdGenerator } from "../ids.js";
 export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbNotificationStore(client, tableName);
   const preferences = new NotificationPreferencesService({ store, tableName });
-  return { store, preferences };
+  const whatsAppOptIn = new WhatsAppOptInService({ store });
+  return { store, preferences, whatsAppOptIn };
 }
 
 /**

@@ -24,7 +24,8 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { NotificationPreferencesService } from "../../../src/modules/notification/application/notification-preferences-service.js";
-import { handleGetPreferences, handleUpdatePreferences, type NotificationHttpDeps } from "../../../src/modules/notification/http/preferences-handlers.js";
+import { handleGetPreferences, handleUpdatePreferences, handleRecordWhatsAppOptIn, type NotificationHttpDeps } from "../../../src/modules/notification/http/preferences-handlers.js";
+import { WhatsAppOptInService } from "../../../src/modules/notification/application/whatsapp-opt-in-service.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 const TABLE = "MainTable";
@@ -37,12 +38,14 @@ async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMe
   await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
   const resolver = new RequestContextResolver(new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
+  const notificationStore = new InMemoryNotificationStore();
   const preferences = new NotificationPreferencesService({
-    store: new InMemoryNotificationStore(),
+    store: notificationStore,
     tableName: TABLE,
     now: () => "2026-08-21T00:00:00.000Z",
   });
-  return { resolver, preferences, quota, identityStore };
+  const whatsAppOptIn = new WhatsAppOptInService({ store: notificationStore, now: () => "2026-08-21T00:00:00.000Z" });
+  return { resolver, preferences, quota, whatsAppOptIn, identityStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -68,6 +71,49 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
 
     expect(response.statusCode).toBe(200);
     expect((response.body["preferences"] as { emailEnabled: boolean }).emailEnabled).toBe(false);
+  });
+
+  it("handleRecordWhatsAppOptIn accepts a valid body through the REAL schema registry every Lambda imports (D-286, same regression class as the test above)", async () => {
+    const deps = await buildDeps();
+    const response = await handleRecordWhatsAppOptIn(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect((response.body["optIn"] as { phoneE164: string }).phoneE164).toBe("+5511999999999");
+  });
+
+  it("handleRecordWhatsAppOptIn is idempotent — a second call with the same phone returns the ORIGINAL optedInAt, never a new row", async () => {
+    const deps = await buildDeps();
+    const first = await handleRecordWhatsAppOptIn(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
+    });
+    const second = await handleRecordWhatsAppOptIn(deps, {
+      requestId: "r2",
+      correlationId: "c2",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
+    });
+
+    expect(second.statusCode).toBe(201);
+    expect(second.body["optIn"]).toEqual(first.body["optIn"]);
+  });
+
+  it("handleRecordWhatsAppOptIn rejects a malformed phone number via schema validation", async () => {
+    const deps = await buildDeps();
+    const response = await handleRecordWhatsAppOptIn(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "not-a-phone", source: "USER_SETTINGS" } as never,
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it("handleGetPreferences lazily creates and returns the caller's own preferences", async () => {

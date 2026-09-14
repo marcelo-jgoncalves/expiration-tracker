@@ -6,7 +6,7 @@ import { ulid } from "ulid";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildNotificationHttpDeps } from "../composition/notification.js";
-import { handleGetPreferences, handleUpdatePreferences, type NotificationHttpDeps } from "../../../modules/notification/http/preferences-handlers.js";
+import { handleGetPreferences, handleUpdatePreferences, handleRecordWhatsAppOptIn, type NotificationHttpDeps } from "../../../modules/notification/http/preferences-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -15,8 +15,8 @@ const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 const { resolver, quota } = buildIdentityDeps(client, tableName);
-const { preferences } = buildNotificationHttpDeps(client, tableName);
-const deps: NotificationHttpDeps = { resolver, preferences, quota };
+const { preferences, whatsAppOptIn } = buildNotificationHttpDeps(client, tableName);
+const deps: NotificationHttpDeps = { resolver, preferences, quota, whatsAppOptIn };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
@@ -37,6 +37,8 @@ async function handleNotificationsRoute(event: APIGatewayProxyEventV2WithJWTAuth
           return await handleGetPreferences(deps, base);
         case "PUT /notifications/preferences":
           return await handleUpdatePreferences(deps, { ...base, body: parseBody(event) });
+        case "POST /notifications/whatsapp-opt-in":
+          return await handleRecordWhatsAppOptIn(deps, { ...base, body: parseBody(event) });
         default:
           throw new ValidationError(`Unknown route: ${routeKey}`);
       }

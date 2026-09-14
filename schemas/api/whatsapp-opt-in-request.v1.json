@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/whatsapp-opt-in-request.v1.json",
+  "title": "WhatsAppOptInRequest v1",
+  "description": "POST /notifications/whatsapp-opt-in request body (src/modules/notification/domain/whatsapp-opt-in.ts WhatsAppOptIn's caller-supplied fields). source is fixed to USER_SETTINGS — the only WhatsAppOptInSource this route ever wires, same D-5 boundary as the service itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["phoneE164", "source"],
+  "properties": {
+    "phoneE164": { "type": "string", "pattern": "^\\+[1-9]\\d{1,14}$" },
+    "source": { "type": "string", "enum": ["USER_SETTINGS"] }
+  }
+}

@@ -8,6 +8,8 @@ import type { RequestContextResolver, ValidatedClaims } from "../../identity/app
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { NotificationPreferencesService, UpdateNotificationPreferencesInput } from "../application/notification-preferences-service.js";
+import type { WhatsAppOptInService } from "../application/whatsapp-opt-in-service.js";
+import type { WhatsAppOptInSource } from "../domain/whatsapp-opt-in.js";
 
 async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
   await quota.consume({
@@ -27,6 +29,7 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 }
 
 const UPDATE_PREFERENCES_SCHEMA_ID = "https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json";
+const WHATSAPP_OPT_IN_SCHEMA_ID = "https://expiration-tracker/schemas/api/whatsapp-opt-in-request.v1.json";
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -45,6 +48,7 @@ export interface NotificationHttpDeps {
   resolver: RequestContextResolver;
   preferences: NotificationPreferencesService;
   quota: TenantQuotaService;
+  whatsAppOptIn: WhatsAppOptInService;
 }
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
@@ -112,5 +116,29 @@ export async function handleUpdatePreferences(
     await consumeApiRequestQuota(deps.quota, context);
     const preferences = await deps.preferences.updatePreferences(context, req.body, expectedVersion);
     return { statusCode: 200, body: { preferences } };
+  });
+}
+
+/** POST /notifications/whatsapp-opt-in — D-246 (WhatsApp roadmap item, fatia de engenharia
+ * 100% fechada desde D-246, mas sem rota HTTP para `WhatsAppOptInService.recordOptIn()` até
+ * agora — nenhum usuário real conseguia dar opt-in mesmo com todo o resto pronto). Create-once,
+ * same idempotent-no-op semantics as the service itself (`recordOptIn()`'s own doc comment) —
+ * always 201, whether this call created the row or found an existing one for the exact same
+ * phone, mirroring `handleStartGuestSession`'s "the caller only needs the resulting state, not
+ * whether it existed before" posture used elsewhere in this codebase. No `If-Match`/expected
+ * version — unlike `handleUpdatePreferences`, this never mutates an existing row (a phone
+ * change is a NEW row by construction, `whatsapp-opt-in.ts`'s own header), so there is no
+ * concurrent-edit race to fence against. */
+export async function handleRecordWhatsAppOptIn(
+  deps: NotificationHttpDeps,
+  req: HttpRequest<{ phoneE164: string; source: WhatsAppOptInSource }>,
+): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(WHATSAPP_OPT_IN_SCHEMA_ID, req.body);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const optIn = await deps.whatsAppOptIn.recordOptIn(context, req.body.phoneE164, req.body.source);
+    return { statusCode: 201, body: { optIn } };
   });
 }
