@@ -90,7 +90,7 @@ itens de acompanhamento fora do programa de performance.
 
 - [ ] PERF-11 — Load testing HTTP (k6; cenários A–D; ramp 1→100 VU; stop conditions definidas)
 - [ ] PERF-12 — Async/SQS/Reminder pipeline (Producer, Dispatch, Outbox relay; volumes 1k→1M; redesign só se benchmark provar necessidade)
-- [ ] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real)
+- [x] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real). Critério de saída: inventário completo (1 tabela de negócio single-table, `exptrk-dev-table`, on-demand, 9 GSIs, + 2 tabelas auxiliares de sessão/guest-delivery); Contributor Insights habilitado nas 3 tabelas (era DISABLED) — capability verified, sem dados ainda (tráfego dev insuficiente); 3 personas modeladas por leitura de código (não medição empírica) — PK por entidade evita hot partition estrutural na tabela base, GSI1 (`ITEMSTATUS#ACTIVE`) tem risco moderado de concentração de escrita em tenant "large" sob rajada, GSI8/GSI3 concentram por design (mitigado via IAM `LeadingKeys` por worker); CloudWatch 7 dias confirma ZERO throttling/erros de sistema e consumo de capacidade desprezível (pico 4 RCU / 10 WCU por datapoint de 5min) — latência p95 do PERF-04 NÃO é causada por capacidade DynamoDB. Ver `docs/engineering/performance/results/PERF-13-dynamodb-capacity.md`.
 
 ## Fechamento
 
