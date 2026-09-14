@@ -152,13 +152,23 @@ Evidências:
 1. **Solicitar aumento da quota `Concurrent executions` (Lambda) de 10 para 100** via Service Quotas antes
    de iniciar PERF-04/PERF-05/PERF-11 (testes de carga/concorrência). Não contornar via código
    (reserved concurrency por função apenas redistribuiria o mesmo teto de 10, não resolveria).
-   - Comando pronto (**não executado nesta tarefa** — decisão de infra/custo, fica para sessão que chama
-     este inventário decidir/sinalizar):
+   - **Tentativa executada em 2026-09-14 (autorizada por Marcelo)**:
      ```
      aws --profile claude-dev service-quotas request-service-quota-increase \
        --service-code lambda --quota-code L-B99A9384 --desired-value 100 --region us-east-1
      ```
-   - Verificado: **não há pedido de aumento pendente** para essa quota
+     Falhou: `IllegalArgumentException: You must provide a quota value greater than the default quota
+     value of 1000.0`. Confirmado via `get-aws-default-service-quota`: o **default padrão da AWS para
+     esta quota é 1000**, não 10 — o valor de 10 nesta conta é uma **restrição de conta nova/não
+     verificada**, não uma quota ajustável normal. A API Service Quotas só aceita pedidos de aumento
+     **acima** do default (ou seja, >1000), não para "restaurar" o default reduzido por restrição de
+     conta.
+   - Caminho correto: abrir um **caso de suporte manual pelo AWS Console** (Account and billing support,
+     disponível mesmo no plano Basic, gratuito) pedindo a remoção da restrição de conta nova. **Não é
+     possível via CLI/API**: a AWS Support API (`aws support ...`) retornou
+     `SubscriptionRequiredException` — requer plano Business/Enterprise, que esta conta não tem. Esta
+     etapa fica pendente de ação manual do Marcelo no Console AWS.
+   - Verificado antes da tentativa: **não havia pedido de aumento pendente** para essa quota
      (`list-requested-service-quota-change-history-by-quota` retornou lista vazia).
 2. Considerar `ReservedConcurrentExecutions` em `bff-handler`/`items-handler`/`subjects-handler` (funções
    síncronas, latência sensível) para isolá-las do pool competido por funções assíncronas em lote, mesmo
