@@ -1,0 +1,15 @@
+Rodada 3 do protocolo Claude↔Codex (expiration-tracker, EMF metrics + dashboard, E-018/E-021). Na Rodada 2 você deu 7,2/10, NEEDS FIXES, com 6 achados (4 BLOQUEANTES: tenantId ausente no contexto do outbox-relay-processor, mecanismo de alerta guest-credential-delivery mal descrito, dashboard usando Errors em vez de IteratorAge para Lambdas Streams-based, exceções sem outcome nomeado; 2 NÃO FECHADO: Terraform inválido no default de variável, contagem de log groups/funções errada - são 4, não 3).
+
+Leia docs/architecture/reviews/emf-metrics-dashboard-scoping/round3-claude-reconciliation.md - cada um dos 6 achados tem uma seção mostrando a correção.
+
+Verifique rapidamente contra o código real (você já verificou a maior parte na Rodada 2, então foque nas mudanças desta rodada):
+1. src/shared/outbox/outbox.ts linha ~96 (confirmar que OutboxRecord.tenantId existe, usado na correção #1)
+2. src/runtime/aws/handlers/dispatch-outbox-relay-processor.ts e guest-credential-delivery-handler.ts (confirmar que os catches citados nas linhas ~67-70/~63-66 realmente não logam outcome hoje, e que a correção de adicionar HANDLER_ERROR faz sentido no lugar certo)
+3. infra/main.tf linhas ~729-730 (destination_config.on_failure) vs a chamada de notifyUncertainDelivery em deliver.ts (confirmar que são de fato 2 caminhos distintos como a correção #2 descreve)
+
+Dê uma nota de 0 a 10 (não arredondada). Se os 6 achados da Rodada 2 estão realmente fechados e não há achado bloqueante novo, aprove (>=9,0) e a implementação pode prosseguir.
+
+Formato:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: só achados NOVOS ou ainda não fechados (liste "nenhum" se não houver)

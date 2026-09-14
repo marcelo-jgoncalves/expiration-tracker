@@ -1,0 +1,17 @@
+Você é o revisor independente (Codex) no protocolo Claude↔Codex deste projeto (expiration-tracker). Esta é a Rodada 2 da revisão do design de EMF metrics + CloudWatch dashboard (E-018/E-021). Na Rodada 1 você deu NOTA 6,8/10, NEEDS FIXES, com 7 achados BLOQUEANTES e 3 MENORES.
+
+Leia docs/architecture/reviews/emf-metrics-dashboard-scoping/round2-claude-revision.md (relativo à raiz do repo) — cada um dos seus 10 achados da Rodada 1 tem uma seção própria mostrando a correção.
+
+Verifique especificamente, lendo o código real:
+1. src/runtime/aws/handlers/reminder-dispatch-handler.ts (linhas ~90-99, confirmar que emitMetric() proposto ali, ao lado do logger.info/catch já existente, realmente nunca toca src/workers/reminder-dispatch/dispatch.ts)
+2. src/runtime/aws/handlers/dispatch-outbox-relay-processor.ts (linha ~63) e src/workers/dispatch-outbox-relay/relay.ts (linhas 49-53, confirmar os 5 kinds citados)
+3. src/runtime/aws/handlers/guest-credential-delivery-handler.ts (linha ~55) e src/workers/guest-credential-delivery/deliver.ts (linhas 94-102, confirmar os 9 kinds citados, e confirmar que notifyUncertainDelivery/a fila guest-credential-delivery-failures realmente já existem - infra/main.tf linhas ~631-639)
+4. Confirmar que os 3 handlers já chamam runWithContext({tenantId: ...}) antes de logar o outcome (necessário para a query Logs Insights proposta funcionar)
+5. infra/modules/alert-topic/ (variables.tf/main.tf/outputs.tf) como referência de convenção estrutural para avaliar se o novo módulo infra/modules/observability-dashboard/ proposto (ainda não escrito, só especificado na revisão) segue o padrão certo
+
+Dê uma nota de 0 a 10 (não arredondada) avaliando se os 10 achados da Rodada 1 foram REALMENTE fechados (não apenas superficialmente reformulados) e se restou algum achado novo.
+
+Formato da resposta:
+NOTA: X,X/10
+VEREDITO: APPROVED (se >=9,0) ou NEEDS FIXES (se <9,0)
+ACHADOS: lista numerada (só achados NOVOS ou NÃO fechados da Rodada 1 - não repita achados já corrigidos, confirme brevemente que foram fechados)
