@@ -68,6 +68,23 @@ export default tseslint.config(
     },
   },
   {
+    // k6 load-testing scripts (PERF-11, performance/k6/) - run inside k6's own JS runtime, not
+    // Node: `open`/`__ENV` are k6 globals (https://grafana.com/docs/k6/latest/using-k6/), and
+    // console.log output is exactly how k6 scripts surface progress/debug info during a run.
+    files: ["performance/k6/**/*.js"],
+    languageOptions: {
+      globals: {
+        open: "readonly",
+        __ENV: "readonly",
+        __VU: "readonly",
+        __ITER: "readonly",
+      },
+    },
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     // Architecture boundary, IDE-speed layer only (Engineering Maturity Review G10,
     // 2026-08-19). IMPORTANT: no-restricted-imports matches the literal import-specifier
     // TEXT, not the resolved module graph - it cannot see a transitive re-export (domain
