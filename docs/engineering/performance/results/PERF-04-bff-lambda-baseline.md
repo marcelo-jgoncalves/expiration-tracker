@@ -26,8 +26,8 @@ execução deste teste) quanto nos últimos 7 dias (tráfego real mais amplo, in
 anterior de PERF-01/02/03/04).
 
 **Decomposição via métricas customizadas (EMF)**: tentada conforme pedido pelo enunciado, mas
-**não foi possível** — ver seção "Achado: métricas EMF de BFF/Items/Subjects não estão chegando
-ao CloudWatch" abaixo. A decomposição de overhead usa, em vez disso, a `Duration` da linha
+**não disponível ainda** — a instrumentação do PERF-02 existe só nesta branch, não implantada em
+`dev` (ver seção "Correção: métricas EMF..." abaixo). A decomposição de overhead usa, em vez disso, a `Duration` da linha
 `REPORT` (tempo de execução real de cada função, nativo, sem instrumentação extra) comparando BFF
 vs. resource Lambda no mesmo período.
 
@@ -131,39 +131,30 @@ plano ("overhead do BFF" em ordem de grandeza), não uma medição controlada po
 Gateway, não tempo de execução Lambda. Não foi decomposta região a região (fora do escopo; isso é
 PERF-06, Edge/CloudFront).
 
-## Achado: métricas EMF de BFF/Items/Subjects não estão chegando ao CloudWatch
+## Correção: métricas EMF de BFF/Items/Subjects ainda não chegam ao CloudWatch — não é bug, é deploy
 
-O enunciado pedia usar as métricas customizadas já instrumentadas no PERF-02
-(`bff.session_resolve_ms`, `bff.proxy_ms`, `lambda.request_context_ms`,
-`lambda.business_operation_ms`) via CloudWatch EMF para decompor o overhead. Investigado e
-**confirmado que essas métricas não existem no CloudWatch nesta conta**:
+A fatia original deste documento registrou isso como "achado real, causa raiz não confirmada,
+possível interferência do ADOT com `console.log`". **Isso estava errado.** Causa raiz real,
+confirmada após a fatia: **a instrumentação do PERF-02 nunca foi implantada em `dev`.**
 
-- `aws cloudwatch list-metrics` não retorna nenhum namespace `ExpirationTracker/BFF`,
-  `ExpirationTracker/RequestContext`, `ExpirationTracker/Items` ou `ExpirationTracker/Subjects` —
-  apenas `ExpirationTracker/DispatchOutboxRelay` existe entre os namespaces customizados do
-  projeto.
-- Busca direta nos logs brutos (`CloudWatch Logs Insights`, `filter @message like /.../`) por
-  `session_resolve_ms`, `proxy timing`, `CloudWatchMetrics` (a chave que identifica uma linha EMF)
-  no log group `/aws/lambda/exptrk-dev-bff-handler` (2h e 7 dias) e por `business_operation_ms`
-  em `/aws/lambda/exptrk-dev-items-handler` (2h) retornou **zero resultados**, apesar de 232 e 59
-  invocações reais respectivamente na mesma janela (confirmado via `filter @type = "REPORT"`, que
-  funciona normalmente).
-- Ou seja: o código que chama `emitMetric()`/`logger.info()` em `handleProxy`
-  (`src/modules/bff/http/bff-handlers.ts:335-337`) e nos handlers de recurso
-  (`src/runtime/aws/handlers/items-handler.ts` etc., via `timeSpan(NAMESPACE, ...)`) existe e foi
-  mergeado (PERF-02), mas a linha de log EMF que deveria sair via `console.log` não está
-  aparecendo no CloudWatch Logs desta função — nem como métrica extraída, nem como texto bruto.
-  `ExpirationTracker/DispatchOutboxRelay` (que roda `emitMetric` no handler de um worker SQS,
-  não atrás do API Gateway) **funciona normalmente**, o que sugere que o problema é específico do
-  caminho BFF/Items/Subjects (funções atrás do API Gateway, com a layer ADOT ativa) — hipótese
-  mais provável: a instrumentação ADOT intercepta/reescreve `console.log` de um jeito que
-  interfere com a extração automática de EMF pelo CloudWatch para essas funções especificamente,
-  mas não foi confirmado a causa raiz (fora do escopo de uma tarefa de medição).
+- `exptrk-dev-bff-handler` (`aws lambda get-function-configuration`) tem `LastModified` correspondente
+  ao último deploy da pipeline CI/CD a partir de `develop`/`main` — SHA `8ade669`, o mesmo commit em
+  que `perf/performance-program-v1` foi criado. Todo o trabalho de PERF-02 (`emitMetric`/
+  `withHandlerTiming`/`timeSpan` em `bff-handlers.ts`, `items-handler.ts`, etc.) existe **apenas
+  localmente nesta branch de feature**, nunca commitado em `develop`/`main`, logo nunca implantado —
+  este repo nunca roda `terraform apply`/deploy local, só via pipeline de CD no merge (regra do
+  projeto). As 232/59 invocações reais observadas na janela rodaram o código **antigo**, sem
+  nenhuma chamada a `emitMetric()`.
+- `ExpirationTracker/DispatchOutboxRelay` funciona porque essa instrumentação (D-290) **já estava
+  mergeada em `develop`/`main` antes desta branch** — não é uma diferença de comportamento entre
+  workers e handlers atrás do API Gateway, como a hipótese original sugeria; é só a diferença entre
+  código implantado e código não implantado.
 
-**Isto é um achado real, não um erro deste teste** — vale um item de acompanhamento (possivelmente
-dentro de PERF-05, que já vai isolar ADOT ON/OFF, ou um item dedicado) antes de depender dessas
-métricas em qualquer decisão futura do programa de performance. A decomposição de overhead acima
-foi feita com a `Duration` nativa da REPORT line como alternativa, que está confirmada funcionando.
+**Não há bug para investigar.** A decomposição fina (session_resolve_ms/proxy_ms/
+request_context_ms/business_operation_ms) só ficará disponível depois que esta branch for
+mergeada e implantada em `dev` via CI/CD — um evento de merge normal, não uma correção de código.
+Até lá, a decomposição de overhead acima usa `Duration` nativa da REPORT line, que já está
+confirmada funcionando.
 
 ## BFF vs. chamada direta ao Resource API — não realizado
 
@@ -196,11 +187,12 @@ ao resource API isolada da rede pública.
   **não disponível** — ver achado EMF acima.
 - **Tempo do resource handler**: Items p50=213ms/p95=1005ms; Subjects p50=213ms/p95=647ms
   (Duration nativa da REPORT line).
-- **Share do RequestContext**: **não respondido** — depende da métrica
-  `lambda.request_context_ms` (`ExpirationTracker/RequestContext`), que sofre do mesmo problema de
-  EMF não aparecendo no CloudWatch (achado acima). Sem essa métrica, não há como isolar o tempo de
-  `resolveRequestContext` dentro do `Duration` total do resource handler nesta fatia. Pendente até
-  o achado EMF ser investigado/corrigido.
+- **Share do RequestContext**: **não respondido nesta fatia** — depende da métrica
+  `lambda.request_context_ms` (`ExpirationTracker/RequestContext`), que só existe no código desta
+  branch (`perf/performance-program-v1`), ainda não implantada em `dev` (ver correção acima). Sem
+  essa métrica, não há como isolar o tempo de `resolveRequestContext` dentro do `Duration` total do
+  resource handler nesta fatia. Fica respondido automaticamente assim que esta branch for mergeada
+  e implantada — sem nenhuma ação de correção necessária, só aguardar o merge normal.
 
 ## Arquivos
 
