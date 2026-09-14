@@ -73,7 +73,7 @@ export function AppShell() {
       <nav className="app-shell__nav" aria-label="Navegação principal">
         <span className="app-shell__wordmark">Expiration Tracker</span>
         {visibleNavItems.map((item) => (
-          <NavLink key={item.id} to={orgPath(item.to)} className={navLinkClassName}>
+          <NavLink key={item.id} to={orgPath(item.to)} end={item.end} className={navLinkClassName}>
             {item.label}
           </NavLink>
         ))}

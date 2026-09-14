@@ -1,8 +1,74 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { loadAllSchemasFromDisk } from "../../src/shared/contracts/schema-registry-disk.js";
+import { defaultSchemaRegistry } from "../../src/shared/contracts/schema-validator.js";
 
 describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () => {
   const registry = loadAllSchemasFromDisk();
+
+  // Real bug (2026-09-14, live `dev` usage): docarchive-review-queue-search-request.v1.json
+  // existed on disk and was referenced by REVIEW_QUEUE_SEARCH_SCHEMA_ID
+  // (document-archive-handlers.ts) but was never imported/added to `defaultSchemaRegistry`'s
+  // static list (schema-validator.ts) - the ONLY registry a real Lambda ever validates against.
+  // Every real GET /document-archive/reviews call threw "Unknown schema $id". The tests above
+  // using `loadAllSchemasFromDisk()` (a dynamic directory walk) never caught this because they
+  // don't exercise the static-import production path at all. This test does, generically: it
+  // finds every `*_SCHEMA_ID` constant referencing a schemas/api/**/*.json `$id` across all HTTP
+  // handler source files, and asserts `defaultSchemaRegistry` actually has each one registered.
+  describe("defaultSchemaRegistry (production runtime path, schema-validator.ts)", () => {
+    function repoRoot(): string {
+      return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../");
+    }
+
+    function walkTsFiles(dir: string): string[] {
+      const out: string[] = [];
+      for (const entry of readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        const stat = statSync(full);
+        if (stat.isDirectory()) out.push(...walkTsFiles(full));
+        else if (entry.endsWith(".ts")) out.push(full);
+      }
+      return out;
+    }
+
+    it("has every schema $id referenced by a *_SCHEMA_ID constant under src/modules/**/http registered", () => {
+      const httpDir = path.join(repoRoot(), "src", "modules");
+      const schemaIdPattern = /_SCHEMA_ID\s*=\s*"(https:\/\/expiration-tracker\/schemas\/[^"]+)"/g;
+      const referencedIds = new Set<string>();
+      for (const file of walkTsFiles(httpDir)) {
+        if (!file.includes(`${path.sep}http${path.sep}`)) continue;
+        const content = readFileSync(file, "utf-8");
+        for (const match of content.matchAll(schemaIdPattern)) {
+          referencedIds.add(match[1]!);
+        }
+      }
+      // Sanity check the scan itself found a realistic number of references, so this test can't
+      // silently pass by finding zero (e.g. if the directory layout ever changes).
+      expect(referencedIds.size).toBeGreaterThan(20);
+
+      const missing: string[] = [];
+      for (const schemaId of referencedIds) {
+        try {
+          defaultSchemaRegistry.validate(schemaId, {});
+        } catch (err) {
+          if (err instanceof Error && err.message.startsWith("Unknown schema $id")) {
+            missing.push(schemaId);
+          }
+          // Any other throw (e.g. a real validation failure against `{}`) means the schema WAS
+          // found and compiled - that's success for this test's purpose.
+        }
+      }
+      expect(missing).toEqual([]);
+    });
+
+    it("validates a real docarchive-review-queue-search-request.v1 query against the production registry", () => {
+      const { valid, errors } = defaultSchemaRegistry.validate("https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json", { state: "RECEIVED" });
+      expect(errors).toEqual([]);
+      expect(valid).toBe(true);
+    });
+  });
 
   it("loads every schema under schemas/ without $ref resolution errors", () => {
     expect(() => loadAllSchemasFromDisk()).not.toThrow();
