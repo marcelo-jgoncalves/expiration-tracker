@@ -475,8 +475,15 @@ module "document_archive_handler" {
     # visitor's route, so it needs no clean-bucket S3 grant beyond what it already has.
     DOCARCHIVE_SHARE_LINK_PEPPER = random_password.docarchive_share_link_pepper.result
   })
+  # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above. This
+  # handler calls buildIdentityDeps(...).resolver.resolve() (document-archive-handler.ts) like
+  # every other route Lambda in this D-116 finding class, and was missed when the rest were
+  # fixed - every route here (reads and writes alike) has been failing with "DynamoDB access
+  # denied during OrganizationStore.queryGsi4" since deploy, found during PERF-04 test-tenant
+  # prep.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi4_read_policy_json,
     data.aws_iam_policy_document.document_archive_presign_quarantine_put.json,
     data.aws_iam_policy_document.report_exports_read.json,
   ]

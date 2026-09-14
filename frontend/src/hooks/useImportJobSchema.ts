@@ -9,11 +9,15 @@ import { useQuery } from "@tanstack/react-query";
 import { getImportJobSchema } from "../api/imports.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import type { ImportJobSchemaResult } from "../api/types.js";
 
 const DISABLED_QUERY_KEY = ["imports", "schema", "disabled"] as const;
 
+// PERF-10: NEAR_REALTIME - only ever enabled for one specific job/step of an active wizard the
+// user is watching move through backend-driven states; a cached read here could show a schema
+// from before the user's own mapping edit round-tripped.
 export function useImportJobSchema(jobId: string | undefined, enabled: boolean) {
   const { organizationId } = useActiveOrganization();
   const isEnabled = Boolean(jobId && organizationId && enabled);
@@ -23,5 +27,6 @@ export function useImportJobSchema(jobId: string | undefined, enabled: boolean) 
     queryFn: ({ signal }) => getImportJobSchema(jobId as string, { signal }),
     enabled: isEnabled,
     retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.NEAR_REALTIME,
   });
 }

@@ -18,6 +18,7 @@
  *  6. build the immutable RequestContext.
  */
 import { AuthenticationError, InternalError, OnboardingRequiredError, OrganizationSelectionRequiredError, OrganizationUnavailableError, UnsupportedMembershipRoleError } from "../../../shared/errors/app-error.js";
+import { timeSpan } from "../../../shared/observability/handler-timing.js";
 import { GlobalUserRepository } from "../persistence/global-user-repository.js";
 import { IdentityBootstrapService } from "./bootstrap-identity.js";
 import { OnboardingStateResolver } from "../../organization/application/onboarding-state.js";
@@ -67,7 +68,17 @@ export class RequestContextResolver {
     this.onboarding = new OnboardingStateResolver(organizations);
   }
 
+  // PERF-02 slice 2: this is the single choke point every HTTP handler's inline
+  // `deps.resolver.resolve(...)` call goes through (grep-verified, 56+ call sites across 13
+  // module http files) - timing it here once, instead of at each call site, covers every
+  // resource Lambda handler for free. Shared namespace/metric name (not per-handler) because
+  // this class itself has no handler identity - per-handler breakdown is still available via
+  // the log line's ambient correlationId/tenantId (AsyncLocalStorage context, see logger.ts).
   async resolve(input: ResolveRequestContextInput): Promise<RequestContext> {
+    return timeSpan("ExpirationTracker/RequestContext", "lambda.request_context_ms", "request context resolution timing", () => this.resolveInner(input));
+  }
+
+  private async resolveInner(input: ResolveRequestContextInput): Promise<RequestContext> {
     const { claims } = input;
 
     const newUserId = this.ids.newUserId();

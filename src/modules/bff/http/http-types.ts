@@ -15,4 +15,8 @@ export interface BffHttpResponse {
   headers?: Record<string, string>;
   cookies?: string[]; // one entry per Set-Cookie header - API Gateway HTTP API v2 supports a `cookies` response array natively
   body: unknown;
+  /** True when `body` is already the exact string to send as-is (e.g. a proxied CSV report
+   * body) - the API Gateway adapter must skip JSON.stringify() for it. Every other handler
+   * leaves this unset and keeps returning a JSON-serializable value, as before. */
+  isRawBody?: boolean;
 }

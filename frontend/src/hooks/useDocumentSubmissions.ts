@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchDocumentSubmissions } from "../api/subjects.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { DocumentSubmissionsResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
@@ -15,5 +16,6 @@ export function useDocumentSubmissions(subjectId: string, assignmentId: string, 
     queryFn: ({ signal }) => fetchDocumentSubmissions(subjectId, assignmentId, { signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: enabled && Boolean(organizationId) && !switching && subjectId.length > 0 && assignmentId.length > 0,
+    staleTime: STALE_TIME.OPERATIONAL,
   });
 }

@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchSubject } from "../api/subjects.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
 import type { SubjectResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
+// PERF-10: REFERENCE - subject master data changes occasionally, not moment to moment.
 export function useSubject(subjectId: string) {
   const { organizationId, switching } = useActiveOrganization();
   return useQuery<SubjectResponse, unknown>({
@@ -12,5 +14,6 @@ export function useSubject(subjectId: string) {
     queryFn: ({ signal }) => fetchSubject(subjectId, { signal }),
     retry: retryPolicyFor("safe-read"),
     enabled: Boolean(organizationId) && !switching && subjectId.length > 0,
+    staleTime: STALE_TIME.REFERENCE,
   });
 }

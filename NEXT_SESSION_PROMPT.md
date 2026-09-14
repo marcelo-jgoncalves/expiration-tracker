@@ -102,6 +102,12 @@ Documento completo: `docs/engineering/reviews/external-audit-2026-09-11-critica-
 
 **Lição de processo desta sessão (ver `AGENTS.md` §1)**: default agora é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
 
+## Programa de Performance (novo, 2026-09-14 — fora do roadmap P0/P1, iniciativa própria de Marcelo)
+
+Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (raiz do repo, documento do Marcelo — nunca commitar/mover sem pedir, é dele). Rastreamento vivo criado: `docs/engineering/performance/TODO.md` + `README.md` (estrutura de diretórios `baseline/experiments/load-tests/screenshots/traces/results/` já criada localmente, ainda não commitada). Ordem obrigatória do plano (§4): PERF-00 a PERF-15, em 3 ciclos (A: 00-05, B: 06-10, C: 11-13, fechamento: 14-15) — nunca executar tudo de uma vez.
+
+**Próximo passo concreto, autônomo, sem esperar comando**: PERF-00 (criar branch `perf/performance-program-v1` a partir de `develop`, registrar SHA, commitar `docs/engineering/performance/`) → PERF-01 (checar quota real de Lambda Concurrent Executions em `dev` via `aws --profile claude-dev`, hipótese do plano é que ainda é 10) → PERF-02 (instrumentação/spans). Regra do próprio plano: medir antes de alterar, nunca misturar experimentos, sempre separar cold/warm, sempre percentis. Nenhuma mudança estrutural (memória de Lambda, code splitting, staleTime, RequestContext fast path, PriceClass, Provisioned Concurrency) antes de haver baseline — ver `TODO.md` seção "Não fazer sem evidência".
+
 ## Status de evidência (não presumir E2E sem checar)
 
 A maioria dos mecanismos do roadmap P0/backlog P1 está `IMPLEMENTED`/`UNIT TESTED` e confirmada `Active` contra `dev` via `aws --profile claude-dev`, mas **nem todo mecanismo tem prova E2E de ponta a ponta disparando pelo gatilho real** (cron/SQS real, não só G-V3/unit) — isso é nomeado individualmente nas linhas do roadmap acima onde relevante ("nunca testado ponta a ponta com... real"). Não assumir E2E PROVEN sem checar a linha específica do item ou `decisions-log.md`.
