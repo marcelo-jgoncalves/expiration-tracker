@@ -27,23 +27,99 @@ function cancellationReasons(entries: TransactWriteEntry[], failedIndex: number)
  * Put/Delete conditions beyond the two hardcoded shapes this fake originally special-
  * cased, so conditions are now evaluated structurally instead of by substring matching.
  */
+/** Resolves a raw attribute reference (either a literal name or a `#placeholder`) to the real
+ * attribute name via `names`. */
+function resolveAttr(raw: string, names: Record<string, string>): string {
+  return raw.startsWith("#") ? (names[raw] ?? raw) : raw;
+}
+
 function evalClause(clause: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
   const trimmed = clause.trim();
-  const notExists = /^attribute_not_exists\((\w+)\)$/.exec(trimmed);
-  if (notExists) return existing?.[notExists[1]!] === undefined;
-  const exists = /^attribute_exists\((\w+)\)$/.exec(trimmed);
-  if (exists) return existing?.[exists[1]!] !== undefined;
+  // D-300 (lease.ts): attribute_not_exists/attribute_exists must accept a `#placeholder` name,
+  // not just a literal one - occ.ts's extraConditions always uses placeholders.
+  const notExists = /^attribute_not_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (notExists) return existing?.[resolveAttr(notExists[1]!, names)] === undefined;
+  const exists = /^attribute_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (exists) return existing?.[resolveAttr(exists[1]!, names)] !== undefined;
+  // D-300 (lease.ts reclaim/checkpoint conditions): ordering comparisons over ISO-string
+  // (lexicographically ordered by construction) or numeric attributes.
+  const cmp = /^([#\w]+)\s*(<=|>=|<|>)\s*(:\w+)$/.exec(trimmed);
+  if (cmp) {
+    const attr = resolveAttr(cmp[1]!, names);
+    const existingValue = existing?.[attr];
+    const expected = values[cmp[3]!];
+    if (existingValue === undefined) return false;
+    switch (cmp[2]) {
+      case "<":
+        return (existingValue as never) < (expected as never);
+      case "<=":
+        return (existingValue as never) <= (expected as never);
+      case ">":
+        return (existingValue as never) > (expected as never);
+      case ">=":
+        return (existingValue as never) >= (expected as never);
+      default:
+        return false;
+    }
+  }
   const eq = /^([#\w]+)\s*=\s*(:\w+)$/.exec(trimmed);
   if (eq) {
-    const rawAttr = eq[1]!;
-    const attr = rawAttr.startsWith("#") ? (names[rawAttr] ?? rawAttr) : rawAttr;
+    const attr = resolveAttr(eq[1]!, names);
     return existing !== undefined && existing[attr] === values[eq[2]!];
   }
   throw new Error(`InMemoryReminderStore: unsupported condition clause: ${clause}`);
 }
 
+/** Splits `expr` on `separator` at PAREN DEPTH 0 ONLY - a naive `String.split(" AND ")` would
+ * incorrectly split INSIDE a parenthesized group (e.g. occ.ts's `extraConditions`, which wraps
+ * each entry's own multi-clause expression in its own parens specifically so callers never have
+ * to hand-balance parens against the base condition - see occ.ts's doc comment). D-300's
+ * checkpoint condition is the first real exerciser of a multi-clause extraConditions entry
+ * against this fake (`(#ownerToken = :x AND #leaseUntil >= :y AND ...)`), which surfaced this
+ * gap - naive splitting shredded that group into invalid fragments. */
+function splitTopLevel(expr: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i]!;
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth === 0 && expr.slice(i, i + separator.length) === separator) {
+      parts.push(current.trim());
+      current = "";
+      i += separator.length;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+/** A token wrapped in its own balanced outer parens (occ.ts's `extraConditions` shape) is
+ * recursively evaluated as a nested condition; otherwise it's a leaf clause. */
+function evalClauseOrGroup(token: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  if (token.startsWith("(") && token.endsWith(")")) {
+    let depth = 0;
+    let closesAtEnd = true;
+    for (let i = 0; i < token.length - 1; i++) {
+      if (token[i] === "(") depth += 1;
+      if (token[i] === ")") depth -= 1;
+      if (depth === 0) {
+        closesAtEnd = false;
+        break;
+      }
+    }
+    if (closesAtEnd) return evalCondition(token.slice(1, -1), existing, names, values);
+  }
+  return evalClause(token, existing, names, values);
+}
+
 function evalCondition(expression: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
-  return expression.split(" OR ").some((orGroup) => orGroup.split(" AND ").every((clause) => evalClause(clause, existing, names, values)));
+  return splitTopLevel(expression, " OR ").some((orGroup) => splitTopLevel(orGroup, " AND ").every((clause) => evalClauseOrGroup(clause, existing, names, values)));
 }
 
 export class InMemoryReminderStore implements ReminderStore, ReminderProducerStore {
@@ -92,17 +168,17 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
           }
         }
       } else {
+        // D-300 (lease.ts) real finding: this branch used to hardcode "check version + tenantId
+        // only", completely ignoring any `extraConditions` (ownerToken/leaseUntil/
+        // lastEvaluatedKey for D-300's lease transitions) AND silently passing for an unscoped
+        // update (buildUnscopedVersionedUpdate has no `:tenantId` value at all, so
+        // `undefined === undefined` vacuously succeeded). Now uses the SAME generic
+        // evalCondition evaluator as Put/ConditionCheck/Delete above - the condition string is
+        // the single source of truth, never re-derived ad hoc per entry kind.
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
-        if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
-          if (!existing) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: item missing", CancellationReasons: cancellationReasons(entries, index) };
-          }
-          const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
-          const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
-          if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
-            throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version/tenant mismatch", CancellationReasons: cancellationReasons(entries, index) };
-          }
+        if (!evalCondition(entry.Update.ConditionExpression, existing, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues)) {
+          throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed on Update", CancellationReasons: cancellationReasons(entries, index) };
         }
       }
     });

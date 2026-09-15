@@ -84,7 +84,19 @@ export type OutboxDestination =
    * destination value exists now so the outbox row shape/relay/queue/worker chain can be built
    * and tested end-to-end ahead of that wiring, same "written before its (real) producer is
    * wired" pattern `SQS_REQUIREMENT_EVIDENCE_REFRESH_V1` above already established. */
-  | "SQS_NOTIFICATION_WHATSAPP_V1";
+  | "SQS_NOTIFICATION_WHATSAPP_V1"
+  /** D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §1/§4): written in the
+   * SAME `TransactWriteItems` as EVERY `ReminderScanLease` transition (acquire, reclaim, and
+   * checkpoint-with-more-pages - never checkpoint-to-COMPLETED, which has no continuation to
+   * send). Unlike every other destination above, this one's outbox `data` carries a COMPLETE
+   * `SqsCommandEnvelope` (mirroring `DispatchCommand` in `producer.ts:246-284`) because
+   * `DispatchOutboxRelay` forwards `event.data` raw, without wrapping it - the envelope itself
+   * must already be fully formed when it is written, not assembled downstream. `tenantId` on the
+   * envelope is the `"SYSTEM"` sentinel (never a real tenant - this is a system-owned scan
+   * coordination message, formalized here, never consumable by tenant-partitioning/authorization
+   * logic). Consumed by the SAME Lambda/module that produced it (`reminder-producer`, dual
+   * trigger - see `reminder-producer-handler.ts`), never the new claim consumer. */
+  | "SQS_REMINDER_SCAN_CONTINUATION_V1";
 
 export interface OutboxRecord {
   PK: string;
