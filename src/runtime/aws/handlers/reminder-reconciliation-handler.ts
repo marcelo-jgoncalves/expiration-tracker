@@ -41,6 +41,26 @@ function rolloutEpoch(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+/**
+ * Real incident found live during D-300 revalidation (2026-09-15): the SCANLEASE pass is NOT
+ * gated by SCAN_MODE at all, unlike the producer handler's own dual-trigger logic (see
+ * reminder-producer-handler.ts's identical `scanMode()` helper). Under SCAN_MODE=LEGACY (or
+ * during the window where the SQS event source mappings are disabled but no consumer will ever
+ * act on a reclaim), every stuck lease this pass finds gets reclaimed with a FRESH leaseUntil -
+ * which produces a new continuation outbox event but can never make forward progress, since
+ * nothing will process it. Confirmed live: this kept the outbox backlog growing at
+ * ~140-150 records/min even AFTER both real relay bugs were fixed and the producer-side rollback
+ * (disabled mappings + SCAN_MODE=LEGACY) completed - because reconciliation runs on its own
+ * independent schedule, untouched by either rollback step. Gated here, at the handler, BEFORE
+ * the GSI6 query itself (not just inside reconcileScanLeases) - a Codex review of this exact fix
+ * (9.6/10) found that gating only inside the pure function still pays the GSI6 read cost for
+ * every invocation; skipping the query entirely under LEGACY is strictly better with no
+ * downside. Same "unrecognized/absent value fails toward LEGACY" semantics as the producer's own
+ * scanMode() - never the new, still-partially-validated behavior. */
+function scanMode(): "LEGACY" | "PAGED" {
+  return process.env["SCAN_MODE"] === "PAGED" ? "PAGED" : "LEGACY";
+}
+
 // DECISION.md §3: 200s, same lease duration every other lease-transition caller uses.
 const LEASE_DURATION_MS = 200_000;
 
@@ -97,13 +117,18 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
     // D-300 (DECISION.md §7): SCANLEASE 3rd pass, SAME 5-minute execution as CLAIMS above -
     // independent detection of a stuck reminder-scan chain, closing the gap that
     // enumerate-and-lease.ts's own per-tick lookback window cannot (a (shard, minute) that has
-    // aged out of that lookback is never re-examined by any other mechanism).
-    let scanLeaseCursor: string | undefined;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const result = await candidateSource.listStuckScanLeases({ before: now(), cursor: scanLeaseCursor });
-      stuckScanLeaseCandidates.push(...result.items);
-      if (!result.cursor) break;
-      scanLeaseCursor = result.cursor;
+    // aged out of that lookback is never re-examined by any other mechanism). Gated on
+    // SCAN_MODE=PAGED (see scanMode()'s doc comment above) - skips the GSI6 query entirely
+    // under LEGACY, never just the reclaim, so a rollback genuinely stops both the read and
+    // write cost, not only the write amplification.
+    if (scanMode() === "PAGED") {
+      let scanLeaseCursor: string | undefined;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const result = await candidateSource.listStuckScanLeases({ before: now(), cursor: scanLeaseCursor });
+        stuckScanLeaseCandidates.push(...result.items);
+        if (!result.cursor) break;
+        scanLeaseCursor = result.cursor;
+      }
     }
   }
 
