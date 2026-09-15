@@ -275,10 +275,12 @@ module "reminder_producer" {
   timeout_seconds = 60
   adot_layer_arn  = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    # DECISION.md §8 staged rollout: LEGACY is the safe default this deploy ships with -
-    # PAGED is flipped in a LATER apply, through the normal PR->CI->merge->CD pipeline, never
-    # applied locally.
-    SCAN_MODE                = "LEGACY"
+    # DECISION.md §8 staged rollout, "Apply 2": D-300's code/infra (this whole module family)
+    # was deployed inert under LEGACY first (D-301 decisions-log.md entry); this is the
+    # deliberate, separate flip to PAGED - through this same PR->CI->merge->CD pipeline, never
+    # applied locally - so the new lease/scan-page mechanism actually runs and can be validated
+    # against the perf/load-testing-multi-tenant-v1 / perf/load-testing-10k-v1 harnesses.
+    SCAN_MODE                = "PAGED"
     SCAN_MODE_EPOCH          = "1"
     REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
   })
