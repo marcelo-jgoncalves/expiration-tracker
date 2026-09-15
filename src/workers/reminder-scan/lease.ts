@@ -121,7 +121,20 @@ function buildContinuationCommand(deps: LeaseTransitionDeps, ref: ShardMinuteRef
   };
 }
 
-function appendContinuationOutbox(tx: TransactWriteEntry[], deps: LeaseTransitionDeps, ref: ShardMinuteRef, command: ReminderScanContinuationCommand): void {
+/**
+ * Real bug found live during D-300 revalidation (2026-09-15, 10k dev burst): this originally
+ * hardcoded `aggregate.version: 0`, but `domain-event-envelope.v1.json` requires
+ * `aggregateVersion >= 1` - every scan-continuation outbox record failed the relay's own schema
+ * validation (`dispatch-outbox-relay schema-invalid OutboxEvent image`, `/aggregateVersion must
+ * be >= 1`), forever, so no continuation message EVER reached the real scan queue and every lease
+ * just kept getting reclaimed by the next enumeration tick without ever being worked - a
+ * reproduction of PERF-12's exact symptom (occurrences never claimed) via a NEW defect, not the
+ * old cause. Fixed by threading through the REAL version the lease item is being written at in
+ * this same transaction (never a placeholder) - `leaseVersion` is the caller's responsibility,
+ * since only the caller knows whether this is a fresh version:1 write (acquire/reclaim) or a
+ * checkpoint's `expectedVersion + 1`.
+ */
+function appendContinuationOutbox(tx: TransactWriteEntry[], deps: LeaseTransitionDeps, ref: ShardMinuteRef, command: ReminderScanContinuationCommand, leaseVersion: number): void {
   const now = deps.now();
   const event: DomainEvent = {
     specVersion: "1.0",
@@ -132,7 +145,7 @@ function appendContinuationOutbox(tx: TransactWriteEntry[], deps: LeaseTransitio
     correlationId: command.correlationId,
     tenantId: SYSTEM_TENANT_SENTINEL,
     actor: { type: "SYSTEM" },
-    aggregate: { type: "ReminderScanLease", id: `${ref.shardFnVersion}#${ref.shardId}#${ref.minuteISO}`, version: 0 },
+    aggregate: { type: "ReminderScanLease", id: `${ref.shardFnVersion}#${ref.shardId}#${ref.minuteISO}`, version: leaseVersion },
     data: command as unknown as Record<string, unknown>,
   };
   appendToTransaction(tx, deps.tableName, event, SCAN_CONTINUATION_DESTINATION);
@@ -164,7 +177,7 @@ export function buildAcquireLeaseTransaction(deps: LeaseTransitionDeps, ref: Sha
   };
   const tx: TransactWriteEntry[] = [{ Put: buildConditionalPut({ tableName: deps.tableName, item, conditionExpression: "attribute_not_exists(PK)" }) }];
   const command = buildContinuationCommand(deps, ref, ownerToken, undefined);
-  appendContinuationOutbox(tx, deps, ref, command);
+  appendContinuationOutbox(tx, deps, ref, command, item.version);
   return { tx, ownerToken };
 }
 
@@ -203,7 +216,7 @@ export function buildReclaimLeaseTransaction(deps: LeaseTransitionDeps, ref: Sha
     },
   ];
   const command = buildContinuationCommand(deps, ref, newOwnerToken, undefined);
-  appendContinuationOutbox(tx, deps, ref, command);
+  appendContinuationOutbox(tx, deps, ref, command, item.version);
   return { tx, ownerToken: newOwnerToken };
 }
 
@@ -279,7 +292,10 @@ export function buildCheckpointLeaseTransaction(deps: LeaseTransitionDeps, input
   const tx: TransactWriteEntry[] = [{ Update: update }];
   if (!isCompleting) {
     const command = buildContinuationCommand(deps, input.ref, input.ownerToken, input.nextLastEvaluatedKey);
-    appendContinuationOutbox(tx, deps, input.ref, command);
+    // The Update above increments `version` by exactly 1 (occ.ts's own "#version = #version +
+    // :one" - see buildUnscopedVersionedUpdate) - the outbox event's aggregate.version must
+    // match the ACTUAL post-write version, never the pre-write expectedVersion.
+    appendContinuationOutbox(tx, deps, input.ref, command, input.expectedVersion + 1);
   }
   return tx;
 }
