@@ -43,8 +43,23 @@ export async function processStreamRecords(
 
       const { valid, errors } = defaultSchemaRegistry.validate(OUTBOX_RECORD_SCHEMA_ID, raw);
       if (!valid) {
-        logger.error("dispatch-outbox-relay schema-invalid OutboxEvent image", { eventID: record.eventID, errors });
-        batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
+        // Real bug found live during D-300 revalidation (2026-09-15): this used to push a
+        // schema-invalid record onto batchItemFailures (retryable). For a DynamoDB Streams
+        // event source mapping (unlike SQS), ReportBatchItemFailures retries starting AT the
+        // earliest reported failure's position - NOT that record alone - so a PERMANENTLY
+        // malformed record (one that will fail identical validation on every future retry,
+        // since its image is an immutable historical snapshot no update to the live item can
+        // retroactively change) blocks its entire stream shard forever with
+        // MaximumRetryAttempts=-1 (infra/main.tf's dispatch_outbox_relay event source mapping):
+        // every record after it in the same shard - including perfectly valid ones - starves
+        // behind it, never delivered. Observed live: a single bad deploy produced ~dozens of
+        // aggregateVersion:0 records (fixed in PR #338); even AFTER the fix deployed, brand
+        // new valid records sat un-relayed for 15+ minutes because the shard was still stuck
+        // retrying the OLD poisoned ones. A schema-invalid record can never become valid via
+        // retry - this is a genuine poison-message case, not a transient one - so it must be
+        // logged and SKIPPED (never added to batchItemFailures), same "terminal, not
+        // retryable" treatment as the unparseable-image catch block below.
+        logger.error("dispatch-outbox-relay schema-invalid OutboxEvent image - skipping (poison, not retryable)", { eventID: record.eventID, errors });
         continue;
       }
       const item = raw as OutboxRecord;
@@ -82,9 +97,11 @@ export async function processStreamRecords(
         }
       });
     } catch (err) {
-      // Genuinely unparseable Streams image - no correlationId available at all.
-      logger.error("dispatch-outbox-relay failed to parse Streams image", { eventID: record.eventID, error: err instanceof Error ? err.message : String(err) });
-      batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
+      // Genuinely unparseable Streams image - no correlationId available at all. Same poison-
+      // message reasoning as the schema-invalid branch above: an image that fails to unmarshall
+      // is an immutable historical snapshot, never retryable into success - skip, don't block
+      // the shard forever.
+      logger.error("dispatch-outbox-relay failed to parse Streams image - skipping (poison, not retryable)", { eventID: record.eventID, error: err instanceof Error ? err.message : String(err) });
     }
   }
 

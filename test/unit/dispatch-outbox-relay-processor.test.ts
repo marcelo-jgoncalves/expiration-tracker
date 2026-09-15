@@ -145,7 +145,15 @@ describe("dispatch-outbox-relay-handler processStreamRecords - schema validation
     expect(batchItemFailures).toEqual([]);
   });
 
-  it("rejects a schema-invalid OutboxEvent image (missing eventId) as a batch item failure, with a schema-invalid log line", async () => {
+  it("D-300 revalidation real finding (2026-09-15): skips a schema-invalid OutboxEvent image (missing eventId) WITHOUT reporting it as a batch item failure - logs it, never retries", async () => {
+    // THE OLD BUG this test now proves fixed: a permanently-malformed Streams image can never
+    // become valid on retry (it's an immutable historical snapshot), so reporting it as a
+    // batchItemFailure - retryable, per DynamoDB Streams' ReportBatchItemFailures semantics -
+    // caused Lambda to retry starting AT that record's position forever (MaximumRetryAttempts=-1
+    // on this event source mapping), blocking every record after it in the same shard, including
+    // perfectly valid ones. Observed live: a real deploy produced malformed records, and even
+    // after the root cause was fixed, brand-new valid records sat un-relayed for 15+ minutes
+    // because the shard was still stuck retrying the old poisoned ones.
     const lines: string[] = [];
     const logger = new SecureLogger({ sink: (_level, line) => lines.push(line), now: () => "2026-08-19T10:00:05.000Z" });
     const malformed = outboxRecord() as unknown as Record<string, unknown>;
@@ -157,8 +165,27 @@ describe("dispatch-outbox-relay-handler processStreamRecords - schema validation
     };
 
     const batchItemFailures = await processStreamRecords(makeDeps(), logger, [record]);
-    expect(batchItemFailures).toEqual([{ itemIdentifier: "evt-bad" }]);
-    expect(lines.some((line) => line.includes("schema-invalid OutboxEvent image"))).toBe(true);
+    expect(batchItemFailures).toEqual([]);
+    expect(lines.some((line) => line.includes("schema-invalid OutboxEvent image") && line.includes("skipping"))).toBe(true);
+  });
+
+  it("a schema-invalid record never blocks a LATER valid record in the same batch - proves the poison record can't starve everything behind it", async () => {
+    const lines: string[] = [];
+    const logger = new SecureLogger({ sink: (_level, line) => lines.push(line), now: () => "2026-08-19T10:00:05.000Z" });
+    const store = new FakeRelayStore();
+    const deps = { store, now: () => "2026-08-19T10:00:05.000Z", senders: { SQS_REMINDER_DISPATCH_V1: async () => {} } };
+    const malformed = outboxRecord() as unknown as Record<string, unknown>;
+    delete malformed["eventId"];
+    const badRecord: DynamoDBRecord = {
+      eventID: "evt-bad",
+      eventName: "INSERT",
+      dynamodb: { SequenceNumber: "seq-bad", NewImage: marshall(malformed) as never },
+    };
+    const goodRecord = streamRecord("evt-good", outboxRecord({ eventId: "evt-good" }));
+
+    const batchItemFailures = await processStreamRecords(deps, logger, [badRecord, goodRecord]);
+    expect(batchItemFailures).toEqual([]);
+    expect(lines.some((line) => line.includes("dispatch-outbox-relay outcome"))).toBe(true);
   });
 
   it("still processes a well-formed record normally when it is the ONLY record (schema validation isn't a no-op)", async () => {
