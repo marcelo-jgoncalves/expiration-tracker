@@ -164,7 +164,19 @@ export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, t
 export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbReminderStore(client, tableName);
   const candidateSource = new DynamoDbReminderReconciliationCandidateSource(client, tableName);
-  return { store, candidateSource, tableName, now: () => new Date().toISOString() };
+  const ids = new UlidIdGenerator();
+  return {
+    store,
+    candidateSource,
+    tableName,
+    now: () => new Date().toISOString(),
+    // D-300 (DECISION.md §7): only consumed by the SCANLEASE pass's reclaim transaction - the
+    // pre-existing CLAIMS/DST passes above have no use for these, added here rather than as a
+    // separate deps builder purely for composition-root convenience (both passes' Lambda still
+    // shares one client/store).
+    newEventId: () => ids.newEventId(),
+    correlationId: () => newCorrelationId(),
+  };
 }
 
 /** BLOCKER-B (reminder-delivery-pipeline.md §4): shard config is fixed/production-current

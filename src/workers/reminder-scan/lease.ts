@@ -16,12 +16,15 @@ import { appendToTransaction, type OutboxDestination } from "../../shared/outbox
 import type { DomainEvent, SqsCommandEnvelope } from "../../shared/contracts/events.js";
 import { SYSTEM_TENANT_SENTINEL } from "../../shared/contracts/events.js";
 import { serializeCanonicalKey } from "../../shared/dynamodb/canonical-key.js";
+import { GSI6PK_SCANLEASE_IN_PROGRESS } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
 
 const SCAN_CONTINUATION_DESTINATION: OutboxDestination = "SQS_REMINDER_SCAN_CONTINUATION_V1";
 
 /** GSI6PK constant for lease-in-progress detection by `reminder-reconciliation`'s 3rd pass
- * (DECISION.md §7) - present ONLY while IN_PROGRESS, removed at COMPLETED. */
-export const GSI6PK_SCANLEASE_IN_PROGRESS = "SCANLEASE#IN_PROGRESS";
+ * (DECISION.md §7) - present ONLY while IN_PROGRESS, removed at COMPLETED. Re-exported here
+ * (single source of truth lives in reconciliation-candidate-source.ts, a ports module) so every
+ * existing import site of this constant from lease.ts keeps working unchanged. */
+export { GSI6PK_SCANLEASE_IN_PROGRESS };
 
 export interface ReminderScanLease extends Record<string, unknown>, EntityKey {
   SK: "LEASE";
@@ -48,6 +51,22 @@ export interface ShardMinuteRef {
 
 export function leaseKey(ref: ShardMinuteRef): { PK: string; SK: "LEASE" } {
   return { PK: `SCAN#${ref.shardFnVersion}#${ref.shardId}#${ref.minuteISO}`, SK: "LEASE" };
+}
+
+/** Inverse of `leaseKey()` - D-300 §7: `reminder-reconciliation`'s SCANLEASE pass discovers stuck
+ * leases via GSI6 (a row that only carries PK/SK/ownerToken/leaseUntil/version, per
+ * `StuckScanLeaseCandidate`'s ALL-projection shape - never shardFnVersion/shardId/minuteISO as
+ * separate stored fields, DECISION.md §2's item schema doesn't duplicate them) and must
+ * reconstruct the `ShardMinuteRef` those fields require to call `buildReclaimLeaseTransaction`.
+ * Throws on a PK that doesn't match this module's own `leaseKey()` format - a malformed PK here
+ * would mean a GSI6 row that isn't actually a ReminderScanLease at all, which must never be
+ * silently reclaimed as one. */
+export function parseLeaseKey(pk: string): ShardMinuteRef {
+  const match = /^SCAN#(\d+)#(\d+)#(.+)$/.exec(pk);
+  if (!match) {
+    throw new Error(`parseLeaseKey: malformed ReminderScanLease PK: ${pk}`);
+  }
+  return { shardFnVersion: Number(match[1]), shardId: Number(match[2]), minuteISO: match[3] as string };
 }
 
 function leaseGsi6Sk(leaseUntil: string, ref: ShardMinuteRef): string {
