@@ -275,12 +275,17 @@ module "reminder_producer" {
   timeout_seconds = 60
   adot_layer_arn  = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    # DECISION.md §8 staged rollout, "Apply 2": D-300's code/infra (this whole module family)
-    # was deployed inert under LEGACY first (D-301 decisions-log.md entry); this is the
-    # deliberate, separate flip to PAGED - through this same PR->CI->merge->CD pipeline, never
-    # applied locally - so the new lease/scan-page mechanism actually runs and can be validated
-    # against the perf/load-testing-multi-tenant-v1 / perf/load-testing-10k-v1 harnesses.
-    SCAN_MODE                = "PAGED"
+    # DECISION.md §8 rollback, step (4) - "SCAN_MODE=LEGACY", executed per Marcelo's explicit
+    # decision (2026-09-15 incident: ReminderScanLease continuation backlog observed GROWING,
+    # not draining, at ~140-150 records/min even after both known relay bugs were fixed -
+    # PR #338/#340 - root cause of the production rate itself still under investigation).
+    # Steps (1)-(3) already completed and verified before this PR: both event source mappings
+    # confirmed State=="Disabled" (not just apply-success/"Disabling"), then the >=90s gate
+    # elapsed. This step stops the WRITE side (enumerate-and-lease.ts's acquire/reclaim, which
+    # runs from the EventBridge trigger regardless of the now-disabled SQS mappings) - LEGACY
+    # routes reminder-producer-handler.ts back to the original runProducerTick path, byte-for-
+    # byte unchanged, same safe default this whole rollout shipped with initially.
+    SCAN_MODE                = "LEGACY"
     SCAN_MODE_EPOCH          = "1"
     REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
   })
