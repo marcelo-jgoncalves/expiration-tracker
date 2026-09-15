@@ -1,0 +1,129 @@
+# ReminderProducer structural fix — Round 2 (Claude revision)
+
+## Resposta ao achado bloqueante do Codex (Round 1)
+
+Aceito o achado central: a Round 1 descreveu a fila de claim, mas o **scan em si** (a query
+GSI3 + `SendMessage`) continuava sendo uma única invocação obrigada a drenar o shard inteiro
+antes do timeout — só deslocava o ponto de ruptura de "scan+claim" para "scan+publish". Correto,
+e é exatamente a mesma classe de falha que a mitigação já tentada (timeout/concorrência maiores)
+comete: adia, não elimina. Incorporo o híbrido proposto pelo Codex quase integralmente, com
+ajustes pontuais justificados abaixo.
+
+**Nota sobre o relatório PERF-12-10k "não estar no branch atual"**: correto e esperado — o prompt
+da tarefa (fora desta proposta) instruiu explicitamente ler esse documento via
+`git show perf/load-testing-10k-v1:docs/.../PERF-12-async-pipeline-10k.md`, sem trocar de branch,
+porque ele vive num branch de performance separado, não em `develop`/`design/...`. Os números
+citados foram lidos diretamente desse `git show`, não inventados — mas registro aqui, por
+transparência, que um revisor futuro sem esse contexto de invocação legitimamente estranharia a
+ausência do arquivo no checkout local.
+
+## Design revisado — descoberta paginada e retomável + claim via consumer SQS
+
+Duas filas SQS, dois papéis, mesma fronteira GSI3:
+
+1. **Fila de scan** (`reminder-scan`): mensagens são unidades de trabalho pequenas —
+   `{ shardGeneration, shardIndex, minute, continuationToken? }` — uma por (shard, minuto) a
+   escanear, nunca "o shard inteiro". EventBridge (mesmo trigger de hoje, 1x/minuto) enfileira
+   uma mensagem por partição elegível (mesmo cálculo de `gsi3PartitionsForMinute` × lookback já
+   existente em `producer.ts`) em vez de fazer o loop inline.
+2. **Scanner** (extensão do `reminder-producer` atual, agora acionado por SQS em vez de
+   EventBridge direto — MESMA função/role, preservando a exclusividade de `gsi3_read`): consome
+   uma mensagem de scan por vez, faz UMA página de `queryGsi3` (LIMIT explícito, não "ler tudo"),
+   publica os candidatos dessa página na fila de claim via `SendMessageBatch` (chunks de 10,
+   checando `Failed[]` da resposta — nunca tratando 200 HTTP como sucesso incondicional, achado
+   do Codex incorporado), e SÓ DEPOIS de confirmar que 100% dos candidatos da página foram
+   publicados (retry local dos `Failed[]` até esgotar tentativas; se ainda sobrar falha, a
+   mensagem de scan inteira NÃO é confirmada — volta à fila via visibility timeout, reprocessando
+   a MESMA página do zero, nunca avança cursor antes de publicar) enfileira uma mensagem de
+   continuação com o `LastEvaluatedKey` daquela página, se houver. Cada mensagem de scan processa
+   uma fatia limitada (ex. página de até 1000 itens do DynamoDB, tipicamente sub-segundo) — uma
+   invocação nunca precisa mais terminar um shard inteiro, só uma página.
+3. **Claim consumer** (novo, ou reaproveitamento do mesmo padrão SQS-consumer de
+   `reminder-dispatch` — role separada, SEM `gsi3_read`): consome candidatos da fila de claim,
+   faz `get`+`transactWrite` condicional por occurrence — corpo idêntico ao já existente em
+   `producer.ts` linhas 230-315, só movido para um handler disparado por SQS em vez de por loop
+   inline. `claimTtlMs`, outbox transacional, GSI6 pointer — tudo inalterado.
+
+**Discriminação `ReminderOccurrence` vs. `DocumentChasingOccurrence` (achado do Codex
+incorporado)**: a mensagem de candidato carrega o `GSI3SK` bruto (ou já pré-parseado com um campo
+`entityType: "REMINDER" | "CHASING"`), preservando a mesma lógica de `parseGsi3Sk`/
+`parseChasingGsi3Sk`/fail-closed `unknownEntityType` que já existe hoje — só movida do loop do
+scanner para o claim consumer, que decide qual branch de claim (`claimChasingOccurrence` vs. o
+claim de reminder) executar. Nenhuma regressão do M10 cluster 4: o mesmo fail-closed alarma via
+`shouldAlarm()`-equivalente no novo consumer.
+
+**Duplicação entre ticks/páginas (achado do Codex incorporado)**: uma occurrence pode aparecer
+mais de uma vez na fila de claim (reprocessamento de página por falha parcial de publish, ou
+scan de minutos sobrepostos do lookback, já um caso hoje coberto pelo `seen`-guard local). A
+`transactWrite` condicional (`expectedVersion`, status `SCHEDULED`→`CLAIMED`) já torna isso seguro
+por construção — a segunda tentativa de claim da mesma occurrence perde a corrida via
+`isTransactionCanceled`, tratado como não-falha, EXATAMENTE como o código atual já trata hoje
+duas partições/minutos sobrepostos do mesmo tick. Nenhum mecanismo de deduplicação novo
+necessário — a OCC já existente é suficiente, e o Codex concorda que isso é o mecanismo correto
+("OCC torna a duplicação segura").
+
+**DLQ/observabilidade (achado do Codex incorporado, resolvido a nível arquitetural, detalhe fica
+para implementação)**: ambas as filas (scan e claim) usam o módulo Terraform já existente
+`modules/sqs-worker-queue` (mesmo padrão de `dispatch_queue`, `redrive_policy` com
+`maxReceiveCount` padrão do projeto) — DLQ nativo herdado, não inventado. Um candidato preso em
+DLQ da fila de claim é exatamente equivalente, em severidade, a um `failed[]` de hoje (já
+alarma via `shouldAlarm()`); idade do candidato mais antigo na fila (`ApproximateAgeOfOldestMessage`,
+métrica CloudWatch nativa de SQS, já usada por este projeto para `dispatch_queue` conforme
+PERF-12 10k §17.3) supre a métrica de "quão velho é o candidato não reivindicado", substituindo
+`scheduler_lag_seconds` como sinal primário de saúde do pipeline. Redrive automático/alerta é
+decisão de implementação (nível 3-4), não desta rodada arquitetural.
+
+## Checklist reconciliado (aceito o rebalanceamento do Codex, com uma discordância pontual justificada)
+
+Aceito a crítica de que o peso original de 25% em IAM era alto demais frente a "correção" como
+requisito primário — corrigir isso é o próprio objetivo da tarefa (PERF-12 10k existe porque a
+mitigação anterior NÃO corrigiu). Adoto a distribuição do Codex quase integralmente:
+
+1. **Correção estrutural / progresso durável e retomável** (peso 40%) — atende: nenhuma
+   invocação (scan OU claim) precisa processar mais que uma unidade de trabalho limitada
+   (uma página de scan, ou um candidato de claim) dentro do seu próprio timeout; cursor de
+   continuação só avança após confirmação de publish; não atende: qualquer invocação cujo
+   sucesso dependa de terminar de processar uma unidade de trabalho ilimitada (um shard/burst
+   inteiro) antes de um timeout fixo.
+2. **Recuperação operacional (DLQ, retenção, backpressure, observabilidade)** (peso 25%) —
+   atende: DLQ nativo herdado do módulo já usado neste projeto, idade do candidato mais velho
+   como métrica de saúde, falha parcial de `SendMessageBatch` tratada explicitamente (retry até
+   esgotar, nunca 200 incondicional); não atende: qualquer falha de publish silenciosamente
+   descartada, ou backlog sem sinal de alarme.
+3. **Preserva a fronteira IAM/GSI3 já deliberada** (peso 20%) — reduzido de 25% para 20%
+   (aceito o argumento do Codex de que segurança não deveria compensar perda de dado, mas
+   discordo de reduzir mais que isso: é a condição que classifica esta decisão como Nível 5 e
+   um requisito explícito do prompt da tarefa, não um "nice to have" descartável) — atende:
+   só a MESMA função/role `reminder-producer` (agora scanner) lê GSI3, escopada por policy
+   explícita (`gsi3_read` continua exclusiva dela, nunca concedida ao claim consumer), reforçado
+   por teste de isolamento atualizado; não atende: qualquer novo componente com `gsi3_read`.
+4. **Alinhamento com padrão de referência AWS + simplicidade relativa** (peso 15%, reduzido de
+   20%) — atende: o padrão "scan paginado retomável → fila → consumer" é uma composição direta
+   de dois padrões AWS documentados (paginação de query + decouple scan/process via SQS já
+   citado na Round 1), sem inventar mecanismo de coordenação novo além do que DynamoDB
+   (`LastEvaluatedKey`) e SQS (visibility timeout) já garantem nativamente; não atende: qualquer
+   mecanismo de coordenação bespoke entre scan e claim.
+
+## Correção da citação de fonte (achado do Codex incorporado)
+
+Retiro `dev.to/aws-builders/...` da lista de fontes que fundamentam o padrão — mantenho só como
+contexto de leitura, não como fonte que sustenta a decisão. A decisão fica apoiada em 3 fontes
+oficiais AWS: (1) AWS Prescriptive Guidance (decouple scan/process via SQS, já citada), (2) AWS
+Lambda Developer Guide "Using Lambda with Amazon SQS" (deduplicação/partial-batch-response/
+idempotência — `docs.aws.amazon.com/lambda/latest/dg/with-sqs.html`, mesma página citada pelo
+Codex), (3) AWS SQS Developer Guide, "Amazon SQS batch actions" (semântica de falha parcial em
+`SendMessageBatch`, `Failed[]` mesmo com HTTP 200 —
+`docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-batch-api-actions.html`),
+ambas apontadas pelo próprio Codex e verificadas como documentação oficial.
+
+## Decisão proposta (revisada)
+
+**Opção B revisada — scan paginado/retomável via fila de scan + claim via fila de claim**,
+incorporando o híbrido do Codex quase sem alteração. Diferença do Round 1: a etapa de DESCOBERTA
+deixa de ser uma única invocação monolítica e passa a ser, ela mesma, unidades de trabalho
+pequenas e retomáveis — fechando o achado bloqueante. `reminder-producer` continua sendo a única
+função com `gsi3_read`; um novo claim consumer nunca precisa dela. `DocumentChasingOccurrence`
+preservado sem regressão. Escopo de implementação (fora desta rodada): 2 filas SQS
+(`reminder-scan`, `reminder-claim`), extensão do handler de `reminder-producer` para consumir SQS
+em vez de EventBridge direto, novo claim-consumer handler, atualização de
+`test/integration/gsi3-isolation.test.ts`-equivalente para cobrir a nova role do claim consumer.
