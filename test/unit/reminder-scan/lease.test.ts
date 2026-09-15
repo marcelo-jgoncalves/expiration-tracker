@@ -10,6 +10,7 @@ import {
   type ReminderScanLease,
 } from "../../../src/workers/reminder-scan/lease.js";
 import { serializeCanonicalKey } from "../../../src/shared/dynamodb/canonical-key.js";
+import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
 
 const REF = { shardFnVersion: 1, shardId: 3, minuteISO: "2026-09-14T12:00:00.000Z" };
 const TABLE = "MainTable";
@@ -47,6 +48,12 @@ describe("buildAcquireLeaseTransaction (D-300 §2 row 1)", () => {
     const outboxPut = (tx[1] as { Put: { Item: Record<string, unknown> } }).Put.Item;
     expect(outboxPut["destination"]).toBe("SQS_REMINDER_SCAN_CONTINUATION_V1");
     expect((outboxPut["payload"] as Record<string, unknown>)["tenantId"]).toBe("SYSTEM");
+    // Real bug found live during D-300 revalidation (2026-09-15): this outbox record's
+    // aggregateVersion used to be hardcoded 0, which domain-event-envelope.v1.json's schema
+    // rejects (aggregate.version must be >= 1) - every continuation event silently failed the
+    // relay's own schema validation forever, so no message ever reached the real scan queue.
+    // Proven fixed: aggregateVersion must always be >= 1.
+    expect(outboxPut["aggregateVersion"]).toBe(1);
   });
 
   it("THE OLD BUG: without attribute_not_exists(PK), two concurrent ticks could both acquire the same lease - proven fixed: a second acquire attempt on an already-existing lease is rejected", async () => {
@@ -179,5 +186,50 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
     expect(completed?.status).toBe("COMPLETED");
     expect(completed?.GSI6PK).toBeUndefined();
     expect(completed?.GSI6SK).toBeUndefined();
+  });
+});
+
+describe("continuation outbox records pass real outbox-record.v1.json schema validation (D-300 revalidation, 2026-09-15)", () => {
+  // THE REAL BUG this whole describe block exists to catch: appendContinuationOutbox used to
+  // hardcode aggregate.version: 0. Every unit test above builds/inspects these transactions with
+  // an in-memory fake that never runs them through the SAME schema validation the real
+  // dispatch-outbox-relay-handler.ts applies before forwarding to SQS - so this bug shipped
+  // through 12 commits of "real, gate-verified" work and was only caught live in a deployed dev
+  // burst test, via a CloudWatch Logs query showing "dispatch-outbox-relay schema-invalid
+  // OutboxEvent image" / "/aggregateVersion must be >= 1" repeating forever. This test closes
+  // that specific gap: validate the ACTUAL outbox Put Item against the ACTUAL schema the relay
+  // uses, for every one of the three lease transitions.
+  const SCHEMA_ID = "https://expiration-tracker/schemas/events/outbox-record.v1.json";
+
+  function validateContinuationOutboxEntry(tx: ReturnType<typeof buildAcquireLeaseTransaction>["tx"]): void {
+    const outboxPut = tx.find((e) => "Put" in e && (e.Put.Item as Record<string, unknown>)["entityType"] === "OutboxEvent") as { Put: { Item: Record<string, unknown> } } | undefined;
+    expect(outboxPut).toBeDefined();
+    const { valid, errors } = defaultSchemaRegistry.validate(SCHEMA_ID, outboxPut!.Put.Item);
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  }
+
+  it("acquire's continuation outbox record is schema-valid", () => {
+    const { tx } = buildAcquireLeaseTransaction(deps("2026-09-14T12:00:05.000Z"), REF, "owner-A", LEASE_DURATION_MS);
+    validateContinuationOutboxEntry(tx);
+  });
+
+  it("reclaim's continuation outbox record is schema-valid", () => {
+    const { tx } = buildReclaimLeaseTransaction(deps("2026-09-14T12:03:30.000Z"), REF, "owner-B", LEASE_DURATION_MS);
+    validateContinuationOutboxEntry(tx);
+  });
+
+  it("checkpoint's (more-pages) continuation outbox record is schema-valid", () => {
+    const tx = buildCheckpointLeaseTransaction(deps("2026-09-14T12:00:10.000Z"), {
+      ref: REF,
+      ownerToken: "owner-A",
+      expectedVersion: 1,
+      startedFromLastEvaluatedKey: undefined,
+      nextLastEvaluatedKey: serializeCanonicalKey({ PK: "P1", SK: "S1" }),
+      pagesProcessedTotal: 1,
+      candidatesPublishedTotal: 10,
+      leaseDurationMs: LEASE_DURATION_MS,
+    });
+    validateContinuationOutboxEntry(tx);
   });
 });
