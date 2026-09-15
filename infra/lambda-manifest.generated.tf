@@ -25,6 +25,7 @@ output "lambda_function_names" {
     module.reminder_producer.function_name,
     module.reminder_dispatch.function_name,
     module.reminder_reconciliation.function_name,
+    module.reminder_claim_consumer.function_name,
     module.dispatch_outbox_relay.function_name,
     module.outbox_sweeper.function_name,
     module.document_archive_handler.function_name,
@@ -92,6 +93,7 @@ output "lambda_published_versions" {
     (module.reminder_producer.function_name)                            = module.reminder_producer.published_version
     (module.reminder_dispatch.function_name)                            = module.reminder_dispatch.published_version
     (module.reminder_reconciliation.function_name)                      = module.reminder_reconciliation.published_version
+    (module.reminder_claim_consumer.function_name)                      = module.reminder_claim_consumer.published_version
     (module.dispatch_outbox_relay.function_name)                        = module.dispatch_outbox_relay.published_version
     (module.outbox_sweeper.function_name)                               = module.outbox_sweeper.published_version
     (module.document_archive_handler.function_name)                     = module.document_archive_handler.published_version

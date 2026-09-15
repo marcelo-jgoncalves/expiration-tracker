@@ -114,15 +114,25 @@ export function gsi3Keys(input: {
   };
 }
 
+function minuteBucketFromDate(minuteUtc: Date): string {
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  return `${minuteUtc.getUTCFullYear()}${pad(minuteUtc.getUTCMonth() + 1)}${pad(minuteUtc.getUTCDate())}${pad(minuteUtc.getUTCHours())}${pad(minuteUtc.getUTCMinutes())}`;
+}
+
 /** Enumerates the GSI3PK values to query for a given UTC minute across all shards of a given generation - used by both the producer (current minute + lookback) and reconciliation. */
 export function gsi3PartitionsForMinute(minuteUtc: Date, shardCount: number): string[] {
-  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
-  const bucket =
-    `${minuteUtc.getUTCFullYear()}${pad(minuteUtc.getUTCMonth() + 1)}${pad(minuteUtc.getUTCDate())}` +
-    `${pad(minuteUtc.getUTCHours())}${pad(minuteUtc.getUTCMinutes())}`;
+  const bucket = minuteBucketFromDate(minuteUtc);
   const partitions: string[] = [];
   for (let s = 0; s < shardCount; s++) {
     partitions.push(`DUE#${bucket}#${String(s).padStart(2, "0")}`);
   }
   return partitions;
+}
+
+/** D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §2): single-shard variant
+ * of `gsi3PartitionsForMinute`, used by `scan-page.ts` to rebuild the exact GSI3PK a
+ * `ReminderScanLease`'s (shardFnVersion, shardId, minuteISO) refers to - same bucket computation,
+ * never re-derived ad hoc at the call site. */
+export function gsi3PartitionForShard(minuteUtc: Date, shardId: number): string {
+  return `DUE#${minuteBucketFromDate(minuteUtc)}#${String(shardId).padStart(2, "0")}`;
 }

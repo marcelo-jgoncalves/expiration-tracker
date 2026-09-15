@@ -11,7 +11,9 @@
 import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReconciliationDeps } from "../composition/reminder.js";
-import { runReconciliation, type DstReconciliationCandidate as FullDstCandidate } from "../../../workers/reminder-reconciliation/reconciliation.js";
+import { runReconciliation, reconcileScanLeases, type DstReconciliationCandidate as FullDstCandidate } from "../../../workers/reminder-reconciliation/reconciliation.js";
+import type { StuckScanLeaseCandidate } from "../../../modules/reminder/ports/reconciliation-candidate-source.js";
+import { emitMetric } from "../../../shared/observability/metrics.js";
 import { itemKey } from "../../../modules/expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../modules/identity/domain/authorization.js";
 import { policyKey, type ReminderPolicy } from "../../../modules/reminder/domain/reminder-policy.js";
@@ -25,9 +27,22 @@ const client = createDocumentClient();
 const envTableName = process.env["TABLE_NAME"];
 if (!envTableName) throw new Error("TABLE_NAME env var is required.");
 const tableName: string = envTableName;
-const { store, candidateSource, now } = buildReconciliationDeps(client, tableName);
+const { store, candidateSource, now, newEventId, correlationId } = buildReconciliationDeps(client, tableName);
 const shardConfig = defaultShardConfig();
 const logger = new SecureLogger({ baseContext: { service: "reminder-reconciliation" } });
+const NAMESPACE = "ExpirationTracker/ReminderReconciliation";
+
+/** D-300 (DECISION.md §7/§8): read once per invocation, threaded into the reclaim transaction
+ * the SCANLEASE pass builds - a reclaimed lease's fresh continuation message must carry the
+ * CURRENT epoch, never a stale one baked in before a rollback/roll-forward cycle. */
+function rolloutEpoch(): number {
+  const raw = process.env["SCAN_MODE_EPOCH"];
+  const parsed = raw ? Number.parseInt(raw, 10) : 1;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+// DECISION.md §3: 200s, same lease duration every other lease-transition caller uses.
+const LEASE_DURATION_MS = 200_000;
 
 export interface ReminderReconciliationEvent {
   mode: "CLAIMS" | "DST";
@@ -64,6 +79,7 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
 
   const expiredClaimCandidates: ReminderOccurrence[] = [];
   const dstCandidates: FullDstCandidate[] = [];
+  const stuckScanLeaseCandidates: StuckScanLeaseCandidate[] = [];
 
   if (mode === "CLAIMS") {
     // GSI6 is ALL-projected - each candidate row already IS the full ReminderOccurrence
@@ -76,6 +92,18 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
       expiredClaimCandidates.push(...(result.items as unknown as ReminderOccurrence[]));
       if (!result.cursor) break;
       cursor = result.cursor;
+    }
+
+    // D-300 (DECISION.md §7): SCANLEASE 3rd pass, SAME 5-minute execution as CLAIMS above -
+    // independent detection of a stuck reminder-scan chain, closing the gap that
+    // enumerate-and-lease.ts's own per-tick lookback window cannot (a (shard, minute) that has
+    // aged out of that lookback is never re-examined by any other mechanism).
+    let scanLeaseCursor: string | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await candidateSource.listStuckScanLeases({ before: now(), cursor: scanLeaseCursor });
+      stuckScanLeaseCandidates.push(...result.items);
+      if (!result.cursor) break;
+      scanLeaseCursor = result.cursor;
     }
   }
 
@@ -111,5 +139,17 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
   }
 
   const result = await runReconciliation({ store, tableName, now, shardConfig }, { expiredClaimCandidates, dstCandidates });
-  logger.info("reminder-reconciliation complete", { mode, scheduledTime: event.scheduledTime, ...result });
+
+  let scanLeaseReclaimed = 0;
+  if (mode === "CLAIMS" && stuckScanLeaseCandidates.length > 0) {
+    scanLeaseReclaimed = await reconcileScanLeases(
+      { store, tableName, now, shardConfig, newEventId, correlationId, rolloutEpoch: rolloutEpoch(), leaseDurationMs: LEASE_DURATION_MS },
+      stuckScanLeaseCandidates,
+    );
+    if (scanLeaseReclaimed > 0) {
+      emitMetric(NAMESPACE, { name: "ReconciliationScanLeaseReclaimed", value: scanLeaseReclaimed, unit: "Count" });
+    }
+  }
+
+  logger.info("reminder-reconciliation complete", { mode, scheduledTime: event.scheduledTime, ...result, scanLeaseReclaimed });
 }

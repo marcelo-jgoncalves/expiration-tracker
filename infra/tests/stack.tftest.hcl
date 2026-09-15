@@ -148,6 +148,45 @@ run "gsi3_access_granted_only_to_reminder_producer" {
     condition     = !anytrue([for p in module.reminder_materialization_trigger.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "ReminderMaterializationTrigger must NOT reference GSI3"
   }
+
+  # D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §1/§6): ReminderClaimConsumer
+  # consumes claim candidates published directly by ReminderProducer's scan-page.ts path - it
+  # must NEVER be able to reach GSI3 itself. This is the "one function this design adds must
+  # never get this capability" proof the DECISION explicitly calls for.
+  assert {
+    condition     = !anytrue([for p in module.reminder_claim_consumer.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    error_message = "ReminderClaimConsumer must NOT reference GSI3"
+  }
+}
+
+# D-300 (DECISION.md §3): sizing invariants for the two new queues - visibility timeout is a
+# fixed 6x multiple of consumer_timeout_seconds (the sqs-worker-queue module's own rule),
+# maxReceiveCount is fixed at 5 (same module), and each queue's event source mapping uses the
+# exact batch_size/maximum_concurrency the DECISION names.
+run "reminder_scan_and_claim_queue_sizing_matches_decision" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_event_source_mapping.reminder_producer_from_scan_queue.batch_size == 1
+    error_message = "Scan queue batch size must be 1 - continuation messages are causally chained, concurrency here would recreate the exact race the lease exists to eliminate (DECISION.md §3)"
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.reminder_producer_from_scan_queue.scaling_config[0].maximum_concurrency == 10
+    error_message = "Scan queue max concurrency must be 10 per DECISION.md §3"
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.batch_size == 10
+    error_message = "Claim queue batch size must be 10 per DECISION.md §3"
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.scaling_config[0].maximum_concurrency == 50
+    error_message = "Claim queue max concurrency must be 50 per DECISION.md §3"
+  }
+
+  assert {
+    condition     = module.reminder_producer.environment_variables["SCAN_MODE"] == "LEGACY"
+    error_message = "SCAN_MODE must default to LEGACY on this deploy - DECISION.md §8's staged rollout ships the safe default, PAGED is a later apply through the normal pipeline"
+  }
 }
 
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {

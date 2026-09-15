@@ -18,18 +18,36 @@
  * `runReconciliation`, in the order claim-expiry -> DST (claim-expiry is cheaper and
  * unblocks the producer sooner).
  */
+import { randomUUID } from "node:crypto";
 import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
 import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
 import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
 import type { ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
+import type { StuckScanLeaseCandidate } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
+import { buildReclaimLeaseTransaction, parseLeaseKey } from "../reminder-scan/lease.js";
 
 export interface ReconciliationDeps {
   store: ReminderStore;
   tableName: string;
   now: () => string;
   shardConfig: ShardConfig;
+}
+
+/**
+ * D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §7): `ReconciliationDeps`
+ * plus the extra correlation-id/rollout-epoch inputs the SCANLEASE pass's reclaim transaction
+ * needs (`buildReclaimLeaseTransaction`'s `LeaseTransitionDeps`), which the CLAIMS/DST passes
+ * above have no use for - kept as a SEPARATE, wider deps type rather than widening
+ * `ReconciliationDeps` itself, so those two passes' existing signature/tests stay byte-for-byte
+ * untouched (DECISION.md §7's own "CLAIMS/DST existing logic remains byte-for-byte unchanged").
+ */
+export interface ScanLeaseReconciliationDeps extends ReconciliationDeps {
+  newEventId: () => string;
+  correlationId: () => string;
+  rolloutEpoch: number;
+  leaseDurationMs: number;
 }
 
 /** One (item, active policy) pair the DST pass evaluates. In production this batch comes
@@ -227,6 +245,37 @@ export async function reconcileDst(
   }
 
   return { cancelled, created, divergences };
+}
+
+/**
+ * Pass (c) - D-300 (DECISION.md §7): any `ReminderScanLease` still `IN_PROGRESS` past its own
+ * `leaseUntil` gets reclaimed (new owner token, version/counters reset, restarts from page 1) -
+ * independent detection of a stuck scan chain that works even after `enumerate-and-lease.ts`'s
+ * own per-tick lookback window has moved past the stuck (shard, minute). Uses the EXACT SAME
+ * `buildReclaimLeaseTransaction` builder `enumerate-and-lease.ts` uses - never a second reclaim
+ * implementation. A lost race (another invocation - the producer's own enumeration tick, or a
+ * concurrent reconciliation run - reclaimed it first) is a benign no-op, same as every other
+ * pass in this file.
+ */
+export async function reconcileScanLeases(deps: ScanLeaseReconciliationDeps, candidates: StuckScanLeaseCandidate[]): Promise<number> {
+  let reclaimed = 0;
+  for (const candidate of candidates) {
+    if (candidate.status !== "IN_PROGRESS") continue;
+    const ref = parseLeaseKey(candidate.PK);
+    const { tx } = buildReclaimLeaseTransaction(
+      { tableName: deps.tableName, now: deps.now, newEventId: deps.newEventId, correlationId: deps.correlationId, rolloutEpoch: deps.rolloutEpoch },
+      ref,
+      randomUUID(),
+      deps.leaseDurationMs,
+    );
+    try {
+      await deps.store.transactWrite(tx);
+      reclaimed += 1;
+    } catch (err) {
+      if (!isTransactionCanceled(err)) throw err;
+    }
+  }
+  return reclaimed;
 }
 
 export async function runReconciliation(

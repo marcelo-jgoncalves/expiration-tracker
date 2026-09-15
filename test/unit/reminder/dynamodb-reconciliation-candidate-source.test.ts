@@ -41,4 +41,31 @@ describe("DynamoDbReminderReconciliationCandidateSource — security audit trail
     expect(accessSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", pageCount: 1, resultCount: 1 });
     accessSpy.mockRestore();
   });
+
+  it("listStuckScanLeases (D-300 §7) queries GSI6PK=SCANLEASE#IN_PROGRESS with a before-range condition and emits one security event", async () => {
+    const accessSpy = vi.spyOn(securityAudit, "auditGlobalIndexAccess");
+    const send = vi.fn().mockResolvedValueOnce({ Items: [{ PK: "SCAN#1#0#2026-09-14T12:00:00.000Z", SK: "LEASE" }], LastEvaluatedKey: undefined });
+    const client = { send };
+    const source = new DynamoDbReminderReconciliationCandidateSource(client as never, "table");
+
+    const page = await source.listStuckScanLeases({ before: "2026-09-14T12:05:00.000Z" });
+
+    expect(page.items).toHaveLength(1);
+    const sentCommand = send.mock.calls[0]![0] as { input: Record<string, unknown> };
+    expect(sentCommand.input["KeyConditionExpression"]).toBe("GSI6PK = :pk AND GSI6SK < :before");
+    expect((sentCommand.input["ExpressionAttributeValues"] as Record<string, unknown>)[":pk"]).toBe("SCANLEASE#IN_PROGRESS");
+    expect(accessSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", pageCount: 1, resultCount: 1 });
+    accessSpy.mockRestore();
+  });
+
+  it("listStuckScanLeases emits access-denied audit and rethrows on AccessDeniedException", async () => {
+    const deniedSpy = vi.spyOn(securityAudit, "auditGlobalIndexAccessDenied");
+    const err = Object.assign(new Error("denied"), { name: "AccessDeniedException" });
+    const client = { send: vi.fn().mockRejectedValueOnce(err) };
+    const source = new DynamoDbReminderReconciliationCandidateSource(client as never, "table");
+
+    await expect(source.listStuckScanLeases({ before: "2026-09-14T12:05:00.000Z" })).rejects.toThrow();
+    expect(deniedSpy).toHaveBeenCalledTimes(1);
+    deniedSpy.mockRestore();
+  });
 });
