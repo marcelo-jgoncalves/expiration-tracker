@@ -302,6 +302,17 @@ module "reminder_producer" {
 resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   event_source_arn = module.reminder_scan_queue.queue_arn
   function_name    = module.reminder_producer.live_alias_arn
+  # DECISION.md §8 rollback, step (1): "enabled=false nas duas mappings" - a real, ongoing
+  # incident in dev (2026-09-15): the enumeration tick keeps producing new
+  # ReminderScanLease continuation records (~140-150/min, unexplained - under
+  # investigation) faster than the outbox relay drains a backlog left over from an earlier
+  # deploy bug, with zero confirmed scan-page.ts executions since. Disabling this mapping
+  # stops the PRODUCER side from reading new continuation messages, but the real fix for the
+  # bleed is step (4) below (SCAN_MODE=LEGACY) - this step alone does not stop new
+  # continuation records from being WRITTEN (enumeration's acquire/reclaim still runs under
+  # SCAN_MODE=PAGED), only from being consumed. Never remove this comment/step ordering
+  # without re-reading DECISION.md §8's gate sequence.
+  enabled = false
   # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
   # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
   # exists to eliminate.
@@ -1062,6 +1073,9 @@ module "reminder_claim_queue" {
 resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" {
   event_source_arn = module.reminder_claim_queue.queue_arn
   function_name    = module.reminder_claim_consumer.live_alias_arn
+  # DECISION.md §8 rollback, step (1) - see reminder_producer_from_scan_queue's matching
+  # comment above for the incident this responds to. Both mappings are disabled together.
+  enabled = false
   # DECISION.md §3: batch size 10, same explicit value as reminder-dispatch (infra/main.tf
   # reminder_dispatch_from_queue above).
   batch_size              = 10
