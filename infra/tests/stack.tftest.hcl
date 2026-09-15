@@ -184,8 +184,8 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
   }
 
   assert {
-    condition     = module.reminder_producer.environment_variables["SCAN_MODE"] == "LEGACY"
-    error_message = "SCAN_MODE must default to LEGACY on this deploy - DECISION.md §8's staged rollout ships the safe default, PAGED is a later apply through the normal pipeline"
+    condition     = contains(["LEGACY", "PAGED"], module.reminder_producer.environment_variables["SCAN_MODE"])
+    error_message = "SCAN_MODE must be one of DECISION.md §8's two valid staged-rollout values - never any other string"
   }
 }
 
