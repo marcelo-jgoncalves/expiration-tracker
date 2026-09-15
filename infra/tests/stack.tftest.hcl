@@ -187,6 +187,17 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
     condition     = contains(["LEGACY", "PAGED"], module.reminder_producer.environment_variables["SCAN_MODE"])
     error_message = "SCAN_MODE must be one of DECISION.md §8's two valid staged-rollout values - never any other string"
   }
+
+  # Incident hotfix, 2026-09-15: reminder_reconciliation previously received no SCAN_MODE at
+  # all (only SCAN_MODE_EPOCH) - its independent SCANLEASE pass kept reclaiming stuck leases
+  # (write amplification) even after the producer-side rollback completed, since nothing gated
+  # it. Both Lambdas must now receive the EXACT SAME value, from local.reminder_scan_mode - a
+  # future rollout/rollback that updates one without the other is exactly the divergence this
+  # asserts against.
+  assert {
+    condition     = module.reminder_reconciliation.environment_variables["SCAN_MODE"] == module.reminder_producer.environment_variables["SCAN_MODE"]
+    error_message = "reminder_reconciliation's SCAN_MODE must always match reminder_producer's - both must be driven by the same local.reminder_scan_mode, never set independently"
+  }
 }
 
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
