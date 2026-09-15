@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json",
+  "title": "reminder.claim-candidate.v1",
+  "description": "SQS command published directly (SendMessageBatch, chunks of <=10 - never the outbox, no aggregate transaction backs a claim candidate) by scan-page.ts - D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §1/§4/§5). Consumed by the new reminder-claim-consumer Lambda, routed by data.entityKind to claimReminderOccurrence or claimChasingOccurrence.",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "reminder.claim-candidate.v1" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["PK", "SK", "entityKind", "rolloutEpoch"],
+      "properties": {
+        "PK": { "type": "string", "minLength": 1 },
+        "SK": { "type": "string", "minLength": 1 },
+        "entityKind": { "enum": ["REMINDER", "CHASING"] },
+        "rolloutEpoch": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -33,6 +33,10 @@ import notificationEmailDeliverV1 from "../../../schemas/queues/notification-ema
 import notificationWhatsAppDeliverV1 from "../../../schemas/queues/notification-whatsapp-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
 import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-dispatch.v1.json";
+// D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §6): the two new queue
+// contracts scan-page.ts/lease.ts produce.
+import reminderScanContinuationV1 from "../../../schemas/queues/reminder-scan-continuation.v1.json";
+import reminderClaimCandidateV1 from "../../../schemas/queues/reminder-claim-candidate.v1.json";
 import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
 import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
 import renewItemRequestV1 from "../../../schemas/api/renew-item-request.v1.json";
@@ -194,6 +198,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   notificationWhatsAppDeliverV1,
   reminderDispatchV1,
   documentChasingDispatchV1,
+  reminderScanContinuationV1,
+  reminderClaimCandidateV1,
   createItemRequestV1,
   updateItemRequestV1,
   renewItemRequestV1,
