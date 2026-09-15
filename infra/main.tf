@@ -51,6 +51,14 @@ locals {
   # Deriving both Lambdas' env var from this ONE local prevents that divergence from
   # recurring silently in a future rollout/rollback.
   reminder_scan_mode = "LEGACY"
+  # D-300 §8 roll-forward, step (1) of this PR: "SCAN_MODE_EPOCH = N+1 deployado PRIMEIRO" -
+  # bumped from 1 to 2 AHEAD of (and in a separate deploy from) the SCAN_MODE=PAGED flip below.
+  # This fences the ~116K stale continuation records accumulated during the 2026-09-15 incident
+  # (all carrying rolloutEpoch=1) - scan-page.ts drops any message whose epoch is less than the
+  # CURRENT epoch (see runScanPage's messageRolloutEpoch check), so once this deploys, those
+  # stale records become permanently inert without needing to be deleted first. Same shared-local
+  # pattern as reminder_scan_mode above, for the same divergence-prevention reason.
+  reminder_scan_mode_epoch = "2"
 }
 
 module "test_ping_handler" {
@@ -296,7 +304,7 @@ module "reminder_producer" {
     # routes reminder-producer-handler.ts back to the original runProducerTick path, byte-for-
     # byte unchanged, same safe default this whole rollout shipped with initially.
     SCAN_MODE                = local.reminder_scan_mode
-    SCAN_MODE_EPOCH          = "1"
+    SCAN_MODE_EPOCH          = local.reminder_scan_mode_epoch
     REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
@@ -370,7 +378,7 @@ module "reminder_reconciliation" {
   # SCAN_MODE (added 2026-09-15, incident hotfix): gates the SCANLEASE pass itself - see
   # reminder-reconciliation-handler.ts's scanMode() doc comment and local.reminder_scan_mode
   # above for why this Lambda needs the SAME value the producer receives, not just the epoch.
-  environment_variables          = merge(local.common_env, { SCAN_MODE = local.reminder_scan_mode, SCAN_MODE_EPOCH = "1" })
+  environment_variables          = merge(local.common_env, { SCAN_MODE = local.reminder_scan_mode, SCAN_MODE_EPOCH = local.reminder_scan_mode_epoch })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
   # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
