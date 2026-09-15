@@ -100,10 +100,18 @@ itens de acompanhamento fora do programa de performance.
     sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
-  - [ ] 10k — **pendente de revisão do achado de 1k por Marcelo antes de prosseguir** (ver "Próximos
-    passos" no doc de resultado — recomendação é corrigir o Producer antes de escalar o teste).
-  - [ ] 100k — pendente (depende da decisão acima).
-  - [ ] 1M — pendente (depende da decisão acima).
+  - [x] 10k — correção (timeout 10s→60s, concorrência 8, lookback 5→15min) deployada em dev e
+    testada ao vivo (10 tenants sintéticos do PERF-11-b, 1.000 items+policies cada, seeding paralelo,
+    10.000 occurrences no mesmo minuto). **A correção NÃO resolveu o problema**: apenas 5.338/10.000
+    (53,4%) foram despachados — praticamente igual à taxa de 56,0% da fatia 1k sem a correção. O
+    tick voltou a estourar o timeout (agora 60s) repetidamente por ~20 minutos consecutivos, e
+    ~4.662 occurrences saíram da janela de lookback (agora 15min) antes de serem reivindicadas,
+    ficando presas em `SCHEDULED` permanentemente — mesma causa raiz da fatia 1k, ainda sem
+    reconciliação que cubra esse caso. DynamoDB/SQS novamente não gargalaram. Ver
+    `results/PERF-12-async-pipeline-10k.md`.
+  - [ ] 100k — pendente (fora de escopo; correção estrutural do Producer ainda não existe — repetir
+    o padrão sem corrigi-la primeiro provavelmente só reproduziria a mesma perda).
+  - [ ] 1M — pendente (idem).
   - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
     retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
   - [ ] 17.6 (redesenho horizontal) — não avaliado; decisão de Marcelo após ver o achado de correção
