@@ -198,6 +198,14 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
     condition     = module.reminder_reconciliation.environment_variables["SCAN_MODE"] == module.reminder_producer.environment_variables["SCAN_MODE"]
     error_message = "reminder_reconciliation's SCAN_MODE must always match reminder_producer's - both must be driven by the same local.reminder_scan_mode, never set independently"
   }
+
+  # Same divergence-prevention reasoning as the SCAN_MODE assertion above, for SCAN_MODE_EPOCH -
+  # consolidated into local.reminder_scan_mode_epoch (2026-09-15 roll-forward, D-300 §8) so a
+  # future epoch bump can't accidentally update one Lambda without the other.
+  assert {
+    condition     = module.reminder_reconciliation.environment_variables["SCAN_MODE_EPOCH"] == module.reminder_producer.environment_variables["SCAN_MODE_EPOCH"]
+    error_message = "reminder_reconciliation's SCAN_MODE_EPOCH must always match reminder_producer's - both must be driven by the same local.reminder_scan_mode_epoch"
+  }
 }
 
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
