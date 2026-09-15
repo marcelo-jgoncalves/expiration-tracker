@@ -50,7 +50,18 @@ locals {
   # LEGACY) completed - reconciliation's own schedule is untouched by either rollback step.
   # Deriving both Lambdas' env var from this ONE local prevents that divergence from
   # recurring silently in a future rollout/rollback.
-  reminder_scan_mode = "LEGACY"
+  #
+  # D-300 §8 roll-forward, step (2): "SCAN_MODE=PAGED" - flipped back to PAGED now that:
+  #   (1) SCAN_MODE_EPOCH=2 already deployed separately (PR #348/#349), fencing the ~116K stale
+  #       rolloutEpoch=1 continuation records permanently inert;
+  #   (2) both real incident bugs are fixed (aggregate.version, PR #338; poison-record shard
+  #       blocking, PR #340);
+  #   (3) reconciliation's SCANLEASE pass is now gated on this SAME local (PR #346), closing the
+  #       gap that let it keep reclaiming/write-amplifying independent of either rollback step.
+  # Marcelo's explicit direction (2026-09-15): re-enable, monitor closely (scanLeaseReclaimed
+  # metric/logs + backlog count near-real-time), then validate with a SMALL 1k-occurrence burst
+  # first - never jump straight back to the 10k test.
+  reminder_scan_mode = "PAGED"
   # D-300 §8 roll-forward, step (1) of this PR: "SCAN_MODE_EPOCH = N+1 deployado PRIMEIRO" -
   # bumped from 1 to 2 AHEAD of (and in a separate deploy from) the SCAN_MODE=PAGED flip below.
   # This fences the ~116K stale continuation records accumulated during the 2026-09-15 incident
@@ -325,17 +336,12 @@ module "reminder_producer" {
 resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   event_source_arn = module.reminder_scan_queue.queue_arn
   function_name    = module.reminder_producer.live_alias_arn
-  # DECISION.md §8 rollback, step (1): "enabled=false nas duas mappings" - a real, ongoing
-  # incident in dev (2026-09-15): the enumeration tick keeps producing new
-  # ReminderScanLease continuation records (~140-150/min, unexplained - under
-  # investigation) faster than the outbox relay drains a backlog left over from an earlier
-  # deploy bug, with zero confirmed scan-page.ts executions since. Disabling this mapping
-  # stops the PRODUCER side from reading new continuation messages, but the real fix for the
-  # bleed is step (4) below (SCAN_MODE=LEGACY) - this step alone does not stop new
-  # continuation records from being WRITTEN (enumeration's acquire/reclaim still runs under
-  # SCAN_MODE=PAGED), only from being consumed. Never remove this comment/step ordering
-  # without re-reading DECISION.md §8's gate sequence.
-  enabled = false
+  # D-300 §8 roll-forward, step (3): "reabilita as mappings" - re-enabled (enabled defaults to
+  # true) now that steps (1) SCAN_MODE_EPOCH=2 and (2) SCAN_MODE=PAGED above are both deployed.
+  # See the 2026-09-15 incident history in local.reminder_scan_mode's comment (infra/main.tf)
+  # and reconciliation-handler.ts's scanMode() for the full root-cause chain and fixes that make
+  # re-enabling safe now (aggregate.version fix PR #338, poison-record fix PR #340, SCANLEASE
+  # gate PR #346, epoch fence PR #348/#349).
   # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
   # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
   # exists to eliminate.
@@ -1099,9 +1105,8 @@ module "reminder_claim_queue" {
 resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" {
   event_source_arn = module.reminder_claim_queue.queue_arn
   function_name    = module.reminder_claim_consumer.live_alias_arn
-  # DECISION.md §8 rollback, step (1) - see reminder_producer_from_scan_queue's matching
-  # comment above for the incident this responds to. Both mappings are disabled together.
-  enabled = false
+  # D-300 §8 roll-forward, step (3) - re-enabled together with reminder_producer_from_scan_queue
+  # above (see that resource's matching comment for the full incident/fix history).
   # DECISION.md §3: batch size 10, same explicit value as reminder-dispatch (infra/main.tf
   # reminder_dispatch_from_queue above).
   batch_size              = 10
