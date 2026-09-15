@@ -41,6 +41,16 @@ module "auth" {
 locals {
   common_env = { TABLE_NAME = module.table.table_name }
   dist_dir   = "${path.module}/../dist/lambda"
+  # D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §8, rollback incident
+  # 2026-09-15): single source of truth for SCAN_MODE, consumed by BOTH reminder_producer and
+  # reminder_reconciliation - a Codex review of the reconciliation SCANLEASE-gate hotfix found
+  # that reconciliation previously received no SCAN_MODE at all (only SCAN_MODE_EPOCH), so its
+  # own independent EventBridge schedule kept reclaiming stuck leases (writing new continuation
+  # outbox events) even after the producer-side rollback (disabled SQS mappings + SCAN_MODE=
+  # LEGACY) completed - reconciliation's own schedule is untouched by either rollback step.
+  # Deriving both Lambdas' env var from this ONE local prevents that divergence from
+  # recurring silently in a future rollout/rollback.
+  reminder_scan_mode = "LEGACY"
 }
 
 module "test_ping_handler" {
@@ -285,7 +295,7 @@ module "reminder_producer" {
     # runs from the EventBridge trigger regardless of the now-disabled SQS mappings) - LEGACY
     # routes reminder-producer-handler.ts back to the original runProducerTick path, byte-for-
     # byte unchanged, same safe default this whole rollout shipped with initially.
-    SCAN_MODE                = "LEGACY"
+    SCAN_MODE                = local.reminder_scan_mode
     SCAN_MODE_EPOCH          = "1"
     REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
   })
@@ -357,7 +367,10 @@ module "reminder_reconciliation" {
   # D-300 (DECISION.md §7): 3rd pass (SCANLEASE) added to this SAME 5-minute execution -
   # SCAN_MODE_EPOCH needed so the reclaim it performs on a stuck lease carries the CURRENT
   # epoch, never a stale one baked in at deploy time before a rollback/roll-forward cycle.
-  environment_variables          = merge(local.common_env, { SCAN_MODE_EPOCH = "1" })
+  # SCAN_MODE (added 2026-09-15, incident hotfix): gates the SCANLEASE pass itself - see
+  # reminder-reconciliation-handler.ts's scanMode() doc comment and local.reminder_scan_mode
+  # above for why this Lambda needs the SAME value the producer receives, not just the epoch.
+  environment_variables          = merge(local.common_env, { SCAN_MODE = local.reminder_scan_mode, SCAN_MODE_EPOCH = "1" })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
   # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
