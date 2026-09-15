@@ -200,8 +200,8 @@ export interface CheckpointInput {
    * final page (no more work), which routes to the COMPLETED branch. Already canonical-serialized
    * by the caller via `serializeCanonicalKey`. */
   nextLastEvaluatedKey: string | undefined;
-  pagesProcessedIncrement: number;
-  candidatesPublishedIncrement: number;
+  pagesProcessedTotal: number;
+  candidatesPublishedTotal: number;
   leaseDurationMs: number;
 }
 
@@ -233,8 +233,8 @@ export function buildCheckpointLeaseTransaction(deps: LeaseTransitionDeps, input
   }
 
   const set: Record<string, unknown> = {
-    pagesProcessed: input.pagesProcessedIncrement,
-    candidatesPublished: input.candidatesPublishedIncrement,
+    pagesProcessed: input.pagesProcessedTotal,
+    candidatesPublished: input.candidatesPublishedTotal,
   };
   const remove: string[] = [];
   if (isCompleting) {

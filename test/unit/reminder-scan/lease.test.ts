@@ -97,8 +97,8 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
       expectedVersion: afterAcquire!.version,
       startedFromLastEvaluatedKey: undefined,
       nextLastEvaluatedKey: nextKey,
-      pagesProcessedIncrement: 1,
-      candidatesPublishedIncrement: 50,
+      pagesProcessedTotal: 1,
+      candidatesPublishedTotal: 50,
       leaseDurationMs: LEASE_DURATION_MS,
     });
     await store.transactWrite(tx);
@@ -117,8 +117,8 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
       expectedVersion: afterAcquire!.version,
       startedFromLastEvaluatedKey: undefined,
       nextLastEvaluatedKey: serializeCanonicalKey({ PK: "TABLE#other", SK: "s" }),
-      pagesProcessedIncrement: 1,
-      candidatesPublishedIncrement: 1,
+      pagesProcessedTotal: 1,
+      candidatesPublishedTotal: 1,
       leaseDurationMs: LEASE_DURATION_MS,
     });
     await expect(store.transactWrite(replay)).rejects.toMatchObject({ name: "TransactionCanceledException" });
@@ -137,8 +137,8 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
         expectedVersion: lease!.version,
         startedFromLastEvaluatedKey: undefined,
         nextLastEvaluatedKey: key1,
-        pagesProcessedIncrement: 1,
-        candidatesPublishedIncrement: 10,
+        pagesProcessedTotal: 1,
+        candidatesPublishedTotal: 10,
         leaseDurationMs: LEASE_DURATION_MS,
       }),
     );
@@ -155,8 +155,8 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
       expectedVersion: lease!.version,
       startedFromLastEvaluatedKey: undefined,
       nextLastEvaluatedKey: serializeCanonicalKey({ PK: "P2", SK: "S2" }),
-      pagesProcessedIncrement: 1,
-      candidatesPublishedIncrement: 10,
+      pagesProcessedTotal: 1,
+      candidatesPublishedTotal: 10,
       leaseDurationMs: LEASE_DURATION_MS,
     });
     await expect(store.transactWrite(staleReplay)).rejects.toMatchObject({ name: "TransactionCanceledException" });
@@ -168,8 +168,8 @@ describe("buildCheckpointLeaseTransaction (D-300 §2 rows 3/4) - two distinct co
       expectedVersion: lease!.version,
       startedFromLastEvaluatedKey: key1,
       nextLastEvaluatedKey: undefined,
-      pagesProcessedIncrement: 1,
-      candidatesPublishedIncrement: 5,
+      pagesProcessedTotal: 1,
+      candidatesPublishedTotal: 5,
       leaseDurationMs: LEASE_DURATION_MS,
     });
     expect(finalTx).toHaveLength(1); // COMPLETED: no continuation outbox entry
