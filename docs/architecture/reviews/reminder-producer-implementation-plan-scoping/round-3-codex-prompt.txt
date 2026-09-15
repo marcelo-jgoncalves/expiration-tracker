@@ -1,0 +1,19 @@
+Continuing the same Claude<->Codex debate (AGENTS.md section 4) on the reminder-producer implementation plan. Repo: C:\Users\Usuario\Desktop\projects\expiration-tracker, branch design/reminder-producer-implementation-plan. Round 1 scored 4.3/10, round 2 scored 6.2/10 (docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-2-codex-output.txt, 13 required changes, most "partially fixed" or "unresolved").
+
+Read Claude's round 3 revision, which claims to resolve required changes 1 and 2 (the core correctness bug: continuation could be sent/acknowledged before its checkpoint, or checkpoint could advance without a continuation ever existing) by making the checkpoint transition and the continuation-publish durable-intent ATOMIC via this repo's existing transactional outbox + DynamoDB-Streams relay pattern (the same mechanism already used for claim-to-dispatch), rather than a plain SendMessageBatch before/after the lease write:
+docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-3-claude-revision.md
+
+Verify independently against the real repo, especially:
+- src/workers/dispatch-outbox-relay/relay.ts (the claim that it's already a generalized multi-destination router, senders map keyed by OutboxDestination, so adding a third destination is a precedented extension, not a redesign)
+- src/shared/outbox/outbox.ts, src/shared/contracts/events.ts (DomainEvent.tenantId required, non-optional - check whether the "tenantId: SYSTEM sentinel" workaround for a cross-tenant continuation event is sound or introduces a new problem, e.g. anywhere DomainEvent.tenantId is used for authorization/scoping/audit downstream)
+- src/workers/reminder-producer/producer.ts lines ~140-320 (lookback/generation/shard enumeration, claimChasingOccurrence shape, cancellation-reason handling)
+- src/shared/dynamodb/occ.ts (buildUnscopedVersionedUpdate feasibility, buildConditionalPut signature)
+- schemas/queues/reminder-dispatch.v1.json, command-envelope.v1.json (the allOf pattern claimed for the two new schemas)
+- infra/main.tf's reminder_dispatch_from_queue event source mapping (batch size / MaximumBatchingWindowInSeconds cited as precedent)
+- infra/modules/dynamo-table/main.tf:~206 (purgeAfterTtl attribute name)
+
+This is round 3 of a minimum-3-round, >=9.0/10-both-sides protocol. A minimum of 3 rounds is satisfied by this round, but do NOT converge unless the plan is actually genuinely ready for an implementer to execute without guessing - if the outbox-atomicity fix has its own real hole (e.g. the tenantId:"SYSTEM" sentinel breaking something downstream, or the relay extension having a real gap), say so plainly rather than being lenient because progress has been made across rounds.
+
+Score BLIND (do not read any Claude self-grade file in this directory before finishing your own score).
+
+Deliver: CRITIQUE (confirm or refute the round 3 fix and each required change's status specifically, cite file:line), then SCORE: X.X/10, then REQUIRED CHANGES if score < 9.0.

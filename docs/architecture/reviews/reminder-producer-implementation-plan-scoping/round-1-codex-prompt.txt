@@ -1,0 +1,27 @@
+You are the independent adversarial reviewer (Codex) in this repo's Claude<->Codex debate protocol (AGENTS.md section 4). Repo: C:\Users\Usuario\Desktop\projects\expiration-tracker, branch design/reminder-producer-implementation-plan. This protocol requires >=9.0/10 blind score from both sides, minimum 3 rounds, no rounding.
+
+CONTEXT: Architecture decision D-299 (already APPROVED, do not re-litigate) decided to fix a real bug (46.6% reminder loss under burst load) by decoupling GSI3 scan from claim via two SQS queues, with a page-lease state machine for resumable scan progress. Read it yourself: git show design/reminder-producer-structural-fix:docs/architecture/reviews/reminder-producer-structural-fix-scoping/DECISION.md (do not switch branches, use git show from within the repo).
+
+THIS round is a DIFFERENT, narrower decision: the IMPLEMENTATION PLAN for D-299 (exact names, exact schemas, exact timeout numbers, exact observability wiring, test plan, migration plan) so a later session can execute it without inventing anything. Read the full round-1 proposal at:
+docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-1-claude-proposal.md
+
+Also read these real files in the repo yourself to verify every factual claim in the proposal (do not trust the proposal's citations blindly - that is your job this round):
+- infra/main.tf (search for "reminder_producer", "reminder_dispatch", "dispatch_queue" to check naming convention claims)
+- infra/modules/sqs-worker-queue/main.tf and variables.tf (visibility timeout / maxReceiveCount fixed values)
+- src/shared/observability/context.ts, src/shared/observability/metrics.ts (correlation ID / EMF metrics primitives)
+- src/shared/dynamodb/occ.ts (conditional write builders)
+- src/shared/outbox/outbox.ts (OutboxDestination union, appendToTransaction)
+- src/workers/reminder-producer/producer.ts (current claim logic, current outbox usage - SQS_REMINDER_DISPATCH_V1)
+- src/runtime/aws/handlers/reminder-producer-handler.ts and reminder-reconciliation-handler.ts
+- src/modules/reminder/domain/shard-config.ts (DEFAULT_SHARD_COUNT)
+- AGENTS.md section 7 (the authoritative convention list the plan must follow)
+- Check whether test/integration/gsi3-isolation.test.ts actually exists, and whether infra/tests/stack.tftest.hcl is really the closer real equivalent, as the proposal claims.
+
+Score BLIND: do not look for any Claude self-grade file in this directory (round-1-claude-selfgrade.md may not exist yet, and even if it does, do not read it before finishing your own independent score).
+
+Deliver:
+1. A rigorous critique: cite concrete file:line facts where the proposal is right, wrong, unverified, or underspecified. Focus especially on: whether names/schema really match existing convention, whether the lease timing math is actually sound (not just plausible), whether the correlation-id/metrics/outbox/error-taxonomy answers are concrete enough that an implementer would face zero judgment calls, whether the test plan covers the real highest-risk edge cases, and whether the reconciliation/migration answers are actually justified or just asserted.
+2. A blind numeric score out of 10, one decimal, no rounding up to a round number for its own sake.
+3. If score < 9.0, a specific, actionable list of exactly what must change to converge, not vague "improve X".
+
+Output plain text (no markdown fences needed), structured as: CRITIQUE, then SCORE: X.X/10, then REQUIRED CHANGES (if any).

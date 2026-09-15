@@ -1,0 +1,14 @@
+Continuing the same Claude<->Codex debate (AGENTS.md section 4) on the reminder-producer implementation plan. Repo: C:\Users\Usuario\Desktop\projects\expiration-tracker, branch design/reminder-producer-implementation-plan. Round 4 scored 8.4/10 with exactly 4 required changes remaining (docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-4-codex-output.txt): (1) missing leaseUntil>=now condition on checkpoint transitions, (2) incomplete/non-conformant schemas (system-envelope.v1.json referenced but never specified, wrong $ref path, unpinned commandType), (3) rollback quiescence not actually bounded/blocking plus residual-message semantic-validity gap, (4) stale "exactly two GSI6 roles" citation plus D-299 scope not formally amended.
+
+Read Claude's round 5 revision, which claims to close all 4:
+docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-5-claude-revision.md
+
+Verify specifically:
+- schemas/events/domain-event-envelope.v1.json (the claim that reusing this existing file, rather than inventing system-envelope.v1.json, is sound and sufficient for a cross-tenant "SYSTEM" tenantId event)
+- schemas/queues/reminder-dispatch.v1.json (the $ref path convention "../queues/command-envelope.v1.json" claimed as the fix)
+- Whether the new rolloutEpoch/SCAN_MODE_EPOCH fence mechanism is coherent and actually closes the residual-message semantic-validity gap Codex raised in round 4, or introduces a new problem (e.g. does it actually get compared anywhere in the checkpoint condition table, or just described in the rollback section - if it's only checked in the scan handler but the checkpoint conditional writes don't also account for it, is there a gap?)
+- Whether adding leaseUntil >= :now to extraConditions is mechanically sound against occ.ts's real extraConditions merge logic
+
+This is round 5 of the protocol (minimum 3 already long satisfied). This has been a genuinely productive multi-round convergence (4.3 -> 6.2 -> 7.4 -> 8.4) with real bugs found and fixed each round, not rubber-stamping. Score BLIND, do not read any Claude self-grade file in this directory before finishing your own score. If this round genuinely closes the loop to >=9.0, converge and say so plainly. If a real gap remains, say so plainly and specifically - do not converge out of protocol fatigue.
+
+Deliver: CRITIQUE (confirm/refute each of the 4 required changes, cite file:line), then SCORE: X.X/10, then REQUIRED CHANGES if score < 9.0.
