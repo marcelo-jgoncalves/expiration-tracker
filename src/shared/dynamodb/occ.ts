@@ -81,17 +81,17 @@ interface ScopedVersionedUpdateInput {
  * `extraConditions` composition and placeholder-collision detection are a single implementation,
  * never duplicated, so the two builders can never drift apart on anything but their fence.
  */
-function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: ScopeCondition): DynamoUpdateCommandInput {
+function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: ScopeCondition | undefined): DynamoUpdateCommandInput {
   const now = input.now ?? new Date().toISOString();
 
   const names: Record<string, string> = {
     "#version": "version",
-    [scope.namePlaceholder]: scope.attributeName,
+    ...(scope ? { [scope.namePlaceholder]: scope.attributeName } : {}),
     "#updatedAt": "updatedAt",
   };
   const values: Record<string, unknown> = {
     ":expectedVersion": input.expectedVersion,
-    [scope.valuePlaceholder]: scope.value,
+    ...(scope ? { [scope.valuePlaceholder]: scope.value } : {}),
     ":one": 1,
     ":now": now,
   };
@@ -121,7 +121,7 @@ function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: Sc
       ? `SET ${setClauses.join(", ")} REMOVE ${removeClauses.join(", ")}`
       : `SET ${setClauses.join(", ")}`;
 
-  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", `${scope.namePlaceholder} = ${scope.valuePlaceholder}`];
+  const baseConditionParts = ["attribute_exists(PK)", "attribute_exists(SK)", "#version = :expectedVersion", ...(scope ? [`${scope.namePlaceholder} = ${scope.valuePlaceholder}`] : [])];
   for (const extra of input.extraConditions ?? []) {
     for (const [nameKey, name] of Object.entries(extra.names ?? {})) {
       if (nameKey in names) throw new Error(`extraConditions name placeholder collides with a reserved/generated key: ${nameKey}`);
@@ -153,6 +153,24 @@ function buildScopedVersionedUpdate(input: ScopedVersionedUpdateInput, scope: Sc
  */
 export function buildVersionedUpdate(input: VersionedUpdateInput): DynamoUpdateCommandInput {
   return buildScopedVersionedUpdate(input, { namePlaceholder: "#tenantId", attributeName: "tenantId", valuePlaceholder: ":tenantId", value: input.tenantId });
+}
+
+/**
+ * Unscoped sibling of `buildVersionedUpdate()`/`buildAccountScopedVersionedUpdate()` (D-300 §2,
+ * `reminder-producer-implementation-plan-scoping/DECISION.md`) - generalizes
+ * `buildScopedVersionedUpdate`'s `scope` parameter to optional, for an entity that has no
+ * tenant/account fence at all: the `ReminderScanLease` item (PK: `SCAN#<shardFnVersion>#<shardId>#
+ * <minuteISO>`, SK: `LEASE`) is a system-owned coordination row, not a tenant-owned business
+ * entity. When `scope` is omitted, zero placeholders/condition clauses are added for it - the
+ * base condition degrades to `attribute_exists(PK) AND attribute_exists(SK) AND #version =
+ * :expectedVersion` plus whatever `extraConditions` the caller supplies (e.g. the lease's own
+ * `ownerToken`/`leaseUntil`/`lastEvaluatedKey` conditions - see the scan-page worker). Byte-for-byte
+ * identical output to `buildVersionedUpdate`/`buildAccountScopedVersionedUpdate` when their
+ * scoped inputs are re-run through this function's scope-present path - proven by a test that
+ * pins both code paths against the same fixture.
+ */
+export function buildUnscopedVersionedUpdate(input: ScopedVersionedUpdateInput): DynamoUpdateCommandInput {
+  return buildScopedVersionedUpdate(input, undefined);
 }
 
 export interface AccountScopedVersionedUpdateInput extends ScopedVersionedUpdateInput {
