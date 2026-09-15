@@ -1,5 +1,5 @@
 import type { EntityKey, TransactWriteEntry } from "../../../src/modules/reminder/ports/reminder-store.js";
-import type { ReminderStore, ReminderProducerStore, Gsi3QueryInput } from "../../../src/modules/reminder/ports/reminder-store.js";
+import type { ReminderStore, ReminderProducerStore, Gsi3QueryInput, Gsi3Page, Gsi3PageQueryInput } from "../../../src/modules/reminder/ports/reminder-store.js";
 import type { ReminderIdGenerator } from "../../../src/modules/reminder/application/id-generator.js";
 
 /**
@@ -147,6 +147,29 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
     return [...this.items.values()]
       .filter((i) => i["GSI3PK"] === input.gsi3pk)
       .map((i) => ({ PK: i.PK, SK: i.SK, GSI3PK: i["GSI3PK"], GSI3SK: i["GSI3SK"] })) as unknown as T[];
+  }
+
+  /** D-300: single-page emulation, sorted by PK#SK so pagination is deterministic across
+   * calls with the same underlying map (real DynamoDB orders by sort key within a partition;
+   * this fake's rows span several GSI3PK partitions collapsed into one Map, so PK#SK is the
+   * closest stable stand-in a test can rely on). `limit` truncates the match set; a
+   * `lastEvaluatedKey` (this fake's own `{ PK, SK }` shape) is returned whenever the match set
+   * is longer than `limit ` - tests then re-call with `exclusiveStartKey` to fetch the next page. */
+  async queryGsi3Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3PageQueryInput): Promise<Gsi3Page<T>> {
+    const all = [...this.items.values()]
+      .filter((i) => i["GSI3PK"] === input.gsi3pk)
+      .map((i) => ({ PK: i.PK, SK: i.SK, GSI3PK: i["GSI3PK"], GSI3SK: i["GSI3SK"] }))
+      .sort((a, b) => this.k(a).localeCompare(this.k(b)));
+
+    const startAfterKey = input.exclusiveStartKey ? `${input.exclusiveStartKey["PK"]}#${input.exclusiveStartKey["SK"]}` : undefined;
+    const startIndex = startAfterKey ? all.findIndex((i) => this.k(i) === startAfterKey) + 1 : 0;
+    const page = all.slice(startIndex, startIndex + input.limit);
+    const hasMore = startIndex + input.limit < all.length;
+
+    return {
+      items: page as unknown as T[],
+      lastEvaluatedKey: hasMore ? { PK: page[page.length - 1]!.PK, SK: page[page.length - 1]!.SK } : undefined,
+    };
   }
 
   allItems(): (Record<string, unknown> & EntityKey)[] {

@@ -43,9 +43,34 @@ export interface Gsi3QueryInput {
   gsi3pk: string;
 }
 
+/**
+ * D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §2/§3): input for a SINGLE
+ * GSI3 page, as opposed to `queryGsi3` above (which auto-paginates internally and returns
+ * everything at once - the exact behavior that makes one producer invocation unable to bound its
+ * own duration under a burst, PERF-12's root cause). `exclusiveStartKey` is the plain object form
+ * (already deserialized via `deserializeCanonicalKey` - see `src/shared/dynamodb/canonical-key.ts`)
+ * - callers own canonical (de)serialization, this port stays a thin DynamoDB wrapper.
+ */
+export interface Gsi3PageQueryInput {
+  gsi3pk: string;
+  exclusiveStartKey?: Record<string, unknown>;
+  /** Page size cap (DECISION.md §3: "200 candidatos/página"). */
+  limit: number;
+}
+
+export interface Gsi3Page<T> {
+  items: T[];
+  /** Present only if more pages remain for this `gsi3pk`. */
+  lastEvaluatedKey?: Record<string, unknown>;
+}
+
 /** Narrow port, injected ONLY into the ReminderProducer worker (see file header). */
 export interface ReminderProducerStore {
   queryGsi3<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3QueryInput): Promise<T[]>;
+  /** D-300: exactly ONE DynamoDB page per call (never the internal auto-pagination loop
+   * `queryGsi3` uses) - `scan-page.ts` calls this once per Lambda invocation and checkpoints the
+   * returned `lastEvaluatedKey` via the lease item before the next invocation continues. */
+  queryGsi3Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3PageQueryInput): Promise<Gsi3Page<T>>;
   /** Strongly consistent read of the base item, used by the producer to reconstruct tenant context before claiming (data-model.md §3: "tenantId preservado... para reconstrução segura do contexto"). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   /** Conditional SCHEDULED -> CLAIMED transition (implementation-blueprint.md §9.3 point 3). */

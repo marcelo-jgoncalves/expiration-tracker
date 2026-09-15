@@ -49,6 +49,10 @@ class PoisonOnceStore implements ReminderProducerStore {
   async queryGsi3<T extends EntityKey = Record<string, unknown> & EntityKey>(input: { gsi3pk: string }) {
     return this.inner.queryGsi3<T>(input);
   }
+
+  async queryGsi3Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: { gsi3pk: string; exclusiveStartKey?: Record<string, unknown>; limit: number }) {
+    return this.inner.queryGsi3Page<T>(input);
+  }
 }
 
 describe("producer.ts - partial batch failure", () => {

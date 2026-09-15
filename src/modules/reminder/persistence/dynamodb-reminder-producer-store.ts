@@ -7,7 +7,7 @@
  */
 import { GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { EntityKey, Gsi3QueryInput, ReminderProducerStore, TransactWriteEntry } from "../ports/reminder-store.js";
+import type { EntityKey, Gsi3Page, Gsi3PageQueryInput, Gsi3QueryInput, ReminderProducerStore, TransactWriteEntry } from "../ports/reminder-store.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../../shared/observability/security-audit.js";
 
@@ -46,6 +46,32 @@ export class DynamoDbReminderProducerStore implements ReminderProducerStore {
         auditGlobalIndexAccessDenied({ indexName: "GSI3", operation: "Query", component: "reminder-producer", awsErrorCode: "AccessDeniedException" });
       }
       throw mapDynamoError(err, "ReminderProducerStore.queryGsi3");
+    }
+  }
+
+  /** D-300 §2/§3: exactly ONE DynamoDB page, never the auto-pagination loop `queryGsi3` above
+   * uses - see that port method's doc comment. Same audit-trail discipline as `queryGsi3`
+   * (one event per logical call), but `pageCount` is always 1 here by construction. */
+  async queryGsi3Page<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi3PageQueryInput): Promise<Gsi3Page<T>> {
+    try {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI3",
+          KeyConditionExpression: "GSI3PK = :pk",
+          ExpressionAttributeValues: { ":pk": input.gsi3pk },
+          ExclusiveStartKey: input.exclusiveStartKey,
+          Limit: input.limit,
+        }),
+      );
+      const items = (result.Items ?? []) as T[];
+      auditGlobalIndexAccess({ indexName: "GSI3", operation: "Query", component: "reminder-producer", pageCount: 1, resultCount: items.length });
+      return { items, lastEvaluatedKey: result.LastEvaluatedKey };
+    } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI3", operation: "Query", component: "reminder-producer", awsErrorCode: "AccessDeniedException" });
+      }
+      throw mapDynamoError(err, "ReminderProducerStore.queryGsi3Page");
     }
   }
 
