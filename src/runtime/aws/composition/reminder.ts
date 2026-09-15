@@ -1,7 +1,9 @@
 /** Composition root for the reminder module and its async workers against real DynamoDB/SQS (M3.5). */
+import { randomUUID } from "node:crypto";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { SQSClient, SendMessageCommand, SendMessageBatchCommand } from "@aws-sdk/client-sqs";
+import type { ClaimCandidateCommand, ClaimQueuePort, SendMessageBatchOutcome } from "../../../workers/reminder-scan/scan-page.js";
 import { DynamoDbReminderStore } from "../../../modules/reminder/persistence/dynamodb-reminder-store.js";
 import { DynamoDbReminderProducerStore } from "../../../modules/reminder/persistence/dynamodb-reminder-producer-store.js";
 import { DynamoDbReminderReconciliationCandidateSource } from "../../../modules/reminder/persistence/dynamodb-reconciliation-candidate-source.js";
@@ -77,6 +79,88 @@ export function buildReminderProducerDeps(client: DynamoDBDocumentClient, tableN
   };
 }
 
+/** D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §1/§5): real
+ * `SendMessageBatch` adapter for `scan-page.ts`'s `ClaimQueuePort` - chunks of <=10 candidates
+ * are the CALLER's responsibility (scan-page.ts itself), this adapter just sends exactly the
+ * chunk it's given and maps the SDK's per-entry `Failed` array to the port's outcome shape. */
+export function buildReminderClaimQueuePort(sqsClient: SQSClient, queueUrl: string): ClaimQueuePort {
+  return {
+    async sendMessageBatch(entries: ClaimCandidateCommand[]): Promise<SendMessageBatchOutcome> {
+      const result = await sqsClient.send(
+        new SendMessageBatchCommand({
+          QueueUrl: queueUrl,
+          Entries: entries.map((e) => ({
+            Id: e.messageId,
+            MessageBody: JSON.stringify(e),
+            MessageAttributes: { correlationId: { DataType: "String", StringValue: e.correlationId } },
+          })),
+        }),
+      );
+      const failedEntryIds = (result.Failed ?? []).map((f) => ({ id: f.Id ?? "unknown", senderFault: f.SenderFault === true }));
+      return { failedEntryIds };
+    },
+  };
+}
+
+/** Deps for `scan-page.ts`'s `runScanPage` (SQS scan-continuation-driven side of the dual-trigger
+ * `reminder-producer-handler.ts`). `rolloutEpoch` is read from `SCAN_MODE_EPOCH` by the handler,
+ * never defaulted here - see that handler for the env var contract. */
+export function buildReminderScanPageDeps(client: DynamoDBDocumentClient, tableName: string, sqsClient: SQSClient, claimQueueUrl: string, rolloutEpoch: number) {
+  const store = new DynamoDbReminderProducerStore(client, tableName);
+  const ids = new UlidIdGenerator();
+  return {
+    store,
+    claimQueue: buildReminderClaimQueuePort(sqsClient, claimQueueUrl),
+    tableName,
+    now: () => new Date().toISOString(),
+    newEventId: () => ids.newEventId(),
+    correlationId: () => newCorrelationId(),
+    rolloutEpoch,
+    // DECISION.md §3: 200 candidates/page, 200s lease duration.
+    pageSize: 200,
+    leaseDurationMs: 200_000,
+    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  };
+}
+
+/** Deps for `enumerate-and-lease.ts`'s `runEnumerationTick` (EventBridge Scheduler side of the
+ * dual-trigger handler under `SCAN_MODE=PAGED`). */
+export function buildReminderEnumerationDeps(client: DynamoDBDocumentClient, tableName: string, rolloutEpoch: number) {
+  const store = new DynamoDbReminderProducerStore(client, tableName);
+  const ids = new UlidIdGenerator();
+  return {
+    store,
+    shardConfig: defaultShardConfig(),
+    tableName,
+    now: () => new Date().toISOString(),
+    newEventId: () => ids.newEventId(),
+    correlationId: () => newCorrelationId(),
+    rolloutEpoch,
+    leaseDurationMs: 200_000,
+    newOwnerToken: () => randomUUID(),
+  };
+}
+
+/** Deps for the new claim-consumer Lambda (`reminder-claim-consumer-handler.ts`) -
+ * DELIBERATELY built on `DynamoDbReminderStore`, never `DynamoDbReminderProducerStore` (the
+ * ONLY class with `queryGsi3`/`queryGsi3Page`) - this Lambda must never even structurally have
+ * the ability to reach GSI3, mirroring the "isolation enforced structurally" discipline
+ * reminder-store.ts's own file header describes for the existing producer/reconciliation split.
+ * The claim-consumer's IAM role (Terraform) omits `gsi3_read` entirely; this is the
+ * corresponding code-level guarantee. */
+export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, tableName: string) {
+  const store = new DynamoDbReminderStore(client, tableName);
+  const ids = new UlidIdGenerator();
+  return {
+    store,
+    tableName,
+    now: () => new Date().toISOString(),
+    claimTtlMs: 2 * 60_000,
+    newEventId: () => ids.newEventId(),
+    correlationId: () => newCorrelationId(),
+  };
+}
+
 export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbReminderStore(client, tableName);
   const candidateSource = new DynamoDbReminderReconciliationCandidateSource(client, tableName);
@@ -135,6 +219,12 @@ export function buildOutboxRelayDeps(
   // GUEST Lambda, holds the D-146 pepper) never trusts anything beyond those four fields, always
   // re-reads the authoritative DocumentRequest.
   guestCredentialIssuanceQueueUrl?: string,
+  // D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §4): NINTH optional sender -
+  // EVERY ReminderScanLease transition (acquire/reclaim/checkpoint-with-more-pages) dispatches
+  // this destination in the same TWI as the lease write. Same bare-envelope shape as
+  // SQS_REMINDER_DISPATCH_V1 above (payload IS the full SqsCommandEnvelope, not re-wrapped) -
+  // the dual-trigger reminder-producer-handler.ts's SQS path reads it directly.
+  reminderScanContinuationQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -174,6 +264,7 @@ export function buildOutboxRelayDeps(
       ...(dossierExportQueueUrl ? { SQS_DOSSIER_EXPORT_V1: send(dossierExportQueueUrl) } : {}),
       ...(guestCredentialIssuanceQueueUrl ? { SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1: send(guestCredentialIssuanceQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
+      ...(reminderScanContinuationQueueUrl ? { SQS_REMINDER_SCAN_CONTINUATION_V1: send(reminderScanContinuationQueueUrl) } : {}),
     },
   };
 }
