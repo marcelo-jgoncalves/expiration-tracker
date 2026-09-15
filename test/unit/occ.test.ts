@@ -4,6 +4,7 @@ import {
   buildVersionedCreate,
   buildVersionedUpdate,
   buildAccountScopedVersionedUpdate,
+  buildUnscopedVersionedUpdate,
   isConditionalCheckFailed,
 } from "../../src/shared/dynamodb/occ.js";
 
@@ -145,6 +146,69 @@ describe("buildAccountScopedVersionedUpdate (D-197 fatia 3/5: WhatsApp WebhookIn
         expectedVersion: 1,
         set: {},
         extraConditions: [{ expression: "x = :accountId", values: { ":accountId": "other" } }],
+      }),
+    ).toThrow(/collides/);
+  });
+});
+
+describe("buildUnscopedVersionedUpdate (D-300 §2: ReminderScanLease has no tenant/account fence at all)", () => {
+  it("builds a ConditionExpression with NO scope clause - only PK/SK/version, plus caller extraConditions", () => {
+    const cmd = buildUnscopedVersionedUpdate({
+      tableName: "MainTable",
+      key: { PK: "SCAN#v1#shard-3#2026-09-14T12:00:00.000Z", SK: "LEASE" },
+      expectedVersion: 1,
+      set: { status: "COMPLETED" },
+      remove: ["GSI6PK", "GSI6SK"],
+      extraConditions: [
+        {
+          expression: "#ownerToken = :myToken AND #leaseUntil >= :leaseNow",
+          names: { "#ownerToken": "ownerToken", "#leaseUntil": "leaseUntil" },
+          values: { ":myToken": "owner-abc", ":leaseNow": "2026-09-14T12:01:00.000Z" },
+        },
+      ],
+    });
+    expect(cmd.ConditionExpression).toBe(
+      "attribute_exists(PK) AND attribute_exists(SK) AND #version = :expectedVersion" +
+        " AND (#ownerToken = :myToken AND #leaseUntil >= :leaseNow)",
+    );
+    expect(cmd.ExpressionAttributeNames!["#tenantId"]).toBeUndefined();
+    expect(cmd.ExpressionAttributeNames!["#accountId"]).toBeUndefined();
+    expect(cmd.ExpressionAttributeValues[":tenantId" as never]).toBeUndefined();
+    expect(cmd.UpdateExpression).toBe("SET #version = #version + :one, #updatedAt = :now, #set0 = :set0 REMOVE #rem0, #rem1");
+  });
+
+  it("produces byte-for-byte the SAME UpdateExpression/SET/REMOVE/extraConditions machinery as the scoped builders - only the scope fence differs", () => {
+    const shared = {
+      tableName: "MainTable",
+      key: { PK: "PK1", SK: "SK1" },
+      expectedVersion: 3,
+      set: { a: "x", b: "y" },
+      remove: ["stalePointer"],
+      now: "2026-09-07T00:00:00.000Z",
+      extraConditions: [{ expression: "purgeAfter <= :cutoff", values: { ":cutoff": "2026-09-08T00:00:00.000Z" } }],
+    };
+    const tenantCmd = buildVersionedUpdate({ ...shared, tenantId: "t_01" });
+    const unscopedCmd = buildUnscopedVersionedUpdate(shared);
+
+    expect(unscopedCmd.UpdateExpression).toBe(tenantCmd.UpdateExpression);
+    expect(unscopedCmd.ExpressionAttributeValues[":one"]).toBe(1);
+    expect(unscopedCmd.ExpressionAttributeValues[":now"]).toBe("2026-09-07T00:00:00.000Z");
+    expect(unscopedCmd.ExpressionAttributeValues[":set0"]).toBe("x");
+    expect(unscopedCmd.ExpressionAttributeValues[":cutoff"]).toBe("2026-09-08T00:00:00.000Z");
+    // Same condition minus the scope clause the tenant-scoped builder adds.
+    expect(unscopedCmd.ConditionExpression).toBe(
+      tenantCmd.ConditionExpression.replace(" AND #tenantId = :tenantId", ""),
+    );
+  });
+
+  it("throws if an extraConditions placeholder collides with a reserved or generated key (same discipline as the scoped builders)", () => {
+    expect(() =>
+      buildUnscopedVersionedUpdate({
+        tableName: "MainTable",
+        key: { PK: "PK1", SK: "SK1" },
+        expectedVersion: 1,
+        set: {},
+        extraConditions: [{ expression: "purgeAfter <= :now", values: { ":now": "2026-08-28T00:00:00.000Z" } }],
       }),
     ).toThrow(/collides/);
   });

@@ -7,6 +7,18 @@
 
 export type Actor = { type: "SYSTEM" } | { type: "USER"; userId: string };
 
+/**
+ * D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §4): sentinel `tenantId`
+ * for the one event/command family that is genuinely not tenant-owned - the
+ * `ReminderScanLease` continuation message (`SQS_REMINDER_SCAN_CONTINUATION_V1`), which
+ * coordinates a system-level scan across ALL tenants sharing one (shard, minute), not any single
+ * tenant's own work. Formalized here (not just a magic string at the call site) precisely so any
+ * tenant-partitioning/authorization logic that pattern-matches `tenantId` has one place to
+ * special-case it, and so `"SYSTEM"` is never mistaken for - or confused with - a real
+ * (fabricated or otherwise) tenant id. Never consumable by per-tenant business logic.
+ */
+export const SYSTEM_TENANT_SENTINEL = "SYSTEM";
+
 export interface AggregateRef {
   type: string;
   id: string;

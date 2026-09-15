@@ -1,0 +1,16 @@
+Continuing the same Claude<->Codex debate (AGENTS.md section 4) on the reminder-producer implementation plan. Repo: C:\Users\Usuario\Desktop\projects\expiration-tracker, branch design/reminder-producer-implementation-plan. Your round 1 score was 4.3/10 with 13 required changes (docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-1-codex-output.txt).
+
+Read Claude's round 2 revision, which responds to each of your 13 required changes point by point:
+docs/architecture/reviews/reminder-producer-implementation-plan-scoping/round-2-claude-revision.md
+
+Re-verify the new factual claims yourself against the real repo (do not trust the revision blindly):
+- src/modules/reminder/ports/reminder-store.ts, src/modules/reminder/persistence/dynamodb-reminder-producer-store.ts (the proposed queryGsi3Page port change and the claim that queryGsi3 has exactly one caller left, at producer.ts:187)
+- src/shared/dynamodb/occ.ts (the proposed buildUnscopedVersionedUpdate sibling and whether generalizing buildScopedVersionedUpdate's scope parameter to optional is actually sound given its existing callers)
+- src/workers/reminder-reconciliation/reconciliation.ts (the claim that it has zero coupling to any SCAN#...#LEASE row)
+- src/workers/reminder-producer/producer.ts lines ~264-289 (the claim that claim logic can be relocated byte-for-byte)
+- test/contract/schemas.test.ts (the claim that this repo has one consolidated contract test file, not per-schema files)
+- schemas/queues/*.json for the actual envelope/wrapper convention the two new schemas should follow
+
+Score BLIND again (ignore any Claude self-grade file in this directory). This is round 2 of a minimum-3-round protocol requiring >=9.0/10 from both sides before convergence - do not converge early if real gaps remain, but also do not invent new requirements beyond what a competent implementer actually needs to execute this without guessing.
+
+Deliver: CRITIQUE (cite file:line facts, confirm or refute each of the 13 fixes specifically, note anything still hand-wavy or newly introduced problems - e.g. check whether the "ownership stays constant across a chain, but Apply 1 deploys new handler code inertly while EventBridge still points at old code" deploy story in required-change-13's fix is actually coherent), then SCORE: X.X/10, then REQUIRED CHANGES (specific and actionable) if score < 9.0.

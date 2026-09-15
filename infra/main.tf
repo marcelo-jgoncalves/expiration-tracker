@@ -267,16 +267,50 @@ module "reminder_producer" {
   # with generous headroom for DynamoDB latency variance - not raised to Lambda's 900s max,
   # which would let a genuinely pathological tick run for 15 minutes before EventBridge's next
   # 1-minute-later invocation piles another one on top of it.
-  timeout_seconds                = 60
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = local.common_env
+  #
+  # D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §3): dual-trigger now -
+  # ALSO consumes the new scan queue below. 60-90s budgets a page (200 candidates, up to 20
+  # SendMessageBatch chunks) comfortably within the existing 60s timeout this Lambda already
+  # has for its EventBridge-triggered path.
+  timeout_seconds = 60
+  adot_layer_arn  = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    # DECISION.md §8 staged rollout: LEGACY is the safe default this deploy ships with -
+    # PAGED is flipped in a LATER apply, through the normal PR->CI->merge->CD pipeline, never
+    # applied locally.
+    SCAN_MODE                = "LEGACY"
+    SCAN_MODE_EPOCH          = "1"
+    REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The ONLY function granted gsi3_read — never add this capability to any other function.
+  # D-300: also needs to CONSUME its own new scan queue (continuation messages) and SEND to
+  # both the scan queue (its own continuation, via the outbox relay - see
+  # dispatch_outbox_relay above, not this Lambda directly) and the claim queue
+  # (SendMessageBatch, direct - never via the outbox, DECISION.md §4/§5).
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi3_read_policy_json,
+    module.reminder_scan_queue.consume_policy_json,
+    module.reminder_claim_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
+  event_source_arn = module.reminder_scan_queue.queue_arn
+  function_name    = module.reminder_producer.live_alias_arn
+  # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
+  # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
+  # exists to eliminate.
+  batch_size              = 1
+  function_response_types = ["ReportBatchItemFailures"]
+  scaling_config {
+    # DECISION.md §3: genuinely concurrent chains are bounded by active generations x shards
+    # (<=8 in practice even with lookback), 10 gives headroom without letting a pathological
+    # burst fan out unboundedly.
+    maximum_concurrency = 10
+  }
 }
 
 module "reminder_dispatch" {
@@ -298,18 +332,43 @@ module "reminder_dispatch" {
 module "reminder_reconciliation" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-reminder-reconciliation"
-  handler_name                   = "reminder-reconciliation-handler"
-  source_dir                     = "${local.dist_dir}/reminder-reconciliation-handler"
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = local.common_env
+  function_name  = "${local.name_prefix}-reminder-reconciliation"
+  handler_name   = "reminder-reconciliation-handler"
+  source_dir     = "${local.dist_dir}/reminder-reconciliation-handler"
+  adot_layer_arn = var.adot_layer_arn
+  # D-300 (DECISION.md §7): 3rd pass (SCANLEASE) added to this SAME 5-minute execution -
+  # SCAN_MODE_EPOCH needed so the reclaim it performs on a stuck lease carries the CURRENT
+  # epoch, never a stale one baked in at deploy time before a rollback/roll-forward cycle.
+  environment_variables          = merge(local.common_env, { SCAN_MODE_EPOCH = "1" })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
   # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
-  # GlobalIndexComponent "upload-slot-reconciliation").
+  # GlobalIndexComponent "upload-slot-reconciliation"). D-300: the same gsi6_read grant already
+  # covers the new SCANLEASE pass's GSI6PK="SCANLEASE#IN_PROGRESS" query - no new IAM grant.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- D-300: ReminderClaimConsumer (reminder-producer-implementation-plan-scoping/DECISION.md
+# §1) - NEW Lambda consuming claim candidates published directly by reminder_producer's
+# scan-page.ts path. DELIBERATELY excludes gsi3_read_policy_json - this is the ONE function
+# in this module family that must never be able to reach GSI3, proven structurally by
+# infra/tests/stack.tftest.hcl's new run block.
+module "reminder_claim_consumer" {
+  source = "./modules/lambda-function"
+
+  function_name                  = "${local.name_prefix}-reminder-claim-consumer"
+  handler_name                   = "reminder-claim-consumer-handler"
+  source_dir                     = "${local.dist_dir}/reminder-claim-consumer-handler"
+  adot_layer_arn                 = var.adot_layer_arn
+  environment_variables          = local.common_env
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 10 : null
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.reminder_claim_queue.consume_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -356,6 +415,9 @@ module "dispatch_outbox_relay" {
     DOSSIER_EXPORT_QUEUE_URL = module.dossier_export_queue.queue_url
     # D-226: ninth destination, same reasoning.
     GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL = module.guest_credential_issuance_queue.queue_url
+    # D-300: tenth destination - EVERY ReminderScanLease transition's continuation event, same
+    # reasoning.
+    REMINDER_SCAN_CONTINUATION_QUEUE_URL = module.reminder_scan_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -369,6 +431,7 @@ module "dispatch_outbox_relay" {
     module.report_subscription_delivery_queue.send_policy_json,
     module.dossier_export_queue.send_policy_json,
     module.guest_credential_issuance_queue.send_policy_json,
+    module.reminder_scan_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -401,6 +464,8 @@ module "outbox_sweeper" {
     GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL = module.guest_credential_issuance_queue.queue_url
     # D-229 fatia 2/5 (D-9): eleventh destination, same reasoning.
     WHATSAPP_DELIVER_QUEUE_URL = module.whatsapp_deliver_queue.queue_url
+    # D-300: twelfth destination, same reasoning.
+    REMINDER_SCAN_CONTINUATION_QUEUE_URL = module.reminder_scan_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -427,6 +492,7 @@ module "outbox_sweeper" {
     module.dossier_export_queue.send_policy_json,
     module.guest_credential_issuance_queue.send_policy_json,
     module.whatsapp_deliver_queue.send_policy_json,
+    module.reminder_scan_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -957,6 +1023,50 @@ resource "aws_lambda_event_source_mapping" "reminder_dispatch_from_queue" {
   function_name           = module.reminder_dispatch.live_alias_arn
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
+}
+
+# --- SQS: ReminderScanQueue + DLQ (D-300 §1/§3) - scan-page.ts continuation, consumed by the
+# SAME reminder_producer Lambda module above (dual-trigger, never a second Lambda for this
+# side - DECISION.md §1: "a MESMA Lambda/módulo reminder_producer de hoje").
+#
+# consumer_timeout_seconds=90 (DECISION.md §3: "60-90s... ate 20 chunks de SendMessageBatch")
+# drives visibility_timeout_seconds=540 (6x, the sqs-worker-queue module's own fixed rule) and
+# maxReceiveCount=5 (also fixed by that module) - both exactly DECISION.md §3's sizing.
+module "reminder_scan_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-reminder-scan"
+  consumer_timeout_seconds = 90
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+# --- SQS: ReminderClaimQueue + DLQ (D-300 §1/§3) - claim candidates, consumed by the NEW
+# reminder_claim_consumer Lambda (module below). consumer_timeout_seconds=10 (unchanged from
+# reminder_dispatch's own claim-shaped consumer) drives visibility_timeout_seconds=60 (6x).
+module "reminder_claim_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-reminder-claim"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" {
+  event_source_arn = module.reminder_claim_queue.queue_arn
+  function_name    = module.reminder_claim_consumer.live_alias_arn
+  # DECISION.md §3: batch size 10, same explicit value as reminder-dispatch (infra/main.tf
+  # reminder_dispatch_from_queue above).
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+  scaling_config {
+    maximum_concurrency = 50
+  }
 }
 
 # --- SQS: ReminderMaterializationTriggerQueue + DLQ (BLOCKER-B) ---------------------------

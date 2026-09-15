@@ -11,10 +11,12 @@ import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
   GSI6PK_WORKSTATE_CLAIMED,
   GSI6PK_WORKSTATE_DST_PENDING,
+  GSI6PK_SCANLEASE_IN_PROGRESS,
   type DstReconciliationCandidate,
   type ExpiredClaimCandidate,
   type Page,
   type ReminderReconciliationCandidateSource,
+  type StuckScanLeaseCandidate,
 } from "../ports/reconciliation-candidate-source.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../../shared/observability/security-audit.js";
@@ -76,6 +78,32 @@ export class DynamoDbReminderReconciliationCandidateSource implements ReminderRe
         auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", awsErrorCode: "AccessDeniedException" });
       }
       throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listDstCandidates");
+    }
+  }
+
+  /** D-300 (DECISION.md §7): same GSI6 read mechanism as `listExpiredClaims`/`listDstCandidates`
+   * above - no new IAM grant, this role already has `gsi6Read()`. */
+  async listStuckScanLeases(input: { before: string; pageSize?: number; cursor?: string }): Promise<Page<StuckScanLeaseCandidate>> {
+    try {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI6",
+          KeyConditionExpression: "GSI6PK = :pk AND GSI6SK < :before",
+          ExpressionAttributeValues: { ":pk": GSI6PK_SCANLEASE_IN_PROGRESS, ":before": input.before },
+          Limit: input.pageSize ?? DEFAULT_PAGE_SIZE,
+          ExclusiveStartKey: input.cursor ? JSON.parse(input.cursor) : undefined,
+        }),
+      );
+      // GSI6 is ALL-projected - each row already IS the full ReminderScanLease item.
+      const items = (result.Items ?? []) as StuckScanLeaseCandidate[];
+      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", pageCount: 1, resultCount: items.length });
+      return { items, cursor: result.LastEvaluatedKey ? JSON.stringify(result.LastEvaluatedKey) : undefined };
+    } catch (err) {
+      if (isAccessDeniedError(err)) {
+        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "reminder-reconciliation", awsErrorCode: "AccessDeniedException" });
+      }
+      throw mapDynamoError(err, "ReminderReconciliationCandidateSource.listStuckScanLeases");
     }
   }
 }

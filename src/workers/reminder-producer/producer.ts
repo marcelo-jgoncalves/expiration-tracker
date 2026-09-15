@@ -27,46 +27,23 @@
  * (reminder-producer-handler.ts) throws whenever it's nonzero, via `shouldAlarm()` below, so a
  * real CloudWatch alarm fires - never processed or silently skipped by omission.
  */
-import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { gsi3PartitionsForMinute } from "../../modules/reminder/domain/reminder-occurrence.js";
 import { parseGsi3Sk } from "../../modules/reminder/domain/gsi3-parse.js";
 import { activeGenerations, type ShardConfig } from "../../modules/reminder/domain/shard-config.js";
-import { isTransactionCanceled } from "../../modules/reminder/ports/reminder-store.js";
 import type { ReminderProducerStore } from "../../modules/reminder/ports/reminder-store.js";
-import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
-import { appendToTransaction, type DynamoTransactPutEntry } from "../../shared/outbox/outbox.js";
-import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
-import type { DomainEvent } from "../../shared/contracts/events.js";
 import { parseChasingGsi3Sk } from "../../modules/subject/domain/document-chasing.js";
 import { claimChasingOccurrence, type ChasingDispatchCommand } from "../../modules/subject/application/document-chasing-producer.js";
+import { claimReminderOccurrence, type ReminderDispatchCommand } from "../../modules/reminder/application/reminder-claim.js";
 import { mapWithConcurrency } from "../../shared/concurrency/map-with-concurrency.js";
 
-export interface DispatchCommand {
-  /**
-   * Real fix for a pre-existing bug found during M5's observability review (registered in
-   * NEXT_SESSION_PROMPT.md): `schemas/queues/reminder-dispatch.v1.json` extends
-   * `command-envelope.v1.json` via `allOf`, which already required `messageVersion`/
-   * `messageId`/`createdAt`/`correlationId` at the top level - but this command never
-   * carried them, so `reminder-dispatch-handler.ts`'s own schema validation against the
-   * real SQS body would always reject it as schema-invalid. This is a bug fix making the
-   * implementation match its own already-approved v1 contract, not a new schema version.
-   */
-  messageVersion: 1;
-  messageId: string;
-  createdAt: string;
-  correlationId: string;
-  commandType: "reminder.dispatch.v1";
-  tenantId: string;
-  deduplicationKey: string;
-  data: {
-    itemId: string;
-    occurrenceId: string;
-    occurrenceVersion: number;
-    scheduledAt: string;
-    itemVersion: number;
-    policyVersion: number;
-  };
-}
+/**
+ * D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §1): re-exported alias of
+ * `ReminderDispatchCommand` (`modules/reminder/application/reminder-claim.ts`) - this file's own
+ * inline claim block was extracted there (`claimReminderOccurrence`) so it can be shared with the
+ * new claim-consumer Lambda. Kept as `DispatchCommand` here for backward compatibility with every
+ * existing import site in this codebase (~unchanged public name, same shape).
+ */
+export type DispatchCommand = ReminderDispatchCommand;
 
 export interface ProducerDeps {
   store: ReminderProducerStore;
@@ -227,90 +204,20 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
           if (seen.has(occurrenceId)) return;
           seen.add(occurrenceId);
 
+          // D-300: this used to be an inline conditional-claim + outbox-durable-dispatch block;
+          // extracted to claimReminderOccurrence (modules/reminder/application/reminder-claim.ts)
+          // so the new claim-consumer Lambda can share the exact same transaction shape instead
+          // of duplicating it. Byte-for-byte same behavior - same builder, same outbox
+          // destination, same GSI6 pointer, same lost-race handling.
           try {
-            const occurrence = await deps.store.get<ReminderOccurrence>({ PK: row.PK, SK: row.SK });
-            if (!occurrence || occurrence.status !== "SCHEDULED") {
-              // Already claimed/cancelled/triggered by a prior tick or race - not a failure.
-              return;
-            }
-
-            const claimExpiresAt = new Date(Date.parse(deps.now()) + claimTtlMs).toISOString();
-            const newVersion = occurrence.version + 1;
-            const now = deps.now();
-            // Same value used for both the command's own envelope correlationId (read
-            // directly from the SQS body per m5-observability-design.md #2's general SQS
-            // rule) and the outbox DomainEvent's correlationId - one business correlation
-            // per dispatch, not two independently-generated ids for the same operation.
-            const correlationId = deps.correlationId();
-
-            const command: DispatchCommand = {
-              messageVersion: 1,
-              messageId: deps.newEventId(),
-              createdAt: now,
-              correlationId,
-              commandType: "reminder.dispatch.v1",
+            const outcome = await claimReminderOccurrence(
+              { store: deps.store, tableName: deps.tableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+              { PK: row.PK, SK: row.SK },
               tenantId,
-              deduplicationKey: `${tenantId}|${occurrenceId}|${newVersion}`,
-              data: {
-                itemId: occurrence.itemId,
-                occurrenceId,
-                occurrenceVersion: newVersion,
-                scheduledAt: occurrence.scheduledAt,
-                itemVersion: occurrence.itemVersion,
-                policyVersion: occurrence.policyVersion,
-              },
-            };
-
-            // M3.5 "Decisão central: outbox durável": TransactWrite(claim) followed by a
-            // direct SendMessage in the handler is NOT atomic (Lambda can die between the
-            // two steps, leaving a CLAIMED occurrence with no queued command - neither the
-            // producer's own lookback window nor the daily DST reconciliation reliably
-            // covers that gap). The fix: write a durable OutboxEvent
-            // (destination=SQS_REMINDER_DISPATCH_V1) in the SAME transaction as the claim;
-            // DispatchOutboxRelay (DynamoDB Streams) publishes it to SQS, a sweeper recovers
-            // publication failures. Also set the GSI6 WORKSTATE#CLAIMED pointer so the
-            // reconciliation job can find this claim if it expires unrecovered - removed
-            // when ReminderDispatch advances to TRIGGERED or reconciliation reverts it.
-            const event: DomainEvent = {
-              specVersion: "1.0",
-              eventId: deps.newEventId(),
-              eventType: "ReminderDispatchRequested",
-              source: "expiration-tracker.reminder-producer",
-              occurredAt: now,
-              correlationId,
-              tenantId,
-              actor: { type: "SYSTEM" },
-              aggregate: { type: "ReminderOccurrence", id: occurrenceId, version: newVersion },
-              data: command as unknown as Record<string, unknown>,
-            };
-            const outboxEntries: DynamoTransactPutEntry[] = [];
-            appendToTransaction(outboxEntries, deps.tableName, event, "SQS_REMINDER_DISPATCH_V1");
-
-            await deps.store.transactWrite([
-              {
-                Update: buildVersionedUpdate({
-                  tableName: deps.tableName,
-                  key: { PK: row.PK, SK: row.SK },
-                  tenantId,
-                  expectedVersion: occurrence.version,
-                  set: {
-                    status: "CLAIMED",
-                    claimedAt: deps.now(),
-                    claimExpiresAt,
-                    GSI6PK: GSI6PK_WORKSTATE_CLAIMED,
-                    GSI6SK: buildExpiredClaimGsi6Sk(claimExpiresAt, tenantId, occurrenceId),
-                  },
-                }),
-              },
-              ...outboxEntries,
-            ]);
-
-            claimed.push(command);
+            );
+            if (outcome.kind === "CLAIMED") claimed.push(outcome.command);
+            // SKIPPED_NOT_SCHEDULED / LOST_CLAIM_RACE: not failures, same as the chasing path above.
           } catch (err) {
-            if (isTransactionCanceled(err)) {
-              // Lost the claim race to a concurrent producer tick - not a failure to retry.
-              return;
-            }
             failed.push({ occurrenceId, tenantId, error: err });
           }
         });

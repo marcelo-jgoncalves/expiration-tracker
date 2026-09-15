@@ -31,6 +31,16 @@ output "reserved_concurrent_executions" {
   value = aws_lambda_function.this.reserved_concurrent_executions
 }
 
+# D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §8): exposed so root-level
+# `terraform test` acceptance suites can assert on env vars like SCAN_MODE without addressing
+# this module's internals directly - same "module internals aren't addressable from a caller's
+# .tftest.hcl" reasoning as capability_policy_documents above. `var.environment_variables` only
+# (not the merged AWS_LAMBDA_EXEC_WRAPPER addition below), since that's the caller-meaningful
+# input a test would assert against.
+output "environment_variables" {
+  value = var.environment_variables
+}
+
 # m5-observability-design.md §3: exposed so root-level `terraform test` acceptance suites
 # can assert the ADOT layer is attached without addressing this module's internals directly.
 output "layers" {

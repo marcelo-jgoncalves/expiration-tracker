@@ -379,6 +379,135 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid reminder.scan-continuation.v1 command (D-300, page 1 - no lastEvaluatedKey)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-scan-continuation.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_scan_01",
+      commandType: "reminder.scan-continuation.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_scan_01",
+      tenantId: "SYSTEM",
+      deduplicationKey: "1|3|2026-09-14T12:00:00.000Z|owner-abc",
+      data: {
+        shardFnVersion: 1,
+        shardId: 3,
+        minuteISO: "2026-09-14T12:00:00.000Z",
+        ownerToken: "owner-abc",
+        rolloutEpoch: 1,
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid reminder.scan-continuation.v1 command with a lastEvaluatedKey (a real continuation, not page 1)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-scan-continuation.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_scan_02",
+      commandType: "reminder.scan-continuation.v1",
+      createdAt: "2026-09-14T12:00:10.000Z",
+      correlationId: "cor_scan_01",
+      tenantId: "SYSTEM",
+      deduplicationKey: "1|3|2026-09-14T12:00:00.000Z|owner-abc",
+      data: {
+        shardFnVersion: 1,
+        shardId: 3,
+        minuteISO: "2026-09-14T12:00:00.000Z",
+        ownerToken: "owner-abc",
+        lastEvaluatedKey: '{"GSI3PK":"DUE#202609141200#03","GSI3SK":"TENANT#t_01#OCCURRENCE#occ_01"}',
+        rolloutEpoch: 1,
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reminder.scan-continuation.v1 command with a real (non-SYSTEM) tenantId", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-scan-continuation.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_scan_03",
+      commandType: "reminder.scan-continuation.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_scan_01",
+      tenantId: "t_01",
+      deduplicationKey: "1|3|2026-09-14T12:00:00.000Z|owner-abc",
+      data: { shardFnVersion: 1, shardId: 3, minuteISO: "2026-09-14T12:00:00.000Z", ownerToken: "owner-abc", rolloutEpoch: 1 },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reminder.scan-continuation.v1 command missing rolloutEpoch", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-scan-continuation.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_scan_04",
+      commandType: "reminder.scan-continuation.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_scan_01",
+      tenantId: "SYSTEM",
+      deduplicationKey: "1|3|2026-09-14T12:00:00.000Z|owner-abc",
+      data: { shardFnVersion: 1, shardId: 3, minuteISO: "2026-09-14T12:00:00.000Z", ownerToken: "owner-abc" },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid reminder.claim-candidate.v1 command for a REMINDER entity (D-300)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_claim_01",
+      commandType: "reminder.claim-candidate.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_claim_01",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|TENANT#t_01#ITEM#item_01|OCC#occ_01|1",
+      data: { PK: "TENANT#t_01#ITEM#item_01", SK: "OCC#occ_01", entityKind: "REMINDER", rolloutEpoch: 1 },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid reminder.claim-candidate.v1 command for a CHASING entity (D-300, same GSI3-sharing discriminator as producer.ts)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_claim_02",
+      commandType: "reminder.claim-candidate.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_claim_02",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|TENANT#t_01#CHASING#occ_02|META|1",
+      data: { PK: "TENANT#t_01#CHASING#occ_02", SK: "META", entityKind: "CHASING", rolloutEpoch: 1 },
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reminder.claim-candidate.v1 command with an unrecognized entityKind", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_claim_03",
+      commandType: "reminder.claim-candidate.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_claim_03",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|TENANT#t_01#ITEM#item_01|OCC#occ_01|1",
+      data: { PK: "TENANT#t_01#ITEM#item_01", SK: "OCC#occ_01", entityKind: "UNKNOWN", rolloutEpoch: 1 },
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a reminder.claim-candidate.v1 command missing PK", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
+      messageVersion: 1,
+      messageId: "msg_claim_04",
+      commandType: "reminder.claim-candidate.v1",
+      createdAt: "2026-09-14T12:00:05.000Z",
+      correlationId: "cor_claim_04",
+      tenantId: "t_01",
+      deduplicationKey: "t_01|OCC#occ_01|1",
+      data: { SK: "OCC#occ_01", entityKind: "REMINDER", rolloutEpoch: 1 },
+    });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid document-chasing.dispatch.v1 command (M10 cluster 4, D-039/D-046/D-048)", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
       messageVersion: 1,
