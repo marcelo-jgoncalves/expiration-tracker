@@ -170,17 +170,28 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
     condition     = aws_lambda_event_source_mapping.reminder_producer_from_scan_queue.batch_size == 1
     error_message = "Scan queue batch size must be 1 - continuation messages are causally chained, concurrency here would recreate the exact race the lease exists to eliminate (DECISION.md §3)"
   }
+  # D-300 §8 roll-forward (2nd occurrence), Claude<->Codex round-3 CONVERGED (9.4/10) rollout
+  # sequence: `maximum_concurrency` intentionally drops to 2 (the AWS-enforced minimum) on BOTH
+  # mappings during the canary window right after re-enabling them (constrained scale, not full
+  # scale immediately - Codex round-2/3 finding), before being restored to DECISION.md §3's real
+  # values once the canary succeeds (completed>0, a real claim-consumer invocation observed, no
+  # poison/retry loop). This assertion deliberately accepts EITHER the canary value (2) or the
+  # real target (10/50) rather than only the final value, so this CI gate doesn't block a
+  # legitimate, temporary, monitored canary step while still catching any OTHER drift (e.g. an
+  # accidental 1, 5, or 100). Tracked to tighten back to an exact-match assertion once the D-300
+  # 2nd roll-forward's canary window closes and concurrency is restored (see
+  # decisions-log.md's D-300 incident entry).
   assert {
-    condition     = aws_lambda_event_source_mapping.reminder_producer_from_scan_queue.scaling_config[0].maximum_concurrency == 10
-    error_message = "Scan queue max concurrency must be 10 per DECISION.md §3"
+    condition     = contains([2, 10], aws_lambda_event_source_mapping.reminder_producer_from_scan_queue.scaling_config[0].maximum_concurrency)
+    error_message = "Scan queue max concurrency must be 10 per DECISION.md §3, or 2 (AWS minimum) during an active, documented roll-forward canary window"
   }
   assert {
     condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.batch_size == 10
     error_message = "Claim queue batch size must be 10 per DECISION.md §3"
   }
   assert {
-    condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.scaling_config[0].maximum_concurrency == 50
-    error_message = "Claim queue max concurrency must be 50 per DECISION.md §3"
+    condition     = contains([2, 50], aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.scaling_config[0].maximum_concurrency)
+    error_message = "Claim queue max concurrency must be 50 per DECISION.md §3, or 2 (AWS minimum) during an active, documented roll-forward canary window"
   }
 
   assert {
