@@ -79,7 +79,15 @@ locals {
   # gated by the consumer mappings) - so backlog disposition must be handled explicitly BEFORE
   # that fix is deployed, not left to happen implicitly. This PR only executes gate (4); no
   # further fix code ships here.
-  reminder_scan_mode = "LEGACY"
+  # D-300 §8 roll-forward (2nd occurrence), step (3) of the Claude<->Codex round-3 CONVERGED
+  # (9.4/10) rollout sequence: "SCAN_MODE=PAGED" - flipped now that (1) the actual 4th-bug fix
+  # (PR #354) is deployed and verified live via a synthetic single-record test, (2) SCAN_MODE_EPOCH
+  # is already 3 (PR #355, deployed separately/first), and (3) the claim mapping is already
+  # enabled at constrained concurrency=2 and confirmed ready (PR #355) - so scan pages will always
+  # have a ready downstream consumer the moment they start producing candidates. Scan mapping
+  # itself flips to enabled=true (also at concurrency=2) in the SAME deploy as this line, per
+  # Codex's own "claim before scan, but scan mapping + PAGED can land together" guidance.
+  reminder_scan_mode = "PAGED"
   # D-300 §8 roll-forward, step (1) of this PR: "SCAN_MODE_EPOCH = N+1 deployado PRIMEIRO" -
   # bumped from 1 to 2 AHEAD of (and in a separate deploy from) the SCAN_MODE=PAGED flip below.
   # This fences the ~116K stale continuation records accumulated during the 2026-09-15 incident
@@ -364,28 +372,29 @@ module "reminder_producer" {
 resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   event_source_arn = module.reminder_scan_queue.queue_arn
   function_name    = module.reminder_producer.live_alias_arn
-  # D-300 §8 rollback (2nd occurrence), step (1): "enabled=false nas duas mappings". Marcelo's
-  # explicit direction 2026-09-15/16: independent AWS-query verification (not agent self-report)
-  # showed the roll-forward did NOT fix the mechanism - reminder-producer logs show
-  # "completed":0 on every enumeration tick since PAGED was re-enabled (scan-page.ts has never
-  # once completed), reminder-claim-consumer has no CloudWatch log group at all (never invoked,
-  # ever), both new SQS queues sit at 0 messages/0 in-flight, and the outbox backlog resumed
-  # growing (~4,049 -> 31,998) at the same rate as before. This is a real, still-unexplained gap
-  # in the D-300 mechanism, not yet root-caused with evidence - stop the bleed first, investigate
-  # properly (root-cause trace + external research + full Claude<->Codex protocol) before any
-  # further fix is proposed. Step (4) SCAN_MODE=LEGACY is a separate later PR per the same gate
-  # ordering as the first rollback (disable -> confirm Disabled -> wait >=90s -> LEGACY).
-  enabled = false
+  # D-300 §8 roll-forward (2nd occurrence), step (4) of the Claude<->Codex round-3 CONVERGED
+  # (9.4/10) rollout sequence: re-enabled - the ACTUAL 4th-bug fix (dispatch-outbox-relay-
+  # handler.ts/outbox-sweeper-handler.ts never wiring a sender for
+  # SQS_REMINDER_SCAN_CONTINUATION_V1) is deployed (PR #354) and independently verified live via
+  # a synthetic single-record test (relay outcome PUBLISHED, real SQS message body/attributes
+  # matched processScanQueueRecord's expectations, outbox row confirmed PUBLISHED, all cleaned
+  # up); SCAN_MODE_EPOCH is 3 (PR #355); the downstream claim mapping is already enabled and
+  # ready (PR #355, claim-before-scan order per Codex's finding). Next: watch canary metrics
+  # (Lambda Invocations/Errors/Throttles, SQS visible/in-flight/DLQ depth, relay
+  # PUBLISHED-outcome Logs Insights query, `completed>0` on a real enumeration tick, a real
+  # reminder-claim-consumer invocation) before restoring maximum_concurrency to its real target
+  # (10) and before any load test.
+  enabled = true
   # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
   # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
   # exists to eliminate.
   batch_size              = 1
   function_response_types = ["ReportBatchItemFailures"]
   scaling_config {
-    # DECISION.md §3: genuinely concurrent chains are bounded by active generations x shards
-    # (<=8 in practice even with lookback), 10 gives headroom without letting a pathological
-    # burst fan out unboundedly.
-    maximum_concurrency = 10
+    # D-300 §8 2nd roll-forward canary window: AWS-enforced minimum (2), not the real target (10,
+    # see stack.tftest.hcl's matching comment) - constrained scale first, restored after the
+    # canary succeeds.
+    maximum_concurrency = 2
   }
 }
 
