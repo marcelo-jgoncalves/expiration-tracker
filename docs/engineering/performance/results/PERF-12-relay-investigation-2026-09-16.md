@@ -4,6 +4,8 @@ Investigação somente leitura em dev, 2026-09-16. Complementa o
 [resultado de carga](PERF-12-10k-revalidation-2026-09-16.md). Nenhuma mudança de
 produto ou infraestrutura foi implantada nesta investigação.
 
+Investigação ampliada: [causas adicionais e trabalho repetido no scan](PERF-12-additional-causes-2026-09-16.md).
+
 ## Conclusão e limites
 
 **Defeito confirmado: republicação sistemática de imagens antigas do outbox.**

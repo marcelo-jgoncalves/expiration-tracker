@@ -111,6 +111,10 @@ itens de acompanhamento fora do programa de performance.
   - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
     [diagnóstico e remediação pendente](results/PERF-12-relay-investigation-2026-09-16.md).
     DoD: documentação factual, risco 1; AWS somente leitura e correlação de 10.000 IDs.
+  - [x] Investigar causas adicionais — 48 páginas rejeitadas após republicar candidatos,
+    9.600 claims extras, quatro leitores do stream, falhas de tracing e risco de TTL;
+    [evidência e limites](results/PERF-12-additional-causes-2026-09-16.md).
+    DoD: risco 1; logs correlacionados, métricas e documentação AWS; check-docs/diff-check.
   - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
     retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
   - [~] 17.6 (redesenho horizontal) — D-299/D-300 aprovados e implementados; validação
