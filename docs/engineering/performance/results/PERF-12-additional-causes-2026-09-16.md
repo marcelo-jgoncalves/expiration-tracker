@@ -4,6 +4,8 @@ Complemento ao [diagnóstico do relay](PERF-12-relay-investigation-2026-09-16.md
 com consultas somente leitura. Janela principal: 18:49–19:00 BRT; métricas
 complementares incluem 18:48. Nenhuma alteração de runtime/infra foi aplicada.
 
+Continuação: [falhas de recuperação reproduzidas e limites da entrega](PERF-12-recovery-investigation-2026-09-16.md).
+
 ## 1. Scan publica novamente antes de rejeitar uma página antiga — confirmado
 
 runScanPage, em src/workers/reminder-scan/scan-page.ts, verifica existência,

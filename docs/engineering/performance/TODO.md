@@ -115,6 +115,13 @@ itens de acompanhamento fora do programa de performance.
     9.600 claims extras, quatro leitores do stream, falhas de tracing e risco de TTL;
     [evidência e limites](results/PERF-12-additional-causes-2026-09-16.md).
     DoD: risco 1; logs correlacionados, métricas e documentação AWS; check-docs/diff-check.
+  - [x] Aprofundar recuperação — reproduzidos claim revertido sem retomada após scan
+    COMPLETED e falhas de transação confirmadas como LOST_CLAIM_RACE; 10.000 intents
+    CANCELLED/RECIPIENT_NOT_FOUND confirmados. [Relatório](results/PERF-12-recovery-investigation-2026-09-16.md).
+    DoD: risco 1 documental; reprodução local com funções reais, leitura AWS consistente,
+    check-docs/diff-check. Correções continuam pendentes.
+  - [ ] Fechar recuperação PAGED após reversão de claim e classificação de cancelamentos
+    transacionais antes de avançar volume; desenho da retomada durável sob gates aplicáveis.
   - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
     retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
   - [~] 17.6 (redesenho horizontal) — D-299/D-300 aprovados e implementados; validação
