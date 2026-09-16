@@ -136,7 +136,8 @@ describe("D-300 end-to-end: burst in one (shard, minute) - zero occurrences lost
     expect(finalLease?.candidatesPublished).toBe(BURST_SIZE);
   });
 
-  it("a successor page's checkpoint racing ahead of its predecessor's is impossible - proven end-to-end (not just unit-level) via the version-fenced chain", async () => {
+  // G-V3: removing the pre-send cursor fence duplicates the 25 delivered candidates.
+  it("a replayed predecessor cannot publish candidates or advance the chain after its checkpoint", async () => {
     const store = new InMemoryReminderStore();
     const claimQueue = new InMemoryClaimQueue();
     const deps = makeDeps(store, claimQueue, "2026-09-14T12:00:05.000Z");
@@ -150,14 +151,10 @@ describe("D-300 end-to-end: burst in one (shard, minute) - zero occurrences lost
     expect(page1.kind).toBe("PROCESSED");
 
     // A duplicate/redelivered copy of the SAME page-1 message arrives again (SQS at-least-once
-    // delivery) - must be rejected as a lost checkpoint race, never double-processed.
+    // delivery) - must be rejected before query/send, never double-processed.
     const duplicatePage1 = await runScanPage(deps.scanPage, { ref: REF, ownerToken: lease!.ownerToken, startedFromLastEvaluatedKey: undefined, messageRolloutEpoch: 1 });
-    expect(duplicatePage1.kind).toBe("LOST_CHECKPOINT_RACE");
-
-    // Candidates were still only published ONCE per occurrence in page 1 (25, this test's
-    // pageSize) - the duplicate attempt's own queryGsi3Page call happens before the checkpoint
-    // conflict, so it DOES re-publish that page's candidates a second time (benign duplicate,
-    // the claim consumer's own conditional claim absorbs it) - what matters is the LEASE never
-    // silently advances twice for the same page, which the assertion above already proves.
+    expect(duplicatePage1.kind).toBe("STALE_NO_OP");
+    expect(claimQueue.delivered).toHaveLength(25);
+    expect((await store.get<ReminderScanLease>(leaseKey(REF)))?.pagesProcessed).toBe(1);
   });
 });

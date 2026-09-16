@@ -22,8 +22,9 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
           TableName: this.tableName,
           Key: key,
           UpdateExpression: "SET leaseOwner = :owner, leaseExpiresAt = :expires",
-          ConditionExpression: "attribute_not_exists(leaseOwner) OR leaseExpiresAt < :now",
-          ExpressionAttributeValues: { ":owner": leaseOwner, ":expires": leaseExpiresAt, ":now": now },
+          ConditionExpression: "#status = :pending AND (attribute_not_exists(leaseOwner) OR leaseExpiresAt < :now)",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":pending": "PENDING", ":owner": leaseOwner, ":expires": leaseExpiresAt, ":now": now },
         }),
       );
       return true;
@@ -41,7 +42,7 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
           Key: key,
           // Bug found by Codex implementation review: without also removing GSI6PK/GSI6SK,
           // published records stayed indexed under RECON#OUTBOX#PENDING forever - not a
-          // duplicate-send risk (publishOne already checks status === "PUBLISHED"), but the
+          // duplicate-send risk when acquisition checks persisted status, but the
           // sweeper's query would keep growing to include every record ever published,
           // reading and discarding them on every run.
           UpdateExpression: "SET #status = :published REMOVE leaseOwner, leaseExpiresAt, GSI6PK, GSI6SK",

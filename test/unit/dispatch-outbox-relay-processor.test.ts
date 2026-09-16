@@ -70,6 +70,17 @@ class FakeRelayStore implements OutboxRelayStore {
 }
 
 describe("dispatch-outbox-relay-handler processStreamRecords - partial batch failure (m5-observability-design.md §5)", () => {
+  // G-V3: eventID in the exception path makes AWS reject even a correctly handled store failure.
+  it("reports SequenceNumber when marking publication throws after a successful send", async () => {
+    const store = new FakeRelayStore();
+    store.markPublished = async () => { throw new Error("transient write failure"); };
+    const logger = new SecureLogger({ sink: () => {} });
+    const failures = await processStreamRecords({ store, now: () => "2026-08-19T10:00:05.000Z",
+      senders: { SQS_REMINDER_DISPATCH_V1: async () => {} } }, logger, [streamRecord("evt-write", outboxRecord())]);
+    expect(failures).toEqual([{ itemIdentifier: "seq-evt-write" }]);
+  });
+
+  // G-V3: returning eventID instead of SequenceNumber makes AWS reject the partial failure response.
   it("3 records, the 2nd send fails: batchItemFailures reports only the 2nd, the 3rd is processed normally, and the 3rd's log never carries the 2nd's correlationId", async () => {
     const store = new FakeRelayStore();
     const lines: string[] = [];
@@ -97,8 +108,8 @@ describe("dispatch-outbox-relay-handler processStreamRecords - partial batch fai
 
     const batchItemFailures = await processStreamRecords(deps, logger, records);
 
-    // (1) only the 2nd record's eventID is reported as a batch item failure.
-    expect(batchItemFailures).toEqual([{ itemIdentifier: "evt-2" }]);
+    // (1) only the 2nd record's SequenceNumber is reported as a batch item failure.
+    expect(batchItemFailures).toEqual([{ itemIdentifier: "seq-evt-2" }]);
 
     // (2) the 3rd record was processed normally, not aborted by the 2nd's failure.
     expect(contextsSeenBySend).toEqual(["cor-1", "cor-2", "cor-3"]);

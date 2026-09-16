@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReconciliationDeps } from "../composition/reminder.js";
 import { runReconciliation, reconcileScanLeases, type DstReconciliationCandidate as FullDstCandidate } from "../../../workers/reminder-reconciliation/reconciliation.js";
+import { recoverExpiredClaims } from "../../../workers/reminder-reconciliation/recover-expired-claims.js";
 import type { StuckScanLeaseCandidate } from "../../../modules/reminder/ports/reconciliation-candidate-source.js";
 import { emitMetric } from "../../../shared/observability/metrics.js";
 import { itemKey } from "../../../modules/expiration/domain/expiration-item.js";
@@ -163,7 +164,13 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
     }
   }
 
-  const result = await runReconciliation({ store, tableName, now, shardConfig }, { expiredClaimCandidates, dstCandidates });
+  const pagedRecovery = mode === "CLAIMS" && scanMode() === "PAGED";
+  const claimsRecovered = pagedRecovery
+    ? await recoverExpiredClaims({ store, tableName, now, newEventId, correlationId, claimTtlMs: 120_000 }, expiredClaimCandidates)
+    : 0;
+  const result = await runReconciliation({ store, tableName, now, shardConfig }, {
+    expiredClaimCandidates: pagedRecovery ? [] : expiredClaimCandidates, dstCandidates,
+  });
 
   let scanLeaseReclaimed = 0;
   if (mode === "CLAIMS" && stuckScanLeaseCandidates.length > 0) {
@@ -176,5 +183,5 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
     }
   }
 
-  logger.info("reminder-reconciliation complete", { mode, scheduledTime: event.scheduledTime, ...result, scanLeaseReclaimed });
+  logger.info("reminder-reconciliation complete", { mode, scheduledTime: event.scheduledTime, ...result, claimsRecovered, scanLeaseReclaimed });
 }

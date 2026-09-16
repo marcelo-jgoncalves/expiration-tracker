@@ -12,7 +12,7 @@
  */
 import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction, type DynamoTransactPutEntry } from "../../../shared/outbox/outbox.js";
-import { isTransactionCanceled, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import { isSoleConditionalCancellation, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { buildChasingClaimGsi6Sk, type DocumentChasingOccurrence, type DocumentChasingTier } from "../domain/document-chasing.js";
 import { GSI6PK_WORKSTATE_CLAIMED } from "../../reminder/ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
@@ -55,15 +55,20 @@ export interface ChasingClaimDeps {
 export type ChasingClaimOutcome =
   | { kind: "CLAIMED"; command: ChasingDispatchCommand }
   | { kind: "SKIPPED_NOT_SCHEDULED" }
+  | { kind: "SKIPPED_NOT_EXPIRED" }
   | { kind: "LOST_CLAIM_RACE" };
 
 /** Equivalente ao corpo do loop de `runProducerTick` para o caminho reminder, mas para
  * `DocumentChasingOccurrence`. Chamado com a base PK/SK já lida da linha do GSI3 (projeção
  * KEYS_ONLY sempre inclui as chaves primárias da tabela base, mesmo mecanismo já usado pelo
- * caminho reminder). */
-export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: EntityKey): Promise<ChasingClaimOutcome> {
+ * caminho reminder). EXPIRED renews an expired claim plus its dispatch outbox
+ * atomically, using the same version fence as a first claim. */
+export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: EntityKey, mode: "SCHEDULED" | "EXPIRED" = "SCHEDULED"): Promise<ChasingClaimOutcome> {
   const occurrence = await deps.store.get<DocumentChasingOccurrence>(baseKey);
-  if (!occurrence || occurrence.status !== "SCHEDULED") {
+  if (mode === "EXPIRED" && (!occurrence || occurrence.status !== "CLAIMED" || !occurrence.claimExpiresAt || occurrence.claimExpiresAt > deps.now())) {
+    return { kind: "SKIPPED_NOT_EXPIRED" };
+  }
+  if (!occurrence || (mode === "SCHEDULED" && occurrence.status !== "SCHEDULED")) {
     return { kind: "SKIPPED_NOT_SCHEDULED" };
   }
 
@@ -129,7 +134,7 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
       ...outboxEntries,
     ]);
   } catch (err) {
-    if (isTransactionCanceled(err)) {
+    if (isSoleConditionalCancellation(err, 0)) {
       return { kind: "LOST_CLAIM_RACE" };
     }
     throw err;

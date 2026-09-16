@@ -83,6 +83,7 @@ export const handler = withHandlerTiming<ReminderProducerEvent | SQSEvent, void 
 });
 
 async function runEventBridgeTick(event: ReminderProducerEvent): Promise<void> {
+  const receivedAt = new Date().toISOString();
   if (!event.scheduledTime) {
     throw new ValidationError("reminder-producer: missing scheduledTime in event payload.");
   }
@@ -124,6 +125,8 @@ async function runEventBridgeTick(event: ReminderProducerEvent): Promise<void> {
     const enumerationDeps = buildReminderEnumerationDeps(client, tableName, rolloutEpoch());
     const result = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "reminder-scan enumeration timing", () => runEnumerationTick(enumerationDeps, tickMinute));
     logger.info("reminder-scan enumeration tick complete", {
+      scheduledTime: event.scheduledTime,
+      receivedAt,
       acquired: result.acquired.length,
       reclaimed: result.reclaimed.length,
       contended: result.contended,

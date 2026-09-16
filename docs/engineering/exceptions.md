@@ -1,5 +1,15 @@
 # Exception Registry
 
+## EX-PERF-12 — revisão independente posterior à implementação
+
+- Autorização: Marcelo, sessão 2026-09-16, após proposta explícita de exceção temporária.
+- Escopo: recuperação durável e correções de relay/scan/erros do PERF-12 em dev.
+- Motivo: indisponibilidade de tokens para o protocolo; não é aprovação independente.
+- Owner: Marcelo. expiraEm: 2026-09-23; rodar protocolo quando capacidade retornar.
+- Controles: testes de falhas/concorrência, autorrevisão identificada, CI e deploy normal.
+- Status: ATIVA; implementação e revisão independente pendentes.
+- Decisão/alternativas: [registro arquitetural](../architecture/reviews/perf-12-recovery-exception/DECISION.md).
+
 Registro de violações conscientes de regra, com justificativa, risco, owner e prazo de revisão (Prompt Mestre §47; formalizado com o padrão de `expiraEm` do `event-discovery-platform`, ver `docs/engineering/quality-gate-tiers.md` §"Política de exceção"). Nenhuma exceção aqui é permanente por padrão — **uma exceção sem `expiraEm` explícito não é uma exceção válida, é uma vulnerabilidade não tratada disfarçada.** Ao expirar sem reavaliação registrada, o achado volta a bloquear `Dependency audit` normalmente até ser re-registrado com novo prazo.
 
 ## EX-001 — Vulnerabilidades transitivas em devDependencies (vitest/vite/esbuild + testcontainers/dockerode)
