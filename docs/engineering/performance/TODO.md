@@ -100,14 +100,16 @@ itens de acompanhamento fora do programa de performance.
     sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
-  - [ ] 10k — **pendente de revisão do achado de 1k por Marcelo antes de prosseguir** (ver "Próximos
-    passos" no doc de resultado — recomendação é corrigir o Producer antes de escalar o teste).
+  - [ ] 10k — **revalidação D-300 preparada em 2026-09-16, carga ainda não executada**.
+    Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
+    [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
+    foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.
   - [ ] 100k — pendente (depende da decisão acima).
   - [ ] 1M — pendente (depende da decisão acima).
   - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
     retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
-  - [ ] 17.6 (redesenho horizontal) — não avaliado; decisão de Marcelo após ver o achado de correção
-    do Producer.
+  - [~] 17.6 (redesenho horizontal) — D-299/D-300 aprovados e implementados; validação
+    de carga em andamento. Burst não comprova rollback/entrega no provedor (ver runbook).
 - [x] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real). Critério de saída: inventário completo (1 tabela de negócio single-table, `exptrk-dev-table`, on-demand, 9 GSIs, + 2 tabelas auxiliares de sessão/guest-delivery); Contributor Insights habilitado nas 3 tabelas (era DISABLED) — capability verified, sem dados ainda (tráfego dev insuficiente); 3 personas modeladas por leitura de código (não medição empírica) — PK por entidade evita hot partition estrutural na tabela base, GSI1 (`ITEMSTATUS#ACTIVE`) tem risco moderado de concentração de escrita em tenant "large" sob rajada, GSI8/GSI3 concentram por design (mitigado via IAM `LeadingKeys` por worker); CloudWatch 7 dias confirma ZERO throttling/erros de sistema e consumo de capacidade desprezível (pico 4 RCU / 10 WCU por datapoint de 5min) — latência p95 do PERF-04 NÃO é causada por capacidade DynamoDB. Ver `docs/engineering/performance/results/PERF-13-dynamodb-capacity.md`.
 
 ## Fechamento
