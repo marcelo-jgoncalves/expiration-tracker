@@ -87,7 +87,17 @@ locals {
   # CURRENT epoch (see runScanPage's messageRolloutEpoch check), so once this deploys, those
   # stale records become permanently inert without needing to be deleted first. Same shared-local
   # pattern as reminder_scan_mode above, for the same divergence-prevention reason.
-  reminder_scan_mode_epoch = "2"
+  # D-300 §8 roll-forward (2nd occurrence), step (1): "SCAN_MODE_EPOCH = N+1 deployado PRIMEIRO"
+  # - bumped 2 -> 3, belt-and-suspenders even though the 32,060-record backlog that motivated
+  # this bump was already discarded (confirmed 0 via independent re-query, 2026-09-16): fences
+  # any residual epoch<=2 record this session's cleanup might have missed, permanently inert the
+  # moment this deploys, same reasoning as the first roll-forward's 1->2 bump. The actual 4th-bug
+  # fix (dispatch-outbox-relay-handler.ts/outbox-sweeper-handler.ts never wiring a sender for
+  # SQS_REMINDER_SCAN_CONTINUATION_V1) shipped separately in PR #354, deployed and verified live
+  # via a synthetic single-record test (relay outcome PUBLISHED, real SQS message inspected,
+  # outbox row confirmed PUBLISHED, all cleaned up, queue back at 0) BEFORE this epoch bump - per
+  # the Claude<->Codex round-3 CONVERGED (9.4/10) rollout sequence.
+  reminder_scan_mode_epoch = "3"
 }
 
 module "test_ping_handler" {
@@ -1129,18 +1139,23 @@ module "reminder_claim_queue" {
 resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" {
   event_source_arn = module.reminder_claim_queue.queue_arn
   function_name    = module.reminder_claim_consumer.live_alias_arn
-  # D-300 §8 rollback (2nd occurrence), step (1) - disabled together with
-  # reminder_producer_from_scan_queue above (see that resource's matching comment for the full
-  # incident/evidence history: 2026-09-16 independent verification showed the mechanism is still
-  # broken after roll-forward - this Lambda has never once been invoked, no CloudWatch log group
-  # exists for it at all).
-  enabled = false
+  # D-300 §8 roll-forward (2nd occurrence), step (2) of the Claude<->Codex round-3 CONVERGED
+  # (9.4/10) rollout sequence: "enable claim mapping at 2" - re-enabled BEFORE the scan mapping
+  # (Codex round-2/3 finding: claim-before-scan is the correct dependency order, so the downstream
+  # claim consumer is always ready before scan pages exist to produce candidates for it) and
+  # BEFORE SCAN_MODE flips to PAGED, so this is still genuinely inert at this point - nothing
+  # publishes to this queue until the scan mapping (still `enabled=false` below) starts producing
+  # real candidates. maximum_concurrency intentionally at the AWS-enforced minimum (2), not the
+  # real default (50) yet - restored only after the canary window succeeds (completed>0, a real
+  # claim-consumer invocation observed, no poison/retry loop). 4th-bug fix (PR #354) already
+  # deployed and verified live via a synthetic single-record test before this step.
+  enabled = true
   # DECISION.md §3: batch size 10, same explicit value as reminder-dispatch (infra/main.tf
   # reminder_dispatch_from_queue above).
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
   scaling_config {
-    maximum_concurrency = 50
+    maximum_concurrency = 2
   }
 }
 
