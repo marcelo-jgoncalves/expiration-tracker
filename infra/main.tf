@@ -336,12 +336,18 @@ module "reminder_producer" {
 resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   event_source_arn = module.reminder_scan_queue.queue_arn
   function_name    = module.reminder_producer.live_alias_arn
-  # D-300 §8 roll-forward, step (3): "reabilita as mappings" - re-enabled (enabled defaults to
-  # true) now that steps (1) SCAN_MODE_EPOCH=2 and (2) SCAN_MODE=PAGED above are both deployed.
-  # See the 2026-09-15 incident history in local.reminder_scan_mode's comment (infra/main.tf)
-  # and reconciliation-handler.ts's scanMode() for the full root-cause chain and fixes that make
-  # re-enabling safe now (aggregate.version fix PR #338, poison-record fix PR #340, SCANLEASE
-  # gate PR #346, epoch fence PR #348/#349).
+  # D-300 §8 rollback (2nd occurrence), step (1): "enabled=false nas duas mappings". Marcelo's
+  # explicit direction 2026-09-15/16: independent AWS-query verification (not agent self-report)
+  # showed the roll-forward did NOT fix the mechanism - reminder-producer logs show
+  # "completed":0 on every enumeration tick since PAGED was re-enabled (scan-page.ts has never
+  # once completed), reminder-claim-consumer has no CloudWatch log group at all (never invoked,
+  # ever), both new SQS queues sit at 0 messages/0 in-flight, and the outbox backlog resumed
+  # growing (~4,049 -> 31,998) at the same rate as before. This is a real, still-unexplained gap
+  # in the D-300 mechanism, not yet root-caused with evidence - stop the bleed first, investigate
+  # properly (root-cause trace + external research + full Claude<->Codex protocol) before any
+  # further fix is proposed. Step (4) SCAN_MODE=LEGACY is a separate later PR per the same gate
+  # ordering as the first rollback (disable -> confirm Disabled -> wait >=90s -> LEGACY).
+  enabled = false
   # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
   # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
   # exists to eliminate.
@@ -1105,8 +1111,12 @@ module "reminder_claim_queue" {
 resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" {
   event_source_arn = module.reminder_claim_queue.queue_arn
   function_name    = module.reminder_claim_consumer.live_alias_arn
-  # D-300 §8 roll-forward, step (3) - re-enabled together with reminder_producer_from_scan_queue
-  # above (see that resource's matching comment for the full incident/fix history).
+  # D-300 §8 rollback (2nd occurrence), step (1) - disabled together with
+  # reminder_producer_from_scan_queue above (see that resource's matching comment for the full
+  # incident/evidence history: 2026-09-16 independent verification showed the mechanism is still
+  # broken after roll-forward - this Lambda has never once been invoked, no CloudWatch log group
+  # exists for it at all).
+  enabled = false
   # DECISION.md §3: batch size 10, same explicit value as reminder-dispatch (infra/main.tf
   # reminder_dispatch_from_queue above).
   batch_size              = 10
