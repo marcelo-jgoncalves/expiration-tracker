@@ -114,7 +114,7 @@ Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (ra
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
-**Retomada verificada em 2026-09-16 (Codex)**: implementação e correções já implantadas (PRs #354–357); leitura consistente confirmou **1.000/1.000 TRIGGERED**, máximo 185,571s, no burst de 10:24 BRT. **Teste de 10k em execução**, iniciado 2026-09-16 16:55 BRT, run `d300-10k-preparation-20260916`, alvo 18:49 BRT, monitor AWS em 25/50/75/100%; preflight 10/10 tenants. Executor, journal por ID e relatório: `docs/engineering/performance/results/PERF-12-10k-runbook.md`; próxima ação é acompanhar os artefatos `.local/<run-id>/` e registrar o resultado; não iniciar outra injeção concorrente. Limitação registrada: claim consumer não possui fence de epoch; este burst não valida rollback nem entrega no provedor.
+**Retomada verificada em 2026-09-16 (Codex)**: D-300 implantada; revalidação **10k concluída, SLO REPROVADO** — 10.000/10.000 TRIGGERED, 0 perda observada nesta população, máximo 383,729s (>300s), 2.476 atrasadas. Relay com IteratorAge de 127,804s é o principal indício de gargalo; próxima ação é investigar sua defasagem e repetir 10k após correção isolada. Relatório: `docs/engineering/performance/results/PERF-12-10k-revalidation-2026-09-16.md`; runbook/executor em `docs/engineering/performance/results/PERF-12-10k-runbook.md`. Claim consumer sem fence de epoch permanece limitação separada; teste não valida rollback/entrega no provedor.
 
 ## Status de evidência (não presumir E2E sem checar)
 

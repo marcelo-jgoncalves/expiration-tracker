@@ -100,7 +100,9 @@ itens de acompanhamento fora do programa de performance.
     sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
-  - [~] 10k — **revalidação D-300 iniciada em 2026-09-16 16:55 BRT; alvo 18:49 BRT**.
+  - [~] 10k — **revalidação concluída 2026-09-16, SLO REPROVADO**: 10.000/10.000
+    TRIGGERED, máximo 383,729s, 2.476 acima de 300s. Investigar defasagem do relay
+    (IteratorAge 127,804s) e repetir; [análise](results/PERF-12-10k-revalidation-2026-09-16.md).
     Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
     [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
     foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.

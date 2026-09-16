@@ -1,7 +1,8 @@
 # PERF-12 / D-300 — execução reproduzível de 10.000 ocorrências
 
-Status: execução iniciada em 2026-09-16, 16:55 BRT, run
-`d300-10k-preparation-20260916`, disparo previsto 18:49 BRT. Resultado pendente.
+Status: execução concluída em 2026-09-16, run `d300-10k-preparation-20260916`.
+10.000/10.000 TRIGGERED; SLO de 300s reprovado (máximo 383,729s).
+Ver [análise final](PERF-12-10k-revalidation-2026-09-16.md).
 
 Monitor somente leitura: `node scripts/perf-reminder-burst-monitor.mjs <run-id>`.
 Registra `checkpoint-25.json`, `checkpoint-50.json`, `checkpoint-75.json` e
@@ -20,7 +21,7 @@ Checkpoint 50% (17:18:13 BRT): 5.073 políticas; novamente 30/30 ocorrências
 amostradas materializadas; zero Errors/Throttles nas seis Lambdas com atividade,
 DLQs vazias, nenhuma mensagem aguardando e uma mensagem em processamento na
 materialização. Evidência: `.local/d300-10k-preparation-20260916/checkpoint-50.json`.
-Injeção e monitor continuam como processos locais independentes; acompanhar
+Durante a execução, injeção e monitor rodaram como processos locais independentes; acompanhar
 `execution.log`, `monitor.log`, `ready.json` e depois `final.json`. Não lançar
 outro runner para o mesmo teste enquanto `runner.lock` apontar para processo vivo.
 
@@ -165,4 +166,5 @@ já aprovada, sem alterar contrato/infra/produto); evidência=8/8 testes Node PA
 G-V3 aplicado por teste, ESLint escopado PASS, typecheck PASS, check-docs PASS,
 preflight AWS/API real 10/10 PASS; query cold/warm validada contra logs reais de
 1k (59 warm/3 cold, query 87437ca3-2cf5-4573-995e-76a824347b8b);
-lacunas=execução da nova carga 10k ainda pendente, não alegada como aprovada.
+lacunas=no fechamento do executor, a execução de 10k ainda estava pendente;
+executada posteriormente, com SLO reprovado conforme análise final acima.
