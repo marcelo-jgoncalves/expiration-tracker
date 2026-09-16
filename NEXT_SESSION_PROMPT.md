@@ -114,7 +114,7 @@ Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (ra
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
-**Retomada verificada em 2026-09-16 (Codex)**: D-300 implantada; revalidação **10k concluída, SLO REPROVADO** — 10.000/10.000 TRIGGERED, 0 perda observada nesta população, máximo 383,729s (>300s), 2.476 atrasadas. Relay com IteratorAge de 127,804s é o principal indício de gargalo; próxima ação é investigar sua defasagem e repetir 10k após correção isolada. Relatório: `docs/engineering/performance/results/PERF-12-10k-revalidation-2026-09-16.md`; runbook/executor em `docs/engineering/performance/results/PERF-12-10k-runbook.md`. Claim consumer sem fence de epoch permanece limitação separada; teste não valida rollback/entrega no provedor.
+**Retomada verificada em 2026-09-16 (Codex)**: D-300 implantada; revalidação **10k concluída, SLO REPROVADO** — 10.000/10.000 TRIGGERED, máximo 383,729s (>300s), 2.476 atrasadas; investigação confirmou publicação duplicada dos 10.000 eventos por replay de imagem PENDING, pois a aquisição de lease não verifica status atual. Próxima ação: corrigir condição atômica/testes e repetir 10k; diagnóstico, latências e defeitos adjacentes em `docs/engineering/performance/results/PERF-12-relay-investigation-2026-09-16.md`, resultado em `docs/engineering/performance/results/PERF-12-10k-revalidation-2026-09-16.md` e executor em `docs/engineering/performance/results/PERF-12-10k-runbook.md`. Claim consumer sem fence de epoch permanece limitação separada; teste não valida rollback/entrega no provedor.
 
 ## Status de evidência (não presumir E2E sem checar)
 

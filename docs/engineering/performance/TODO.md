@@ -101,13 +101,16 @@ itens de acompanhamento fora do programa de performance.
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
   - [~] 10k — **revalidação concluída 2026-09-16, SLO REPROVADO**: 10.000/10.000
-    TRIGGERED, máximo 383,729s, 2.476 acima de 300s. Investigar defasagem do relay
-    (IteratorAge 127,804s) e repetir; [análise](results/PERF-12-10k-revalidation-2026-09-16.md).
+    TRIGGERED, máximo 383,729s, 2.476 acima de 300s. Corrigir replay de imagem antiga
+    no relay e repetir; [análise](results/PERF-12-10k-revalidation-2026-09-16.md).
     Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
     [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
     foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.
   - [ ] 100k — pendente (depende da decisão acima).
   - [ ] 1M — pendente (depende da decisão acima).
+  - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
+    [diagnóstico e remediação pendente](results/PERF-12-relay-investigation-2026-09-16.md).
+    DoD: documentação factual, risco 1; AWS somente leitura e correlação de 10.000 IDs.
   - [ ] 17.5 (experimentação SQS batch_size/MaximumConcurrency) — adiado para quando 10k+ for
     retomado (sem sinal útil enquanto o gargalo estiver no Producer, não no consumer SQS).
   - [~] 17.6 (redesenho horizontal) — D-299/D-300 aprovados e implementados; validação

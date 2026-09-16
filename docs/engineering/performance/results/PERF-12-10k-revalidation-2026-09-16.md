@@ -92,6 +92,12 @@ em processamento/atrasadas. Isso não indica ocorrência perdida da população:
 as 10.000 já estavam TRIGGERED. Preservado final.json original; o SLO continua
 reprovado independentemente da drenagem posterior dessa mensagem.
 
+## Investigação posterior
+
+Diagnóstico concluído nesta sessão: [duplicação por replay de imagens antigas,
+latências correlacionadas e plano de remediação](PERF-12-relay-investigation-2026-09-16.md).
+A próxima ação abaixo registra o encaminhamento anterior a essa investigação.
+
 ## Próxima ação
 
 Investigar a defasagem do relay antes de alterar concorrência ou avançar o
