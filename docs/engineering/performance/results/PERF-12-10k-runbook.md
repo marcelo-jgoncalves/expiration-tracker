@@ -16,6 +16,14 @@ na janela (claim consumer sem datapoints antes do burst). Oito filas/DLQs sem
 backlog visível; apenas duas mensagens em processamento na materialização.
 Evidência: `.local/d300-10k-preparation-20260916/checkpoint-25.json`.
 
+Checkpoint 50% (17:18:13 BRT): 5.073 políticas; novamente 30/30 ocorrências
+amostradas materializadas; zero Errors/Throttles nas seis Lambdas com atividade,
+DLQs vazias, nenhuma mensagem aguardando e uma mensagem em processamento na
+materialização. Evidência: `.local/d300-10k-preparation-20260916/checkpoint-50.json`.
+Injeção e monitor continuam como processos locais independentes; acompanhar
+`execution.log`, `monitor.log`, `ready.json` e depois `final.json`. Não lançar
+outro runner para o mesmo teste enquanto `runner.lock` apontar para processo vivo.
+
 Preflight real em 2026-09-16, 16:50 BRT: 10/10 logins, organizações ativas e
 leituras autenticadas conferidos; nenhuma carga criada. Evidência local em
 `.local/d300-10k-preparation-20260916/preflight.json` e `preflight-infra.json`.
