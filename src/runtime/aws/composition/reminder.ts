@@ -280,3 +280,138 @@ export function buildOutboxRelayDeps(
     },
   };
 }
+
+/** Round-3 finding of the D-300 4th-bug incident (2026-09-16, `reminder-producer-
+ * implementation-plan-scoping/DECISION.md` §8 second rollback): `buildOutboxRelayDeps` above was
+ * ALWAYS correct - it has taken `reminderScanContinuationQueueUrl` as an optional trailing
+ * parameter since D-300 first shipped. The bug was entirely in
+ * `dispatch-outbox-relay-handler.ts`'s own env-var reads, which never grew a 13th line to read
+ * `REMINDER_SCAN_CONTINUATION_QUEUE_URL` and pass it through - invisible to `tsc` because a
+ * missing trailing optional argument is a structurally valid call. A test against the helper
+ * alone could never catch that specific omission (the helper was never wrong); only a test
+ * against the REAL handler's own env-to-deps composition can. This function IS that composition,
+ * extracted so it's unit-testable with a fake `env` object instead of 13 real env vars + a real
+ * `SQSClient` construction just to import the handler module - the real handler module now does
+ * nothing but call this with `process.env` at import time. */
+export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string | undefined>, client: DynamoDBDocumentClient, sqsClient: SQSClient = new SQSClient({})) {
+  const tableName = env["TABLE_NAME"];
+  const queueUrl = env["DISPATCH_QUEUE_URL"];
+  const chasingQueueUrl = env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
+  const importCommitQueueUrl = env["IMPORT_COMMIT_QUEUE_URL"];
+  const materializationTriggerQueueUrl = env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
+  const importParseQueueUrl = env["IMPORT_PARSE_QUEUE_URL"];
+  const requirementEvidenceRefreshQueueUrl = env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
+  const reportSubscriptionDeliveryQueueUrl = env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
+  const dossierExportQueueUrl = env["DOSSIER_EXPORT_QUEUE_URL"];
+  const guestCredentialIssuanceQueueUrl = env["GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL"];
+  // D-300 §4/§8 (2026-09-16 fix): tenth real destination on this relay - see the class comment
+  // above `buildOutboxRelayDeps` and `OutboxDestination`'s own D-300 doc comment in outbox.ts.
+  const reminderScanContinuationQueueUrl = env["REMINDER_SCAN_CONTINUATION_QUEUE_URL"];
+  if (!tableName) throw new Error("TABLE_NAME env var is required.");
+  if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
+  if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
+  if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
+  if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
+  if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
+  if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
+  if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
+  if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
+  if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
+  if (!reminderScanContinuationQueueUrl) throw new Error("REMINDER_SCAN_CONTINUATION_QUEUE_URL env var is required.");
+  return buildOutboxRelayDeps(
+    client,
+    tableName,
+    queueUrl,
+    sqsClient,
+    chasingQueueUrl,
+    importCommitQueueUrl,
+    materializationTriggerQueueUrl,
+    importParseQueueUrl,
+    requirementEvidenceRefreshQueueUrl,
+    reportSubscriptionDeliveryQueueUrl,
+    dossierExportQueueUrl,
+    guestCredentialIssuanceQueueUrl,
+    reminderScanContinuationQueueUrl,
+  );
+}
+
+/** Same D-300 4th-bug fix (2026-09-16), for `outbox-sweeper-handler.ts`. Unlike the relay, the
+ * sweeper never called `buildOutboxRelayDeps` at all - it built its own inline `senders` map
+ * (M4 design doc §7.4's "router keyed by destination" on a shared privileged role), so its gap
+ * was a missing map entry entirely, not a missing constructor argument. Extracted here for the
+ * exact same testability reason as `buildDispatchOutboxRelayDepsFromEnv` above - the real
+ * `outbox-sweeper-handler.ts` module now only calls this with `process.env` and adds its own
+ * `leaseOwner` at invocation time (that part is genuinely per-invocation state, not composition,
+ * so it deliberately stays in the handler). */
+export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undefined>, client: DynamoDBDocumentClient, sqsClient: SQSClient = new SQSClient({})) {
+  const tableName = env["TABLE_NAME"];
+  const reminderDispatchQueueUrl = env["DISPATCH_QUEUE_URL"];
+  const emailDeliverQueueUrl = env["EMAIL_DELIVER_QUEUE_URL"];
+  const chasingDispatchQueueUrl = env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
+  const importCommitQueueUrl = env["IMPORT_COMMIT_QUEUE_URL"];
+  const materializationTriggerQueueUrl = env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
+  const importParseQueueUrl = env["IMPORT_PARSE_QUEUE_URL"];
+  const requirementEvidenceRefreshQueueUrl = env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
+  const reportSubscriptionDeliveryQueueUrl = env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
+  const dossierExportQueueUrl = env["DOSSIER_EXPORT_QUEUE_URL"];
+  const guestCredentialIssuanceQueueUrl = env["GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL"];
+  const whatsAppDeliverQueueUrl = env["WHATSAPP_DELIVER_QUEUE_URL"];
+  // D-300 §4/§8 (2026-09-16 fix): twelfth destination on this sweeper - see
+  // `buildDispatchOutboxRelayDepsFromEnv` above for the matching relay-side fix and the full
+  // incident history.
+  const reminderScanContinuationQueueUrl = env["REMINDER_SCAN_CONTINUATION_QUEUE_URL"];
+  if (!tableName) throw new Error("TABLE_NAME env var is required.");
+  if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
+  if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
+  if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
+  if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
+  if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
+  if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
+  if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
+  if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
+  if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
+  if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
+  if (!whatsAppDeliverQueueUrl) throw new Error("WHATSAPP_DELIVER_QUEUE_URL env var is required.");
+  if (!reminderScanContinuationQueueUrl) throw new Error("REMINDER_SCAN_CONTINUATION_QUEUE_URL env var is required.");
+
+  const store = new DynamoDbOutboxRelayStore(client, tableName);
+  const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
+    await sqsClient.send(
+      new SendMessageCommand({
+        QueueUrl: targetQueueUrl,
+        MessageBody: JSON.stringify(payload),
+        MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+      }),
+    );
+  };
+  // BLOCKER-B: unlike the other destinations' payloads, this one is the bare domain event data
+  // (matches schemas/events/*.json), not a self-describing command - fold in the record's own
+  // tenantId/eventType before sending (mirrors buildOutboxRelayDeps's own sendMaterializationTrigger).
+  const sendMaterializationTrigger = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string, tenantId: string, eventType: string) => {
+    await sqsClient.send(
+      new SendMessageCommand({
+        QueueUrl: targetQueueUrl,
+        MessageBody: JSON.stringify({ eventType, tenantId, data: payload }),
+        MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+      }),
+    );
+  };
+  return {
+    store,
+    now: () => new Date().toISOString(),
+    senders: {
+      SQS_REMINDER_DISPATCH_V1: send(reminderDispatchQueueUrl),
+      SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
+      SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
+      SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
+      SQS_IMPORT_PARSE_V1: send(importParseQueueUrl),
+      SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl),
+      SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: send(reportSubscriptionDeliveryQueueUrl),
+      SQS_DOSSIER_EXPORT_V1: send(dossierExportQueueUrl),
+      SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1: send(guestCredentialIssuanceQueueUrl),
+      SQS_NOTIFICATION_WHATSAPP_V1: send(whatsAppDeliverQueueUrl),
+      SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
+      SQS_REMINDER_SCAN_CONTINUATION_V1: send(reminderScanContinuationQueueUrl),
+    },
+  };
+}

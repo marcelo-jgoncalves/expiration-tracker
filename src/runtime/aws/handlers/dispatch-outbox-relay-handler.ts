@@ -2,61 +2,26 @@
  * placeholder. Partial batch failure so a poison record doesn't block the rest of the
  * shard's batch (m3.5-runtime-design.md §"Decisão central"). Per-record processing logic
  * lives in dispatch-outbox-relay-processor.ts (no module-level side effects, unit-testable)
- * - this file is only the thin AWS entrypoint: real env vars, real clients, real deps. */
+ * - this file is only the thin AWS entrypoint: real env vars, real clients, real deps.
+ *
+ * D-300 4th-bug incident (2026-09-16, `reminder-producer-implementation-plan-scoping/
+ * DECISION.md` §8 second rollback): this file used to do its own env-var reads + call
+ * `buildOutboxRelayDeps(...)` inline - and never grew a line for
+ * `REMINDER_SCAN_CONTINUATION_QUEUE_URL` when D-300 added that destination, silently dropping
+ * every `SQS_REMINDER_SCAN_CONTINUATION_V1` outbox record as SKIPPED_WRONG_DESTINATION from the
+ * very first deploy. The env-to-deps composition now lives in
+ * `buildDispatchOutboxRelayDepsFromEnv` (composition/reminder.ts) specifically so it's
+ * unit-tested directly (test/unit/composition/reminder-outbox-relay-deps.test.ts) - a test
+ * against the old inline code, or against `buildOutboxRelayDeps` alone, could never have caught
+ * this exact omission. */
 import type { DynamoDBBatchResponse, DynamoDBStreamEvent } from "aws-lambda";
-import { SQSClient } from "@aws-sdk/client-sqs";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
-import { buildOutboxRelayDeps } from "../composition/reminder.js";
+import { buildDispatchOutboxRelayDepsFromEnv } from "../composition/reminder.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { processStreamRecords } from "./dispatch-outbox-relay-processor.js";
 
 const client = createDocumentClient();
-const tableName = process.env["TABLE_NAME"];
-const queueUrl = process.env["DISPATCH_QUEUE_URL"];
-// M10 cluster 4 (D-039/D-046/D-048): second destination on the SAME relay Lambda/DynamoDB
-// Streams event source mapping - never a new relay function just for this one extra queue.
-const chasingQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
-// M11 (D-042): third destination, same reasoning.
-const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
-// BLOCKER-B (reminder-delivery-pipeline.md §4): fourth destination, same reasoning - the
-// generic "no destination -> EventBridge" path this design doc originally assumed was never
-// actually implemented in this codebase (confirmed during implementation, see outbox.ts's
-// OutboxDestination comment), so this is the only real delivery mechanism available.
-const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
-// D-192 slice 9: fifth destination, same reasoning.
-const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
-// D-193 item 6/9: sixth destination, same reasoning.
-const requirementEvidenceRefreshQueueUrl = process.env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
-// D-204 fatia 3: seventh destination, same reasoning.
-const reportSubscriptionDeliveryQueueUrl = process.env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
-// D-205 fatia 2: eighth destination, same reasoning.
-const dossierExportQueueUrl = process.env["DOSSIER_EXPORT_QUEUE_URL"];
-// D-226 (Roadmap P0 item 9): ninth destination, same reasoning.
-const guestCredentialIssuanceQueueUrl = process.env["GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL"];
-if (!tableName) throw new Error("TABLE_NAME env var is required.");
-if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
-if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
-if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
-if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
-if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
-if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
-if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
-if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
-if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
-const deps = buildOutboxRelayDeps(
-  client,
-  tableName,
-  queueUrl,
-  new SQSClient({}),
-  chasingQueueUrl,
-  importCommitQueueUrl,
-  materializationTriggerQueueUrl,
-  importParseQueueUrl,
-  requirementEvidenceRefreshQueueUrl,
-  reportSubscriptionDeliveryQueueUrl,
-  dossierExportQueueUrl,
-  guestCredentialIssuanceQueueUrl,
-);
+const deps = buildDispatchOutboxRelayDepsFromEnv(process.env, client);
 const logger = new SecureLogger({ baseContext: { service: "dispatch-outbox-relay" } });
 
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {

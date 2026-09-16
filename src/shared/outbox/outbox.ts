@@ -98,6 +98,52 @@ export type OutboxDestination =
    * trigger - see `reminder-producer-handler.ts`), never the new claim consumer. */
   | "SQS_REMINDER_SCAN_CONTINUATION_V1";
 
+/** D-300 4th-bug incident, round-3 Claude<->Codex regression-coverage requirement (2026-09-16,
+ * `reminder-producer-implementation-plan-scoping/DECISION.md` §8 second rollback, Codex round 2
+ * critique): the two Lambdas that recover pending outbox records - `DispatchOutboxRelay`
+ * (`dispatch-outbox-relay-handler.ts`, real-time via DynamoDB Streams) and
+ * `OutboxSweeperReminderDispatch` (`outbox-sweeper-handler.ts`, 5-min catch-up sweep) - have each
+ * grown their own destination list ad hoc over many separate features (M3.5 through D-300), with
+ * NO single place asserting which of the two is actually supposed to own each destination. This
+ * is the canonical, runtime-checkable answer - `satisfies Record<OutboxDestination, ...>` means
+ * `tsc` itself refuses to compile if a future `OutboxDestination` union member is added here
+ * without a matching ownership entry. A dedicated test
+ * (test/unit/composition/reminder-outbox-relay-deps.test.ts) asserts each real handler's
+ * ACTUAL constructed `senders` map matches this matrix exactly - catching both under-routing
+ * (a destination silently missing from a map that should have it, the exact D-300 4th bug) and
+ * over-routing (a destination present somewhere it shouldn't be, e.g. two relays racing to
+ * publish the same record). "relay" and "sweeper" here mean "wired in that Lambda's real,
+ * deployed `senders` map" - NOT every mathematically possible combination is meaningful; this
+ * mirrors what's actually true in `dispatch-outbox-relay-handler.ts`/`outbox-sweeper-handler.ts`
+ * as of this fix. */
+export const OUTBOX_DESTINATION_OWNERSHIP = {
+  // M3.5/M10/M11/D-192/BLOCKER-B/D-193/D-204/D-205/D-226/D-300: every "general worker queue"
+  // destination is wired on BOTH the real-time relay and the 5-min sweeper catch-up pass, same
+  // "shared privileged role, router keyed by destination" pattern (m4-notification-engine-
+  // design.md §7.4) - this has been true of every destination in this category since M10.
+  SQS_REMINDER_DISPATCH_V1: "both",
+  SQS_DOCUMENT_CHASING_DISPATCH_V1: "both",
+  SQS_IMPORT_COMMIT_V1: "both",
+  SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: "both",
+  SQS_IMPORT_PARSE_V1: "both",
+  SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: "both",
+  SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: "both",
+  SQS_DOSSIER_EXPORT_V1: "both",
+  SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1: "both",
+  // M4/D-9: notification-channel destinations have historically only ever been wired on the
+  // sweeper (`outbox-sweeper-handler.ts`'s own `emailDeliverQueueUrl`/`whatsAppDeliverQueueUrl`)
+  // - `dispatch-outbox-relay-handler.ts` has never taken either as a parameter. Real, deliberate
+  // asymmetry (the relay was never extended for these two), not an oversight - documented here so
+  // a future "why doesn't the relay have this" question has one answer, and so this matrix
+  // doesn't falsely flag it as a gap.
+  SQS_NOTIFICATION_EMAIL_V1: "sweeper",
+  SQS_NOTIFICATION_WHATSAPP_V1: "sweeper",
+  // D-300 4th-bug fix (2026-09-16): the one destination this incident was actually about - now
+  // "both", matching the general-worker-queue pattern above (it was always SUPPOSED to be
+  // "both", per DECISION.md §4/§8; it was silently neither until this fix).
+  SQS_REMINDER_SCAN_CONTINUATION_V1: "both",
+} satisfies Record<OutboxDestination, "relay" | "sweeper" | "both">;
+
 export interface OutboxRecord {
   PK: string;
   SK: string;

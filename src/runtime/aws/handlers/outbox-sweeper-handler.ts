@@ -4,96 +4,26 @@
  * outro GSI nem scan... o sweeper existente deve evoluir para um roteador explícito por
  * destination", not a second sweeper querying the same global GSI6 partition. Recovers
  * publications the relay missed (Stream failure, crashed relay invocation) for either
- * destination - m3.5-runtime-design.md §"Decisão central". */
+ * destination - m3.5-runtime-design.md §"Decisão central".
+ *
+ * D-300 4th-bug incident (2026-09-16, `reminder-producer-implementation-plan-scoping/
+ * DECISION.md` §8 second rollback): this file used to build its `senders` map inline and never
+ * added an entry for `SQS_REMINDER_SCAN_CONTINUATION_V1` when D-300 shipped that destination,
+ * silently dropping every scan-continuation record this sweeper's own recovery pass ever saw.
+ * The env-to-deps composition now lives in `buildOutboxSweeperDepsFromEnv`
+ * (composition/reminder.ts) specifically so it's unit-tested directly
+ * (test/unit/composition/reminder-outbox-relay-deps.test.ts) - a test against the old inline
+ * code could never have caught this exact omission. `leaseOwner` stays here (genuinely
+ * per-invocation state, not composition). */
 import { randomUUID } from "node:crypto";
-import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
-import { DynamoDbOutboxRelayStore } from "../../../shared/outbox/persistence/dynamodb-outbox-relay-store.js";
+import { buildOutboxSweeperDepsFromEnv } from "../composition/reminder.js";
 import { sweepPendingDispatch } from "../../../workers/dispatch-outbox-relay/relay.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 
 const client = createDocumentClient();
-const tableName = process.env["TABLE_NAME"];
-const reminderDispatchQueueUrl = process.env["DISPATCH_QUEUE_URL"];
-const emailDeliverQueueUrl = process.env["EMAIL_DELIVER_QUEUE_URL"];
-// M10 cluster 4 (D-039/D-046/D-048): third destination on this SAME shared privileged
-// sweeper role - same "router keyed by destination" pattern §7.4 already established for
-// SQS_NOTIFICATION_EMAIL_V1, never a second sweeper querying the same global GSI6 partition.
-const chasingDispatchQueueUrl = process.env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
-// M11 (D-042): fourth destination, same reasoning.
-const importCommitQueueUrl = process.env["IMPORT_COMMIT_QUEUE_URL"];
-// BLOCKER-B (reminder-delivery-pipeline.md §4): fifth destination, same reasoning.
-const materializationTriggerQueueUrl = process.env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
-// D-192 slice 9: sixth destination, same reasoning.
-const importParseQueueUrl = process.env["IMPORT_PARSE_QUEUE_URL"];
-// D-193 item 6/9: seventh destination, same reasoning.
-const requirementEvidenceRefreshQueueUrl = process.env["REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL"];
-// D-204 fatia 3: eighth destination, same reasoning.
-const reportSubscriptionDeliveryQueueUrl = process.env["REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL"];
-// D-205 fatia 2: ninth destination, same reasoning.
-const dossierExportQueueUrl = process.env["DOSSIER_EXPORT_QUEUE_URL"];
-// D-226: tenth destination, same reasoning.
-const guestCredentialIssuanceQueueUrl = process.env["GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL"];
-// D-229 fatia 2/5 (D-9): eleventh destination, same reasoning. Not yet reachable from the real
-// notification flow (router wiring is fatia 5/5) - wired here now so the sweeper's own
-// destination-routing table stays exhaustive over every OutboxDestination value that exists,
-// same "consumer exists before its real producer is wired" pattern already used elsewhere.
-const whatsAppDeliverQueueUrl = process.env["WHATSAPP_DELIVER_QUEUE_URL"];
-if (!tableName) throw new Error("TABLE_NAME env var is required.");
-if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
-if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
-if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
-if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
-if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
-if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
-if (!requirementEvidenceRefreshQueueUrl) throw new Error("REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL env var is required.");
-if (!reportSubscriptionDeliveryQueueUrl) throw new Error("REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL env var is required.");
-if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
-if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
-if (!whatsAppDeliverQueueUrl) throw new Error("WHATSAPP_DELIVER_QUEUE_URL env var is required.");
-
-const sqsClient = new SQSClient({});
-const store = new DynamoDbOutboxRelayStore(client, tableName);
-const send = (queueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
-  await sqsClient.send(
-    new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: JSON.stringify(payload),
-      MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
-    }),
-  );
-};
-// BLOCKER-B: unlike the other destinations' payloads, this one is the bare domain event
-// data (matches schemas/events/*.json), not a self-describing command - fold in the
-// record's own tenantId/eventType before sending (composition/reminder.ts's
-// buildOutboxRelayDeps documents the same shape for the relay's own sender).
-const sendMaterializationTrigger = (queueUrl: string) => async (payload: Record<string, unknown>, correlationId: string, tenantId: string, eventType: string) => {
-  await sqsClient.send(
-    new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: JSON.stringify({ eventType, tenantId, data: payload }),
-      MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
-    }),
-  );
-};
-const deps = {
-  store,
-  now: () => new Date().toISOString(),
-  senders: {
-    SQS_REMINDER_DISPATCH_V1: send(reminderDispatchQueueUrl),
-    SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
-    SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
-    SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
-    SQS_IMPORT_PARSE_V1: send(importParseQueueUrl),
-    SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl),
-    SQS_REPORT_SUBSCRIPTION_DELIVERY_V1: send(reportSubscriptionDeliveryQueueUrl),
-    SQS_DOSSIER_EXPORT_V1: send(dossierExportQueueUrl),
-    SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1: send(guestCredentialIssuanceQueueUrl),
-    SQS_NOTIFICATION_WHATSAPP_V1: send(whatsAppDeliverQueueUrl),
-    SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
-  },
-};
+const deps = buildOutboxSweeperDepsFromEnv(process.env, client);
 const logger = new SecureLogger({ baseContext: { service: "outbox-sweeper" } });
 
 export async function handler(): Promise<void> {
