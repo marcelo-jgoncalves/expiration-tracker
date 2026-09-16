@@ -391,10 +391,17 @@ resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   batch_size              = 1
   function_response_types = ["ReportBatchItemFailures"]
   scaling_config {
-    # D-300 §8 2nd roll-forward canary window: AWS-enforced minimum (2), not the real target (10,
-    # see stack.tftest.hcl's matching comment) - constrained scale first, restored after the
-    # canary succeeds.
-    maximum_concurrency = 2
+    # D-300 §8 2nd roll-forward: restored to DECISION.md §3's real target (10) after the canary
+    # window closed clean - confirmed via real AWS queries, not self-report: enumeration tick's
+    # own "completed" count went from stuck-at-0 for the entire incident to real values (60+ on
+    # consecutive ticks); relay logged real PUBLISHED outcomes for SYSTEM-tenant records (20 in a
+    # 5-min window); reminder-producer's own scan-page path logged real PROCESSED outcomes (30 in
+    # the same window); zero Lambda Errors on reminder-producer/reminder-claim-consumer/
+    # dispatch-outbox-relay over the canary window; zero messages in either DLQ. Genuinely
+    # concurrent chains are bounded by active generations x shards (<=8 in practice even with
+    # lookback) - 10 gives headroom without letting a pathological burst fan out unboundedly
+    # (DECISION.md §3's own original sizing rationale).
+    maximum_concurrency = 10
   }
 }
 
@@ -1164,7 +1171,14 @@ resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" 
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
   scaling_config {
-    maximum_concurrency = 2
+    # D-300 §8 2nd roll-forward: restored to DECISION.md §3's real target (50) after the canary
+    # window closed clean - see reminder_producer_from_scan_queue's matching comment above for
+    # the real evidence (relay/scan-page real outcomes, zero errors, zero DLQ growth). The claim
+    # consumer itself has not yet been invoked (no real due occurrences exist to produce claim
+    # candidates in this environment yet) - expected, not a red flag; the imminent 1k-occurrence
+    # load test is what will exercise this path for real, at the real target concurrency rather
+    # than the artificially constrained canary value.
+    maximum_concurrency = 50
   }
 }
 
