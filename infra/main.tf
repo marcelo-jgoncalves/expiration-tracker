@@ -61,7 +61,25 @@ locals {
   # Marcelo's explicit direction (2026-09-15): re-enable, monitor closely (scanLeaseReclaimed
   # metric/logs + backlog count near-real-time), then validate with a SMALL 1k-occurrence burst
   # first - never jump straight back to the 10k test.
-  reminder_scan_mode = "PAGED"
+  #
+  # D-300 §8 rollback (2nd occurrence), step (4): "SCAN_MODE=LEGACY". The roll-forward above
+  # did NOT actually fix the mechanism - independent AWS-query verification 2026-09-16 (not
+  # agent self-report) found a 4th real bug: dispatch-outbox-relay-handler.ts and
+  # outbox-sweeper-handler.ts never wired a sender for SQS_REMINDER_SCAN_CONTINUATION_V1 (the
+  # composition-root helper and Terraform env var were both correct; only the two handler call
+  # sites were never updated when that 13th/12th parameter was added - a plain TypeScript
+  # optional-trailing-parameter miss that `tsc` cannot catch). Confirmed via live relay logs:
+  # every SYSTEM-tenant record outcome is SKIPPED_WRONG_DESTINATION, never PUBLISHED. This flip
+  # to LEGACY stops the enumeration tick from writing any MORE continuation records (it only
+  # runs under PAGED) - step (1) of this same rollback (mappings disabled, PR #352, deployed
+  # and confirmed State=="Disabled") already stopped the two consumers from reading. Codex
+  # blind review (independent, 8.5/10 on the proposed wiring fix) flagged that the relay/sweeper
+  # would otherwise publish the entire accumulated backlog into the real SQS queue the moment
+  # the wiring fix deploys, regardless of these mappings being disabled (publication isn't
+  # gated by the consumer mappings) - so backlog disposition must be handled explicitly BEFORE
+  # that fix is deployed, not left to happen implicitly. This PR only executes gate (4); no
+  # further fix code ships here.
+  reminder_scan_mode = "LEGACY"
   # D-300 §8 roll-forward, step (1) of this PR: "SCAN_MODE_EPOCH = N+1 deployado PRIMEIRO" -
   # bumped from 1 to 2 AHEAD of (and in a separate deploy from) the SCAN_MODE=PAGED flip below.
   # This fences the ~116K stale continuation records accumulated during the 2026-09-15 incident
