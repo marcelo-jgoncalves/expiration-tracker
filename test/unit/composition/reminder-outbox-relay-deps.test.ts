@@ -1,0 +1,140 @@
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import type { SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { describe, expect, it, vi } from "vitest";
+import { buildOutboxRelayDeps, buildDispatchOutboxRelayDepsFromEnv, buildOutboxSweeperDepsFromEnv } from "../../../src/runtime/aws/composition/reminder.js";
+import { OUTBOX_DESTINATION_OWNERSHIP, type OutboxDestination } from "../../../src/shared/outbox/outbox.js";
+import type { DestinationSenders } from "../../../src/workers/dispatch-outbox-relay/relay.js";
+
+// D-300 4th-bug incident (2026-09-16, reminder-producer-implementation-plan-scoping/DECISION.md
+// §8 second rollback): dispatch-outbox-relay-handler.ts and outbox-sweeper-handler.ts each built
+// their real deps from `process.env` inline, and both silently omitted
+// REMINDER_SCAN_CONTINUATION_QUEUE_URL when D-300 added SQS_REMINDER_SCAN_CONTINUATION_V1 -
+// tsc could not catch it (a missing trailing optional argument / missing object key is
+// structurally valid), and no prior test exercised either handler's real env-to-deps
+// composition (only buildOutboxRelayDeps, the always-correct low-level helper, would have been a
+// candidate, and it can't detect a caller that simply never reaches its 13th parameter). These
+// tests exercise the REAL composition functions the two handlers actually call at import time.
+
+const fakeClient = {} as DynamoDBDocumentClient;
+
+function fakeSqsClient() {
+  const send = vi.fn().mockResolvedValue({});
+  return { client: { send } as unknown as SQSClient, send };
+}
+
+const FULL_RELAY_ENV: Record<string, string> = {
+  TABLE_NAME: "t",
+  DISPATCH_QUEUE_URL: "https://sqs.example/dispatch",
+  DOCUMENT_CHASING_DISPATCH_QUEUE_URL: "https://sqs.example/chasing",
+  IMPORT_COMMIT_QUEUE_URL: "https://sqs.example/import-commit",
+  REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL: "https://sqs.example/materialization",
+  IMPORT_PARSE_QUEUE_URL: "https://sqs.example/import-parse",
+  REQUIREMENT_EVIDENCE_REFRESH_QUEUE_URL: "https://sqs.example/req-evidence",
+  REPORT_SUBSCRIPTION_DELIVERY_QUEUE_URL: "https://sqs.example/report-sub",
+  DOSSIER_EXPORT_QUEUE_URL: "https://sqs.example/dossier",
+  GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL: "https://sqs.example/guest-cred",
+  REMINDER_SCAN_CONTINUATION_QUEUE_URL: "https://sqs.example/reminder-scan",
+};
+
+const FULL_SWEEPER_ENV: Record<string, string> = {
+  ...FULL_RELAY_ENV,
+  EMAIL_DELIVER_QUEUE_URL: "https://sqs.example/email",
+  WHATSAPP_DELIVER_QUEUE_URL: "https://sqs.example/whatsapp",
+};
+
+describe("buildDispatchOutboxRelayDepsFromEnv (relay real env-to-deps composition)", () => {
+  it("wires SQS_REMINDER_SCAN_CONTINUATION_V1 to the configured queue URL - the exact regression this incident was about", async () => {
+    const { client, send } = fakeSqsClient();
+    const deps = buildDispatchOutboxRelayDepsFromEnv(FULL_RELAY_ENV, fakeClient, client);
+    expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeDefined();
+
+    await deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]?.({ some: "payload" }, "corr-1");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const command = send.mock.calls[0]?.[0] as SendMessageCommand;
+    expect(command).toBeInstanceOf(SendMessageCommand);
+    expect(command.input.QueueUrl).toBe("https://sqs.example/reminder-scan");
+  });
+
+  it("throws when REMINDER_SCAN_CONTINUATION_QUEUE_URL is missing - proves the validation actually runs, not just that tsc allows the call", () => {
+    const { client } = fakeSqsClient();
+    const envWithoutIt = { ...FULL_RELAY_ENV };
+    delete envWithoutIt.REMINDER_SCAN_CONTINUATION_QUEUE_URL;
+    expect(() => buildDispatchOutboxRelayDepsFromEnv(envWithoutIt, fakeClient, client)).toThrow(/REMINDER_SCAN_CONTINUATION_QUEUE_URL/);
+  });
+});
+
+describe("buildOutboxSweeperDepsFromEnv (sweeper real env-to-deps composition)", () => {
+  it("wires SQS_REMINDER_SCAN_CONTINUATION_V1 to the configured queue URL - the sweeper's own copy of this incident's bug", async () => {
+    const { client, send } = fakeSqsClient();
+    const deps = buildOutboxSweeperDepsFromEnv(FULL_SWEEPER_ENV, fakeClient, client);
+    expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeDefined();
+
+    await deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]?.({ some: "payload" }, "corr-1");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const command = send.mock.calls[0]?.[0] as SendMessageCommand;
+    expect(command.input.QueueUrl).toBe("https://sqs.example/reminder-scan");
+  });
+
+  it("throws when REMINDER_SCAN_CONTINUATION_QUEUE_URL is missing", () => {
+    const { client } = fakeSqsClient();
+    const envWithoutIt = { ...FULL_SWEEPER_ENV };
+    delete envWithoutIt.REMINDER_SCAN_CONTINUATION_QUEUE_URL;
+    expect(() => buildOutboxSweeperDepsFromEnv(envWithoutIt, fakeClient, client)).toThrow(/REMINDER_SCAN_CONTINUATION_QUEUE_URL/);
+  });
+});
+
+describe("buildOutboxRelayDeps (low-level helper) - documents its always-correct optional-omission behavior", () => {
+  it("omits SQS_REMINDER_SCAN_CONTINUATION_V1 from senders when the optional URL isn't passed", () => {
+    const { client } = fakeSqsClient();
+    const deps = buildOutboxRelayDeps(fakeClient, "t", "https://sqs.example/dispatch", client);
+    expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeUndefined();
+  });
+
+  it("includes it when the URL is passed as the 13th argument", () => {
+    const { client } = fakeSqsClient();
+    const deps = buildOutboxRelayDeps(fakeClient, "t", "https://sqs.example/dispatch", client, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "https://sqs.example/reminder-scan");
+    expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeDefined();
+  });
+});
+
+describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender maps", () => {
+  it("matches exactly what each handler's real composition function wires - catches both under-routing and over-routing", () => {
+    const { client: relayClient } = fakeSqsClient();
+    const { client: sweeperClient } = fakeSqsClient();
+    const relaySenders = buildDispatchOutboxRelayDepsFromEnv(FULL_RELAY_ENV, fakeClient, relayClient).senders as DestinationSenders;
+    const sweeperSenders = buildOutboxSweeperDepsFromEnv(FULL_SWEEPER_ENV, fakeClient, sweeperClient).senders as DestinationSenders;
+
+    for (const [destination, owner] of Object.entries(OUTBOX_DESTINATION_OWNERSHIP) as [OutboxDestination, "relay" | "sweeper" | "both"][]) {
+      const inRelay = relaySenders[destination] !== undefined;
+      const inSweeper = sweeperSenders[destination] !== undefined;
+      const expectedInRelay = owner === "relay" || owner === "both";
+      const expectedInSweeper = owner === "sweeper" || owner === "both";
+      expect(inRelay, `${destination}: expected relay=${expectedInRelay}, got ${inRelay}`).toBe(expectedInRelay);
+      expect(inSweeper, `${destination}: expected sweeper=${expectedInSweeper}, got ${inSweeper}`).toBe(expectedInSweeper);
+    }
+  });
+
+  it("covers every OutboxDestination union member (satisfies already enforces this at compile time - this is the runtime companion check)", () => {
+    const allDestinations: OutboxDestination[] = [
+      "SQS_REMINDER_DISPATCH_V1",
+      "SQS_NOTIFICATION_EMAIL_V1",
+      "SQS_DOCUMENT_CHASING_DISPATCH_V1",
+      "SQS_IMPORT_COMMIT_V1",
+      "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1",
+      "SQS_IMPORT_PARSE_V1",
+      "SQS_REQUIREMENT_EVIDENCE_REFRESH_V1",
+      "SQS_REPORT_SUBSCRIPTION_DELIVERY_V1",
+      "SQS_DOSSIER_EXPORT_V1",
+      "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1",
+      "SQS_NOTIFICATION_WHATSAPP_V1",
+      "SQS_REMINDER_SCAN_CONTINUATION_V1",
+    ];
+    for (const destination of allDestinations) {
+      expect(OUTBOX_DESTINATION_OWNERSHIP[destination]).toBeDefined();
+    }
+    expect(Object.keys(OUTBOX_DESTINATION_OWNERSHIP).sort()).toEqual([...allDestinations].sort());
+  });
+});
