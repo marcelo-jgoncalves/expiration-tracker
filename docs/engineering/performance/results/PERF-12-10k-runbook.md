@@ -1,6 +1,20 @@
 # PERF-12 / D-300 — execução reproduzível de 10.000 ocorrências
 
-Status: executor preparado; a nova carga de 10k ainda não foi executada.
+Status: execução iniciada em 2026-09-16, 16:55 BRT, run
+`d300-10k-preparation-20260916`, disparo previsto 18:49 BRT. Resultado pendente.
+
+Monitor somente leitura: `node scripts/perf-reminder-burst-monitor.mjs <run-id>`.
+Registra `checkpoint-25.json`, `checkpoint-50.json`, `checkpoint-75.json` e
+`checkpoint-100.json` durante a injeção: progresso por tenant, amostra de três
+itens por tenant na tabela base, métricas Lambda da janela de cinco minutos e
+filas/DLQs. Amostra não substitui conferência integral da população; métricas
+sem datapoints ficam null. Não dispara carga, não retenta POST nem altera AWS.
+
+Checkpoint 25% (17:07:52 BRT): 2.597 políticas; 30/30 ocorrências amostradas
+materializadas em SCHEDULED; zero Errors/Throttles nas seis Lambdas com atividade
+na janela (claim consumer sem datapoints antes do burst). Oito filas/DLQs sem
+backlog visível; apenas duas mensagens em processamento na materialização.
+Evidência: `.local/d300-10k-preparation-20260916/checkpoint-25.json`.
 
 Preflight real em 2026-09-16, 16:50 BRT: 10/10 logins, organizações ativas e
 leituras autenticadas conferidos; nenhuma carga criada. Evidência local em
