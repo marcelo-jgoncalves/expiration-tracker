@@ -9,6 +9,9 @@ supersedes: D-299/D-300 only where explicitly stated
 
 # D-301 — Plano de controle dedicado e horizontal para ReminderScan
 
+Plano operacional para leitura e avaliação:
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+
 ## 1. Decisão
 
 O ReminderScan passa a ter um plano de controle fisicamente separado do plano de dados de
