@@ -239,13 +239,15 @@ module "subjects_handler" {
     # milestone atribuído ainda", D-047) is now obsolete: G01's real frontend page exists and
     # consumes this exact link. Same var.app_origin + path convention as the guest_upload_base_url
     # wired for document_archive_guest_handler above, never a second competing source of truth.
-    GUEST_UPLOAD_BASE_URL = "${var.app_origin}/guest/document-requests"
+    GUEST_UPLOAD_BASE_URL        = "${var.app_origin}/guest/document-requests"
+    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
   })
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     data.aws_iam_policy_document.ses_send_email.json,
     module.table.gsi4_read_policy_json,
+    module.reminder_due_work_table.write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
