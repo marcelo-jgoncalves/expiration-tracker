@@ -1235,6 +1235,21 @@ resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
   function_response_types = ["ReportBatchItemFailures"]
 }
 
+# D-301/D-302: physically isolated reminder discovery. Due work has no stream so bulk
+# materialization cannot delay control continuations; the control table stream carries only
+# leases/outboxes.
+module "reminder_due_work_table" {
+  source     = "./modules/reminder-due-work-table"
+  table_name = "${local.name_prefix}-reminder-due-work"
+  tags       = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_scan_control_table" {
+  source     = "./modules/reminder-scan-control-table"
+  table_name = "${local.name_prefix}-reminder-scan-control"
+  tags       = { Project = local.project_name, Environment = var.environment }
+}
+
 # --- M4: Notification Engine queues, SES/SNS, workers -------------------------------------
 # docs/architecture/m4-notification-engine-design.md (APPROVED, Claude 9.3/Codex 9.4).
 
