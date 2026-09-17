@@ -65,7 +65,8 @@ describe("claimReminderOccurrence (extracted from producer.ts, D-300 §1)", () =
     expect(outcome.kind).toBe("SKIPPED_NOT_SCHEDULED");
   });
 
-  it("LOST_CLAIM_RACE: a genuine TransactionCanceledException (concurrent claim won the race) maps to a no-op outcome, never a throw", async () => {
+  // G-V3: treating even the occurrence's sole conditional failure as retry breaks this benign-race contract.
+  it("LOST_CLAIM_RACE: only the occurrence condition failed, so concurrent claim is a no-op", async () => {
     const store = new InMemoryReminderStore();
     const occ = await seedOccurrence(store);
 
@@ -77,7 +78,7 @@ describe("claimReminderOccurrence (extracted from producer.ts, D-300 §1)", () =
     const racingStore = {
       get: store.get.bind(store),
       transactWrite: async () => {
-        throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed: version mismatch" };
+        throw { name: "TransactionCanceledException", CancellationReasons: [{ Code: "ConditionalCheckFailed" }, { Code: "None" }] };
       },
     };
 

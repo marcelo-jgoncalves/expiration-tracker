@@ -15,7 +15,7 @@
  * of its own publication.
  */
 import type { EntityKey } from "../../shared/dynamodb/occ.js";
-import { isTransactionCanceled } from "../../shared/dynamodb/occ.js";
+import { isSoleConditionalCancellation } from "../../shared/dynamodb/occ.js";
 import { nextAttemptDelayMs } from "../../shared/outbox/outbox.js";
 import type { SqsCommandEnvelope } from "../../shared/contracts/events.js";
 import { gsi3PartitionForShard } from "../../modules/reminder/domain/reminder-occurrence.js";
@@ -152,7 +152,8 @@ export async function runScanPage(deps: ScanPageDeps, input: ScanPageInput): Pro
   }
 
   const lease = await deps.store.get<ReminderScanLease>(leaseKey(input.ref));
-  if (!lease || lease.status !== "IN_PROGRESS" || lease.ownerToken !== input.ownerToken) {
+  if (!lease || lease.status !== "IN_PROGRESS" || lease.ownerToken !== input.ownerToken ||
+    lease.leaseUntil < deps.now() || lease.lastEvaluatedKey !== input.startedFromLastEvaluatedKey) {
     return { kind: "STALE_NO_OP" };
   }
 
@@ -198,7 +199,7 @@ export async function runScanPage(deps: ScanPageDeps, input: ScanPageInput): Pro
   try {
     await deps.store.transactWrite(tx);
   } catch (err) {
-    if (isTransactionCanceled(err)) {
+    if (isSoleConditionalCancellation(err, 0)) {
       return { kind: "LOST_CHECKPOINT_RACE" };
     }
     throw err;

@@ -88,12 +88,12 @@ export async function processStreamRecords(
           // actually received it (Codex round 1 naming finding).
           emitMetric("ExpirationTracker/DispatchOutboxRelay", { name: "OutboxPublishOutcome", value: 1, unit: "Count", dimensions: { Outcome: outcome.kind } });
           if (outcome.kind === "FAILED") {
-            batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
+            batchItemFailures.push({ itemIdentifier: record.dynamodb?.SequenceNumber ?? "" });
           }
         } catch (err) {
           logger.error("dispatch-outbox-relay failed", { eventID: record.eventID, outcome: "HANDLER_ERROR", error: err instanceof Error ? err.message : String(err) });
           emitMetric("ExpirationTracker/DispatchOutboxRelay", { name: "OutboxPublishOutcome", value: 1, unit: "Count", dimensions: { Outcome: "HANDLER_ERROR" } });
-          batchItemFailures.push({ itemIdentifier: record.eventID ?? "" });
+          batchItemFailures.push({ itemIdentifier: record.dynamodb?.SequenceNumber ?? "" });
         }
       });
     } catch (err) {

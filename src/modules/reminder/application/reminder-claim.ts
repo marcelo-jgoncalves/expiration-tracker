@@ -12,7 +12,7 @@
  * shape deliberately - same deps shape, same outcome union, same transaction pattern.
  */
 import { buildVersionedUpdate, type EntityKey, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import { isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import { isSoleConditionalCancellation } from "../../../shared/dynamodb/occ.js";
 import { appendToTransaction, type DynamoTransactPutEntry } from "../../../shared/outbox/outbox.js";
 import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
@@ -56,6 +56,7 @@ export interface ReminderClaimDeps {
 export type ReminderClaimOutcome =
   | { kind: "CLAIMED"; command: ReminderDispatchCommand }
   | { kind: "SKIPPED_NOT_SCHEDULED" }
+  | { kind: "SKIPPED_NOT_EXPIRED" }
   | { kind: "LOST_CLAIM_RACE" };
 
 /** Claims one `ReminderOccurrence` row already read from GSI3 (`baseKey` is the base-table PK/SK
@@ -64,10 +65,15 @@ export type ReminderClaimOutcome =
  * transaction shape to the inline block this replaces in `producer.ts`. `tenantId` is supplied
  * by the caller (already parsed from the GSI3SK by either `producer.ts`'s own scan loop or the
  * new claim-consumer Lambda reading a `ClaimCandidateCommand`) rather than re-derived here, to
- * keep this helper store-agnostic about how the caller arrived at the key. */
-export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: EntityKey, tenantId: string): Promise<ReminderClaimOutcome> {
+ * keep this helper store-agnostic about how the caller arrived at the key.
+ * EXPIRED mode renews an expired CLAIMED row plus dispatch outbox in the same
+ * version-fenced transaction; PAGED recovery never returns it behind a completed scan. */
+export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: EntityKey, tenantId: string, mode: "SCHEDULED" | "EXPIRED" = "SCHEDULED"): Promise<ReminderClaimOutcome> {
   const occurrence = await deps.store.get<ReminderOccurrence>(baseKey);
-  if (!occurrence || occurrence.status !== "SCHEDULED") {
+  if (mode === "EXPIRED" && (!occurrence || occurrence.status !== "CLAIMED" || !occurrence.claimExpiresAt || occurrence.claimExpiresAt > deps.now())) {
+    return { kind: "SKIPPED_NOT_EXPIRED" };
+  }
+  if (!occurrence || (mode === "SCHEDULED" && occurrence.status !== "SCHEDULED")) {
     return { kind: "SKIPPED_NOT_SCHEDULED" };
   }
 
@@ -130,7 +136,7 @@ export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: 
       ...outboxEntries,
     ]);
   } catch (err) {
-    if (isTransactionCanceled(err)) {
+    if (isSoleConditionalCancellation(err, 0)) {
       return { kind: "LOST_CLAIM_RACE" };
     }
     throw err;

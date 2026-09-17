@@ -223,7 +223,8 @@ describe("runScanPage (D-300 §1/§2/§5)", () => {
     expect(lease?.pagesProcessed).toBe(0);
   });
 
-  it("LOST_CHECKPOINT_RACE: a duplicate/redelivered continuation for a page already checkpointed past (lease still IN_PROGRESS, more pages remain) is rejected as a benign no-op, not a throw", async () => {
+  // G-V3: removing the pre-send cursor check republishes the first page and fails the sent-count assertion.
+  it("rejects an obsolete continuation before republishing candidates while the lease is still IN_PROGRESS", async () => {
     const store = new InMemoryReminderStore();
     await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
     await seedReminderRow(store, "t_01", "occ_01");
@@ -243,6 +244,36 @@ describe("runScanPage (D-300 §1/§2/§5)", () => {
     // after the lease already advanced past it - startedFromLastEvaluatedKey still undefined,
     // but the lease's real lastEvaluatedKey is no longer absent, so the position clause fails.
     const duplicate = await runScanPage(deps, { ref: REF, ownerToken: "owner-A", startedFromLastEvaluatedKey: undefined, messageRolloutEpoch: 1 });
-    expect(duplicate.kind).toBe("LOST_CHECKPOINT_RACE");
+    expect(duplicate.kind).toBe("STALE_NO_OP");
+    expect(claimQueue.sent).toHaveLength(1);
+  });
+
+  // G-V3: removing the pre-send expiry check publishes candidates under an expired owner.
+  it("does not publish candidates when the scan lease has expired", async () => {
+    const store = new InMemoryReminderStore();
+    await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
+    await seedReminderRow(store, "t_01", "occ_01");
+    const queue = new FakeClaimQueue();
+    const result = await runScanPage(makeDeps(store, queue, "2026-09-14T12:05:00.000Z"), {
+      ref: REF, ownerToken: "owner-A", startedFromLastEvaluatedKey: undefined, messageRolloutEpoch: 1,
+    });
+    expect(result.kind).toBe("STALE_NO_OP");
+    expect(queue.sent).toHaveLength(0);
+  });
+
+  // G-V3: swallowing every TransactionCanceledException acknowledges a transient checkpoint failure.
+  it("propagates a transaction conflict after candidate publication so SQS retries the page", async () => {
+    const store = new InMemoryReminderStore();
+    await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
+    await seedReminderRow(store, "t_01", "occ_01");
+    const failure = { name: "TransactionCanceledException", CancellationReasons: [{ Code: "TransactionConflict" }] };
+    const queue = new FakeClaimQueue();
+    const deps = makeDeps(store, queue, "2026-09-14T12:00:10.000Z", { store: {
+      get: store.get.bind(store), queryGsi3Page: store.queryGsi3Page.bind(store),
+      transactWrite: async () => { throw failure; },
+    } });
+    await expect(runScanPage(deps, { ref: REF, ownerToken: "owner-A", startedFromLastEvaluatedKey: undefined, messageRolloutEpoch: 1 })).rejects.toBe(failure);
+    expect(queue.sent).toHaveLength(1);
+    expect((await store.get<ReminderScanLease>(leaseKey(REF)))?.pagesProcessed).toBe(0);
   });
 });

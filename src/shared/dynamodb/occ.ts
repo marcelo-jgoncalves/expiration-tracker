@@ -465,6 +465,14 @@ export function getCancellationReasonCodes(err: unknown): string[] | undefined {
   return reasons.map((reason) => (typeof reason === "object" && reason !== null && "Code" in reason ? String((reason as { Code?: unknown }).Code) : "Unknown"));
 }
 
+/** Only the named item's condition lost; missing reasons and mixed failures must retry. */
+export function isSoleConditionalCancellation(err: unknown, index: number): boolean {
+  if (!isTransactionCanceled(err)) return false;
+  const codes = getCancellationReasonCodes(err);
+  return codes?.[index] === "ConditionalCheckFailed" &&
+    codes.every((code, i) => i === index || code === "None");
+}
+
 /**
  * Builds an UpdateItem input for a narrow, single-purpose guard write: set one attribute exactly
  * once, gated on it not already existing - no `version` counter, no `tenantId` condition (unlike
