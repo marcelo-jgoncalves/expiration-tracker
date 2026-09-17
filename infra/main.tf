@@ -1224,10 +1224,14 @@ resource "aws_lambda_event_source_mapping" "reminder_materialization_trigger_fro
 }
 
 resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
-  event_source_arn        = module.table.stream_arn
-  function_name           = module.dispatch_outbox_relay.live_alias_arn
-  starting_position       = "LATEST"
-  batch_size              = 25
+  event_source_arn  = module.table.stream_arn
+  function_name     = module.dispatch_outbox_relay.live_alias_arn
+  starting_position = "LATEST"
+  batch_size        = 25
+  # PERF-12 experiment 17.5: the 10k run reached 138,952 ms of IteratorAge and delayed the
+  # scan-continuation outboxes behind dispatch outboxes. Two concurrent batches per shard is the
+  # smallest reversible step; DynamoDB Streams still preserves ordering for each individual item.
+  parallelization_factor  = 2
   function_response_types = ["ReportBatchItemFailures"]
 }
 

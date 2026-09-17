@@ -1,5 +1,11 @@
 # Performance Program — Execution TODO
 
+> Atualização de 2026-09-17: a segunda rodada de 10k terminou com 10.000/10.000
+> `TRIGGERED`, mas reprovou o SLO (máximo 359,983s). O gargalo medido é o relay
+> compartilhado de DynamoDB Streams (`IteratorAge` máximo 138,952s), que atrasa as
+> continuações do scan. Próximo passo: experimento 17.5 com `ParallelizationFactor` 2
+> e, se necessário, 4. Evidência: [latência residual de 10k](results/PERF-12-10k-residual-latency-2026-09-17.md).
+
 Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (repo root, doc do usuário).
 Este arquivo é o rastreamento vivo da execução. Segue a ordem obrigatória das fases (plano §4) e o
 faseamento em ciclos recomendado pelo próprio plano (§28, §29): não executar as 15 fases de uma vez.
@@ -106,7 +112,14 @@ itens de acompanhamento fora do programa de performance.
     Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
     [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
     foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.
-  - [ ] 100k — pendente (depende da decisão acima).
+  - [ ] 100k — pendente (depende da decisão acima). A rodada deve incluir validação explícita do
+    canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
+    do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e
+    previamente dimensionada (não enviar 100k e-mails reais por padrão). Para a coorte, medir
+    `NotificationIntent` → router → fila/relay de e-mail → worker → aceitação pelo SES, latência até
+    o provedor, DLQ, bounce e complaint. Registrar claramente o tamanho da coorte, limites/quota do
+    SES e qualquer supressão; `CANCELLED/RECIPIENT_NOT_FOUND` não conta como entrega validada.
+    Estratégia eficiente, coortes e gates: [preparação de 100k](results/PERF-12-100k-preparation.md).
   - [ ] 1M — pendente (depende da decisão acima).
   - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
     [diagnóstico e remediação pendente](results/PERF-12-relay-investigation-2026-09-16.md).
