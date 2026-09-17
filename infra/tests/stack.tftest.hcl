@@ -1102,7 +1102,7 @@ run "event_source_mappings_use_partial_batch_failure" {
     error_message = "DynamoDB Streams event source mapping batch size must be 25"
   }
   assert {
-    condition     = aws_lambda_event_source_mapping.dispatch_outbox_relay_from_stream.parallelization_factor == 2
+    condition     = aws_lambda_event_source_mapping.dispatch_outbox_relay_from_stream.parallelization_factor == 4
     error_message = "DynamoDB Streams event source mapping must use the PERF-12 tested per-shard parallelization factor"
   }
 

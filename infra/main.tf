@@ -1228,10 +1228,10 @@ resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
   function_name     = module.dispatch_outbox_relay.live_alias_arn
   starting_position = "LATEST"
   batch_size        = 25
-  # PERF-12 experiment 17.5: the 10k run reached 138,952 ms of IteratorAge and delayed the
-  # scan-continuation outboxes behind dispatch outboxes. Two concurrent batches per shard is the
-  # smallest reversible step; DynamoDB Streams still preserves ordering for each individual item.
-  parallelization_factor  = 2
+  # PERF-12 experiment 17.5: factor 2 reduced the 10k maximum from 359.983s to 331.173s but
+  # still missed the 300s SLO, with 119,939 ms of IteratorAge. Factor 4 is the pre-registered
+  # second and final vertical-tuning step; Streams preserves ordering for each individual item.
+  parallelization_factor  = 4
   function_response_types = ["ReportBatchItemFailures"]
 }
 
