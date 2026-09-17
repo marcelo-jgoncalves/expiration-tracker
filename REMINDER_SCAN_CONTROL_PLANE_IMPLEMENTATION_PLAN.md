@@ -1,7 +1,7 @@
 # Plano específico de implementação — ReminderScan Control Plane
 
 Status: proposta executiva para leitura e avaliação  
-Decisão vinculada: [D-301](DECISION.md)  
+Decisão vinculada: [D-301](docs/architecture/reviews/reminder-scan-control-plane/DECISION.md)  
 Data: 2026-09-17  
 Escopo: implementar, migrar e validar o plano de controle dedicado do ReminderScan
 
