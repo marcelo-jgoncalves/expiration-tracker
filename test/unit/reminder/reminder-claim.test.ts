@@ -65,6 +65,14 @@ describe("claimReminderOccurrence (extracted from producer.ts, D-300 §1)", () =
     expect(outcome.kind).toBe("SKIPPED_NOT_SCHEDULED");
   });
 
+  it("SKIPPED_NOT_DUE: never claims an occurrence before scheduledAt", async () => {
+    const store = new InMemoryReminderStore();
+    const occ = await seedOccurrence(store);
+    const outcome = await claimReminderOccurrence(deps(store, "2026-09-14T11:59:59.999Z"), { PK: occ.PK, SK: occ.SK }, TENANT);
+    expect(outcome.kind).toBe("SKIPPED_NOT_DUE");
+    expect((await store.get<{ PK: string; SK: string; status: string }>({ PK: occ.PK, SK: occ.SK }))?.status).toBe("SCHEDULED");
+  });
+
   // G-V3: treating even the occurrence's sole conditional failure as retry breaks this benign-race contract.
   it("LOST_CLAIM_RACE: only the occurrence condition failed, so concurrent claim is a no-op", async () => {
     const store = new InMemoryReminderStore();

@@ -55,6 +55,7 @@ export interface ChasingClaimDeps {
 export type ChasingClaimOutcome =
   | { kind: "CLAIMED"; command: ChasingDispatchCommand }
   | { kind: "SKIPPED_NOT_SCHEDULED" }
+  | { kind: "SKIPPED_NOT_DUE" }
   | { kind: "SKIPPED_NOT_EXPIRED" }
   | { kind: "LOST_CLAIM_RACE" };
 
@@ -70,6 +71,9 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
   }
   if (!occurrence || (mode === "SCHEDULED" && occurrence.status !== "SCHEDULED")) {
     return { kind: "SKIPPED_NOT_SCHEDULED" };
+  }
+  if (mode === "SCHEDULED" && occurrence.scheduledAt > deps.now()) {
+    return { kind: "SKIPPED_NOT_DUE" };
   }
 
   const { occurrenceId } = occurrence;

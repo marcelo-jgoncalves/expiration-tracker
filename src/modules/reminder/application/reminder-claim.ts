@@ -56,6 +56,7 @@ export interface ReminderClaimDeps {
 export type ReminderClaimOutcome =
   | { kind: "CLAIMED"; command: ReminderDispatchCommand }
   | { kind: "SKIPPED_NOT_SCHEDULED" }
+  | { kind: "SKIPPED_NOT_DUE" }
   | { kind: "SKIPPED_NOT_EXPIRED" }
   | { kind: "LOST_CLAIM_RACE" };
 
@@ -75,6 +76,9 @@ export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: 
   }
   if (!occurrence || (mode === "SCHEDULED" && occurrence.status !== "SCHEDULED")) {
     return { kind: "SKIPPED_NOT_SCHEDULED" };
+  }
+  if (mode === "SCHEDULED" && occurrence.scheduledAt > deps.now()) {
+    return { kind: "SKIPPED_NOT_DUE" };
   }
 
   const { occurrenceId } = occurrence;

@@ -182,8 +182,8 @@ export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableNam
 /** BLOCKER-B (reminder-delivery-pipeline.md §4): shard config is fixed/production-current
  * for now, same posture as buildReminderProducerDeps/buildReconciliationDeps - no
  * multi-generation reshard is in flight. */
-export function buildReminderMaterializationTriggerDeps(client: DynamoDBDocumentClient, tableName: string) {
-  const store = new DynamoDbReminderStore(client, tableName);
+export function buildReminderMaterializationTriggerDeps(client: DynamoDBDocumentClient, tableName: string, dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"]) {
+  const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
   return { store, tableName, now: () => new Date().toISOString(), shardConfig: defaultShardConfig() };
 }
 

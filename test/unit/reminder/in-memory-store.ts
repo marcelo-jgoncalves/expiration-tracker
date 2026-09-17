@@ -140,6 +140,15 @@ export class InMemoryReminderStore implements ReminderStore, ReminderProducerSto
     return true;
   }
 
+  async putOccurrenceWithDueWork<T extends EntityKey>(occurrence: T, dueWork: import("../../../src/modules/reminder/domain/reminder-due-work.js").ReminderDueWorkItem): Promise<boolean> {
+    const occurrenceKey = this.k(occurrence);
+    const dueWorkKey = this.k(dueWork);
+    if (this.items.has(occurrenceKey) || this.items.has(dueWorkKey)) return false;
+    this.items.set(occurrenceKey, occurrence as unknown as Record<string, unknown> & EntityKey);
+    this.items.set(dueWorkKey, dueWork as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
   async update<T extends EntityKey>(item: T): Promise<void> {
     this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
   }

@@ -27,6 +27,7 @@ import { computeOccurrencePurgeAfterTtl, gsi3Keys, occurrenceKey, stableHash, ty
 import { policyKey, type ReminderPolicy, type QuietHours } from "../domain/reminder-policy.js";
 import type { ShardConfig } from "../domain/shard-config.js";
 import { activeGenerations } from "../domain/shard-config.js";
+import { buildReminderDueWorkItem } from "../domain/reminder-due-work.js";
 import { buildVersionConditionCheck, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../ports/reminder-store.js";
 import { GSI6PK_WORKSTATE_DST_PENDING, buildDstCandidateGsi6Sk } from "../ports/reconciliation-candidate-source.js";
@@ -203,7 +204,18 @@ export class ReminderMaterializer {
         ...dstPending,
       };
 
-      const wasCreated = await this.store.putIfAbsent(occurrence);
+      const dueWork = buildReminderDueWorkItem({
+        entityKind: "REMINDER",
+        tenantId: input.tenantId,
+        occurrenceId,
+        occurrenceKey: occurrence,
+        scheduledAt: schedule.scheduledAtUtc,
+        shardFnVersion: generation.shardFnVersion,
+        shardId: Number(gsi3.shard),
+        now,
+        purgeAfterTtl: occurrence.purgeAfterTtl,
+      });
+      const wasCreated = await this.store.putOccurrenceWithDueWork(occurrence, dueWork);
       if (wasCreated) {
         created.push(occurrence);
       } else {

@@ -1203,14 +1203,17 @@ module "reminder_materialization_trigger_queue" {
 module "reminder_materialization_trigger" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-reminder-materialization-trigger"
-  handler_name                   = "reminder-materialization-trigger-handler"
-  source_dir                     = "${local.dist_dir}/reminder-materialization-trigger-handler"
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = local.common_env
+  function_name  = "${local.name_prefix}-reminder-materialization-trigger"
+  handler_name   = "reminder-materialization-trigger-handler"
+  source_dir     = "${local.dist_dir}/reminder-materialization-trigger-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 5 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
+    module.reminder_due_work_table.write_policy_json,
     module.reminder_materialization_trigger_queue.consume_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
