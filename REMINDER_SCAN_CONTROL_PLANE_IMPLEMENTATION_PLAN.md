@@ -1,9 +1,32 @@
 # Plano específico de implementação — ReminderScan Control Plane
 
-Status: proposta executiva para leitura e avaliação  
-Decisão vinculada: [D-301](docs/architecture/reviews/reminder-scan-control-plane/DECISION.md)  
+Status: proposta executiva emendada após revisão técnica
+
+Decisões vinculadas: [D-301](docs/architecture/reviews/reminder-scan-control-plane/DECISION.md) e [D-302](docs/architecture/reviews/reminder-scan-control-plane/AMENDMENT-001.md)
+
 Data: 2026-09-17  
 Escopo: implementar, migrar e validar o plano de controle dedicado do ReminderScan
+
+> **Regra de leitura:** D-302 corrige uma lacuna de consistência descoberta após a primeira versão
+> deste plano. A descoberta autoritativa usa `ReminderDueWorkTable` com leitura consistente, não
+> GSI3. D-302 prevalece sobre a versão original do desenho.
+
+## 0. Emenda obrigatória de consistência
+
+Antes das fatias originalmente planejadas:
+
+1. criar `ReminderDueWorkTable` sem stream;
+2. alterar os materializers REMINDER e CHASING para gravar occurrence+due work atomicamente;
+3. alterar cancelamento/reagendamento/claim para remover due work na mesma transação;
+4. fazer backfill idempotente das occurrences `SCHEDULED` existentes;
+5. separar Enumerator e ScanPage em Lambdas distintas;
+6. fazer ScanPage consultar DueWorkTable com `ConsistentRead=true` e `scheduledAt <= now`;
+7. incorporar os gates de parser fail-closed, `UnprocessedKeys`, version monotônica, chunks
+   parciais, LEK e exclusão mútua de backend descritos na D-302.
+
+Isso remove dois riscos bloqueantes: claim antecipado dentro do minuto e perda causada por
+visibilidade eventual do GSI3. A tabela de controle continua separada e seu stream recebe apenas
+leases/outboxes; a DueWorkTable não possui stream.
 
 ## 1. O que este plano resolve
 
@@ -55,8 +78,9 @@ Control Stream -> ScanControlRelay -> reminder-scan queue
 ControlReconciler -> recupera leases vencidas e outboxes pendentes
 ```
 
-O tráfego de occurrences, claims, intents e dispatches continua na tabela principal. A tabela nova
-guarda somente coordenação `SYSTEM`: cursor, owner, versão, epoch e outboxes de continuação.
+Occurrences, claims, intents e dispatches continuam na tabela principal. A ControlTable guarda
+somente coordenação `SYSTEM`; a DueWorkTable sem stream guarda o índice autoritativo de occurrences
+agendadas e é escrita atomicamente com elas.
 
 ## 3. Limites do escopo
 
@@ -176,7 +200,7 @@ O comando `reminder.scan-continuation.v2` carrega:
 - `rolloutEpoch`;
 - IDs de mensagem, correlação e deduplicação.
 
-Antes de consultar GSI3, o consumidor compara todos os campos posicionais com a lease. Mensagem
+Antes de consultar DueWorkTable, o consumidor compara todos os campos posicionais com a lease. Mensagem
 antiga, duplicada ou de outro backend/epoch termina sem produzir candidato.
 
 ## 6. Plano de implementação por fatias
@@ -240,6 +264,8 @@ Entregas:
 - cálculo de `upperBoundMinute` pelo instante observado;
 - geração de chaves para lookback e todas as gerações ativas;
 - `BatchGetItem` consistente em grupos de até 100;
+- retry com backoff+jitter de todos os `UnprocessedKeys`, sem interpretar ausência de resposta
+  como lease inexistente;
 - acquire de cadeias ausentes com concorrência limitada;
 - telemetria separando atraso do Scheduler e duração da enumeração;
 - feature flag `SCAN_CONTROL_BACKEND`, inicialmente `MAIN_TABLE`.
@@ -250,7 +276,8 @@ Gate: testes de fronteira de minuto, atraso de 0–59s, ticks sobrepostos, lookb
 
 Entregas:
 
-- validar backend/epoch/owner/version/cursor antes de ler GSI3;
+- validar backend/epoch/owner/version/cursor antes de ler DueWorkTable;
+- fazer Query consistente com limite superior `scheduledAt <= observedNow`;
 - uma página por mensagem, inicialmente `Limit=200`;
 - lotes de dez para a claim queue;
 - até cinco lotes simultâneos por página;
@@ -348,7 +375,7 @@ aumenta simultaneamente page size, shards e concorrência, pois isso impede atri
 
 | Componente | Valor inicial | Motivo |
 |---|---:|---|
-| Query GSI3 | 200 registros | comportamento já medido |
+| Query DueWorkTable | 200 registros | página limitada e leitura consistente |
 | candidatos por batch SQS | 10 | limite do `SendMessageBatch` |
 | batches paralelos por página | 5 | reduz sequência sem fan-out ilimitado |
 | scan queue batch | 1 | uma cadeia/página por invocação |
@@ -449,8 +476,8 @@ disponíveis por sete dias após o cutover para permitir retorno controlado.
 - nenhum dado pessoal na tabela de controle;
 - relay sem acesso à tabela principal;
 - reconciliador sem escrita tenant-facing;
-- `ScanPage` com leitura apenas de GSI3 e escrita limitada à tabela de controle;
-- claim consumer continua sem permissão de leitura em GSI3;
+- `ScanPage` com leitura da DueWorkTable e escrita limitada à ControlTable;
+- claim consumer lê a occurrence somente por chave e não recebe permissão de Query global;
 - cursor completo não aparece em logs;
 - DLQ e logs usam redação existente;
 - assertions Terraform verificam recursos exatos de cada role.
@@ -464,7 +491,7 @@ número de páginas, não diretamente com occurrences: 1M com página 200 produz
 
 Antes de 100k e 1M será registrado:
 
-- quantidade real de reads/writes na tabela principal e na de controle;
+- quantidade real de reads/writes nas tabelas principal, de controle e due work;
 - invocações e duração por Lambda;
 - requests SQS;
 - custo SES somente da coorte autorizada;

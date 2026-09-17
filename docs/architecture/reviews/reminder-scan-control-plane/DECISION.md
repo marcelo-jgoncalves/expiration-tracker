@@ -12,6 +12,10 @@ supersedes: D-299/D-300 only where explicitly stated
 Plano operacional para leitura e avaliação:
 [REMINDER_SCAN_CONTROL_PLANE_IMPLEMENTATION_PLAN.md](../../../../REMINDER_SCAN_CONTROL_PLANE_IMPLEMENTATION_PLAN.md).
 
+> **Emenda normativa:** [D-302](AMENDMENT-001.md) substitui a descoberta por GSI3 por uma
+> DueWorkTable autoritativa e consistente, torna Enumerator/ScanPage Lambdas distintas e incorpora
+> os gates da revisão independente. Em qualquer divergência, D-302 prevalece.
+
 ## 1. Decisão
 
 O ReminderScan passa a ter um plano de controle fisicamente separado do plano de dados de
@@ -89,7 +93,7 @@ Pesquisa preparatória e capacidade: [PERF-12 scalable scan research](../../../e
 EventBridge Scheduler
         |
         v
-ReminderScan Enumerator -------- reads GSI3 shard generations/config
+ReminderScan Enumerator -------- reads active shard generations/config
         |
         | TransactWrite(lease + continuation outbox)
         v
@@ -98,7 +102,7 @@ ReminderScanControlTable --stream--> ScanControlRelay --> reminder-scan SQS
         |                                                   v
 ScanControlReconciler <------------------------------- ScanPage Lambda
                                                             |
-                                                            | Query GSI3 page
+                                                            | Query DueWorkTable page
                                                             | SendMessageBatch x N, bounded parallel
                                                             v
                                                      reminder-claim SQS
@@ -108,8 +112,9 @@ ScanControlReconciler <------------------------------- ScanPage Lambda
 ```
 
 O plano de controle contém apenas coordenação `SYSTEM`; occurrences e dados de tenant permanecem
-na tabela principal. ScanPage recebe leitura restrita de GSI3 e read/write apenas na tabela de
-controle. O relay de controle não recebe permissões na tabela principal.
+na tabela principal. Conforme D-302, o índice autoritativo fica na DueWorkTable sem stream.
+ScanPage recebe leitura da DueWorkTable, leitura por chave da occurrence e read/write apenas na
+tabela de controle. O relay de controle não recebe permissões na tabela principal.
 
 ## 5. Modelo de dados
 
@@ -267,7 +272,7 @@ volta ao início da partição: candidatos anteriores já foram checkpointados.
 - lease condicional do outbox antes do `SendMessageBatch`;
 - marca `PUBLISHED` e remove GSI somente depois da aceitação pelo SQS;
 - role: stream read + controle-table outbox update + `sqs:SendMessage` somente na scan queue;
-- sem acesso a GSI3, tabela principal ou filas de dispatch.
+- sem acesso a DueWorkTable, tabela principal ou filas de dispatch.
 
 Os números são baseline, não dogma arquitetural; podem mudar por experimento sem reabrir Type 1.
 
@@ -287,7 +292,7 @@ lógica. Standard tolera duplicatas e oferece escala sem atrelar concorrência a
 ### 8.3 ScanPage
 
 - exatamente uma página por mensagem;
-- `Query GSI3 Limit=200` inicialmente;
+- `Query` consistente na DueWorkTable com `Limit=200` inicialmente;
 - até 20 lotes de dez candidatos numa página cheia;
 - lotes publicados com concorrência limitada inicial 5, preservando retry por chunk;
 - espera todos os lotes; só então faz checkpoint;
@@ -444,7 +449,7 @@ chaves/modelo e complicaria completude. Sharding versionado é a horizontalizaç
 
 - tabela de controle não contém PII nem conteúdo de reminder;
 - `tenantId=SYSTEM` somente nos comandos de controle;
-- producer/scan roles mantêm leitura GSI3 global auditada;
+- ScanPage lê DueWorkTable e occurrences somente pelas superfícies aprovadas na D-302;
 - relay tem acesso somente à tabela/stream/fila de controle;
 - reconciliador não recebe escrita na tabela principal;
 - payload e DLQ passam por `SecureLogger`/redação; cursor não é logado integralmente;

@@ -6,7 +6,7 @@
 > resolve o limite estrutural. D-301 aprovou plano de controle de scan dedicado, sharding
 > versionado e escala horizontal. PF4 está preparado como medição intermediária, ainda não
 > implantado. Evidência: [latência residual](results/PERF-12-10k-residual-latency-2026-09-17.md)
-> e [decisão D-301](../../architecture/reviews/reminder-scan-control-plane/DECISION.md).
+> e [decisão D-301/D-302](../../architecture/reviews/reminder-scan-control-plane/AMENDMENT-001.md).
 
 Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (repo root, doc do usuário).
 Este arquivo é o rastreamento vivo da execução. Segue a ordem obrigatória das fases (plano §4) e o
@@ -140,10 +140,10 @@ itens de acompanhamento fora do programa de performance.
     pelo commit `24ece76`; as duas rodadas limpas seguintes completaram 10.000/10.000 sem perda.
   - [~] 17.5 (tuning intermediário) — PF2 medido e insuficiente; PF4 implementado e testado
     localmente, ainda não implantado. Serve para caracterizar a curva, não como arquitetura final.
-  - [~] 17.6 (redesenho horizontal) — D-299/D-300 implementados; D-301 aprova o próximo
-    desenho: tabela/stream/relay/fila de controle exclusivos, sharding versionado e reconciliador
-    próprio. Implementação e validação ainda pendentes. Burst não comprova rollback/entrega no
-    provedor (ver runbook).
+  - [~] 17.6 (redesenho horizontal) — D-299/D-300 implementados; D-301/D-302 aprovam o próximo
+    desenho: DueWorkTable autoritativa sem stream + tabela/stream/relay/fila de controle exclusivos,
+    sharding versionado e reconciliador próprio. Implementação e validação ainda pendentes. Burst
+    não comprova rollback/entrega no provedor (ver runbook).
 - [x] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real). Critério de saída: inventário completo (1 tabela de negócio single-table, `exptrk-dev-table`, on-demand, 9 GSIs, + 2 tabelas auxiliares de sessão/guest-delivery); Contributor Insights habilitado nas 3 tabelas (era DISABLED) — capability verified, sem dados ainda (tráfego dev insuficiente); 3 personas modeladas por leitura de código (não medição empírica) — PK por entidade evita hot partition estrutural na tabela base, GSI1 (`ITEMSTATUS#ACTIVE`) tem risco moderado de concentração de escrita em tenant "large" sob rajada, GSI8/GSI3 concentram por design (mitigado via IAM `LeadingKeys` por worker); CloudWatch 7 dias confirma ZERO throttling/erros de sistema e consumo de capacidade desprezível (pico 4 RCU / 10 WCU por datapoint de 5min) — latência p95 do PERF-04 NÃO é causada por capacidade DynamoDB. Ver `docs/engineering/performance/results/PERF-13-dynamodb-capacity.md`.
 
 ## Fechamento
