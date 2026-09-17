@@ -87,3 +87,27 @@ experimento simples demonstrar se a capacidade do relay já basta para cumprir o
 
 O teste de 100k continua suspenso: além do gate de SES, multiplicaria justamente a contenção agora
 confirmada e não produziria uma medida útil da arquitetura pretendida.
+
+## Experimento 17.5 — `ParallelizationFactor=2`
+
+A rodada `d300-10k-pf2-20260917`, executada após o deploy do fator 2, terminou com
+10.000/10.000 em `TRIGGERED`, sem ausentes, mudança de deployment, backlog final, erros ou
+throttles. Houve melhora, mas o SLO continuou reprovado:
+
+| Métrica | Fator 1 | Fator 2 |
+|---|---:|---:|
+| p50 total | 200,244 s | 184,509 s |
+| p95 total | 324,778 s | 296,687 s |
+| p99 total | 353,130 s | 323,957 s |
+| máximo total | 359,983 s | 331,173 s |
+| `IteratorAge` máximo | 138,952 s | 119,939 s |
+| claim máximo | 305,243 s | 275,615 s |
+
+O fator 2 reduziu a cauda total em 28,810 segundos e colocou 95% da coorte dentro do SLO, mas
+1% ainda passou de 323 segundos. A decomposição nova foi: claim p50 128,082s/p95 215,739s/
+máximo 275,615s; claim→TRIGGERED p50 44,069s/p95 86,128s/máximo 135,518s.
+
+Conclusão do degrau: a hipótese do relay foi confirmada pela melhora simultânea de `IteratorAge`,
+claim e latência total, mas fator 2 não basta. Prosseguir com o degrau pré-registrado de fator 4,
+sem alterar outra variável. Se fator 4 não produzir margem clara abaixo de 300 segundos, encerrar
+o tuning vertical e propor o desacoplamento arquitetural das continuações.
