@@ -106,7 +106,13 @@ itens de acompanhamento fora do programa de performance.
     Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
     [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
     foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.
-  - [ ] 100k — pendente (depende da decisão acima).
+  - [ ] 100k — pendente (depende da decisão acima). A rodada deve incluir validação explícita do
+    canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
+    do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e
+    previamente dimensionada (não enviar 100k e-mails reais por padrão). Para a coorte, medir
+    `NotificationIntent` → router → fila/relay de e-mail → worker → aceitação pelo SES, latência até
+    o provedor, DLQ, bounce e complaint. Registrar claramente o tamanho da coorte, limites/quota do
+    SES e qualquer supressão; `CANCELLED/RECIPIENT_NOT_FOUND` não conta como entrega validada.
   - [ ] 1M — pendente (depende da decisão acima).
   - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
     [diagnóstico e remediação pendente](results/PERF-12-relay-investigation-2026-09-16.md).
