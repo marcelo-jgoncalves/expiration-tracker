@@ -16,6 +16,9 @@ const REGION = 'us-east-1';
 const PROFILE = 'claude-dev';
 const EXPECTED = 10000;
 const PER_TENANT = 1000;
+// Cognito access tokens last 15 minutes. The harness sends explicit Cookie headers, so it cannot
+// adopt rotated cookies from BFF refresh responses. Reauthenticate between sub-10-minute rounds.
+const PAIRS_PER_SESSION = 200;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
@@ -161,22 +164,25 @@ async function authenticate(tenants) {
   return sessions;
 }
 
-async function seed(manifest, dir, sessions) {
+async function seed(manifest, dir, initialSessions) {
   let stopped = false;
-  await mapLimit(manifest.tenants, 10, async tenant => {
-    const file = path.join(dir, `tenant-${tenant.index}.json`);
-    const rows = existsSync(file) ? read(file) : [];
-    requireThat(rows.every(row => !row.pending), `Tenant ${tenant.index}: unresolved POST; reconcile journal before resuming`);
-    const headers = sessions.get(tenant.organizationId);
-    const cutoff = Date.parse(manifest.target) - 10 * 60000;
-    const post = async (route, body) => postWithQuotaRetry(async () => {
-      requireThat(!stopped && Date.now() < cutoff, 'Seed stopped or target too close; partial load must not be called a 10k test');
-      await sleep(850);
-      const res = await fetch(ORIGIN + route, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000), redirect: 'error' });
-      return { status: res.status, body: res.status === 201 ? await res.json() : null };
-    });
-    try {
-      for (let i = 0; i < PER_TENANT; i++) {
+  for (let roundStart = 0; roundStart < PER_TENANT; roundStart += PAIRS_PER_SESSION) {
+    const sessions = roundStart === 0 ? initialSessions : await authenticate(manifest.tenants);
+    const roundEnd = Math.min(roundStart + PAIRS_PER_SESSION, PER_TENANT);
+    await mapLimit(manifest.tenants, 10, async tenant => {
+      const file = path.join(dir, `tenant-${tenant.index}.json`);
+      const rows = existsSync(file) ? read(file) : [];
+      requireThat(rows.every(row => !row.pending), `Tenant ${tenant.index}: unresolved POST; reconcile journal before resuming`);
+      const headers = sessions.get(tenant.organizationId);
+      const cutoff = Date.parse(manifest.target) - 10 * 60000;
+      const post = async (route, body) => postWithQuotaRetry(async () => {
+        requireThat(!stopped && Date.now() < cutoff, 'Seed stopped or target too close; partial load must not be called a 10k test');
+        await sleep(850);
+        const res = await fetch(ORIGIN + route, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000), redirect: 'error' });
+        return { status: res.status, body: res.status === 201 ? await res.json() : null };
+      });
+      try {
+        for (let i = roundStart; i < roundEnd; i++) {
         const row = rows[i] ?? { index: i + 1, tenantId: tenant.organizationId };
         rows[i] = row;
         const name = `${manifest.runId}-T${tenant.index}-${i + 1}`;
@@ -194,9 +200,10 @@ async function seed(manifest, dir, sessions) {
           row.policyId = policy.policyId; delete row.pending; save(file, rows);
         }
         if ((i + 1) % 100 === 0) log({ phase: 'seed', tenant: tenant.index, pairs: i + 1, total: PER_TENANT });
-      }
-    } catch (error) { stopped = true; throw error; }
-  });
+        }
+      } catch (error) { stopped = true; throw error; }
+    });
+  }
 }
 
 function database() {
