@@ -113,6 +113,7 @@ itens de acompanhamento fora do programa de performance.
     `NotificationIntent` → router → fila/relay de e-mail → worker → aceitação pelo SES, latência até
     o provedor, DLQ, bounce e complaint. Registrar claramente o tamanho da coorte, limites/quota do
     SES e qualquer supressão; `CANCELLED/RECIPIENT_NOT_FOUND` não conta como entrega validada.
+    Estratégia eficiente, coortes e gates: [preparação de 100k](results/PERF-12-100k-preparation.md).
   - [ ] 1M — pendente (depende da decisão acima).
   - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
     [diagnóstico e remediação pendente](results/PERF-12-relay-investigation-2026-09-16.md).
