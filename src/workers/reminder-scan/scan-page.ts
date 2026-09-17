@@ -171,12 +171,12 @@ export async function runScanPage(deps: ScanPageDeps, input: ScanPageInput): Pro
     try {
       const reminder = parseGsi3Sk(row.GSI3SK);
       candidates.push(buildCandidateCommand(deps, row, reminder.tenantId, "REMINDER"));
-    } catch {
-      // Fail-closed, same discipline as producer.ts's unknownEntityType path - never silently
-      // drop a row this worker can't identify. Unlike producer.ts, there is no per-tick counter
-      // to surface this through here; the caller (Lambda handler) is expected to log/alarm on an
-      // unexpectedly short candidates.length vs. page.items.length if this ever fires.
-      continue;
+    } catch (cause) {
+      throw new InternalError("reminder-scan: unrecognized GSI3 row; refusing to checkpoint page.", {
+        PK: row.PK,
+        SK: row.SK,
+        cause: cause instanceof Error ? cause.message : "unknown parser failure",
+      });
     }
   }
 

@@ -131,6 +131,22 @@ describe("runScanPage (D-300 §1/§2/§5)", () => {
     expect(lease?.GSI6PK).toBeUndefined();
   });
 
+  it("fails closed without checkpointing when a GSI3 row has an unknown discriminator", async () => {
+    const store = new InMemoryReminderStore();
+    await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
+    await store.update({ PK: "TENANT#t_01#UNKNOWN#x", SK: "META", GSI3PK, GSI3SK: "UNKNOWN#FORMAT" });
+    const queue = new FakeClaimQueue();
+
+    await expect(runScanPage(makeDeps(store, queue, "2026-09-14T12:00:10.000Z"), {
+      ref: REF, ownerToken: "owner-A", startedFromLastEvaluatedKey: undefined, messageRolloutEpoch: 1,
+    })).rejects.toThrow(/unrecognized GSI3 row/);
+
+    expect(queue.sent).toHaveLength(0);
+    const lease = await store.get<ReminderScanLease>(leaseKey(REF));
+    expect(lease?.status).toBe("IN_PROGRESS");
+    expect(lease?.pagesProcessed).toBe(0);
+  });
+
   it("chunks candidates into groups of <=10 SendMessageBatch entries each", async () => {
     const store = new InMemoryReminderStore();
     await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
