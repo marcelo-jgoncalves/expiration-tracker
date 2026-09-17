@@ -1,5 +1,11 @@
 # Performance Program — Execution TODO
 
+> Atualização de 2026-09-17: a segunda rodada de 10k terminou com 10.000/10.000
+> `TRIGGERED`, mas reprovou o SLO (máximo 359,983s). O gargalo medido é o relay
+> compartilhado de DynamoDB Streams (`IteratorAge` máximo 138,952s), que atrasa as
+> continuações do scan. Próximo passo: experimento 17.5 com `ParallelizationFactor` 2
+> e, se necessário, 4. Evidência: [latência residual de 10k](results/PERF-12-10k-residual-latency-2026-09-17.md).
+
 Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (repo root, doc do usuário).
 Este arquivo é o rastreamento vivo da execução. Segue a ordem obrigatória das fases (plano §4) e o
 faseamento em ciclos recomendado pelo próprio plano (§28, §29): não executar as 15 fases de uma vez.
