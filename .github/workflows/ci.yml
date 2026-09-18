@@ -40,6 +40,51 @@ env:
   TERRAFORM_VERSION: "1.15.8"
 
 jobs:
+  performance-smoke:
+    name: Authenticated k6 smoke
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend tooling
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Create ephemeral BFF session
+        env:
+          PERF_TEST_EMAIL: ${{ secrets.PERF_TEST_EMAIL }}
+          PERF_TEST_PASSWORD: ${{ secrets.PERF_TEST_PASSWORD }}
+        run: node docs/engineering/performance/traces/perf-04-auth.mjs
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
+        with:
+          k6-version: "2.0.0"
+
+      - name: Run authenticated overview smoke
+        env:
+          VUS: "1"
+          DURATION: "15s"
+        run: k6 run --quiet performance/k6/scenario-a-overview.js
+
   guardrails:
     runs-on: ubuntu-latest
     permissions:

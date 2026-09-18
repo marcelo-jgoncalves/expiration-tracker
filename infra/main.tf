@@ -1513,9 +1513,16 @@ resource "aws_lambda_event_source_mapping" "notification_whatsapp_outbox_relay_f
 module "observability_dashboard" {
   source = "./modules/observability-dashboard"
 
-  name_prefix = local.name_prefix
-  aws_region  = var.aws_region
-  table_name  = module.table.table_name
+  name_prefix     = local.name_prefix
+  aws_region      = var.aws_region
+  alert_topic_arn = module.alert_topic.topic_arn
+  table_name      = module.table.table_name
+  http_function_names = {
+    bff      = module.bff_handler.function_name
+    items    = module.items_handler.function_name
+    subjects = module.subjects_handler.function_name
+  }
+  synthetic_canary_name = module.synthetic_canary.canary_name
 
   reminder_dispatch_function_name = module.reminder_dispatch.function_name
   reminder_dispatch_queue_name    = module.dispatch_queue.queue_name
@@ -4954,6 +4961,17 @@ resource "aws_scheduler_schedule" "scheduled_reports_scheduler" {
     # angle-bracket-escaping bug that rule exists to prevent.
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
+}
+
+module "synthetic_canary" {
+  source = "./modules/synthetic-canary"
+
+  name_prefix     = local.name_prefix
+  aws_region      = var.aws_region
+  aws_account_id  = var.aws_account_id
+  app_origin      = "https://${module.spa_hosting.distribution_domain_name}"
+  alert_topic_arn = module.alert_topic.topic_arn
+  tags            = { Project = local.project_name, Environment = var.environment }
 }
 
 # D-302: isolated, authoritative ReminderScan control plane. It is deployed dark first;

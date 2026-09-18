@@ -1187,6 +1187,18 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
     error_message = "Observability module must still produce its alarms with the alert topic wired"
   }
   assert {
+    condition     = length(module.observability_dashboard.latency_alarm_names) == 4
+    error_message = "PERF-14 must keep p95 latency alarms for BFF proxy, RequestContext, Items, and Subjects"
+  }
+  assert {
+    condition     = length(module.observability_dashboard.throttle_alarm_names) == 3
+    error_message = "PERF-14 must keep native throttle alarms for BFF, Items, and Subjects"
+  }
+  assert {
+    condition     = module.synthetic_canary.canary_name != "" && module.synthetic_canary.failure_alarm_name != ""
+    error_message = "PERF-14 external synthetic canary and its failure alarm must exist"
+  }
+  assert {
     condition     = module.dispatch_queue.dlq_age_alarm_name != ""
     error_message = "Dispatch queue DLQ age alarm must still exist with the alert topic wired"
   }

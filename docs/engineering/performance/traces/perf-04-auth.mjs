@@ -12,7 +12,7 @@
 // docs/engineering/performance/.local/perf-04-session-cookies.json (gitignored) for reuse across
 // multiple runs without re-authenticating (BFF session TTL is well beyond a single work session).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -37,7 +37,9 @@ function parseCreds(text) {
 }
 
 async function main() {
-  const creds = parseCreds(readFileSync(CREDS_PATH, "utf-8"));
+  const creds = process.env.PERF_TEST_EMAIL && process.env.PERF_TEST_PASSWORD
+    ? { email: process.env.PERF_TEST_EMAIL, password: process.env.PERF_TEST_PASSWORD }
+    : parseCreds(readFileSync(CREDS_PATH, "utf-8"));
   if (!creds.email || !creds.password) {
     throw new Error("Could not parse email/password from credentials file: " + CREDS_PATH);
   }
@@ -83,8 +85,9 @@ async function main() {
     obtainedAt: new Date().toISOString(),
   };
 
+  mkdirSync(path.dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, JSON.stringify(result, null, 2));
-  console.log(JSON.stringify(result, null, 2));
+  console.log(`[perf-auth] BFF session obtained at ${result.obtainedAt}`);
 
   await browser.close();
 }
