@@ -23,6 +23,7 @@ import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
 import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
 import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
+import { dueWorkKeyForOccurrence } from "../../modules/reminder/domain/reminder-due-work.js";
 import type { ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
 import type { StuckScanLeaseCandidate } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
@@ -217,6 +218,19 @@ export async function reconcileDst(
               remove: ["GSI6PK", "GSI6SK"],
             }),
           },
+          ...(deps.dueWorkTableName ? [{
+            Delete: {
+              TableName: deps.dueWorkTableName,
+              Key: dueWorkKeyForOccurrence({
+                entityKind: "REMINDER",
+                tenantId: occurrence.tenantId,
+                occurrenceId: occurrence.occurrenceId,
+                scheduledAt: occurrence.scheduledAt,
+                shardFnVersion: occurrence.shardFnVersion,
+                shardId: Number.parseInt(occurrence.shard, 10),
+              }),
+            },
+          }] : []),
         ]);
         cancelled += 1;
       } catch (err) {
