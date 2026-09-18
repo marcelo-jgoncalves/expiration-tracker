@@ -97,13 +97,13 @@ resource "aws_iam_role_policy" "canary" {
 }
 
 resource "aws_synthetics_canary" "edge" {
-  name                                       = substr("${var.name_prefix}-edge", 0, 21)
-  artifact_s3_location                       = "s3://${aws_s3_bucket.artifacts.bucket}/"
-  execution_role_arn                         = aws_iam_role.canary.arn
-  handler                                    = "index.handler"
-  zip_file                                   = data.archive_file.code.output_path
-  runtime_version                            = "syn-nodejs-5.2"
-  start_canary                               = true
+  name                 = substr("${var.name_prefix}-edge", 0, 21)
+  artifact_s3_location = "s3://${aws_s3_bucket.artifacts.bucket}/"
+  execution_role_arn   = aws_iam_role.canary.arn
+  handler              = "index.handler"
+  zip_file             = data.archive_file.code.output_path
+  runtime_version      = "syn-nodejs-5.2"
+  start_canary         = true
 
   schedule {
     expression = "rate(5 minutes)"
