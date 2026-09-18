@@ -1,6 +1,6 @@
 // AWS injects the Synthetics library as a CommonJS-only runtime module.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const synthetics = require("Synthetics");
+const { synthetics } = require("@aws/synthetics-core");
 
 const origin = process.env.APP_ORIGIN;
 
