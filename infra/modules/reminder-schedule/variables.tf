@@ -39,6 +39,12 @@ variable "schedules_enabled" {
   default     = true
 }
 
+variable "reminder_producer_enabled" {
+  description = "Independent rollout switch for the legacy ReminderProducer schedule; reconciliation and sweeper schedules remain controlled by schedules_enabled."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags applied to the schedule IAM roles."
   type        = map(string)

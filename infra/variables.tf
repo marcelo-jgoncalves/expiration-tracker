@@ -90,6 +90,12 @@ variable "reminder_scan_v2_enabled" {
   default     = false
 }
 
+variable "reminder_scan_legacy_enabled" {
+  description = "D-302 rollback switch for the legacy GSI3 producer schedule and scan continuation consumer. Disable only after the dedicated path passes its canary."
+  type        = bool
+  default     = true
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly AWS Budgets ceiling in USD. Matches the cost-budget module's own default (50) unless overridden."
   type        = number

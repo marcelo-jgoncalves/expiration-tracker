@@ -106,7 +106,8 @@ function aws(service, operation, args = []) {
 
 function infrastructure() {
   requireThat(aws('sts', 'get-caller-identity').Account === ACCOUNT, 'Wrong AWS account');
-  const functions = ['reminder-producer', 'reminder-claim-consumer', 'reminder-reconciliation', 'reminder-dispatch', 'dispatch-outbox-relay'];
+  const functions = ['reminder-producer', 'reminder-claim-consumer', 'reminder-reconciliation', 'reminder-dispatch', 'dispatch-outbox-relay',
+    'reminder-scan-enumerator-v2', 'reminder-scan-page-v2', 'reminder-scan-control-relay', 'reminder-scan-control-reconciler'];
   const configs = functions.map(name => {
     const c = aws('lambda', 'get-function-configuration', ['--function-name', `exptrk-dev-${name}`, '--qualifier', 'live']);
     return { name, version: c.Version, codeSha256: c.CodeSha256, mode: c.Environment?.Variables?.SCAN_MODE, epoch: c.Environment?.Variables?.SCAN_MODE_EPOCH };
@@ -115,18 +116,27 @@ function infrastructure() {
   // Only the scan/lease writers currently expose this setting. The claim consumer does not
   // implement epoch fencing; a steady-state burst cannot establish rollback safety.
   requireThat(configs[0].epoch && configs[2].epoch === configs[0].epoch, 'Producer/reconciliation epochs differ');
+  requireThat(configs[5].epoch === configs[0].epoch && configs[6].epoch === configs[0].epoch && configs[8].epoch === configs[0].epoch,
+    'Dedicated scan control-plane epochs differ from the active rollout epoch');
   const mappings = aws('lambda', 'list-event-source-mappings').EventSourceMappings
-    .filter(m => /:exptrk-dev-reminder-(scan|claim)$/.test(m.EventSourceArn));
-  requireThat(mappings.length === 2 && mappings.every(m => m.State === 'Enabled'), 'Scan/claim mappings not enabled');
+    .filter(m => /:exptrk-dev-reminder-(scan(?:-v2)?|claim)$/.test(m.EventSourceArn) || /:function:exptrk-dev-reminder-scan-control-relay:live$/.test(m.FunctionArn));
+  const legacyScanMapping = mappings.find(m => /:exptrk-dev-reminder-scan$/.test(m.EventSourceArn));
+  const activeMappings = mappings.filter(m => m !== legacyScanMapping);
+  requireThat(mappings.length === 4 && legacyScanMapping?.State === 'Disabled' && activeMappings.length === 3 && activeMappings.every(m => m.State === 'Enabled'),
+    'Exclusive cutover requires legacy scan disabled and dedicated scan/claim mappings enabled');
+  const schedules = aws('scheduler', 'list-schedules').Schedules
+    .filter(s => /^exptrk-dev-reminder-scan-(?:enumerator-v2|control-reconciler)$/.test(s.Name) || s.Name === 'reminder-producer');
+  requireThat(schedules.length === 3 && schedules.filter(s => s.Name !== 'reminder-producer').every(s => s.State === 'ENABLED') &&
+    schedules.find(s => s.Name === 'reminder-producer')?.State === 'DISABLED', 'Exclusive cutover schedule state is invalid');
   const queues = {};
-  for (const name of ['reminder-scan', 'reminder-claim', 'reminder-dispatch']) {
+  for (const name of ['reminder-scan', 'reminder-scan-v2', 'reminder-claim', 'reminder-dispatch']) {
     for (const suffix of ['', '-dlq']) {
       queues[name + suffix] = aws('sqs', 'get-queue-attributes', ['--queue-url', `https://sqs.${REGION}.amazonaws.com/${ACCOUNT}/exptrk-dev-${name}${suffix}`,
         '--attribute-names', 'ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible', 'ApproximateNumberOfMessagesDelayed']).Attributes;
     }
   }
-  return { checkedAt: new Date().toISOString(), account: ACCOUNT, region: REGION, configs,
-    mappings: mappings.map(m => ({ source: m.EventSourceArn, state: m.State, concurrency: m.ScalingConfig?.MaximumConcurrency })), queues };
+  return { checkedAt: new Date().toISOString(), account: ACCOUNT, region: REGION, configs, schedules,
+    mappings: mappings.map(m => ({ source: m.EventSourceArn, functionArn: m.FunctionArn, state: m.State, concurrency: m.ScalingConfig?.MaximumConcurrency })), queues };
 }
 
 async function authenticate(tenants) {
@@ -260,7 +270,8 @@ export async function readCohort(db, cohort, pause = sleep) {
 
 function metrics(manifest) {
   const result = {};
-  for (const fn of ['reminder-producer', 'reminder-claim-consumer', 'reminder-dispatch', 'dispatch-outbox-relay']) {
+  for (const fn of ['reminder-scan-enumerator-v2', 'reminder-scan-page-v2', 'reminder-scan-control-relay', 'reminder-scan-control-reconciler',
+    'reminder-claim-consumer', 'reminder-dispatch', 'dispatch-outbox-relay']) {
     result[fn] = {};
     for (const metric of ['Invocations', 'Errors', 'Throttles', 'Duration']) {
       result[fn][metric] = aws('cloudwatch', 'get-metric-statistics', ['--namespace', 'AWS/Lambda', '--metric-name', metric,
@@ -273,7 +284,8 @@ function metrics(manifest) {
 
 async function coldWarmMetrics(manifest) {
   const results = {};
-  for (const fn of ['reminder-producer', 'reminder-claim-consumer', 'reminder-dispatch', 'dispatch-outbox-relay']) {
+  for (const fn of ['reminder-scan-enumerator-v2', 'reminder-scan-page-v2', 'reminder-scan-control-relay', 'reminder-scan-control-reconciler',
+    'reminder-claim-consumer', 'reminder-dispatch', 'dispatch-outbox-relay']) {
     const { queryId } = aws('logs', 'start-query', ['--log-group-name', `/aws/lambda/exptrk-dev-${fn}`,
       '--start-time', String(Math.floor(Date.parse(manifest.target) / 1000)), '--end-time', String(Math.floor(Date.now() / 1000)),
       '--query-string', 'filter @type = "REPORT" | stats count(*) as invocations, pct(@duration,50) as p50, pct(@duration,75) as p75, pct(@duration,90) as p90, pct(@duration,95) as p95, pct(@duration,99) as p99, max(@duration) as maxDuration, max(@initDuration) as maxInitDuration by ispresent(@initDuration) as coldStart']);
