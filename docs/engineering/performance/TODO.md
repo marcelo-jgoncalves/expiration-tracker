@@ -1,12 +1,13 @@
 # Performance Program — Execution TODO
 
-> Atualização de 2026-09-17: duas rodadas limpas de 10k terminaram com 10.000/10.000
-> `TRIGGERED`, mas reprovaram o SLO: máximo 359,983s com relay PF1 e 331,173s com PF2.
-> O experimento confirmou head-of-line blocking no stream global, mas tuning isolado não
-> resolve o limite estrutural. D-301 aprovou plano de controle de scan dedicado, sharding
-> versionado e escala horizontal. PF4 está preparado como medição intermediária, ainda não
-> implantado. Evidência: [latência residual](results/PERF-12-10k-residual-latency-2026-09-17.md)
-> e [decisão D-301/D-302](../../architecture/reviews/reminder-scan-control-plane/AMENDMENT-001.md).
+> Atualização de 2026-09-18: o plano de controle dedicado (D-301/D-302) está implantado em `dev`
+> e a revalidação de 10k reprovou uma vez por um bug real de checkpoint (alias não usado em
+> `ExpressionAttributeNames` cancelando a transação silenciosamente). Fix deployado (`a45c145`) e
+> confirmado por um canário dedicado de 1.000 multi-shard — 1.000/1.000 `TRIGGERED`, zero erro,
+> `pagesProcessed=2`/shard provando avanço de cursor entre páginas, máximo 147,5s. Pré-condição
+> para repetir a revalidação de 10k satisfeita. Evidência:
+> [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md) e
+> [decisão D-301/D-302](../../architecture/reviews/reminder-scan-control-plane/AMENDMENT-001.md).
 
 Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (repo root, doc do usuário).
 Este arquivo é o rastreamento vivo da execução. Segue a ordem obrigatória das fases (plano §4) e o
@@ -113,8 +114,10 @@ itens de acompanhamento fora do programa de performance.
     implantado, recebeu backfill idempotente e passou no canary pós-correção de 1.000/1.000 com
     máximo 195,581s. O cutover exclusivo para v2 foi concluído. A revalidação de 10k em v2
     reprovou em 2026-09-18 por um checkpoint DynamoDB inválido: 3.200/10.000 em alvo +20 min,
-    com republicação da primeira página de cada shard. Correção preparada; nova rodada depende
-    de CI e deploy. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
+    com republicação da primeira página de cada shard. Correção deployada (`a45c145`). Canário
+    dedicado de 1.000 multi-shard (alvo 18:43 UTC) **aprovado sem ressalvas** — provou avanço de
+    cursor entre páginas (`pagesProcessed=2`/shard), 1.000/1.000 `TRIGGERED`, zero erro, máximo
+    147,5s. Pré-condição para repetir 10k está satisfeita. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e

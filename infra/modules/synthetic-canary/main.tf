@@ -1,6 +1,8 @@
 data "archive_file" "code" {
-  type        = "zip"
-  output_path = "${path.module}/canary.zip"
+  type = "zip"
+  # aws_synthetics_canary has no source_code_hash argument (unlike aws_lambda_function),
+  # so Terraform only re-uploads the zip when this filename itself changes.
+  output_path = "${path.module}/canary-${filemd5("${path.module}/canary/index.js")}.zip"
 
   source {
     content  = file("${path.module}/canary/index.js")
