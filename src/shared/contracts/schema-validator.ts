@@ -36,6 +36,7 @@ import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-
 // D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §6): the two new queue
 // contracts scan-page.ts/lease.ts produce.
 import reminderScanContinuationV1 from "../../../schemas/queues/reminder-scan-continuation.v1.json";
+import reminderScanContinuationV2 from "../../../schemas/queues/reminder-scan-continuation.v2.json";
 import reminderClaimCandidateV1 from "../../../schemas/queues/reminder-claim-candidate.v1.json";
 import createItemRequestV1 from "../../../schemas/api/create-item-request.v1.json";
 import updateItemRequestV1 from "../../../schemas/api/update-item-request.v1.json";
@@ -199,6 +200,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   reminderDispatchV1,
   documentChasingDispatchV1,
   reminderScanContinuationV1,
+  reminderScanContinuationV2,
   reminderClaimCandidateV1,
   createItemRequestV1,
   updateItemRequestV1,

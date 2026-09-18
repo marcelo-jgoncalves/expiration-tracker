@@ -74,3 +74,17 @@ export function buildReminderDueWorkItem(input: {
     purgeAfterTtl: input.purgeAfterTtl,
   };
 }
+
+export function dueWorkKeyForOccurrence(input: {
+  entityKind: ReminderDueWorkKind;
+  tenantId: string;
+  occurrenceId: string;
+  scheduledAt: string;
+  shardFnVersion: number;
+  shardId: number;
+}): EntityKey {
+  return {
+    PK: dueWorkPartition(input),
+    SK: dueWorkSortKey(input),
+  };
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/queues/reminder-scan-continuation.v2.json",
+  "title": "reminder.scan-continuation.v2",
+  "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
+  "type": "object",
+  "properties": {
+    "commandType": { "const": "reminder.scan-continuation.v2" },
+    "tenantId": { "const": "SYSTEM" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["controlBackend", "shardFnVersion", "shardId", "minuteISO", "observedNow", "ownerToken", "leaseVersion", "rolloutEpoch"],
+      "properties": {
+        "controlBackend": { "const": "DEDICATED_V1" },
+        "shardFnVersion": { "type": "integer", "minimum": 1 },
+        "shardId": { "type": "integer", "minimum": 0 },
+        "minuteISO": { "type": "string", "format": "date-time" },
+        "observedNow": { "type": "string", "format": "date-time" },
+        "ownerToken": { "type": "string", "minLength": 1 },
+        "leaseVersion": { "type": "integer", "minimum": 1 },
+        "lastEvaluatedKey": { "type": "string" },
+        "rolloutEpoch": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -50,7 +50,12 @@ export class DynamoDbReminderStore implements ReminderStore {
     } catch (err) {
       if ((err as { name?: string }).name === "TransactionCanceledException") {
         const reasons = (err as { CancellationReasons?: { Code?: string }[] }).CancellationReasons ?? [];
-        if (reasons.some((reason) => reason.Code === "ConditionalCheckFailed")) return false;
+        const occurrenceExists = reasons[0]?.Code === "ConditionalCheckFailed";
+        const dueWorkExists = reasons[1]?.Code === "ConditionalCheckFailed";
+        if (occurrenceExists && dueWorkExists) return false;
+        if (occurrenceExists || dueWorkExists) {
+          throw new Error("Reminder occurrence/due-work integrity violation: only one side of the atomic pair exists", { cause: err });
+        }
       }
       throw err;
     }

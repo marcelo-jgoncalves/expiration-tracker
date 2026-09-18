@@ -31,6 +31,7 @@ import { buildReclaimLeaseTransaction, parseLeaseKey } from "../reminder-scan/le
 export interface ReconciliationDeps {
   store: ReminderStore;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   shardConfig: ShardConfig;
 }
@@ -129,7 +130,7 @@ export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],
 ): Promise<{ cancelled: number; created: number; divergences: number }> {
-  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now, deps.dueWorkTableName);
   const windowStart = Date.parse(deps.now());
   const windowEnd = windowStart + 7 * 24 * 60 * 60_000;
 

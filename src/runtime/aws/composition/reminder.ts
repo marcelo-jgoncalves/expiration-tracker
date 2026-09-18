@@ -73,6 +73,7 @@ export function buildReminderProducerDeps(client: DynamoDBDocumentClient, tableN
   return {
     store,
     tableName,
+    dueWorkTableName: process.env["REMINDER_DUE_WORK_TABLE_NAME"],
     now: () => new Date().toISOString(),
     newEventId: () => ids.newEventId(),
     correlationId: () => newCorrelationId(),
@@ -149,11 +150,13 @@ export function buildReminderEnumerationDeps(client: DynamoDBDocumentClient, tab
  * The claim-consumer's IAM role (Terraform) omits `gsi3_read` entirely; this is the
  * corresponding code-level guarantee. */
 export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, tableName: string) {
-  const store = new DynamoDbReminderStore(client, tableName);
+  const dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"];
+  const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
   const ids = new UlidIdGenerator();
   return {
     store,
     tableName,
+    dueWorkTableName,
     now: () => new Date().toISOString(),
     claimTtlMs: 2 * 60_000,
     newEventId: () => ids.newEventId(),
@@ -162,13 +165,15 @@ export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, t
 }
 
 export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableName: string) {
-  const store = new DynamoDbReminderStore(client, tableName);
+  const dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"];
+  const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
   const candidateSource = new DynamoDbReminderReconciliationCandidateSource(client, tableName);
   const ids = new UlidIdGenerator();
   return {
     store,
     candidateSource,
     tableName,
+    dueWorkTableName,
     now: () => new Date().toISOString(),
     // D-300 (DECISION.md §7): only consumed by the SCANLEASE pass's reclaim transaction - the
     // pre-existing CLAIMS/DST passes above have no use for these, added here rather than as a
@@ -184,7 +189,7 @@ export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableNam
  * multi-generation reshard is in flight. */
 export function buildReminderMaterializationTriggerDeps(client: DynamoDBDocumentClient, tableName: string, dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"]) {
   const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
-  return { store, tableName, now: () => new Date().toISOString(), shardConfig: defaultShardConfig() };
+  return { store, tableName, dueWorkTableName, now: () => new Date().toISOString(), shardConfig: defaultShardConfig() };
 }
 
 /** M10 cluster 4 (D-039/D-046/D-048): `chasingQueueUrl` is optional so this function keeps

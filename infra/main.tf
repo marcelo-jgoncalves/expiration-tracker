@@ -352,9 +352,10 @@ module "reminder_producer" {
     # runs from the EventBridge trigger regardless of the now-disabled SQS mappings) - LEGACY
     # routes reminder-producer-handler.ts back to the original runProducerTick path, byte-for-
     # byte unchanged, same safe default this whole rollout shipped with initially.
-    SCAN_MODE                = local.reminder_scan_mode
-    SCAN_MODE_EPOCH          = local.reminder_scan_mode_epoch
-    REMINDER_CLAIM_QUEUE_URL = module.reminder_claim_queue.queue_url
+    SCAN_MODE                    = local.reminder_scan_mode
+    SCAN_MODE_EPOCH              = local.reminder_scan_mode_epoch
+    REMINDER_CLAIM_QUEUE_URL     = module.reminder_claim_queue.queue_url
+    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The ONLY function granted gsi3_read — never add this capability to any other function.
@@ -367,6 +368,7 @@ module "reminder_producer" {
     module.table.gsi3_read_policy_json,
     module.reminder_scan_queue.consume_policy_json,
     module.reminder_claim_queue.send_policy_json,
+    module.reminder_due_work_table.write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -436,7 +438,11 @@ module "reminder_reconciliation" {
   # SCAN_MODE (added 2026-09-15, incident hotfix): gates the SCANLEASE pass itself - see
   # reminder-reconciliation-handler.ts's scanMode() doc comment and local.reminder_scan_mode
   # above for why this Lambda needs the SAME value the producer receives, not just the epoch.
-  environment_variables          = merge(local.common_env, { SCAN_MODE = local.reminder_scan_mode, SCAN_MODE_EPOCH = local.reminder_scan_mode_epoch })
+  environment_variables = merge(local.common_env, {
+    SCAN_MODE                    = local.reminder_scan_mode
+    SCAN_MODE_EPOCH              = local.reminder_scan_mode_epoch
+    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
   # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
@@ -445,6 +451,7 @@ module "reminder_reconciliation" {
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
+    module.reminder_due_work_table.write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -457,15 +464,18 @@ module "reminder_reconciliation" {
 module "reminder_claim_consumer" {
   source = "./modules/lambda-function"
 
-  function_name                  = "${local.name_prefix}-reminder-claim-consumer"
-  handler_name                   = "reminder-claim-consumer-handler"
-  source_dir                     = "${local.dist_dir}/reminder-claim-consumer-handler"
-  adot_layer_arn                 = var.adot_layer_arn
-  environment_variables          = local.common_env
+  function_name  = "${local.name_prefix}-reminder-claim-consumer"
+  handler_name   = "reminder-claim-consumer-handler"
+  source_dir     = "${local.dist_dir}/reminder-claim-consumer-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
+  })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 10 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.reminder_claim_queue.consume_policy_json,
+    module.reminder_due_work_table.write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1238,6 +1248,17 @@ resource "aws_lambda_event_source_mapping" "dispatch_outbox_relay_from_stream" {
   # second and final vertical-tuning step; Streams preserves ordering for each individual item.
   parallelization_factor  = 4
   function_response_types = ["ReportBatchItemFailures"]
+}
+
+module "reminder_scan_v2_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  queue_name               = "${local.name_prefix}-reminder-scan-v2"
+  consumer_timeout_seconds = 90
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
 # D-301/D-302: physically isolated reminder discovery. Due work has no stream so bulk
@@ -4932,4 +4953,157 @@ resource "aws_scheduler_schedule" "scheduled_reports_scheduler" {
     # angle-bracket-escaping bug that rule exists to prevent.
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
+}
+
+# D-302: isolated, authoritative ReminderScan control plane. It is deployed dark first;
+# the dedicated scheduler follows the same global schedules switch used by the legacy path.
+module "reminder_scan_enumerator_v2" {
+  source          = "./modules/lambda-function"
+  function_name   = "${local.name_prefix}-reminder-scan-enumerator-v2"
+  handler_name    = "reminder-scan-enumerator-handler"
+  source_dir      = "${local.dist_dir}/reminder-scan-enumerator-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60
+  environment_variables = merge(local.common_env, {
+    REMINDER_SCAN_CONTROL_TABLE_NAME = module.reminder_scan_control_table.table_name
+    SCAN_MODE_EPOCH                  = local.reminder_scan_mode_epoch
+  })
+  policy_documents_json = [module.reminder_scan_control_table.read_write_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_scan_page_v2" {
+  source                         = "./modules/lambda-function"
+  function_name                  = "${local.name_prefix}-reminder-scan-page-v2"
+  handler_name                   = "reminder-scan-page-handler"
+  source_dir                     = "${local.dist_dir}/reminder-scan-page-handler"
+  adot_layer_arn                 = var.adot_layer_arn
+  timeout_seconds                = 90
+  reserved_concurrent_executions = var.enable_reserved_concurrency ? 50 : null
+  environment_variables = merge(local.common_env, {
+    REMINDER_SCAN_CONTROL_TABLE_NAME = module.reminder_scan_control_table.table_name
+    REMINDER_DUE_WORK_TABLE_NAME     = module.reminder_due_work_table.table_name
+    REMINDER_CLAIM_QUEUE_URL         = module.reminder_claim_queue.queue_url
+    SCAN_MODE_EPOCH                  = local.reminder_scan_mode_epoch
+  })
+  policy_documents_json = [
+    module.reminder_scan_control_table.read_write_policy_json,
+    module.reminder_due_work_table.read_policy_json,
+    module.reminder_scan_v2_queue.consume_policy_json,
+    module.reminder_claim_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_scan_control_relay" {
+  source         = "./modules/lambda-function"
+  function_name  = "${local.name_prefix}-reminder-scan-control-relay"
+  handler_name   = "reminder-scan-control-relay-handler"
+  source_dir     = "${local.dist_dir}/reminder-scan-control-relay-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    REMINDER_SCAN_CONTROL_TABLE_NAME = module.reminder_scan_control_table.table_name
+    REMINDER_SCAN_QUEUE_URL          = module.reminder_scan_v2_queue.queue_url
+  })
+  policy_documents_json = [
+    module.reminder_scan_control_table.read_write_policy_json,
+    module.reminder_scan_control_table.stream_read_policy_json,
+    module.reminder_scan_v2_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_scan_control_reconciler" {
+  source          = "./modules/lambda-function"
+  function_name   = "${local.name_prefix}-reminder-scan-control-reconciler"
+  handler_name    = "reminder-scan-control-reconciler-handler"
+  source_dir      = "${local.dist_dir}/reminder-scan-control-reconciler-handler"
+  adot_layer_arn  = var.adot_layer_arn
+  timeout_seconds = 60
+  environment_variables = merge(local.common_env, {
+    REMINDER_SCAN_CONTROL_TABLE_NAME = module.reminder_scan_control_table.table_name
+    REMINDER_SCAN_QUEUE_URL          = module.reminder_scan_v2_queue.queue_url
+    SCAN_MODE_EPOCH                  = local.reminder_scan_mode_epoch
+  })
+  policy_documents_json = [module.reminder_scan_control_table.read_write_policy_json, module.reminder_scan_v2_queue.send_policy_json]
+  tags                  = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_scan_page_v2" {
+  event_source_arn        = module.reminder_scan_v2_queue.queue_arn
+  function_name           = module.reminder_scan_page_v2.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+  enabled                 = var.reminder_scan_v2_enabled
+  scaling_config { maximum_concurrency = 50 }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_scan_control_relay" {
+  event_source_arn        = module.reminder_scan_control_table.stream_arn
+  function_name           = module.reminder_scan_control_relay.live_alias_arn
+  starting_position       = "LATEST"
+  batch_size              = 100
+  function_response_types = ["ReportBatchItemFailures"]
+  filter_criteria {
+    filter {
+      pattern = jsonencode({ eventName = ["INSERT", "MODIFY"], dynamodb = { NewImage = { entityType = { S = ["REMINDER_SCAN_CONTINUATION_OUTBOX"] }, status = { S = ["PENDING"] } } } })
+    }
+  }
+}
+
+resource "aws_iam_role" "reminder_scan_control_schedule" {
+  name               = "${local.name_prefix}-reminder-scan-control-schedule"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "scheduler.amazonaws.com" } }] })
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+resource "aws_iam_role_policy" "reminder_scan_control_schedule" {
+  name   = "invoke"
+  role   = aws_iam_role.reminder_scan_control_schedule.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "lambda:InvokeFunction", Resource = [module.reminder_scan_enumerator_v2.live_alias_arn, module.reminder_scan_control_reconciler.live_alias_arn] }] })
+}
+resource "aws_scheduler_schedule" "reminder_scan_enumerator_v2" {
+  name                = "${local.name_prefix}-reminder-scan-enumerator-v2"
+  schedule_expression = "rate(1 minute)"
+  state               = var.schedules_enabled && var.reminder_scan_v2_enabled ? "ENABLED" : "DISABLED"
+  flexible_time_window { mode = "OFF" }
+  target {
+    arn      = module.reminder_scan_enumerator_v2.live_alias_arn
+    role_arn = aws_iam_role.reminder_scan_control_schedule.arn
+    input    = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+resource "aws_scheduler_schedule" "reminder_scan_control_reconciler" {
+  name                = "${local.name_prefix}-reminder-scan-control-reconciler"
+  schedule_expression = "rate(5 minutes)"
+  state               = var.schedules_enabled && var.reminder_scan_v2_enabled ? "ENABLED" : "DISABLED"
+  flexible_time_window { mode = "OFF" }
+  target {
+    arn      = module.reminder_scan_control_reconciler.live_alias_arn
+    role_arn = aws_iam_role.reminder_scan_control_schedule.arn
+    input    = "{}"
+  }
+}
+
+locals {
+  reminder_scan_v2_function_names = {
+    enumerator = module.reminder_scan_enumerator_v2.function_name
+    scan_page  = module.reminder_scan_page_v2.function_name
+    relay      = module.reminder_scan_control_relay.function_name
+    reconciler = module.reminder_scan_control_reconciler.function_name
+  }
+}
+resource "aws_cloudwatch_metric_alarm" "reminder_scan_v2_errors" {
+  for_each            = local.reminder_scan_v2_function_names
+  alarm_name          = "${local.name_prefix}-reminder-scan-v2-${each.key}-errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions          = { FunctionName = each.value }
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
 }

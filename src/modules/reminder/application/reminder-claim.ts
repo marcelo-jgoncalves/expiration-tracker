@@ -17,6 +17,7 @@ import { appendToTransaction, type DynamoTransactPutEntry } from "../../../share
 import { GSI6PK_WORKSTATE_CLAIMED, buildExpiredClaimGsi6Sk } from "../ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import type { ReminderOccurrence } from "../domain/reminder-occurrence.js";
+import { dueWorkKeyForOccurrence } from "../domain/reminder-due-work.js";
 
 export interface ReminderClaimStore {
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
@@ -47,6 +48,7 @@ export interface ReminderDispatchCommand {
 export interface ReminderClaimDeps {
   store: ReminderClaimStore;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   claimTtlMs: number;
   newEventId: () => string;
@@ -121,6 +123,19 @@ export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: 
   appendToTransaction(outboxEntries, deps.tableName, event, "SQS_REMINDER_DISPATCH_V1");
 
   try {
+    const dueWorkDelete: TransactWriteEntry[] = deps.dueWorkTableName ? [{
+      Delete: {
+        TableName: deps.dueWorkTableName,
+        Key: dueWorkKeyForOccurrence({
+          entityKind: "REMINDER",
+          tenantId,
+          occurrenceId,
+          scheduledAt: occurrence.scheduledAt,
+          shardFnVersion: occurrence.shardFnVersion,
+          shardId: Number(occurrence.shard),
+        }),
+      },
+    }] : [];
     await deps.store.transactWrite([
       {
         Update: buildVersionedUpdate({
@@ -138,6 +153,7 @@ export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: 
         }),
       },
       ...outboxEntries,
+      ...dueWorkDelete,
     ]);
   } catch (err) {
     if (isSoleConditionalCancellation(err, 0)) {

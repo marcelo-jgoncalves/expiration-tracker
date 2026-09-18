@@ -28,7 +28,7 @@ const client = createDocumentClient();
 const envTableName = process.env["TABLE_NAME"];
 if (!envTableName) throw new Error("TABLE_NAME env var is required.");
 const tableName: string = envTableName;
-const { store, candidateSource, now, newEventId, correlationId } = buildReconciliationDeps(client, tableName);
+const { store, candidateSource, dueWorkTableName, now, newEventId, correlationId } = buildReconciliationDeps(client, tableName);
 const shardConfig = defaultShardConfig();
 const logger = new SecureLogger({ baseContext: { service: "reminder-reconciliation" } });
 const NAMESPACE = "ExpirationTracker/ReminderReconciliation";
@@ -166,9 +166,9 @@ async function handleReconciliation(event: ReminderReconciliationEvent): Promise
 
   const pagedRecovery = mode === "CLAIMS" && scanMode() === "PAGED";
   const claimsRecovered = pagedRecovery
-    ? await recoverExpiredClaims({ store, tableName, now, newEventId, correlationId, claimTtlMs: 120_000 }, expiredClaimCandidates)
+    ? await recoverExpiredClaims({ store, tableName, dueWorkTableName, now, newEventId, correlationId, claimTtlMs: 120_000 }, expiredClaimCandidates)
     : 0;
-  const result = await runReconciliation({ store, tableName, now, shardConfig }, {
+  const result = await runReconciliation({ store, tableName, dueWorkTableName, now, shardConfig }, {
     expiredClaimCandidates: pagedRecovery ? [] : expiredClaimCandidates, dstCandidates,
   });
 

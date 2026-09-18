@@ -45,8 +45,15 @@ export class DynamoDbSubjectStore implements SubjectStore {
       ] }));
       return true;
     } catch (err) {
-      if ((err as { name?: string }).name === "TransactionCanceledException" &&
-        ((err as { CancellationReasons?: { Code?: string }[] }).CancellationReasons ?? []).some((reason) => reason.Code === "ConditionalCheckFailed")) return false;
+      if ((err as { name?: string }).name === "TransactionCanceledException") {
+        const reasons = (err as { CancellationReasons?: { Code?: string }[] }).CancellationReasons ?? [];
+        const occurrenceExists = reasons[0]?.Code === "ConditionalCheckFailed";
+        const dueWorkExists = reasons[1]?.Code === "ConditionalCheckFailed";
+        if (occurrenceExists && dueWorkExists) return false;
+        if (occurrenceExists || dueWorkExists) {
+          throw new Error("Document chasing occurrence/due-work integrity violation: only one side of the atomic pair exists", { cause: err });
+        }
+      }
       throw err;
     }
   }
