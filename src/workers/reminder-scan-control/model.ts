@@ -94,11 +94,11 @@ export function reclaimControlChain(deps: ControlTransitionDeps, lease: ScanLeas
 
 export function checkpointControlChain(deps: ControlTransitionDeps, lease: ScanLeaseV2, ref: ScanRef, startedCursor: string | undefined, nextCursor: string | undefined, published: number, leaseDurationMs: number): TransactWriteEntry[] {
   const now = deps.now(); const nextVersion = lease.version + 1; const complete = nextCursor === undefined;
-  const names: Record<string,string> = { "#status":"status", "#owner":"ownerToken", "#version":"version", "#until":"leaseUntil", "#updated":"updatedAt", "#pages":"pagesProcessed", "#candidates":"candidatesPublished", "#gpk":"GSI1PK", "#gsk":"GSI1SK", "#cursor":"lastEvaluatedKey" };
+  const names: Record<string,string> = { "#status":"status", "#owner":"ownerToken", "#version":"version", "#until":"leaseUntil", "#updated":"updatedAt", "#pages":"pagesProcessed", "#candidates":"candidatesPublished", "#gsk":"GSI1SK", "#cursor":"lastEvaluatedKey" };
   const values: Record<string,unknown> = { ":in":"IN_PROGRESS", ":owner":lease.ownerToken, ":version":lease.version, ":now":now, ":one":1, ":published":published };
   const position = startedCursor === undefined ? "attribute_not_exists(#cursor)" : "#cursor = :started"; if (startedCursor !== undefined) values[":started"] = startedCursor;
   let update = "SET #version = #version + :one, #updated = :now, #pages = #pages + :one, #candidates = #candidates + :published";
-  if (complete) { values[":complete"] = "COMPLETED"; update += ", #status = :complete REMOVE #cursor, #gpk, #gsk"; }
+  if (complete) { names["#gpk"] = "GSI1PK"; values[":complete"] = "COMPLETED"; update += ", #status = :complete REMOVE #cursor, #gpk, #gsk"; }
   else { const until = new Date(Date.parse(now) + leaseDurationMs).toISOString(); values[":cursor"] = nextCursor; values[":untilNew"] = until; values[":gskNew"] = leaseGsi(until, ref); update += ", #cursor = :cursor, #until = :untilNew, #gsk = :gskNew"; }
   const tx: TransactWriteEntry[] = [{ Update: { TableName: deps.tableName, Key: scanLeaseKey(ref), UpdateExpression: update, ConditionExpression: "#status = :in AND #owner = :owner AND #version = :version AND #until >= :now AND " + position, ExpressionAttributeNames: names, ExpressionAttributeValues: values } }];
   if (!complete) { const cmd = command(deps, ref, lease.observedNow, lease.ownerToken, nextVersion, nextCursor); tx.push({ Put: { TableName: deps.tableName, Item: outbox(deps, ref, cmd, nextVersion), ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } }); }
