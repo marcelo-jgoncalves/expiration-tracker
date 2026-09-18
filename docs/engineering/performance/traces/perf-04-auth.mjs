@@ -12,7 +12,7 @@
 // docs/engineering/performance/.local/perf-04-session-cookies.json (gitignored) for reuse across
 // multiple runs without re-authenticating (BFF session TTL is well beyond a single work session).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -85,6 +85,7 @@ async function main() {
     obtainedAt: new Date().toISOString(),
   };
 
+  mkdirSync(path.dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, JSON.stringify(result, null, 2));
   console.log(`[perf-auth] BFF session obtained at ${result.obtainedAt}`);
 
