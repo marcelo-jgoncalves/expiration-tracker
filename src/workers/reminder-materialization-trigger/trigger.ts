@@ -34,6 +34,7 @@ import { authorizedTenantIdFromPersistedEntity, type AuthorizedTenantId } from "
 export interface TriggerDeps {
   store: ReminderStore;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   shardConfig: ShardConfig;
 }
@@ -116,7 +117,7 @@ async function onItemDueDateChanged(deps: TriggerDeps, event: { tenantId: string
     return onItemDeactivated(deps, event);
   }
 
-  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now, deps.dueWorkTableName);
 
   let reconciled = 0;
   let materialized = 0;
@@ -159,7 +160,7 @@ async function onItemDueDateChanged(deps: TriggerDeps, event: { tenantId: string
 
 /** `expiration.item-deactivated.v1`: terminal item transition - cancel every live occurrence under the item, unconditionally, no materialize. */
 async function onItemDeactivated(deps: TriggerDeps, event: { tenantId: string; itemId: string }): Promise<TriggerResult> {
-  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now, deps.dueWorkTableName);
   const cancelledUnconditionally = await materializer.cancelAllOccurrences({ tenantId: event.tenantId, itemId: event.itemId });
   return { ...EMPTY_RESULT, cancelledUnconditionally };
 }
@@ -187,7 +188,7 @@ async function onPolicyChanged(
   const currentTarget = policy.scope === "ITEM" && !policy.deletedAt ? policy.itemId! : null;
   const targets = [...new Set([event.previousItemId, currentTarget].filter((t): t is string => t !== null))];
 
-  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now, deps.dueWorkTableName);
   let reconciled = 0;
   let materialized = 0;
   let cancelledUnconditionally = 0;

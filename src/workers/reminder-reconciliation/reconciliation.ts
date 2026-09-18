@@ -23,6 +23,7 @@ import { buildVersionedUpdate } from "../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../../modules/reminder/ports/reminder-store.js";
 import { ReminderMaterializer } from "../../modules/reminder/application/reminder-materializer.js";
 import type { ReminderOccurrence } from "../../modules/reminder/domain/reminder-occurrence.js";
+import { dueWorkKeyForOccurrence } from "../../modules/reminder/domain/reminder-due-work.js";
 import type { ReminderPolicy } from "../../modules/reminder/domain/reminder-policy.js";
 import type { ShardConfig } from "../../modules/reminder/domain/shard-config.js";
 import type { StuckScanLeaseCandidate } from "../../modules/reminder/ports/reconciliation-candidate-source.js";
@@ -31,6 +32,7 @@ import { buildReclaimLeaseTransaction, parseLeaseKey } from "../reminder-scan/le
 export interface ReconciliationDeps {
   store: ReminderStore;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   shardConfig: ShardConfig;
 }
@@ -129,7 +131,7 @@ export async function reconcileDst(
   deps: ReconciliationDeps,
   candidates: DstReconciliationCandidate[],
 ): Promise<{ cancelled: number; created: number; divergences: number }> {
-  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now);
+  const materializer = new ReminderMaterializer(deps.store, deps.tableName, deps.now, deps.dueWorkTableName);
   const windowStart = Date.parse(deps.now());
   const windowEnd = windowStart + 7 * 24 * 60 * 60_000;
 
@@ -216,6 +218,19 @@ export async function reconcileDst(
               remove: ["GSI6PK", "GSI6SK"],
             }),
           },
+          ...(deps.dueWorkTableName ? [{
+            Delete: {
+              TableName: deps.dueWorkTableName,
+              Key: dueWorkKeyForOccurrence({
+                entityKind: "REMINDER",
+                tenantId: occurrence.tenantId,
+                occurrenceId: occurrence.occurrenceId,
+                scheduledAt: occurrence.scheduledAt,
+                shardFnVersion: occurrence.shardFnVersion,
+                shardId: Number.parseInt(occurrence.shard, 10),
+              }),
+            },
+          }] : []),
         ]);
         cancelled += 1;
       } catch (err) {

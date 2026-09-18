@@ -64,7 +64,7 @@ export function buildDocumentRequestDeps(
   sesConfigurationSet?: string,
   guestUploadBaseUrl?: string,
 ) {
-  const store = new DynamoDbSubjectStore(client, tableName);
+  const store = new DynamoDbSubjectStore(client, tableName, process.env["REMINDER_DUE_WORK_TABLE_NAME"]);
   const ids = new UlidIdGenerator();
   const emailProvider = initialInviteEmailEnabled && sesFromAddress && sesConfigurationSet ? new SesEmailAdapter(createSesClient(), sesFromAddress, sesConfigurationSet) : undefined;
   // M10 cluster 4 (D-046): mesma config de shard usada por reminder-producer-handler.ts - o

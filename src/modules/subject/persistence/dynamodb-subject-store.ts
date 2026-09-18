@@ -12,6 +12,7 @@ export class DynamoDbSubjectStore implements SubjectStore {
   constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
+    private readonly dueWorkTableName?: string,
   ) {}
 
   async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
@@ -32,6 +33,28 @@ export class DynamoDbSubjectStore implements SubjectStore {
     } catch (err) {
       if (isConditionalCheckFailed(err)) return false;
       throw mapDynamoError(err, "SubjectStore.putIfAbsent");
+    }
+  }
+
+  async putOccurrenceWithDueWork<T extends EntityKey>(occurrence: T, dueWork: import("../../reminder/domain/reminder-due-work.js").ReminderDueWorkItem): Promise<boolean> {
+    if (!this.dueWorkTableName) throw new Error("REMINDER_DUE_WORK_TABLE_NAME is required for chasing materialization");
+    try {
+      await this.client.send(new TransactWriteCommand({ TransactItems: [
+        { Put: { TableName: this.tableName, Item: occurrence, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
+        { Put: { TableName: this.dueWorkTableName, Item: dueWork, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } },
+      ] }));
+      return true;
+    } catch (err) {
+      if ((err as { name?: string }).name === "TransactionCanceledException") {
+        const reasons = (err as { CancellationReasons?: { Code?: string }[] }).CancellationReasons ?? [];
+        const occurrenceExists = reasons[0]?.Code === "ConditionalCheckFailed";
+        const dueWorkExists = reasons[1]?.Code === "ConditionalCheckFailed";
+        if (occurrenceExists && dueWorkExists) return false;
+        if (occurrenceExists || dueWorkExists) {
+          throw new Error("Document chasing occurrence/due-work integrity violation: only one side of the atomic pair exists", { cause: err });
+        }
+      }
+      throw err;
     }
   }
 

@@ -17,6 +17,7 @@ import { buildChasingClaimGsi6Sk, type DocumentChasingOccurrence, type DocumentC
 import { GSI6PK_WORKSTATE_CLAIMED } from "../../reminder/ports/reconciliation-candidate-source.js";
 import type { DomainEvent } from "../../../shared/contracts/events.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
+import { dueWorkKeyForOccurrence } from "../../reminder/domain/reminder-due-work.js";
 
 export interface ChasingProducerStore {
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
@@ -46,6 +47,7 @@ export interface ChasingDispatchCommand {
 export interface ChasingClaimDeps {
   store: ChasingProducerStore;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   claimTtlMs: number;
   newEventId: () => string;
@@ -55,6 +57,7 @@ export interface ChasingClaimDeps {
 export type ChasingClaimOutcome =
   | { kind: "CLAIMED"; command: ChasingDispatchCommand }
   | { kind: "SKIPPED_NOT_SCHEDULED" }
+  | { kind: "SKIPPED_NOT_DUE" }
   | { kind: "SKIPPED_NOT_EXPIRED" }
   | { kind: "LOST_CLAIM_RACE" };
 
@@ -70,6 +73,9 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
   }
   if (!occurrence || (mode === "SCHEDULED" && occurrence.status !== "SCHEDULED")) {
     return { kind: "SKIPPED_NOT_SCHEDULED" };
+  }
+  if (mode === "SCHEDULED" && occurrence.scheduledAt > deps.now()) {
+    return { kind: "SKIPPED_NOT_DUE" };
   }
 
   const { occurrenceId } = occurrence;
@@ -115,6 +121,19 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
   appendToTransaction(outboxEntries, deps.tableName, event, "SQS_DOCUMENT_CHASING_DISPATCH_V1");
 
   try {
+    const dueWorkDelete: TransactWriteEntry[] = deps.dueWorkTableName ? [{
+      Delete: {
+        TableName: deps.dueWorkTableName,
+        Key: dueWorkKeyForOccurrence({
+          entityKind: "CHASING",
+          tenantId,
+          occurrenceId,
+          scheduledAt: occurrence.scheduledAt,
+          shardFnVersion: occurrence.shardFnVersion,
+          shardId: Number(occurrence.shard),
+        }),
+      },
+    }] : [];
     await deps.store.transactWrite([
       {
         Update: buildVersionedUpdate({
@@ -132,6 +151,7 @@ export async function claimChasingOccurrence(deps: ChasingClaimDeps, baseKey: En
         }),
       },
       ...outboxEntries,
+      ...dueWorkDelete,
     ]);
   } catch (err) {
     if (isSoleConditionalCancellation(err, 0)) {

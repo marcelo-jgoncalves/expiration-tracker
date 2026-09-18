@@ -23,10 +23,12 @@
 export type { EntityKey, TransactWriteEntry, TransactPutEntry, TransactUpdateEntry } from "../../../shared/dynamodb/occ.js";
 export { isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
+import type { ReminderDueWorkItem } from "../domain/reminder-due-work.js";
 
 export interface ReminderStore {
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
+  putOccurrenceWithDueWork<T extends EntityKey>(occurrence: T, dueWork: ReminderDueWorkItem): Promise<boolean>;
   update<T extends EntityKey>(item: T): Promise<void>;
   transactWrite(entries: TransactWriteEntry[]): Promise<void>;
   /**

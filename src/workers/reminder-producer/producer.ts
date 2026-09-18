@@ -49,6 +49,7 @@ export interface ProducerDeps {
   store: ReminderProducerStore;
   shardConfig: ShardConfig;
   tableName: string;
+  dueWorkTableName?: string;
   now: () => string;
   /** Short claim TTL - default 2 minutes, comfortably longer than one producer tick (1 minute) but short enough that a crashed dispatch worker's claim is reclaimable quickly by reconciliation (§9.5). */
   claimTtlMs?: number;
@@ -180,7 +181,7 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
             seen.add(chasingParsed.occurrenceId);
             try {
               const outcome = await claimChasingOccurrence(
-                { store: deps.store, tableName: deps.tableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+                { store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
                 { PK: row.PK, SK: row.SK },
               );
               if (outcome.kind === "CLAIMED") chasingClaimed.push(outcome.command);
@@ -211,7 +212,7 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
           // destination, same GSI6 pointer, same lost-race handling.
           try {
             const outcome = await claimReminderOccurrence(
-              { store: deps.store, tableName: deps.tableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+              { store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
               { PK: row.PK, SK: row.SK },
               tenantId,
             );

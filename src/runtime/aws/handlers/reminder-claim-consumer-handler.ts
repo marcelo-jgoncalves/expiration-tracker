@@ -65,7 +65,7 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
         const outcome = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "reminder-claim-consumer business operation timing", async () => {
           if (command.data.entityKind === "CHASING") {
             return claimChasingOccurrence(
-              { store: deps.store, tableName: deps.tableName, now: deps.now, claimTtlMs: deps.claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+              { store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName, now: deps.now, claimTtlMs: deps.claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
               { PK: command.data.PK, SK: command.data.SK },
             );
           }

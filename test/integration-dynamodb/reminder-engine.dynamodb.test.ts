@@ -29,7 +29,10 @@ describe("Reminder Engine end-to-end against REAL DynamoDB (Camada 2)", () => {
 
   beforeAll(async () => {
     ctx = await startDynamoDbLocal();
-    store = new DynamoDbReminderStore(ctx.client, TABLE_NAME);
+    // The integration fixture provisions one generic PK/SK table. Reuse it as the logical
+    // due-work table so the real cross-table transaction code path is exercised without a
+    // second Docker table; production supplies two distinct names.
+    store = new DynamoDbReminderStore(ctx.client, TABLE_NAME, TABLE_NAME);
     producerStore = new DynamoDbReminderProducerStore(ctx.client, TABLE_NAME);
     candidateSource = new DynamoDbReminderReconciliationCandidateSource(ctx.client, TABLE_NAME);
     relayStore = new DynamoDbOutboxRelayStore(ctx.client, TABLE_NAME);

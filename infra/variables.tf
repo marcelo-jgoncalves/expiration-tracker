@@ -84,6 +84,12 @@ variable "schedules_enabled" {
   default     = true
 }
 
+variable "reminder_scan_v2_enabled" {
+  description = "D-302 rollout switch for the dedicated reminder scan control-plane schedules and queue consumer. Keep false until dual-write is deployed and backfill converges."
+  type        = bool
+  default     = false
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly AWS Budgets ceiling in USD. Matches the cost-budget module's own default (50) unless overridden."
   type        = number

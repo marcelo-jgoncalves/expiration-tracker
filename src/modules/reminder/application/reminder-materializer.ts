@@ -27,6 +27,7 @@ import { computeOccurrencePurgeAfterTtl, gsi3Keys, occurrenceKey, stableHash, ty
 import { policyKey, type ReminderPolicy, type QuietHours } from "../domain/reminder-policy.js";
 import type { ShardConfig } from "../domain/shard-config.js";
 import { activeGenerations } from "../domain/shard-config.js";
+import { buildReminderDueWorkItem, dueWorkKeyForOccurrence } from "../domain/reminder-due-work.js";
 import { buildVersionConditionCheck, buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
 import { isTransactionCanceled, type ReminderStore } from "../ports/reminder-store.js";
 import { GSI6PK_WORKSTATE_DST_PENDING, buildDstCandidateGsi6Sk } from "../ports/reconciliation-candidate-source.js";
@@ -87,7 +88,12 @@ export class ReminderMaterializer {
     private readonly store: ReminderStore,
     private readonly tableName: string,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly dueWorkTableName?: string,
   ) {}
+
+  private dueWorkDelete(occurrence: ReminderOccurrence) {
+    return this.dueWorkTableName ? [{ Delete: { TableName: this.dueWorkTableName, Key: dueWorkKeyForOccurrence({ entityKind: "REMINDER", tenantId: occurrence.tenantId, occurrenceId: occurrence.occurrenceId, scheduledAt: occurrence.scheduledAt, shardFnVersion: occurrence.shardFnVersion, shardId: Number(occurrence.shard) }) } }] : [];
+  }
 
   /** Computes the scheduledAt (UTC) + local wall-clock string for one trigger, given the item's dueDate. Pure - no I/O - exposed for unit testing DST edge cases directly. */
   computeSchedule(input: {
@@ -203,7 +209,18 @@ export class ReminderMaterializer {
         ...dstPending,
       };
 
-      const wasCreated = await this.store.putIfAbsent(occurrence);
+      const dueWork = buildReminderDueWorkItem({
+        entityKind: "REMINDER",
+        tenantId: input.tenantId,
+        occurrenceId,
+        occurrenceKey: occurrence,
+        scheduledAt: schedule.scheduledAtUtc,
+        shardFnVersion: generation.shardFnVersion,
+        shardId: Number(gsi3.shard),
+        now,
+        purgeAfterTtl: occurrence.purgeAfterTtl,
+      });
+      const wasCreated = await this.store.putOccurrenceWithDueWork(occurrence, dueWork);
       if (wasCreated) {
         created.push(occurrence);
       } else {
@@ -251,6 +268,7 @@ export class ReminderMaterializer {
               remove: ["GSI3PK", "GSI3SK", "GSI6PK", "GSI6SK"],
             }),
           },
+          ...this.dueWorkDelete(occurrence),
         ]);
         cancelled += 1;
       } catch (err) {
@@ -301,6 +319,7 @@ export class ReminderMaterializer {
             key: policyKey(input.tenantId, input.policy.policyId),
             expectedVersion: input.policy.version,
           }),
+          ...this.dueWorkDelete(occurrence),
         ]);
         cancelled += 1;
       } catch (err) {
@@ -368,6 +387,7 @@ export class ReminderMaterializer {
               remove: ["GSI3PK", "GSI3SK", "GSI6PK", "GSI6SK"],
             }),
           },
+          ...this.dueWorkDelete(occurrence),
         ]);
         cancelled += 1;
       } catch (err) {

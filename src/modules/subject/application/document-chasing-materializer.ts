@@ -15,11 +15,14 @@ import { stableHash } from "../../reminder/domain/reminder-occurrence.js";
 import { activeGenerations, type ShardConfig } from "../../reminder/domain/shard-config.js";
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
+import { buildReminderDueWorkItem } from "../../reminder/domain/reminder-due-work.js";
+import { computeOccurrencePurgeAfterTtl } from "../../reminder/domain/reminder-occurrence.js";
 
 /** Porta deliberadamente estreita (mesmo espírito de `ReminderProducerStore` vs. `ReminderStore`)
  * — o materializer só precisa de `putIfAbsent`, nunca do resto de `SubjectStore`. */
 export interface ChasingMaterializerStore {
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
+  putOccurrenceWithDueWork?<T extends EntityKey>(occurrence: T, dueWork: import("../../reminder/domain/reminder-due-work.js").ReminderDueWorkItem): Promise<boolean>;
 }
 
 /** T7/T3 antes de `tokenExpiresAt`; EXPIRED exatamente em `tokenExpiresAt` (preset
@@ -120,7 +123,13 @@ export class DocumentChasingMaterializer {
         GSI3SK: gsi3.GSI3SK,
       };
 
-      const wasCreated = await this.store.putIfAbsent(occurrence);
+      const dueWork = buildReminderDueWorkItem({
+        entityKind: "CHASING", tenantId: input.tenantId, occurrenceId,
+        occurrenceKey: occurrence, scheduledAt, shardFnVersion: generation.shardFnVersion,
+        shardId: Number(gsi3.shard), now, purgeAfterTtl: computeOccurrencePurgeAfterTtl(scheduledAt),
+      });
+      if (!this.store.putOccurrenceWithDueWork) throw new Error("Due-work registration is required for chasing materialization");
+      const wasCreated = await this.store.putOccurrenceWithDueWork(occurrence, dueWork);
       if (wasCreated) {
         created.push(occurrence);
       } else {

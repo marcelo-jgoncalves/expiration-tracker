@@ -13,6 +13,7 @@ import { ReminderMaterializer } from "../../../src/modules/reminder/application/
 import { defaultShardConfig } from "../../../src/modules/reminder/domain/shard-config.js";
 import { reconcileExpiredClaims, reconcileDst } from "../../../src/workers/reminder-reconciliation/reconciliation.js";
 import { occurrenceKey, gsi3Keys, computeOccurrencePurgeAfterTtl, type ReminderOccurrence } from "../../../src/modules/reminder/domain/reminder-occurrence.js";
+import { buildReminderDueWorkItem, dueWorkKeyForOccurrence } from "../../../src/modules/reminder/domain/reminder-due-work.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { buildVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -178,6 +179,17 @@ describe("reconciliation.ts", () => {
         purgeAfterTtl: computeOccurrencePurgeAfterTtl(staleScheduledAt),
       };
       await store.putIfAbsent(stale);
+      await store.putIfAbsent(buildReminderDueWorkItem({
+        entityKind: "REMINDER",
+        tenantId: TENANT,
+        occurrenceId: stale.occurrenceId,
+        occurrenceKey: stale,
+        scheduledAt: stale.scheduledAt,
+        shardFnVersion: stale.shardFnVersion,
+        shardId: Number.parseInt(stale.shard, 10),
+        now: stale.createdAt,
+        purgeAfterTtl: stale.purgeAfterTtl,
+      }));
 
       // reconcileDst's window is [now, now+7d] - advance the clock to within 7 days of the
       // scheduled occurrence (Sep 10), otherwise the trigger falls outside the window and
@@ -185,7 +197,7 @@ describe("reconciliation.ts", () => {
       clock.current = "2026-09-05T00:00:00.000Z";
 
       const result = await reconcileDst(
-        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
+        { store, tableName: TABLE, dueWorkTableName: "DueWorkTable", now, shardConfig: defaultShardConfig() },
         [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
       );
 
@@ -195,6 +207,14 @@ describe("reconciliation.ts", () => {
 
       const cancelledRow = await store.get<ReminderOccurrence>({ PK: stale.PK, SK: stale.SK });
       expect(cancelledRow?.status).toBe("CANCELLED");
+      expect(await store.get(dueWorkKeyForOccurrence({
+        entityKind: "REMINDER",
+        tenantId: TENANT,
+        occurrenceId: stale.occurrenceId,
+        scheduledAt: stale.scheduledAt,
+        shardFnVersion: stale.shardFnVersion,
+        shardId: Number.parseInt(stale.shard, 10),
+      }))).toBeUndefined();
 
       const live = (await store.queryByItem<ReminderOccurrence>(TENANT, ITEM_ID)).filter((o) => o.status === "SCHEDULED");
       expect(live).toHaveLength(1);

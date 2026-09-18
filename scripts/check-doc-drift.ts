@@ -50,7 +50,16 @@ import { pathToFileURL } from "node:url";
 // Every .md file allowed directly in the repo root - anything else is a stray handoff/
 // prompt/mission-brief that belongs in docs/ somewhere (see docs/architecture/README.md's
 // precedence table for where). Update this set deliberately, not by exception-creep.
-export const ROOT_MD_ALLOWLIST = new Set(["AGENTS.md", "ARCHITECTURE.md", "CLAUDE.md", "ENGINEERING.md", "NEXT_SESSION_PROMPT.md", "README.md"]);
+export const ROOT_MD_ALLOWLIST = new Set([
+  "AGENTS.md",
+  "ARCHITECTURE.md",
+  "CLAUDE.md",
+  "ENGINEERING.md",
+  "NEXT_SESSION_PROMPT.md",
+  "README.md",
+  // Owner-requested review copy of D-301's implementation plan.
+  "REMINDER_SCAN_CONTROL_PLANE_IMPLEMENTATION_PLAN.md",
+]);
 
 export const AGENTS_MD_MAX_LINES = 100; // matches AGENTS.md §8's own declared goal (60-100).
 export const NEXT_SESSION_PROMPT_MAX_LINES = 300; // generous ceiling, see file doc comment above.
