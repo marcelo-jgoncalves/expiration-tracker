@@ -14,6 +14,7 @@ const TABLE = 'exptrk-dev-table';
 const ACCOUNT = '975707451904';
 const REGION = 'us-east-1';
 const PROFILE = 'claude-dev';
+const TENANTS_FILE = process.env.PERF_REMINDER_BURST_TENANTS_FILE ?? 'perf-11b-tenants.json';
 const EXPECTED = Number(process.env.PERF_REMINDER_BURST_SIZE ?? 10000);
 requireThatBurstSize(EXPECTED);
 const PER_TENANT = EXPECTED / 10;
@@ -49,7 +50,7 @@ export function assertTenants(tenants) {
   requireThat(tenants.length === 10 && new Set(tenants.map(t => t.organizationId)).size === 10 &&
     new Set(tenants.map(t => t.index)).size === 10, 'Need exactly ten distinct synthetic tenants');
   requireThat(tenants.every(t => /^org_[A-Z0-9]+$/.test(t.organizationId) &&
-    Number.isInteger(t.index) && t.index >= 1 && t.index <= 10 && t.label === `PERF LoadTest Tenant ${String(t.index).padStart(2, '0')}`), 'Unexpected synthetic tenant manifest');
+    Number.isInteger(t.index) && t.index >= 1 && t.index <= 10 && typeof t.label === 'string' && t.label.length > 0), 'Unexpected synthetic tenant manifest');
 }
 
 export async function mapLimit(values, limit, fn) {
@@ -158,7 +159,7 @@ async function authenticate(tenants) {
       const context = await browser.newContext();
       const page = await context.newPage();
       await page.goto(`${ORIGIN}/bff/login?returnTo=/`, { waitUntil: 'domcontentloaded' });
-      await page.locator('#signInFormUsername:visible').fill(`${credentials.email_prefix}${String(tenant.index).padStart(2, '0')}@gmail.com`);
+      await page.locator('#signInFormUsername:visible').fill(tenant.email ?? `${credentials.email_prefix}${String(tenant.index).padStart(2, '0')}@gmail.com`);
       await page.locator('#signInFormPassword:visible').fill(credentials.password);
       await page.locator("input[name='signInSubmitButton']:visible").click();
       await page.waitForURL(url => url.origin === ORIGIN && !url.pathname.startsWith('/bff/'), { timeout: 60000 });
@@ -327,7 +328,7 @@ async function main() {
   const dir = path.join(LOCAL, runId);
   if (command === 'plan') {
     requireThat(!existsSync(dir), 'Run ID already exists; use a new ID');
-    const tenants = read(path.join(LOCAL, 'perf-11b-tenants.json')).tenants;
+    const tenants = read(path.join(LOCAL, TENANTS_FILE)).tenants;
     assertTenants(tenants);
     const timing = schedule(target ?? new Date(Math.ceil((Date.now() + 120 * 60000) / 60000) * 60000).toISOString());
     mkdirSync(dir, { recursive: true });

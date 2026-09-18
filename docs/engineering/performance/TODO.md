@@ -160,7 +160,7 @@ itens de acompanhamento fora do programa de performance.
   - [x] Synthetic canaries — canário CloudWatch sem credenciais a cada 5 minutos valida SPA na borda e o contrato anônimo de `/bff/session`; artefatos criptografados, privados e retidos por 30 dias; falha sustentada aciona o tópico operacional.
   - [x] Alarms de latência/throttle/backlog — métricas EMF confirmadas ao vivo em 2026-09-18; quatro alarmes p95 e três alarmes de throttling nativo adicionados. Backlog já estava coberto.
   - [x] Dashboard consolidado — `exptrk-dev-operations` confirmado ao vivo e ampliado com gráficos p95 e throttling de BFF, Items e Subjects. Synthetic canaries serão incorporados quando existirem.
-- [ ] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle)
+- [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---
 
