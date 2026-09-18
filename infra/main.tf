@@ -5108,3 +5108,21 @@ resource "aws_cloudwatch_metric_alarm" "reminder_scan_v2_errors" {
   alarm_actions       = [module.alert_topic.topic_arn]
   tags                = { Project = local.project_name, Environment = var.environment }
 }
+
+# SQS partial batch failures are successful Lambda invocations and therefore do not increment
+# AWS/Lambda Errors. The page worker emits this bounded-cardinality outcome metric so a rejected
+# checkpoint cannot remain invisible while SQS keeps retrying the individual record.
+resource "aws_cloudwatch_metric_alarm" "reminder_scan_v2_page_handler_errors" {
+  alarm_name          = "${local.name_prefix}-reminder-scan-v2-page-handler-errors"
+  namespace           = "ExpirationTracker/ReminderScanPageV2"
+  metric_name         = "ScanPageOutcome"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions          = { outcome = "HANDLER_ERROR" }
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
+}

@@ -37,25 +37,32 @@ Medir `NotificationIntent` → router → outbox/relay → fila → email worker
 `CANCELLED/RECIPIENT_NOT_FOUND` não conta como entrega. Para caixas reais, registrar recebimento,
 latência, headers e links sem usar endereços pessoais.
 
-## Gate de SES confirmado em 2026-09-17
+## Gate de SES confirmado em 2026-09-18
 
-A conta `dev` em `us-east-1` está no sandbox (`ProductionAccessEnabled=false`), saudável, com
-`Max24HourSend=200`, `MaxSendRate=1/s` e zero envios nas 24 horas observadas. Há somente duas
-identidades de e-mail pessoais verificadas; não há domínio verificado. Nessas condições, 100k
-entregas não são um teste válido nem operacionalmente viável.
+A AWS concedeu production access à conta `dev` em `us-east-1` no caso `178965815200733`. A
+consulta após a aprovação confirmou `ProductionAccessEnabled=true`, estado `HEALTHY`, quota de
+50.000 mensagens por 24 horas, taxa máxima de 14 mensagens/s e zero envios nas 24 horas
+observadas.
 
-Antes de declarar capacidade de e-mail em 100k:
+A quota permite validar o caminho completo de e-mail com uma coorte representativa, mas não
+permite entregar 100.000 mensagens em uma única janela de 24 horas. A rodada de 100k medirá
+integralmente o pipeline de reminders. Para e-mail, usará uma coorte limitada e manterá margem na
+quota para tráfego operacional e repetições. A capacidade de entregar 100k e-mails continuará
+fora do escopo até existir quota diária suficiente ou um ensaio deliberadamente dividido em
+mais de uma janela de 24 horas.
 
-- verificar um domínio/subdomínio remetente dedicado;
-- obter production access e quota diária/taxa compatíveis com a janela do experimento;
-- confirmar que simulador e tráfego real respeitam a taxa efetiva concedida;
-- definir orçamento, tamanho das coortes e stop conditions;
-- não solicitar nem alterar quotas automaticamente: a mudança externa precisa de decisão
-  explícita após apresentar o plano concreto.
+Antes da execução:
 
-Se a quota não estiver disponível, executar 100k apenas para o pipeline de reminders e uma
-coorte de e-mail compatível com o limite atual. O relatório deve dizer explicitamente que a
-capacidade de entrega de 100k ficou não medida.
+- confirmar a identidade remetente e registrar se ainda é um endereço pessoal;
+- dimensionar a coorte abaixo da quota disponível no preflight;
+- criar um controle explícito de admissão antes da coorte: o mapping atual do
+  `email-delivery` está habilitado com batch 10 e sem `MaximumConcurrency`, portanto não há hoje
+  garantia de permanecer abaixo de 14 envios/s durante um burst. A rodada não deve inferir esse
+  limite a partir de latência média nem depender de throttling do SES como regulador;
+- usar o simulador do SES para sucesso, bounce, complaint, out-of-office e suppression list;
+- reservar uma coorte real pequena, controlada e consentida para conferir recebimento, headers,
+  links e latência ponta a ponta;
+- definir orçamento, margem operacional e stop conditions para bounce, complaint, DLQ e alarmes.
 
 ## Gates antes da execução
 
@@ -64,7 +71,7 @@ capacidade de entrega de 100k ficou não medida.
 - nenhuma escrita direta de entidade de negócio no DynamoDB;
 - destinatários sintéticos provisionados e atribuídos;
 - quota SES e identidade remetente registradas no preflight;
+- taxa efetiva do canal de e-mail limitada de forma mensurável a no máximo 14 envios/s;
 - contagem exata de 100.000 occurrences `SCHEDULED` antes do alvo;
 - critérios separados para reminder, notification/router e provider;
 - avaliação pontual agendada durante preparação e após o burst, sem polling contínuo.
-

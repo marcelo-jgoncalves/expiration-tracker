@@ -217,6 +217,20 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
   }
 }
 
+run "reminder_scan_v2_partial_batch_failure_is_alarmable" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.reminder_scan_v2_page_handler_errors.namespace == "ExpirationTracker/ReminderScanPageV2"
+    error_message = "The v2 scan-page partial-batch error alarm must use the worker's custom metric namespace"
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.reminder_scan_v2_page_handler_errors.dimensions["outcome"] == "HANDLER_ERROR"
+    error_message = "The v2 scan-page alarm must detect per-record handler errors hidden from AWS/Lambda Errors"
+  }
+}
+
 run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   command = plan
 

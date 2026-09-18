@@ -108,20 +108,22 @@ itens de acompanhamento fora do programa de performance.
     sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
-  - [~] 10k — **duas repetições limpas em 2026-09-17, SLO REPROVADO**: ambas
-    10.000/10.000 TRIGGERED; PF1 máximo 359,983s e PF2 máximo 331,173s. PF2 reduziu
-    `IteratorAge` máximo de 138,952s para 119,939s, confirmando o gargalo no relay global,
-    sem removê-lo; [análise](results/PERF-12-10k-residual-latency-2026-09-17.md).
-    Executor `scripts/perf-reminder-burst.mjs`, preflight real 10/10 tenants; ver
-    [runbook e critérios](results/PERF-12-10k-runbook.md). O degrau de 1k pós-correção
-    foi confirmado em 1.000/1.000 TRIGGERED, máximo 185,571s; isso não fecha o degrau de 10k.
-  - [ ] 100k — pendente (depende da decisão acima). A rodada deve incluir validação explícita do
+  - [~] 10k — as duas repetições de 2026-09-17 completaram 10.000/10.000, mas reprovaram o
+    SLO (máximos 359,983s e 331,173s) e motivaram D-301/D-302. O plano de controle dedicado foi
+    implantado, recebeu backfill idempotente e passou no canary pós-correção de 1.000/1.000 com
+    máximo 195,581s. O cutover exclusivo para v2 foi concluído. A revalidação de 10k em v2
+    reprovou em 2026-09-18 por um checkpoint DynamoDB inválido: 3.200/10.000 em alvo +20 min,
+    com republicação da primeira página de cada shard. Correção preparada; nova rodada depende
+    de CI e deploy. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
+  - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e
     previamente dimensionada (não enviar 100k e-mails reais por padrão). Para a coorte, medir
     `NotificationIntent` → router → fila/relay de e-mail → worker → aceitação pelo SES, latência até
     o provedor, DLQ, bounce e complaint. Registrar claramente o tamanho da coorte, limites/quota do
     SES e qualquer supressão; `CANCELLED/RECIPIENT_NOT_FOUND` não conta como entrega validada.
+    Production access foi concedido em 2026-09-18 (`us-east-1`, 50.000/24h, 14/s); portanto a
+    rodada medirá 100k reminders e uma coorte de e-mail menor que a quota, com margem operacional.
     Estratégia eficiente, coortes e gates: [preparação de 100k](results/PERF-12-100k-preparation.md).
   - [ ] 1M — pendente (depende da decisão acima).
   - [x] Investigar atraso de 10k — duplicações e espera correlacionadas à população exata;
@@ -140,10 +142,10 @@ itens de acompanhamento fora do programa de performance.
     pelo commit `24ece76`; as duas rodadas limpas seguintes completaram 10.000/10.000 sem perda.
   - [~] 17.5 (tuning intermediário) — PF2 medido e insuficiente; PF4 implementado e testado
     localmente, ainda não implantado. Serve para caracterizar a curva, não como arquitetura final.
-  - [~] 17.6 (redesenho horizontal) — D-299/D-300 implementados; D-301/D-302 aprovam o próximo
-    desenho: DueWorkTable autoritativa sem stream + tabela/stream/relay/fila de controle exclusivos,
-    sharding versionado e reconciliador próprio. Implementação e validação ainda pendentes. Burst
-    não comprova rollback/entrega no provedor (ver runbook).
+  - [x] 17.6 (redesenho horizontal) — D-301/D-302 implementados e implantados: DueWorkTable
+    autoritativa sem stream, tabela/stream/relay/fila de controle exclusivos, sharding versionado,
+    reconciliador próprio, backfill idempotente e cutover exclusivo v2. Canary de 1k aprovado;
+    revalidação de 10k rastreada separadamente. Burst não comprova rollback/entrega no provedor.
 - [x] PERF-13 — DynamoDB/Capacity Model v2 (personas small/medium/large; Contributor Insights; separar cold table capacity de bottleneck real). Critério de saída: inventário completo (1 tabela de negócio single-table, `exptrk-dev-table`, on-demand, 9 GSIs, + 2 tabelas auxiliares de sessão/guest-delivery); Contributor Insights habilitado nas 3 tabelas (era DISABLED) — capability verified, sem dados ainda (tráfego dev insuficiente); 3 personas modeladas por leitura de código (não medição empírica) — PK por entidade evita hot partition estrutural na tabela base, GSI1 (`ITEMSTATUS#ACTIVE`) tem risco moderado de concentração de escrita em tenant "large" sob rajada, GSI8/GSI3 concentram por design (mitigado via IAM `LeadingKeys` por worker); CloudWatch 7 dias confirma ZERO throttling/erros de sistema e consumo de capacidade desprezível (pico 4 RCU / 10 WCU por datapoint de 5min) — latência p95 do PERF-04 NÃO é causada por capacidade DynamoDB. Ver `docs/engineering/performance/results/PERF-13-dynamodb-capacity.md`.
 
 ## Fechamento

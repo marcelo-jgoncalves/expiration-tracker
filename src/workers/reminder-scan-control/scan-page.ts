@@ -1,6 +1,7 @@
 import { dueWorkPartition, dueWorkUpperBound, type ReminderDueWorkItem } from "../../modules/reminder/domain/reminder-due-work.js";
 import type { ReminderDueWorkStore } from "../../modules/reminder/ports/reminder-due-work-store.js";
 import { deserializeCanonicalKey, serializeCanonicalKey } from "../../shared/dynamodb/canonical-key.js";
+import { isSoleConditionalCancellation } from "../../shared/dynamodb/occ.js";
 import { mapWithConcurrency } from "../../shared/concurrency/map-with-concurrency.js";
 import { DependencyUnavailableError, InternalError } from "../../shared/errors/app-error.js";
 import { nextAttemptDelayMs } from "../../shared/outbox/outbox.js";
@@ -27,6 +28,6 @@ export async function runControlScanPage(deps:ControlScanDeps, message:ScanConti
   const sent=await mapWithConcurrency(chunks,5,async part=>send(deps,part)); const failure=sent.find(result=>!result.ok);if(failure&&!failure.ok)throw failure.error;
   const next=serializeCanonicalKey(page.lastEvaluatedKey);
   try{await deps.controlStore.transact(checkpointControlChain(deps,lease,ref,message.data.lastEvaluatedKey,next,commands.length,deps.leaseDurationMs));}
-  catch(error){if((error as {name?:string}).name==="TransactionCanceledException")return {kind:"LOST_CHECKPOINT_RACE"};throw error;}
+  catch(error){if(isSoleConditionalCancellation(error,0))return {kind:"LOST_CHECKPOINT_RACE"};throw error;}
   return {kind:"PROCESSED",candidatesPublished:commands.length,completed:next===undefined};
 }

@@ -18,4 +18,11 @@ describe("dedicated reminder scan control model",()=>{
     const lease={...scanLeaseKey(ref),entityType:"REMINDER_SCAN_LEASE",status:"IN_PROGRESS",ownerToken:"owner",version:3,rolloutEpoch:4,observedNow:"2026-09-17T18:49:05.000Z",leaseUntil:"2026-09-17T18:52:00.000Z",pagesProcessed:1,candidatesPublished:200,createdAt:"2026-09-17T18:49:05.000Z",updatedAt:"2026-09-17T18:49:05.000Z",purgeAfterTtl:1} satisfies ScanLeaseV2;
     const tx=checkpointControlChain(deps,lease,ref,undefined,undefined,10,200_000) as Array<{Update?:{UpdateExpression:string}}> ;expect(tx).toHaveLength(1);expect(tx[0]?.Update?.UpdateExpression).toContain("#status = :complete");
   });
+  it("does not send unused expression aliases on a non-terminal checkpoint",()=>{
+    const lease={...scanLeaseKey(ref),entityType:"REMINDER_SCAN_LEASE",status:"IN_PROGRESS",ownerToken:"owner",version:3,rolloutEpoch:4,observedNow:"2026-09-17T18:49:05.000Z",leaseUntil:"2026-09-17T18:52:00.000Z",pagesProcessed:1,candidatesPublished:200,createdAt:"2026-09-17T18:49:05.000Z",updatedAt:"2026-09-17T18:49:05.000Z",purgeAfterTtl:1} satisfies ScanLeaseV2;
+    const tx=checkpointControlChain(deps,lease,ref,undefined,"cursor",200,200_000) as Array<{Update?:{ExpressionAttributeNames:Record<string,string>;UpdateExpression:string}}>;
+    const update=tx[0]!.Update!;
+    expect(update.UpdateExpression).not.toContain("#gpk");
+    expect(update.ExpressionAttributeNames["#gpk"]).toBeUndefined();
+  });
 });
