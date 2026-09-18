@@ -7,6 +7,9 @@
 > `quality-gate-tiers.md` + `joint-review-criteria.md` (nossos "pilares") — não os substitui, não
 > duplica o texto deles, só torna a aplicação rápida de verificar item a item. Em qualquer
 > divergência entre esta checklist e um dos quatro documentos-fonte, o documento-fonte vence.
+> Existe uma Skill (`/task-checklist`, `.claude/skills/task-checklist/SKILL.md`) que aplica este
+> arquivo de forma consistente — invocação do próprio agente, não hook bloqueante (`definition-of-
+> done.md` §"O que isso NÃO é").
 
 ## 0. Isto é uma unidade válida de conclusão?
 
