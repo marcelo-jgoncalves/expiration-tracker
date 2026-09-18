@@ -54,8 +54,11 @@ mais de uma janela de 24 horas.
 Antes da execução:
 
 - confirmar a identidade remetente e registrar se ainda é um endereço pessoal;
-- dimensionar a coorte abaixo da quota disponível no preflight e limitar o worker a no máximo
-  14 envios/s;
+- dimensionar a coorte abaixo da quota disponível no preflight;
+- criar um controle explícito de admissão antes da coorte: o mapping atual do
+  `email-delivery` está habilitado com batch 10 e sem `MaximumConcurrency`, portanto não há hoje
+  garantia de permanecer abaixo de 14 envios/s durante um burst. A rodada não deve inferir esse
+  limite a partir de latência média nem depender de throttling do SES como regulador;
 - usar o simulador do SES para sucesso, bounce, complaint, out-of-office e suppression list;
 - reservar uma coorte real pequena, controlada e consentida para conferir recebimento, headers,
   links e latência ponta a ponta;
@@ -68,6 +71,7 @@ Antes da execução:
 - nenhuma escrita direta de entidade de negócio no DynamoDB;
 - destinatários sintéticos provisionados e atribuídos;
 - quota SES e identidade remetente registradas no preflight;
+- taxa efetiva do canal de e-mail limitada de forma mensurável a no máximo 14 envios/s;
 - contagem exata de 100.000 occurrences `SCHEDULED` antes do alvo;
 - critérios separados para reminder, notification/router e provider;
 - avaliação pontual agendada durante preparação e após o burst, sem polling contínuo.
