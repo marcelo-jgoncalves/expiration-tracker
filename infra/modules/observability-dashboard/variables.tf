@@ -36,6 +36,11 @@ variable "http_function_names" {
   type        = map(string)
 }
 
+variable "synthetic_canary_name" {
+  description = "CloudWatch Synthetics canary shown alongside service telemetry."
+  type        = string
+}
+
 # --- reminder-dispatch (SQS-triggered - Errors/Invocations/Duration are valid native signals) -
 
 variable "reminder_dispatch_function_name" {

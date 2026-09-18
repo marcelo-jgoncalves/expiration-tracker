@@ -24,6 +24,8 @@ export const options = {
   duration: __ENV.DURATION || "30s",
   thresholds: {
     http_req_failed: ["rate<0.01"], // error rate > 1% is a PERF-11 stop condition
+    http_req_duration: ["p(95)<3000"],
+    checks: ["rate==1"],
   },
 };
 

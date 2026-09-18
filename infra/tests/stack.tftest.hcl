@@ -1195,6 +1195,10 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
     error_message = "PERF-14 must keep native throttle alarms for BFF, Items, and Subjects"
   }
   assert {
+    condition     = module.synthetic_canary.canary_name != "" && module.synthetic_canary.failure_alarm_name != ""
+    error_message = "PERF-14 external synthetic canary and its failure alarm must exist"
+  }
+  assert {
     condition     = module.dispatch_queue.dlq_age_alarm_name != ""
     error_message = "Dispatch queue DLQ age alarm must still exist with the alert topic wired"
   }

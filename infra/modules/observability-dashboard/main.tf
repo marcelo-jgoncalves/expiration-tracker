@@ -209,6 +209,18 @@ resource "aws_cloudwatch_dashboard" "operations" {
           ]
         }
       },
+      {
+        type = "metric", x = 0, y = 44, width = 24, height = 6,
+        properties = {
+          title  = "External synthetic availability and duration"
+          region = var.aws_region
+          period = 300
+          metrics = [
+            ["CloudWatchSynthetics", "SuccessPercent", "CanaryName", var.synthetic_canary_name, { stat = "Average" }],
+            ["CloudWatchSynthetics", "Duration", "CanaryName", var.synthetic_canary_name, { stat = "p95", yAxis = "right" }],
+          ]
+        }
+      },
     ]
   })
 }

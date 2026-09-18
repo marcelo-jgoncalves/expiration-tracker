@@ -208,3 +208,17 @@ alarmes de regressao sustentada. Os limiares sao 1.500 ms (BFF proxy), 750 ms (R
 1.000 ms (Items) e 1.500 ms (Subjects), exigindo tres janelas consecutivas de cinco minutos.
 Dados ausentes nao disparam alarme, pois o trafego de `dev` e intermitente. Latencia e backlog
 ficam cobertos; o fechamento de throttling e synthetic canaries permanece independente.
+
+## Gate autenticado e canário externo — 2026-09-18
+
+O smoke k6 de PR usa o fluxo real `/bff/login` → Cognito Hosted UI → `/bff/callback`, com o
+usuário sintético dedicado. E-mail e senha ficam em GitHub Actions Secrets; o cookie é criado
+novamente em cada job, salvo apenas no workspace efêmero e nunca impresso no log. PRs vindos de
+fork não executam o job. O cenário usa 1 VU por 15 segundos para permanecer muito abaixo da
+quota por tenant e falha quando houver erro HTTP >=1%, algum check inválido ou p95 >=3 segundos.
+
+O canário CloudWatch roda a cada cinco minutos sem credenciais. Ele valida `GET /` na borda e
+`GET /bff/session`, incluindo o contrato `authenticated=false`. Uma falha isolada não alerta;
+duas execuções consecutivas abaixo de 100% notificam o tópico operacional. Os artefatos ficam
+em bucket privado com SSE-S3 e expiram em 30 dias. A disponibilidade e a duração do canário
+também aparecem no dashboard consolidado.
