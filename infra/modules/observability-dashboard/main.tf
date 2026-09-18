@@ -170,6 +170,112 @@ resource "aws_cloudwatch_dashboard" "operations" {
           query  = "SOURCE '${local.guest_credential_delivery_log_group}' | ${local.per_tenant_outcome_query}"
         }
       },
+      {
+        type = "metric", x = 0, y = 32, width = 12, height = 6,
+        properties = {
+          title  = "BFF latency decomposition (p95)"
+          region = var.aws_region
+          period = 300
+          stat   = "p95"
+          metrics = [
+            ["ExpirationTracker/BFF", "bff.session_resolve_ms"],
+            ["ExpirationTracker/BFF", "bff.proxy_ms"],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 32, width = 12, height = 6,
+        properties = {
+          title  = "Resource latency decomposition (p95)"
+          region = var.aws_region
+          period = 300
+          stat   = "p95"
+          metrics = [
+            ["ExpirationTracker/RequestContext", "lambda.request_context_ms"],
+            ["ExpirationTracker/Items", "lambda.business_operation_ms"],
+            ["ExpirationTracker/Subjects", "lambda.business_operation_ms"],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 38, width = 24, height = 6,
+        properties = {
+          title  = "HTTP Lambdas - throttles"
+          region = var.aws_region
+          period = 300
+          stat   = "Sum"
+          metrics = [for label, function_name in var.http_function_names :
+            ["AWS/Lambda", "Throttles", "FunctionName", function_name, { label = label }]
+          ]
+        }
+      },
     ]
   })
+}
+
+# PERF-14 thresholds are deliberately above the measured 2026-09-14..18 warm p95 envelope.
+# Three breaching five-minute windows avoid paging on an isolated cold start while still
+# detecting a sustained regression. Missing data is healthy because dev traffic is intermittent.
+locals {
+  latency_alarms = {
+    bff_proxy = {
+      namespace = "ExpirationTracker/BFF"
+      metric    = "bff.proxy_ms"
+      threshold = 1500
+    }
+    request_context = {
+      namespace = "ExpirationTracker/RequestContext"
+      metric    = "lambda.request_context_ms"
+      threshold = 750
+    }
+    items_operation = {
+      namespace = "ExpirationTracker/Items"
+      metric    = "lambda.business_operation_ms"
+      threshold = 1000
+    }
+    subjects_operation = {
+      namespace = "ExpirationTracker/Subjects"
+      metric    = "lambda.business_operation_ms"
+      threshold = 1500
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "latency_regression" {
+  for_each = local.latency_alarms
+
+  alarm_name                            = "${var.name_prefix}-${replace(each.key, "_", "-")}-p95-latency"
+  namespace                             = each.value.namespace
+  metric_name                           = each.value.metric
+  extended_statistic                    = "p95"
+  period                                = 300
+  evaluation_periods                    = 3
+  datapoints_to_alarm                   = 3
+  evaluate_low_sample_count_percentiles = "ignore"
+  threshold                             = each.value.threshold
+  comparison_operator                   = "GreaterThanThreshold"
+  alarm_description                     = "PERF-14: ${each.value.metric} p95 exceeded ${each.value.threshold} ms for three consecutive five-minute windows. Investigate the operations dashboard and traces."
+  treat_missing_data                    = "notBreaching"
+  alarm_actions                         = [var.alert_topic_arn]
+  ok_actions                            = [var.alert_topic_arn]
+  tags                                  = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "http_lambda_throttles" {
+  for_each = var.http_function_names
+
+  alarm_name          = "${var.name_prefix}-${each.key}-throttles"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  dimensions          = { FunctionName = each.value }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  alarm_description   = "PERF-14: ${each.key} Lambda was throttled. Check account concurrency, reserved concurrency, and request volume."
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alert_topic_arn]
+  ok_actions          = [var.alert_topic_arn]
+  tags                = var.tags
 }

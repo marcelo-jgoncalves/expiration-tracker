@@ -155,8 +155,8 @@ itens de acompanhamento fora do programa de performance.
   - [x] Lighthouse CI gate — `@lhci/cli` + `frontend/lighthouserc.json`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [ ] k6 smoke em PR — **desbloqueado 2026-09-14**: quota de Lambda Concurrent Executions em 1000 na conta `dev` (PERF-01). Ainda não implementado — próximo passo.
   - [ ] Synthetic canaries — **desbloqueado quanto à quota**; ainda depende de infra não provisionada.
-  - [ ] Alarms de latência/throttle/backlog — **bloqueado**: métricas EMF customizadas do PERF-02 não estão chegando ao CloudWatch nesta conta (achado PERF-04/PERF-08), nada para alarmar ainda.
-  - [ ] Dashboard consolidado — **bloqueado**: depende dos 2 itens acima (canaries + métricas reais).
+  - [x] Alarms de latência/throttle/backlog — métricas EMF confirmadas ao vivo em 2026-09-18; quatro alarmes p95 e três alarmes de throttling nativo adicionados. Backlog já estava coberto.
+  - [x] Dashboard consolidado — `exptrk-dev-operations` confirmado ao vivo e ampliado com gráficos p95 e throttling de BFF, Items e Subjects. Synthetic canaries serão incorporados quando existirem.
 - [ ] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle)
 
 ---

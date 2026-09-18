@@ -15,6 +15,11 @@ variable "aws_region" {
   type = string
 }
 
+variable "alert_topic_arn" {
+  description = "SNS topic notified when a performance regression alarm changes state."
+  type        = string
+}
+
 variable "dashboard_name" {
   description = "Dashboard name. Defaults to \"<name_prefix>-operations\" via a local, never a variable-referencing default (Terraform does not allow one var's default to reference another var)."
   type        = string
@@ -24,6 +29,11 @@ variable "dashboard_name" {
 variable "table_name" {
   description = "Main DynamoDB table name (module.table.table_name)."
   type        = string
+}
+
+variable "http_function_names" {
+  description = "Latency-instrumented HTTP Lambda function names monitored for native throttles."
+  type        = map(string)
 }
 
 # --- reminder-dispatch (SQS-triggered - Errors/Invocations/Duration are valid native signals) -

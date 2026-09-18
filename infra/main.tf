@@ -1513,9 +1513,15 @@ resource "aws_lambda_event_source_mapping" "notification_whatsapp_outbox_relay_f
 module "observability_dashboard" {
   source = "./modules/observability-dashboard"
 
-  name_prefix = local.name_prefix
-  aws_region  = var.aws_region
-  table_name  = module.table.table_name
+  name_prefix     = local.name_prefix
+  aws_region      = var.aws_region
+  alert_topic_arn = module.alert_topic.topic_arn
+  table_name      = module.table.table_name
+  http_function_names = {
+    bff      = module.bff_handler.function_name
+    items    = module.items_handler.function_name
+    subjects = module.subjects_handler.function_name
+  }
 
   reminder_dispatch_function_name = module.reminder_dispatch.function_name
   reminder_dispatch_queue_name    = module.dispatch_queue.queue_name

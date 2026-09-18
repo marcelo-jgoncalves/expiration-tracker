@@ -193,3 +193,18 @@ Nenhum destes foi tentado nesta fatia (fora de escopo explícito):
 
 Estes 4 continuam listados como pendentes em `docs/engineering/performance/TODO.md`, não
 marcados como concluídos.
+
+## Revalidacao de observabilidade - 2026-09-18
+
+A premissa de bloqueio registrada acima ficou obsoleta apos deploys posteriores. A conta `dev`
+agora publica metricas nos namespaces `ExpirationTracker/BFF`, `ExpirationTracker/RequestContext`,
+`ExpirationTracker/Items` e `ExpirationTracker/Subjects`, e o dashboard `exptrk-dev-operations`
+esta implantado. A medicao real de sete dias mostrou, fora das janelas de carga intencional, p95
+horario de aproximadamente 300-820 ms no proxy BFF, 180-424 ms em RequestContext, 258-592 ms
+em Items e 432-742 ms em Subjects.
+
+O modulo `observability-dashboard` passou a incluir graficos p95 dessa decomposicao e quatro
+alarmes de regressao sustentada. Os limiares sao 1.500 ms (BFF proxy), 750 ms (RequestContext),
+1.000 ms (Items) e 1.500 ms (Subjects), exigindo tres janelas consecutivas de cinco minutos.
+Dados ausentes nao disparam alarme, pois o trafego de `dev` e intermitente. Latencia e backlog
+ficam cobertos; o fechamento de throttling e synthetic canaries permanece independente.
