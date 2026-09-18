@@ -204,3 +204,27 @@ run "schedules_can_be_disabled_via_kill_switch" {
     error_message = "Kill switch must disable every schedule, not just one"
   }
 }
+
+run "legacy_producer_can_be_disabled_independently" {
+  command = apply
+
+  variables {
+    reminder_producer_function_arn        = "arn:aws:lambda:us-east-1:123456789012:function:reminder-producer"
+    reminder_producer_function_name       = "reminder-producer-3"
+    reminder_reconciliation_function_arn  = "arn:aws:lambda:us-east-1:123456789012:function:reminder-reconciliation"
+    reminder_reconciliation_function_name = "reminder-reconciliation-3"
+    outbox_sweeper_function_arn           = "arn:aws:lambda:us-east-1:123456789012:function:outbox-sweeper-reminder-dispatch"
+    outbox_sweeper_function_name          = "outbox-sweeper-reminder-dispatch-3"
+    reminder_producer_enabled             = false
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.reminder_producer.state == "DISABLED"
+    error_message = "The dedicated-scan cutover must disable the legacy producer schedule"
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.reminder_claim_reconciliation.state == "ENABLED" && aws_scheduler_schedule.reminder_dst_reconciliation.state == "ENABLED" && aws_scheduler_schedule.outbox_sweeper.state == "ENABLED"
+    error_message = "Disabling legacy discovery must leave reconciliation and sweeper schedules enabled"
+  }
+}

@@ -62,7 +62,7 @@ resource "aws_iam_role_policy" "reminder_producer_invoke" {
 resource "aws_scheduler_schedule" "reminder_producer" {
   name                = "reminder-producer"
   schedule_expression = "rate(1 minute)"
-  state               = local.state
+  state               = var.schedules_enabled && var.reminder_producer_enabled ? "ENABLED" : "DISABLED"
 
   flexible_time_window {
     mode = "OFF"

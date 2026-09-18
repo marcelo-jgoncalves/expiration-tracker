@@ -8,6 +8,7 @@ environment              = "dev"
 aws_region               = "us-east-1"
 schedules_enabled        = true
 reminder_scan_v2_enabled = true
+reminder_scan_legacy_enabled = false
 mfa_policy               = "OPTIONAL"
 
 # Real finding from the first `terraform apply` against this account (2026-08-20): the

@@ -388,7 +388,7 @@ resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
   # PUBLISHED-outcome Logs Insights query, `completed>0` on a real enumeration tick, a real
   # reminder-claim-consumer invocation) before restoring maximum_concurrency to its real target
   # (10) and before any load test.
-  enabled = true
+  enabled = var.reminder_scan_legacy_enabled
   # DECISION.md §3: batch size 1 - scan continuation messages are causally chained (each page's
   # checkpoint enqueues the next), concurrency here would recreate the exact race the lease
   # exists to eliminate.
@@ -1668,6 +1668,7 @@ module "schedule" {
   outbox_sweeper_function_arn           = module.outbox_sweeper.live_alias_arn
   outbox_sweeper_function_name          = module.outbox_sweeper.function_name
   schedules_enabled                     = var.schedules_enabled
+  reminder_producer_enabled             = var.reminder_scan_legacy_enabled
   tags                                  = { Project = local.project_name, Environment = var.environment }
 }
 
