@@ -7,7 +7,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryReminderStore, makeReminderIdGenerator } from "./in-memory-store.js";
 import { ReminderPolicyService } from "../../../src/modules/reminder/application/reminder-policy-service.js";
-import { policyKey, activePolicyPointerKey, validatePolicyScope } from "../../../src/modules/reminder/domain/reminder-policy.js";
+import { policyKey, activePolicyPointerKey, validatePolicyScope, type ReminderPolicy } from "../../../src/modules/reminder/domain/reminder-policy.js";
 import { itemKey } from "../../../src/modules/expiration/domain/expiration-item.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
@@ -332,6 +332,33 @@ describe("ReminderPolicyService - updatePolicy pointer lifecycle", () => {
     );
     expect(updated.name).toBe("renamed");
     expect(await store.get(activePolicyPointerKey(TENANT, "item1"))).toBeDefined();
+  });
+
+  it("removes omitted optional rule fields instead of emitting undefined expression values", async () => {
+    const policy = await service.createPolicy(ctx, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: {
+        name: "r",
+        triggers: [{ triggerId: "t1", offsetIso: "-P7D", localTime: "09:00" }],
+        timeZone: "America/Sao_Paulo",
+        quietHours: { startLocalTime: "22:00", endLocalTime: "07:00" },
+        channels: ["EMAIL"],
+        optOutChannels: ["EMAIL"],
+      },
+    });
+
+    const updated = await service.updatePolicy(ctx, policy.policyId, {
+      scope: "ITEM",
+      itemId: "item1",
+      rule: { name: "r2", triggers: policy.triggers, timeZone: policy.timeZone, channels: policy.channels },
+    }, 1);
+
+    expect(updated.quietHours).toBeUndefined();
+    expect(updated.optOutChannels).toBeUndefined();
+    const persisted = await store.get<ReminderPolicy>(policyKey(TENANT, policy.policyId));
+    expect(persisted?.quietHours).toBeUndefined();
+    expect(persisted?.optOutChannels).toBeUndefined();
   });
 
   it("rejects a same-item update (unrelated field edit) when the target item is no longer ACTIVE (Codex implementation-review finding: this integrity check must not be skipped just because the pointer write is)", async () => {

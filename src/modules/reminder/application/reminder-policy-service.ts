@@ -171,15 +171,21 @@ export class ReminderPolicyService {
     const tenantId = authorizedTenantId(ctx);
     const set: Record<string, unknown> = {
       scope: input.scope,
-      itemId: input.itemId,
       name: input.rule.name,
       triggers: input.rule.triggers,
       timeZone: input.rule.timeZone,
-      quietHours: input.rule.quietHours,
       channels: input.rule.channels,
-      optOutChannels: input.rule.optOutChannels,
       enabled: input.enabled ?? policy.enabled,
     };
+    const remove: string[] = [];
+    for (const [field, value] of [
+      ["itemId", input.itemId],
+      ["quietHours", input.rule.quietHours],
+      ["optOutChannels", input.rule.optOutChannels],
+    ] as const) {
+      if (value === undefined) remove.push(field);
+      else set[field] = value;
+    }
 
     const entries: TransactWriteEntry[] = [
       {
@@ -189,6 +195,7 @@ export class ReminderPolicyService {
           tenantId,
           expectedVersion,
           set,
+          remove,
         }),
       },
     ];
@@ -232,7 +239,9 @@ export class ReminderPolicyService {
       throw err;
     }
 
-    return { ...policy, ...(set as Partial<ReminderPolicy>), version: expectedVersion + 1, updatedAt: this.now() };
+    const updated = { ...policy, ...(set as Partial<ReminderPolicy>), version: expectedVersion + 1, updatedAt: this.now() };
+    for (const field of remove) delete (updated as unknown as Record<string, unknown>)[field];
+    return updated;
   }
 
   async disablePolicy(ctx: RequestContext, policyId: string, expectedVersion: number): Promise<void> {
