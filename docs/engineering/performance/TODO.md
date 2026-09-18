@@ -111,8 +111,10 @@ itens de acompanhamento fora do programa de performance.
   - [~] 10k — as duas repetições de 2026-09-17 completaram 10.000/10.000, mas reprovaram o
     SLO (máximos 359,983s e 331,173s) e motivaram D-301/D-302. O plano de controle dedicado foi
     implantado, recebeu backfill idempotente e passou no canary pós-correção de 1.000/1.000 com
-    máximo 195,581s. O cutover exclusivo para v2 foi concluído. A revalidação de 10k em v2 está
-    em execução em 2026-09-18; resultado pendente. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
+    máximo 195,581s. O cutover exclusivo para v2 foi concluído. A revalidação de 10k em v2
+    reprovou em 2026-09-18 por um checkpoint DynamoDB inválido: 3.200/10.000 em alvo +20 min,
+    com republicação da primeira página de cada shard. Correção preparada; nova rodada depende
+    de CI e deploy. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e
