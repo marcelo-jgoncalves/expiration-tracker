@@ -19,23 +19,26 @@ async function pass() {
       ExpressionAttributeValues: { ":scheduled":"SCHEDULED", ":reminder":"ReminderOccurrence", ":chasing":"DocumentChasingOccurrence" },
       ExclusiveStartKey: cursor,
     }));
-    for (const occurrence of (page.Items ?? []) as Occurrence[]) {
-      scanned++;
-      const now = new Date().toISOString();
-      const item = buildReminderDueWorkItem({
-        entityKind: occurrence.entityType === "ReminderOccurrence" ? "REMINDER" : "CHASING",
-        tenantId: occurrence.tenantId, occurrenceId: occurrence.occurrenceId,
-        occurrenceKey: { PK:occurrence.PK, SK:occurrence.SK }, scheduledAt: occurrence.scheduledAt,
-        shardFnVersion: occurrence.shardFnVersion, shardId: Number(occurrence.shard), now,
-        purgeAfterTtl: occurrence.purgeAfterTtl ?? Math.floor(Date.parse(occurrence.scheduledAt)/1000)+30*86400,
-      });
-      try {
-        await client.send(new PutCommand({ TableName:dueTable, Item:item, ConditionExpression:"attribute_not_exists(PK) AND attribute_not_exists(SK)" }));
-        created++;
-      } catch (error) {
-        if ((error as {name?:string}).name === "ConditionalCheckFailedException") existing++;
-        else throw error;
-      }
+    const occurrences = (page.Items ?? []) as Occurrence[];
+    scanned += occurrences.length;
+    for (let offset=0; offset<occurrences.length; offset+=25) {
+      await Promise.all(occurrences.slice(offset, offset+25).map(async (occurrence) => {
+        const now = new Date().toISOString();
+        const item = buildReminderDueWorkItem({
+          entityKind: occurrence.entityType === "ReminderOccurrence" ? "REMINDER" : "CHASING",
+          tenantId: occurrence.tenantId, occurrenceId: occurrence.occurrenceId,
+          occurrenceKey: { PK:occurrence.PK, SK:occurrence.SK }, scheduledAt: occurrence.scheduledAt,
+          shardFnVersion: occurrence.shardFnVersion, shardId: Number(occurrence.shard), now,
+          purgeAfterTtl: occurrence.purgeAfterTtl ?? Math.floor(Date.parse(occurrence.scheduledAt)/1000)+30*86400,
+        });
+        try {
+          await client.send(new PutCommand({ TableName:dueTable, Item:item, ConditionExpression:"attribute_not_exists(PK) AND attribute_not_exists(SK)" }));
+          created++;
+        } catch (error) {
+          if ((error as {name?:string}).name === "ConditionalCheckFailedException") existing++;
+          else throw error;
+        }
+      }));
     }
     cursor = page.LastEvaluatedKey;
   } while (cursor);

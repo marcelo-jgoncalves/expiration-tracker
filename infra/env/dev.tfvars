@@ -4,10 +4,11 @@
 # (e.g. from `aws sts get-caller-identity` under AWS_PROFILE=claude-dev) rather than
 # committing an account ID that only applies to one operator's environment.
 
-environment       = "dev"
-aws_region        = "us-east-1"
-schedules_enabled = true
-mfa_policy        = "OPTIONAL"
+environment              = "dev"
+aws_region               = "us-east-1"
+schedules_enabled        = true
+reminder_scan_v2_enabled = true
+mfa_policy               = "OPTIONAL"
 
 # Real finding from the first `terraform apply` against this account (2026-08-20): the
 # claude-dev account's Lambda concurrent execution limit is only 10 total (new/unverified-
