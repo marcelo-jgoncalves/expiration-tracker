@@ -50,8 +50,9 @@ variable "document_request_initial_invite_email_enabled" {
     rate limit) já é implementado independente deste valor, mas o ENVIO em si nunca acontece
     com o switch desligado, mesmo que a preferência de tenant ou o override por chamada peçam
     EMAIL explicitamente. Ligar este switch em produção real exige primeiro o gate operacional
-    registrado em D-049 (spike de validação SES em sandbox real, alarme de bounce/complaint,
-    runbook de desligamento) - nenhum desses itens está fechado ainda.
+    registrado em D-049 (validação SES real, alarme de bounce/complaint e runbook de
+    desligamento). Production access no ambiente dev foi concedido em 2026-09-18; os demais
+    gates continuam independentes deste switch.
   EOT
   type        = bool
   default     = false
@@ -64,9 +65,9 @@ variable "membership_invite_email_enabled" {
     document_request_initial_invite_email_enabled: o mecanismo técnico (SesEmailAdapter/template
     "organization-invitation") já é implementado independente deste valor, mas o ENVIO em si nunca
     acontece com o switch desligado. Ligar em `dev` (Wave B2B-14, D-120) foi possível só depois de
-    verificar manualmente 2 endereços reais na conta SES sandbox (nenhum identity verificado antes
-    disso) - ligar em produção real exigiria o mesmo gate operacional ainda pendente para D-049
-    (sandbox->produção, alarme de bounce/complaint, runbook de desligamento).
+    verificar manualmente 2 endereços reais no SES. Production access no ambiente dev foi
+    concedido em 2026-09-18; ligar em produção real ainda exige o gate operacional de D-049
+    (identidade apropriada, alarme de bounce/complaint e runbook de desligamento).
   EOT
   type        = bool
   default     = false
@@ -110,14 +111,12 @@ variable "budget_notification_emails" {
 
 variable "ses_from_address" {
   description = <<-EOT
-    Verified SES sender address for M4's EmailDeliveryWorker (SES sandbox/test account,
-    implementation-blueprint.md §19 M4 scope). No default - SES identity verification is a
-    manual, out-of-band, one-time step against whichever address/domain the sandbox test
-    account uses (tracked separately, not a Terraform-managed resource here), and this
+    Verified SES sender address for M4's EmailDeliveryWorker. The dev account has production
+    access, but remains a controlled non-production environment. No default - SES identity
+    verification is a manual, out-of-band, one-time step against the selected address/domain
+    (tracked separately, not a Terraform-managed resource here), and this
     variable must fail fast rather than silently deploy against an unverified/placeholder
-    address. Set via -var or TF_VAR_ses_from_address once the sandbox spike
-    (docs/architecture/m4-notification-engine-design.md, item aberto #2 do fechamento de
-    rodada 3) verifies an identity.
+    address. Set via -var or TF_VAR_ses_from_address after verifying the identity.
   EOT
   type        = string
 }

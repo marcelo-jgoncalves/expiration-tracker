@@ -1,6 +1,6 @@
 /**
- * Real Amazon SES adapter for EmailProviderAdapter (M4). SES sandbox/test account for this
- * milestone (implementation-blueprint.md §19 M4 scope: "provider sandbox/test account").
+ * Real Amazon SES adapter for EmailProviderAdapter (M4). The dev account has SES production
+ * access, but remains a controlled non-production environment.
  *
  * Classifies SDK failures into the three EmailSendFailureKind buckets the delivery
  * workflow needs (docs/architecture/reviews/m4-notification-engine-design/

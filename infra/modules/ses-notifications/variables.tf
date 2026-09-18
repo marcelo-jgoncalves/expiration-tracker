@@ -1,6 +1,6 @@
 # SES Configuration Set + event destination (SNS) for M4's SesCallbackWorker
-# (docs/architecture/m4-notification-engine-design.md §11.1). SES sandbox/test account for
-# this milestone (implementation-blueprint.md §19 M4 scope) - identity verification itself
+# (docs/architecture/m4-notification-engine-design.md §11.1). The dev account has SES production
+# access, but remains a controlled non-production environment. Identity verification itself
 # (aws_sesv2_email_identity + DNS records) is NOT managed here: it's an out-of-band, one-time
 # setup step against whichever domain/address the sandbox test account uses, tracked
 # separately (not a repeatable per-environment resource the way queues/topics are).
