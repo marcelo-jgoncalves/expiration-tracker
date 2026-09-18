@@ -14,16 +14,23 @@ const TABLE = 'exptrk-dev-table';
 const ACCOUNT = '975707451904';
 const REGION = 'us-east-1';
 const PROFILE = 'claude-dev';
-const EXPECTED = 10000;
-const PER_TENANT = 1000;
+const EXPECTED = Number(process.env.PERF_REMINDER_BURST_SIZE ?? 10000);
+requireThatBurstSize(EXPECTED);
+const PER_TENANT = EXPECTED / 10;
 // Cognito access tokens last 15 minutes. The harness sends explicit Cookie headers, so it cannot
 // adopt rotated cookies from BFF refresh responses. Reauthenticate between sub-10-minute rounds.
-const PAIRS_PER_SESSION = 200;
+const PAIRS_PER_SESSION = Math.min(200, PER_TENANT);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
 const log = data => console.log(JSON.stringify({ at: new Date().toISOString(), ...data }));
 const requireThat = (value, message) => { if (!value) throw new Error(message); };
+
+function requireThatBurstSize(value) {
+  if (!Number.isInteger(value) || value < 1000 || value > 100000 || value % 10 !== 0) {
+    throw new Error('PERF_REMINDER_BURST_SIZE must be an integer from 1000 to 100000 and divisible by 10');
+  }
+}
 
 export function schedule(target, now = Date.now()) {
   requireThat(typeof target === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/.test(target),
@@ -186,7 +193,7 @@ async function seed(manifest, dir, initialSessions) {
       const headers = sessions.get(tenant.organizationId);
       const cutoff = Date.parse(manifest.target) - 10 * 60000;
       const post = async (route, body) => postWithQuotaRetry(async () => {
-        requireThat(!stopped && Date.now() < cutoff, 'Seed stopped or target too close; partial load must not be called a 10k test');
+        requireThat(!stopped && Date.now() < cutoff, 'Seed stopped or target too close; partial load must not be called a completed burst test');
         await sleep(850);
         const res = await fetch(ORIGIN + route, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000), redirect: 'error' });
         return { status: res.status, body: res.status === 201 ? await res.json() : null };
@@ -198,7 +205,7 @@ async function seed(manifest, dir, initialSessions) {
         const name = `${manifest.runId}-T${tenant.index}-${i + 1}`;
         if (!row.itemId) {
           row.pending = 'item'; save(file, rows);
-          const { item } = await post('/bff/api/items', { name, category: 'PERF-12-10k', dueDate: manifest.dueDate });
+          const { item } = await post('/bff/api/items', { name, category: `PERF-12-${EXPECTED}`, dueDate: manifest.dueDate });
           requireThat(item?.itemId && item.tenantId === tenant.organizationId, 'Item response identity mismatch');
           row.itemId = item.itemId; delete row.pending; save(file, rows);
         }
