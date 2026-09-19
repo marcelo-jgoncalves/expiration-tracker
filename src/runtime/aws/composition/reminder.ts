@@ -392,7 +392,7 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
   if (!whatsAppDeliverQueueUrl) throw new Error("WHATSAPP_DELIVER_QUEUE_URL env var is required.");
   if (!reminderScanContinuationQueueUrl) throw new Error("REMINDER_SCAN_CONTINUATION_QUEUE_URL env var is required.");
 
-  const store = new DynamoDbOutboxRelayStore(client, tableName);
+  const store = new DynamoDbOutboxRelayStore(client, tableName, "outbox-sweeper");
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
     await sqsClient.send(
       new SendMessageCommand({
@@ -453,7 +453,10 @@ export function buildReminderDispatchOutboxOnlyRelayDepsFromEnv(env: Record<stri
   const queueUrl = env["DISPATCH_QUEUE_URL"];
   if (!tableName) throw new Error("TABLE_NAME env var is required.");
   if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
-  const store = new DynamoDbOutboxRelayStore(client, tableName);
+  // "reminder-dispatch-outbox-sweeper": listPendingReminderDispatch (the only method this
+  // component name reaches) is only ever actually called by that handler - the relay handler
+  // sharing this composition root never calls the sweeper function.
+  const store = new DynamoDbOutboxRelayStore(client, tableName, "reminder-dispatch-outbox-sweeper");
   const send = async (payload: Record<string, unknown>, correlationId: string) => {
     await sqsClient.send(
       new SendMessageCommand({

@@ -64,8 +64,8 @@ class FakeRelayStore implements OutboxRelayStore {
     this.leases.delete(this.keyOf(key));
   }
 
-  async listPendingReminderDispatch(input: { destination: string }): Promise<OutboxRecord[]> {
-    return this.pending.filter((r) => r.destination === input.destination);
+  async listPendingReminderDispatch(): Promise<OutboxRecord[]> {
+    return this.pending;
   }
 }
 

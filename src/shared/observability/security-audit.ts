@@ -48,7 +48,8 @@ export type GlobalIndexOperation = "Query";
 export type GlobalIndexComponent =
   | "reminder-producer"
   | "reminder-reconciliation"
-  | "outbox-sweeper-reminder-dispatch"
+  | "outbox-sweeper"
+  | "reminder-dispatch-outbox-sweeper"
   | "upload-slot-reconciliation"
   | "document-purge"
   | "membership-purge"

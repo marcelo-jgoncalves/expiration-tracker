@@ -4,7 +4,7 @@
  * ExpirationStore/ReminderStore - this is generic outbox bookkeeping, not domain state.
  */
 import type { EntityKey } from "../dynamodb/occ.js";
-import type { OutboxDestination, OutboxRecord } from "./outbox.js";
+import type { OutboxRecord } from "./outbox.js";
 
 export interface OutboxRelayStore {
   /** Conditional lease acquisition - `UpdateItem` with
@@ -13,6 +13,11 @@ export interface OutboxRelayStore {
   tryAcquireLease(key: EntityKey, leaseOwner: string, leaseExpiresAt: string, now: string): Promise<boolean>;
   /** `UpdateItem` transition PENDING -> PUBLISHED, only called after SendMessage confirmed. */
   markPublished(key: EntityKey): Promise<void>;
-  /** Sweeper only: GSI6PK=RECON#OUTBOX#PENDING, filtered by `destination` and age. */
-  listPendingReminderDispatch(input: { destination: OutboxDestination; olderThan: string; pageSize?: number }): Promise<OutboxRecord[]>;
+  /** Sweeper only: GSI6PK=RECON#OUTBOX#PENDING, filtered by age only - one query covers every
+   * destination (real finding, 2026-09-19: a per-destination `destination` filter here forced
+   * `sweepPendingDispatch` to re-scan this same shared partition once per destination, 12x the
+   * necessary read cost, timing out the Lambda under any real backlog). Routing by destination
+   * happens per-record in `publishOne`/`sweepPendingDispatch`, same as the real-time relay
+   * already does - never here. */
+  listPendingReminderDispatch(input: { olderThan: string; pageSize?: number }): Promise<OutboxRecord[]>;
 }
