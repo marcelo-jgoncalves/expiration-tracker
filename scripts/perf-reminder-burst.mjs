@@ -206,7 +206,8 @@ async function seed(manifest, dir, initialSessions) {
         const name = `${manifest.runId}-T${tenant.index}-${i + 1}`;
         if (!row.itemId) {
           row.pending = 'item'; save(file, rows);
-          const { item } = await post('/bff/api/items', { name, category: `PERF-12-${EXPECTED}`, dueDate: manifest.dueDate });
+          const { item } = await post('/bff/api/items', { name, category: `PERF-12-${EXPECTED}`, dueDate: manifest.dueDate,
+            ...(tenant.userId ? { assigneeUserId: tenant.userId } : {}) });
           requireThat(item?.itemId && item.tenantId === tenant.organizationId, 'Item response identity mismatch');
           row.itemId = item.itemId; delete row.pending; save(file, rows);
         }
