@@ -3,6 +3,7 @@ import { buildWhatsAppOutboxRecord } from "../../../src/modules/notification/app
 import { notificationAttemptKey, type NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
 import type { NotificationIntent } from "../../../src/modules/reminder/domain/notification-intent.js";
 import { defaultSchemaRegistry } from "../../../src/shared/contracts/schema-validator.js";
+import { epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../src/shared/outbox/outbox.js";
 
 const NOW = "2026-09-10T12:00:00.000Z";
 const TENANT = "t1";
@@ -82,5 +83,12 @@ describe("buildWhatsAppOutboxRecord (D-9)", () => {
     const payload = record["payload"] as { deduplicationKey: string };
     expect(payload.deduplicationKey).toContain("WHATSAPP");
     expect(payload.deduplicationKey).not.toContain("EMAIL");
+  });
+
+  // Real finding, 2026-09-19: this outbox record never had purgeAfterTtl set - catches a
+  // regression back to that, same TRANSIENT (7-day) class as shared/outbox/outbox.ts's own.
+  it("sets purgeAfterTtl 7 days past `now`", () => {
+    const record = buildWhatsAppOutboxRecord(makeIntent(), makeAttempt(), NOW, NOW);
+    expect(record["purgeAfterTtl"]).toBe(epochSecondsFromIso(NOW) + OUTBOX_TRANSIENT_RETENTION_SECONDS);
   });
 });

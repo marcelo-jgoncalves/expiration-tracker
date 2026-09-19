@@ -174,11 +174,32 @@ export interface OutboxRecord {
    * (relay/sweeper) must fall back to `eventId` when absent, per the design's fallback table.
    */
   correlationId?: string;
+  /** Real finding, 2026-09-19: the table's `purgeAfterTtl` DynamoDB TTL attribute has been
+   * enabled since D-303 (`infra/modules/reminder-dispatch-outbox-table/main.tf`) but this
+   * builder never set it - every OutboxEvent ever written (test or real production traffic)
+   * stayed in the table forever, PUBLISHED or not. Classified TRANSIENT (`privacy-lgpd.md` §4,
+   * same category/window as WebhookInbox: 7 days) - this is internal relay bookkeeping, never
+   * the delivery record itself (that's NotificationIntent/Attempt, deliberately untouched, no
+   * TTL). Optional only because records persisted before this fix don't have it (same pattern
+   * as `correlationId` above) - DynamoDB TTL simply never fires for those, same as today. */
+  purgeAfterTtl?: number;
 }
 
 /** Monthly shard for the outbox partition, matching #5.3's `TENANT#t#OUTBOX#202608` example. */
 function monthShard(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 7).replace("-", "");
+}
+
+export const OUTBOX_TRANSIENT_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+
+/** Epoch seconds DynamoDB TTL requires - same formula as `invitation-token.ts`/`guest-token.ts`/
+ * `external-share-link.ts`/`request-access-credential.ts`'s own `epochSecondsFromIso` (no shared
+ * copy exists across modules today; not worth a cross-cutting refactor just for this fix).
+ * Exported so `whatsapp-outbox.ts`/`notification-router-workflow.ts`'s own outbox-record
+ * builders (they don't go through `buildOutboxRecord` above - different payload shape) can set
+ * the same `purgeAfterTtl` instead of a 3rd copy of this formula. */
+export function epochSecondsFromIso(iso: string): number {
+  return Math.floor(Date.parse(iso) / 1000);
 }
 
 /** Real finding, 2026-09-19 (25k-item load test): `TENANT#<t>#OUTBOX#<month>` alone gives one
@@ -218,6 +239,7 @@ export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestin
     createdAt: event.occurredAt,
     GSI6PK: "RECON#OUTBOX#PENDING",
     GSI6SK: `${event.occurredAt}#${event.eventId}`,
+    purgeAfterTtl: epochSecondsFromIso(event.occurredAt) + OUTBOX_TRANSIENT_RETENTION_SECONDS,
     correlationId: event.correlationId,
     ...(destination ? { destination } : {}),
   };

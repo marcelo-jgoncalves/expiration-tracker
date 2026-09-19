@@ -28,7 +28,7 @@ import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js"
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { buildWhatsAppOutboxRecord } from "./whatsapp-outbox.js";
-import { outboxShard } from "../../../shared/outbox/outbox.js";
+import { outboxShard, epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../shared/outbox/outbox.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -454,6 +454,7 @@ function buildEmailOutboxRecord(intent: NotificationIntent, attempt: Notificatio
     createdAt: now,
     GSI6PK: "RECON#OUTBOX#PENDING",
     GSI6SK: `${now}#${eventId}`,
+    purgeAfterTtl: epochSecondsFromIso(now) + OUTBOX_TRANSIENT_RETENTION_SECONDS,
     destination: "SQS_NOTIFICATION_EMAIL_V1",
   };
 }
