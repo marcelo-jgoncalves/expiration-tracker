@@ -45,7 +45,7 @@ export async function handler(event: ParserSandboxInput): Promise<PdfParseResult
       // least logged (redacted) instead of only visible as a raw, unstructured Lambda runtime
       // error.
       const appErr = toAppError(err);
-      logger.error("parser-sandbox failed", { bucket: event.bucket, key: event.key, errorCode: appErr.code });
+      logger.error("parser-sandbox failed", { bucket: event.bucket, key: event.key, errorCode: appErr.code, errorMessage: appErr.message });
       return { outcome: "INVALID_STRUCTURE" };
     }
   });

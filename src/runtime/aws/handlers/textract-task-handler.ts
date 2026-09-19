@@ -91,7 +91,7 @@ async function handleStartOcr(event: StartOcrEvent): Promise<void> {
       // (ErrorEquals matching the thrown class's name, i.e. `errorType` - NOT appErr.code,
       // fixed for real in W2-02, see pilot-readiness-program.md) routes to
       // RunDeterministicParser regardless of which of these errors fired, per design §1.2.
-      logger.error("textract-task START_OCR failed", { documentId: event.input.documentId, runId: event.input.runId, errorCode: appErr.code });
+      logger.error("textract-task START_OCR failed", { documentId: event.input.documentId, runId: event.input.runId, errorCode: appErr.code, errorMessage: appErr.message });
       throw appErr;
     }
   });
@@ -129,7 +129,7 @@ async function handleCompleteOcr(event: SQSEvent): Promise<SQSBatchResponse> {
         logger.info("textract-task COMPLETE_OCR outcome", { jobId: message.JobId, outcome });
       } catch (err) {
         const appErr = toAppError(err);
-        logger.error("textract-task COMPLETE_OCR failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+        logger.error("textract-task COMPLETE_OCR failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable, errorMessage: appErr.message });
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     });

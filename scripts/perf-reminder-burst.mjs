@@ -33,12 +33,22 @@ function requireThatBurstSize(value) {
   }
 }
 
-export function schedule(target, now = Date.now()) {
+// Minimum lead time scales with how many pairs one tenant must seed - a 10k burst (1000/tenant)
+// needs the full 90 minutes this was originally calibrated for (login + paced seed at ~1
+// pair/2.3s + materialization), but a small verification run (e.g. 100/tenant for a 1k burst)
+// finishes seeding in a few minutes and shouldn't force an hour-plus of idle waiting. Floored at
+// 25 minutes regardless of size - login/materialization overhead doesn't shrink with burst size.
+export function minLeadMs(perTenant) {
+  return Math.max(25 * 60000, Math.ceil((perTenant / 1000) * 90 * 60000));
+}
+
+export function schedule(target, now = Date.now(), perTenant = 1000) {
   requireThat(typeof target === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/.test(target),
     'Target must be an ISO timestamp with an explicit timezone');
   const ms = Date.parse(target);
   requireThat(Number.isFinite(ms) && ms % 60000 === 0, 'Target must be an ISO timestamp on a whole minute');
-  requireThat(ms - now >= 90 * 60000, 'Allow at least 90 minutes for login, paced seed and materialization');
+  const required = minLeadMs(perTenant);
+  requireThat(ms - now >= required, `Allow at least ${Math.round(required / 60000)} minutes for login, paced seed and materialization`);
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -331,7 +341,7 @@ async function main() {
     requireThat(!existsSync(dir), 'Run ID already exists; use a new ID');
     const tenants = read(path.join(LOCAL, TENANTS_FILE)).tenants;
     assertTenants(tenants);
-    const timing = schedule(target ?? new Date(Math.ceil((Date.now() + 120 * 60000) / 60000) * 60000).toISOString());
+    const timing = schedule(target ?? new Date(Math.ceil((Date.now() + minLeadMs(PER_TENANT) + 15 * 60000) / 60000) * 60000).toISOString(), Date.now(), PER_TENANT);
     mkdirSync(dir, { recursive: true });
     const manifest = { runId, nonce: randomUUID(), createdAt: new Date().toISOString(), expected: EXPECTED,
       gitSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), ...timing, tenants };
@@ -359,7 +369,12 @@ async function main() {
     const sessions = await authenticate(manifest.tenants);
     save(path.join(dir, 'preflight.json'), { checkedAt: new Date().toISOString(), tenantsVerified: sessions.size, account: ACCOUNT });
     if (command === 'preflight') { log({ phase: 'preflight-passed', tenants: sessions.size, workloadCreated: 0 }); return; }
-    requireThat(Date.parse(manifest.target) - Date.now() >= 60 * 60000, 'Target too close; create a new plan');
+    // Same proportional floor as schedule()'s own plan-time check, minus a 10-minute grace for
+    // time already spent on preflight/auth by the time run() reaches this point - a flat
+    // 60-minute constant here forced the SAME small-burst-vs-10k mismatch schedule() had.
+    // Absolute floor of 15 minutes regardless of size: seed() itself reserves the last 10
+    // minutes before target as a hard creation cutoff, plus materialize()'s own 5-minute budget.
+    requireThat(Date.parse(manifest.target) - Date.now() >= Math.max(15 * 60000, minLeadMs(PER_TENANT) - 10 * 60000), 'Target too close; create a new plan');
     await seed(manifest, dir, sessions);
     const db = database();
     await materialize(manifest, dir, db);

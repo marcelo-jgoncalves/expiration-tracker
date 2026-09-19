@@ -62,6 +62,7 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 7. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
 9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
+10. **`NotificationEntitlements` nunca é provisionado para nenhum tenant, real ou sintético (achado real, 2026-09-19, ver Programa de Performance abaixo)** — todo tenant sem esse registro fica em `RETRY` infinito e nunca recebe e-mail de lembrete; único motivo de nenhuma rodada de teste anterior ter conseguido provar entrega real de e-mail até agora. Sem usuário real ainda (AGENTS.md §1), então não é um incidente em produção — mas é uma lacuna real que bloquearia o primeiro usuário de verdade a receber um lembrete por e-mail, então merece atenção antes do lançamento. Provável ligação com D-052 (billing bloqueado) — decisão de produto necessária (entitlement default sem plano pago? criar no onboarding ou lazy como `NotificationPreferences`?) antes de qualquer correção de código.
 
 ## Próxima ação recomendada
 
@@ -88,39 +89,57 @@ Achado incidental corrigido no mesmo dia: os 10.000 `NotificationIntent` saíram
 `assigneeUserId` — `perf-reminder-burst.mjs` corrigido e verificado ao vivo; a próxima rodada de
 10k será a primeira a exercitar entrega real de e-mail ponta a ponta.
 
-**D-303 (`APPROVED_BY_OWNER`, protocolo dispensado por autorização direta do Marcelo) — FECHADO:
-implementado, revisado, mergeado e APLICADO em `dev` (verificado ao vivo)**: outbox/stream/relay dedicados só para
-dispatch de reminders (mesmo padrão de D-301/D-302), reaproveitando a lógica genérica existente
-sem duplicar código. `MaximumConcurrency` do `reminder-claim-consumer` subido 50→150 (independente,
-nível 4). **Codex seguia bloqueado (até 2026-09-23) — testamos e confirmamos o Antigravity CLI
-(`agy`, `/root/.local/bin/agy -p "..." --model gemini-3.1-pro-high --mode plan`) como segunda
-opinião real funcional** (o `gemini` CLI puro está descontinuado — "Code Assist individual" não é
-mais suportado). Achado real e corrigido na revisão: `dispatchOutboxTableName` era opcional com
-fallback silencioso — armadilha de regressão silenciosa real, corrigida (campo agora obrigatório,
-cada call site declara explicitamente qual tabela usa). Alarme de `WriteThrottleEvents` adicionado
-(tabela on-demand nova começa em 4.000 WCU/s, abaixo da tabela principal já escalada). Detalhe
-completo da rodada: `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1.
-Gate adicional real encontrado e corrigido antes do commit: `infra/lambda-manifest.generated.tf`
-(manifesto de rollback E-020/D-232) estava desatualizado — faltavam os 2 handlers novos, pego pelo
-próprio `test/unit/scripts/lambda-manifest.test.ts`; corrigido via `npm run generate:lambda-manifest`
-e reverificado (`npm test` 3113/3113, `terraform test` 29/29). **Mergeado em `main` via PR #371 e
-APLICADO em `dev` com sucesso (2026-09-19)** — verificado ao vivo via `aws --profile claude-dev
---region us-east-1` (não só o status `success` do CD run): tabela `exptrk-dev-reminder-dispatch-
-outbox` ACTIVE com stream+GSI6, `exptrk-dev-reminder-dispatch-outbox-relay`/`-sweeper` deployadas,
-event source mapping do relay `Enabled` apontando pro stream novo, schedule do sweeper `Enabled`,
-5 alarmes novos em `OK`. **Checklist de conclusão rodado retroativamente (PR #373)**: achou 2 gaps
-reais — G-V3 faltando em 5/7 testes novos e status desatualizado em `DECISION.md` — ambos
-corrigidos, mergeados. **Achado incidental, não bloqueante**: gate `Authenticated k6 smoke`
-reprovou 2x no mesmo dia por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE
+**D-303 implementado, mergeado e aplicado em `dev` em 2026-09-19** (mesmo padrão D-301/D-302,
+outbox/stream/relay dedicados para dispatch de reminders). Detalhe da implementação original:
+`docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1.
+
+**Incidente real pós-deploy, 2026-09-19, FECHADO** — a primeira revalidação de 10k real desde o
+deploy do D-303 (`d303-10k-revalidation`) travou 100% das reivindicações (`errorCode: INTERNAL`,
+10.000 ocorrências presas em `SCHEDULED`). Duas causas raiz reais, corrigidas nesta ordem:
+1. **Primeira hipótese (incorreta, mas inofensiva)**: `dynamodb:TransactWriteItems` ausente na
+   policy geral da tabela principal — aplicada, não resolveu, depois **confirmada desnecessária**
+   contra a documentação oficial da AWS (`transaction-apis-iam.md`): a ação realmente checada por
+   item dentro de uma transação é `PutItem`/`UpdateItem`/`DeleteItem`/`ConditionCheckItem`, nunca
+   `TransactWriteItems` em si. Revertida ao final da sessão (live + Terraform).
+2. **Causa real**: a policy Terraform do D-303 para a tabela dedicada de dispatch
+   (`infra/modules/reminder-dispatch-outbox-table/main.tf`) concedia só `TransactWriteItems`, sem
+   `PutItem` — corrigido (`allowed` confirmado via `iam simulate-principal-policy`, depois
+   162→10/10 reivindicações reais bem-sucedidas). Antigravity (`gemini-3.1-pro-high`, segunda
+   opinião com Codex bloqueado até 2026-09-23) achou o MESMO erro, de forma independente, em
+   `document_request_recurrence` e `tenant_purge_worker` — os dois nunca conseguiram completar
+   uma transação real, desde sempre, sem relação com o D-303 — e corrigiu (commit `aca1c95`).
+   Verificado manualmente depois: nenhuma outra policy em `infra/` tem o mesmo padrão.
+3. **Terceiro achado, mesma sessão**: com o claim já funcionando, ~45min de atraso (tempo da
+   própria investigação) expôs um bug separado em `reconcileDst` (reconciliação de DST) que
+   cancelava ocorrências simplesmente atrasadas como se fossem divergência de política real —
+   6.231/10.000 viraram `CANCELLED` em vez de `TRIGGERED`. Corrigido, com teste de regressão que
+   falha contra o código antigo.
+4. **Achado de observabilidade, mesma sessão**: a causa raiz real ficou invisível por muito tempo
+   porque 9 handlers SQS/Step Functions (incluindo `reminder-claim-consumer-handler.ts`) só
+   logavam `errorCode`/`retryable`, nunca a mensagem real do erro — corrigido nos 9.
+
+**Verificação pós-fix real, mesma sessão**: rodada de 1.000 (`d303-1k-postfix-verify`) —
+`accepted: true`, 1.000/1.000 `TRIGGERED`, máximo 154,35s (bem dentro do SLO de 300s). Checagem
+manual de 10 itens (fora do harness) confirmou **entrega real de e-mail de ponta a ponta pela
+primeira vez** — depois de provisionar manualmente `NotificationEntitlements`/
+`NotificationPreferences` para os 10 tenants sintéticos (nunca tinham esses registros; achado real
+de produto, não só de teste — ver pendência #10 acima). Detalhe completo de tudo isto:
+`docs/engineering/performance/TODO.md` (seção do incidente D-303, 2026-09-19).
+
+**Próxima ação literal**: decidir com Marcelo se vale repetir a rodada completa de 10k para uma
+prova final de SLO na escala original (a de 1.000 já é evidência real, mas não idêntica em escala)
+— ciclo de ~2h, não lançar sozinho sem visibilidade.
+
+**Achado incidental, não bloqueante, de sessão anterior**: gate `Authenticated k6 smoke`
+reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE
 (cold start sob rajada de poucas requests, não causado por D-303) — nota em `performance/TODO.md`
-§PERF-14, rerun resolve, threshold/concorrência do BFF é candidato a ajuste futuro. **Próxima ação
-literal**: decidir com Marcelo quando repetir a rodada de 10k para provar a correção sob carga real
-(não lançar sozinho sem visibilidade, é outro ciclo de ~2h) — essa será a primeira rodada a
-exercitar entrega real de e-mail de ponta a ponta também.
+§PERF-14, rerun resolve, threshold/concorrência do BFF é candidato a ajuste futuro.
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
-**Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado. Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
+**Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado — esse redeploy expôs, em 2026-09-19, um bug real no PRÓPRIO script do canário (lia o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics; corrigido para o padrão oficial `'data'`/`'end'` da AWS, confirmado que a API estava saudável o tempo todo). Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
+
+**Achado real não corrigido, 2026-09-19 — mesma classe de gargalo do D-301/D-302/D-303, agora no sweeper genérico de reconciliação** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travando por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17. Causa: os 12 destinos compartilham a MESMA partição no GSI6, então checar um exige paginar por todos os outros primeiro. Proposta de correção (query única + roteamento por registro, sem tocar em schema/infra) **aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10** — `docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`. Não implementada — aguardando janela sem teste de carga em andamento no mesmo ambiente.
 
 **Pendência de limpeza, não bloqueante**: tenants sintéticos de teste (PERF Test Tenant + 10 do PERF-11-b/PERF-12-10k + 10 novos do cohort de simuladores SES) e dezenas de milhares de registros sintéticos acumulados em `dev` — candidatos a exclusão quando Marcelo decidir, nenhuma ação tomada ainda.
 

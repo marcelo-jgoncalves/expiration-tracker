@@ -296,6 +296,15 @@ data "aws_iam_policy_document" "tenant_facing_read_write" {
       "dynamodb:DeleteItem",
       "dynamodb:ConditionCheckItem",
       "dynamodb:DescribeTable",
+      # D-303 incident, 2026-09-19: `dynamodb:TransactWriteItems` was first (incorrectly) added
+      # here as the suspected fix for reminder-claim-consumer's AccessDenied failures - later
+      # confirmed via AWS's own docs (amazon-dynamodb-developer-guide/doc_source/
+      # transaction-apis-iam.md) that TransactWriteItems authorization is governed by the
+      # underlying per-item actions (PutItem/UpdateItem/DeleteItem/ConditionCheckItem, all
+      # already present above), not this action name. The real fix was adding `PutItem` to
+      # reminder-dispatch-outbox-table's own transact_write policy instead. Deliberately NOT
+      # re-added here - would be a redundant, unnecessary grant on a policy shared by ~44
+      # Lambda roles.
     ]
     resources = local.tenant_facing_resources
   }
@@ -326,12 +335,12 @@ locals {
     # document-request-recurrence-handler: scanActiveSeries() + DocumentArchiveStore.transactWrite()
     # (TransactWriteCommand) via buildMaterializeAttemptEntries - no other DynamoDB action reachable
     # from materializer.ts's real call graph.
-    document_request_recurrence = { actions = ["dynamodb:Scan", "dynamodb:TransactWriteItems"] }
+    document_request_recurrence = { actions = ["dynamodb:Scan", "dynamodb:TransactWriteItems", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"] }
     # tenant-purge-worker-handler: DynamoDbTenantPurgeCandidateSource.scanTenantItems() (Scan),
     # DynamoDbTenantLifecycleReader.read() (GetItem), DynamoDbSystemMutationStore.transactWrite()
     # (TransactWriteItems) - all base-table. Session-table Scan/Delete is a SEPARATE policy
     # (tenant_purge_worker_session_table, unchanged).
-    tenant_purge_worker = { actions = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:TransactWriteItems"] }
+    tenant_purge_worker = { actions = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:TransactWriteItems", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"] }
     # tenant-purge-sweeper-handler: DynamoDbTenantLifecycleScanSource.scanLifecycleRecords() (Scan)
     # + DynamoDbTenantLifecycleReader.read() (GetItem) only - it re-runs the SAME verifyTenant*Empty()
     # read passes the worker does but never deletes/writes anything (infra/main.tf's own comment on
@@ -449,7 +458,7 @@ data "aws_iam_policy_document" "worker_transact_write" {
   statement {
     # Same alpha-numeric-only Sid fix as gsi8_read above.
     sid       = "TransactWriteItems${join("", [for part in split("_", each.key) : title(part)])}"
-    actions   = ["dynamodb:TransactWriteItems"]
+    actions   = ["dynamodb:TransactWriteItems", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"]
     resources = [local.table_arn]
   }
 }

@@ -167,9 +167,113 @@ itens de acompanhamento fora do programa de performance.
   - [x] Bundle budget CI gate — `frontend/scripts/check-bundle-budget.mjs`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [x] Lighthouse CI gate — `@lhci/cli` + `frontend/lighthouserc.json`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [x] k6 smoke em PR — sessão BFF efêmera obtida pelo fluxo Hosted UI real com credenciais em GitHub Secrets; 1 VU/15s, erro <1%, checks 100% e p95 <3s. PRs de forks não recebem nem executam o segredo. **Achado real, 2026-09-19**: o gate reprovou por `p(95)<3000` 2x no mesmo dia (3,22s e 3,11s, ambos 0% erro/100% checks, amostra pequena — 7 requests/1 VU) em PRs sem nenhuma mudança de código de produção. Confirmado via CloudWatch (`exptrk-dev-bff-handler`, `Duration` extended-statistics) que é um padrão PRÉ-EXISTENTE, não causado por D-303: qualquer janela de 5min com >1 invocação concorrente já mostra p50~500ms mas máximo 3-5s+ (cold start sob burst), reproduzido em janelas horas antes do deploy de D-303. Não corrigido nesta sessão (fora de escopo, threshold `p(95)<3000` do smoke provavelmente incompatível com a concorrência real de cold-start do BFF sob rajada pequena) — candidato a ajuste futuro (relaxar o threshold ou investigar concorrência reservada do BFF), não bloqueante hoje (rerun resolve).
-  - [x] Synthetic canaries — canário CloudWatch sem credenciais a cada 5 minutos valida SPA na borda e o contrato anônimo de `/bff/session`; artefatos criptografados, privados e retidos por 30 dias; falha sustentada aciona o tópico operacional.
+  - [x] Synthetic canaries — canário CloudWatch sem credenciais a cada 5 minutos valida SPA na borda e o contrato anônimo de `/bff/session`; artefatos criptografados, privados e retidos por 30 dias; falha sustentada aciona o tópico operacional. **Achado real, 2026-09-19**: o passo `anonymous-session` falhava continuamente (`SyntaxError: Unexpected end of JSON input`) desde o redeploy forçado do canário (`76c695f`) — confirmado que a API está saudável (GET manual no endpoint retorna 200/`{"authenticated":false}` normalmente); causa raiz era o próprio script do canário lendo o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics — corrigido para o padrão oficial de eventos `'data'`/`'end'` documentado pela AWS. Corrigido em `develop` (commit `43bbfe3`), deploy propositalmente adiado até a revalidação de 10k do D-303 em andamento terminar (evitar mexer no mesmo ambiente/conta durante a medição).
   - [x] Alarms de latência/throttle/backlog — métricas EMF confirmadas ao vivo em 2026-09-18; quatro alarmes p95 e três alarmes de throttling nativo adicionados. Backlog já estava coberto.
   - [x] Dashboard consolidado — `exptrk-dev-operations` confirmado ao vivo e ampliado com gráficos p95 e throttling de BFF, Items e Subjects. Synthetic canaries serão incorporados quando existirem.
+- [ ] **Achado real, 2026-09-19, não corrigido — `outbox-sweeper-reminder-dispatch` (o sweeper
+  genérico de reconciliação, cobre ~12 destinos: e-mail, WhatsApp, importação, dispatch de
+  lembrete, etc.) está travando por timeout (10s) em TODA execução agendada (a cada 5 min) desde
+  pelo menos 2026-09-17.** Causa raiz identificada no código (`dynamodb-outbox-relay-store.ts`
+  `listPendingReminderDispatch`): os 12 destinos compartilham a MESMA partição única no GSI6
+  (`GSI6PK = "RECON#OUTBOX#PENDING"`), com o `destination` filtrado só depois de ler via
+  `FilterExpression` — ou seja, verificar UM destino exige paginar por TODOS os registros pendentes
+  de QUALQUER destino nessa janela de tempo. Mesmo padrão de gargalo de partição compartilhada que
+  motivou D-301/D-302/D-303, agora na rede de reconciliação/segurança, não no caminho principal.
+  Aumentar o timeout é remendo, não conserto — a lentidão só tende a piorar conforme a partição
+  cresce. Conserto de verdade provavelmente exige medir o tamanho real do backlog e uma decisão de
+  arquitetura (nível 5-6, mesma classe do D-301/302/303) sobre particionar/isolar essa
+  reconciliação — não aplicado nesta sessão, carga de teste em andamento no mesmo ambiente.
+- [x] **Incidente real, 2026-09-19 — `reminder-claim-consumer` travado 100% durante a própria
+  revalidação de 10k do D-303, corrigido ao vivo.** Toda reivindicação falhava com
+  `errorCode: INTERNAL, retryable: false` (`reminder-claim-consumer-handler.ts:78`), as 10.000
+  mensagens foram parar na DLQ duas vezes seguidas. Causa raiz real (depois de uma primeira
+  hipótese incorreta — ver achado de observabilidade abaixo): a policy Terraform do D-303 para a
+  tabela dedicada de dispatch (`infra/modules/reminder-dispatch-outbox-table/main.tf`
+  `data.aws_iam_policy_document.transact_write`) concedia só `dynamodb:TransactWriteItems` —
+  **não é essa a ação que a AWS realmente checa** para um item tipo Put dentro de uma transação
+  (é `dynamodb:PutItem`; confirmado contra a documentação oficial da AWS,
+  `amazon-dynamodb-developer-guide/doc_source/transaction-apis-iam.md`, e contra
+  `iam simulate-principal-policy`, que retornou `implicitDeny` para `PutItem` nessa tabela).
+  Corrigido ao vivo (`iam put-role-policy`, adicionando `dynamodb:PutItem`) e no Terraform fonte —
+  confirmado via redrive da DLQ, 162/162 `CLAIMED` sem erro. Revisado com Antigravity
+  (`gemini-3.1-pro-high`) como segunda opinião. **(1) resolvido pela própria revisão do
+  Antigravity**: o mesmo padrão (conceder `TransactWriteItems` em vez das ações reais por item)
+  também quebrava `document_request_recurrence` e `tenant_purge_worker` — nenhum dos dois
+  conseguia completar uma transação de escrita real, desde sempre, sem relação com o D-303.
+  Corrigido no Terraform (`worker_transact_write`/`cross_tenant_scan_workers` em
+  `infra/modules/dynamo-table/main.tf`), commit `aca1c95`. Verificado depois, manualmente: nenhum
+  outro `data.aws_iam_policy_document` em `infra/` tem o mesmo padrão (grep completo por
+  `dynamodb:TransactWriteItems` — os 9 handlers de purge restantes citados em `stack.tftest.hcl`
+  compartilham a MESMA `worker_transact_write` já corrigida, via `local.gsi8_worker_types`).
+  **(2) resolvido**: a concessão redundante de `dynamodb:TransactWriteItems` na tabela principal
+  (primeira hipótese, confirmada desnecessária) foi revertida ao vivo e no Terraform ao final da
+  sessão — `tenant_facing_read_write` voltou a ser exatamente o que era antes do incidente.
+  **(3) resolvido**: a política de confiança temporária aberta em
+  `exptrk-dev-reminder-claim-consumer-role` (`TemporaryDiagnosticAccess`, para uma tentativa de
+  `sts assume-role` de diagnóstico que nunca se completou, bloqueada pelo próprio Claude Code)
+  também foi revertida — a role só confia em `lambda.amazonaws.com` de novo.
+- [ ] **Achado de observabilidade real, 2026-09-19, não corrigido** — durante o incidente acima,
+  a causa raiz real ficou invisível por muito tempo porque `reminder-claim-consumer-handler.ts:78`
+  loga só `errorCode`/`retryable` no catch (`logger.error("reminder-claim-consumer failed",
+  { errorCode: appErr.code, retryable: appErr.retryable })`), nunca `appErr.message` — mesmo a
+  mensagem original do erro (ex. o texto exato de um `AccessDeniedException`) já estando disponível
+  em memória via `toAppError()` (`src/shared/errors/app-error.ts`), só nunca impressa. Isso
+  atrasou o diagnóstico em campo (precisei reproduzir a transação manualmente para confirmar a
+  causa, sem conseguir ver o erro real da própria Lambda). Verificar se o mesmo padrão (logar só
+  `code`/`retryable`, nunca `message`) se repete em outros handlers SQS do projeto — se sim, vale
+  um ajuste geral, não só neste arquivo.
+- [x] **Terceiro achado real do mesmo incidente, 2026-09-19, corrigido** — depois da correção de
+  IAM, o `claim-consumer` passou a funcionar, mas a rodada de 10k ficou presa por ~45 min durante
+  a investigação, tempo suficiente para o próprio `scheduledAt` de cada ocorrência ficar no
+  passado. Quando `reconcileDst` (`src/workers/reminder-reconciliation/reconciliation.ts`, passo
+  de detecção de divergência por DST) rodou nesse meio-tempo, ele recalcula o horário esperado de
+  cada gatilho a partir de `[windowStart=now, windowEnd=now+7d]` — como o horário recalculado já
+  tinha passado, o gatilho ficava fora da janela (`expected` indefinido), e o código tratava isso
+  como "gatilho não é mais esperado" e **cancelava** a ocorrência, mesmo sem nenhuma mudança real
+  de política/DST — só estava atrasada. 6.231 dos 10.000 viraram `CANCELLED` em vez de
+  `TRIGGERED`. Esse bug afetaria QUALQUER atraso real de despacho (uma instabilidade da AWS, uma
+  rajada de carga), não só o incidente de hoje. Corrigido: só trata `expected` indefinido como
+  divergência real quando o `triggerId` também não existe mais na política atual
+  (`definedTriggerIds`); se o gatilho ainda existe e só ficou fora da janela por já ter passado, a
+  ocorrência é deixada em paz para o pipeline normal de claim/dispatch (ou a reconciliação de
+  claims expirados, passo separado) resolver. 8/8 testes existentes + 1 novo teste cobrindo o
+  cenário exato do incidente, todos passando. Segunda opinião via Antigravity indisponível (cota
+  esgotada, reset em ~163h) — revisado só por análise própria do caso extremo levantado no prompt
+  de revisão (política editada para um horário também no passado): comportamento já era o mesmo
+  antes e depois desta correção nesse caso extremo (nenhuma ocorrência nova seria materializada de
+  qualquer forma), então a correção não piora nada e melhora estritamente o caso comum.
+- [x] **Ajuste de ferramenta, 2026-09-19** — `scripts/perf-reminder-burst.mjs`'s `schedule()` exigia
+  90 minutos de antecedência fixos, independente do tamanho da carga — uma rodada de verificação
+  de 1k (que semeia em ~5 min) tinha que esperar o mesmo tempo que uma rodada de 10k inteira.
+  Mínimo agora escala proporcionalmente ao tamanho (`minLeadMs`, piso de 25 min) — 10k continua
+  exigindo os 90 min originais (comportamento padrão inalterado), 1k cai para 25 min. Testado
+  (9/9), lint e typecheck limpos.
+- [x] **Verificação pós-fix, 2026-09-19 — rodada de 1.000 (`d303-1k-postfix-verify`) aprovada:
+  `accepted: true`, 1.000/1.000 `TRIGGERED`, dentro do SLO de 300s (máximo real 154,35s, bem
+  abaixo do limite).** Confirma que a correção de IAM (PutItem) resolve o incidente na prática, não
+  só na teoria. Não substitui uma prova final em escala de 10k (pendente, ver próxima ação abaixo)
+  mas já é evidência real de que o pipeline volta a funcionar corretamente.
+- [x] **Checagem manual de 10 itens (fora do harness, que tem piso de 1.000) confirma entrega real
+  de e-mail de ponta a ponta pela primeira vez**: 10/10 `TRIGGERED`, 10/10 processados pelo
+  `email-delivery`, `notification-router` retornando `ROUTED` (não mais `RETRY`) — depois de
+  provisionar manualmente os registros `NotificationEntitlements`/`NotificationPreferences`
+  faltantes para os 10 tenants sintéticos do cohort de e-mail (script novo:
+  `docs/engineering/performance/traces/perf-12-email-cohort-notification-provisioning.mjs`,
+  idempotente). **Sem esse provisionamento, nenhuma rodada anterior — nem esta, nem nenhuma
+  passada — jamais teria conseguido enviar um e-mail de verdade**, mascarado até agora pelos
+  bugs de IAM/reconciliação que impediam o pipeline de chegar tão longe.
+- [ ] **Achado de produto real, 2026-09-19, não corrigido, afeta tenants REAIS (não só sintéticos)**
+  — não existe, em nenhum lugar do código de produção, um caminho que crie
+  `NotificationEntitlements` para um tenant (grep completo em `src/`: só o arquivo de domínio
+  define o tipo; `notification-router{,-workflow}.ts` só leem). Um tenant sem esse registro cai em
+  `RETRY` (`ENTITLEMENT_UNAVAILABLE`) para sempre — nunca recebe e-mail. `NotificationPreferences`
+  tem um caminho de criação real, mas só "preguiçoso" (`getOrCreatePreferences`, só na primeira
+  vez que o próprio usuário abre a página de preferências) — frágil, mas existe. Provável ligação
+  com a integração de billing ainda bloqueada (D-052): o design (comentário em
+  `notification-entitlements.ts`) sugere que o provisionamento seria por plano pago, nunca
+  implementado. **Merece decisão de produto de Marcelo** antes de qualquer correção de código —
+  não é um ajuste mecânico (qual entitlement default para tenant sem plano? criar no onboarding ou
+  também lazy?).
 - [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---

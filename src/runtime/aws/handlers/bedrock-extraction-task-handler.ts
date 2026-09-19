@@ -71,7 +71,7 @@ export async function handler(event: RunBedrockExtractionInput): Promise<RunBedr
       const appErr = toAppError(err);
       // Rethrown as a real Task failure - the ASL's Catch (ErrorEquals: States.ALL) routes to
       // ValidateSchema anyway, degrading to deterministic-only candidates, per design §1.2.
-      logger.error("bedrock-extraction-task RunBedrock failed", { documentId: event.documentId, runId: event.runId, errorCode: appErr.code });
+      logger.error("bedrock-extraction-task RunBedrock failed", { documentId: event.documentId, runId: event.runId, errorCode: appErr.code, errorMessage: appErr.message });
       throw appErr;
     }
   });

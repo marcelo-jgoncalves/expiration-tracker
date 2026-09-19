@@ -255,6 +255,52 @@ describe("reconciliation.ts", () => {
       expect(result.created).toBe(0);
     });
 
+    it("real incident, 2026-09-19: does NOT cancel a live occurrence whose own scheduledAt has simply passed while its trigger is still declared unchanged - a delayed dispatch is not a divergence", async () => {
+      // A 10k load test's claim/dispatch pipeline was blocked (unrelated IAM bug, since fixed)
+      // for ~45 minutes, long enough for reconcileDst to run while occurrences sat SCHEDULED
+      // past their own scheduledAt. Because the window is [now, now+7d], the trigger's freshly
+      // recomputed time (identical to before - nothing about the policy changed) fell BEFORE
+      // `now` and was excluded from expectedByTrigger, making `expected` undefined - which the
+      // old code treated as "trigger no longer expected" and wrongly cancelled. 6,231/10,000
+      // occurrences were lost this way in the real incident.
+      const policy = await policies.createPolicy(ctx, {
+        scope: "ITEM",
+        itemId: ITEM_ID,
+        rule: {
+          name: "same day 09:00",
+          triggers: [{ triggerId: "trig1", offsetIso: "P0D", localTime: "09:00" }],
+          timeZone: "America/Sao_Paulo",
+          channels: ["EMAIL"],
+        },
+      });
+      const materializer = new ReminderMaterializer(store, TABLE, now);
+      await materializer.materialize({
+        tenantId: TENANT,
+        itemId: ITEM_ID,
+        itemVersion: 1,
+        itemDueDate: "2026-09-10T00:00:00.000Z",
+        policy,
+        shardConfig: defaultShardConfig(),
+      });
+
+      // The occurrence's own scheduledAt is 2026-09-10T12:00:00.000Z (09:00 America/Sao_Paulo).
+      // Advance the clock PAST it (simulating a delayed dispatch) but still well within the
+      // 7-day window's own upper bound.
+      clock.current = "2026-09-10T12:45:00.000Z";
+
+      const result = await reconcileDst(
+        { store, tableName: TABLE, now, shardConfig: defaultShardConfig() },
+        [{ tenantId: TENANT, itemId: ITEM_ID, itemVersion: 1, itemDueDate: "2026-09-10T00:00:00.000Z", policy }],
+      );
+
+      expect(result.divergences).toBe(0);
+      expect(result.cancelled).toBe(0);
+      expect(result.created).toBe(0);
+      const live = await store.queryByItem<ReminderOccurrence>(TENANT, ITEM_ID);
+      expect(live.filter((o) => o.status === "SCHEDULED")).toHaveLength(1);
+      expect(live.some((o) => o.status === "CANCELLED")).toBe(false);
+    });
+
     it("M3.5: removes the GSI6 WORKSTATE#DST_PENDING pointer once recomputation CONFIRMS the schedule is still correct (bug found by Codex implementation review - the pointer used to stay forever in this case, causing daily re-evaluation indefinitely)", async () => {
       const policy = await policies.createPolicy(ctx, {
         scope: "ITEM",

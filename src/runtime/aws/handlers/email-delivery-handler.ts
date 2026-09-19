@@ -92,7 +92,7 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
             // value; it is diagnostic metadata only (see app-error.ts's isRetryable() doc
             // comment).
             const appErr = toAppError(err);
-            logger.error("email-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+            logger.error("email-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable, errorMessage: appErr.message });
             batchItemFailures.push({ itemIdentifier: record.messageId });
           }
         });
@@ -100,7 +100,7 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
         // JSON.parse itself threw on a malformed body - no envelope available, but the
         // fallback correlationId above still applies.
         const appErr = toAppError(err);
-        logger.error("email-delivery failed to parse message body", { messageId: record.messageId, errorCode: appErr.code });
+        logger.error("email-delivery failed to parse message body", { messageId: record.messageId, errorCode: appErr.code, errorMessage: appErr.message });
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     });
