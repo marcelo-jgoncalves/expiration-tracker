@@ -88,8 +88,8 @@ Achado incidental corrigido no mesmo dia: os 10.000 `NotificationIntent` saíram
 `assigneeUserId` — `perf-reminder-burst.mjs` corrigido e verificado ao vivo; a próxima rodada de
 10k será a primeira a exercitar entrega real de e-mail ponta a ponta.
 
-**D-303 (`APPROVED_BY_OWNER`, protocolo dispensado por autorização direta do Marcelo) — IMPLEMENTADO
-e REVISADO, aguardando só CI/merge/deploy+reteste**: outbox/stream/relay dedicados só para
+**D-303 (`APPROVED_BY_OWNER`, protocolo dispensado por autorização direta do Marcelo) — FECHADO:
+implementado, revisado, mergeado e APLICADO em `dev` (verificado ao vivo)**: outbox/stream/relay dedicados só para
 dispatch de reminders (mesmo padrão de D-301/D-302), reaproveitando a lógica genérica existente
 sem duplicar código. `MaximumConcurrency` do `reminder-claim-consumer` subido 50→150 (independente,
 nível 4). **Codex seguia bloqueado (até 2026-09-23) — testamos e confirmamos o Antigravity CLI
@@ -108,9 +108,15 @@ APLICADO em `dev` com sucesso (2026-09-19)** — verificado ao vivo via `aws --p
 --region us-east-1` (não só o status `success` do CD run): tabela `exptrk-dev-reminder-dispatch-
 outbox` ACTIVE com stream+GSI6, `exptrk-dev-reminder-dispatch-outbox-relay`/`-sweeper` deployadas,
 event source mapping do relay `Enabled` apontando pro stream novo, schedule do sweeper `Enabled`,
-5 alarmes novos em `OK`. **Próxima ação literal**: decidir com Marcelo quando repetir a rodada de
-10k para provar a correção sob carga real (não lançar sozinho sem visibilidade, é outro ciclo de
-~2h) — essa será a primeira rodada a exercitar entrega real de e-mail de ponta a ponta também.
+5 alarmes novos em `OK`. **Checklist de conclusão rodado retroativamente (PR #373)**: achou 2 gaps
+reais — G-V3 faltando em 5/7 testes novos e status desatualizado em `DECISION.md` — ambos
+corrigidos, mergeados. **Achado incidental, não bloqueante**: gate `Authenticated k6 smoke`
+reprovou 2x no mesmo dia por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE
+(cold start sob rajada de poucas requests, não causado por D-303) — nota em `performance/TODO.md`
+§PERF-14, rerun resolve, threshold/concorrência do BFF é candidato a ajuste futuro. **Próxima ação
+literal**: decidir com Marcelo quando repetir a rodada de 10k para provar a correção sob carga real
+(não lançar sozinho sem visibilidade, é outro ciclo de ~2h) — essa será a primeira rodada a
+exercitar entrega real de e-mail de ponta a ponta também.
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
