@@ -187,9 +187,17 @@ run "reminder_scan_and_claim_queue_sizing_matches_decision" {
     condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.batch_size == 10
     error_message = "Claim queue batch size must be 10 per DECISION.md §3"
   }
+  # D-300 §3's original target (50) was an explicit engineering assumption "a ser revisada apos
+  # a primeira carga real em producao" - the 2026-09-19 D-302 10k revalidation (email-cohort run)
+  # was that first real load and measured claim-consumer peaking at exactly this ceiling (54
+  # concurrent, matching within CloudWatch's 1-minute granularity) with zero throttles and ample
+  # account headroom (1000 available). Raised to 150 (docs/engineering/performance/results/
+  # PERF-12-10k-latency-regression-2026-09-19.md) - not the dominant cause of that run's SLO miss
+  # (claim-consumer finished all its work in ~2 minutes; see D-303 for the real bottleneck), but
+  # an independent, evidence-bounded improvement.
   assert {
-    condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.scaling_config[0].maximum_concurrency == 50
-    error_message = "Claim queue max concurrency must be 50 per DECISION.md §3"
+    condition     = aws_lambda_event_source_mapping.reminder_claim_consumer_from_queue.scaling_config[0].maximum_concurrency == 150
+    error_message = "Claim queue max concurrency must be 150 per the 2026-09-19 revision (see comment above) - was 50 per DECISION.md §3's original, since-revised assumption"
   }
 
   assert {
