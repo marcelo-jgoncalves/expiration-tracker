@@ -779,6 +779,15 @@ Implementado (`decisions-log.md` D-208). 69/69 Lambdas rodam `arm64` (verificado
 **Registrado por pedido de Marcelo, 2026-08-30** (item já existia em memória de sessão anterior,
 nunca tinha sido escrito no repositório — corrigido aqui).
 
+## 17.3 — Separação real de ambientes (hoje `main` = `dev`, sem staging/produção)
+
+`cd.yml` só dispara em push a `main`, e o único ambiente real é `dev` (`AGENTS.md` §3) — não existe
+staging nem produção separados. Padrão conhecido para corrigir quando fizer sentido (conta AWS
+separada ou workspace Terraform por ambiente, pipeline de promoção `dev→staging→produção`) — não é
+complexo, só não construído porque não há necessidade real ainda.
+
+**Registrado por pedido de Marcelo, 2026-09-19.**
+
 ---
 
 # 18. Lista consolidada por prioridade de lançamento (preparação para análise de concorrência)

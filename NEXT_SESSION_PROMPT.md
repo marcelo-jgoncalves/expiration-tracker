@@ -138,6 +138,17 @@ degraus padrão da escada (`reminder-claim.ts`), não só e-mail. **PENDING_PROT
 (protocolo suspenso). Gates locais verdes (suíte completa 3.117 testes); falta rodar o degrau de
 10k padrão para validar ponta a ponta — é a próxima ação literal desta seção.
 
+**Backlog registrado, não implementado (2026-09-19)**: `dispatch-outbox-relay-processor.ts`'s
+`processStreamRecords` processa os até 100 registros de um lote **sequencialmente** — cada
+invocação trava em ~14 registros/s independente de shard count/`parallelization_factor`. Existe
+`src/shared/concurrency/map-with-concurrency.ts` pronto pra isso, não usado aqui. Risco real se
+100k/500k reproduzirem o mesmo padrão de gargalo do D-304 mesmo depois do fix (o `outboxShard()`
+tem N=10 fixo, não escala com volume). Decisão de Marcelo: **não implementar agora** (só
+otimizaria um problema hipotético, ainda não medido em 100k) — esperar o protocolo Claude↔Codex
+voltar (Codex até 2026-09-23) antes de mexer no caminho crítico de dispatch. Se implementado no
+futuro, exige teste adversarial novo provando que `batchItemFailures` mantém a ordem posicional
+original sob conclusão concorrente (não a ordem de término), não só corretude sequencial.
+
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
