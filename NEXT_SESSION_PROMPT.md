@@ -109,6 +109,10 @@ deploy do D-303 (`d303-10k-revalidation`) travou 100% das reivindicações (`err
    `document_request_recurrence` e `tenant_purge_worker` — os dois nunca conseguiram completar
    uma transação real, desde sempre, sem relação com o D-303 — e corrigiu (commit `aca1c95`).
    Verificado manualmente depois: nenhuma outra policy em `infra/` tem o mesmo padrão.
+   **Antigravity também ficou sem cota na mesma sessão** (`RESOURCE_EXHAUSTED`, reset informado em
+   ~163h a partir de 2026-09-19 ~08:38 UTC, ou seja, por volta de 2026-09-26) — checar se já voltou
+   antes de tentar usar de novo; com Codex também bloqueado até 2026-09-23, nenhuma segunda opinião
+   externa estava disponível no fim desta sessão.
 3. **Terceiro achado, mesma sessão**: com o claim já funcionando, ~45min de atraso (tempo da
    própria investigação) expôs um bug separado em `reconcileDst` (reconciliação de DST) que
    cancelava ocorrências simplesmente atrasadas como se fossem divergência de política real —
