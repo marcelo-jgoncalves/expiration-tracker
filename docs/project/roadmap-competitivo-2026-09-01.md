@@ -755,15 +755,16 @@ urgente hoje (`AGENTS.md` §1: sem usuário real, sem produção), mas ambos dev
 como decisão explícita (protocolo Claude↔Codex, `AGENTS.md` §4, por serem mudança de
 arquitetura/segurança) quando o projeto se aproximar de produção real.
 
-## 17.1 — Migrar Lambdas de x86_64 para ARM64 (Graviton2)
+## 17.1 — Migrar Lambdas de x86_64 para ARM64 (Graviton2) — 🟢 FEITO
 
-Todas as Lambdas do projeto rodam hoje em x86_64 — nunca decidido explicitamente, é o default
-implícito do provider (`infra/modules/lambda-function/main.tf`'s `aws_lambda_function` nunca
-declara `architectures`). Graviton2/ARM64 tipicamente reduz custo (~20%) e melhora
-performance/watt para workloads Node.js. Pendências reais a resolver na migração: o layer ADOT
-pinado em `infra/env/dev.tfvars` (`aws-otel-nodejs-amd64-...`) é arquitetura-específica e precisa
-trocar para a variante `arm64` correspondente; validar que todas as dependências nativas (se
-houver alguma com binário compilado) têm build ARM64 disponível.
+**Drift corrigido 2026-09-19** (este parágrafo dizia "todas rodam em x86_64, nunca decidido" —
+desatualizado). Decisão tomada e **implementada por completo** em `decisions-log.md` D-208
+(2026-09-05, protocolo Claude↔Codex 3 rodadas, 9,4/9,5, mergeado PR #241) — todas as ~52 Lambdas
+do projeto migradas para `arm64`, `terraform plan` real confirmou update in-place (sem
+recriação), layer ADOT trocado para a variante `arm64`, smoke test pós-deploy confirmou execução
+funcional real em produção (`dev`). Reconfirmado ao vivo nesta sessão (`aws lambda
+get-function-configuration --profile claude-dev`): `items-handler`, `reminder-dispatch`,
+`dispatch-outbox-relay`, `email-delivery`, `notification-router`, `bff-handler` todos `arm64`.
 
 **Registrado por pedido de Marcelo, 2026-09-05.**
 
