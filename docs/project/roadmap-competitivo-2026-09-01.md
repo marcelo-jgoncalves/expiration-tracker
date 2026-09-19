@@ -784,3 +784,60 @@ houver alguma com binário compilado) têm build ARM64 disponível.
 
 **Registrado por pedido de Marcelo, 2026-08-30** (item já existia em memória de sessão anterior,
 nunca tinha sido escrito no repositório — corrigido aqui).
+
+---
+
+# 18. Lista consolidada por prioridade de lançamento (preparação para análise de concorrência)
+
+Reorganização deste roadmap por prioridade real em relação ao lançamento — não substitui as
+seções acima (a ordem de desenvolvimento original permanece ali), serve como lista única para
+comparar contra a concorrência. Status vigente confirmado em `NEXT_SESSION_PROMPT.md`; não
+reconte a narrativa aqui, só atualize o status quando ele mudar.
+
+**Registrado por pedido de Marcelo, 2026-09-19.**
+
+## 18.1 — Bloqueadores reais de lançamento (não-engenharia, mas travam o P0)
+
+- WhatsApp com usuário real — falta aviso de privacidade/DPA Meta/residência de dados (E-019).
+  Engenharia 100% pronta desde D-286, rota de opt-in incluída.
+- `NotificationEntitlements` nunca é provisionado automaticamente para nenhum tenant — sem esse
+  registro, o primeiro cliente real não recebe nenhum lembrete por e-mail (fica em `RETRY`
+  infinito). Achado real do Programa de Performance (2026-09-19), não estava neste roadmap
+  original — decisão de produto pendente (entitlement default sem plano pago? criar no onboarding
+  ou lazy?), provável ligação com P0.11/D-052 (billing bloqueado por fornecedor).
+- Identidade visual (Fase 2) — branding, workstream separado do Marcelo, fora da engenharia.
+
+## 18.2 — Já entregue, define o produto no lançamento (baseline para comparar com concorrência)
+
+Requirement Templates · Bulk onboarding/importação em massa · WhatsApp (engenharia) · IA/OCR
+integrada ao ciclo de vida documental · Busca/filtros documentais · Dashboard operacional/
+compliance · Relatórios/exportação/audit trail · Document Types configuráveis · Guest Upload/
+Requests/Review/Recorrência · Storage/Versioning/Renewal consolidados · Frontend completo (25
+telas) · Quota de armazenamento por tenant (capacidade nova, fora do roadmap original, D-249).
+
+## 18.3 — Logo após o lançamento (P1), quase tudo pronto
+
+Reminder sequences configuráveis · Escalation · Relatórios agendados · Dossiê documental (PDF/
+Excel) · Bulk actions · Metadata configurável por Document Type · Compartilhamento externo seguro
+(`ExternalShareLink`) — **todos entregues**.
+
+- **Full-text search (OCR)** — único item do P1 ainda não construído. Decisão de caminho pendente
+  com o Marcelo entre 3 opções nomeadas em `decisions-log.md` D-202.
+
+## 18.4 — Diferenciação Premium (P2), nada construído ainda
+
+Assinatura eletrônica · API pública · Webhooks · Integrações de calendário · Compliance score
+avançado · Assistente de IA conversacional no produto (via API Claude direto — não estava no
+roadmap original, ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §5).
+
+## 18.5 — Deliberadamente fora do lançamento, só entra com evidência comercial clara
+
+Portal completo do cliente · App mobile nativo · SSO · SCIM · BPM · Editor colaborativo · Drive
+desktop · Pastas infinitas · ACL por pasta · CRM · Financeiro · ERP · Chat completo · Gestão
+fiscal completa.
+
+## 18.6 — Débito técnico de infraestrutura (não é feature, mas consome orçamento de engenharia
+antes de produção real)
+
+Ver detalhe completo em §17 acima: migração de Lambdas para ARM64/Graviton2; hardening de rede
+(VPC + WAF).
