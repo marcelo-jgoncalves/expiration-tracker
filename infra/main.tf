@@ -1183,14 +1183,20 @@ resource "aws_lambda_event_source_mapping" "reminder_claim_consumer_from_queue" 
   batch_size              = 10
   function_response_types = ["ReportBatchItemFailures"]
   scaling_config {
-    # D-300 §8 2nd roll-forward: restored to DECISION.md §3's real target (50) after the canary
-    # window closed clean - see reminder_producer_from_scan_queue's matching comment above for
-    # the real evidence (relay/scan-page real outcomes, zero errors, zero DLQ growth). The claim
-    # consumer itself has not yet been invoked (no real due occurrences exist to produce claim
-    # candidates in this environment yet) - expected, not a red flag; the imminent 1k-occurrence
-    # load test is what will exercise this path for real, at the real target concurrency rather
-    # than the artificially constrained canary value.
-    maximum_concurrency = 50
+    # D-300 §3's original target (50) was an explicit engineering assumption "a ser revisada
+    # apos a primeira carga real em producao" (reminder-producer-implementation-plan-scoping/
+    # DECISION.md §3) - the 2026-09-19 D-302 10k revalidation (email-cohort run, PERF-12-10k-
+    # latency-regression-2026-09-19.md) is that first real load, and it measured claim-consumer
+    # peaking at exactly this ceiling (54 concurrent, matching the 50 cap within CloudWatch's
+    # 1-minute granularity) with zero throttles and average 875.6ms/invocation against a 10s
+    # function timeout - the account had ample headroom (1000 available). Raised to 150 (3x): a
+    # deliberately modest, evidence-bounded increase, not a guess - it was NOT the dominant cause
+    # of that run's SLO miss (claim-consumer finished all its work in ~2 minutes; the real
+    # bottleneck was dispatch-outbox-relay's IteratorAge on the shared global stream, still open,
+    # tracked for the Claude<->Codex protocol pending Codex availability) but is an independent,
+    # low-risk (change-risk-scale.md level 4: "batch size... ajustaveis depois sem migracao")
+    # improvement worth taking regardless.
+    maximum_concurrency = 150
   }
 }
 

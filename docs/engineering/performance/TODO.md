@@ -117,7 +117,15 @@ itens de acompanhamento fora do programa de performance.
     com republicação da primeira página de cada shard. Correção deployada (`a45c145`). Canário
     dedicado de 1.000 multi-shard (alvo 18:43 UTC) **aprovado sem ressalvas** — provou avanço de
     cursor entre páginas (`pagesProcessed=2`/shard), 1.000/1.000 `TRIGGERED`, zero erro, máximo
-    147,5s. Pré-condição para repetir 10k está satisfeita. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md).
+    147,5s. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md). **Revalidação
+    de 10k repetida em 2026-09-19 (cohort de e-mail SES) reprovou de novo** — 10.000/10.000
+    `TRIGGERED`, zero perda, mas p100=535,98s (pior que os originais). Causa raiz: não é mais o
+    scan (rápido, 19-22s) nem o `claim-consumer` (terminou em ~2min) — é `dispatch-outbox-relay`,
+    ainda no stream global compartilhado, `IteratorAge` até 275,8s mesmo com PF4 já ativo. **D-303
+    (`APPROVED_BY_OWNER`)** propõe o mesmo padrão de D-301/D-302 aplicado ao dispatch — desenhado,
+    implementação pendente. `MaximumConcurrency` do claim-consumer subido 50→150 (independente,
+    não era a causa dominante). Rodada Codex pendente (bloqueado até 2026-09-23). Evidência:
+    [regressão de latência](results/PERF-12-10k-latency-regression-2026-09-19.md).
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e

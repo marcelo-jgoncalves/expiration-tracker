@@ -44,10 +44,16 @@ nível 6 (D-301/D-302, `APPROVED_BY_OWNER`). Resumo (detalhe completo: `TODO.md`
    bug real de checkpoint (alias não usado em `ExpressionAttributeNames` cancelando a transação
    silenciosamente) — corrigido e confirmado por um canário dedicado de 1.000 multi-shard
    (1.000/1.000 `TRIGGERED`, `pagesProcessed=2`/shard provando avanço de cursor, máximo 147,5s).
-5. **Em andamento nesta sessão**: revalidação de 10k, agora roteando e-mail por um cohort de
-   simuladores SES (não pela caixa Gmail real que as rodadas anteriores usaram sem perceber, antes
-   do SES ter production access) — resultado ainda não disponível, será registrado aqui quando
-   concluir.
+5. **Revalidação de 10k concluída em 2026-09-19** (cohort de simuladores SES, não mais a caixa
+   Gmail real que as rodadas anteriores usaram sem perceber): 10.000/10.000 `TRIGGERED`, zero
+   perda, mas SLO de 300s **reprovado** (p100=535,98s, pior que os originais). Causa raiz real
+   (não a hipótese inicial): `dispatch-outbox-relay` — relay compartilhado com outros tipos de
+   evento, não exclusivo de reminders — ainda lê o stream global da tabela principal;
+   `IteratorAge` até 275,8s mesmo com a mitigação vertical (`parallelization_factor=4`) já
+   esgotada. **D-303** propõe o mesmo padrão do D-301/D-302 (tabela/stream/relay dedicados)
+   aplicado ao dispatch — desenhado, pesquisa externa feita, implementação pendente. Rodada
+   Claude↔Codex preparada, aguardando Codex (bloqueado até 2026-09-23). Detalhe completo:
+   `results/PERF-12-10k-latency-regression-2026-09-19.md`.
 
 ## 3. O que o programa decidiu deliberadamente NÃO fazer (e por quê)
 
@@ -86,9 +92,11 @@ ambos por decisão deliberada de não instrumentar/adivinhar sem evidência, nã
 
 ## 5. Recomendação de fechamento
 
-A primeira rodada do programa pode ser considerada **substancialmente concluída** assim que PERF-12
-(10k) fechar com o cohort de e-mail sintético. Os 2 números parciais (§4) não bloqueiam esse
-fechamento — já estão registrados como decisão consciente, não pendência esquecida. Próximo passo
-natural após o fechamento: 100k (`results/PERF-12-100k-preparation.md`, já desenhado, aguardando a
-aprovação de 10k) e, à parte do programa formal, a limpeza dos ~13 tenants sintéticos + ~24k
-registros acumulados em `dev` quando o Marcelo decidir.
+A primeira rodada do programa está **substancialmente concluída em todas as fases exceto PERF-12**,
+que revelou um segundo achado arquitetural real (D-303, dispatch-outbox ainda no stream
+compartilhado) na revalidação de 10k de 2026-09-19 — o mesmo padrão de "só aparece em escala" que
+motivou o programa inteiro. Os 2 números parciais (§4) não bloqueiam o fechamento das demais fases.
+100k (`results/PERF-12-100k-preparation.md`) fica bloqueado até D-303 ser implementado e 10k passar
+de fato — não faz sentido testar 100k contra o mesmo gargalo que já reprova em 10k. Limpeza dos
+tenants/registros sintéticos acumulados em `dev` (agora incluindo o cohort SES) segue pendente de
+decisão do Marcelo.
