@@ -109,6 +109,10 @@ deploy do D-303 (`d303-10k-revalidation`) travou 100% das reivindicações (`err
    `document_request_recurrence` e `tenant_purge_worker` — os dois nunca conseguiram completar
    uma transação real, desde sempre, sem relação com o D-303 — e corrigiu (commit `aca1c95`).
    Verificado manualmente depois: nenhuma outra policy em `infra/` tem o mesmo padrão.
+   **Antigravity também ficou sem cota na mesma sessão** (`RESOURCE_EXHAUSTED`, reset informado em
+   ~163h a partir de 2026-09-19 ~08:38 UTC, ou seja, por volta de 2026-09-26) — checar se já voltou
+   antes de tentar usar de novo; com Codex também bloqueado até 2026-09-23, nenhuma segunda opinião
+   externa estava disponível no fim desta sessão.
 3. **Terceiro achado, mesma sessão**: com o claim já funcionando, ~45min de atraso (tempo da
    própria investigação) expôs um bug separado em `reconcileDst` (reconciliação de DST) que
    cancelava ocorrências simplesmente atrasadas como se fossem divergência de política real —
@@ -126,9 +130,60 @@ primeira vez** — depois de provisionar manualmente `NotificationEntitlements`/
 de produto, não só de teste — ver pendência #10 acima). Detalhe completo de tudo isto:
 `docs/engineering/performance/TODO.md` (seção do incidente D-303, 2026-09-19).
 
-**Próxima ação literal**: decidir com Marcelo se vale repetir a rodada completa de 10k para uma
-prova final de SLO na escala original (a de 1.000 já é evidência real, mas não idêntica em escala)
-— ciclo de ~2h, não lançar sozinho sem visibilidade.
+## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
+
+**Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
+300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
+(não avançar para o próximo degrau) só se um degrau reprovar — nesse caso, investigar a causa raiz
+real (nunca supor; só concluir com evidência direta de logs/AWS, mesmo padrão desta sessão),
+corrigir minimizando ao máximo o risco de regressão, e **re-rodar o MESMO degrau que falhou**
+antes de tentar avançar — nunca pular para o próximo tamanho com um bug conhecido não resolvido.
+
+**Limite técnico real, verificado**: `perf-reminder-burst.mjs` hoje só aceita até
+`PERF_REMINDER_BURST_SIZE=100000` (`requireThatBurstSize`, teto hardcoded). **500k não é possível
+sem alterar o script primeiro** — decidir e implementar esse aumento de teto com o mesmo cuidado
+de sempre (ler o motivo do teto atual antes de só apagar o número, considerar se o resto do
+harness — paginação, sessão Cognito de 15min, cutoff de criação — ainda se comporta bem numa carga
+5x maior) antes de tentar o degrau de 500k.
+
+**Cota real da AWS que também limita a escala, verificada nesta sessão**: SES `Max24HourSend =
+50.000`/24h. Qualquer tentativa de enviar e-mail real por item nos degraus de 100k/500k estouraria
+essa cota sozinha, sem nem precisar do problema abaixo.
+
+**MUITO IMPORTANTE — não repetir o problema dos e-mails reais chegando na caixa pessoal de
+Marcelo** (8 notificações de reclamação simulada da AWS, `complaints@email-abuse.amazonses.com`,
+recebidas durante a verificação de 1k desta sessão, quando o cohort `perf-12-email-tenants.json`
+— que inclui de propósito um tenant `complaint@simulator.amazonses.com` e um `bounce@...` — foi
+usado). Para os degraus de 10k/100k/500k, que servem para provar SLO/throughput de
+scan→claim→dispatch→`TRIGGERED` (não para reprovar entrega de e-mail, já comprovada nesta sessão
+em pequena escala): **usar o arquivo de tenants PADRÃO (`perf-11b-tenants.json`, sem passar
+`PERF_REMINDER_BURST_TENANTS_FILE`), que não define `assigneeUserId`** — sem isso, o item vira
+`NotificationIntent` `CANCELLED` de forma limpa e imediata (`RECIPIENT_NOT_FOUND`, comportamento
+documentado, já observado em todas as rodadas antes da correção de assignee), **nunca chega a
+tentar um envio real ao SES, nunca entra em `RETRY`**, e não afeta em nada o critério de sucesso
+do teste (`TRIGGERED`, não entrega). Não usar `perf-12-email-tenants.json` nestes 3 degraus sob
+hipótese alguma.
+
+**Protocolo Claude↔Codex SUSPENSO até novo aviso (Marcelo, 2026-09-19)** — Codex bloqueado até
+2026-09-23, Antigravity também sem cota até ~2026-09-26 (ver acima). Enquanto isso, Claude decide
+sozinho qualquer questão de nível 5-6 que normalmente exigiria o protocolo, **mas toda decisão
+tomada sem o protocolo formal deve ser marcada explicitamente com status `PENDING_PROTOCOL_REVIEW`**
+(no documento de decisão/review correspondente, nunca `APPROVED_BY_OWNER` nem "protocolo
+dispensado" — essas duas frases são para dispensa explícita por Marcelo, não para ausência de
+ferramenta) e listada aqui em `NEXT_SESSION_PROMPT.md` para retomar assim que Codex ou Antigravity
+voltarem a funcionar. Isto NÃO dispensa rigor — conclusões só a partir de fatos verificados ao
+vivo (nunca suposição), e toda correção de código passa pela suíte de testes completa antes de
+qualquer merge.
+
+**Conclusão de cada etapa de ajuste**: só marcar uma correção como concluída depois de passar pela
+skill `/task-checklist` (`docs/engineering/task-completion-checklist.md`, `AGENTS.md` §1) — não
+antes. Isto vale para cada bug encontrado durante a escada de escala, individualmente.
+
+**Se a sessão começar com a pipeline ainda rodando** (Marcelo pode iniciar a próxima sessão sem
+esperar o teste atual terminar): primeiro checar `ps aux | grep perf-reminder-burst` e o estado
+real na AWS antes de presumir uma sessão limpa — nunca lançar um novo run sem antes confirmar se
+já existe um em andamento (risco de corrida de git/AWS entre dois runs concorrentes, já registrado
+em memória).
 
 **Achado incidental, não bloqueante, de sessão anterior**: gate `Authenticated k6 smoke`
 reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE

@@ -528,10 +528,19 @@ module "reminder_dispatch_outbox_sweeper" {
 }
 
 resource "aws_lambda_event_source_mapping" "reminder_dispatch_outbox_relay" {
-  event_source_arn        = module.reminder_dispatch_outbox_table.stream_arn
-  function_name           = module.reminder_dispatch_outbox_relay.live_alias_arn
-  starting_position       = "LATEST"
-  batch_size              = 100
+  event_source_arn  = module.reminder_dispatch_outbox_table.stream_arn
+  function_name     = module.reminder_dispatch_outbox_relay.live_alias_arn
+  starting_position = "LATEST"
+  batch_size        = 100
+  # Real finding, 2026-09-19 (25k real-email round, ladder-email-25k): left at the AWS default
+  # (1) since D-303 first stood this relay up, unlike the shared dispatch_outbox_relay_from_stream
+  # mapping above, which PERF-12 already tuned to 4 for the identical IteratorAge-under-burst
+  # symptom (same processStreamRecords loop, same per-record sequential await). Observed live:
+  # IteratorAge peaked at 453s (accepted:false, p100=657s vs the 300s SLO) with factor=1 and
+  # batch_size=100 - AWS's own with-ddb.html doc names ParallelizationFactor as exactly the lever
+  # for "data volume is volatile and IteratorAge is high". Reusing the shared relay's
+  # already-proven value here rather than jumping to the untested max of 10.
+  parallelization_factor  = 4
   function_response_types = ["ReportBatchItemFailures"]
   filter_criteria {
     filter {

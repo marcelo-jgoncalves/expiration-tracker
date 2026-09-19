@@ -212,16 +212,15 @@ itens de acompanhamento fora do programa de performance.
   `exptrk-dev-reminder-claim-consumer-role` (`TemporaryDiagnosticAccess`, para uma tentativa de
   `sts assume-role` de diagnóstico que nunca se completou, bloqueada pelo próprio Claude Code)
   também foi revertida — a role só confia em `lambda.amazonaws.com` de novo.
-- [ ] **Achado de observabilidade real, 2026-09-19, não corrigido** — durante o incidente acima,
+- [x] **Achado de observabilidade real, 2026-09-19, corrigido** — durante o incidente acima,
   a causa raiz real ficou invisível por muito tempo porque `reminder-claim-consumer-handler.ts:78`
-  loga só `errorCode`/`retryable` no catch (`logger.error("reminder-claim-consumer failed",
-  { errorCode: appErr.code, retryable: appErr.retryable })`), nunca `appErr.message` — mesmo a
-  mensagem original do erro (ex. o texto exato de um `AccessDeniedException`) já estando disponível
-  em memória via `toAppError()` (`src/shared/errors/app-error.ts`), só nunca impressa. Isso
-  atrasou o diagnóstico em campo (precisei reproduzir a transação manualmente para confirmar a
-  causa, sem conseguir ver o erro real da própria Lambda). Verificar se o mesmo padrão (logar só
-  `code`/`retryable`, nunca `message`) se repete em outros handlers SQS do projeto — se sim, vale
-  um ajuste geral, não só neste arquivo.
+  logava só `errorCode`/`retryable` no catch, nunca `appErr.message` — mesmo a mensagem original
+  do erro (ex. o texto exato de um `AccessDeniedException`) já estando disponível em memória via
+  `toAppError()` (`src/shared/errors/app-error.ts`), só nunca impressa. Isso atrasou o diagnóstico
+  em campo (precisei reproduzir a transação manualmente para confirmar a causa). O mesmo padrão se
+  repetia em mais 8 handlers SQS/Step Functions — corrigido nos 9 (`errorMessage: appErr.message`
+  adicionado a cada `logger.error`), confirmado seguro (o `SecureLogger` já redige campos
+  sensíveis), `npm test` 3114/3114 passando.
 - [x] **Terceiro achado real do mesmo incidente, 2026-09-19, corrigido** — depois da correção de
   IAM, o `claim-consumer` passou a funcionar, mas a rodada de 10k ficou presa por ~45 min durante
   a investigação, tempo suficiente para o próprio `scheduledAt` de cada ocorrência ficar no
@@ -280,15 +279,19 @@ itens de acompanhamento fora do programa de performance.
 
 ## Preparação que já pode ser adiantada (plano §22 — segura, sem mudança estrutural)
 
-- [ ] Instrumentação de spans (PERF-02)
-- [ ] Performance dashboards (esqueleto)
-- [ ] RUM em dev
-- [ ] Bundle analyzer instalado
-- [ ] Harness k6 inicial (`performance/k6/`)
-- [ ] Template de experimento (plano §26) salvo em `experiments/TEMPLATE.md`
-- [ ] Queries CloudWatch salvas como templates
-- [ ] Harness de Power Tuning
-- [ ] Correlation IDs de ponta a ponta
+**Reconciliado em 2026-09-19 — os 9 itens abaixo estavam desmarcados de uma lista antiga, mas 8/9
+já tinham sido feitos sob outros nomes PERF-XX ao longo do programa, nunca marcados aqui. Só 1
+genuinamente pendente (verificado com evidência real, não suposição).**
+
+- [x] Instrumentação de spans (PERF-02) — ADOT (`adot_layer_arn`) wired em toda função Lambda real (`infra/main.tf`, 70 ocorrências).
+- [x] Performance dashboards (esqueleto) — `infra/modules/observability-dashboard`, dashboard `exptrk-dev-operations` confirmado ao vivo (PERF-14).
+- [x] RUM em dev — `frontend/src/observability/rum.ts`.
+- [x] Bundle analyzer instalado — `rollup-plugin-visualizer` em `frontend/package.json` (equivalente ao webpack-bundle-analyzer para builds Vite/Rollup).
+- [x] Harness k6 inicial (`performance/k6/`) — 4 cenários (`scenario-a` a `scenario-d`) + config multi-tenant, mais desenvolvido que "inicial".
+- [x] Template de experimento (plano §26) salvo em `experiments/TEMPLATE.md` — existe desde PERF-00.
+- [x] Harness de Power Tuning — stack CloudFormation isolado (`perf-tuning-lambda-power-tuning`, AWS Lambda Power Tuning SAR) implantado e documentado em `results/PERF-05-power-tuning.md`, disponível para reuso sem precisar reimplantar.
+- [x] Correlation IDs de ponta a ponta — `src/shared/observability/context.ts`, M5 (correlationId/tenantId propagation).
+- [ ] **Genuinamente pendente**: queries CloudWatch Logs Insights salvas como templates reutilizáveis — confirmado via `aws logs describe-query-definitions` (lista vazia na conta `dev`). Nenhuma query foi formalmente salva ainda; o que existe são queries ad-hoc digitadas a cada investigação (inclusive nesta sessão). Candidato de baixo esforço para a próxima sessão: salvar as 4-5 queries mais reutilizadas desta sessão (outcomes de handler, contagem de status por tenant, DLQ depth) via `aws logs put-query-definition`.
 
 ## Não fazer sem evidência (plano §23, §24)
 
