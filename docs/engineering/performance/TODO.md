@@ -201,13 +201,17 @@ itens de acompanhamento fora do programa de performance.
   também quebrava `document_request_recurrence` e `tenant_purge_worker` — nenhum dos dois
   conseguia completar uma transação de escrita real, desde sempre, sem relação com o D-303.
   Corrigido no Terraform (`worker_transact_write`/`cross_tenant_scan_workers` em
-  `infra/modules/dynamo-table/main.tf`), commit `aca1c95`. **Pendente (2)**: reverter a concessão
-  de `dynamodb:TransactWriteItems` na tabela
-  principal (`tenant_facing_read_write`, `infra/modules/dynamo-table/main.tf`) — foi a primeira
-  hipótese, aplicada ao vivo e no Terraform, mas confirmada DESNECESSÁRIA (a ação real checada é
-  `PutItem`/`UpdateItem`/etc., já concedidas); é uma concessão inofensiva mas redundante, deixada
-  no lugar deliberadamente por ora para não mexer na policy de novo com o teste de carga em
-  andamento — reverter depois que a rodada terminar.
+  `infra/modules/dynamo-table/main.tf`), commit `aca1c95`. Verificado depois, manualmente: nenhum
+  outro `data.aws_iam_policy_document` em `infra/` tem o mesmo padrão (grep completo por
+  `dynamodb:TransactWriteItems` — os 9 handlers de purge restantes citados em `stack.tftest.hcl`
+  compartilham a MESMA `worker_transact_write` já corrigida, via `local.gsi8_worker_types`).
+  **(2) resolvido**: a concessão redundante de `dynamodb:TransactWriteItems` na tabela principal
+  (primeira hipótese, confirmada desnecessária) foi revertida ao vivo e no Terraform ao final da
+  sessão — `tenant_facing_read_write` voltou a ser exatamente o que era antes do incidente.
+  **(3) resolvido**: a política de confiança temporária aberta em
+  `exptrk-dev-reminder-claim-consumer-role` (`TemporaryDiagnosticAccess`, para uma tentativa de
+  `sts assume-role` de diagnóstico que nunca se completou, bloqueada pelo próprio Claude Code)
+  também foi revertida — a role só confia em `lambda.amazonaws.com` de novo.
 - [ ] **Achado de observabilidade real, 2026-09-19, não corrigido** — durante o incidente acima,
   a causa raiz real ficou invisível por muito tempo porque `reminder-claim-consumer-handler.ts:78`
   loga só `errorCode`/`retryable` no catch (`logger.error("reminder-claim-consumer failed",
@@ -244,6 +248,32 @@ itens de acompanhamento fora do programa de performance.
   Mínimo agora escala proporcionalmente ao tamanho (`minLeadMs`, piso de 25 min) — 10k continua
   exigindo os 90 min originais (comportamento padrão inalterado), 1k cai para 25 min. Testado
   (9/9), lint e typecheck limpos.
+- [x] **Verificação pós-fix, 2026-09-19 — rodada de 1.000 (`d303-1k-postfix-verify`) aprovada:
+  `accepted: true`, 1.000/1.000 `TRIGGERED`, dentro do SLO de 300s (máximo real 154,35s, bem
+  abaixo do limite).** Confirma que a correção de IAM (PutItem) resolve o incidente na prática, não
+  só na teoria. Não substitui uma prova final em escala de 10k (pendente, ver próxima ação abaixo)
+  mas já é evidência real de que o pipeline volta a funcionar corretamente.
+- [x] **Checagem manual de 10 itens (fora do harness, que tem piso de 1.000) confirma entrega real
+  de e-mail de ponta a ponta pela primeira vez**: 10/10 `TRIGGERED`, 10/10 processados pelo
+  `email-delivery`, `notification-router` retornando `ROUTED` (não mais `RETRY`) — depois de
+  provisionar manualmente os registros `NotificationEntitlements`/`NotificationPreferences`
+  faltantes para os 10 tenants sintéticos do cohort de e-mail (script novo:
+  `docs/engineering/performance/traces/perf-12-email-cohort-notification-provisioning.mjs`,
+  idempotente). **Sem esse provisionamento, nenhuma rodada anterior — nem esta, nem nenhuma
+  passada — jamais teria conseguido enviar um e-mail de verdade**, mascarado até agora pelos
+  bugs de IAM/reconciliação que impediam o pipeline de chegar tão longe.
+- [ ] **Achado de produto real, 2026-09-19, não corrigido, afeta tenants REAIS (não só sintéticos)**
+  — não existe, em nenhum lugar do código de produção, um caminho que crie
+  `NotificationEntitlements` para um tenant (grep completo em `src/`: só o arquivo de domínio
+  define o tipo; `notification-router{,-workflow}.ts` só leem). Um tenant sem esse registro cai em
+  `RETRY` (`ENTITLEMENT_UNAVAILABLE`) para sempre — nunca recebe e-mail. `NotificationPreferences`
+  tem um caminho de criação real, mas só "preguiçoso" (`getOrCreatePreferences`, só na primeira
+  vez que o próprio usuário abre a página de preferências) — frágil, mas existe. Provável ligação
+  com a integração de billing ainda bloqueada (D-052): o design (comentário em
+  `notification-entitlements.ts`) sugere que o provisionamento seria por plano pago, nunca
+  implementado. **Merece decisão de produto de Marcelo** antes de qualquer correção de código —
+  não é um ajuste mecânico (qual entitlement default para tenant sem plano? criar no onboarding ou
+  também lazy?).
 - [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---

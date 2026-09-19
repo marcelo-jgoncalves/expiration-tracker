@@ -296,15 +296,15 @@ data "aws_iam_policy_document" "tenant_facing_read_write" {
       "dynamodb:DeleteItem",
       "dynamodb:ConditionCheckItem",
       "dynamodb:DescribeTable",
-      # D-303 (achado real, 2026-09-19): TransactWriteItems ausente aqui bloqueava toda
-      # reivindicação de lembrete em produção real - claimReminderOccurrence grava na tabela
-      # principal + reminder-due-work + reminder-dispatch-outbox NUMA transação atômica, e o
-      # DynamoDB exige TransactWriteItems em TODAS as tabelas de uma TransactWriteItems, não só
-      # nas outras duas (que já tinham a ação). Confirmado ao vivo via
-      # `iam simulate-principal-policy` (implicitDeny antes, allowed depois) durante a
-      # revalidação de 10k do D-303 - 10.000 ocorrências travadas em SCHEDULED, 100% das
-      # reivindicações falhando com AccessDenied classificado como INTERNAL/retryable=false.
-      "dynamodb:TransactWriteItems",
+      # D-303 incident, 2026-09-19: `dynamodb:TransactWriteItems` was first (incorrectly) added
+      # here as the suspected fix for reminder-claim-consumer's AccessDenied failures - later
+      # confirmed via AWS's own docs (amazon-dynamodb-developer-guide/doc_source/
+      # transaction-apis-iam.md) that TransactWriteItems authorization is governed by the
+      # underlying per-item actions (PutItem/UpdateItem/DeleteItem/ConditionCheckItem, all
+      # already present above), not this action name. The real fix was adding `PutItem` to
+      # reminder-dispatch-outbox-table's own transact_write policy instead. Deliberately NOT
+      # re-added here - would be a redundant, unnecessary grant on a policy shared by ~44
+      # Lambda roles.
     ]
     resources = local.tenant_facing_resources
   }
