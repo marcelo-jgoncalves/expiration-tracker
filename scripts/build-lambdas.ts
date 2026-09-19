@@ -46,6 +46,8 @@ const HANDLERS = [
   "reminder-materialization-trigger-handler",
   "dispatch-outbox-relay-handler",
   "outbox-sweeper-handler",
+  "reminder-dispatch-outbox-relay-handler",
+  "reminder-dispatch-outbox-sweeper-handler",
   "notification-router-handler",
   "notification-email-outbox-relay-handler",
   "email-delivery-handler",

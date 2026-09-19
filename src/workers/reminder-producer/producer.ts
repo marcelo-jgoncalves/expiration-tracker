@@ -212,7 +212,15 @@ export async function runProducerTick(deps: ProducerDeps, tickMinute: Date): Pro
           // destination, same GSI6 pointer, same lost-race handling.
           try {
             const outcome = await claimReminderOccurrence(
-              { store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName, now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
+              {
+                store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName,
+                // D-303 (addendum): this is the LEGACY/rollback-only scan path (SCAN_MODE=LEGACY),
+                // deliberately kept on the main table's own shared outbox/stream rather than the
+                // dedicated D-303 table - an explicit choice made here at the one call site that
+                // needs it, never an implicit default inside claimReminderOccurrence itself.
+                dispatchOutboxTableName: deps.tableName,
+                now: deps.now, claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId,
+              },
               { PK: row.PK, SK: row.SK },
               tenantId,
             );

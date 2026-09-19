@@ -10,6 +10,7 @@ function deps(store: InMemoryReminderStore, nowIso: string) {
   return {
     store,
     tableName: TABLE,
+    dispatchOutboxTableName: TABLE,
     now: () => nowIso,
     claimTtlMs: 120_000,
     newEventId: () => `evt-${++counter}`,
@@ -91,7 +92,7 @@ describe("claimReminderOccurrence (extracted from producer.ts, D-300 §1)", () =
     };
 
     const outcome = await claimReminderOccurrence(
-      { store: racingStore, tableName: TABLE, now: () => "2026-09-14T12:00:05.000Z", claimTtlMs: 120_000, newEventId: () => "evt-1", correlationId: () => "corr-1" },
+      { store: racingStore, tableName: TABLE, dispatchOutboxTableName: TABLE, now: () => "2026-09-14T12:00:05.000Z", claimTtlMs: 120_000, newEventId: () => "evt-1", correlationId: () => "corr-1" },
       { PK: occ.PK, SK: occ.SK },
       TENANT,
     );
@@ -111,7 +112,7 @@ describe("claimReminderOccurrence (extracted from producer.ts, D-300 §1)", () =
 
     await expect(
       claimReminderOccurrence(
-        { store: flakyStore, tableName: TABLE, now: () => "2026-09-14T12:00:05.000Z", claimTtlMs: 120_000, newEventId: () => "evt-1", correlationId: () => "corr-1" },
+        { store: flakyStore, tableName: TABLE, dispatchOutboxTableName: TABLE, now: () => "2026-09-14T12:00:05.000Z", claimTtlMs: 120_000, newEventId: () => "evt-1", correlationId: () => "corr-1" },
         { PK: occ.PK, SK: occ.SK },
         TENANT,
       ),

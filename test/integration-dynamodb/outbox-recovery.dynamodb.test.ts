@@ -66,7 +66,7 @@ describe("PERF-12 persisted outbox fences and atomic recovery", () => {
       claimExpiresAt: "2026-09-16T21:59:00.000Z", GSI6PK: "WORKSTATE#CLAIMED", GSI6SK: "expired" };
     await store.putIfAbsent(candidate);
     await store.putIfAbsent(event("collision"));
-    const deps = { store, tableName: TABLE_NAME, now, claimTtlMs: 120000, newEventId: () => "collision", correlationId: () => "recovery" };
+    const deps = { store, tableName: TABLE_NAME, dispatchOutboxTableName: TABLE_NAME, now, claimTtlMs: 120000, newEventId: () => "collision", correlationId: () => "recovery" };
     await expect(recoverExpiredClaims(deps, [candidate])).rejects.toMatchObject({ name: "TransactionCanceledException" });
     expect(await store.get(keyOf(candidate))).toEqual(candidate);
     expect(await recoverExpiredClaims({ ...deps, newEventId: () => "recovered" }, [candidate])).toBe(1);

@@ -49,6 +49,16 @@ export interface ReminderClaimDeps {
   store: ReminderClaimStore;
   tableName: string;
   dueWorkTableName?: string;
+  /** D-303: dedicated table for the dispatch outbox Put, physically isolated from the main
+   * table's shared DynamoDB Stream - see decisions-log.md D-303. Deliberately REQUIRED, not
+   * optional-with-a-fallback-to-`tableName` (an earlier draft of this field was optional; an
+   * independent review, addendum in the D-303 decision doc, correctly flagged that shape as a
+   * silent-regression trap: a future caller that simply forgot to wire this dependency would
+   * fall back to the slow, pre-D-303 path with no compile-time or test signal at all - the
+   * bug this whole decision exists to fix, reintroduced invisibly). Every call site must now
+   * say explicitly which table it means, including the legacy/rollback producer path, which
+   * explicitly chooses the main table (see producer.ts) rather than omitting the field. */
+  dispatchOutboxTableName: string;
   now: () => string;
   claimTtlMs: number;
   newEventId: () => string;
@@ -120,7 +130,7 @@ export async function claimReminderOccurrence(deps: ReminderClaimDeps, baseKey: 
     data: command as unknown as Record<string, unknown>,
   };
   const outboxEntries: DynamoTransactPutEntry[] = [];
-  appendToTransaction(outboxEntries, deps.tableName, event, "SQS_REMINDER_DISPATCH_V1");
+  appendToTransaction(outboxEntries, deps.dispatchOutboxTableName, event, "SQS_REMINDER_DISPATCH_V1");
 
   try {
     const dueWorkDelete: TransactWriteEntry[] = deps.dueWorkTableName ? [{

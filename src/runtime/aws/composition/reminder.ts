@@ -151,12 +151,18 @@ export function buildReminderEnumerationDeps(client: DynamoDBDocumentClient, tab
  * corresponding code-level guarantee. */
 export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, tableName: string) {
   const dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"];
+  // D-303 (addendum, independent review finding): required, never optional-with-a-fallback -
+  // see ReminderClaimDeps's own doc comment for why a silent fallback here is exactly the class
+  // of bug this decision exists to prevent.
+  const dispatchOutboxTableName = process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+  if (!dispatchOutboxTableName) throw new Error("REMINDER_DISPATCH_OUTBOX_TABLE_NAME env var is required.");
   const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
   const ids = new UlidIdGenerator();
   return {
     store,
     tableName,
     dueWorkTableName,
+    dispatchOutboxTableName,
     now: () => new Date().toISOString(),
     claimTtlMs: 2 * 60_000,
     newEventId: () => ids.newEventId(),
@@ -166,6 +172,12 @@ export function buildReminderClaimConsumerDeps(client: DynamoDBDocumentClient, t
 
 export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableName: string) {
   const dueWorkTableName = process.env["REMINDER_DUE_WORK_TABLE_NAME"];
+  // D-303 (addendum, independent review finding): required, never optional-with-a-fallback -
+  // SCANLEASE's expired-claim recovery calls claimReminderOccurrence too and needs the same
+  // dedicated dispatch-outbox table as the primary claim path for its renewed dispatch outbox
+  // row (see ReminderClaimDeps's own doc comment).
+  const dispatchOutboxTableName = process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+  if (!dispatchOutboxTableName) throw new Error("REMINDER_DISPATCH_OUTBOX_TABLE_NAME env var is required.");
   const store = new DynamoDbReminderStore(client, tableName, dueWorkTableName);
   const candidateSource = new DynamoDbReminderReconciliationCandidateSource(client, tableName);
   const ids = new UlidIdGenerator();
@@ -174,6 +186,7 @@ export function buildReconciliationDeps(client: DynamoDBDocumentClient, tableNam
     candidateSource,
     tableName,
     dueWorkTableName,
+    dispatchOutboxTableName,
     now: () => new Date().toISOString(),
     // D-300 (DECISION.md §7): only consumed by the SCANLEASE pass's reclaim transaction - the
     // pre-existing CLAIMS/DST passes above have no use for these, added here rather than as a
@@ -418,5 +431,41 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
       SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
       SQS_REMINDER_SCAN_CONTINUATION_V1: send(reminderScanContinuationQueueUrl),
     },
+  };
+}
+
+/**
+ * D-303 (`docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md`): deliberately
+ * NOT `buildOutboxRelayDeps`/`buildDispatchOutboxRelayDepsFromEnv` reused wholesale - those
+ * require all ~10 other destinations' queue URLs (throws otherwise), because they're wired to
+ * the shared relay/sweeper that legitimately handles every destination on the main table's
+ * stream. This composition root is for a NEW, physically isolated relay/sweeper pair that reads
+ * ONLY the dedicated `ReminderDispatchOutboxTable` (never the main table) - it recognizes
+ * exactly one destination (`SQS_REMINDER_DISPATCH_V1`), by construction, so `DestinationSenders`
+ * being `Partial` is exactly right here rather than a workaround. `reminder-claim.ts`'s
+ * `claimReminderOccurrence` is the only writer that targets this table (via
+ * `dispatchOutboxTableName` in its deps) - the shared relay/sweeper never see these rows at all,
+ * so `OUTBOX_DESTINATION_OWNERSHIP`'s "both" entry for `SQS_REMINDER_DISPATCH_V1` stays accurate
+ * (describes what the shared relay CAN still handle, not what currently flows through it).
+ */
+export function buildReminderDispatchOutboxOnlyRelayDepsFromEnv(env: Record<string, string | undefined>, client: DynamoDBDocumentClient, sqsClient: SQSClient = new SQSClient({})) {
+  const tableName = env["TABLE_NAME"];
+  const queueUrl = env["DISPATCH_QUEUE_URL"];
+  if (!tableName) throw new Error("TABLE_NAME env var is required.");
+  if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
+  const store = new DynamoDbOutboxRelayStore(client, tableName);
+  const send = async (payload: Record<string, unknown>, correlationId: string) => {
+    await sqsClient.send(
+      new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: JSON.stringify(payload),
+        MessageAttributes: { correlationId: { DataType: "String", StringValue: correlationId } },
+      }),
+    );
+  };
+  return {
+    store,
+    now: () => new Date().toISOString(),
+    senders: { SQS_REMINDER_DISPATCH_V1: send },
   };
 }

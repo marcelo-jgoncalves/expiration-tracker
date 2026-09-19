@@ -135,6 +135,55 @@ o início. Se a revalidação pós-D-303 ainda reprovar, a resposta honesta muda
 corrigir mais uma coisa" para "o SLO de 300s pode não ser a métrica certa para este volume" — essa
 reavaliação fica registrada como gatilho explícito, não escondida.
 
+## 7.1 Addendum — revisão independente pós-implementação (2026-09-19)
+
+Codex seguia bloqueado (rate limit até 2026-09-23). Marcelo pediu para testar o Antigravity CLI
+(`agy`, modelo `gemini-3.1-pro-high`) como segunda opinião independente para esta implementação
+específica — funcionou (o `gemini` CLI puro estava descontinuado, "Gemini Code Assist for
+individuals" não é mais suportado; o Antigravity CLI é o substituto real, autenticação OAuth já
+válida no ambiente). Não é uma rodada formal do protocolo `AGENTS.md` §4 (que nomeia
+especificamente Codex) — é uma segunda opinião ad hoc, pedida e registrada por transparência,
+mesmo espírito de segregação de funções.
+
+**Achados aceitos e corrigidos, mesmo dia:**
+
+1. **`dispatchOutboxTableName` opcional era uma armadilha de regressão silenciosa** (achado
+   correto e mais importante da rodada): se um chamador futuro esquecesse de injetar essa
+   dependência, o sistema cairia de volta silenciosamente para a tabela principal (lenta,
+   compartilhada) sem nenhum sinal de compilação ou teste — reintroduzindo exatamente o bug que
+   esta decisão existe para corrigir, sem ninguém perceber. **Corrigido**: o campo passou a ser
+   obrigatório (nunca opcional) em `ReminderClaimDeps`; as duas funções de composição reais
+   (`buildReminderClaimConsumerDeps`/`buildReconciliationDeps`) agora lançam erro explícito se a
+   variável de ambiente faltar; o único caminho legado que genuinamente precisa da tabela
+   principal (`producer.ts`, rollback `SCAN_MODE=LEGACY`) agora declara isso explicitamente no
+   próprio call site, nunca por omissão. Testes novos provam ambos os lados (obrigatoriedade E a
+   escolha explícita do legado).
+2. **Risco real de fragilidade write-path por transação cruzando 2 tabelas** — aceito como
+   trade-off inerente ao padrão outbox cruzando tabelas (não uma falha de desenho), mas exige
+   monitoramento com a mesma criticidade da tabela principal. Alarme de `WriteThrottleEvents`
+   adicionado na tabela nova.
+3. **Tabela on-demand nova começa com teto de 4.000 WCU/s** (confirmado contra documentação
+   oficial da AWS, não só a alegação) — abaixo da capacidade já escalada da tabela principal.
+   Risco real para a próxima rodada de 10k se o burst de claims for rápido demais; mitigado pelo
+   alarme de throttle acima. Não é bloqueante agora — os dados desta sessão mostram que o
+   `claim-consumer` processa a carga ao longo de ~2 minutos, não poucos segundos, mas isso precisa
+   ser reconfirmado com dados reais na próxima rodada, não presumido.
+4. **Verificação de que falha de transação propaga corretamente**: confirmado por leitura direta
+   do código — `claimReminderOccurrence` já relança qualquer exceção que não seja uma cancelação
+   condicional isolada (`isSoleConditionalCancellation`), e o handler já trata isso como falha
+   real (log + `HANDLER_ERROR` + item de lote não confirmado, retry nativo do SQS). Nenhuma
+   mudança necessária, comportamento já correto.
+
+**Não aceito/deferido, com justificativa registrada**: a sugestão de remover
+`SQS_REMINDER_DISPATCH_V1` inteiramente do relay/sweeper compartilhados (IAM + variável de
+ambiente) — tecnicamente mais correta, mas exige reestruturar a assinatura do helper de baixo
+nível `buildOutboxRelayDeps` (que trata essa fila como seu parâmetro obrigatório, não opcional,
+para AMBOS os chamadores — relay e sweeper compartilhados), uma mudança mais invasiva e arriscada
+do que o escopo desta decisão justifica agora. Manter o relay compartilhado tecnicamente capaz de
+processar esse destino (mesmo que nada mais escreva nele) funciona como rede de segurança, não
+como bug — a correção real do risco (item 1 acima, campo obrigatório) já fecha o caminho que
+permitiria a regressão silenciosa. Candidato a hardening futuro, não bloqueante.
+
 ## 8. Critério de conclusão
 
 `IMPLEMENTING` até: implementado, canário de 1k aprovado, revalidação de 10k repetida com máximo

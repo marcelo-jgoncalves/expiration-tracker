@@ -103,7 +103,31 @@ Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (ra
 
 **PERF-12 (pipeline de lembretes) — achado central do programa, motivou mudança arquitetural real**: D-299/D-300 implementadas. 2 rodadas limpas de 10k em 2026-09-17 entregaram 10.000/10.000 mas estouraram o SLO de 300s (contenção entre continuações de scan e outboxes de dispatch no stream/relay global compartilhado). **D-301/D-302 (`APPROVED_BY_OWNER`, nível 6, protocolo Claude↔Codex dispensado por decisão direta do Marcelo, `ai-governance.md` §2)** — plano de controle dedicado (`DueWorkTable` autoritativa sem stream, sharding versionado, stream/relay/fila exclusivos) — **implementado e implantado em `dev`** (não mais só aprovado). Revalidação de 10k reprovou uma vez por bug real de checkpoint (alias não usado em `ExpressionAttributeNames` cancelando a transação silenciosamente); corrigido (`a45c145`) e confirmado por canário dedicado de 1.000 multi-shard (1.000/1.000 `TRIGGERED`, `pagesProcessed=2`/shard provando avanço de cursor, máximo 147,5s). Evidência completa: `results/PERF-12-d302-rollout-2026-09-18.md`.
 
-**Revalidação de 10k concluída em 2026-09-19 (cohort de e-mail SES, não mais a caixa Gmail real do Marcelo — achado real: rodadas anteriores usavam-na sem perceber)**: 10.000/10.000 `TRIGGERED`, zero perda, mas SLO de 300s **reprovado** (p100=535,98s — pior que os runs originais que motivaram D-301/D-302). Causa raiz medida (não hipótese): `dispatch-outbox-relay` — relay **compartilhado** com outros tipos de evento (`ImportCommitWorker` etc.), não exclusivo de reminders — ainda lê o stream global da tabela principal; `IteratorAge` chegou a 275,8s mesmo com `parallelization_factor=4` já ativo (mitigação vertical esgotada). **D-303 (`APPROVED_BY_OWNER`, protocolo dispensado por autorização direta do Marcelo)**: outbox/stream/relay dedicados só para dispatch de reminders, mesmo padrão de D-301/D-302 aplicado ao lado que nunca foi redesenhado — desenho registrado, pesquisa externa feita, **implementação ainda não iniciada** (escopo comparável ao do D-301/D-302 original). `MaximumConcurrency` do `reminder-claim-consumer` subido de 50→150 (nível 4, independente, não era a causa dominante mas é melhoria real de baixo risco). Rodada Claude↔Codex sobre D-303 **pendente — Codex bloqueado até 2026-09-23 20:24 (mesma conta usada por Marcelo diretamente, não recurso à parte)**; prompt completo pronto em `.local/codex-prompt-perf12-concurrency-round1.txt` (gitignored, nome desatualizado — conteúdo é sobre D-303). Evidência completa: `results/PERF-12-10k-latency-regression-2026-09-19.md`. **Achado adicional, corrigido no mesmo dia**: os 10.000 `NotificationIntent` desta rodada foram todos `CANCELLED` (`RECIPIENT_NOT_FOUND`) — zero envio real ao SES, nem nesta rodada nem em nenhuma anterior — porque `seed()` nunca definia `assigneeUserId` nos items criados (limitação já nomeada em `PERF-12-100k-preparation.md`). Corrigido: `perf-reminder-burst.mjs` agora atribui cada item ao próprio admin do tenant do cohort SES (que já É o `GlobalUser` do e-mail simulador); verificado ao vivo (não só unit test). **A próxima rodada de 10k (pós-D-303) será a primeira a exercitar entrega real de e-mail de ponta a ponta.**
+**Revalidação de 10k de 2026-09-19 (cohort de e-mail SES) reprovou o SLO de 300s** (p100=535,98s,
+zero perda) — causa raiz medida: `dispatch-outbox-relay` (relay **compartilhado**, não exclusivo
+de reminders) ainda lê o stream global da tabela principal, `IteratorAge` até 275,8s mesmo com
+`parallelization_factor=4` já esgotado. Evidência completa: `results/PERF-12-10k-latency-regression-2026-09-19.md`.
+Achado incidental corrigido no mesmo dia: os 10.000 `NotificationIntent` saíram todos `CANCELLED`
+(zero envio real ao SES em qualquer rodada até agora) porque `seed()` nunca definia
+`assigneeUserId` — `perf-reminder-burst.mjs` corrigido e verificado ao vivo; a próxima rodada de
+10k será a primeira a exercitar entrega real de e-mail ponta a ponta.
+
+**D-303 (`APPROVED_BY_OWNER`, protocolo dispensado por autorização direta do Marcelo) — IMPLEMENTADO
+e REVISADO, aguardando só CI/merge/deploy+reteste**: outbox/stream/relay dedicados só para
+dispatch de reminders (mesmo padrão de D-301/D-302), reaproveitando a lógica genérica existente
+sem duplicar código. `MaximumConcurrency` do `reminder-claim-consumer` subido 50→150 (independente,
+nível 4). **Codex seguia bloqueado (até 2026-09-23) — testamos e confirmamos o Antigravity CLI
+(`agy`, `/root/.local/bin/agy -p "..." --model gemini-3.1-pro-high --mode plan`) como segunda
+opinião real funcional** (o `gemini` CLI puro está descontinuado — "Code Assist individual" não é
+mais suportado). Achado real e corrigido na revisão: `dispatchOutboxTableName` era opcional com
+fallback silencioso — armadilha de regressão silenciosa real, corrigida (campo agora obrigatório,
+cada call site declara explicitamente qual tabela usa). Alarme de `WriteThrottleEvents` adicionado
+(tabela on-demand nova começa em 4.000 WCU/s, abaixo da tabela principal já escalada). Detalhe
+completo da rodada: `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1.
+**Gates locais completos (typecheck/lint/check-boundaries/validate-schemas/`npm test`/`terraform
+test`/`terraform plan` real contra `dev`) todos verdes antes do commit.** Próxima ação literal:
+confirmar o PR aberto por esta sessão está com CI verde, mergear, e SÓ ENTÃO decidir sobre
+dark-deploy + repetir a rodada de 10k (não lançar sozinho sem visibilidade, é outro ciclo de ~2h).
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
