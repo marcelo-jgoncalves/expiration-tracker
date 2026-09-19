@@ -183,6 +183,32 @@ itens de acompanhamento fora do programa de performance.
   cresce. Conserto de verdade provavelmente exige medir o tamanho real do backlog e uma decisão de
   arquitetura (nível 5-6, mesma classe do D-301/302/303) sobre particionar/isolar essa
   reconciliação — não aplicado nesta sessão, carga de teste em andamento no mesmo ambiente.
+- [x] **Incidente real, 2026-09-19 — `reminder-claim-consumer` travado 100% durante a própria
+  revalidação de 10k do D-303, corrigido ao vivo.** Toda reivindicação falhava com
+  `errorCode: INTERNAL, retryable: false` (`reminder-claim-consumer-handler.ts:78`), as 10.000
+  mensagens foram parar na DLQ duas vezes seguidas. Causa raiz real (depois de uma primeira
+  hipótese incorreta — ver achado de observabilidade abaixo): a policy Terraform do D-303 para a
+  tabela dedicada de dispatch (`infra/modules/reminder-dispatch-outbox-table/main.tf`
+  `data.aws_iam_policy_document.transact_write`) concedia só `dynamodb:TransactWriteItems` —
+  **não é essa a ação que a AWS realmente checa** para um item tipo Put dentro de uma transação
+  (é `dynamodb:PutItem`; confirmado contra a documentação oficial da AWS,
+  `amazon-dynamodb-developer-guide/doc_source/transaction-apis-iam.md`, e contra
+  `iam simulate-principal-policy`, que retornou `implicitDeny` para `PutItem` nessa tabela).
+  Corrigido ao vivo (`iam put-role-policy`, adicionando `dynamodb:PutItem`) e no Terraform fonte —
+  confirmado via redrive da DLQ, 162/162 `CLAIMED` sem erro. Revisado com Antigravity
+  (`gemini-3.1-pro-high`) como segunda opinião. **Pendente**: verificar se o mesmo padrão de erro
+  (conceder `TransactWriteItems` em vez das ações reais por item) se repete em outra policy
+  Terraform do projeto.
+- [ ] **Achado de observabilidade real, 2026-09-19, não corrigido** — durante o incidente acima,
+  a causa raiz real ficou invisível por muito tempo porque `reminder-claim-consumer-handler.ts:78`
+  loga só `errorCode`/`retryable` no catch (`logger.error("reminder-claim-consumer failed",
+  { errorCode: appErr.code, retryable: appErr.retryable })`), nunca `appErr.message` — mesmo a
+  mensagem original do erro (ex. o texto exato de um `AccessDeniedException`) já estando disponível
+  em memória via `toAppError()` (`src/shared/errors/app-error.ts`), só nunca impressa. Isso
+  atrasou o diagnóstico em campo (precisei reproduzir a transação manualmente para confirmar a
+  causa, sem conseguir ver o erro real da própria Lambda). Verificar se o mesmo padrão (logar só
+  `code`/`retryable`, nunca `message`) se repete em outros handlers SQS do projeto — se sim, vale
+  um ajuste geral, não só neste arquivo.
 - [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---

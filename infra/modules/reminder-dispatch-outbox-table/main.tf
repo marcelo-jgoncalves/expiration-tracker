@@ -64,9 +64,18 @@ data "aws_iam_policy_document" "read_write" {
 # isolated so the relay/sweeper roles (read_write above) never get transact-write on this table
 # they have no reason to need it for (same least-privilege discipline as the main table's
 # per-worker IAM isolation, AGENTS.md #7).
+#
+# D-303 incident, 2026-09-19: `dynamodb:TransactWriteItems` alone is NOT the action AWS actually
+# checks for a Put-type item inside a transaction - confirmed against AWS's own docs
+# (amazon-dynamodb-developer-guide/doc_source/transaction-apis-iam.md) and against
+# `iam simulate-principal-policy` (implicitDeny for dynamodb:PutItem with only the line above).
+# claimReminderOccurrence's only operation against this table is a Put (the dispatch outbox
+# entry), so `dynamodb:PutItem` is the actually-required action; `TransactWriteItems` is kept
+# alongside it since it's a valid (if not sufficient on its own) way some policies scope
+# transaction-only access, not because it's load-bearing by itself.
 data "aws_iam_policy_document" "transact_write" {
   statement {
-    actions   = ["dynamodb:TransactWriteItems"]
+    actions   = ["dynamodb:TransactWriteItems", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.this.arn]
   }
 }
