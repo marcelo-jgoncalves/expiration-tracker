@@ -7,7 +7,7 @@ import { claimChasingOccurrence } from "../../../src/modules/subject/application
 function setup(entityType = "ReminderOccurrence") {
   const store = new InMemoryReminderStore();
   let counter = 0;
-  const deps = { store, tableName: "table", now: () => "2026-09-16T22:00:00.000Z", claimTtlMs: 120000,
+  const deps = { store, tableName: "table", dispatchOutboxTableName: "table", now: () => "2026-09-16T22:00:00.000Z", claimTtlMs: 120000,
     newEventId: () => `evt-${++counter}`, correlationId: () => "recovery" };
   const candidate = { PK: entityType === "DocumentChasingOccurrence" ? "TENANT#t1#CHASING#o1" : "TENANT#t1#ITEM#item1",
     SK: entityType === "DocumentChasingOccurrence" ? "META" : "OCC#o1", tenantId: "t1", entityType,

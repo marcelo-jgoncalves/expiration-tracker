@@ -109,23 +109,22 @@ itens de acompanhamento fora do programa de performance.
     sem nenhum mecanismo de reconciliação existente para recuperá-las (nem CLAIMS nem DST cobrem
     esse caso). DynamoDB/SQS não gargalaram (zero throttle, fila sempre com idade 0s) — o teto é só
     o Producer. Ver `results/PERF-12-async-pipeline-1k.md`.
-  - [~] 10k — as duas repetições de 2026-09-17 completaram 10.000/10.000, mas reprovaram o
-    SLO (máximos 359,983s e 331,173s) e motivaram D-301/D-302. O plano de controle dedicado foi
-    implantado, recebeu backfill idempotente e passou no canary pós-correção de 1.000/1.000 com
-    máximo 195,581s. O cutover exclusivo para v2 foi concluído. A revalidação de 10k em v2
-    reprovou em 2026-09-18 por um checkpoint DynamoDB inválido: 3.200/10.000 em alvo +20 min,
-    com republicação da primeira página de cada shard. Correção deployada (`a45c145`). Canário
-    dedicado de 1.000 multi-shard (alvo 18:43 UTC) **aprovado sem ressalvas** — provou avanço de
-    cursor entre páginas (`pagesProcessed=2`/shard), 1.000/1.000 `TRIGGERED`, zero erro, máximo
-    147,5s. Evidência: [rollout D-302](results/PERF-12-d302-rollout-2026-09-18.md). **Revalidação
-    de 10k repetida em 2026-09-19 (cohort de e-mail SES) reprovou de novo** — 10.000/10.000
-    `TRIGGERED`, zero perda, mas p100=535,98s (pior que os originais). Causa raiz: não é mais o
-    scan (rápido, 19-22s) nem o `claim-consumer` (terminou em ~2min) — é `dispatch-outbox-relay`,
-    ainda no stream global compartilhado, `IteratorAge` até 275,8s mesmo com PF4 já ativo. **D-303
-    (`APPROVED_BY_OWNER`)** propõe o mesmo padrão de D-301/D-302 aplicado ao dispatch — desenhado,
-    implementação pendente. `MaximumConcurrency` do claim-consumer subido 50→150 (independente,
-    não era a causa dominante). Rodada Codex pendente (bloqueado até 2026-09-23). Evidência:
+  - [~] 10k — D-301/D-302 (scan/claim) implantados e validados (canário 1.000/1.000, máximo 147,5s).
+    Revalidação de 10k em 2026-09-19 (cohort de e-mail SES) reprovou de novo — 10.000/10.000
+    `TRIGGERED`, zero perda, mas p100=535,98s. Causa raiz medida: `dispatch-outbox-relay`, ainda no
+    stream global compartilhado, `IteratorAge` até 275,8s mesmo com PF4. Achado incidental corrigido
+    no mesmo dia: `seed()` do harness não atribuía `assigneeUserId` → 100% `CANCELLED`, zero envio
+    real ao SES em qualquer rodada até agora — corrigido e verificado ao vivo. Evidência:
     [regressão de latência](results/PERF-12-10k-latency-regression-2026-09-19.md).
+    **D-303 (`APPROVED_BY_OWNER`) implementado e revisado** (mesmo padrão D-301/D-302 aplicado ao
+    dispatch — outbox/stream/relay dedicados, reaproveitando lógica genérica existente). Codex
+    seguia bloqueado (até 2026-09-23) — segunda opinião obtida via Antigravity/Gemini
+    (`gemini-3.1-pro-high`), achado real corrigido (`dispatchOutboxTableName` era opcional com
+    fallback silencioso, agora obrigatório). Gates locais completos verdes (typecheck/lint/
+    boundaries/schemas/`npm test`/`terraform test`/`terraform plan` contra `dev`). `MaximumConcurrency`
+    do claim-consumer subido 50→150 (independente, não era a causa dominante). Detalhe completo:
+    `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1. **Pendente**:
+    commit/PR/CI/merge desta implementação, depois dark-deploy + repetir a rodada de 10k.
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e

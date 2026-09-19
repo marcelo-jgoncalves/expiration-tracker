@@ -1,8 +1,8 @@
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { describe, expect, it, vi } from "vitest";
-import { buildOutboxRelayDeps, buildDispatchOutboxRelayDepsFromEnv, buildOutboxSweeperDepsFromEnv } from "../../../src/runtime/aws/composition/reminder.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildOutboxRelayDeps, buildDispatchOutboxRelayDepsFromEnv, buildOutboxSweeperDepsFromEnv, buildReminderDispatchOutboxOnlyRelayDepsFromEnv, buildReminderClaimConsumerDeps, buildReconciliationDeps } from "../../../src/runtime/aws/composition/reminder.js";
 import { OUTBOX_DESTINATION_OWNERSHIP, type OutboxDestination } from "../../../src/shared/outbox/outbox.js";
 import type { DestinationSenders } from "../../../src/workers/dispatch-outbox-relay/relay.js";
 
@@ -100,6 +100,29 @@ describe("buildOutboxRelayDeps (low-level helper) - documents its always-correct
   });
 });
 
+describe("buildReminderDispatchOutboxOnlyRelayDepsFromEnv (D-303 dedicated relay/sweeper composition)", () => {
+  it("wires exactly one sender (SQS_REMINDER_DISPATCH_V1) - proves this is deliberately narrower than the shared relay/sweeper, not an accidental subset", async () => {
+    const { client, send } = fakeSqsClient();
+    const deps = buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ TABLE_NAME: "reminder-dispatch-outbox", DISPATCH_QUEUE_URL: "https://sqs.example/dispatch" }, fakeClient, client);
+    expect(Object.keys(deps.senders)).toEqual(["SQS_REMINDER_DISPATCH_V1"]);
+
+    await deps.senders["SQS_REMINDER_DISPATCH_V1"]?.({ some: "payload" }, "corr-1");
+    expect(send).toHaveBeenCalledTimes(1);
+    const command = send.mock.calls[0]?.[0] as SendMessageCommand;
+    expect(command.input.QueueUrl).toBe("https://sqs.example/dispatch");
+  });
+
+  it("throws when TABLE_NAME is missing - proves the dedicated table is never silently defaulted to the shared main table", () => {
+    const { client } = fakeSqsClient();
+    expect(() => buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ DISPATCH_QUEUE_URL: "https://sqs.example/dispatch" }, fakeClient, client)).toThrow(/TABLE_NAME/);
+  });
+
+  it("throws when DISPATCH_QUEUE_URL is missing", () => {
+    const { client } = fakeSqsClient();
+    expect(() => buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ TABLE_NAME: "reminder-dispatch-outbox" }, fakeClient, client)).toThrow(/DISPATCH_QUEUE_URL/);
+  });
+});
+
 describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender maps", () => {
   it("matches exactly what each handler's real composition function wires - catches both under-routing and over-routing", () => {
     const { client: relayClient } = fakeSqsClient();
@@ -136,5 +159,25 @@ describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender ma
       expect(OUTBOX_DESTINATION_OWNERSHIP[destination]).toBeDefined();
     }
     expect(Object.keys(OUTBOX_DESTINATION_OWNERSHIP).sort()).toEqual([...allDestinations].sort());
+  });
+});
+
+describe("buildReminderClaimConsumerDeps / buildReconciliationDeps (D-303 addendum: required env var, no silent fallback)", () => {
+  const ORIGINAL = process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+    else process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"] = ORIGINAL;
+  });
+
+  // G-V3: reverting the `if (!dispatchOutboxTableName) throw` check back to a bare
+  // `process.env[...]` read (undefined silently flowing through) would make this pass again.
+  it("buildReminderClaimConsumerDeps throws when REMINDER_DISPATCH_OUTBOX_TABLE_NAME is missing - proves the dedicated table is never silently defaulted", () => {
+    delete process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+    expect(() => buildReminderClaimConsumerDeps(fakeClient, "t")).toThrow(/REMINDER_DISPATCH_OUTBOX_TABLE_NAME/);
+  });
+
+  it("buildReconciliationDeps throws when REMINDER_DISPATCH_OUTBOX_TABLE_NAME is missing - same guarantee for the SCANLEASE expired-claim recovery path", () => {
+    delete process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
+    expect(() => buildReconciliationDeps(fakeClient, "t")).toThrow(/REMINDER_DISPATCH_OUTBOX_TABLE_NAME/);
   });
 });

@@ -439,19 +439,23 @@ module "reminder_reconciliation" {
   # reminder-reconciliation-handler.ts's scanMode() doc comment and local.reminder_scan_mode
   # above for why this Lambda needs the SAME value the producer receives, not just the epoch.
   environment_variables = merge(local.common_env, {
-    SCAN_MODE                    = local.reminder_scan_mode
-    SCAN_MODE_EPOCH              = local.reminder_scan_mode_epoch
-    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
+    SCAN_MODE                           = local.reminder_scan_mode
+    SCAN_MODE_EPOCH                     = local.reminder_scan_mode_epoch
+    REMINDER_DUE_WORK_TABLE_NAME        = module.reminder_due_work_table.table_name
+    REMINDER_DISPATCH_OUTBOX_TABLE_NAME = module.reminder_dispatch_outbox_table.table_name
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 1 : null
   # One of EXACTLY THREE roles granted gsi6_read (the others are OutboxSweeperReminderDispatch
   # and, since M6, UploadSlotReconciliationWorker - see security-audit.ts's
   # GlobalIndexComponent "upload-slot-reconciliation"). D-300: the same gsi6_read grant already
   # covers the new SCANLEASE pass's GSI6PK="SCANLEASE#IN_PROGRESS" query - no new IAM grant.
+  # D-303: transact_write on the dedicated dispatch-outbox table too - SCANLEASE's expired-claim
+  # recovery calls the same claimReminderOccurrence helper as the primary claim path.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.table.gsi6_read_policy_json,
     module.reminder_due_work_table.write_policy_json,
+    module.reminder_dispatch_outbox_table.transact_write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -469,15 +473,149 @@ module "reminder_claim_consumer" {
   source_dir     = "${local.dist_dir}/reminder-claim-consumer-handler"
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
-    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
+    REMINDER_DUE_WORK_TABLE_NAME        = module.reminder_due_work_table.table_name
+    REMINDER_DISPATCH_OUTBOX_TABLE_NAME = module.reminder_dispatch_outbox_table.table_name
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 10 : null
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.reminder_claim_queue.consume_policy_json,
     module.reminder_due_work_table.write_policy_json,
+    module.reminder_dispatch_outbox_table.transact_write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
+}
+
+# D-303: real-time relay + periodic sweeper for the dedicated ReminderDispatchOutboxTable
+# (docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md). Both reuse the
+# SAME dispatch-outbox-relay-handler/outbox-sweeper-handler code as the shared relay/sweeper
+# (src/runtime/aws/composition/reminder.ts's buildReminderDispatchOutboxOnlyRelayDepsFromEnv) -
+# only TABLE_NAME/DISPATCH_QUEUE_URL differ, never wired to any of the ~10 other destinations
+# the shared pair still owns on the main table's stream.
+module "reminder_dispatch_outbox_relay" {
+  source         = "./modules/lambda-function"
+  function_name  = "${local.name_prefix}-reminder-dispatch-outbox-relay"
+  handler_name   = "reminder-dispatch-outbox-relay-handler"
+  source_dir     = "${local.dist_dir}/reminder-dispatch-outbox-relay-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    TABLE_NAME         = module.reminder_dispatch_outbox_table.table_name
+    DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url
+  })
+  policy_documents_json = [
+    module.reminder_dispatch_outbox_table.read_write_policy_json,
+    module.reminder_dispatch_outbox_table.stream_read_policy_json,
+    module.dispatch_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+module "reminder_dispatch_outbox_sweeper" {
+  source         = "./modules/lambda-function"
+  function_name  = "${local.name_prefix}-reminder-dispatch-outbox-sweeper"
+  handler_name   = "reminder-dispatch-outbox-sweeper-handler"
+  source_dir     = "${local.dist_dir}/reminder-dispatch-outbox-sweeper-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    TABLE_NAME         = module.reminder_dispatch_outbox_table.table_name
+    DISPATCH_QUEUE_URL = module.dispatch_queue.queue_url
+  })
+  policy_documents_json = [
+    module.reminder_dispatch_outbox_table.read_write_policy_json,
+    module.dispatch_queue.send_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "reminder_dispatch_outbox_relay" {
+  event_source_arn        = module.reminder_dispatch_outbox_table.stream_arn
+  function_name           = module.reminder_dispatch_outbox_relay.live_alias_arn
+  starting_position       = "LATEST"
+  batch_size              = 100
+  function_response_types = ["ReportBatchItemFailures"]
+  filter_criteria {
+    filter {
+      pattern = jsonencode({ eventName = ["INSERT", "MODIFY"], dynamodb = { NewImage = { entityType = { S = ["OutboxEvent"] } } } })
+    }
+  }
+}
+
+resource "aws_iam_role" "reminder_dispatch_outbox_sweeper_schedule" {
+  name               = "${local.name_prefix}-reminder-dispatch-outbox-sweeper-schedule"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "scheduler.amazonaws.com" } }] })
+  tags               = { Project = local.project_name, Environment = var.environment }
+}
+resource "aws_iam_role_policy" "reminder_dispatch_outbox_sweeper_schedule" {
+  name   = "invoke"
+  role   = aws_iam_role.reminder_dispatch_outbox_sweeper_schedule.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "lambda:InvokeFunction", Resource = [module.reminder_dispatch_outbox_sweeper.live_alias_arn] }] })
+}
+resource "aws_scheduler_schedule" "reminder_dispatch_outbox_sweeper" {
+  name                = "${local.name_prefix}-reminder-dispatch-outbox-sweeper"
+  schedule_expression = "rate(5 minutes)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+  flexible_time_window { mode = "OFF" }
+  target {
+    arn      = module.reminder_dispatch_outbox_sweeper.live_alias_arn
+    role_arn = aws_iam_role.reminder_dispatch_outbox_sweeper_schedule.arn
+    input    = "{}"
+  }
+}
+
+locals {
+  reminder_dispatch_outbox_function_names = {
+    relay   = module.reminder_dispatch_outbox_relay.function_name
+    sweeper = module.reminder_dispatch_outbox_sweeper.function_name
+  }
+}
+resource "aws_cloudwatch_metric_alarm" "reminder_dispatch_outbox_errors" {
+  for_each            = local.reminder_dispatch_outbox_function_names
+  alarm_name          = "${local.name_prefix}-reminder-dispatch-outbox-${each.key}-errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions          = { FunctionName = each.value }
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
+}
+# D-303 addendum (independent review finding): a fresh on-demand table starts at a default
+# peak of 4,000 WCU/s - well below the main table's already-scaled-up capacity. A burst that
+# exceeds it makes reminder-claim-consumer's TransactWriteItems fail outright (this table's
+# write is inside the SAME transaction as the aggregate's own conditional Update), not just
+# delay a relay - this alarm exists specifically to catch that during the next load test.
+resource "aws_cloudwatch_metric_alarm" "reminder_dispatch_outbox_table_write_throttle" {
+  alarm_name          = "${local.name_prefix}-reminder-dispatch-outbox-table-write-throttle"
+  namespace           = "AWS/DynamoDB"
+  metric_name         = "WriteThrottleEvents"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions          = { TableName = module.reminder_dispatch_outbox_table.table_name }
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_cloudwatch_metric_alarm" "reminder_dispatch_outbox_relay_iterator_age" {
+  alarm_name          = "${local.name_prefix}-reminder-dispatch-outbox-relay-iterator-age"
+  namespace           = "AWS/Lambda"
+  metric_name         = "IteratorAge"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 30000
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions          = { FunctionName = module.reminder_dispatch_outbox_relay.function_name }
+  alarm_actions       = [module.alert_topic.topic_arn]
+  tags                = { Project = local.project_name, Environment = var.environment }
 }
 
 # DynamoDB Streams read permissions — Terraform's aws_lambda_event_source_mapping does not
@@ -1273,6 +1411,16 @@ module "reminder_scan_v2_queue" {
 module "reminder_due_work_table" {
   source     = "./modules/reminder-due-work-table"
   table_name = "${local.name_prefix}-reminder-due-work"
+  tags       = { Project = local.project_name, Environment = var.environment }
+}
+
+
+# D-303 (docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md): outbox table
+# dedicated to reminder dispatch, physically isolated from the main table's shared DynamoDB
+# Stream that dispatch_outbox_relay/outbox_sweeper still serve every other destination on.
+module "reminder_dispatch_outbox_table" {
+  source     = "./modules/reminder-dispatch-outbox-table"
+  table_name = "${local.name_prefix}-reminder-dispatch-outbox"
   tags       = { Project = local.project_name, Environment = var.environment }
 }
 

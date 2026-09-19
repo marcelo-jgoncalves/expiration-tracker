@@ -44,7 +44,7 @@ function makeDeps(store: InMemoryReminderStore, claimQueue: InMemoryClaimQueue, 
   return {
     enumeration: { store, shardConfig: defaultShardConfig(), tableName: TABLE, now, newEventId, correlationId, rolloutEpoch, leaseDurationMs, newOwnerToken: () => `owner-${counter}` },
     scanPage: { store, claimQueue, tableName: TABLE, now, newEventId, correlationId, rolloutEpoch, pageSize: 25, leaseDurationMs, sleep: async () => {} },
-    claim: { store, tableName: TABLE, now, claimTtlMs: 120_000, newEventId, correlationId },
+    claim: { store, tableName: TABLE, dispatchOutboxTableName: TABLE, now, claimTtlMs: 120_000, newEventId, correlationId },
   };
 }
 
