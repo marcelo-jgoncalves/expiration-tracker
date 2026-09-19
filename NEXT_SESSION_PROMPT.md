@@ -14,21 +14,16 @@
 
 ## Roadmap de lançamento (`docs/project/roadmap-competitivo-2026-09-01.md`) — 11 itens P0
 
-1. **Requirement Templates** — 🟢 IMPLEMENTADO (D-191).
-2. **Bulk import (Documents+Requirements+column mapping)** — 🟢 IMPLEMENTADO (D-192).
-3. **WhatsApp operacional** — 🟢 **IMPLEMENTADO POR COMPLETO do lado de engenharia, D-197/ADR-0012, TODAS as 5/5 fatias + rota de opt-in (D-286, 2026-09-14) fechando a última pendência nomeada.** `POST /notifications/whatsapp-opt-in` agora chama `WhatsAppOptInService.recordOptIn()` (antes sem nenhum caller HTTP). **Resta só**: o bloqueio de produto/jurídico E-019 (aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito ainda, fora do controle de engenharia; as credenciais reais da Meta no secret também dependem disso). Nenhuma fatia de engenharia resta, nem pendência nomeada não bloqueante.
-4. **IA/OCR no Document Lifecycle** — 🟢 IMPLEMENTADO por completo (D-193). Flags `EXTRACTION_DOCUMENT_ARCHIVE_TRIGGER_ENABLED`/`DOCUMENT_ARCHIVE_PROMOTION_ENABLED` deliberadamente OFF (ativação é decisão futura reversível).
-5. **Busca e filtros documentais** — 🟢 IMPLEMENTADO fatias 1-3 (D-194/D-196). Fatias 4-5 (projeção materializada+GSI10, índice por assignee) DEFERIDAS com gatilho quantitativo nomeado em D-194 — não bloqueante.
-6. **Dashboard operacional/compliance** — 🟢 IMPLEMENTADO (D-196).
-7. **Relatórios + exportação + audit trail** — 🟢 IMPLEMENTADO fatias 1-4 (D-195). Fora de escopo, nomeado: "solicitações pendentes" (sem GSI tenant-wide por status) e audit trail legível para negócio.
-8. **Document Types configuráveis** — 🟢 IMPLEMENTADO (D-173 a D-186, D-221, D-224, D-243, D-244): CRUD, RBAC, metadata configurável, leitura pública para guest, e `documentTypeId` agora OBRIGATÓRIO no schema HTTP do guest submit-evidence (corte único, `documentType` livre removido por completo) — D-244 codou o desenho `APPROVED` de D-243 por inteiro (schema+serviço+9/9 testes do checklist), gate local completo verde.
-9. **Consolidar Guest Upload + Requests + Review + Recurrence** — 🟢 FECHADO POR INTEIRO (D-222/D-226 a D-230). Ciclo completo (criar→emitir credencial→entregar→resolver) funciona nos dois caminhos (avulso e recorrência), provado por teste e2e real.
-10. **Consolidar Storage + Versioning + Renewal** — 🟢 avançado; `DocumentFile` fechado por completo (D-163 a D-168).
-11. **Frontend completo do P0** — 🟢 **FECHADO POR COMPLETO, 2026-09-11.** 25 telas (Blocos 0-10, D-254 a D-270) implementadas/testadas/revisadas, 1 rodada Codex por bloco. Análise holística do frontend + rodada Codex final: CONCLUÍDA (D-271). Detalhe bloco-a-bloco completo (achados de cada rodada Codex, arquivos tocados): `docs/architecture/decisions-log.md` D-254 a D-271, nunca recontado aqui. **A15 sem drill-down por linha — FECHADO (D-292, 2026-09-14)**: o dado (`ImportRowOutcome`) já existia persistido desde D-192 §6, só faltava uma rota que o expusesse; backend+frontend fechados juntos. **A16 sem histórico de execução — FECHADO (D-293, 2026-09-14)**: mesmo padrão — `ReportSubscriptionRun`/`ReportDeliveryAttempt` já existiam persistidos desde D-204 decisão 5, só faltava a rota de listagem (a rota de download já existia mas era inalcançável sem saber o `runId`); backend+frontend fechados juntos. Nenhuma pendência nomeada resta neste item — **todas as 25 telas do plano estão completas sem nenhum gap conhecido restante**. (`ExternalShareLink` slice 2/3 — item 8 do backlog P1 — fechada por completo em D-273, 2026-09-12, não é mais pendência; `createSeries` sem fence de unicidade ACTIVE — P0.3 da auditoria externa — CORRIGIDO em D-278, 2026-09-12, não é mais pendência.)
-
-**Armazenamento de arquivo do guest** — design (D-265/ADR-0013) e implementação (D-266) CONCLUÍDOS 2026-09-10, protocolo Claude↔Codex completo (7 rodadas design + 2 rodadas implementação). Pendência remanescente: CSP/CORS (ver item 11 acima) — rodada Claude↔Codex dedicada ainda não escopada por ninguém.
-
-**Bloco 7** (A10 Rastreamento legado + A22 Entrega de solicitação + G01 Upload convidado legado) — COMPLETO (D-267). 1 rodada Codex (4,6/10 → achados corrigidos, incluindo gap real de infra: rota CloudFront nunca existiu para o caminho legado). 🟢 **`DocumentChasingOccurrence` FECHADO POR COMPLETO (D-288 backend + D-289 frontend, 2026-09-14)** — `GET .../chasing-occurrences` implementada/testada, achado adjacente real corrigido (`listDocumentRequests` vazava linhas de chasing mistipadas), e `Tracking.tsx` consome a rota de verdade (evidência ponta-a-ponta satisfeita, D-285). Nenhuma pendência nomeada resta neste item.
+**Todos os 11 itens 🟢 IMPLEMENTADOS por completo** (Requirement Templates D-191; Bulk import D-192;
+WhatsApp D-197/ADR-0012+D-286; IA/OCR D-193; Busca/filtros D-194/D-196; Dashboard D-196; Relatórios
+D-195; Document Types D-173-D-186/D-221/D-224/D-243/D-244; Guest Upload+Requests+Review+Recurrence
+D-222/D-226-D-230; Storage/Versioning/Renewal D-163-D-168; Frontend 25 telas D-254-D-271/D-292/D-293).
+Detalhe item-a-item nunca recontado aqui: `docs/architecture/decisions-log.md`. Únicas pendências
+residuais, ambas fora de engenharia: **WhatsApp** aguarda E-019 (jurídico — aviso de privacidade,
+DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de Marcelo, fora desta
+sessão) — Fase 1 concluída 2026-09-11, Fase 2 pendente (`Proximas_Tarefas_Identidade_Visual.md`,
+raiz do repo, deliberadamente fora do `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/`
+ou atualizar o allowlist).
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 
@@ -36,42 +31,25 @@
 
 ## Backlog pós-lançamento P1 (autorizado 2026-09-04)
 
-1. reminder sequences configuráveis — 🟢 DONE (M3).
-2. escalation/múltiplos destinatários — 🟢 FECHADO (D-199 a D-201).
-3. busca OCR/full-text — 🔴 **BLOQUEADO**, pendente decisão de Marcelo entre 3 caminhos nomeados em D-202 — não é o próximo item executável sem essa decisão.
-4. relatórios agendados — 🟢 FECHADO POR COMPLETO (D-204/D-211 a D-215).
-5. dossiê documental PDF/Excel — 🟢 FECHADO POR COMPLETO (D-205/D-216/D-217). TTL de retenção do metadado fechado depois (D-235).
-6. bulk actions — 🟢 FECHADO POR COMPLETO (D-206/D-207/D-209/D-210).
-7. metadata configurável por Document Type — 🟢 FECHADO POR COMPLETO (D-218 a D-221).
-8. compartilhamento externo seguro (`ExternalShareLink`) — 🟢 **FECHADO POR COMPLETO (D-273), 2026-09-12** — design `APPROVED` (D-225), slice 1/3 (D-241) + slice 2/3 (rotas HTTP autenticadas+anônima, RBAC, schemas, terraform, BFF, testes) ambas implementadas. 2 achados reais corrigidos durante slice 2/3 (não presentes na slice 1/3 original): pepper de auditoria de IP reusava o pepper do token (violação da Decisão 11, corrigido com `ipAuditPepper` próprio); bug de forma do token no `handleCreateShareLink` (string composta `shareId.selector.secret` do serviço nunca dividida antes de devolver ao cliente — achado só por teste de integração real, não pelos unit tests do serviço). Gate local completo verde (`npm test` 2926/2926), `terraform test` root 27/27 + módulo `api-gateway` 1/1. Mergeado `develop→main` (PR #303) e **APLICADO em `dev` com sucesso** (CD run 34704323049, `Apply complete! Resources: 19 added, 96 changed, 4 destroyed`, exatamente o plano previsto, 0 erro). **Último item do backlog P1 originalmente sem decisão pendente — todo item 1-2/4-8 do backlog P1 está fechado.** Item 3 (busca OCR/full-text) segue 🔴 BLOQUEADO por decisão de Marcelo (não é engenharia) — o backlog P1 não está 100% fechado por causa desse item isolado.
-- **P2** (não escopado): assinatura eletrônica; API pública; webhooks; integrações de calendário; compliance score avançado; **assistente de IA conversacional no produto** (ex. "quais fornecedores vencem em breve"/explicar documento sinalizado, via API do Claude direto — não MCP/Claude Code — item novo, 2026-09-11, ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §5; validado por pesquisa de mercado como tendência real de diferenciação em SaaS de compliance, mas não escopado nem priorizado).
+**Fechado por completo, exceto item 3.** Itens 1/2/4-8 🟢 DONE (reminder sequences M3; escalation
+D-199-D-201; relatórios agendados D-204/D-211-D-215; dossiê PDF/Excel D-205/D-216/D-217/D-235;
+bulk actions D-206/D-207/D-209/D-210; metadata por Document Type D-218-D-221; `ExternalShareLink`
+D-273, aplicado em `dev` CD run 34704323049). Item 3 (busca OCR/full-text) 🔴 **BLOQUEADO** —
+decisão de Marcelo entre 3 caminhos nomeados em D-202. Detalhe item-a-item: `decisions-log.md`.
+- **P2** (não escopado): assinatura eletrônica; API pública; webhooks; integrações de calendário;
+  compliance score avançado; assistente de IA conversacional no produto (via API Claude direto,
+  ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §5).
 - **Futuro** (sem gatilho comercial): portal completo do cliente; SSO/SCIM/controles enterprise.
-- **Identidade visual (workstream paralelo, não bloqueia nem é bloqueado por engenharia)**: Fase 1 (pesquisa/diagnóstico de marca) CONCLUÍDA 2026-09-11 por Marcelo diretamente (fora desta sessão de engenharia) — `Relatorio_Fase_1_Pesquisa_e_Diagnostico_Expiration_Tracker.md` e `Proximas_Tarefas_Identidade_Visual.md` (ambos na raiz do repo, **deliberadamente FORA do `ROOT_MD_ALLOWLIST`** de `scripts/check-doc-drift.ts` — nunca commitar sem antes mover para `docs/project/` ou atualizar o allowlist). Próximo passo nomeado: Fase 2 (3 territórios criativos), depois Fase 3 (escolha+busca de anterioridade jurídica+sistema de variantes), depois Fase 4 (aplicação real no produto, aí sim uma sessão de engenharia).
 
-## Full-audit round2 (`docs/engineering/joint-review-criteria.md`) — estado por eixo, 2026-09-07/08
+## Full-audit round2 (`docs/engineering/joint-review-criteria.md`) e auditoria externa de 2026-09-12
 
-Gate de fechamento é ≥9,0/10 nos dois avaliadores, sem arredondar. Nenhum eixo abaixo atingiu o gate ainda, exceto os 3 achados HIGH/ALTA já corrigidos nominalmente (linhas seguintes). Detalhe completo de cada eixo: `docs/engineering/decisions-log.md` E-0xx + `docs/engineering/reviews/full-audit-round2-*-summary.md`.
-
-- **E-020 (Operações/SRE)** — achado ALTA (rollback quebrado, manifesto hardcodava 13 de 61 Lambdas) **CORRIGIDO (D-232)**: `scripts/generate-lambda-manifest.ts` gera o manifesto automaticamente a partir de `infra/*.tf`, `npm run check:lambda-manifest` CI-blocking.
-- **E-018 (Segurança)/E-021 (Arquitetura), achado convergente (SEC-R2-02)** — lease de entrega de credencial guest quebrado (marcador reivindicado antes do envio SES) **CORRIGIDO (D-233)**: máquina `CLAIMED`→`DELIVERED`/`SEND_UNCERTAIN`. Achados menores de E-021 sobre fan-out/duplicação de hidratação GSI4 **CORRIGIDOS (D-274, 2026-09-12)**. Ainda pendente: EMF/dashboard operacional ausente.
-- **E-018 (Segurança) — IAM least-privilege** — `dynamodb:Scan` **CORRIGIDO PARCIALMENTE (D-234)**: removido das políticas gerais tenant-facing, isolado aos 4 workers que fazem Scan cross-tenant. Risco residual documentado (LeadingKeys estático inviável para ~44 Lambdas HTTP) mitigado via `AuthorizedTenantId` + suíte adversarial (143 casos). **Propagação de `AuthorizedTenantId` aos key-builders de persistência: COMPLETA nos 4 módulos** (document-archive D-237, expiration D-238, subject D-239, organization D-240) — todo key-builder tenant-scoped dos 4 módulos agora exige o tipo branded, fechando o gap de compile-time que D-234 tinha deixado como follow-up.
-- **E-015 (Privacidade)** — `DossierExportRun`/`ReportSubscriptionRun`/`ReportDeliveryAttempt` sem TTL **CORRIGIDO (D-235)**: `purgeAfterTtl` (30 dias) adicionado, TTL nativo DynamoDB. Pendente: critérios #1/#5/#6/#7 sem rodada de debate dedicada (retorno esperado baixo).
-- **E-016 (Governança de Produto/Multi-tenant)** — nota 7,1/7,8, gate não atingido. Nenhum vazamento cross-tenant confirmado. `reset-dev-data.ts`'s `QUEUE_BASE_NAMES` desatualizado **CORRIGIDO (D-274, 2026-09-12)**. Enforcement automático de que toda rota nova chama `authorize()` **CORRIGIDO (D-287, 2026-09-14)**: `test/architecture/authorize-coverage.test.ts` novo.
-- **E-017 (Governança de IA)** — nota 7,2/7,1 na rodada original, gate ainda não reavaliado formalmente. 2 incidentes reais (delegação recursiva de subagente, item de roadmap declarado fechado sem worker real) registrados retroativamente em `ai-governance.md` §5. Os 2 achados pendentes citados na rodada original já foram corrigidos desde então (`definition-of-done.md` §"Gate de fechamento de item de ROADMAP" e §"Limite de profundidade de redelegação de subagente") — achado de drift corrigido em 2026-09-19, esta linha ainda descrevia os 2 gaps como abertos.
-- **E-019 (Jurídico/Contratual)** — nota 4,73→5,25/5,16→5,28, gate não atingido (o mais baixo). Fixes factuais em `third-party-inventory.md`. **Bloqueante real antes de WhatsApp com usuário real**: aviso de privacidade, DPA Meta formalmente aceito, residência de dados decidida — nenhum feito.
-- **E-022 (Engenharia de Contexto)** — nota 6,84/10, gate não atingido. **Este próprio arquivo era o achado central** — reconciliado nesta sessão como D-236 (ver preâmbulo). Guardrail de `scripts/check-doc-drift.ts` também corrigido (checagem de bytes/palavras adicionada, ver `AGENTS.md` §6 e o próprio script). Achados factuais menores em `docs/architecture/README.md` já corrigidos.
-- **E-023 (Qualidade de Engenharia)** — nota 8,17→8,32/8,84→8,34, gate não atingido (mais perto de todos). **Corrida intermitente entre `test/architecture/system-mutation-allowlist.test.ts` e `tenant-fence-boundary.test.ts` RESOLVIDA (D-272, 2026-09-11)** — causa raiz real identificada (dois processos `tsc`/vitest concorrentes compilando a árvore inteira, não um bug de agendamento interno) e corrigida com lock cross-processo, reproduzida e verificada de verdade. Único pendente restante deste eixo: `coverage.thresholds` em `vitest.config.ts` (decisão de Marcelo) — sem isso, uma nova rodada formal de nota provavelmente ainda não bate ≥9,0 neste critério específico.
-
-## Auditoria crítica externa recebida 2026-09-12 (~8,2/10, não é rodada Claude↔Codex)
-
-Documento completo: `docs/engineering/reviews/external-audit-2026-09-11-critica-repositorio.md`. 3 achados novos verificados diretamente contra código/GitHub real antes de registrar aqui (nunca aceitos só por alegação):
-- **CI de `main` exige só o check `guardrails`** — **CORRIGIDO (D-277, 2026-09-12)**: `gh api` PATCH em `branches/main/protection/required_status_checks`, adicionados `frontend`/`dynamodb-integration`/`Validate Infra (Terraform)` (nenhum recurso Terraform equivalente neste repo para branch protection — configuração só de GitHub). Verificado pós-mudança via leitura direta do estado, não só a resposta do PATCH.
-- **`ReminderPolicy` permite N policies por item, frontend modela 1** — **CORRIGIDO (D-280, 2026-09-12)**: protocolo Claude↔Codex completo (6 rodadas, 9,2/9,1/9,2), pointer fixo com uniqueness real, worker/renovação corrigidos, script de migração provado contra DynamoDB Local real.
-- **IP bruto na PK do guest rate limiter** (`document-archive-guest-rate-limiter.ts`) — **CORRIGIDO (D-276, 2026-09-12)**: HMAC-SHA256 com pepper já existente na composição (nunca um secret novo), aplica tanto ao `GuestDocumentAccessService` quanto ao `ExternalShareLinkService` (mesma classe compartilhada).
-
-**Progresso 2026-09-12 (mesma sessão, itens do documento completo além dos 3 achados acima)**: P0.3 (`createSeries` sem fence de existência/unicidade) **CORRIGIDO (D-278)**; P1.6 (`reset-dev-data.ts` filas desatualizadas) **CORRIGIDO (D-274)**; P2.1 (2 boundaries async sem schema runtime validation) **CORRIGIDO (D-279)**; **P0.4 (`ReminderPolicy` N-vs-1) CORRIGIDO E DEPLOYADO (D-280)** — protocolo Claude↔Codex completo (6 rodadas, 9,2/9,1/9,2), mergeado `develop→main` (PR #308) e **APLICADO em `dev`** (CD run 34715940129, `success`, `Apply complete! 0 added, 16 changed, 0 destroyed`); **P2.3 (CVE js-yaml real no frontend) CORRIGIDO** e **P2.4 (`NEXT_SESSION_PROMPT.md` recompactado, 24,7KB→22,6KB) feito**, ambos mergeados/deployados juntos (PR #309, CD run 34717531852 — precisou `terraform force-unlock` de um lock de state travado por corrida com uma das CI de Dependabot, pré-autorizado por `AGENTS.md` §7, `success` depois). D-276 (P2.2)/D-277 (P0.6)/D-278 (P0.3) também já `APLICADOS` em `dev` (CD run 34710597154). **Todos os 8 achados/itens acima estão FECHADOS.**
-
-**P0.2 (GuestSession não vinculada ao token, bug de 2 abas) FECHADO (D-283), 2026-09-14** — protocolo Claude↔Codex 1 rodada, Codex aprovou de primeira (9,4/10, 0 bloqueantes). **P0.1 (CSP/CORS bloqueando upload real browser→S3) FECHADO (D-284), 2026-09-14** — escopo real mecânico como a investigação de uma sessão anterior já indicava, `terraform apply` real contra `dev` confirmado. Merge `develop→main`/verificação pós-deploy de AMBOS ainda pendente (ver "Próxima ação recomendada"). Ainda abertos, em ordem do documento: P0.5 falta suíte "Real System E2E" contra `dev` real (projeto de infra de teste novo, não correção pontual); P0.7 WhatsApp usuário real (jurídico/produto, não engenharia). P1: `RequestContext` caro (**deliberadamente movido para o FINAL da fila, Marcelo 2026-09-12** — tratar só depois de todo o resto), Reminder Producer não sustenta o SLO, Capacity Model desatualizado, sem load testing, frontend sem code-splitting, `coverage.thresholds` (decisão de Marcelo). P2 restante: supply chain **P2.3 corrigido, P2.4 feito** (ver acima) — o que resta de P2 é só o que já está registrado como decisão-dependente ou baixo retorno (ver full-audit round2 abaixo).
+Ambas substancialmente fechadas — todo achado HIGH/ALTA corrigido (E-015/E-016/E-018/E-020/E-021,
+achados P0.1-P0.4/P0.6/P1.6/P2.1-P2.4 da auditoria externa: ver `decisions-log.md` D-232 a D-290
+para detalhe item-a-item, nunca recontado aqui). **Únicos gates ainda não atingidos, ambos
+decisão-dependente, não engenharia**: **E-019** (jurídico — aviso de privacidade/DPA Meta/residência
+de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Marcelo sobre
+`coverage.thresholds` em `vitest.config.ts`). **E-017** teve seus 2 achados pendentes corrigidos
+(`definition-of-done.md`), drift desta linha corrigido 2026-09-19.
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
@@ -87,15 +65,13 @@ Documento completo: `docs/engineering/reviews/external-audit-2026-09-11-critica-
 
 ## Próxima ação recomendada
 
-**P0 (11 itens) e backlog P1 (exceto item 3, OCR/full-text, bloqueado por decisão de Marcelo) estão fechados por completo desde 2026-09-14** — 25 telas do frontend (Blocos 0-10, D-254 a D-270), `ExternalShareLink` (D-273), P0.1-P0.4/P0.6 da auditoria externa (D-276 a D-290), Bloco 7/A10 (D-288/D-289). Detalhe item-a-item preservado em `decisions-log.md` D-247 a D-293, não recontado aqui.
+**P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
+— ver seções acima.** Foco real da sessão desde 2026-09-14 é o Programa de Performance (seção
+dedicada abaixo); a próxima ação literal está no parágrafo do D-303, dentro dessa seção.
 
-**Full-audit round2 (E-016 a E-023)**: nenhum item decisão-independente resta — os únicos pendentes reais são decisão de Marcelo (`coverage.thresholds`/E-023) ou bloqueio externo genuíno (E-019 jurídico). Ver seção "Full-audit round2" acima para nota por eixo.
-
-**Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD (achado real: uma sessão rodou apply local antes de um merge, corrigido no ato por instrução direta do Marcelo). `plan`/`validate`/`fmt`/`test` locais continuam liberados.
+**Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
 **Lição de processo**: default é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
-
-**Foco real da sessão a partir de 2026-09-14 é o Programa de Performance** (seção dedicada abaixo) — P0/P1/full-audit não são mais a próxima ação, só contexto histórico já fechado.
 
 ## Programa de Performance (2026-09-14, fora do roadmap P0/P1, iniciativa própria de Marcelo — foco real da sessão)
 
@@ -124,10 +100,17 @@ fallback silencioso — armadilha de regressão silenciosa real, corrigida (camp
 cada call site declara explicitamente qual tabela usa). Alarme de `WriteThrottleEvents` adicionado
 (tabela on-demand nova começa em 4.000 WCU/s, abaixo da tabela principal já escalada). Detalhe
 completo da rodada: `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1.
-**Gates locais completos (typecheck/lint/check-boundaries/validate-schemas/`npm test`/`terraform
-test`/`terraform plan` real contra `dev`) todos verdes antes do commit.** Próxima ação literal:
-confirmar o PR aberto por esta sessão está com CI verde, mergear, e SÓ ENTÃO decidir sobre
-dark-deploy + repetir a rodada de 10k (não lançar sozinho sem visibilidade, é outro ciclo de ~2h).
+Gate adicional real encontrado e corrigido antes do commit: `infra/lambda-manifest.generated.tf`
+(manifesto de rollback E-020/D-232) estava desatualizado — faltavam os 2 handlers novos, pego pelo
+próprio `test/unit/scripts/lambda-manifest.test.ts`; corrigido via `npm run generate:lambda-manifest`
+e reverificado (`npm test` 3113/3113, `terraform test` 29/29). **Mergeado em `main` via PR #371 e
+APLICADO em `dev` com sucesso (2026-09-19)** — verificado ao vivo via `aws --profile claude-dev
+--region us-east-1` (não só o status `success` do CD run): tabela `exptrk-dev-reminder-dispatch-
+outbox` ACTIVE com stream+GSI6, `exptrk-dev-reminder-dispatch-outbox-relay`/`-sweeper` deployadas,
+event source mapping do relay `Enabled` apontando pro stream novo, schedule do sweeper `Enabled`,
+5 alarmes novos em `OK`. **Próxima ação literal**: decidir com Marcelo quando repetir a rodada de
+10k para provar a correção sob carga real (não lançar sozinho sem visibilidade, é outro ciclo de
+~2h) — essa será a primeira rodada a exercitar entrega real de e-mail de ponta a ponta também.
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
