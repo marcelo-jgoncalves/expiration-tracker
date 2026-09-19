@@ -28,6 +28,7 @@ import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js"
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { buildWhatsAppOutboxRecord } from "./whatsapp-outbox.js";
+import { outboxShard } from "../../../shared/outbox/outbox.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -401,10 +402,6 @@ async function applyRoutedDecision(
   return { kind: "ROUTED", routedChannels: decision.routedChannels };
 }
 
-function monthShard(isoTimestamp: string): string {
-  return isoTimestamp.slice(0, 7).replace("-", "");
-}
-
 /** Builds the OutboxEvent record for the notification.email-deliver.v1 command, same shape
  * shared/outbox/outbox.ts's buildOutboxRecord produces, with `destination:
  * "SQS_NOTIFICATION_EMAIL_V1"` (fechamento §7 do design) - inlined here (not via
@@ -412,8 +409,8 @@ function monthShard(isoTimestamp: string): string {
  * envelope directly, matching the same pattern reminder-producer.ts uses for its own
  * dispatch command outbox record. */
 function buildEmailOutboxRecord(intent: NotificationIntent, attempt: NotificationAttempt, deliverNotBefore: string | undefined, now: string): Record<string, unknown> {
-  const shard = monthShard(now);
   const eventId = attempt.attemptId;
+  const shard = outboxShard(now, eventId);
   return {
     PK: `TENANT#${intent.tenantId}#OUTBOX#${shard}`,
     SK: `EVENT#${now}#${eventId}`,

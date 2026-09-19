@@ -130,6 +130,14 @@ primeira vez** — depois de provisionar manualmente `NotificationEntitlements`/
 de produto, não só de teste — ver pendência #10 acima). Detalhe completo de tudo isto:
 `docs/engineering/performance/TODO.md` (seção do incidente D-303, 2026-09-19).
 
+**D-304, mesma sessão (2026-09-19)**: partição quente real na chave do outbox (`TENANT#<t>#OUTBOX#<mês>`,
+só ~10 chaves sob carga), achada nas rodadas de 25k e-mail (`ladder-email-25k`/`-retry`, ambas
+`accepted: false`, p100 657s/706s mesmo após tunar `parallelization_factor`). Corrigido
+(`outboxShard()`, sufixo hash `eventId%10`, ver D-304 em `decisions-log.md`) — afeta também os
+degraus padrão da escada (`reminder-claim.ts`), não só e-mail. **PENDING_PROTOCOL_REVIEW**
+(protocolo suspenso). Gates locais verdes (suíte completa 3.117 testes); falta rodar o degrau de
+10k padrão para validar ponta a ponta — é a próxima ação literal desta seção.
+
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendToTransaction, buildOutboxRecord, nextAttemptDelayMs, outboxRecordCorrelationId } from "../../src/shared/outbox/outbox.js";
+import { appendToTransaction, buildOutboxRecord, nextAttemptDelayMs, outboxRecordCorrelationId, outboxShard } from "../../src/shared/outbox/outbox.js";
 import type { DomainEvent } from "../../src/shared/contracts/events.js";
 
 function sampleEvent(): DomainEvent {
@@ -18,9 +18,9 @@ function sampleEvent(): DomainEvent {
 }
 
 describe("buildOutboxRecord", () => {
-  it("matches the shape from implementation-blueprint.md #5.3", () => {
+  it("matches the shape from implementation-blueprint.md #5.3, sub-sharded by eventId (2026-09-19 hot-partition fix)", () => {
     const record = buildOutboxRecord(sampleEvent());
-    expect(record.PK).toBe("TENANT#t_01#OUTBOX#202608");
+    expect(record.PK).toBe("TENANT#t_01#OUTBOX#202608-7");
     expect(record.SK).toBe("EVENT#2026-08-19T14:03:22.481Z#evt_01");
     expect(record.status).toBe("PENDING");
     expect(record.GSI6PK).toBe("RECON#OUTBOX#PENDING");
@@ -30,6 +30,27 @@ describe("buildOutboxRecord", () => {
   it("copies event.correlationId explicitly (m5-observability-design.md #2) - never reads ambient context", () => {
     const record = buildOutboxRecord(sampleEvent());
     expect(record.correlationId).toBe("cor_01");
+  });
+});
+
+describe("outboxShard", () => {
+  // Catches: hardcoding the bucket instead of hashing eventId, or dropping the modulo (both
+  // would make every eventId collapse onto the same bucket, defeating the whole fix).
+  it("spreads different eventIds across more than one bucket in the same month", () => {
+    const buckets = new Set(["evt_01", "evt_02", "evt_03", "evt_04", "evt_05"].map(id => outboxShard("2026-08-19T14:03:22.481Z", id)));
+    expect(buckets.size).toBeGreaterThan(1);
+  });
+
+  // Catches: seeding the hash from `now`/Date.now() or anything non-deterministic - the whole
+  // point is a stable point-read-able key (AWS's "calculated suffix" pattern), not a random one.
+  it("is deterministic for the same (occurredAt, eventId) pair", () => {
+    expect(outboxShard("2026-08-19T14:03:22.481Z", "evt_01")).toBe(outboxShard("2026-08-19T14:03:22.481Z", "evt_01"));
+  });
+
+  // Catches: dropping the month prefix entirely (would break the existing GSI6/relay assumption
+  // that the shard still starts with the record's calendar month).
+  it("keeps the month prefix ahead of the hash suffix", () => {
+    expect(outboxShard("2026-08-19T14:03:22.481Z", "evt_01")).toMatch(/^202608-\d$/);
   });
 });
 
