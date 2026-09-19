@@ -124,8 +124,10 @@ itens de acompanhamento fora do programa de performance.
     boundaries/schemas/`npm test`/`terraform test`/`terraform plan` contra `dev`). `MaximumConcurrency`
     do claim-consumer subido 50→150 (independente, não era a causa dominante). Detalhe completo:
     `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1. Mergeado em `main`
-    via PR #371 (2026-09-19), CI verde, CD em andamento. **Pendente**: confirmar deploy em `dev` e
-    repetir a rodada de 10k.
+    via PR #371 e **APLICADO em `dev` com sucesso (2026-09-19)** — verificado ao vivo: tabela
+    `exptrk-dev-reminder-dispatch-outbox` ACTIVE (stream+GSI6), 2 Lambdas deployadas, event source
+    mapping do relay `Enabled` no stream novo, schedule do sweeper `Enabled`, 5 alarmes novos `OK`.
+    **Pendente**: repetir a rodada de 10k para provar a correção sob carga real.
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e

@@ -103,10 +103,14 @@ completo da rodada: `docs/architecture/reviews/reminder-dispatch-control-plane/D
 Gate adicional real encontrado e corrigido antes do commit: `infra/lambda-manifest.generated.tf`
 (manifesto de rollback E-020/D-232) estava desatualizado — faltavam os 2 handlers novos, pego pelo
 próprio `test/unit/scripts/lambda-manifest.test.ts`; corrigido via `npm run generate:lambda-manifest`
-e reverificado (`npm test` 3113/3113, `terraform test` 29/29). **Mergeado em `main` via PR #371
-(2026-09-19), CI verde, CD em andamento (dispara em push a `main`, ver §7).** Próxima ação literal:
-confirmar o deploy em `dev` terminou com sucesso e SÓ ENTÃO decidir sobre repetir a rodada de 10k
-(não lançar sozinho sem visibilidade, é outro ciclo de ~2h).
+e reverificado (`npm test` 3113/3113, `terraform test` 29/29). **Mergeado em `main` via PR #371 e
+APLICADO em `dev` com sucesso (2026-09-19)** — verificado ao vivo via `aws --profile claude-dev
+--region us-east-1` (não só o status `success` do CD run): tabela `exptrk-dev-reminder-dispatch-
+outbox` ACTIVE com stream+GSI6, `exptrk-dev-reminder-dispatch-outbox-relay`/`-sweeper` deployadas,
+event source mapping do relay `Enabled` apontando pro stream novo, schedule do sweeper `Enabled`,
+5 alarmes novos em `OK`. **Próxima ação literal**: decidir com Marcelo quando repetir a rodada de
+10k para provar a correção sob carga real (não lançar sozinho sem visibilidade, é outro ciclo de
+~2h) — essa será a primeira rodada a exercitar entrega real de e-mail de ponta a ponta também.
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
