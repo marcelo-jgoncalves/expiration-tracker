@@ -196,9 +196,18 @@ itens de acompanhamento fora do programa de performance.
   `iam simulate-principal-policy`, que retornou `implicitDeny` para `PutItem` nessa tabela).
   Corrigido ao vivo (`iam put-role-policy`, adicionando `dynamodb:PutItem`) e no Terraform fonte —
   confirmado via redrive da DLQ, 162/162 `CLAIMED` sem erro. Revisado com Antigravity
-  (`gemini-3.1-pro-high`) como segunda opinião. **Pendente**: verificar se o mesmo padrão de erro
-  (conceder `TransactWriteItems` em vez das ações reais por item) se repete em outra policy
-  Terraform do projeto.
+  (`gemini-3.1-pro-high`) como segunda opinião. **(1) resolvido pela própria revisão do
+  Antigravity**: o mesmo padrão (conceder `TransactWriteItems` em vez das ações reais por item)
+  também quebrava `document_request_recurrence` e `tenant_purge_worker` — nenhum dos dois
+  conseguia completar uma transação de escrita real, desde sempre, sem relação com o D-303.
+  Corrigido no Terraform (`worker_transact_write`/`cross_tenant_scan_workers` em
+  `infra/modules/dynamo-table/main.tf`), commit `aca1c95`. **Pendente (2)**: reverter a concessão
+  de `dynamodb:TransactWriteItems` na tabela
+  principal (`tenant_facing_read_write`, `infra/modules/dynamo-table/main.tf`) — foi a primeira
+  hipótese, aplicada ao vivo e no Terraform, mas confirmada DESNECESSÁRIA (a ação real checada é
+  `PutItem`/`UpdateItem`/etc., já concedidas); é uma concessão inofensiva mas redundante, deixada
+  no lugar deliberadamente por ora para não mexer na policy de novo com o teste de carga em
+  andamento — reverter depois que a rodada terminar.
 - [ ] **Achado de observabilidade real, 2026-09-19, não corrigido** — durante o incidente acima,
   a causa raiz real ficou invisível por muito tempo porque `reminder-claim-consumer-handler.ts:78`
   loga só `errorCode`/`retryable` no catch (`logger.error("reminder-claim-consumer failed",
@@ -209,6 +218,32 @@ itens de acompanhamento fora do programa de performance.
   causa, sem conseguir ver o erro real da própria Lambda). Verificar se o mesmo padrão (logar só
   `code`/`retryable`, nunca `message`) se repete em outros handlers SQS do projeto — se sim, vale
   um ajuste geral, não só neste arquivo.
+- [x] **Terceiro achado real do mesmo incidente, 2026-09-19, corrigido** — depois da correção de
+  IAM, o `claim-consumer` passou a funcionar, mas a rodada de 10k ficou presa por ~45 min durante
+  a investigação, tempo suficiente para o próprio `scheduledAt` de cada ocorrência ficar no
+  passado. Quando `reconcileDst` (`src/workers/reminder-reconciliation/reconciliation.ts`, passo
+  de detecção de divergência por DST) rodou nesse meio-tempo, ele recalcula o horário esperado de
+  cada gatilho a partir de `[windowStart=now, windowEnd=now+7d]` — como o horário recalculado já
+  tinha passado, o gatilho ficava fora da janela (`expected` indefinido), e o código tratava isso
+  como "gatilho não é mais esperado" e **cancelava** a ocorrência, mesmo sem nenhuma mudança real
+  de política/DST — só estava atrasada. 6.231 dos 10.000 viraram `CANCELLED` em vez de
+  `TRIGGERED`. Esse bug afetaria QUALQUER atraso real de despacho (uma instabilidade da AWS, uma
+  rajada de carga), não só o incidente de hoje. Corrigido: só trata `expected` indefinido como
+  divergência real quando o `triggerId` também não existe mais na política atual
+  (`definedTriggerIds`); se o gatilho ainda existe e só ficou fora da janela por já ter passado, a
+  ocorrência é deixada em paz para o pipeline normal de claim/dispatch (ou a reconciliação de
+  claims expirados, passo separado) resolver. 8/8 testes existentes + 1 novo teste cobrindo o
+  cenário exato do incidente, todos passando. Segunda opinião via Antigravity indisponível (cota
+  esgotada, reset em ~163h) — revisado só por análise própria do caso extremo levantado no prompt
+  de revisão (política editada para um horário também no passado): comportamento já era o mesmo
+  antes e depois desta correção nesse caso extremo (nenhuma ocorrência nova seria materializada de
+  qualquer forma), então a correção não piora nada e melhora estritamente o caso comum.
+- [x] **Ajuste de ferramenta, 2026-09-19** — `scripts/perf-reminder-burst.mjs`'s `schedule()` exigia
+  90 minutos de antecedência fixos, independente do tamanho da carga — uma rodada de verificação
+  de 1k (que semeia em ~5 min) tinha que esperar o mesmo tempo que uma rodada de 10k inteira.
+  Mínimo agora escala proporcionalmente ao tamanho (`minLeadMs`, piso de 25 min) — 10k continua
+  exigindo os 90 min originais (comportamento padrão inalterado), 1k cai para 25 min. Testado
+  (9/9), lint e typecheck limpos.
 - [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---

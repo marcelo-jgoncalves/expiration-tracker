@@ -152,6 +152,7 @@ export async function reconcileDst(
     );
 
     // Expected schedule per trigger, recomputed fresh from the IANA rule (never a frozen offset).
+    const definedTriggerIds = new Set(candidate.policy.triggers.map((trigger) => trigger.triggerId));
     const expectedByTrigger = new Map<string, { scheduledAtUtc: string }>();
     for (const trigger of candidate.policy.triggers) {
       const schedule = materializer.computeSchedule({
@@ -171,6 +172,15 @@ export async function reconcileDst(
     // liveExisting already excludes those statuses).
     for (const occurrence of liveExisting) {
       const expected = expectedByTrigger.get(occurrence.triggerId);
+      // Real incident, 2026-09-19: a trigger missing from expectedByTrigger only because its
+      // freshly recomputed time now falls before `windowStart` (typically: the trigger's own
+      // scheduledAt, still legitimately correct, has simply passed while dispatch was delayed -
+      // e.g. a claim/dispatch outage) is NOT a real divergence - the trigger is still declared,
+      // unchanged, in the policy. Only treat `!expected` as a genuine divergence (trigger
+      // actually removed/renamed) when the triggerId itself is gone from the policy; otherwise
+      // leave the occurrence alone for the normal claim/dispatch or expired-claim (pass a)
+      // reconciliation to resolve, rather than cancelling a merely-late-but-correct occurrence.
+      if (!expected && definedTriggerIds.has(occurrence.triggerId)) continue;
       const diverges = !expected || expected.scheduledAtUtc !== occurrence.scheduledAt;
       if (!diverges) {
         // M3.5 (bug found by Codex implementation review round 1 - the original code left

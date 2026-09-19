@@ -1,6 +1,6 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assess, schedule, postWithQuotaRetry, readCohort, mapLimit, assertTenants } from './perf-reminder-burst.mjs';
+import { assess, schedule, minLeadMs, postWithQuotaRetry, readCohort, mapLimit, assertTenants } from './perf-reminder-burst.mjs';
 
 const target = '2026-09-17T02:30:00.000Z';
 const occurrence = n => ({ PK: `TENANT#t#ITEM#${n}`, SK: `OCC#${n}`, tenantId: 't', itemId: String(n),
@@ -14,6 +14,18 @@ it('keeps the due date on the Sao Paulo calendar across UTC midnight', () => {
   assert.throws(() => schedule(target, Date.parse(target) - 60000), /90 minutes/);
   assert.throws(() => schedule('2026-09-17T02:30:01Z', 0), /whole minute/);
   assert.throws(() => schedule('2026-09-17T02:30:00', 0), /timezone/);
+});
+
+// G-V3: a flat 90-minute floor regardless of burst size forces a small verification run (e.g.
+// 100 pairs/tenant for a 1k burst) to wait as long as a full 10k run, even though seeding
+// finishes in minutes - real friction found 2026-09-19 while running a 1k post-fix check.
+it('scales the minimum lead time down for smaller per-tenant burst sizes, floored at 25 minutes', () => {
+  assert.equal(minLeadMs(1000), 90 * 60000);
+  assert.equal(minLeadMs(100), 25 * 60000); // 9 computed minutes, floored
+  assert.equal(minLeadMs(10), 25 * 60000);
+  assert.equal(minLeadMs(2000), 180 * 60000); // scales up too, never silently caps
+  assert.throws(() => schedule(target, Date.parse(target) - 24 * 60000, 100), /25 minutes/);
+  assert.doesNotThrow(() => schedule(target, Date.parse(target) - 25 * 60000, 100));
 });
 
 // G-V3: removing the organization uniqueness check allows ten workers to share one rate-limit bucket.
