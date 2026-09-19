@@ -104,7 +104,7 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
         // textract-task-handler.ts) - D-128 decided no handler branches on this value; it is
         // diagnostic metadata only (see app-error.ts's isRetryable() doc comment).
         const appErr = toAppError(err);
-        logger.error("reminder-dispatch failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+        logger.error("reminder-dispatch failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable, errorMessage: appErr.message });
         emitMetric("ExpirationTracker/ReminderDispatch", { name: "OccurrenceDispatchOutcome", value: 1, unit: "Count", dimensions: { Outcome: "HANDLER_ERROR" } });
       }
       throw err;

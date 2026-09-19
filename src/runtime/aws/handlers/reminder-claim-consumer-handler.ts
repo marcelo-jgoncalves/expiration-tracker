@@ -75,7 +75,7 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
         emitMetric(NAMESPACE, { name: "ClaimOutcome", value: 1, unit: "Count", dimensions: { outcome: outcome.kind } });
       } catch (err) {
         const appErr = toAppError(err);
-        logger.error("reminder-claim-consumer failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+        logger.error("reminder-claim-consumer failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable, errorMessage: appErr.message });
         emitMetric(NAMESPACE, { name: "ClaimOutcome", value: 1, unit: "Count", dimensions: { outcome: "HANDLER_ERROR" } });
         throw err;
       }

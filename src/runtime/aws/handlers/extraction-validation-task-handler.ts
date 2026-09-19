@@ -50,7 +50,7 @@ export async function handler(event: ExtractionValidationEvent): Promise<Validat
       return output;
     } catch (err) {
       const appErr = toAppError(err);
-      logger.error(`extraction-validation-task ${event.operation} failed`, { documentId: event.input.documentId, runId: event.input.runId, errorCode: appErr.code });
+      logger.error(`extraction-validation-task ${event.operation} failed`, { documentId: event.input.documentId, runId: event.input.runId, errorCode: appErr.code, errorMessage: appErr.message });
       throw appErr;
     }
   });

@@ -56,7 +56,7 @@ export async function handler(event: RunDeterministicParserInput): Promise<RunDe
       const appErr = toAppError(err);
       // Rethrown as a real Task failure - the ASL's Catch (ErrorEquals: States.ALL) routes
       // straight to MarkPendingConfirmation, never to Bedrock, per design §1.2.
-      logger.error("pdf-parser-task RunDeterministicParser failed", { documentId: event.documentId, runId: event.runId, errorCode: appErr.code });
+      logger.error("pdf-parser-task RunDeterministicParser failed", { documentId: event.documentId, runId: event.runId, errorCode: appErr.code, errorMessage: appErr.message });
       throw appErr;
     }
   });

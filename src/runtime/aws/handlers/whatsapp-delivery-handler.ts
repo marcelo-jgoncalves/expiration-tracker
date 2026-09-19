@@ -152,13 +152,13 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
             }
           } catch (err) {
             const appErr = toAppError(err);
-            logger.error("whatsapp-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable });
+            logger.error("whatsapp-delivery failed", { messageId: record.messageId, errorCode: appErr.code, retryable: appErr.retryable, errorMessage: appErr.message });
             batchItemFailures.push({ itemIdentifier: record.messageId });
           }
         });
       } catch (err) {
         const appErr = toAppError(err);
-        logger.error("whatsapp-delivery failed to parse message body", { messageId: record.messageId, errorCode: appErr.code });
+        logger.error("whatsapp-delivery failed to parse message body", { messageId: record.messageId, errorCode: appErr.code, errorMessage: appErr.message });
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     });
