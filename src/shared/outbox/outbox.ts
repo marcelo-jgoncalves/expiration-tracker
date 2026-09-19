@@ -181,8 +181,25 @@ function monthShard(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 7).replace("-", "");
 }
 
+/** Real finding, 2026-09-19 (25k-item load test): `TENANT#<t>#OUTBOX#<month>` alone gives one
+ * partition key per tenant per month - under a synchronized burst (e.g. reminder-claim.ts
+ * writing this for every occurrence at claim time, regardless of cohort) that's too few distinct
+ * keys for DynamoDB Streams to shard across, and adaptive capacity doesn't react fast enough
+ * within a ~10-minute burst window (confirmed live: reminder-dispatch-outbox-relay's IteratorAge
+ * hit 700s+ even after raising its ParallelizationFactor, because the ceiling was hot-shard
+ * count, not per-shard concurrency). Nothing reads this table by PK range - only via GSI6 or the
+ * Stream itself - so a calculated suffix is safe (AWS's own guidance for exactly this case:
+ * docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-sharding.html).
+ * N=10 was sized against the documented 1,000 WCU/s per-partition ceiling, not guessed - even a
+ * 500k-item burst (50k/tenant) leaves each of the 10 buckets far under it. */
+export function outboxShard(occurredAt: string, eventId: string): string {
+  let hash = 0;
+  for (let i = 0; i < eventId.length; i++) hash = (hash * 31 + eventId.charCodeAt(i)) >>> 0;
+  return `${monthShard(occurredAt)}-${hash % 10}`;
+}
+
 export function buildOutboxRecord(event: DomainEvent, destination?: OutboxDestination): OutboxRecord {
-  const shard = monthShard(event.occurredAt);
+  const shard = outboxShard(event.occurredAt, event.eventId);
   return {
     PK: `TENANT#${event.tenantId}#OUTBOX#${shard}`,
     SK: `EVENT#${event.occurredAt}#${event.eventId}`,

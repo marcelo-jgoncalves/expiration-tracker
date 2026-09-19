@@ -130,6 +130,14 @@ primeira vez** — depois de provisionar manualmente `NotificationEntitlements`/
 de produto, não só de teste — ver pendência #10 acima). Detalhe completo de tudo isto:
 `docs/engineering/performance/TODO.md` (seção do incidente D-303, 2026-09-19).
 
+**D-304, mesma sessão (2026-09-19)**: partição quente real na chave do outbox (`TENANT#<t>#OUTBOX#<mês>`,
+só ~10 chaves sob carga), achada nas rodadas de 25k e-mail (`ladder-email-25k`/`-retry`, ambas
+`accepted: false`, p100 657s/706s mesmo após tunar `parallelization_factor`). Corrigido
+(`outboxShard()`, sufixo hash `eventId%10`, ver D-304 em `decisions-log.md`) — afeta também os
+degraus padrão da escada (`reminder-claim.ts`), não só e-mail. **PENDING_PROTOCOL_REVIEW**
+(protocolo suspenso). Gates locais verdes (suíte completa 3.117 testes); falta rodar o degrau de
+10k padrão para validar ponta a ponta — é a próxima ação literal desta seção.
+
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
@@ -199,6 +207,22 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 **Pendência de limpeza, não bloqueante**: tenants sintéticos de teste (PERF Test Tenant + 10 do PERF-11-b/PERF-12-10k + 10 novos do cohort de simuladores SES) e dezenas de milhares de registros sintéticos acumulados em `dev` — candidatos a exclusão quando Marcelo decidir, nenhuma ação tomada ainda.
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
+
+**Achado real não corrigido, 2026-09-19 (rodadas de 25k reais com e-mail, `ladder-email-25k`/`-retry`)
+— gargalo cosmético de observabilidade, sem impacto funcional**: sob carga sustentada de 10
+tenants por horas, o layer ADOT de `bff-handler`/`items-handler`/`reminders-handler` (e
+provavelmente outras Lambdas sob a mesma carga) descarta lotes de trace inteiros — timeout local
+app→coletor (`Error: Request Timeout`, `otlp-exporter-base`) e timeout coletor→X-Ray real
+(`OTLPExporterError`/408, `"msg":"Exporting failed. Rejecting data"`, 60-96 itens por lote
+descartado). Confirmado sem nenhum impacto funcional: zero requisição falhou, zero item de
+journal de seed travado nas duas rodadas — só fica sem trace completo no X-Ray para as
+requisições atingidas. Correção real exigiria `collector.yaml` customizado via
+`OPENTELEMETRY_COLLECTOR_CONFIG_URI` (doc oficial: `aws-otel.github.io/docs/getting-started/
+lambda/lambda-custom-configuration`), empacotado no build de TODAS as ~69 Lambdas + variável de
+ambiente compartilhada (`local.common_env`) — mudança sistêmica de observabilidade, com risco real
+de quebrar tracing por completo se mal configurada, não um ajuste pontual. Decisão do Marcelo,
+2026-09-19: registrar como pendência, não implementar agora — mesma categoria de item que o
+débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-01.md` §17/§18.6).
 
 ## Status de evidência (não presumir E2E sem checar)
 

@@ -14,10 +14,7 @@
  */
 import type { NotificationIntent } from "../../reminder/domain/notification-intent.js";
 import type { NotificationAttempt } from "../domain/notification-attempt.js";
-
-function monthShard(isoTimestamp: string): string {
-  return isoTimestamp.slice(0, 7).replace("-", "");
-}
+import { outboxShard } from "../../../shared/outbox/outbox.js";
 
 export function buildWhatsAppOutboxRecord(
   intent: NotificationIntent,
@@ -25,8 +22,8 @@ export function buildWhatsAppOutboxRecord(
   deliverNotBefore: string | undefined,
   now: string,
 ): Record<string, unknown> {
-  const shard = monthShard(now);
   const eventId = attempt.attemptId;
+  const shard = outboxShard(now, eventId);
   return {
     PK: `TENANT#${intent.tenantId}#OUTBOX#${shard}`,
     SK: `EVENT#${now}#${eventId}`,

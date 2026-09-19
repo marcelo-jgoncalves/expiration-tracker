@@ -43,6 +43,10 @@ Nível classificado: **___** (1 Cosmético / 2 Correção mecânica / 3 Implemen
       novo/alterado tem comentário imediatamente acima nomeando uma mutação concreta que faria a
       asserção falhar (não basta a suíte estar verde — verde prova que passa, não que detectaria um
       bug real). G-V4 (nome/comentário declara a intenção) confirmado.
+- [ ] Se o diff adiciona/altera comentário de código ou anotação de doc (decisions-log, roadmap,
+      handoff) → revisão crítica de concisão aplicada (`AGENTS.md` §7): descreve só a realidade
+      atual, sem meta-narrativa de correção/processo de verificação, informação extra só se
+      indispensável para evitar repetir um erro real — nunca por completude/auditoria.
 - [ ] **5-6** (tudo do 3-4, mais): protocolo Claude↔Codex (`AGENTS.md` §4) completo, nota ≥9,0 de
       ambos sem arredondar, artefato salvo em `docs/engineering/reviews/` ou
       `docs/architecture/reviews/`. Nível 6 adicionalmente exige ADR formal em
