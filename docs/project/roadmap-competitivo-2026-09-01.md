@@ -757,9 +757,7 @@ arquitetura/segurança) quando o projeto se aproximar de produção real.
 
 ## 17.1 — Migrar Lambdas de x86_64 para ARM64 (Graviton2) — 🟢 FEITO
 
-Implementado e mergeado (`decisions-log.md` D-208, 2026-09-05). Reconfirmado ao vivo em
-2026-09-19: 69/69 Lambdas hoje rodam `arm64` em `dev` (cresceu de 52 desde D-208, via
-D-301/302/303 — as novas herdaram o default do módulo).
+Implementado (`decisions-log.md` D-208). 69/69 Lambdas rodam `arm64` (verificado 2026-09-19).
 
 **Registrado por pedido de Marcelo, 2026-09-05.**
 
