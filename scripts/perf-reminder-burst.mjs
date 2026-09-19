@@ -369,7 +369,12 @@ async function main() {
     const sessions = await authenticate(manifest.tenants);
     save(path.join(dir, 'preflight.json'), { checkedAt: new Date().toISOString(), tenantsVerified: sessions.size, account: ACCOUNT });
     if (command === 'preflight') { log({ phase: 'preflight-passed', tenants: sessions.size, workloadCreated: 0 }); return; }
-    requireThat(Date.parse(manifest.target) - Date.now() >= 60 * 60000, 'Target too close; create a new plan');
+    // Same proportional floor as schedule()'s own plan-time check, minus a 10-minute grace for
+    // time already spent on preflight/auth by the time run() reaches this point - a flat
+    // 60-minute constant here forced the SAME small-burst-vs-10k mismatch schedule() had.
+    // Absolute floor of 15 minutes regardless of size: seed() itself reserves the last 10
+    // minutes before target as a hard creation cutoff, plus materialize()'s own 5-minute budget.
+    requireThat(Date.parse(manifest.target) - Date.now() >= Math.max(15 * 60000, minLeadMs(PER_TENANT) - 10 * 60000), 'Target too close; create a new plan');
     await seed(manifest, dir, sessions);
     const db = database();
     await materialize(manifest, dir, db);
