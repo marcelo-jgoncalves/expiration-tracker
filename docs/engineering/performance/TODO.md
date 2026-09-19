@@ -123,8 +123,9 @@ itens de acompanhamento fora do programa de performance.
     fallback silencioso, agora obrigatório). Gates locais completos verdes (typecheck/lint/
     boundaries/schemas/`npm test`/`terraform test`/`terraform plan` contra `dev`). `MaximumConcurrency`
     do claim-consumer subido 50→150 (independente, não era a causa dominante). Detalhe completo:
-    `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1. **Pendente**:
-    commit/PR/CI/merge desta implementação, depois dark-deploy + repetir a rodada de 10k.
+    `docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1. Mergeado em `main`
+    via PR #371 (2026-09-19), CI verde, CD em andamento. **Pendente**: confirmar deploy em `dev` e
+    repetir a rodada de 10k.
   - [ ] 100k — preparação em andamento; depende da aprovação da revalidação de 10k. A rodada deve incluir validação explícita do
     canal de e-mail com destinatários sintéticos controlados. Separar dois resultados: capacidade
     do pipeline completo para 100k reminders e entrega real por uma coorte limitada, rastreável e
