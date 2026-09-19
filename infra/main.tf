@@ -1977,6 +1977,10 @@ module "security_audit_observability" {
     module.reminder_producer.function_name,
     module.reminder_reconciliation.function_name,
     module.outbox_sweeper.function_name,
+    # Real finding, 2026-09-19: this dedicated D-303 sweeper already calls
+    # listPendingReminderDispatch (same GSI6 access path) but was never added here - its
+    # AccessDeniedException events had no alarm coverage at all since the Lambda existed.
+    module.reminder_dispatch_outbox_sweeper.function_name,
     module.document_purge_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
     module.membership_purge_handler.function_name,

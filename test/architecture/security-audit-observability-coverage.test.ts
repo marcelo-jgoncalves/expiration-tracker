@@ -46,7 +46,11 @@ const AUTHORIZATION_DENIED_CALL_SITES: Array<{ file: string; lambdaModule: strin
 const GLOBAL_INDEX_ACCESS_CALL_SITES: Array<{ file: string; component: string; lambdaModule: string }> = [
   { file: "src/modules/reminder/persistence/dynamodb-reminder-producer-store.ts", component: "reminder-producer", lambdaModule: "reminder_producer" },
   { file: "src/modules/reminder/persistence/dynamodb-reconciliation-candidate-source.ts", component: "reminder-reconciliation", lambdaModule: "reminder_reconciliation" },
-  { file: "src/shared/outbox/persistence/dynamodb-outbox-relay-store.ts", component: "outbox-sweeper-reminder-dispatch", lambdaModule: "outbox_sweeper" },
+  // 2026-09-19: component is now set at composition time (each DynamoDbOutboxRelayStore
+  // instantiation passes its own real GlobalIndexComponent), not hardcoded in the store's own
+  // implementation - the literal strings this test greps for live in composition/reminder.ts.
+  { file: "src/runtime/aws/composition/reminder.ts", component: "outbox-sweeper", lambdaModule: "outbox_sweeper" },
+  { file: "src/runtime/aws/composition/reminder.ts", component: "reminder-dispatch-outbox-sweeper", lambdaModule: "reminder_dispatch_outbox_sweeper" },
   { file: "src/modules/document/persistence/dynamodb-document-candidate-source.ts", component: "upload-slot-reconciliation", lambdaModule: "upload_slot_reconciliation_handler" },
   { file: "src/workers/document-purge/dynamodb-document-purge-candidate-source.ts", component: "document-purge", lambdaModule: "document_purge_handler" },
   { file: "src/workers/membership-purge/dynamodb-candidate-source.ts", component: "membership-purge", lambdaModule: "membership_purge_handler" },

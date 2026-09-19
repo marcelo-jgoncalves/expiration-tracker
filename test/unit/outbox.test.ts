@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendToTransaction, buildOutboxRecord, nextAttemptDelayMs, outboxRecordCorrelationId, outboxShard } from "../../src/shared/outbox/outbox.js";
+import { appendToTransaction, buildOutboxRecord, nextAttemptDelayMs, outboxRecordCorrelationId, outboxShard, epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../src/shared/outbox/outbox.js";
 import type { DomainEvent } from "../../src/shared/contracts/events.js";
 
 function sampleEvent(): DomainEvent {
@@ -30,6 +30,15 @@ describe("buildOutboxRecord", () => {
   it("copies event.correlationId explicitly (m5-observability-design.md #2) - never reads ambient context", () => {
     const record = buildOutboxRecord(sampleEvent());
     expect(record.correlationId).toBe("cor_01");
+  });
+
+  // Real finding, 2026-09-19: this table's `purgeAfterTtl` DynamoDB TTL attribute was enabled
+  // since D-303 but this builder never set it - catches a regression back to that (every
+  // OutboxEvent staying in the table forever) or a silently-changed retention window/base
+  // timestamp.
+  it("sets purgeAfterTtl 7 days (TRANSIENT class, privacy-lgpd.md §4) past event.occurredAt", () => {
+    const record = buildOutboxRecord(sampleEvent());
+    expect(record.purgeAfterTtl).toBe(epochSecondsFromIso("2026-08-19T14:03:22.481Z") + OUTBOX_TRANSIENT_RETENTION_SECONDS);
   });
 });
 

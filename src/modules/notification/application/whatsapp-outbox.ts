@@ -14,7 +14,7 @@
  */
 import type { NotificationIntent } from "../../reminder/domain/notification-intent.js";
 import type { NotificationAttempt } from "../domain/notification-attempt.js";
-import { outboxShard } from "../../../shared/outbox/outbox.js";
+import { outboxShard, epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../shared/outbox/outbox.js";
 
 export function buildWhatsAppOutboxRecord(
   intent: NotificationIntent,
@@ -63,6 +63,7 @@ export function buildWhatsAppOutboxRecord(
     createdAt: now,
     GSI6PK: "RECON#OUTBOX#PENDING",
     GSI6SK: `${now}#${eventId}`,
+    purgeAfterTtl: epochSecondsFromIso(now) + OUTBOX_TRANSIENT_RETENTION_SECONDS,
     destination: "SQS_NOTIFICATION_WHATSAPP_V1",
   };
 }

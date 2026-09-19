@@ -13,11 +13,11 @@ describe("DynamoDbOutboxRelayStore.listPendingReminderDispatch — security audi
     };
     const store = new DynamoDbOutboxRelayStore(client as never, "table");
 
-    const items = await store.listPendingReminderDispatch({ destination: "SQS_REMINDER_DISPATCH_V1", olderThan: "2026-01-01T00:00:00.000Z" });
+    const items = await store.listPendingReminderDispatch({ olderThan: "2026-01-01T00:00:00.000Z" });
 
     expect(items).toHaveLength(2);
     expect(accessSpy).toHaveBeenCalledTimes(1);
-    expect(accessSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", pageCount: 2, resultCount: 2 });
+    expect(accessSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper", pageCount: 2, resultCount: 2 });
     accessSpy.mockRestore();
   });
 
@@ -27,10 +27,10 @@ describe("DynamoDbOutboxRelayStore.listPendingReminderDispatch — security audi
     const client = { send: vi.fn().mockRejectedValueOnce(err) };
     const store = new DynamoDbOutboxRelayStore(client as never, "table");
 
-    await expect(store.listPendingReminderDispatch({ destination: "SQS_REMINDER_DISPATCH_V1", olderThan: "2026-01-01T00:00:00.000Z" })).rejects.toThrow();
+    await expect(store.listPendingReminderDispatch({ olderThan: "2026-01-01T00:00:00.000Z" })).rejects.toThrow();
 
     expect(deniedSpy).toHaveBeenCalledTimes(1);
-    expect(deniedSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", awsErrorCode: "AccessDeniedException" });
+    expect(deniedSpy).toHaveBeenCalledWith({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper", awsErrorCode: "AccessDeniedException" });
     deniedSpy.mockRestore();
   });
 });

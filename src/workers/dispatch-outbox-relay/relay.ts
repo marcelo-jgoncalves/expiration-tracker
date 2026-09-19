@@ -119,9 +119,10 @@ export interface SweeperDeps extends RelayDeps {
    * limiar (2 min)"). */
   minAgeMs?: number;
   pageSize?: number;
-  /** Which destinations to sweep this run - the sweeper queries GSI6 once per destination
-   * (same global partition, `RECON#OUTBOX#PENDING`, filtered by `destination` server-side by
-   * the store). Defaults to every destination this deps' `senders` map recognizes. */
+  /** Which destinations to sweep this run - the sweeper queries the shared GSI6 partition
+   * (`RECON#OUTBOX#PENDING`) exactly ONCE regardless of this list's size, filtering candidates
+   * client-side before dispatch (2026-09-19 fix). Defaults to every destination this deps'
+   * `senders` map recognizes. */
   destinations?: OutboxDestination[];
 }
 
@@ -147,20 +148,23 @@ export async function sweepPendingDispatch(deps: SweeperDeps): Promise<SweepResu
   let failed = 0;
   let stillPending = 0;
 
-  for (const destination of destinations) {
-    const candidates = await deps.store.listPendingReminderDispatch({
-      destination,
-      olderThan,
-      pageSize: deps.pageSize,
-    });
+  // Real finding, 2026-09-19 (docs/architecture/reviews/outbox-sweeper-shared-partition/
+  // PROPOSAL.md): GSI6PK=RECON#OUTBOX#PENDING is ONE shared partition across every destination
+  // - querying it once per destination (the old loop) re-scanned the same partition N times,
+  // paying its full read cost N times over and timing out the Lambda under any real backlog.
+  // One query, routed per-record via publishOne (which already keys off record.destination),
+  // same pattern the real-time relay already uses. The client-side filter below preserves
+  // `destinations` as a genuine subset contract (Antigravity review round 2) - publishOne alone
+  // only excludes by `senders`, not by a caller-requested subset of them.
+  const candidates = await deps.store.listPendingReminderDispatch({ olderThan, pageSize: deps.pageSize });
 
-    attempted += candidates.length;
-    for (const record of candidates) {
-      const outcome = await publishOne(deps, record);
-      if (outcome.kind === "PUBLISHED") published += 1;
-      else if (outcome.kind === "FAILED") failed += 1;
-      else stillPending += 1;
-    }
+  for (const record of candidates) {
+    if (!destinations.includes(record.destination as OutboxDestination)) continue;
+    attempted += 1;
+    const outcome = await publishOne(deps, record);
+    if (outcome.kind === "PUBLISHED") published += 1;
+    else if (outcome.kind === "FAILED") failed += 1;
+    else stillPending += 1;
   }
 
   return { attempted, published, failed, stillPending };

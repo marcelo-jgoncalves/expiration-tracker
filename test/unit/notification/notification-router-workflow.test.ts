@@ -10,6 +10,7 @@ import { notificationPreferencesKey, type NotificationPreferences } from "../../
 import type { NotificationIntent } from "../../../src/modules/reminder/domain/notification-intent.js";
 import type { NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
+import { epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../src/shared/outbox/outbox.js";
 
 const TENANT = "t1";
 const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
@@ -203,6 +204,9 @@ describe("routeNotificationIntent", () => {
     const outboxEvent = all.find((i) => i["entityType"] === "OutboxEvent");
     expect(outboxEvent).toBeDefined();
     expect(outboxEvent?.["destination"]).toBe("SQS_NOTIFICATION_EMAIL_V1");
+    // Real finding, 2026-09-19: this outbox record never had purgeAfterTtl set - catches a
+    // regression back to that (every routed email leaving a permanent row behind).
+    expect(outboxEvent?.["purgeAfterTtl"]).toBe(epochSecondsFromIso(NOW) + OUTBOX_TRANSIENT_RETENTION_SECONDS);
   });
 
   // D-197 fatia 5/5: router wiring - a WHATSAPP-requesting intent, with the kill switch on

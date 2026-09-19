@@ -7,12 +7,19 @@ import type { EntityKey } from "../../dynamodb/occ.js";
 import type { OutboxRecord } from "../outbox.js";
 import type { OutboxRelayStore } from "../relay-store.js";
 import { isConditionalCheckFailed, mapDynamoError } from "../../dynamodb/sdk-errors.js";
-import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError } from "../../observability/security-audit.js";
+import { auditGlobalIndexAccess, auditGlobalIndexAccessDenied, isAccessDeniedError, type GlobalIndexComponent } from "../../observability/security-audit.js";
 
 export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
   constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
+    // Real finding, 2026-09-19: this was hardcoded to one string ("outbox-sweeper-reminder-
+    // dispatch") even though TWO different Lambdas share this class - the shared outbox-sweeper
+    // (covers email+reminder-dispatch) and the D-303 dedicated reminder-dispatch-outbox-sweeper
+    // - so the security audit trail's component field lied about which one actually made the
+    // GSI6 access. Each composition root now passes its own real GlobalIndexComponent value;
+    // defaults to "outbox-sweeper" (the more common caller) only as a safety net, never silent.
+    private readonly component: GlobalIndexComponent = "outbox-sweeper",
   ) {}
 
   async tryAcquireLease(key: EntityKey, leaseOwner: string, leaseExpiresAt: string, now: string): Promise<boolean> {
@@ -55,7 +62,7 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
     }
   }
 
-  async listPendingReminderDispatch(input: { destination: string; olderThan: string; pageSize?: number }): Promise<OutboxRecord[]> {
+  async listPendingReminderDispatch(input: { olderThan: string; pageSize?: number }): Promise<OutboxRecord[]> {
     let pageCount = 0;
     try {
       const items: OutboxRecord[] = [];
@@ -66,11 +73,9 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
             TableName: this.tableName,
             IndexName: "GSI6",
             KeyConditionExpression: "GSI6PK = :pk AND GSI6SK < :before",
-            FilterExpression: "destination = :destination",
             ExpressionAttributeValues: {
               ":pk": "RECON#OUTBOX#PENDING",
               ":before": input.olderThan,
-              ":destination": input.destination,
             },
             Limit: input.pageSize,
             ExclusiveStartKey: exclusiveStartKey,
@@ -81,13 +86,13 @@ export class DynamoDbOutboxRelayStore implements OutboxRelayStore {
         exclusiveStartKey = result.LastEvaluatedKey;
       } while (exclusiveStartKey);
       // Security audit trail (full-audit-round1-focused-round2-summary.md, achado real): só
-      // outbox-sweeper-reminder-dispatch chama este método (única role com gsi6Read que usa
-      // este caminho) - ver docs/architecture/reviews/security-audit-trail-design/.
-      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", pageCount, resultCount: items.length });
+      // sweeper roles (gsi6Read) call this method - `component` (constructor param) identifies
+      // which one - ver docs/architecture/reviews/security-audit-trail-design/.
+      auditGlobalIndexAccess({ indexName: "GSI6", operation: "Query", component: this.component, pageCount, resultCount: items.length });
       return items;
     } catch (err) {
       if (isAccessDeniedError(err)) {
-        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: "outbox-sweeper-reminder-dispatch", awsErrorCode: "AccessDeniedException" });
+        auditGlobalIndexAccessDenied({ indexName: "GSI6", operation: "Query", component: this.component, awsErrorCode: "AccessDeniedException" });
       }
       throw mapDynamoError(err, "OutboxRelayStore.listPendingReminderDispatch");
     }
