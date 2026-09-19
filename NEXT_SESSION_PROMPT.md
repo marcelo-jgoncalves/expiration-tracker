@@ -200,6 +200,22 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
+**Achado real não corrigido, 2026-09-19 (rodadas de 25k reais com e-mail, `ladder-email-25k`/`-retry`)
+— gargalo cosmético de observabilidade, sem impacto funcional**: sob carga sustentada de 10
+tenants por horas, o layer ADOT de `bff-handler`/`items-handler`/`reminders-handler` (e
+provavelmente outras Lambdas sob a mesma carga) descarta lotes de trace inteiros — timeout local
+app→coletor (`Error: Request Timeout`, `otlp-exporter-base`) e timeout coletor→X-Ray real
+(`OTLPExporterError`/408, `"msg":"Exporting failed. Rejecting data"`, 60-96 itens por lote
+descartado). Confirmado sem nenhum impacto funcional: zero requisição falhou, zero item de
+journal de seed travado nas duas rodadas — só fica sem trace completo no X-Ray para as
+requisições atingidas. Correção real exigiria `collector.yaml` customizado via
+`OPENTELEMETRY_COLLECTOR_CONFIG_URI` (doc oficial: `aws-otel.github.io/docs/getting-started/
+lambda/lambda-custom-configuration`), empacotado no build de TODAS as ~69 Lambdas + variável de
+ambiente compartilhada (`local.common_env`) — mudança sistêmica de observabilidade, com risco real
+de quebrar tracing por completo se mal configurada, não um ajuste pontual. Decisão do Marcelo,
+2026-09-19: registrar como pendência, não implementar agora — mesma categoria de item que o
+débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-01.md` §17/§18.6).
+
 ## Status de evidência (não presumir E2E sem checar)
 
 A maioria dos mecanismos do roadmap P0/backlog P1 está `IMPLEMENTED`/`UNIT TESTED` e confirmada `Active` contra `dev` via `aws --profile claude-dev`, mas **nem todo mecanismo tem prova E2E de ponta a ponta disparando pelo gatilho real** (cron/SQS real, não só G-V3/unit) — isso é nomeado individualmente nas linhas do roadmap acima onde relevante ("nunca testado ponta a ponta com... real"). Não assumir E2E PROVEN sem checar a linha específica do item ou `decisions-log.md`.
