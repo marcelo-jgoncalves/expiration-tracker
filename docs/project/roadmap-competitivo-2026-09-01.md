@@ -757,16 +757,9 @@ arquitetura/segurança) quando o projeto se aproximar de produção real.
 
 ## 17.1 — Migrar Lambdas de x86_64 para ARM64 (Graviton2) — 🟢 FEITO
 
-**Drift corrigido 2026-09-19** (este parágrafo dizia "todas rodam em x86_64, nunca decidido" —
-desatualizado). Decisão tomada e **implementada por completo** em `decisions-log.md` D-208
-(2026-09-05, protocolo Claude↔Codex 3 rodadas, 9,4/9,5, mergeado PR #241) — na época, as 52
-Lambdas do projeto migradas para `arm64` por padrão do módulo (`terraform plan` real confirmou
-update in-place, sem recriação; layer ADOT trocado para a variante `arm64`; smoke test pós-deploy
-confirmou execução funcional real em `dev`). **Reconfirmado ao vivo nesta sessão com contagem
-completa** (`aws lambda list-functions --profile claude-dev`, não amostra): o projeto cresceu para
-**69 Lambdas** desde D-208 (D-301/302/303 adicionaram várias) — as 69, sem exceção, rodam
-`arm64`, incluindo as mais novas (`reminder-dispatch-outbox-relay`, `reminder-scan-control-relay`)
-herdadas automaticamente do default do módulo definido em D-208.
+Implementado e mergeado (`decisions-log.md` D-208, 2026-09-05). Reconfirmado ao vivo em
+2026-09-19: 69/69 Lambdas hoje rodam `arm64` em `dev` (cresceu de 52 desde D-208, via
+D-301/302/303 — as novas herdaram o default do módulo).
 
 **Registrado por pedido de Marcelo, 2026-09-05.**
 
