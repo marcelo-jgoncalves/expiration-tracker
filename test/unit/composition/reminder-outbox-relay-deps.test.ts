@@ -101,6 +101,9 @@ describe("buildOutboxRelayDeps (low-level helper) - documents its always-correct
 });
 
 describe("buildReminderDispatchOutboxOnlyRelayDepsFromEnv (D-303 dedicated relay/sweeper composition)", () => {
+  // G-V3: reusing buildOutboxRelayDeps's full 12-destination sender map here (like the shared
+  // relay does) instead of hardcoding only SQS_REMINDER_DISPATCH_V1 would make Object.keys have
+  // more than one entry, failing the toEqual assertion below.
   it("wires exactly one sender (SQS_REMINDER_DISPATCH_V1) - proves this is deliberately narrower than the shared relay/sweeper, not an accidental subset", async () => {
     const { client, send } = fakeSqsClient();
     const deps = buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ TABLE_NAME: "reminder-dispatch-outbox", DISPATCH_QUEUE_URL: "https://sqs.example/dispatch" }, fakeClient, client);
@@ -112,11 +115,16 @@ describe("buildReminderDispatchOutboxOnlyRelayDepsFromEnv (D-303 dedicated relay
     expect(command.input.QueueUrl).toBe("https://sqs.example/dispatch");
   });
 
+  // G-V3: replacing the `if (!TABLE_NAME) throw` guard with a bare `env.TABLE_NAME as string`
+  // cast (letting undefined flow through silently, the exact D-303 review Finding B) would make
+  // this test pass without throwing.
   it("throws when TABLE_NAME is missing - proves the dedicated table is never silently defaulted to the shared main table", () => {
     const { client } = fakeSqsClient();
     expect(() => buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ DISPATCH_QUEUE_URL: "https://sqs.example/dispatch" }, fakeClient, client)).toThrow(/TABLE_NAME/);
   });
 
+  // G-V3: same class of mutation as the TABLE_NAME test above, applied to DISPATCH_QUEUE_URL's
+  // own guard - removing/weakening it would make this pass without throwing.
   it("throws when DISPATCH_QUEUE_URL is missing", () => {
     const { client } = fakeSqsClient();
     expect(() => buildReminderDispatchOutboxOnlyRelayDepsFromEnv({ TABLE_NAME: "reminder-dispatch-outbox" }, fakeClient, client)).toThrow(/DISPATCH_QUEUE_URL/);
@@ -124,6 +132,10 @@ describe("buildReminderDispatchOutboxOnlyRelayDepsFromEnv (D-303 dedicated relay
 });
 
 describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender maps", () => {
+  // G-V3: adding a new destination to buildDispatchOutboxRelayDepsFromEnv/buildOutboxSweeperDepsFromEnv's
+  // senders without updating OUTBOX_DESTINATION_OWNERSHIP to match (or vice versa) would make one
+  // of the inRelay/inSweeper expectations fail here - the exact under/over-routing drift class of
+  // bug the D-303 change was at risk of introducing.
   it("matches exactly what each handler's real composition function wires - catches both under-routing and over-routing", () => {
     const { client: relayClient } = fakeSqsClient();
     const { client: sweeperClient } = fakeSqsClient();
@@ -140,6 +152,10 @@ describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender ma
     }
   });
 
+  // G-V3: this is a runtime companion to the compile-time `satisfies` check on
+  // OUTBOX_DESTINATION_OWNERSHIP - deleting an entry from that object while leaving it in
+  // allDestinations here (a scenario `satisfies` alone wouldn't re-check at runtime after a type
+  // assertion bypass) would fail the toBeDefined/sort-equality assertions below.
   it("covers every OutboxDestination union member (satisfies already enforces this at compile time - this is the runtime companion check)", () => {
     const allDestinations: OutboxDestination[] = [
       "SQS_REMINDER_DISPATCH_V1",
@@ -176,6 +192,8 @@ describe("buildReminderClaimConsumerDeps / buildReconciliationDeps (D-303 addend
     expect(() => buildReminderClaimConsumerDeps(fakeClient, "t")).toThrow(/REMINDER_DISPATCH_OUTBOX_TABLE_NAME/);
   });
 
+  // G-V3: same mutation class as buildReminderClaimConsumerDeps above, applied to
+  // buildReconciliationDeps's own copy of the required-field guard.
   it("buildReconciliationDeps throws when REMINDER_DISPATCH_OUTBOX_TABLE_NAME is missing - same guarantee for the SCANLEASE expired-claim recovery path", () => {
     delete process.env["REMINDER_DISPATCH_OUTBOX_TABLE_NAME"];
     expect(() => buildReconciliationDeps(fakeClient, "t")).toThrow(/REMINDER_DISPATCH_OUTBOX_TABLE_NAME/);
