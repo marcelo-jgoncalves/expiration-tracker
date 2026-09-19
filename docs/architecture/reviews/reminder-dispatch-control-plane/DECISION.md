@@ -1,5 +1,7 @@
 ---
-status: APPROVED_BY_OWNER (protocolo dispensado)
+status: DEPLOYED_TO_DEV (protocolo dispensado; implementado, revisado, mergeado PR #371, aplicado
+  e verificado ao vivo em dev 2026-09-19 — falta só o critério de conclusão do §8: repetir a
+  rodada de 10k com máximo <=300s)
 decision: D-303
 date: 2026-09-19
 owner: Marcelo
