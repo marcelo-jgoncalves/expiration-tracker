@@ -34,12 +34,21 @@ function requireThatBurstSize(value) {
 }
 
 // Minimum lead time scales with how many pairs one tenant must seed - a 10k burst (1000/tenant)
-// needs the full 90 minutes this was originally calibrated for (login + paced seed at ~1
-// pair/2.3s + materialization), but a small verification run (e.g. 100/tenant for a 1k burst)
-// finishes seeding in a few minutes and shouldn't force an hour-plus of idle waiting. Floored at
-// 25 minutes regardless of size - login/materialization overhead doesn't shrink with burst size.
+// was originally calibrated at 90 minutes (login + paced seed at ~1 pair/2.3s + materialization),
+// but a small verification run (e.g. 100/tenant for a 1k burst) finishes seeding in a few minutes
+// and shouldn't force an hour-plus of idle waiting. Floored at 25 minutes regardless of size -
+// login/materialization overhead doesn't shrink with burst size.
+//
+// Re-tuned 2026-09-19 (Marcelo, real data from 2 consecutive 25k real-email rounds,
+// ladder-email-25k/-retry): actual seed+materialize time at 2500/tenant was ~124 min both times,
+// against 225 min the 90min/1000-pairs rate reserved - ~1.8x more slack than needed. Cut to
+// 65min/1000-pairs, which reserves ~163 min for that same 2500/tenant case (~31% margin over the
+// observed 124 min, not zero). Only calibrated against this one per-tenant volume so far - if a
+// future run at a very different scale (e.g. the 100k/500k ladder steps, 10000+/tenant) shows this
+// rate is too tight or still too loose, re-tune again with that run's real numbers rather than
+// assuming this holds across scales.
 export function minLeadMs(perTenant) {
-  return Math.max(25 * 60000, Math.ceil((perTenant / 1000) * 90 * 60000));
+  return Math.max(25 * 60000, Math.ceil((perTenant / 1000) * 65 * 60000));
 }
 
 export function schedule(target, now = Date.now(), perTenant = 1000) {
@@ -341,7 +350,9 @@ async function main() {
     requireThat(!existsSync(dir), 'Run ID already exists; use a new ID');
     const tenants = read(path.join(LOCAL, TENANTS_FILE)).tenants;
     assertTenants(tenants);
-    const timing = schedule(target ?? new Date(Math.ceil((Date.now() + minLeadMs(PER_TENANT) + 15 * 60000) / 60000) * 60000).toISOString(), Date.now(), PER_TENANT);
+    // Extra buffer cut 15min -> 10min alongside minLeadMs's 2026-09-19 re-tuning (see its comment)
+    // - same real-data rationale, no fresh evidence justifying more than that on top.
+    const timing = schedule(target ?? new Date(Math.ceil((Date.now() + minLeadMs(PER_TENANT) + 10 * 60000) / 60000) * 60000).toISOString(), Date.now(), PER_TENANT);
     mkdirSync(dir, { recursive: true });
     const manifest = { runId, nonce: randomUUID(), createdAt: new Date().toISOString(), expected: EXPECTED,
       gitSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), ...timing, tenants };
