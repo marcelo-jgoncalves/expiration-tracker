@@ -4,7 +4,7 @@ import { DynamoDbOutboxRelayStore } from "../../src/shared/outbox/persistence/dy
 import { DynamoDbReminderStore } from "../../src/modules/reminder/persistence/dynamodb-reminder-store.js";
 import { publishOne } from "../../src/workers/dispatch-outbox-relay/relay.js";
 import { recoverExpiredClaims } from "../../src/workers/reminder-reconciliation/recover-expired-claims.js";
-import type { OutboxRecord } from "../../src/shared/outbox/outbox.js";
+import { outboxShard, type OutboxRecord } from "../../src/shared/outbox/outbox.js";
 
 describe("PERF-12 persisted outbox fences and atomic recovery", () => {
   let ctx: Awaited<ReturnType<typeof startDynamoDbLocal>>;
@@ -18,8 +18,14 @@ describe("PERF-12 persisted outbox fences and atomic recovery", () => {
   afterAll(async () => { if (ctx) await ctx.stop(); });
   const now = () => "2026-09-16T22:00:00.000Z";
   const keyOf = ({ PK, SK }: { PK: string; SK: string }) => ({ PK, SK });
+  // Sub-sharded by eventId since D-304 (real hot-partition fix) - built via the real
+  // outboxShard() rather than a hardcoded literal, so this fixture can never silently drift
+  // out of sync with the shard the production code actually computes (exactly what broke this
+  // suite's collision test the first time: a hardcoded PK stopped colliding with the one
+  // recoverExpiredClaims computes internally, so the transaction it expects to fail atomically
+  // just... didn't).
   function event(id: string): OutboxRecord {
-    return { PK: "TENANT#t1#OUTBOX#202609", SK: `EVENT#${now()}#${id}`, eventId: id,
+    return { PK: `TENANT#t1#OUTBOX#${outboxShard(now(), id)}`, SK: `EVENT#${now()}#${id}`, eventId: id,
       entityType: "OutboxEvent", tenantId: "t1", eventType: "ReminderDispatchRequested",
       aggregateType: "ReminderOccurrence", aggregateId: "o1", aggregateVersion: 2,
       destination: "SQS_REMINDER_DISPATCH_V1", status: "PENDING", payload: {},
