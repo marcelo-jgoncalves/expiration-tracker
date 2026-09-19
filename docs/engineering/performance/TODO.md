@@ -167,9 +167,22 @@ itens de acompanhamento fora do programa de performance.
   - [x] Bundle budget CI gate — `frontend/scripts/check-bundle-budget.mjs`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [x] Lighthouse CI gate — `@lhci/cli` + `frontend/lighthouserc.json`, wired em `.github/workflows/ci.yml` (job `frontend`). Ver `results/PERF-14-regression-gates.md`.
   - [x] k6 smoke em PR — sessão BFF efêmera obtida pelo fluxo Hosted UI real com credenciais em GitHub Secrets; 1 VU/15s, erro <1%, checks 100% e p95 <3s. PRs de forks não recebem nem executam o segredo. **Achado real, 2026-09-19**: o gate reprovou por `p(95)<3000` 2x no mesmo dia (3,22s e 3,11s, ambos 0% erro/100% checks, amostra pequena — 7 requests/1 VU) em PRs sem nenhuma mudança de código de produção. Confirmado via CloudWatch (`exptrk-dev-bff-handler`, `Duration` extended-statistics) que é um padrão PRÉ-EXISTENTE, não causado por D-303: qualquer janela de 5min com >1 invocação concorrente já mostra p50~500ms mas máximo 3-5s+ (cold start sob burst), reproduzido em janelas horas antes do deploy de D-303. Não corrigido nesta sessão (fora de escopo, threshold `p(95)<3000` do smoke provavelmente incompatível com a concorrência real de cold-start do BFF sob rajada pequena) — candidato a ajuste futuro (relaxar o threshold ou investigar concorrência reservada do BFF), não bloqueante hoje (rerun resolve).
-  - [x] Synthetic canaries — canário CloudWatch sem credenciais a cada 5 minutos valida SPA na borda e o contrato anônimo de `/bff/session`; artefatos criptografados, privados e retidos por 30 dias; falha sustentada aciona o tópico operacional.
+  - [x] Synthetic canaries — canário CloudWatch sem credenciais a cada 5 minutos valida SPA na borda e o contrato anônimo de `/bff/session`; artefatos criptografados, privados e retidos por 30 dias; falha sustentada aciona o tópico operacional. **Achado real, 2026-09-19**: o passo `anonymous-session` falhava continuamente (`SyntaxError: Unexpected end of JSON input`) desde o redeploy forçado do canário (`76c695f`) — confirmado que a API está saudável (GET manual no endpoint retorna 200/`{"authenticated":false}` normalmente); causa raiz era o próprio script do canário lendo o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics — corrigido para o padrão oficial de eventos `'data'`/`'end'` documentado pela AWS. Corrigido em `develop` (commit `43bbfe3`), deploy propositalmente adiado até a revalidação de 10k do D-303 em andamento terminar (evitar mexer no mesmo ambiente/conta durante a medição).
   - [x] Alarms de latência/throttle/backlog — métricas EMF confirmadas ao vivo em 2026-09-18; quatro alarmes p95 e três alarmes de throttling nativo adicionados. Backlog já estava coberto.
   - [x] Dashboard consolidado — `exptrk-dev-operations` confirmado ao vivo e ampliado com gráficos p95 e throttling de BFF, Items e Subjects. Synthetic canaries serão incorporados quando existirem.
+- [ ] **Achado real, 2026-09-19, não corrigido — `outbox-sweeper-reminder-dispatch` (o sweeper
+  genérico de reconciliação, cobre ~12 destinos: e-mail, WhatsApp, importação, dispatch de
+  lembrete, etc.) está travando por timeout (10s) em TODA execução agendada (a cada 5 min) desde
+  pelo menos 2026-09-17.** Causa raiz identificada no código (`dynamodb-outbox-relay-store.ts`
+  `listPendingReminderDispatch`): os 12 destinos compartilham a MESMA partição única no GSI6
+  (`GSI6PK = "RECON#OUTBOX#PENDING"`), com o `destination` filtrado só depois de ler via
+  `FilterExpression` — ou seja, verificar UM destino exige paginar por TODOS os registros pendentes
+  de QUALQUER destino nessa janela de tempo. Mesmo padrão de gargalo de partição compartilhada que
+  motivou D-301/D-302/D-303, agora na rede de reconciliação/segurança, não no caminho principal.
+  Aumentar o timeout é remendo, não conserto — a lentidão só tende a piorar conforme a partição
+  cresce. Conserto de verdade provavelmente exige medir o tamanho real do backlog e uma decisão de
+  arquitetura (nível 5-6, mesma classe do D-301/302/303) sobre particionar/isolar essa
+  reconciliação — não aplicado nesta sessão, carga de teste em andamento no mesmo ambiente.
 - [~] PERF-15 — Consolidação dos resultados e pacote de retorno (plano §27: quotas, browser, BFF/Lambda, Power Tuning, CloudFront, load test, bundle) — rascunho feito em `results/PERF-15-consolidation.md` (síntese executiva de PERF-00 a PERF-14, 8/10 dos números exigidos fechados com dado real). Falta só atualizar a linha do PERF-12 quando a revalidação de 10k em andamento concluir.
 
 ---
