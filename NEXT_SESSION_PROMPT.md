@@ -68,6 +68,8 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
 9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
 10. **`NotificationEntitlements` nunca é provisionado para nenhum tenant, real ou sintético (achado real, 2026-09-19, ver Programa de Performance abaixo)** — todo tenant sem esse registro fica em `RETRY` infinito e nunca recebe e-mail de lembrete; único motivo de nenhuma rodada de teste anterior ter conseguido provar entrega real de e-mail até agora. Sem usuário real ainda (AGENTS.md §1), então não é um incidente em produção — mas é uma lacuna real que bloquearia o primeiro usuário de verdade a receber um lembrete por e-mail, então merece atenção antes do lançamento. Provável ligação com D-052 (billing bloqueado) — decisão de produto necessária (entitlement default sem plano pago? criar no onboarding ou lazy como `NotificationPreferences`?) antes de qualquer correção de código.
+11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
+12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
 
 ## Próxima ação recomendada
 
@@ -202,11 +204,17 @@ decisão de produto explicitamente marcados abaixo):
 
 1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
    pendências acima.
-2. **Corrigir a separação de ambientes (`main` = `dev`, sem staging/produção)** —
-   `docs/project/roadmap-competitivo-2026-09-01.md` §17.3. Nível 5-6 provável (conta AWS separada
-   ou workspace Terraform por ambiente + pipeline de promoção `dev→staging→produção`) — checar se
-   o protocolo Claude↔Codex já voltou (Codex até 2026-09-23, Antigravity até ~2026-09-26, ver
-   seção do mandato acima) antes de decidir sozinho.
+2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20** (`ADR-0014`, D-305,
+   `PENDING_PROTOCOL_REVIEW` — protocolo ainda suspenso). AWS Organizations + conta por ambiente
+   (nunca `terraform workspace`, desaconselhado pela própria HashiCorp), pesquisa externa SIM
+   PARCIAL (AWS Well-Architected + docs oficiais HashiCorp). Fase 1 (aditiva, sem custo) feita:
+   `infra/variables.tf` aceita `"staging"`/`"production"`; achado real corrigido no processo —
+   `document-malware-protection`'s fail-closed guard esperava a string `"prod"` (nunca alcançável
+   antes), alinhado para `"production"` antes de virar bypass silencioso do GuardDuty. **Fases
+   2-4 (criar contas `staging`/`production`, provisionar, pipeline de promoção) aguardam
+   autorização explícita de Marcelo** — confirmado por ele, 2026-09-20: nenhum deploy de produção
+   real ainda, só preparação. Revisão adversarial Codex também pendente (mesma fila do item 11 da
+   lista de pendências acima).
 3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
    decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
    restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca

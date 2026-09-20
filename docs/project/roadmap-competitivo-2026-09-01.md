@@ -781,12 +781,13 @@ nunca tinha sido escrito no repositório — corrigido aqui).
 
 ## 17.3 — Separação real de ambientes (hoje `main` = `dev`, sem staging/produção)
 
-`cd.yml` só dispara em push a `main`, e o único ambiente real é `dev` (`AGENTS.md` §3) — não existe
-staging nem produção separados. Padrão conhecido para corrigir quando fizer sentido (conta AWS
-separada ou workspace Terraform por ambiente, pipeline de promoção `dev→staging→produção`) — não é
-complexo, só não construído porque não há necessidade real ainda.
-
-**Registrado por pedido de Marcelo, 2026-09-19.**
+**Decisão tomada 2026-09-20, `ADR-0014`/`decisions-log.md` D-305 (`PENDING_PROTOCOL_REVIEW`)**:
+AWS Organizations + uma conta por ambiente (nunca `terraform workspace` — desaconselhado pela
+própria HashiCorp), rollout faseado. Fase 1 (aditiva, sem custo/conta nova) já feita:
+`infra/variables.tf` aceita `"staging"`/`"production"` como valores de `environment`. Fases
+2-4 (criar as contas `staging`/`production`, provisionar, pipeline de promoção
+`dev→staging→produção`) aguardam autorização explícita de Marcelo — confirmado por ele,
+2026-09-20: nenhum deploy de produção real ainda, só preparação segundo boas práticas.
 
 ---
 
