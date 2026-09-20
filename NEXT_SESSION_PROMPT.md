@@ -53,6 +53,23 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
+0. **URGENTE — CI quebrado (PR #380, `Authenticated k6 smoke`), causado pela limpeza de `dev` de
+   2026-09-20**: `scripts/reset-dev-data.ts --confirm` apagou as linhas DynamoDB (Organization/
+   Membership) do "PERF Test Tenant" (`docs/engineering/performance/baseline/PERF-04-test-tenant.md`
+   — `org_01M2GE4F1SZPSJ47HCGRXH4XMN`, e-mail
+   `marcelo.mjgoncalves+perf-test-2026-09-14@gmail.com`), sem tocar no Cognito (`--include-cognito`
+   não foi usado). Resultado: o login Cognito continua válido, mas o usuário não tem mais
+   organização — `GET /bff/api/items/dashboard` (usado pelo smoke) agora falha 100% das
+   requisições. `docs/engineering/performance/.local/perf-test-tenant-credentials.txt` (senha deste
+   usuário) não existe neste ambiente — sem ela não há como logar de novo pelo Hosted UI e recriar a
+   organização pela API normal. Resetar a senha via `cognito-idp admin-set-user-password` (e
+   atualizar depois o secret `PERF_TEST_PASSWORD` do GitHub Actions) é a correção óbvia, mas foi
+   **bloqueada pelo classificador de auto mode do Claude Code** (escrita em secret store) — exige
+   aprovação explícita de Marcelo, não pode ser feita autonomamente. PR #380 (as próprias correções
+   de `reset-dev-data.ts` + fechamento do estado desta sessão) está aberto e **não foi mergeado** por
+   causa disso — CI vermelho, `guardrails` inclui esse check. Ação recomendada: Marcelo autoriza o
+   reset de senha + atualização do secret (ou fornece a senha atual), então recriar a organização via
+   `POST /bff/organizations` (nunca escrita direta no DynamoDB, mesmo padrão do PERF-04 original).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
 2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
 3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
