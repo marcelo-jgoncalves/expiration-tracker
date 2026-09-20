@@ -53,23 +53,11 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
-0. **URGENTE — CI quebrado (PR #380, `Authenticated k6 smoke`), causado pela limpeza de `dev` de
-   2026-09-20**: `scripts/reset-dev-data.ts --confirm` apagou as linhas DynamoDB (Organization/
-   Membership) do "PERF Test Tenant" (`docs/engineering/performance/baseline/PERF-04-test-tenant.md`
-   — `org_01M2GE4F1SZPSJ47HCGRXH4XMN`, e-mail
-   `marcelo.mjgoncalves+perf-test-2026-09-14@gmail.com`), sem tocar no Cognito (`--include-cognito`
-   não foi usado). Resultado: o login Cognito continua válido, mas o usuário não tem mais
-   organização — `GET /bff/api/items/dashboard` (usado pelo smoke) agora falha 100% das
-   requisições. `docs/engineering/performance/.local/perf-test-tenant-credentials.txt` (senha deste
-   usuário) não existe neste ambiente — sem ela não há como logar de novo pelo Hosted UI e recriar a
-   organização pela API normal. Resetar a senha via `cognito-idp admin-set-user-password` (e
-   atualizar depois o secret `PERF_TEST_PASSWORD` do GitHub Actions) é a correção óbvia, mas foi
-   **bloqueada pelo classificador de auto mode do Claude Code** (escrita em secret store) — exige
-   aprovação explícita de Marcelo, não pode ser feita autonomamente. PR #380 (as próprias correções
-   de `reset-dev-data.ts` + fechamento do estado desta sessão) está aberto e **não foi mergeado** por
-   causa disso — CI vermelho, `guardrails` inclui esse check. Ação recomendada: Marcelo autoriza o
-   reset de senha + atualização do secret (ou fornece a senha atual), então recriar a organização via
-   `POST /bff/organizations` (nunca escrita direta no DynamoDB, mesmo padrão do PERF-04 original).
+0. ~~CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**: Marcelo autorizou o reset de senha Cognito
+   do "PERF Test Tenant" + atualização do secret `PERF_TEST_PASSWORD` do GitHub Actions; organização
+   recriada via `POST /bff/organizations` (novo `organizationId=org_01M2ZS4523K9QBJ4DX223WGMFD`,
+   substitui o antigo `org_01M2GE4F1SZPSJ47HCGRXH4XMN` apagado na limpeza de `dev`); todos os checks
+   do PR #380 verdes; PR mergeado em `main` (`mergedAt=2026-09-20T16:08:53Z`).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
 2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
 3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
@@ -212,10 +200,8 @@ débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-
 Ordem literal pedida por ele, autônoma (sem parar para confirmar entre os itens, só nos pontos de
 decisão de produto explicitamente marcados abaixo):
 
-1. **Corrigir o CI quebrado (PR #380)** — item 0 da lista de pendências acima. Precisa da
-   autorização/execução do próprio Marcelo para o reset de senha Cognito + secret do GitHub
-   Actions (bloqueado do lado do Claude Code, não é falta de acesso AWS) — resolver isso primeiro
-   com ele antes de seguir.
+1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
+   pendências acima.
 2. **Corrigir a separação de ambientes (`main` = `dev`, sem staging/produção)** —
    `docs/project/roadmap-competitivo-2026-09-01.md` §17.3. Nível 5-6 provável (conta AWS separada
    ou workspace Terraform por ambiente + pipeline de promoção `dev→staging→produção`) — checar se
@@ -239,9 +225,16 @@ decisão de produto explicitamente marcados abaixo):
    implementar (ponto de parada — perguntar a Marcelo): nível do default (por tenant ou por
    usuário individual dentro do tenant), se aplica só a triggers NOVOS ou também retroativamente
    aos já existentes, e onde exatamente em Configurações o cliente ajusta isso.
-4. **Depois da avaliação do item 3**: escolher com Marcelo entre implementar a feature do item 3,
-   ou retomar a escada de performance no degrau de 100k (seção do mandato acima) — ponto de decisão
-   dele, não presumir qual vem primeiro.
+4. **Antes da decisão sobre o item 3 vs. 100k**: Marcelo pediu, 2026-09-20, rodar primeiro um
+   degrau extra de **50** (mesmo tenant file padrão `perf-11b-tenants.json`, mesma regra de
+   segurança de e-mail do mandato acima) como sanity check pós-limpeza de `dev`/pós-fix do
+   sweeper, antes de escolher entre implementar a feature do item 3 ou seguir para 100k.
+5. **Novo item, 2026-09-20 (Marcelo)**: pesquisa/planejamento (sem implementar ainda) de
+   subagentes customizados de aprovação por domínio técnico, acionados ao final de toda tarefa —
+   cada um responsável por um eixo já formalizado em `joint-review-criteria.md`
+   (Arquitetura/Qualidade de Engenharia/Observabilidade-Operações-SRE/etc.); tarefa só
+   considerada concluída quando aprovada por todos. Entregável: documento de proposta (não
+   subagente real ainda) para revisão de Marcelo.
 
 ## Status de evidência (não presumir E2E sem checar)
 
