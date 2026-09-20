@@ -789,6 +789,11 @@ própria HashiCorp), rollout faseado. Fase 1 (aditiva, sem custo/conta nova) já
 `dev→staging→produção`) aguardam autorização explícita de Marcelo — confirmado por ele,
 2026-09-20: nenhum deploy de produção real ainda, só preparação segundo boas práticas.
 
+**Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo passo imediato para dentro da
+ÚNICA conta atual (sem esperar as Fases 2-4) — `cd.yml` corrigido para disparar o deploy de `dev`
+em push/CI verde em `develop` (o branch de trabalho real), não mais `main`; `main` fica sem
+gatilho de deploy próprio até staging/produção existirem de fato.
+
 ---
 
 # 18. Lista consolidada por prioridade de lançamento (preparação para análise de concorrência)

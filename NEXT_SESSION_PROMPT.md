@@ -214,7 +214,14 @@ decisão de produto explicitamente marcados abaixo):
    2-4 (criar contas `staging`/`production`, provisionar, pipeline de promoção) aguardam
    autorização explícita de Marcelo** — confirmado por ele, 2026-09-20: nenhum deploy de produção
    real ainda, só preparação. Revisão adversarial Codex também pendente (mesma fila do item 11 da
-   lista de pendências acima).
+   lista de pendências acima). **Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo
+   passo imediato para dentro da conta atual, sem esperar as Fases 2-4 — `cd.yml` corrigido para
+   disparar em push/CI verde em `develop` (branch de trabalho real), não mais `main`; `main` fica
+   sem gatilho de deploy até staging/produção existirem. **Validação empírica ainda pendente**:
+   achado real via docs oficiais do GitHub (`workflow_run` sempre lê o arquivo de workflow do
+   branch PADRÃO do repositório, `main`) — esta mudança só vale de fato depois do PR desta sessão
+   mergear em `main`; confirmar no próximo push a `develop` pós-merge que o deploy dispara de
+   verdade, não presumir que funciona só porque o YAML é válido.
 3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
    decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
    restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca

@@ -2,15 +2,22 @@
 # `terraform apply` runs — never from a local machine (the user explicitly required this:
 # "o apply tem que ser feito pela pipeline, via github actions diretamente no ambiente").
 #
-# Triggers on `workflow_run` of `CI` completing on `main` (real incident, 2026-08-21, see
-# NEXT_SESSION_PROMPT.md): both this workflow and `CI` used to trigger independently on
-# `push: branches: [main]`, so a single merge to main fired them AT THE SAME TIME - both run
-# `terraform plan` against the SAME S3-native-locked state, and whichever acquires the lock
+# Triggers on `workflow_run` of `CI` completing on `develop` (ADR-0014, 2026-09-20: dev's own
+# deploy is now driven by the branch that actually corresponds to it - `develop` is the real
+# active working branch (`AGENTS.md` §3), not `main`, which no longer triggers any deploy on
+# its own until a real staging/production tier exists). Originally this workflow triggered on
+# `main` (real incident, 2026-08-21, see NEXT_SESSION_PROMPT.md): both this workflow and `CI`
+# used to trigger independently on `push`, so a single push fired them AT THE SAME TIME - both
+# run `terraform plan` against the SAME S3-native-locked state, and whichever acquires the lock
 # first makes the other fail immediately with "Error acquiring the state lock" (a transient,
 # confusing failure, not a real stuck lock - a retry always succeeded once the race resolved).
 # `workflow_run` makes this deploy strictly SEQUENTIAL after CI's own `infra` job
 # (fmt/validate/test/plan) already released the lock - the `if` condition below only
-# proceeds when that CI run's conclusion was `success`.
+# proceeds when that CI run's conclusion was `success`. This invariant does not depend on
+# `develop` having branch protection (it does not, `AGENTS.md` §3 - commits land there
+# directly): `workflow_run` only ever fires for a CI run that genuinely completed against that
+# exact `head_sha` (`ci.yml`'s own `on: push: branches: [main, develop]` already covers every
+# push here), so CD can never deploy a commit CI has not actually evaluated.
 #
 # Assumes the same IAM role ci.yml uses for `terraform plan` - AWS_ROLE_ARN_DEV repository
 # variable holds its ARN. M5 (2026-08-21): switched from edp-dev-role-cicd-github-actions
@@ -29,7 +36,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [develop]
   workflow_dispatch: {}
 
 permissions:
@@ -39,7 +46,7 @@ permissions:
 # A second push while an apply is in-flight must queue, not race - cancelling a terraform
 # apply mid-way can leave a stuck state lock or a partially-created resource.
 concurrency:
-  group: cd-main
+  group: cd-develop
   cancel-in-progress: false
 
 env:
@@ -51,7 +58,7 @@ jobs:
     name: Deploy → Dev
     runs-on: ubuntu-latest
     environment: dev
-    # Only deploy after CI's own run on main actually succeeded - a workflow_dispatch (no
+    # Only deploy after CI's own run on develop actually succeeded - a workflow_dispatch (no
     # `workflow_run` context) always proceeds; a workflow_run event requires success.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     defaults:
@@ -62,9 +69,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # workflow_run runs in the DEFAULT branch's workflow file context but the
-          # triggering commit is on `head_sha` - check that commit out explicitly, or a
-          # stale `main` checkout could deploy an outdated Terraform config.
+          # `workflow_run` always executes the version of THIS file that lives on the repo's
+          # default branch (`main`, confirmed via GitHub's own docs, "Events that trigger
+          # workflows" - "This event will only trigger a workflow run if the workflow file
+          # exists on the default branch") regardless of which branch's CI run triggered it -
+          # the `branches: [develop]` filter above only decides WHETHER to fire, never which
+          # copy of this file runs. The actual code being deployed is a separate concern,
+          # checked out explicitly below via `head_sha` (the commit CI just validated on
+          # `develop`), not implied by which branch's workflow file executed.
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node
@@ -79,12 +91,14 @@ jobs:
 
       # Same gates as ci.yml's `guardrails` job. Only re-run here on a manual `workflow_dispatch`
       # (no upstream CI-success guarantee for that trigger). On the normal `workflow_run` path
-      # this is deliberately SKIPPED: line 56's `if` already requires CI's conclusion to be
+      # this is deliberately SKIPPED: line 63's `if` already requires CI's conclusion to be
       # `success`, and the checkout above pins the exact same `head_sha` CI just validated - a
       # second full typecheck/lint/boundaries/test pass here is a pure ~2min tax on every deploy
-      # for zero additional safety (2026-09-14 pipeline speedup review). If branch protection
-      # config ever changes to allow a non-green push straight to `main`, this gap would need
-      # revisiting - it currently cannot happen (branch protection requires CI to pass).
+      # for zero additional safety (2026-09-14 pipeline speedup review). This does not depend on
+      # `develop` having branch protection (it does not, `AGENTS.md` §3): `workflow_run` only
+      # fires for a CI run that GENUINELY completed against this exact `head_sha` (`ci.yml`
+      # triggers on every push to `develop`, unconditionally) - there is no path where CD
+      # observes `conclusion == 'success'` for a commit CI never actually evaluated.
       - name: Typecheck + lint + boundaries + tests
         if: github.event_name == 'workflow_dispatch'
         run: |

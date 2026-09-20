@@ -54,6 +54,31 @@ Risco de NÃO fazer isto: qualquer erro de `terraform apply`/dado sintético/IAM
 - **Fase 3 — depois da Fase 2**: provisionar `staging` via Terraform (mesmos módulos de `dev`, backend/tfvars próprios), configurar OIDC/trust role na conta nova, criar `cd-staging.yml`.
 - **Fase 4 — gatilho explícito de reavaliação (`principles.md` #5), não "quando fizer sentido" vago**: criar a conta `production` quando UMA das condições valer: (a) E-019 (aviso de privacidade/DPA Meta) resolvido E D-052 (billing) desbloqueado, ou (b) Marcelo decidir uma data de lançamento antes disso, ou (c) Marcelo pedir explicitamente antes de qualquer uma das anteriores.
 
+## Emenda (2026-09-20, mesma sessão) — Marcelo redirecionou o próximo passo imediato
+
+Depois deste ADR escrito, Marcelo decidiu explicitamente **não** criar contas AWS novas ainda
+("não vamos usar outras contas ainda") e pediu, em vez disso, corrigir primeiro a inconsistência
+mais imediata dentro da ÚNICA conta atual: `cd.yml` disparava deploy de `dev` em push/CI verde em
+`main`, quando `develop` é o branch de trabalho real (`AGENTS.md` §3) — o nome do branch que
+dispara não correspondia ao papel real de nenhum dos dois branches. Isto não invalida a
+arquitetura-alvo deste ADR (conta por ambiente continua sendo o padrão recomendado pela pesquisa,
+Fases 2-4 abaixo inalteradas) — é uma correção de escopo menor, mais barata, que resolve a
+confusão de nomenclatura agora, sem depender de conta nova nenhuma.
+
+**Decisão da emenda** (registrada como D-306 em `decisions-log.md`, nível 3-4 — mudança mecânica de
+configuração de CI/CD, sem novo domínio de risco): `cd.yml` passa a disparar em
+`workflow_run` do `CI` completando em `develop` (não mais `main`); `main` fica sem gatilho de
+deploy até staging/produção existirem de fato. Achado real verificado via documentação oficial do
+GitHub antes de implementar (`AGENTS.md` §4): `workflow_run` sempre executa a versão do arquivo de
+workflow que está no branch PADRÃO do repositório (`main`, confirmado via
+`gh repo view --json defaultBranchRef`), nunca a do branch que disparou o CI — o filtro
+`branches:` só decide QUANDO disparar, nunca qual versão do arquivo roda. Implicação prática: esta
+mudança só passa a valer de fato depois que este PR for mergeado em `main` (que atualiza a cópia
+que o GitHub consulta); o próprio merge deste PR não dispara deploy (CI roda em `main` nesse
+push, mas o `cd.yml` já atualizado, lido do próprio `main` pós-merge, não casa mais `branches:
+[develop]` contra um evento de `main`) — a validação real só acontece no próximo push a
+`develop` depois do merge, não presumir "funciona" antes de observar isso ao vivo.
+
 ## Pendência explícita
 
 Protocolo Claude↔Codex completo (nota cega, ≥9,0, mínimo 3 rodadas) ainda não rodou — suspenso até Codex voltar (previsto 2026-09-23). Este ADR fica `PENDING_PROTOCOL_REVIEW` até essa rodada acontecer; a Fase 1 (aditiva, reversível, sem custo) já foi executada porque não altera nenhum comportamento de `dev` enquanto o ADR não fecha — as Fases 2-4 aguardam tanto a rodada quanto a autorização explícita de Marcelo nomeada acima.
