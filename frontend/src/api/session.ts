@@ -16,6 +16,9 @@ export interface UsableOrganization {
   displayName: string;
   role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
   version: number;
+  /** Sessão 2026-09-20: horário padrão sorteado no onboarding, ausente em organizações criadas
+   * antes desta feature - a UI cai para "09:00" nesse caso (`ItemReminderPolicy.tsx`). */
+  defaultReminderLocalTime?: string;
 }
 
 export interface SessionInfo {

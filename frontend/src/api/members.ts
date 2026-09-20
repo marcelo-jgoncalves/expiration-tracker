@@ -45,6 +45,6 @@ export function closeOrganization(confirmOrganizationId: string): Promise<{ orga
   return apiClient.post("/organizations/close", { confirmOrganizationId }) as Promise<{ organizationId: string; status: string }>;
 }
 
-export function updateOrganizationSettings(input: { displayName?: string; timezone?: string }, expectedVersion: number): Promise<OrganizationSettingsResponse> {
+export function updateOrganizationSettings(input: { displayName?: string; timezone?: string; defaultReminderLocalTime?: string }, expectedVersion: number): Promise<OrganizationSettingsResponse> {
   return apiClient.request<OrganizationSettingsResponse>("/organizations/settings", { method: "PATCH", body: input, expectedVersion });
 }

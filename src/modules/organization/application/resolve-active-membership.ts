@@ -37,6 +37,9 @@ export interface UsableOrganization {
    * already requires an `expectedVersion`, this list is simply where the frontend's only
    * current source of Organization data already has it available. */
   version: number;
+  /** Sessão 2026-09-20: horário padrão de lembrete da organização (ver `organization.ts`),
+   * ausente para organizações criadas antes desta feature — frontend cai para "09:00". */
+  defaultReminderLocalTime?: string;
 }
 
 /** Wave B2B-6 (D-101, achado 4 da Rodada 1 do Codex): `Membership` `ACTIVE` sozinho não basta -
@@ -55,7 +58,13 @@ export async function listUsableOrganizations(organizations: OrganizationStore, 
       // (resolveActiveMembership) - same provenance, one hop further.
       const organization = await organizations.get<Organization>(organizationKey(authorizedTenantIdFromPersistedEntity({ tenantId: membership.organizationId })));
       if (!organization) return undefined;
-      return { organizationId: membership.organizationId, displayName: organization.displayName, role: membership.role, version: organization.version };
+      return {
+        organizationId: membership.organizationId,
+        displayName: organization.displayName,
+        role: membership.role,
+        version: organization.version,
+        defaultReminderLocalTime: organization.defaultReminderLocalTime,
+      };
     }),
   );
   return results.filter((result): result is UsableOrganization => result !== undefined);

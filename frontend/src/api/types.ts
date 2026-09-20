@@ -495,6 +495,7 @@ export interface OrganizationSettingsResponse {
   organizationId: string;
   displayName: string;
   timezone: string;
+  defaultReminderLocalTime?: string;
   version: number;
 }
 

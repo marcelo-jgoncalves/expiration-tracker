@@ -53,23 +53,11 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
-0. **URGENTE — CI quebrado (PR #380, `Authenticated k6 smoke`), causado pela limpeza de `dev` de
-   2026-09-20**: `scripts/reset-dev-data.ts --confirm` apagou as linhas DynamoDB (Organization/
-   Membership) do "PERF Test Tenant" (`docs/engineering/performance/baseline/PERF-04-test-tenant.md`
-   — `org_01M2GE4F1SZPSJ47HCGRXH4XMN`, e-mail
-   `marcelo.mjgoncalves+perf-test-2026-09-14@gmail.com`), sem tocar no Cognito (`--include-cognito`
-   não foi usado). Resultado: o login Cognito continua válido, mas o usuário não tem mais
-   organização — `GET /bff/api/items/dashboard` (usado pelo smoke) agora falha 100% das
-   requisições. `docs/engineering/performance/.local/perf-test-tenant-credentials.txt` (senha deste
-   usuário) não existe neste ambiente — sem ela não há como logar de novo pelo Hosted UI e recriar a
-   organização pela API normal. Resetar a senha via `cognito-idp admin-set-user-password` (e
-   atualizar depois o secret `PERF_TEST_PASSWORD` do GitHub Actions) é a correção óbvia, mas foi
-   **bloqueada pelo classificador de auto mode do Claude Code** (escrita em secret store) — exige
-   aprovação explícita de Marcelo, não pode ser feita autonomamente. PR #380 (as próprias correções
-   de `reset-dev-data.ts` + fechamento do estado desta sessão) está aberto e **não foi mergeado** por
-   causa disso — CI vermelho, `guardrails` inclui esse check. Ação recomendada: Marcelo autoriza o
-   reset de senha + atualização do secret (ou fornece a senha atual), então recriar a organização via
-   `POST /bff/organizations` (nunca escrita direta no DynamoDB, mesmo padrão do PERF-04 original).
+0. ~~CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**: Marcelo autorizou o reset de senha Cognito
+   do "PERF Test Tenant" + atualização do secret `PERF_TEST_PASSWORD` do GitHub Actions; organização
+   recriada via `POST /bff/organizations` (novo `organizationId=org_01M2ZS4523K9QBJ4DX223WGMFD`,
+   substitui o antigo `org_01M2GE4F1SZPSJ47HCGRXH4XMN` apagado na limpeza de `dev`); todos os checks
+   do PR #380 verdes; PR mergeado em `main` (`mergedAt=2026-09-20T16:08:53Z`).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
 2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
 3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
@@ -80,6 +68,8 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
 9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
 10. **`NotificationEntitlements` nunca é provisionado para nenhum tenant, real ou sintético (achado real, 2026-09-19, ver Programa de Performance abaixo)** — todo tenant sem esse registro fica em `RETRY` infinito e nunca recebe e-mail de lembrete; único motivo de nenhuma rodada de teste anterior ter conseguido provar entrega real de e-mail até agora. Sem usuário real ainda (AGENTS.md §1), então não é um incidente em produção — mas é uma lacuna real que bloquearia o primeiro usuário de verdade a receber um lembrete por e-mail, então merece atenção antes do lançamento. Provável ligação com D-052 (billing bloqueado) — decisão de produto necessária (entitlement default sem plano pago? criar no onboarding ou lazy como `NotificationPreferences`?) antes de qualquer correção de código.
+11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
+12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
 
 ## Próxima ação recomendada
 
@@ -212,15 +202,26 @@ débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-
 Ordem literal pedida por ele, autônoma (sem parar para confirmar entre os itens, só nos pontos de
 decisão de produto explicitamente marcados abaixo):
 
-1. **Corrigir o CI quebrado (PR #380)** — item 0 da lista de pendências acima. Precisa da
-   autorização/execução do próprio Marcelo para o reset de senha Cognito + secret do GitHub
-   Actions (bloqueado do lado do Claude Code, não é falta de acesso AWS) — resolver isso primeiro
-   com ele antes de seguir.
-2. **Corrigir a separação de ambientes (`main` = `dev`, sem staging/produção)** —
-   `docs/project/roadmap-competitivo-2026-09-01.md` §17.3. Nível 5-6 provável (conta AWS separada
-   ou workspace Terraform por ambiente + pipeline de promoção `dev→staging→produção`) — checar se
-   o protocolo Claude↔Codex já voltou (Codex até 2026-09-23, Antigravity até ~2026-09-26, ver
-   seção do mandato acima) antes de decidir sozinho.
+1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
+   pendências acima.
+2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20** (`ADR-0014`, D-305,
+   `PENDING_PROTOCOL_REVIEW` — protocolo ainda suspenso). AWS Organizations + conta por ambiente
+   (nunca `terraform workspace`, desaconselhado pela própria HashiCorp), pesquisa externa SIM
+   PARCIAL (AWS Well-Architected + docs oficiais HashiCorp). Fase 1 (aditiva, sem custo) feita:
+   `infra/variables.tf` aceita `"staging"`/`"production"`; achado real corrigido no processo —
+   `document-malware-protection`'s fail-closed guard esperava a string `"prod"` (nunca alcançável
+   antes), alinhado para `"production"` antes de virar bypass silencioso do GuardDuty. **Fases
+   2-4 (criar contas `staging`/`production`, provisionar, pipeline de promoção) aguardam
+   autorização explícita de Marcelo** — confirmado por ele, 2026-09-20: nenhum deploy de produção
+   real ainda, só preparação. Revisão adversarial Codex também pendente (mesma fila do item 11 da
+   lista de pendências acima). **Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo
+   passo imediato para dentro da conta atual, sem esperar as Fases 2-4 — `cd.yml` corrigido para
+   disparar em push/CI verde em `develop` (branch de trabalho real), não mais `main`; `main` fica
+   sem gatilho de deploy até staging/produção existirem. **Validação empírica ainda pendente**:
+   achado real via docs oficiais do GitHub (`workflow_run` sempre lê o arquivo de workflow do
+   branch PADRÃO do repositório, `main`) — esta mudança só vale de fato depois do PR desta sessão
+   mergear em `main`; confirmar no próximo push a `develop` pós-merge que o deploy dispara de
+   verdade, não presumir que funciona só porque o YAML é válido.
 3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
    decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
    restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca
@@ -239,9 +240,16 @@ decisão de produto explicitamente marcados abaixo):
    implementar (ponto de parada — perguntar a Marcelo): nível do default (por tenant ou por
    usuário individual dentro do tenant), se aplica só a triggers NOVOS ou também retroativamente
    aos já existentes, e onde exatamente em Configurações o cliente ajusta isso.
-4. **Depois da avaliação do item 3**: escolher com Marcelo entre implementar a feature do item 3,
-   ou retomar a escada de performance no degrau de 100k (seção do mandato acima) — ponto de decisão
-   dele, não presumir qual vem primeiro.
+4. **Antes da decisão sobre o item 3 vs. 100k**: Marcelo pediu, 2026-09-20, rodar primeiro um
+   degrau extra de **50** (mesmo tenant file padrão `perf-11b-tenants.json`, mesma regra de
+   segurança de e-mail do mandato acima) como sanity check pós-limpeza de `dev`/pós-fix do
+   sweeper, antes de escolher entre implementar a feature do item 3 ou seguir para 100k.
+5. **Novo item, 2026-09-20 (Marcelo)**: pesquisa/planejamento (sem implementar ainda) de
+   subagentes customizados de aprovação por domínio técnico, acionados ao final de toda tarefa —
+   cada um responsável por um eixo já formalizado em `joint-review-criteria.md`
+   (Arquitetura/Qualidade de Engenharia/Observabilidade-Operações-SRE/etc.); tarefa só
+   considerada concluída quando aprovada por todos. Entregável: documento de proposta (não
+   subagente real ainda) para revisão de Marcelo.
 
 ## Status de evidência (não presumir E2E sem checar)
 

@@ -75,6 +75,15 @@ export async function handleUpdateOrganizationSettings(deps: OrganizationSetting
     const expectedVersion = requireExpectedVersion(req);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const organization = await deps.updateSettings.update(context, req.body, expectedVersion);
-    return { statusCode: 200, body: { organizationId: organization.organizationId, displayName: organization.displayName, timezone: organization.timezone, version: organization.version } };
+    return {
+      statusCode: 200,
+      body: {
+        organizationId: organization.organizationId,
+        displayName: organization.displayName,
+        timezone: organization.timezone,
+        defaultReminderLocalTime: organization.defaultReminderLocalTime,
+        version: organization.version,
+      },
+    };
   });
 }

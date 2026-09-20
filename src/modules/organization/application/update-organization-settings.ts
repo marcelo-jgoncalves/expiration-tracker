@@ -17,12 +17,13 @@ import { authorize, authorizedTenantId } from "../../identity/domain/authorizati
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { NotFoundError, ValidationError, ConflictError } from "../../../shared/errors/app-error.js";
-import { organizationKey, type Organization } from "../domain/organization.js";
+import { isValidLocalTime, organizationKey, type Organization } from "../domain/organization.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 
 export interface UpdateOrganizationSettingsInput {
   displayName?: string;
   timezone?: string;
+  defaultReminderLocalTime?: string;
 }
 
 export class UpdateOrganizationSettingsService {
@@ -38,14 +39,18 @@ export class UpdateOrganizationSettingsService {
 
     const displayName = input.displayName?.trim();
     const timezone = input.timezone?.trim();
-    if (displayName === undefined && timezone === undefined) {
-      throw new ValidationError("At least one of displayName or timezone must be provided.");
+    const defaultReminderLocalTime = input.defaultReminderLocalTime?.trim();
+    if (displayName === undefined && timezone === undefined && defaultReminderLocalTime === undefined) {
+      throw new ValidationError("At least one of displayName, timezone or defaultReminderLocalTime must be provided.");
     }
     if (displayName !== undefined && displayName.length === 0) {
       throw new ValidationError("displayName cannot be blank.");
     }
     if (timezone !== undefined && timezone.length === 0) {
       throw new ValidationError("timezone cannot be blank.");
+    }
+    if (defaultReminderLocalTime !== undefined && !isValidLocalTime(defaultReminderLocalTime)) {
+      throw new ValidationError("defaultReminderLocalTime must be in HH:mm format.");
     }
 
     const organization = await this.store.get<Organization>(organizationKey(tenantId));
@@ -63,6 +68,10 @@ export class UpdateOrganizationSettingsService {
       setClauses.push("#timezone = :timezone");
       values[":timezone"] = timezone;
     }
+    if (defaultReminderLocalTime !== undefined) {
+      setClauses.push("#defaultReminderLocalTime = :defaultReminderLocalTime");
+      values[":defaultReminderLocalTime"] = defaultReminderLocalTime;
+    }
 
     // Wave B2B-14 (Operational Evidence, D-119): real finding - `ExpressionAttributeNames: {}`
     // (an empty object, present but empty) is NOT the same as omitting the key entirely.
@@ -74,7 +83,9 @@ export class UpdateOrganizationSettingsService {
     // never caught because no unit test exercises the real DynamoDB SDK/API and no E2E test
     // hits the real deployed backend. The key must be OMITTED (never present) when there is
     // nothing to map, not set to `{}`.
-    const expressionAttributeNames = timezone !== undefined ? { "#timezone": "timezone" } : undefined;
+    const expressionAttributeNames: Record<string, string> = {};
+    if (timezone !== undefined) expressionAttributeNames["#timezone"] = "timezone";
+    if (defaultReminderLocalTime !== undefined) expressionAttributeNames["#defaultReminderLocalTime"] = "defaultReminderLocalTime";
     const entries: TransactWriteEntry[] = [
       {
         Update: {
@@ -82,7 +93,7 @@ export class UpdateOrganizationSettingsService {
           Key: organizationKey(tenantId),
           UpdateExpression: `SET ${setClauses.join(", ")}`,
           ConditionExpression: "version = :expectedVersion",
-          ...(expressionAttributeNames ? { ExpressionAttributeNames: expressionAttributeNames } : {}),
+          ...(Object.keys(expressionAttributeNames).length > 0 ? { ExpressionAttributeNames: expressionAttributeNames } : {}),
           ExpressionAttributeValues: values,
         },
       },
@@ -101,6 +112,7 @@ export class UpdateOrganizationSettingsService {
       ...organization,
       displayName: displayName ?? organization.displayName,
       timezone: timezone ?? organization.timezone,
+      defaultReminderLocalTime: defaultReminderLocalTime ?? organization.defaultReminderLocalTime,
       version: expectedVersion + 1,
     };
   }

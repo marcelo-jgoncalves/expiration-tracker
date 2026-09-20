@@ -50,6 +50,18 @@ describe("CreateOrganizationService", () => {
     expect(entitlement?.planId).toBe("free");
   });
 
+  // Mutação: esquecer de chamar `this.pickReminderLocalTime()` (ou não passar o resultado para
+  // o objeto Organization) deixaria `defaultReminderLocalTime` `undefined` mesmo com um picker
+  // injetado que nunca retorna undefined - a asserção de igualdade exata pegaria isso.
+  it("seeds defaultReminderLocalTime from the injected picker, not a hardcoded value", async () => {
+    const store = new InMemoryOrganizationStore();
+    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z", () => "14:30");
+
+    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "America/Sao_Paulo" });
+
+    expect(organization.defaultReminderLocalTime).toBe("14:30");
+  });
+
   // Mutação: seedar `ownerCount: 0` (ou omitir o campo) em vez de `1` no objeto Organization
   // faria esta asserção falhar - é exatamente o valor que o mecanismo transacional de
   // ownerCount (physical model §8) depende de já existir corretamente desde a criação.

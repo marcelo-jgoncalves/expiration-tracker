@@ -13,13 +13,13 @@ variable "aws_account_id" {
 }
 
 variable "environment" {
-  description = "Deployment environment. Only \"dev\" exists today (infra/bin/app.ts only instantiates ExpirationTrackerStack-Dev; production region is a documented pending external decision, not implemented here)."
+  description = "Deployment environment. ADR-0014 (2026-09-20): \"staging\"/\"production\" are accepted as valid VALUES now (contract preparation, Fase 1), but neither has a real AWS account, backend, or .tfvars yet — only \"dev\" (env/dev.tfvars) is actually deployable today. Creating those accounts is Fase 2/4 of ADR-0014, gated on Marcelo's explicit authorization."
   type        = string
   default     = "dev"
 
   validation {
-    condition     = var.environment == "dev"
-    error_message = "Only \"dev\" is implemented today (see infra/bin/app.ts) — a production environment requires its own region decision first."
+    condition     = contains(["dev", "staging", "production"], var.environment)
+    error_message = "environment must be one of \"dev\", \"staging\", \"production\" (ADR-0014) — only \"dev\" has a real account/backend/.tfvars today."
   }
 }
 
@@ -169,7 +169,7 @@ variable "malware_protection_enabled" {
     (including the real Camada 3 GuardDuty/EICAR test), but dev can turn it off (`-var
     malware_protection_enabled=false`) between exercises to avoid the recurring cost.
     document-malware-protection's own variable validation forces this true whenever
-    `environment == "prod"` - fail-closed, no bypass in a real production deploy.
+    `environment == "production"` (ADR-0014) - fail-closed, no bypass in a real production deploy.
   EOT
   type        = bool
   default     = true
