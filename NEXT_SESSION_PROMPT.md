@@ -54,7 +54,7 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
-2. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
+2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
 3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
 4. WhatsApp com usuário real (item 3 P0, engenharia 100% fechada desde D-286 — rota de opt-in também já construída) — resta só aviso de privacidade, DPA Meta, residência de dados (E-019).
 5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
@@ -135,8 +135,8 @@ só ~10 chaves sob carga), achada nas rodadas de 25k e-mail (`ladder-email-25k`/
 `accepted: false`, p100 657s/706s mesmo após tunar `parallelization_factor`). Corrigido
 (`outboxShard()`, sufixo hash `eventId%10`, ver D-304 em `decisions-log.md`) — afeta também os
 degraus padrão da escada (`reminder-claim.ts`), não só e-mail. **PENDING_PROTOCOL_REVIEW**
-(protocolo suspenso). Gates locais verdes (suíte completa 3.117 testes); falta rodar o degrau de
-10k padrão para validar ponta a ponta — é a próxima ação literal desta seção.
+(protocolo suspenso). Gates locais verdes (suíte completa 3.125 testes). Degrau de 10k padrão
+revalidado 2026-09-20: 10.000/10.000, p100=230,26s (SLO 300s).
 
 **Backlog registrado, não implementado (2026-09-19)**: `dispatch-outbox-relay-processor.ts`'s
 `processStreamRecords` processa os até 100 registros de um lote **sequencialmente** — cada
@@ -150,6 +150,12 @@ futuro, exige teste adversarial novo provando que `batchItemFailures` mantém a 
 original sob conclusão concorrente (não a ordem de término), não só corretude sequencial.
 
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
+
+**Status 2026-09-20**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima),
+limpeza de `dev` concluída, checklist de conclusão aplicado (ver `decisions-log.md`). Sessão
+encerrada a pedido explícito de Marcelo antes de avançar para 100k — **próxima ação real é retomar
+a escada a partir do degrau de 100k**, mesmas regras desta seção inteira continuam válidas
+(cohort padrão, sem protocolo, etc.).
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
 300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
@@ -213,9 +219,9 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 
 **Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado — esse redeploy expôs, em 2026-09-19, um bug real no PRÓPRIO script do canário (lia o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics; corrigido para o padrão oficial `'data'`/`'end'` da AWS, confirmado que a API estava saudável o tempo todo). Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
 
-**Achado real não corrigido, 2026-09-19 — mesma classe de gargalo do D-301/D-302/D-303, agora no sweeper genérico de reconciliação** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travando por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17. Causa: os 12 destinos compartilham a MESMA partição no GSI6, então checar um exige paginar por todos os outros primeiro. Proposta de correção (query única + roteamento por registro, sem tocar em schema/infra) **aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10** — `docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`. Não implementada — aguardando janela sem teste de carga em andamento no mesmo ambiente.
+**Sweeper genérico de reconciliação, mesma classe de gargalo do D-301/D-302/D-303** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travava por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17 porque os 12 destinos compartilhavam a MESMA partição no GSI6. Proposta (query única + roteamento por registro) aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10 (`docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`). **Implementada e validada 2026-09-20**: revalidação de 10k fechou 10.000/10.000 sem gap de materialização após o fix (a tentativa anterior tinha 1/10.000 preso pelo mesmo timeout).
 
-**Pendência de limpeza, não bloqueante**: tenants sintéticos de teste (PERF Test Tenant + 10 do PERF-11-b/PERF-12-10k + 10 novos do cohort de simuladores SES) e dezenas de milhares de registros sintéticos acumulados em `dev` — candidatos a exclusão quando Marcelo decidir, nenhuma ação tomada ainda.
+**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` (sem `--include-cognito`) esvaziou a tabela principal (1.854.709→0), a tabela de sessão (874→0) e purgou as 36 filas; S3/Cognito já estavam vazios. Verificação final do próprio script confirma tudo zerado. Evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`. Achado incidental no processo: o script tinha 3 bugs reais em escala real (OOM no parse do Scan, região errada no S3 pelo profile `claude-dev`, overflow de string serializando ~1,85M itens) e um 4º achado ao vivo já com a correção de concorrência (`ThrottlingException` lançada, não só `UnprocessedItems`, travava o run inteiro) — todos corrigidos, com teste novo cobrindo o caso do throttle.
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
