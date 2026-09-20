@@ -111,7 +111,7 @@ describe("AppShell nav highlighting (real bug, live `dev` 2026-09-14: Configura�
   });
 
   // The actual reported bug: these two routes are THEMSELVES separate nav items nested under
-  // /settings/* (Tipos de documento / Minhas preferências de notificação) - reachable directly
+  // /settings/* (Tipos de documento / Notificações) - reachable directly
   // from the nav, never only via Configurações. Before the `end` fix, Configurações stayed
   // highlighted the whole time a user browsed between these "other menu items".
   it("does NOT mark Configurações active while on the nested /settings/document-types screen (its own nav item highlights instead)", () => {
@@ -122,8 +122,8 @@ describe("AppShell nav highlighting (real bug, live `dev` 2026-09-14: Configura�
 
   it("clears Configurações highlighting when moving directly between two nested /settings/* screens", () => {
     renderShell("/app/org-1/settings/document-types");
-    fireEvent.click(screen.getByRole("link", { name: "Minhas preferências de notificação" }));
+    fireEvent.click(screen.getByRole("link", { name: "Notificações" }));
     expect(screen.getByRole("link", { name: "Configurações" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("link", { name: "Minhas preferências de notificação" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Notificações" })).toHaveAttribute("aria-current", "page");
   });
 });

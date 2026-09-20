@@ -18,6 +18,7 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { Button } from "../components/ui/Button.js";
 import { OrganizationSwitcher } from "../components/OrganizationSwitcher.js";
+import { LogOut } from "lucide-react";
 import { getVisibleNavItems } from "./navigation.js";
 
 function navLinkClassName(): string {
@@ -74,12 +75,16 @@ export function AppShell() {
         <span className="app-shell__wordmark">Expiration Tracker</span>
         {visibleNavItems.map((item) => (
           <NavLink key={item.id} to={orgPath(item.to)} end={item.end} className={navLinkClassName}>
+            {/* ADR-0015: icon is always decorative (aria-hidden) - the text label alongside it
+                is the real accessible name, never the icon alone. */}
+            <item.icon size={18} strokeWidth={2} aria-hidden="true" />
             {item.label}
           </NavLink>
         ))}
         <span className="app-shell__nav-spacer" />
         <OrganizationSwitcher />
         <Button variant="tertiary" size="sm" onClick={() => void logout()}>
+          <LogOut size={16} strokeWidth={2} aria-hidden="true" />
           Sair
         </Button>
       </nav>

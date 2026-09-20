@@ -24,8 +24,16 @@ DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de M
 concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
 Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
 `docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
-`docs/frontend/design-system-v2/`. **Ainda não portado para o código real**
-(`frontend/src/components/ui/**`/`tokens.css` continuam v1) — próxima ação real deste workstream.
+`docs/frontend/design-system-v2/`. **Porte para o código real EM ANDAMENTO, processo tela-por-tela
+definido por Marcelo** (avaliar protótipo em `prototype/*.dc.html` → corrigir inconsistência →
+aplicar na tela real → screenshot em `prototype/_tmp_validacao/` → validação dele → próxima tela;
+sem deploy em `dev` necessário para validar, ver D-308 sobre o mecanismo de screenshot local via
+`vite build`+`preview`+cookie transplantado da sessão de produção). **Visão Geral (Overview)**:
+código aplicado e todos os gates verdes (D-308); screenshot mais recente
+(`prototype/_tmp_validacao/01-visao-geral.png`, já reflete footer redundante removido + nav
+reordenada) gerado mas **ainda sem validação explícita de Marcelo** — confirmar com ele antes de
+considerar esta tela fechada e seguir para a próxima: **Vencimentos**
+(`prototype/Vencimentos.dc.html`).
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
@@ -74,6 +82,8 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 10. **`NotificationEntitlements` nunca é provisionado para nenhum tenant, real ou sintético (achado real, 2026-09-19, ver Programa de Performance abaixo)** — todo tenant sem esse registro fica em `RETRY` infinito e nunca recebe e-mail de lembrete; único motivo de nenhuma rodada de teste anterior ter conseguido provar entrega real de e-mail até agora. Sem usuário real ainda (AGENTS.md §1), então não é um incidente em produção — mas é uma lacuna real que bloquearia o primeiro usuário de verdade a receber um lembrete por e-mail, então merece atenção antes do lançamento. Provável ligação com D-052 (billing bloqueado) — decisão de produto necessária (entitlement default sem plano pago? criar no onboarding ou lazy como `NotificationPreferences`?) antes de qualquer correção de código.
 11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
+13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
+14. **Endpoint agregado de contagem por urgência para a Visão Geral (achado real, 2026-09-20, workstream de identidade visual)** — o protótipo `VisaoGeral.dc.html`/`design-system-v2` propõe 3 contadores acionáveis (vencidos/vence em breve/em acompanhamento), respondendo a D-08 em aberto de `visual-language-and-design-system.md` ("um contador acionável ajudaria a priorizar?"). Marcelo decidiu adicionar essa informação — mas calcular a partir dos dados hoje disponíveis (`useItemsDashboardBounded`, só 30 itens ACTIVE mais próximos do vencimento) subcontaria silenciosamente sempre que houver mais de 30 itens ativos (violaria Epistemic Integrity). Precisa de um endpoint agregado novo (contagem real por urgência/status, não uma página de itens) antes de implementar a UI dos contadores. Decisão dele, 2026-09-20: adiar os contadores para depois, reskin visual da Visão Geral segue sem eles por enquanto. **Mesma sessão, decisão adicional (D-308)**: o link "Ver todos os vencimentos" foi removido (mesmo destino do card "em acompanhamento", CTA duplicado assim que este endpoint entregar o total real) — não recriar como link nem como "4º card" a menos que represente escopo que os 3 cards atuais não cobrem (ex. total incluindo status além de ACTIVE).
 
 ## Próxima ação recomendada
 
@@ -177,11 +187,11 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 
 **Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
 
-**Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado — esse redeploy expôs, em 2026-09-19, um bug real no PRÓPRIO script do canário (lia o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics; corrigido para o padrão oficial `'data'`/`'end'` da AWS, confirmado que a API estava saudável o tempo todo). Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
+**Manutenção paralela, não bloqueante**: fix de redeploy do canário Synthetics mergeado (expôs e corrigiu um bug real no próprio script do canário, API confirmada saudável o tempo todo); consolidação de 23 PRs Dependabot duplicados do Terraform em andamento (cada módulo tem seu próprio lock file — achado real, `npm run check-dependency-freshness` pegou a inconsistência da primeira tentativa).
 
-**Sweeper genérico de reconciliação, mesma classe de gargalo do D-301/D-302/D-303** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travava por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17 porque os 12 destinos compartilhavam a MESMA partição no GSI6. Proposta (query única + roteamento por registro) aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10 (`docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`). **Implementada e validada 2026-09-20**: revalidação de 10k fechou 10.000/10.000 sem gap de materialização após o fix (a tentativa anterior tinha 1/10.000 preso pelo mesmo timeout).
+**Sweeper genérico de reconciliação** (mesma classe de gargalo do D-301/D-302/D-303 — partição compartilhada no GSI6) — corrigido e validado 2026-09-20 (10.000/10.000 sem gap pós-fix); proposta completa em `docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md` (Claude↔Antigravity, 9,5/10).
 
-**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` (sem `--include-cognito`) esvaziou a tabela principal (1.854.709→0), a tabela de sessão (874→0) e purgou as 36 filas; S3/Cognito já estavam vazios. Verificação final do próprio script confirma tudo zerado. Evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`. Achado incidental no processo: o script tinha 3 bugs reais em escala real (OOM no parse do Scan, região errada no S3 pelo profile `claude-dev`, overflow de string serializando ~1,85M itens) e um 4º achado ao vivo já com a correção de concorrência (`ThrottlingException` lançada, não só `UnprocessedItems`, travava o run inteiro) — todos corrigidos, com teste novo cobrindo o caso do throttle.
+**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` zerou tabela principal/sessão e filas, verificado pelo próprio script (evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`). 4 bugs reais do script achados e corrigidos em escala real (OOM, região errada, overflow de string, `ThrottlingException` não tratada) — teste novo cobre o caso do throttle.
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
@@ -208,31 +218,11 @@ decisão de produto explicitamente marcados abaixo):
 
 1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
    pendências acima.
-2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20** (`ADR-0014`, D-305,
-   `PENDING_PROTOCOL_REVIEW` — protocolo ainda suspenso). AWS Organizations + conta por ambiente
-   (nunca `terraform workspace`, desaconselhado pela própria HashiCorp), pesquisa externa SIM
-   PARCIAL (AWS Well-Architected + docs oficiais HashiCorp). Fase 1 (aditiva, sem custo) feita:
-   `infra/variables.tf` aceita `"staging"`/`"production"`; achado real corrigido no processo —
-   `document-malware-protection`'s fail-closed guard esperava a string `"prod"` (nunca alcançável
-   antes), alinhado para `"production"` antes de virar bypass silencioso do GuardDuty. **Fases
-   2-4 (criar contas `staging`/`production`, provisionar, pipeline de promoção) aguardam
-   autorização explícita de Marcelo** — confirmado por ele, 2026-09-20: nenhum deploy de produção
-   real ainda, só preparação. Revisão adversarial Codex também pendente (mesma fila do item 11 da
-   lista de pendências acima). **Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo
-   passo imediato para dentro da conta atual, sem esperar as Fases 2-4 — `cd.yml` corrigido para
-   disparar em push/CI verde em `develop` (branch de trabalho real), não mais `main`; `main` fica
-   sem gatilho de deploy até staging/produção existirem. **Validação empírica CONCLUÍDA
-   2026-09-20**: primeiro push real a `develop` pós-merge dos dois PRs disparou `workflow_run`
-   corretamente. Achado real no processo (não é defeito do D-306 em si): esse primeiro
-   `Deploy (CD)` colidiu com uma corrida de lock pré-existente — `ci.yml` tem `concurrency:
-   group: ci-${{ github.ref }}` (por branch, não global), então CI em `main`+`develop`+um PR do
-   Dependabot rodaram `terraform plan` em paralelo contra o mesmo lock do S3 (3 pushes quase
-   simultâneos nesta sessão) e o `Deploy (CD)` caiu no meio — falhou por "Error acquiring the
-   state lock". Deploy manual limpo (`gh workflow run "Deploy (CD)" --ref develop`) rodado logo
-   em seguida, sem concorrência, **concluído com sucesso**. **Pendência nova registrada**: dar ao
-   job "Validate Infra (Terraform)" de `ci.yml` um concurrency group compartilhado/global (não
-   por ref), pra nunca mais competir pelo lock do S3 contra `cd.yml` ou entre pushes simultâneos
-   — candidato de correção, ainda não implementado.
+2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20**, narrativa completa em
+   `decisions-log.md` D-305 (ADR-0014, Fase 1 feita, Fases 2-4 aguardam autorização de Marcelo)
+   e D-306 (emenda: `cd.yml` dispara em `develop`, não `main`; validado empiricamente com sucesso
+   após um deploy manual limpo, já que o primeiro push automático colidiu com a corrida de lock do
+   item 13 da lista de pendências acima). Ambos `PENDING_PROTOCOL_REVIEW`.
 3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
    decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
    restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca

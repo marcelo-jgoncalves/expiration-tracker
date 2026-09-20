@@ -1,3 +1,13 @@
+/* Self-hosted (not a Google Fonts CDN @import) so the app's strict CSP (index.html:
+   style-src/script-src 'self', no external origins) never needs loosening for typography -
+   Vite bundles this same-origin like any other asset. Real variable font (wght axis 200-800,
+   confirmed via the package's own index.css), so every font-weight token below renders at
+   its exact declared value - never an approximation from a fixed set of static weights
+   (ADR-0015 finding: the CDN-based design-system-v2 prototype had exactly this bug before
+   being scoped to the wght@400..650 range; self-hosting the real variable file avoids the
+   whole class of problem). */
+@import "@fontsource-variable/plus-jakarta-sans";
+
 /* Visual Language + Design System Foundation — token architecture.
    Status: PROVISIONAL PENDING USER VALIDATION (docs/frontend/visual-language-and-design-system.md).
 
@@ -100,25 +110,29 @@
   --letter-spacing-tight: -0.01em;
   --letter-spacing-normal: 0;
 
-  /* Option A of mission §16 — system UI stack, no downloaded font. See §13 of the design
-     document for why Option B was not taken. */
-  --font-family-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  /* ADR-0015 (2026-09-20): Plus Jakarta Sans (self-hosted variable font, imported above)
+     replaces the system-UI stack as the official direction - system fonts stay as the
+     fallback chain for the (rare) offline-asset-blocked case, not as the primary choice
+     anymore. */
+  --font-family-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 
-  /* Radius — restrained (mission §51). Pills only for badges. */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  /* Radius — ADR-0015 (2026-09-20): larger radii, part of the v2 migration (was 4/6/8px).
+     Pills only for badges. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
   --radius-pill: 999px;
 
   --border-width-thin: 1px;
   --border-width-thick: 2px;
 
-  /* Elevation — two steps only, both very restrained (mission §52, course correction:
-     "very restrained shadows"). Surface/border/spacing carry hierarchy; shadow is reserved
-     for things that genuinely float above the page. */
+  /* Elevation — ADR-0015 (2026-09-20): still two steps, still restrained, but v2 raises
+     Panel out of "zero shadow" (see components/Panel below) and tints shadow-overlay with
+     the accent hue instead of neutral. Surface/border/spacing still carry most hierarchy;
+     shadow is reserved for what genuinely groups (Panel) or floats (skip link) above the page. */
   --shadow-none: none;
-  --shadow-raised: 0 1px 2px rgba(27, 35, 51, 0.06);
-  --shadow-overlay: 0 8px 24px rgba(27, 35, 51, 0.12);
+  --shadow-raised: 0 2px 8px rgba(20, 18, 31, 0.06);
+  --shadow-overlay: 0 20px 48px rgba(88, 28, 135, 0.14);
 
   /* Motion (mission §54) */
   --duration-instant: 0ms;

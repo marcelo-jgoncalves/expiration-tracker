@@ -137,7 +137,7 @@ function RouteUsefulContentTracker() {
 /** PERF-09: on the Overview route (the landing screen after login for every role), schedule an
  * idle-time prefetch of the two most likely next destinations - Items and Subjects, both
  * top-of-nav entries (`shell/navigation.ts`) and both linked directly from Overview's own content
- * (see Overview.tsx's "Ver todos os vencimentos" / item links). Kept to this single call site
+ * (see Overview.tsx's "em acompanhamento" attention card / item links). Kept to this single call site
  * (not "prefetch everything") - see `routing/prefetch.ts` for why these two and not the rest. */
 function IdlePrefetch() {
   const location = useLocation();

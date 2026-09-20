@@ -8,14 +8,14 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
 
   it("shows Membros (roster is membership:list-members, READ_ONLY_ROLES) but hides Atividade for a VIEWER", () => {
     const ids = getVisibleNavItems("VIEWER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "document-types", "requirement-templates", "members", "notification-preferences", "settings"]);
   });
 
   // A15 (Block 9) - "Importar CSV" is WRITE_ROLES only (`import:create/map/commit`) - a MEMBER
   // sees it, a VIEWER (above) does not.
   it("shows Membros AND Importar CSV, but hides Atividade, for a MEMBER", () => {
     const ids = getVisibleNavItems("MEMBER").map((item) => item.id);
-    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "imports", "members", "settings", "document-types", "requirement-templates", "notification-preferences"]);
+    expect(ids).toEqual(["overview", "items", "subjects", "requirements", "reviews", "imports", "document-types", "requirement-templates", "members", "notification-preferences", "settings"]);
   });
 
   it("shows every item for an ADMIN", () => {
@@ -27,13 +27,13 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
       "requirements",
       "reviews",
       "imports",
-      "members",
-      "settings",
       "document-types",
       "requirement-templates",
-      "notification-preferences",
       "activity",
       "reports",
+      "members",
+      "notification-preferences",
+      "settings",
     ]);
   });
 
@@ -46,21 +46,21 @@ describe("getVisibleNavItems (D-2xx, Block 0 RBAC-aware nav)", () => {
       "requirements",
       "reviews",
       "imports",
-      "members",
-      "settings",
       "document-types",
       "requirement-templates",
       "request-delivery",
-      "notification-preferences",
       "activity",
       "reports",
+      "members",
+      "notification-preferences",
+      "settings",
     ]);
   });
 
   // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES: every real Membership
   // tier, including VIEWER, sees this nav entry (mutation is scoped to the caller's own
   // preferences inside the screen itself, same discipline as A11/A20/A21/A13 above).
-  it("shows Minhas preferências de notificação to every role, including VIEWER", () => {
+  it("shows Notificações to every role, including VIEWER", () => {
     for (const role of ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const) {
       expect(getVisibleNavItems(role).map((item) => item.id)).toContain("notification-preferences");
     }

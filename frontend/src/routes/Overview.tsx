@@ -1,13 +1,24 @@
 /**
  * Overview — "o que precisa da minha atenção?" (mission §29).
  *
- * Visual Language milestone: restyled, NOT redesigned. The query, the ACTIVE-only scope, the
- * due-date ascending ordering and the "ver todos" affordance are exactly what the approved
- * Core Expiration Vertical Slice shipped. Specifically NOT added: KPI tiles / donut charts /
- * counters across the top. Those would be new information architecture invented by a visual
- * milestone with no evidence behind it (mission §29's "KPI theater", VL-G14) — an attention
- * summary that answers the question directly is the approved design, and a number that is not
- * linked to a task earns nothing.
+ * The query, the ACTIVE-only scope and the due-date ascending ordering are exactly what the
+ * approved Core Expiration Vertical Slice shipped. Decorative KPI tiles/donut charts remain
+ * rejected (mission §29's "KPI theater", VL-G14) — a count that is not a real link earns
+ * nothing. The attention row below answers D-08 of visual-language-and-design-system.md ("um
+ * contador acionável ajudaria a priorizar?") with exactly that: every count is a link into the
+ * group it counts, never a bare number.
+ *
+ * A separate "ver todos os vencimentos" affordance was dropped (2026-09-20, Marcelo): its target
+ * (`/items`) is identical to the "em acompanhamento" card's own link, so once that card carries a
+ * real count (pendência #14) the two become the exact same CTA twice. A future "ver todos" only
+ * earns its own affordance again if it covers a scope neither card does today (e.g. every status,
+ * not just ACTIVE).
+ *
+ * ADR-0015/pendência #14 (NEXT_SESSION_PROMPT.md): the counts below are PLACEHOLDER data, not
+ * real - `useItemsDashboardBounded` only returns a bounded 30-item page, not an aggregate count,
+ * so computing these from it would silently undercount past 30 active items (a real Epistemic
+ * Integrity violation). Wiring this to a real count requires a new backend aggregate endpoint,
+ * not built yet. Do not remove this comment or treat the row as real until that lands.
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -16,7 +27,8 @@ import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { ApiError } from "../api/errors.js";
-import { PageHeader, Panel } from "../components/ui/Layout.js";
+import { AlertCircle, Clock, ClipboardList } from "lucide-react";
+import { PageHeader, Panel, AttentionRow, type AttentionItem } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
@@ -143,16 +155,23 @@ export function Overview() {
     );
   }
 
+  // PLACEHOLDER (see file header comment + NEXT_SESSION_PROMPT.md pendência #14) - not derived
+  // from `items` (the bounded 30-item page above), which would silently undercount past 30
+  // active items. Real counts need a backend aggregate endpoint that does not exist yet.
+  const placeholderAttention: AttentionItem[] = [
+    { count: 3, label: "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+    { count: 4, label: "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+    { count: items.length, label: "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+  ];
+
   return (
     <>
       {header}
       <StorageQuotaCard orgPath={orgPath} />
+      <AttentionRow items={placeholderAttention} />
       <Panel>
         <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
-      <p>
-        <Link to={orgPath("/items")}>Ver todos os vencimentos</Link>
-      </p>
     </>
   );
 }

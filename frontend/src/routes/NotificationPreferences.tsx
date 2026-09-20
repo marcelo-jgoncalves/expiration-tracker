@@ -131,7 +131,7 @@ export function NotificationPreferences() {
   const { organizationId } = useActiveOrganization();
   return (
     <div className="notif-prefs">
-      <PageHeader title="Minhas preferências de notificação" description="Como você, pessoalmente, recebe lembretes. Não afeta outros usuários." />
+      <PageHeader title="Notificações" description="Como você, pessoalmente, recebe lembretes. Não afeta outros usuários." />
       <PreferencesPanel key={organizationId ?? "none"} />
     </div>
   );

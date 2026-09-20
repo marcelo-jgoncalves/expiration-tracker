@@ -69,13 +69,15 @@
   flex: 1;
 }
 
-/* A "panel" is the ONE container this system uses to group a collection. It is a light
-   surface with a hairline border and no shadow — not a card, and never nested inside another
-   panel (course correction: no card explosion, no nested cards). */
+/* A "panel" is the ONE container this system uses to group a collection. Light surface,
+   hairline border, and (ADR-0015, 2026-09-20: was "no shadow" before v2) a restrained
+   `shadow-raised` — not a card, and never nested inside another panel (course correction: no
+   card explosion, no nested cards). */
 .ui-panel {
   background: var(--color-surface-default);
   border: var(--border-width-thin) solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
   overflow: hidden;
 }
 
@@ -173,4 +175,81 @@
   .ui-detail-list dd {
     padding-top: var(--space-1);
   }
+}
+
+/* Attention row (ADR-0015, D-08 of visual-language-and-design-system.md): each item is a real
+   link, never a decorative KPI tile - a count that is not a link earns nothing. Cards fill the
+   row evenly (`auto-fit`/`minmax`, matches the reference mockup) rather than hugging their own
+   content, so the row reads as one composed unit at any width. */
+.ui-attention {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.ui-attention__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-default);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-attention__link:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-default);
+}
+
+/* Icon colour always matches the same tone `StatusBadge`/urgency pills already use for
+   critical/warning, so the cue reads as the same signal, not a second vocabulary; `accent` is
+   the one exception - "em acompanhamento" is a plain total, never a warning, so it borrows the
+   product's own brand colour instead of borrowing status red/amber for something that is not a
+   problem. */
+.ui-attention__icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ui-attention__icon--critical {
+  background: var(--color-status-critical-bg);
+  color: var(--color-status-critical-fg);
+}
+.ui-attention__icon--warning {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning-fg);
+}
+.ui-attention__icon--accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
+
+.ui-attention__count {
+  display: block;
+  font-size: var(--font-size-600);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ui-attention__label {
+  display: block;
+  font-size: var(--font-size-200);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
