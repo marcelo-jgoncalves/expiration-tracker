@@ -42,10 +42,12 @@
  */
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BatchWriteCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { createDocumentClient } from "../src/shared/dynamodb/client.js";
+import { mapWithConcurrency } from "../src/shared/concurrency/map-with-concurrency.js";
 import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts";
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { SQSClient, GetQueueAttributesCommand, GetQueueUrlCommand, PurgeQueueCommand } from "@aws-sdk/client-sqs";
@@ -189,15 +191,27 @@ export function extractKey(item: Record<string, unknown>): Record<string, unknow
   return { PK, SK };
 }
 
+/**
+ * Real finding, 2026-09-20: this was strictly sequential (one batch of 25 at a time) - fine at
+ * seed-script scale, but at real dev-table volume (~1.85M items / ~74k batches) that's several
+ * hours wall-clock for a one-off cleanup script. Deletes have no ordering dependency between
+ * batches, so bounded concurrency (mapWithConcurrency) is safe here; 20 keeps DynamoDB on-demand
+ * comfortably below throttling while cutting runtime by ~20x.
+ */
 export async function deleteAllItems(
   batchWriteDelete: (tableName: string, keys: Record<string, unknown>[]) => Promise<Record<string, unknown>[]>,
   tableName: string,
   items: Record<string, unknown>[],
   opts: BackoffOptions = DEFAULT_BACKOFF,
+  concurrency = 20,
 ): Promise<{ deleted: number; batches: number }> {
   const batches = chunk(items.map(extractKey), 25);
-  for (const batch of batches) {
-    await deleteBatchWithRetry(batchWriteDelete, tableName, batch, opts);
+  const results = await mapWithConcurrency(batches, concurrency, (batch) =>
+    deleteBatchWithRetry(batchWriteDelete, tableName, batch, opts),
+  );
+  const failure = results.find((r): r is { ok: false; error: unknown } => !r.ok);
+  if (failure) {
+    throw failure.error;
   }
   return { deleted: items.length, batches: batches.length };
 }
@@ -259,6 +273,24 @@ async function scanAll(client: ReturnType<typeof createDocumentClient>, tableNam
   return items;
 }
 
+// Real finding, 2026-09-20: with today's accumulated dev volume, `JSON.stringify(mainItems)`
+// throws `RangeError: Invalid string length` - the pretty-printed array exceeds V8's max string
+// length (this table alone is now large enough for that, not a hypothetical). Streams one JSON
+// object per line (NDJSON) instead of building one giant string/array in memory - the file
+// format changes (.jsonl, not a JSON array), but nothing else in this codebase reads these raw
+// snapshot files programmatically (audit-trail dumps only, gitignored), so that's safe.
+async function writeJsonLines(path: string, items: readonly unknown[]): Promise<void> {
+  const stream = createWriteStream(path);
+  const failure = new Promise<never>((_, reject) => stream.once("error", reject));
+  for (const item of items) {
+    if (!stream.write(JSON.stringify(item) + "\n")) {
+      await Promise.race([failure, new Promise<void>((resolve) => stream.once("drain", resolve))]);
+    }
+  }
+  stream.end();
+  await Promise.race([failure, new Promise<void>((resolve) => stream.once("finish", resolve))]);
+}
+
 async function realBatchWriteDelete(
   client: ReturnType<typeof createDocumentClient>,
   tableName: string,
@@ -307,13 +339,21 @@ async function main(): Promise<void> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   console.log(`[reset-dev-data] table=${args.table} sessionTable=${args.sessionTable} bucket=${args.bucket} confirm=${args.confirm} includeCognito=${args.includeCognito}`);
 
-  const sts = new STSClient({});
+  // Real finding, 2026-09-20: relying on the SDK's own default region resolution here picks up
+  // whatever the invoking AWS CLI profile's config has (`claude-dev`'s is `sa-east-1`, unrelated
+  // to where this project's real infra lives) - harmless for STS (near-global) and DynamoDB
+  // (createDocumentClient() already hardcodes "us-east-1", same fallback as everywhere else in
+  // this codebase), but S3 enforces the bucket's real region strictly and fails with
+  // PermanentRedirect otherwise. Pinned explicitly on every client here so this script never
+  // depends on the invoker's profile defaults matching real infra by coincidence.
+  const REGION = "us-east-1";
+  const sts = new STSClient({ region: REGION });
   await assertExpectedAccount(async () => (await sts.send(new GetCallerIdentityCommand({}))).Account);
 
   const docClient = createDocumentClient();
-  const s3 = new S3Client({});
-  const sqs = new SQSClient({});
-  const cognito = new CognitoIdentityProviderClient({});
+  const s3 = new S3Client({ region: REGION });
+  const sqs = new SQSClient({ region: REGION });
+  const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
   // --- Phase A: read-only inventory + snapshot (always runs) ---------------------------------
   console.log("[reset-dev-data] Phase A: inventorying dev...");
@@ -334,8 +374,8 @@ async function main(): Promise<void> {
 
   const rawDir = join(process.cwd(), ".local-artifacts", "dev-reset", timestamp);
   await mkdir(rawDir, { recursive: true });
-  await writeFile(join(rawDir, "main-table.json"), JSON.stringify(mainItems, null, 2));
-  await writeFile(join(rawDir, "session-table.json"), JSON.stringify(sessionItems, null, 2));
+  await writeJsonLines(join(rawDir, "main-table.jsonl"), mainItems);
+  await writeJsonLines(join(rawDir, "session-table.jsonl"), sessionItems);
   await writeFile(join(rawDir, "s3-keys.json"), JSON.stringify(s3Keys, null, 2));
   await writeFile(join(rawDir, "cognito-usernames.json"), JSON.stringify(cognitoUsernames, null, 2));
   await writeFile(join(rawDir, "queue-counts.json"), JSON.stringify(Object.fromEntries(queueCounts), null, 2));

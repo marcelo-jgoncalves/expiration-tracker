@@ -153,6 +153,36 @@ describe("reset-dev-data: deleteAllItems", () => {
     expect(result).toEqual({ deleted: 47, batches: 2 });
     expect(batchWriteDelete).toHaveBeenCalledTimes(2);
   });
+
+  // Mutação: voltar a um `for` sequencial ainda passaria os 2 testes acima (mesma contagem de
+  // chamadas), então este teste cobre especificamente a concorrência - com concurrency:1 as
+  // chamadas devem ser estritamente sequenciais (nunca 2 em voo ao mesmo tempo).
+  it("runs at most `concurrency` batches in flight at once", async () => {
+    const items = Array.from({ length: 100 }, (_, i) => ({ PK: `P${i}`, SK: "META" }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const batchWriteDelete = vi.fn().mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return [];
+    });
+
+    await deleteAllItems(batchWriteDelete, "MainTable", items, NO_DELAY_BACKOFF, 3);
+
+    expect(batchWriteDelete).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBe(3);
+  });
+
+  it("propagates a batch's hard failure instead of swallowing it", async () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({ PK: `P${i}`, SK: "META" }));
+    const batchWriteDelete = vi.fn().mockRejectedValue(new Error("boom"));
+
+    await expect(deleteAllItems(batchWriteDelete, "MainTable", items, { ...NO_DELAY_BACKOFF, retries: 0 })).rejects.toThrow(
+      "boom",
+    );
+  });
 });
 
 describe("reset-dev-data: hashItem", () => {
