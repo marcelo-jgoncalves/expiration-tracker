@@ -1,0 +1,198 @@
+{
+  "generatedAt": "2026-09-20T05:20:01.264Z",
+  "rawSnapshotPath": "/mnt/c/Users/marcelo.goncalves/Desktop/projects/expiration-tracker/.local-artifacts/dev-reset/2026-09-20T04-19-08-533Z",
+  "table": {
+    "source": "exptrk-dev-table",
+    "itemCount": 1854709,
+    "entityTypes": [
+      "AuditEvent",
+      "DeviceSession",
+      "EphemeralTelemetryMutation",
+      "ExpirationItem",
+      "GlobalUser",
+      "IdempotencyRecord",
+      "IdentityMapping",
+      "Membership",
+      "NotificationAttempt",
+      "NotificationAttemptLookup",
+      "NotificationEntitlements",
+      "NotificationIntent",
+      "NotificationPreferences",
+      "Organization",
+      "OutboxEvent",
+      "ReminderOccurrence",
+      "ReminderPolicy",
+      "ReminderPolicyRef",
+      "ReminderScanLease",
+      "SubjectAuditEvent",
+      "TenantEntitlement",
+      "TenantLifecycleRecord",
+      "TenantQuota",
+      "TenantStorageQuota",
+      "TextractJob",
+      "TrackedSubject",
+      "User",
+      "WebhookInbox"
+    ]
+  },
+  "sessionTable": {
+    "source": "exptrk-dev-bff-session",
+    "itemCount": 874,
+    "entityTypes": [
+      "Session"
+    ]
+  },
+  "s3": {
+    "bucket": "exptrk-dev-extraction-transient",
+    "objectCount": 0
+  },
+  "cognito": {
+    "userCount": 0
+  },
+  "queues": {
+    "exptrk-dev-document-chasing-dispatch": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-document-chasing-dispatch-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-dossier-export": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-dossier-export-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-extraction-starter": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-extraction-starter-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-guest-credential-issuance": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-guest-credential-issuance-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-commit": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-commit-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse-dispatch": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-import-parse-dispatch-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-malware-result": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-malware-result-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-email-deliver": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-email-deliver-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-router": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-notification-router-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-dispatch": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-dispatch-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-materialization-trigger": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-reminder-materialization-trigger-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-report-subscription-delivery": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-report-subscription-delivery-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-requirement-evidence-refresh": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-requirement-evidence-refresh-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-ses-callback": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-ses-callback-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-textract-completion": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-textract-completion-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-upload-finalizer": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-upload-finalizer-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-whatsapp-deliver": {
+      "visible": 0,
+      "notVisible": 0
+    },
+    "exptrk-dev-whatsapp-deliver-dlq": {
+      "visible": 0,
+      "notVisible": 0
+    }
+  }
+}

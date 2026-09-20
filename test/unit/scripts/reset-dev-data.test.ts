@@ -141,6 +141,27 @@ describe("reset-dev-data: deleteBatchWithRetry", () => {
     await deleteBatchWithRetry(batchWriteDelete, "MainTable", [], NO_DELAY_BACKOFF);
     expect(batchWriteDelete).not.toHaveBeenCalled();
   });
+
+  // Real finding, 2026-09-20: a live Phase B run crashed on this exact shape - a thrown
+  // ThrottlingException (SDK rejects the whole call) is not an UnprocessedItems response, so
+  // without this the batch was never retried at all.
+  it("retries a thrown ThrottlingException instead of crashing the whole run", async () => {
+    const keys = [{ PK: "A", SK: "1" }];
+    const throttling = Object.assign(new Error("Throughput exceeds the current capacity"), { name: "ThrottlingException" });
+    const batchWriteDelete = vi.fn().mockRejectedValueOnce(throttling).mockResolvedValueOnce([]);
+
+    await deleteBatchWithRetry(batchWriteDelete, "MainTable", keys, NO_DELAY_BACKOFF);
+
+    expect(batchWriteDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a non-retryable thrown error", async () => {
+    const keys = [{ PK: "A", SK: "1" }];
+    const batchWriteDelete = vi.fn().mockRejectedValueOnce(new Error("access denied"));
+
+    await expect(deleteBatchWithRetry(batchWriteDelete, "MainTable", keys, NO_DELAY_BACKOFF)).rejects.toThrow("access denied");
+    expect(batchWriteDelete).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("reset-dev-data: deleteAllItems", () => {
@@ -152,6 +173,36 @@ describe("reset-dev-data: deleteAllItems", () => {
 
     expect(result).toEqual({ deleted: 47, batches: 2 });
     expect(batchWriteDelete).toHaveBeenCalledTimes(2);
+  });
+
+  // Mutação: voltar a um `for` sequencial ainda passaria os 2 testes acima (mesma contagem de
+  // chamadas), então este teste cobre especificamente a concorrência - com concurrency:1 as
+  // chamadas devem ser estritamente sequenciais (nunca 2 em voo ao mesmo tempo).
+  it("runs at most `concurrency` batches in flight at once", async () => {
+    const items = Array.from({ length: 100 }, (_, i) => ({ PK: `P${i}`, SK: "META" }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const batchWriteDelete = vi.fn().mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return [];
+    });
+
+    await deleteAllItems(batchWriteDelete, "MainTable", items, NO_DELAY_BACKOFF, 3);
+
+    expect(batchWriteDelete).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBe(3);
+  });
+
+  it("propagates a batch's hard failure instead of swallowing it", async () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({ PK: `P${i}`, SK: "META" }));
+    const batchWriteDelete = vi.fn().mockRejectedValue(new Error("boom"));
+
+    await expect(deleteAllItems(batchWriteDelete, "MainTable", items, { ...NO_DELAY_BACKOFF, retries: 0 })).rejects.toThrow(
+      "boom",
+    );
   });
 });
 

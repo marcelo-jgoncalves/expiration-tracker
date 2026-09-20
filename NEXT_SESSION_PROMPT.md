@@ -53,8 +53,25 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
 
+0. **URGENTE — CI quebrado (PR #380, `Authenticated k6 smoke`), causado pela limpeza de `dev` de
+   2026-09-20**: `scripts/reset-dev-data.ts --confirm` apagou as linhas DynamoDB (Organization/
+   Membership) do "PERF Test Tenant" (`docs/engineering/performance/baseline/PERF-04-test-tenant.md`
+   — `org_01M2GE4F1SZPSJ47HCGRXH4XMN`, e-mail
+   `marcelo.mjgoncalves+perf-test-2026-09-14@gmail.com`), sem tocar no Cognito (`--include-cognito`
+   não foi usado). Resultado: o login Cognito continua válido, mas o usuário não tem mais
+   organização — `GET /bff/api/items/dashboard` (usado pelo smoke) agora falha 100% das
+   requisições. `docs/engineering/performance/.local/perf-test-tenant-credentials.txt` (senha deste
+   usuário) não existe neste ambiente — sem ela não há como logar de novo pelo Hosted UI e recriar a
+   organização pela API normal. Resetar a senha via `cognito-idp admin-set-user-password` (e
+   atualizar depois o secret `PERF_TEST_PASSWORD` do GitHub Actions) é a correção óbvia, mas foi
+   **bloqueada pelo classificador de auto mode do Claude Code** (escrita em secret store) — exige
+   aprovação explícita de Marcelo, não pode ser feita autonomamente. PR #380 (as próprias correções
+   de `reset-dev-data.ts` + fechamento do estado desta sessão) está aberto e **não foi mergeado** por
+   causa disso — CI vermelho, `guardrails` inclui esse check. Ação recomendada: Marcelo autoriza o
+   reset de senha + atualização do secret (ou fornece a senha atual), então recriar a organização via
+   `POST /bff/organizations` (nunca escrita direta no DynamoDB, mesmo padrão do PERF-04 original).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
-2. Execução destrutiva real de `scripts/reset-dev-data.ts --confirm`/`--include-cognito` contra `dev` — postergado, não perguntar de novo até ele sinalizar.
+2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
 3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
 4. WhatsApp com usuário real (item 3 P0, engenharia 100% fechada desde D-286 — rota de opt-in também já construída) — resta só aviso de privacidade, DPA Meta, residência de dados (E-019).
 5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
@@ -67,89 +84,44 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Foco real da sessão desde 2026-09-14 é o Programa de Performance (seção
-dedicada abaixo); a próxima ação literal está no parágrafo do D-303, dentro dessa seção.
+— ver seções acima.** A ordem real de trabalho para a próxima sessão foi definida diretamente por
+Marcelo em 2026-09-20 — ver seção dedicada **"PRÓXIMA SESSÃO — ordem definida por Marcelo
+(2026-09-20)"** logo abaixo do mandato autônomo do Programa de Performance; ela tem prioridade sobre
+retomar a escada 100k/500k.
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
 **Lição de processo**: default é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
 
-## Programa de Performance (2026-09-14, fora do roadmap P0/P1, iniciativa própria de Marcelo — foco real da sessão)
+## Programa de Performance (2026-09-14, iniciativa própria de Marcelo — foco real da sessão)
 
-Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (raiz do repo, documento do Marcelo — nunca commitar/mover sem pedir, é dele). Rastreamento vivo: `docs/engineering/performance/TODO.md`. Consolidação executiva (rascunho): `docs/engineering/performance/results/PERF-15-consolidation.md`. **Ciclos A/B/C, PERF-13 e PERF-14 COMPLETOS e implantados em `dev`** — code splitting (-46%), cache TanStack corrigido, EMF real em produção, quota Lambda 10→1000, k6 smoke autenticado em PR + synthetic canaries + alarmes de regressão + dashboard consolidado, tudo implantado e verificado ao vivo em 2026-09-18. PERF-11/11-b: teto real é o rate limiter da própria app (100 req/60s/tenant), não infra AWS.
+Fonte: `expiration-tracker-plano-acao-performance-world-class-2026-09-14.md` (raiz do repo, do
+Marcelo — nunca mover/commitar sem pedir). Rastreamento vivo: `docs/engineering/performance/TODO.md`.
+Ciclos A/B/C, PERF-13/14 completos e implantados (2026-09-18). PERF-11/11-b: teto real é o rate
+limiter da própria app (100 req/60s/tenant), não infra AWS.
 
-**PERF-12 (pipeline de lembretes) — achado central do programa, motivou mudança arquitetural real**: D-299/D-300 implementadas. 2 rodadas limpas de 10k em 2026-09-17 entregaram 10.000/10.000 mas estouraram o SLO de 300s (contenção entre continuações de scan e outboxes de dispatch no stream/relay global compartilhado). **D-301/D-302 (`APPROVED_BY_OWNER`, nível 6, protocolo Claude↔Codex dispensado por decisão direta do Marcelo, `ai-governance.md` §2)** — plano de controle dedicado (`DueWorkTable` autoritativa sem stream, sharding versionado, stream/relay/fila exclusivos) — **implementado e implantado em `dev`** (não mais só aprovado). Revalidação de 10k reprovou uma vez por bug real de checkpoint (alias não usado em `ExpressionAttributeNames` cancelando a transação silenciosamente); corrigido (`a45c145`) e confirmado por canário dedicado de 1.000 multi-shard (1.000/1.000 `TRIGGERED`, `pagesProcessed=2`/shard provando avanço de cursor, máximo 147,5s). Evidência completa: `results/PERF-12-d302-rollout-2026-09-18.md`.
+**PERF-12 (pipeline de lembretes)**: D-299 a D-304 (plano de controle dedicado por evento —
+`DueWorkTable` autoritativa sem stream, outbox/stream/relay exclusivos para dispatch de reminders,
+sub-shard da chave do outbox) implementados e implantados em `dev`. Narrativa completa de cada
+decisão e dos incidentes reais pós-deploy (bug de checkpoint, gap de IAM em `PutItem` dentro de
+`TransactWriteItems`, `reconcileDst` cancelando ocorrências atrasadas, sweeper travando por
+partição compartilhada no GSI6) já está em `decisions-log.md` (D-299 a D-304) e
+`docs/engineering/performance/TODO.md` — não recontar aqui. **Estado atual**: degrau de 10k padrão
+revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s); 100k/500k ainda não executados (ver
+seção de ordem de trabalho abaixo). D-304 continua `PENDING_PROTOCOL_REVIEW` (protocolo suspenso).
 
-**Revalidação de 10k de 2026-09-19 (cohort de e-mail SES) reprovou o SLO de 300s** (p100=535,98s,
-zero perda) — causa raiz medida: `dispatch-outbox-relay` (relay **compartilhado**, não exclusivo
-de reminders) ainda lê o stream global da tabela principal, `IteratorAge` até 275,8s mesmo com
-`parallelization_factor=4` já esgotado. Evidência completa: `results/PERF-12-10k-latency-regression-2026-09-19.md`.
-Achado incidental corrigido no mesmo dia: os 10.000 `NotificationIntent` saíram todos `CANCELLED`
-(zero envio real ao SES em qualquer rodada até agora) porque `seed()` nunca definia
-`assigneeUserId` — `perf-reminder-burst.mjs` corrigido e verificado ao vivo; a próxima rodada de
-10k será a primeira a exercitar entrega real de e-mail ponta a ponta.
-
-**D-303 implementado, mergeado e aplicado em `dev` em 2026-09-19** (mesmo padrão D-301/D-302,
-outbox/stream/relay dedicados para dispatch de reminders). Detalhe da implementação original:
-`docs/architecture/reviews/reminder-dispatch-control-plane/DECISION.md` §7.1.
-
-**Incidente real pós-deploy, 2026-09-19, FECHADO** — a primeira revalidação de 10k real desde o
-deploy do D-303 (`d303-10k-revalidation`) travou 100% das reivindicações (`errorCode: INTERNAL`,
-10.000 ocorrências presas em `SCHEDULED`). Duas causas raiz reais, corrigidas nesta ordem:
-1. **Primeira hipótese (incorreta, mas inofensiva)**: `dynamodb:TransactWriteItems` ausente na
-   policy geral da tabela principal — aplicada, não resolveu, depois **confirmada desnecessária**
-   contra a documentação oficial da AWS (`transaction-apis-iam.md`): a ação realmente checada por
-   item dentro de uma transação é `PutItem`/`UpdateItem`/`DeleteItem`/`ConditionCheckItem`, nunca
-   `TransactWriteItems` em si. Revertida ao final da sessão (live + Terraform).
-2. **Causa real**: a policy Terraform do D-303 para a tabela dedicada de dispatch
-   (`infra/modules/reminder-dispatch-outbox-table/main.tf`) concedia só `TransactWriteItems`, sem
-   `PutItem` — corrigido (`allowed` confirmado via `iam simulate-principal-policy`, depois
-   162→10/10 reivindicações reais bem-sucedidas). Antigravity (`gemini-3.1-pro-high`, segunda
-   opinião com Codex bloqueado até 2026-09-23) achou o MESMO erro, de forma independente, em
-   `document_request_recurrence` e `tenant_purge_worker` — os dois nunca conseguiram completar
-   uma transação real, desde sempre, sem relação com o D-303 — e corrigiu (commit `aca1c95`).
-   Verificado manualmente depois: nenhuma outra policy em `infra/` tem o mesmo padrão.
-   **Antigravity também ficou sem cota na mesma sessão** (`RESOURCE_EXHAUSTED`, reset informado em
-   ~163h a partir de 2026-09-19 ~08:38 UTC, ou seja, por volta de 2026-09-26) — checar se já voltou
-   antes de tentar usar de novo; com Codex também bloqueado até 2026-09-23, nenhuma segunda opinião
-   externa estava disponível no fim desta sessão.
-3. **Terceiro achado, mesma sessão**: com o claim já funcionando, ~45min de atraso (tempo da
-   própria investigação) expôs um bug separado em `reconcileDst` (reconciliação de DST) que
-   cancelava ocorrências simplesmente atrasadas como se fossem divergência de política real —
-   6.231/10.000 viraram `CANCELLED` em vez de `TRIGGERED`. Corrigido, com teste de regressão que
-   falha contra o código antigo.
-4. **Achado de observabilidade, mesma sessão**: a causa raiz real ficou invisível por muito tempo
-   porque 9 handlers SQS/Step Functions (incluindo `reminder-claim-consumer-handler.ts`) só
-   logavam `errorCode`/`retryable`, nunca a mensagem real do erro — corrigido nos 9.
-
-**Verificação pós-fix real, mesma sessão**: rodada de 1.000 (`d303-1k-postfix-verify`) —
-`accepted: true`, 1.000/1.000 `TRIGGERED`, máximo 154,35s (bem dentro do SLO de 300s). Checagem
-manual de 10 itens (fora do harness) confirmou **entrega real de e-mail de ponta a ponta pela
-primeira vez** — depois de provisionar manualmente `NotificationEntitlements`/
-`NotificationPreferences` para os 10 tenants sintéticos (nunca tinham esses registros; achado real
-de produto, não só de teste — ver pendência #10 acima). Detalhe completo de tudo isto:
-`docs/engineering/performance/TODO.md` (seção do incidente D-303, 2026-09-19).
-
-**D-304, mesma sessão (2026-09-19)**: partição quente real na chave do outbox (`TENANT#<t>#OUTBOX#<mês>`,
-só ~10 chaves sob carga), achada nas rodadas de 25k e-mail (`ladder-email-25k`/`-retry`, ambas
-`accepted: false`, p100 657s/706s mesmo após tunar `parallelization_factor`). Corrigido
-(`outboxShard()`, sufixo hash `eventId%10`, ver D-304 em `decisions-log.md`) — afeta também os
-degraus padrão da escada (`reminder-claim.ts`), não só e-mail. **PENDING_PROTOCOL_REVIEW**
-(protocolo suspenso). Gates locais verdes (suíte completa 3.117 testes); falta rodar o degrau de
-10k padrão para validar ponta a ponta — é a próxima ação literal desta seção.
-
-**Backlog registrado, não implementado (2026-09-19)**: `dispatch-outbox-relay-processor.ts`'s
-`processStreamRecords` processa os até 100 registros de um lote **sequencialmente** — cada
-invocação trava em ~14 registros/s independente de shard count/`parallelization_factor`. Existe
-`src/shared/concurrency/map-with-concurrency.ts` pronto pra isso, não usado aqui. Risco real se
-100k/500k reproduzirem o mesmo padrão de gargalo do D-304 mesmo depois do fix (o `outboxShard()`
-tem N=10 fixo, não escala com volume). Decisão de Marcelo: **não implementar agora** (só
-otimizaria um problema hipotético, ainda não medido em 100k) — esperar o protocolo Claude↔Codex
-voltar (Codex até 2026-09-23) antes de mexer no caminho crítico de dispatch. Se implementado no
-futuro, exige teste adversarial novo provando que `batchItemFailures` mantém a ordem posicional
-original sob conclusão concorrente (não a ordem de término), não só corretude sequencial.
+**Backlog registrado, não implementado**: `dispatch-outbox-relay-processor.ts` processa lotes de
+stream sequencialmente (~14 registros/s, `map-with-concurrency.ts` existe mas não é usado aqui) —
+risco real se 100k/500k reproduzirem o gargalo do D-304. Decisão de Marcelo: não implementar agora,
+esperar o protocolo Claude↔Codex voltar antes de mexer no caminho crítico de dispatch.
 
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
+
+**Status 2026-09-20**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima),
+limpeza de `dev` concluída, checklist de conclusão aplicado (ver `decisions-log.md`). Marcelo
+inseriu 3 itens antes de retomar a escada (ver seção **"PRÓXIMA SESSÃO — ordem definida por Marcelo
+(2026-09-20)"** mais abaixo) — quando chegar a hora de retomar em 100k, as regras desta seção
+inteira continuam todas válidas (cohort padrão, sem protocolo, etc.).
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
 300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
@@ -213,9 +185,9 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 
 **Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado — esse redeploy expôs, em 2026-09-19, um bug real no PRÓPRIO script do canário (lia o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics; corrigido para o padrão oficial `'data'`/`'end'` da AWS, confirmado que a API estava saudável o tempo todo). Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
 
-**Achado real não corrigido, 2026-09-19 — mesma classe de gargalo do D-301/D-302/D-303, agora no sweeper genérico de reconciliação** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travando por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17. Causa: os 12 destinos compartilham a MESMA partição no GSI6, então checar um exige paginar por todos os outros primeiro. Proposta de correção (query única + roteamento por registro, sem tocar em schema/infra) **aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10** — `docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`. Não implementada — aguardando janela sem teste de carga em andamento no mesmo ambiente.
+**Sweeper genérico de reconciliação, mesma classe de gargalo do D-301/D-302/D-303** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travava por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17 porque os 12 destinos compartilhavam a MESMA partição no GSI6. Proposta (query única + roteamento por registro) aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10 (`docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`). **Implementada e validada 2026-09-20**: revalidação de 10k fechou 10.000/10.000 sem gap de materialização após o fix (a tentativa anterior tinha 1/10.000 preso pelo mesmo timeout).
 
-**Pendência de limpeza, não bloqueante**: tenants sintéticos de teste (PERF Test Tenant + 10 do PERF-11-b/PERF-12-10k + 10 novos do cohort de simuladores SES) e dezenas de milhares de registros sintéticos acumulados em `dev` — candidatos a exclusão quando Marcelo decidir, nenhuma ação tomada ainda.
+**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` (sem `--include-cognito`) esvaziou a tabela principal (1.854.709→0), a tabela de sessão (874→0) e purgou as 36 filas; S3/Cognito já estavam vazios. Verificação final do próprio script confirma tudo zerado. Evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`. Achado incidental no processo: o script tinha 3 bugs reais em escala real (OOM no parse do Scan, região errada no S3 pelo profile `claude-dev`, overflow de string serializando ~1,85M itens) e um 4º achado ao vivo já com a correção de concorrência (`ThrottlingException` lançada, não só `UnprocessedItems`, travava o run inteiro) — todos corrigidos, com teste novo cobrindo o caso do throttle.
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
@@ -234,6 +206,42 @@ ambiente compartilhada (`local.common_env`) — mudança sistêmica de observabi
 de quebrar tracing por completo se mal configurada, não um ajuste pontual. Decisão do Marcelo,
 2026-09-19: registrar como pendência, não implementar agora — mesma categoria de item que o
 débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-01.md` §17/§18.6).
+
+## PRÓXIMA SESSÃO — ordem definida por Marcelo (2026-09-20), tem prioridade sobre a escada 100k/500k
+
+Ordem literal pedida por ele, autônoma (sem parar para confirmar entre os itens, só nos pontos de
+decisão de produto explicitamente marcados abaixo):
+
+1. **Corrigir o CI quebrado (PR #380)** — item 0 da lista de pendências acima. Precisa da
+   autorização/execução do próprio Marcelo para o reset de senha Cognito + secret do GitHub
+   Actions (bloqueado do lado do Claude Code, não é falta de acesso AWS) — resolver isso primeiro
+   com ele antes de seguir.
+2. **Corrigir a separação de ambientes (`main` = `dev`, sem staging/produção)** —
+   `docs/project/roadmap-competitivo-2026-09-01.md` §17.3. Nível 5-6 provável (conta AWS separada
+   ou workspace Terraform por ambiente + pipeline de promoção `dev→staging→produção`) — checar se
+   o protocolo Claude↔Codex já voltou (Codex até 2026-09-23, Antigravity até ~2026-09-26, ver
+   seção do mandato acima) antes de decidir sozinho.
+3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
+   decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
+   restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca
+   minutos quebrados como 10:23), e ajustável depois pelo próprio cliente. **Estado real hoje**
+   (achado, nada disto implementado ainda): `ReminderPolicy.localTime`
+   (`src/modules/reminder/domain/reminder-policy.ts`) já é um campo `HH:mm` por trigger, totalmente
+   editável pelo cliente — mas o valor DEFAULT que a UI propõe ao criar um trigger novo é hardcoded
+   `"09:00"` para todo mundo (`DEFAULT_LOCAL_TIME`,
+   `frontend/src/routes/items/ItemReminderPolicy.tsx`), nunca sorteado, nunca ciente do tenant.
+   `Organization.timezone` já existe e é setado no onboarding (`POST /bff/organizations`) — gancho
+   natural para o sorteio. `quietHours` (`notification-preferences.ts`) é um conceito DIFERENTE
+   (janela de supressão de envio, não horário preferido) — não confundir os dois na proposta. O
+   pipeline de disparo (`reminder-producer`, `infra/modules/reminder-schedule/main.tf`) roda
+   `rate(1 minute)` 24/7 sem geofencing de horário comercial — o que estiver due dispara na hora,
+   então mudar só a UI/onboarding basta, não o pipeline em si. Decisões de produto reais antes de
+   implementar (ponto de parada — perguntar a Marcelo): nível do default (por tenant ou por
+   usuário individual dentro do tenant), se aplica só a triggers NOVOS ou também retroativamente
+   aos já existentes, e onde exatamente em Configurações o cliente ajusta isso.
+4. **Depois da avaliação do item 3**: escolher com Marcelo entre implementar a feature do item 3,
+   ou retomar a escada de performance no degrau de 100k (seção do mandato acima) — ponto de decisão
+   dele, não presumir qual vem primeiro.
 
 ## Status de evidência (não presumir E2E sem checar)
 
