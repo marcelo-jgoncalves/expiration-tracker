@@ -53,11 +53,34 @@ describe("Settings", () => {
     // (3) faria esta asserção falhar - prova que Settings.tsx lê o version real, não um valor
     // fixo, fechando o bug que existia antes desta correção (activeOrganization.role usado como
     // condição sem sentido).
-    await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/organizations/settings", { method: "PATCH", body: { displayName: "Acme Corp" }, expectedVersion: 3 }));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/organizations/settings", { method: "PATCH", body: { displayName: "Acme Corp", defaultReminderLocalTime: "09:00" }, expectedVersion: 3 }),
+    );
     // Wave B2B-11: observed a one-off flake on a post-merge CI run (this exact assertion,
     // never reproduced locally across repeated runs) - a longer timeout is a proportional
     // defensive margin against CI scheduling variance, not a change to what is being proven.
     await waitFor(() => expect(screen.getByText("Configurações atualizadas.")).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  // Sessão 2026-09-20: organização sem `defaultReminderLocalTime` (criada antes desta feature)
+  // cai para "09:00" - mutação que removeria o `?? FALLBACK_DEFAULT_LOCAL_TIME` deixaria o campo
+  // vazio/undefined em vez do fallback.
+  it("falls back to 09:00 when the organization has no defaultReminderLocalTime yet", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Horário padrão de novos lembretes/)).toHaveValue("09:00"));
+  });
+
+  // Mutação: ler `activeOrganization.defaultReminderLocalTime` errado (ex. sempre o fallback)
+  // faria esta asserção falhar mesmo com um valor real de organização já sorteado presente.
+  it("prefills the reminder time select with the organization's already-sorted value", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1, defaultReminderLocalTime: "14:30" }] });
+
+    renderAtRoute("/settings", <Settings />, "/settings");
+
+    await waitFor(() => expect(screen.getByLabelText(/Horário padrão de novos lembretes/)).toHaveValue("14:30"));
   });
 
   it("shows a conflict-specific message on a stale expectedVersion (OCC)", async () => {

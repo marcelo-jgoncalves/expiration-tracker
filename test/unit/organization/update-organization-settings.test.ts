@@ -82,6 +82,32 @@ describe("UpdateOrganizationSettingsService", () => {
     await expect(service.update(ctx("user-owner", ["OWNER"]), {}, 1)).rejects.toBeInstanceOf(ValidationError);
   });
 
+  // Mutação: remover o novo `if (defaultReminderLocalTime !== undefined) setClauses.push(...)`
+  // faria o campo nunca ser persistido mesmo enviado explicitamente - `stored` continuaria
+  // `undefined`.
+  it("allows OWNER to update defaultReminderLocalTime only, leaving displayName/timezone untouched", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store);
+    const service = new UpdateOrganizationSettingsService(store, TABLE);
+
+    const result = await service.update(ctx("user-owner", ["OWNER"]), { defaultReminderLocalTime: "14:30" }, 1);
+
+    expect(result.defaultReminderLocalTime).toBe("14:30");
+    expect(result.displayName).toBe("Acme");
+    const stored = await store.get<Organization>(organizationKey(ORG_1));
+    expect(stored?.defaultReminderLocalTime).toBe("14:30");
+  });
+
+  // Mutação: usar `parseLocalTime` (que só valida o formato `\d{2}:\d{2}`, sem checar o range de
+  // hora/minuto) em vez de `isValidLocalTime` deixaria "25:00" passar sem erro.
+  it("rejects a malformed defaultReminderLocalTime", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store);
+    const service = new UpdateOrganizationSettingsService(store, TABLE);
+
+    await expect(service.update(ctx("user-owner", ["OWNER"]), { defaultReminderLocalTime: "25:00" }, 1)).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it("rejects a blank displayName", async () => {
     const store = new InMemoryOrganizationStore();
     seedOrganization(store);

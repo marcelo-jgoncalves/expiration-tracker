@@ -17,6 +17,9 @@ import { useItem } from "../../hooks/useItem.js";
 import { useReminderPolicy } from "../../hooks/useReminderPolicy.js";
 import { useSaveReminderPolicy } from "../../hooks/useSaveReminderPolicy.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
+import { useOrganizationsList } from "../../hooks/useOrganizationsList.js";
+import { useActiveOrganization } from "../../auth/ActiveOrganizationContext.js";
+import { FALLBACK_DEFAULT_LOCAL_TIME } from "../../lib/reminderDefaults.js";
 import { formatAbsoluteDate, presentReminderChannelStatus } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError, isConflict } from "../../api/errors.js";
@@ -30,7 +33,6 @@ import "./ItemReminderPolicy.css";
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
 const DEFAULT_TIME_ZONE = "America/Sao_Paulo";
-const DEFAULT_LOCAL_TIME = "09:00";
 
 /** Restricted "[-]P<N>D" grammar (backend `recurrence.ts`'s `parseDayOffset`) - the only shape
  * this screen ever produces or reads, matching the domain's own scope for M3. */
@@ -171,6 +173,11 @@ function ReminderPolicyForm({
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState(false);
   const saveMutation = useSaveReminderPolicy(item.itemId);
+  const { organizationId } = useActiveOrganization();
+  const organizationsQuery = useOrganizationsList();
+  // Sessão 2026-09-20: horário sorteado no onboarding (`Organization.defaultReminderLocalTime`)
+  // em vez do "09:00" fixo anterior - ausente para organizações criadas antes desta feature.
+  const defaultLocalTime = organizationsQuery.data?.organizations.find((org) => org.organizationId === organizationId)?.defaultReminderLocalTime ?? FALLBACK_DEFAULT_LOCAL_TIME;
 
   // A remote change (a fresh fetch after OCC conflict, or the initial value first arriving)
   // must never silently clobber an in-progress edit - only re-baseline while NOT dirty.
@@ -185,7 +192,7 @@ function ReminderPolicyForm({
   }
 
   function handleAdd(days: number) {
-    markDirty({ ...state, triggers: [...state.triggers, { triggerId: newTriggerId(), offsetIso: daysToOffsetIso(days), localTime: DEFAULT_LOCAL_TIME }] });
+    markDirty({ ...state, triggers: [...state.triggers, { triggerId: newTriggerId(), offsetIso: daysToOffsetIso(days), localTime: defaultLocalTime }] });
   }
 
   function handleRemove(triggerId: string) {

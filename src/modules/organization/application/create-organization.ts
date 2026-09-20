@@ -33,7 +33,7 @@ import { buildVersionedCreate, type TransactWriteEntry } from "../../../shared/d
 import { ValidationError } from "../../../shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { defaultEntitlement } from "../../subject/domain/entitlement.js";
-import { organizationKey, type Organization } from "../domain/organization.js";
+import { organizationKey, pickDefaultReminderLocalTime, type Organization } from "../domain/organization.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
@@ -60,6 +60,7 @@ export class CreateOrganizationService {
     private readonly tableName: string,
     private readonly ids: OrganizationIdGenerator,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly pickReminderLocalTime: () => string = pickDefaultReminderLocalTime,
   ) {}
 
   async createOrganization(input: CreateOrganizationInput): Promise<CreateOrganizationResult> {
@@ -92,6 +93,7 @@ export class CreateOrganizationService {
       organizationId,
       displayName,
       timezone: input.timezone,
+      defaultReminderLocalTime: this.pickReminderLocalTime(),
       ownerCount: 1,
       createdAt: now,
       updatedAt: now,

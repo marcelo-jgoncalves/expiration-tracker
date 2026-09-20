@@ -16,8 +16,10 @@ import { ApiError, isConflict, isLastOwnerError, isResponsibilityReassignmentReq
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
+import { REMINDER_LOCAL_TIME_OPTIONS, FALLBACK_DEFAULT_LOCAL_TIME } from "../lib/reminderDefaults.js";
 import { Button } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
+import { SelectField } from "../components/forms/SelectField.js";
 
 /** A19 "seção de armazenamento" - the same `docarchive:read` (READ_ONLY_ROLES, every role)
  * summary A03's conditional card links to, always visible here (not threshold-gated) since
@@ -169,6 +171,7 @@ export function Settings() {
 
   const activeOrganization = organizationsQuery.data?.organizations.find((org) => org.organizationId === organizationId);
   const [displayName, setDisplayName] = useState("");
+  const [defaultReminderLocalTime, setDefaultReminderLocalTime] = useState(FALLBACK_DEFAULT_LOCAL_TIME);
 
   // Rehydrates the form whenever the underlying organization data changes (initial load, or a
   // successful save elsewhere) - never overwrites in-progress typing on every render, only when
@@ -179,6 +182,11 @@ export function Settings() {
     if (activeOrganization) setDisplayName(activeOrganization.displayName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrganization?.displayName]);
+
+  useEffect(() => {
+    if (activeOrganization) setDefaultReminderLocalTime(activeOrganization.defaultReminderLocalTime ?? FALLBACK_DEFAULT_LOCAL_TIME);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrganization?.defaultReminderLocalTime]);
 
   const header = <PageHeader title="Configurações" description="Nome da sua organização." />;
 
@@ -226,7 +234,7 @@ export function Settings() {
     // precedence over the list's (now stale) value - avoids a guaranteed OCC conflict on a
     // second consecutive save without a full page reload in between.
     const expectedVersion = update.data?.version ?? activeOrganization.version;
-    update.mutate({ displayName, expectedVersion });
+    update.mutate({ displayName, defaultReminderLocalTime, expectedVersion });
   }
 
   return (
@@ -235,6 +243,13 @@ export function Settings() {
       <Panel>
         <form onSubmit={handleSubmit}>
           <TextField label="Nome da organização" value={displayName} onChange={setDisplayName} required />
+          <SelectField
+            label="Horário padrão de novos lembretes"
+            value={defaultReminderLocalTime}
+            onChange={setDefaultReminderLocalTime}
+            options={REMINDER_LOCAL_TIME_OPTIONS}
+            required
+          />
           <Button type="submit" variant="primary" pending={update.isPending}>
             {update.isPending ? "Salvando…" : "Salvar"}
           </Button>

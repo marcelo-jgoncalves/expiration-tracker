@@ -7,6 +7,7 @@ import type { OrganizationSettingsResponse } from "../api/types.js";
 export interface UpdateOrganizationSettingsVariables {
   displayName?: string;
   timezone?: string;
+  defaultReminderLocalTime?: string;
   expectedVersion: number;
 }
 
