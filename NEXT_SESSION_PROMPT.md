@@ -221,11 +221,18 @@ decisão de produto explicitamente marcados abaixo):
    lista de pendências acima). **Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo
    passo imediato para dentro da conta atual, sem esperar as Fases 2-4 — `cd.yml` corrigido para
    disparar em push/CI verde em `develop` (branch de trabalho real), não mais `main`; `main` fica
-   sem gatilho de deploy até staging/produção existirem. **Validação empírica ainda pendente**:
-   achado real via docs oficiais do GitHub (`workflow_run` sempre lê o arquivo de workflow do
-   branch PADRÃO do repositório, `main`) — esta mudança só vale de fato depois do PR desta sessão
-   mergear em `main`; confirmar no próximo push a `develop` pós-merge que o deploy dispara de
-   verdade, não presumir que funciona só porque o YAML é válido.
+   sem gatilho de deploy até staging/produção existirem. **Validação empírica CONCLUÍDA
+   2026-09-20**: primeiro push real a `develop` pós-merge dos dois PRs disparou `workflow_run`
+   corretamente. Achado real no processo (não é defeito do D-306 em si): esse primeiro
+   `Deploy (CD)` colidiu com uma corrida de lock pré-existente — `ci.yml` tem `concurrency:
+   group: ci-${{ github.ref }}` (por branch, não global), então CI em `main`+`develop`+um PR do
+   Dependabot rodaram `terraform plan` em paralelo contra o mesmo lock do S3 (3 pushes quase
+   simultâneos nesta sessão) e o `Deploy (CD)` caiu no meio — falhou por "Error acquiring the
+   state lock". Deploy manual limpo (`gh workflow run "Deploy (CD)" --ref develop`) rodado logo
+   em seguida, sem concorrência, **concluído com sucesso**. **Pendência nova registrada**: dar ao
+   job "Validate Infra (Terraform)" de `ci.yml` um concurrency group compartilhado/global (não
+   por ref), pra nunca mais competir pelo lock do S3 contra `cd.yml` ou entre pushes simultâneos
+   — candidato de correção, ainda não implementado.
 3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
    decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
    restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca
