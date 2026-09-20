@@ -8,10 +8,12 @@
  * Two sequential phases, never combined:
  *   Phase A (always runs, read-only): inventories `exptrk-dev-table`, `exptrk-dev-bff-session`,
  *     the `extraction-transient` S3 bucket, the Cognito user pool, and all 24 SQS queues (12 +
- *     DLQs). Writes a RAW snapshot (may contain PII/secrets — session cookies, e-mails) to
- *     `.local-artifacts/dev-reset/<ISO timestamp>/` (gitignored, never committed) and a REDACTED
- *     manifest (counts + entityTypes + SHA-256 hash per item, never a raw field value) to
- *     `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/`.
+ *     DLQs). Writes a RAW snapshot (may contain PII/secrets — session cookies, e-mails) plus the
+ *     FULL redacted manifest (counts + entityTypes + SHA-256 hash per item, never a raw field
+ *     value — but a hash-per-item array is >100MB at real dev-table scale) to
+ *     `.local-artifacts/dev-reset/<ISO timestamp>/` (gitignored, never committed). A small
+ *     SUMMARY manifest (counts + entityTypes only, no hashes) goes to the Git-tracked
+ *     `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/` as evidence.
  *   Phase B (only with `--confirm`, and only after Phase A's snapshot write succeeds in the SAME
  *     invocation — fail-closed): deletes DynamoDB items in batches of <=25 via BatchWriteItem,
  *     retrying UnprocessedItems with exponential backoff+jitter (`retryWithBackoff`, defined
@@ -380,22 +382,35 @@ async function main(): Promise<void> {
   await writeFile(join(rawDir, "cognito-usernames.json"), JSON.stringify(cognitoUsernames, null, 2));
   await writeFile(join(rawDir, "queue-counts.json"), JSON.stringify(Object.fromEntries(queueCounts), null, 2));
 
+  const tableEntry = buildManifestEntry(args.table, mainItems);
+  const sessionTableEntry = buildManifestEntry(args.sessionTable, sessionItems);
   const manifest = {
     generatedAt: new Date().toISOString(),
     rawSnapshotPath: rawDir,
-    table: buildManifestEntry(args.table, mainItems),
-    sessionTable: buildManifestEntry(args.sessionTable, sessionItems),
+    table: tableEntry,
+    sessionTable: sessionTableEntry,
     s3: { bucket: args.bucket, objectCount: s3Keys.length },
     cognito: { userPoolId: args.userPoolId, userCount: cognitoUsernames.length },
     queues: Object.fromEntries(queueCounts),
+  };
+  // Real finding, 2026-09-20: at real dev-table scale (~1.85M items) the per-item `hashes` array
+  // alone is >100MB - fine as a local artifact, never something to commit to Git. The full
+  // manifest (with hashes) goes alongside the raw snapshot; only a summary (counts/entityTypes,
+  // no hashes) goes to the Git-tracked reviews folder as evidence.
+  await writeFile(join(rawDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  const summary = {
+    ...manifest,
+    table: { source: tableEntry.source, itemCount: tableEntry.itemCount, entityTypes: tableEntry.entityTypes },
+    sessionTable: { source: sessionTableEntry.source, itemCount: sessionTableEntry.itemCount, entityTypes: sessionTableEntry.entityTypes },
   };
   const manifestPath = join(
     process.cwd(),
     "docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping",
     `dev-reset-manifest-${timestamp}.json`,
   );
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  console.log(`[reset-dev-data] Phase A done. Raw snapshot: ${rawDir} (gitignored). Manifest: ${manifestPath}`);
+  await mkdir(join(process.cwd(), "docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping"), { recursive: true });
+  await writeFile(manifestPath, JSON.stringify(summary, null, 2));
+  console.log(`[reset-dev-data] Phase A done. Raw snapshot: ${rawDir} (gitignored). Manifest summary: ${manifestPath}`);
 
   if (!args.confirm) {
     console.log("[reset-dev-data] --confirm not set — dry-run only, nothing deleted. Re-run with --confirm to execute Phase B.");
