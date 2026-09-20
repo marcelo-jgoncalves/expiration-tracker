@@ -1,0 +1,18 @@
+/* Radius, borders, elevation. Official direction as of 2026-08-27: larger radii and a visible
+   (but restrained) shadow on grouping surfaces, matching the v2 templates/UI kit. Surface +
+   border + spacing still carry most hierarchy; shadow is now used on Panel too, not just things
+   that float above the page. */
+
+:root {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px; /* pills only for badges */
+
+  --border-width-thin: 1px;
+  --border-width-thick: 2px;
+
+  --shadow-none: none;
+  --shadow-raised: 0 2px 8px rgba(20, 18, 31, 0.06);
+  --shadow-overlay: 0 20px 48px rgba(88, 28, 135, 0.14);
+}

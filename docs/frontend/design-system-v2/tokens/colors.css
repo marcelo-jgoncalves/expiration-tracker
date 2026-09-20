@@ -1,0 +1,97 @@
+/* Colors. Two layers: PRIMITIVES (raw ramp values, never referenced by a feature directly)
+   and SEMANTIC (named by function). Light mode is the only theme implemented; the semantic
+   layer is the seam a future theme would swap. Values copied verbatim from
+   frontend/src/styles/tokens.css. */
+
+:root {
+  /* ---- PRIMITIVES ---- */
+
+  /* Neutral ramp — very slightly cool (blue-leaning) so it sits with the accent without
+     reading as a warm/beige "document" product or a pure-gray developer tool. */
+  --color-neutral-0: #ffffff;
+  --color-neutral-25: #fbfcfd;
+  --color-neutral-50: #f7f8fa;
+  --color-neutral-100: #f1f3f7;
+  --color-neutral-200: #e7eaf0;
+  --color-neutral-300: #d6dbe4;
+  --color-neutral-400: #b4bcca;
+  --color-neutral-500: #858d9d;
+  --color-neutral-600: #667085;
+  --color-neutral-700: #5a6478;
+  --color-neutral-800: #344054;
+  --color-neutral-900: #1b2333;
+
+  /* Accent — violet, official direction as of 2026-08-27 (replaces the earlier blue-indigo).
+     600 on white: 5.6:1; white text on 600: 5.6:1 — both pass AA for normal text. */
+  --color-accent-50: #f5f3ff;
+  --color-accent-100: #ede9fe;
+  --color-accent-200: #ddd6fe;
+  --color-accent-600: #7c3aed;
+  --color-accent-700: #6d28d9;
+  --color-accent-800: #5b21b6;
+
+  /* Status hues — independent of the accent. Status colors stay semantic and never inherit
+     the brand hue. */
+  --color-red-50: #fef3f2;
+  --color-red-200: #fbd5d1;
+  --color-red-700: #b42318;
+  --color-red-800: #912018;
+  --color-amber-50: #fffaeb;
+  --color-amber-200: #fce7b6;
+  --color-amber-700: #b54708;
+  --color-green-50: #ecfdf3;
+  --color-green-200: #c9ecd7;
+  --color-green-700: #067647;
+  --color-blue-50: #eff4ff;
+  --color-blue-200: #d3e1fb;
+  --color-blue-700: #175cd3;
+
+  /* ---- SEMANTIC ---- */
+
+  --color-surface-page: var(--color-neutral-50);
+  --color-surface-default: var(--color-neutral-0);
+  --color-surface-subtle: var(--color-neutral-100);
+  --color-surface-hover: var(--color-neutral-50);
+  --color-surface-selected: var(--color-accent-50);
+  --color-surface-disabled: var(--color-neutral-100);
+
+  --color-text-primary: var(--color-neutral-900); /* 15.73:1 on surface-default */
+  --color-text-secondary: var(--color-neutral-700); /*  5.95:1 */
+  --color-text-tertiary: var(--color-neutral-600); /*  4.97:1 */
+  --color-text-on-accent: var(--color-neutral-0); /*  6.67:1 on action-primary */
+  --color-text-disabled: var(--color-neutral-500);
+  --color-text-link: var(--color-accent-700);
+  --color-text-danger: var(--color-red-700);
+
+  --color-border-subtle: var(--color-neutral-200); /* separation only, never load-bearing */
+  --color-border-default: var(--color-neutral-300);
+  --color-border-interactive: var(--color-neutral-500); /* 3.34:1 — form/control outlines */
+  --color-border-strong: var(--color-neutral-600);
+  --color-border-danger: var(--color-red-700);
+
+  --color-action-primary: var(--color-accent-600);
+  --color-action-primary-hover: var(--color-accent-700);
+  --color-action-primary-pressed: var(--color-accent-800);
+  --color-action-danger: var(--color-red-700);
+  --color-action-danger-hover: var(--color-red-800);
+
+  --color-focus-ring: var(--color-accent-600);
+
+  /* Status — every status token is a TRIO (foreground / background / border) so a status can
+     always be rendered with shape + text + color, never color alone. */
+  --color-status-neutral-fg: var(--color-neutral-800);
+  --color-status-neutral-bg: var(--color-neutral-100);
+  --color-status-neutral-border: var(--color-neutral-300);
+  --color-status-info-fg: var(--color-blue-700);
+  --color-status-info-bg: var(--color-blue-50);
+  --color-status-info-border: var(--color-blue-200);
+  --color-status-success-fg: var(--color-green-700);
+  --color-status-success-bg: var(--color-green-50);
+  --color-status-success-border: var(--color-green-200);
+  --color-status-warning-fg: var(--color-amber-700);
+  --color-status-warning-bg: var(--color-amber-50);
+  --color-status-warning-border: var(--color-amber-200);
+  --color-status-critical-fg: var(--color-red-700);
+  --color-status-critical-bg: var(--color-red-50);
+  --color-status-critical-border: var(--color-red-200);
+}

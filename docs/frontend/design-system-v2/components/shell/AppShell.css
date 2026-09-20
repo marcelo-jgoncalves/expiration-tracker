@@ -1,0 +1,114 @@
+/* App shell: a plain vertical list of links on desktop, a wrapping row when narrow (CSS
+   only). Visually simple and stable, so it orients without competing with the operational
+   content. */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+.app-shell__nav {
+  flex: none;
+  width: var(--layout-nav-width);
+  background: var(--color-surface-default);
+  border-right: var(--border-width-thin) solid var(--color-border-subtle);
+  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* There is no logo file in the product. The brand appears as a plain type wordmark. */
+.app-shell__wordmark {
+  font-size: var(--font-size-400);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+  padding: 0 var(--space-3) var(--space-6);
+  color: var(--color-text-primary);
+}
+
+.app-shell__link {
+  display: block;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-weight: var(--font-weight-regular);
+  min-height: var(--control-height-sm);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+.app-shell__link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Current page is marked by weight + an inset bar + tint — three cues, so the state does not
+   depend on color alone. `box-shadow` (the inset bar) is dropped entirely in forced-colors mode
+   (background/tint go too, since those are also author colors) - the override below restores the
+   bar as a real `border`, which forced-colors does render, using the system's own "selected item"
+   color instead of an authored one. */
+.app-shell__link[aria-current="page"] {
+  background: var(--color-surface-selected);
+  color: var(--color-action-primary-pressed);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: inset 3px 0 0 var(--color-action-primary);
+}
+
+@media (forced-colors: active) {
+  .app-shell__link[aria-current="page"] {
+    box-shadow: none;
+    border-left: var(--border-width-thick) solid SelectedItem;
+  }
+}
+
+.app-shell__nav-spacer { flex: 1; }
+
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-6) var(--layout-gutter);
+  max-width: var(--layout-content-max);
+}
+
+.app-shell__main:focus { outline: none; }
+
+.app-shell__main:focus-visible {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+@media (max-width: 900px) {
+  .app-shell { display: block; }
+
+  .app-shell__nav {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    border-right: 0;
+    border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .app-shell__wordmark {
+    padding: 0 var(--space-3) 0 0;
+    width: 100%;
+    margin-bottom: var(--space-2);
+  }
+
+  .app-shell__link[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--color-action-primary); }
+
+  @media (forced-colors: active) {
+    .app-shell__link[aria-current="page"] {
+      border-left: 0;
+      border-bottom: var(--border-width-thick) solid SelectedItem;
+    }
+  }
+
+  .app-shell__nav-spacer { display: none; }
+
+  .app-shell__main { padding: var(--space-5) var(--space-4); }
+}

@@ -1,0 +1,57 @@
+/* StatusBadge — a compact, NON-interactive attribute of a record. It must never look like a
+   button: no hover, no pointer, no shadow. Every badge carries three cues — text label, a
+   shape marker, and color — so removing color entirely still leaves the status readable. */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: var(--border-width-thin) solid;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-default);
+  text-transform: none; /* sentence case, deliberately not uppercase */
+  white-space: nowrap;
+}
+
+/* Icon marker (Lucide paths via Icon.jsx), distinct per tone so the shape alone is
+   discriminating even with color removed: dot=neutral, info=informational, check=success,
+   triangle=warning, x=critical. */
+.ui-badge svg { flex: none; }
+
+.ui-badge--neutral {
+  color: var(--color-status-neutral-fg);
+  background: var(--color-status-neutral-bg);
+  border-color: var(--color-status-neutral-border);
+}
+.ui-badge--info {
+  color: var(--color-status-info-fg);
+  background: var(--color-status-info-bg);
+  border-color: var(--color-status-info-border);
+}
+.ui-badge--success {
+  color: var(--color-status-success-fg);
+  background: var(--color-status-success-bg);
+  border-color: var(--color-status-success-border);
+}
+.ui-badge--warning {
+  color: var(--color-status-warning-fg);
+  background: var(--color-status-warning-bg);
+  border-color: var(--color-status-warning-border);
+}
+.ui-badge--critical {
+  color: var(--color-status-critical-fg);
+  background: var(--color-status-critical-bg);
+  border-color: var(--color-status-critical-border);
+}
+
+/* Long pt-BR status labels ("Verificado (segurança) — conteúdo não conferido") must wrap
+   rather than blow out a table column. */
+.ui-badge--wrap { white-space: normal; }
+
+@media (forced-colors: active) {
+  .ui-badge { border-color: CanvasText; }
+}

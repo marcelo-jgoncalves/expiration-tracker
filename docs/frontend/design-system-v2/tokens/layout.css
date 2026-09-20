@@ -1,0 +1,21 @@
+/* Layout, density and stacking. Density is expressed as row padding, not as a user toggle. */
+
+:root {
+  --layout-nav-width: 216px;
+  --layout-content-max: 1440px;
+  --layout-reading-max: 42rem; /* forms and explanatory prose stay narrow */
+  --layout-gutter: var(--space-6);
+
+  --z-base: 0; /* @kind other */
+  --z-sticky: 100; /* @kind other */
+  --z-overlay: 400; /* @kind other */
+  --z-skip-link: 900; /* @kind other */
+
+  --density-row-padding-block: var(--space-4);
+  --density-row-padding-inline: var(--space-5);
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 44px;
+  /* WCAG 2.2 Target Size (Minimum) is 24px; everything interactive here is >= 32px. */
+  --target-size-min: 24px;
+}

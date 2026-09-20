@@ -1,0 +1,16 @@
+/* Plus Jakarta Sans — official direction as of 2026-08-27. No local font files were provided,
+   so this ships as a CDN @import (Google Fonts), the same approach the v2 UI kit/templates use.
+   Flag: if the user provides real font files later, replace this with local @font-face + copied
+   binaries in assets/fonts/.
+
+   Fixed 2026-09-20 (real bug found in audit): the static weight list below used to request only
+   500/600/700/800, none of which is any of typography.css's actual token values (400/550/650).
+   Per the CSS Fonts Module Level 4 matching algorithm (well-established, MDN), a requested weight
+   with no exact face available resolves to the nearest one in a fixed direction - concretely,
+   400 was rendering as 500, 550 as 600, and 650 as 700, one step heavier than every token
+   declares, on every single piece of text in the system. Plus Jakarta Sans ships a real variable
+   font (wght axis 200-800, confirmed via Google Fonts/Fontsource) - requesting the exact range
+   this system's tokens use (400-650) via the `..` variable-range syntax serves the variable
+   instance instead of discrete static weights, so every token value (400/550/650) now renders at
+   its exact declared weight, not the nearest discrete step. */
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400..650&display=swap");

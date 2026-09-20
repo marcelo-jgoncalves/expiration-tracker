@@ -20,10 +20,14 @@ D-195; Document Types D-173-D-186/D-221/D-224/D-243/D-244; Guest Upload+Requests
 D-222/D-226-D-230; Storage/Versioning/Renewal D-163-D-168; Frontend 25 telas D-254-D-271/D-292/D-293).
 Detalhe item-a-item nunca recontado aqui: `docs/architecture/decisions-log.md`. Únicas pendências
 residuais, ambas fora de engenharia: **WhatsApp** aguarda E-019 (jurídico — aviso de privacidade,
-DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de Marcelo, fora desta
-sessão) — Fase 1 concluída 2026-09-11, Fase 2 pendente (`Proximas_Tarefas_Identidade_Visual.md`,
-raiz do repo, deliberadamente fora do `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/`
-ou atualizar o allowlist).
+DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de Marcelo) — Fase 1
+concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
+Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
+`docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
+`docs/frontend/design-system-v2/`. **Ainda não portado para o código real**
+(`frontend/src/components/ui/**`/`tokens.css` continuam v1) — próxima ação real deste workstream.
+(`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
+`ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 

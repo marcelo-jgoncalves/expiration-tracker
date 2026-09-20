@@ -1,0 +1,339 @@
+/* ============================================================================
+   REFINEMENT LAYER — 2026-08-26
+   Craft-level corrections on top of the implemented visual language. Every rule here is a
+   delta against frontend/src (the shipped screens), kept in one file so the engineering team
+   can port it back rule by rule. Nothing here changes information architecture, adds a
+   capability the backend lacks, or weakens a non-colour cue.
+   Rationale for each block is in readme.md → "Refinements over the current implementation".
+   ============================================================================ */
+
+/* ---------------------------------------------------------------- 1. Page frame.
+   The shipped screens run edge to edge at 1440px with a 22px title, which reads as a
+   prototype. A measured content column and a larger title give the page a centre of gravity. */
+.app-shell__main { padding: var(--space-7) var(--space-8); }
+
+/* §15: coleções densas usam a viewport; registros e formulários recebem uma medida menor. */
+.ui-page { max-width: var(--layout-content-max); }
+.ui-page--record { max-width: 1280px; }
+
+/* A button label never wraps: the control's size comes from its label, not the column it
+   happens to sit in. */
+.ui-button { white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .app-shell__main { padding: var(--space-5) var(--space-4); }
+}
+
+/* Nav rail: tighter type, real hit areas, a hairline under the wordmark so the rail has a
+   header instead of a floating word. */
+.app-shell__nav { padding: var(--space-5) var(--space-3); gap: 2px; }
+
+.app-shell__wordmark {
+  font-size: var(--font-size-400);
+  letter-spacing: -0.02em;
+  padding: var(--space-2) var(--space-3) var(--space-5);
+  margin-bottom: var(--space-3);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.app-shell__link { padding: var(--space-3) var(--space-3); }
+
+.app-shell__nav-footer {
+  padding-top: var(--space-4);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+/* ---------------------------------------------------------------- 2. Page header.
+   Title at 28px with tight tracking; description at 16px with a real measure. */
+.ui-page-header {
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.ui-page-header h1 {
+  font-size: var(--font-size-700);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.ui-page-header__description {
+  font-size: var(--font-size-400);
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.ui-page-header__badges {
+  display: flex;
+  margin-top: var(--space-4);
+}
+
+.ui-record-hero > div { min-width: 0; }
+
+/* ---------------------------------------------------------------- 3. Panel header / footer.
+   The toolbar and the "ver todos" link used to float loose above and below the table, leaving
+   the composition open at both ends. They now belong to the panel. */
+.ui-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.ui-panel__header .ui-toolbar { margin-bottom: 0; }
+
+/* O grupo de filtro quebra como um bloco inteiro, nunca por dentro da própria caixa. */
+.ui-filter { flex-wrap: nowrap; min-width: max-content; }
+
+.ui-panel__title {
+  margin: 0;
+  font-size: var(--font-size-300);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.ui-panel__count {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-200);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ui-panel__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-5);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  background: var(--color-neutral-25);
+  font-size: var(--font-size-200);
+}
+
+/* ---------------------------------------------------------------- 4. Table.
+   Column headers become a distinct layer (uppercase, tracked) instead of small grey text;
+   headers pin while a 140-row collection scrolls; compact density exists for volume. */
+.ui-table thead th {
+  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-semibold);
+  padding-block: var(--space-3);
+}
+
+/* Cabeçalho fixo foi REMOVIDO: §28 do documento de linguagem visual garante estruturalmente
+   "zero elementos sticky/fixed fora o skip link", e essa garantia é uma asserção executável no
+   CI (A11Y-focus-not-obscured). Pinar o thead exigiria decisão Type 1 + mudança no gate. */
+
+.ui-table--compact td { padding-block: var(--space-3); }
+
+/* The identifier column was accent-600 semibold on every row: at volume that is a wall of
+   blue. Darker, medium weight — the colour cue survives, the noise does not. */
+.ui-table--compact .ui-table__cell--primary {
+  width: 34%;
+  min-width: 18rem;
+}
+
+.ui-table__cell--primary a {
+  color: var(--color-accent-800);
+  font-weight: var(--font-weight-medium);
+}
+
+.ui-table__secondary { font-size: var(--font-size-100); }
+
+/* Group header: a real band, with the count as a pill instead of a bare number. */
+.ui-table__group-header th {
+  letter-spacing: 0.01em;
+  padding-block: var(--space-3);
+}
+
+.ui-table__group-count {
+  display: inline-block;
+  margin-left: var(--space-3);
+  padding: 0 var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border-default);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-default);
+  font-size: var(--font-size-100);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Dates read as data, not prose. */
+.ui-table__cell--numeric { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- 5. Badge, inline emphasis.
+   A pill on every row for "Ativo"/"Sem urgência" spends the loudest treatment in the system on
+   the least informative value. `--inline` keeps the label AND the shape marker (so the
+   non-colour cues are intact) and drops only the container. Pills stay for what deserves
+   attention: overdue and due-soon. */
+.ui-badge--inline {
+  background: transparent;
+  border-color: transparent;
+  padding-inline: 0;
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-200);
+}
+
+/* ---------------------------------------------------------------- 6. Record hero (detail).
+   The due date is the reason the record exists; it was buried as the second row of a
+   definition list. */
+.ui-record-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6) var(--space-8);
+  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-6);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.ui-record-hero__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-200);
+  color: var(--color-text-tertiary);
+}
+
+.ui-record-hero__value {
+  font-size: var(--font-size-500);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-record-hero__value--lead { font-size: var(--font-size-700); }
+
+.ui-record-hero__note {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-200);
+  color: var(--color-text-secondary);
+}
+
+/* Two grouped panels side by side, so a record with 9 attributes does not leave 600px of
+   empty canvas below itself. */
+.ui-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* Hairline fix: with a column `gap`, the row rules on dt and dd broke into two floating
+   segments. The gap becomes padding on the label, so each rule is continuous. */
+.ui-detail-list {
+  gap: 0;
+  max-width: none;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+}
+
+.ui-detail-list dt { padding-right: var(--space-6); }
+
+@media (max-width: 600px) {
+  .ui-detail-list dt { padding-right: 0; }
+}
+
+/* ---------------------------------------------------------------- 7. Forms.
+   Eleven identical full-width boxes in one column is the single most amateur signal in the
+   shipped screens. Fields are sized to their content and short fields pair up. */
+.ui-field { margin-bottom: var(--space-5); }
+
+.ui-field__requirement { font-size: var(--font-size-100); }
+
+.ui-field[data-width="date"] .ui-field__control { max-width: 200px; }
+.ui-field[data-width="sm"] .ui-field__control { max-width: 240px; }
+.ui-field[data-width="md"] .ui-field__control { max-width: 340px; }
+
+.ui-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-6);
+}
+
+@media (max-width: 700px) {
+  .ui-form__grid { grid-template-columns: 1fr; }
+}
+
+/* A form split into grouped panels needs the panel to own the measure, not the form. */
+.ui-panel .ui-form { max-width: none; }
+
+.ui-form--grouped { max-width: 60rem; }
+
+.ui-form__actions {
+  padding-top: var(--space-5);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+/* Deliberately NOT sticky: a pinned action bar can obscure the focused control, which is the
+   exact WCAG 2.2 (2.4.11) guarantee this system makes structurally by having nothing fixed
+   except the skip link. */
+
+/* ---------------------------------------------------------------- 8. Attention row (Overview).
+   Not KPI tiles: three counts, each a LINK into the group of records it counts. A number that
+   cannot be acted on is not shown. */
+.ui-attention {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.ui-attention__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-default);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--easing-standard), background-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-attention__item:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+.ui-attention__count {
+  font-size: var(--font-size-600);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ui-attention__item[data-tone="critical"] .ui-attention__count { color: var(--color-status-critical-fg); }
+.ui-attention__item[data-tone="warning"] .ui-attention__count { color: var(--color-status-warning-fg); }
+
+.ui-attention__label {
+  font-size: var(--font-size-200);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 9. Narrow / stacked rows.
+   Labels align in a column instead of being pushed to opposite edges of the row, and the row
+   action becomes a full-width control. Nothing is hidden — that requirement is unchanged. */
+@media (max-width: 820px) {
+  .ui-table tbody tr { padding: var(--space-5) 0; }
+
+  .ui-table td {
+    justify-content: flex-start;
+    gap: var(--space-4);
+  }
+
+  .ui-table td::before {
+    width: 8.5rem;
+    flex: none;
+  }
+
+  .ui-table td.ui-table__cell--primary { font-weight: var(--font-weight-semibold); }
+
+  .ui-table td.ui-table__cell--actions .ui-button { width: 100%; }
+
+  .ui-page-header h1 { font-size: var(--font-size-600); }
+}
