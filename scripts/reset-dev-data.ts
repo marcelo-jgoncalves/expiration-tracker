@@ -158,11 +158,22 @@ export const DEFAULT_BACKOFF: BackoffOptions = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+// Real finding, 2026-09-20: concurrent deletes (see deleteAllItems) surfaced
+// ThrottlingException/TableWriteKeyRangeThroughputExceeded thrown straight out of the SDK call -
+// distinct from the UnprocessedItems case below, and previously unhandled here, so it crashed the
+// whole run instead of backing off. Same retryable-name set as ses-email-adapter.ts.
+const RETRYABLE_SDK_ERROR_NAMES = new Set(["ThrottlingException", "ProvisionedThroughputExceededException", "RequestLimitExceeded"]);
+
+function isRetryableSdkError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "name" in err && RETRYABLE_SDK_ERROR_NAMES.has(String((err as { name?: unknown }).name));
+}
+
 /**
  * Retries a BatchWriteItem-shaped delete until DynamoDB reports zero UnprocessedItems, with
- * exponential backoff + jitter between attempts. Throws (never silently gives up) once
- * `opts.retries` is exceeded — the caller (Phase B) treats that as a hard failure of the whole
- * reset, not a partial success.
+ * exponential backoff + jitter between attempts — also retried on a thrown throttling exception
+ * (the SDK rejects the whole call rather than returning partial UnprocessedItems). Throws (never
+ * silently gives up) once `opts.retries` is exceeded — the caller (Phase B) treats that as a hard
+ * failure of the whole reset, not a partial success.
  */
 export async function deleteBatchWithRetry(
   batchWriteDelete: (tableName: string, keys: Record<string, unknown>[]) => Promise<Record<string, unknown>[]>,
@@ -180,7 +191,12 @@ export async function deleteBatchWithRetry(
       const delay = opts.baseMs * 2 ** (attempt - 1) + Math.floor(Math.random() * opts.jitterMs);
       await opts.sleep(delay);
     }
-    remaining = await batchWriteDelete(tableName, remaining);
+    try {
+      remaining = await batchWriteDelete(tableName, remaining);
+    } catch (err) {
+      if (!isRetryableSdkError(err)) throw err;
+      // remaining keys unchanged - retry the same batch after backoff.
+    }
     attempt += 1;
   }
 }
@@ -193,21 +209,35 @@ export function extractKey(item: Record<string, unknown>): Record<string, unknow
   return { PK, SK };
 }
 
+function shuffled<T>(items: T[]): T[] {
+  const result = items.slice();
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = result[i] as T;
+    result[i] = result[j] as T;
+    result[j] = tmp;
+  }
+  return result;
+}
+
 /**
  * Real finding, 2026-09-20: this was strictly sequential (one batch of 25 at a time) - fine at
  * seed-script scale, but at real dev-table volume (~1.85M items / ~74k batches) that's several
  * hours wall-clock for a one-off cleanup script. Deletes have no ordering dependency between
- * batches, so bounded concurrency (mapWithConcurrency) is safe here; 20 keeps DynamoDB on-demand
- * comfortably below throttling while cutting runtime by ~20x.
+ * batches, so bounded concurrency (mapWithConcurrency) is safe here. First live run at
+ * concurrency 20 hit ThrottlingException/TableWriteKeyRangeThroughputExceeded: `items` comes from
+ * a Scan, so adjacent batches are physically adjacent keys - concurrent workers were hammering the
+ * same partition range. Shuffling before chunking spreads concurrent writes across partitions;
+ * concurrency dropped to 10 to stay well under the per-partition burst limit.
  */
 export async function deleteAllItems(
   batchWriteDelete: (tableName: string, keys: Record<string, unknown>[]) => Promise<Record<string, unknown>[]>,
   tableName: string,
   items: Record<string, unknown>[],
   opts: BackoffOptions = DEFAULT_BACKOFF,
-  concurrency = 20,
+  concurrency = 10,
 ): Promise<{ deleted: number; batches: number }> {
-  const batches = chunk(items.map(extractKey), 25);
+  const batches = chunk(shuffled(items.map(extractKey)), 25);
   const results = await mapWithConcurrency(batches, concurrency, (batch) =>
     deleteBatchWithRetry(batchWriteDelete, tableName, batch, opts),
   );

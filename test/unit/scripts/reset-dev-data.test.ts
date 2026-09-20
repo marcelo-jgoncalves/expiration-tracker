@@ -141,6 +141,27 @@ describe("reset-dev-data: deleteBatchWithRetry", () => {
     await deleteBatchWithRetry(batchWriteDelete, "MainTable", [], NO_DELAY_BACKOFF);
     expect(batchWriteDelete).not.toHaveBeenCalled();
   });
+
+  // Real finding, 2026-09-20: a live Phase B run crashed on this exact shape - a thrown
+  // ThrottlingException (SDK rejects the whole call) is not an UnprocessedItems response, so
+  // without this the batch was never retried at all.
+  it("retries a thrown ThrottlingException instead of crashing the whole run", async () => {
+    const keys = [{ PK: "A", SK: "1" }];
+    const throttling = Object.assign(new Error("Throughput exceeds the current capacity"), { name: "ThrottlingException" });
+    const batchWriteDelete = vi.fn().mockRejectedValueOnce(throttling).mockResolvedValueOnce([]);
+
+    await deleteBatchWithRetry(batchWriteDelete, "MainTable", keys, NO_DELAY_BACKOFF);
+
+    expect(batchWriteDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a non-retryable thrown error", async () => {
+    const keys = [{ PK: "A", SK: "1" }];
+    const batchWriteDelete = vi.fn().mockRejectedValueOnce(new Error("access denied"));
+
+    await expect(deleteBatchWithRetry(batchWriteDelete, "MainTable", keys, NO_DELAY_BACKOFF)).rejects.toThrow("access denied");
+    expect(batchWriteDelete).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("reset-dev-data: deleteAllItems", () => {
