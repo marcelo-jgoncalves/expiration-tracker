@@ -1,3 +1,23 @@
+/* A13 (Fila de Revisão) — two independent `.ui-detail-list`s placed side by side on desktop,
+   stacked when narrow. Each list keeps its own internal label/value grid untouched; this only
+   arranges the two lists themselves. A fixed 2-column track (not `auto-fill`/`minmax`, which
+   `.ui-entry-card-grid` below uses for an unrelated card layout) — `auto-fill` keeps creating
+   empty tracks past the 2 real items at wide viewports and steals their width, which is exactly
+   the squeezed/wrapped label-value text this screen used to render before this class existed. */
+.a13-detail-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-6);
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 700px) {
+  .a13-detail-columns {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
 /* A05 extension (Block 2) — entry-point card grid to A06/A07/audit sub-screens. */
 
 .ui-entry-card-grid {
