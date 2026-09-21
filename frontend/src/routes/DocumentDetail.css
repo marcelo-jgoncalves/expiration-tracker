@@ -1,0 +1,46 @@
+/* A12 — Document Detail / Version History (ADR-0015 v2 reskin, 2026-09-21).
+   These `.a12-*` class names existed in the JSX before this stylesheet did (unstyled, relying
+   on browser default `<ol>` numbering) — this file is what gives them a v2 appearance, same
+   "screen owns its own aXX-* classes" precedent `ItemDetail.css` sets for A13's
+   `.a13-detail-columns`. */
+
+/* Newest-first version list. `list-style: none` matches the established wizard-step precedent
+   (`ImportWizard.css`'s `.import-wizard__badges`) — a native `<ol>` marker here would double up
+   with each `VersionCard`'s own "Versão {seq}" heading and read as "1. Versão 1". */
+.a12-version-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.a12-version-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* 3-step upload wizard. Same `list-style: none` reasoning as the timeline above — each step's
+   own text already reads "1. Reservar nova versão", so the native marker would double it up too. */
+.a12-upload-wizard {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.a12-upload-wizard > li > p {
+  margin: 0 0 var(--space-3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.a12-upload-wizard input[type="file"] {
+  margin-right: var(--space-3);
+  font: inherit;
+}
