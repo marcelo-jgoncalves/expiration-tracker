@@ -9,11 +9,11 @@
  * keep working against both without any call-site change.
  */
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
-import { fetchDashboard } from "../api/items.js";
+import { fetchDashboard, fetchDashboardSummary } from "../api/items.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
 import { STALE_TIME } from "../lib/queryConfig.js";
-import type { DashboardResponse, ExpirationItemStatus } from "../api/types.js";
+import type { DashboardResponse, DashboardSummaryResponse, ExpirationItemStatus } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
 const OVERVIEW_LIMIT = 30;
@@ -26,6 +26,21 @@ export function useItemsDashboardBounded(status: ExpirationItemStatus, limit: nu
   return useQuery<DashboardResponse, unknown>({
     queryKey: queryKeys.items.dashboardBounded(organizationId ?? "", status, limit),
     queryFn: ({ signal }) => fetchDashboard(status, { signal, limit }),
+    enabled: Boolean(organizationId) && !switching,
+    retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
+  });
+}
+
+/** Overview's attention row (PENDING_PROTOCOL_REVIEW, D-308 pendência #14) - real tenant-wide
+ * aggregate counts (`GET /dashboard/summary`), replacing the hardcoded placeholder numbers
+ * `Overview.tsx` used before this existed. Separate query from the bounded page above (different
+ * endpoint, no `limit`/`status` param), same OPERATIONAL staleness. */
+export function useDashboardSummary() {
+  const { organizationId, switching } = useActiveOrganization();
+  return useQuery<DashboardSummaryResponse, unknown>({
+    queryKey: queryKeys.items.summary(organizationId ?? ""),
+    queryFn: ({ signal }) => fetchDashboardSummary({ signal }),
     enabled: Boolean(organizationId) && !switching,
     retry: retryPolicyFor("safe-read"),
     staleTime: STALE_TIME.OPERATIONAL,

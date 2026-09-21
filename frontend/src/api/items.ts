@@ -5,7 +5,7 @@
  * src/modules/bff/domain/proxy-allowlist.ts) exist in exactly one place.
  */
 import { apiClient } from "./apiClient.js";
-import type { CreateItemInput, DashboardResponse, ExpirationItemStatus, ItemResponse, RenewItemInput, RenewItemResponse } from "./types.js";
+import type { CreateItemInput, DashboardResponse, DashboardSummaryResponse, ExpirationItemStatus, ItemResponse, RenewItemInput, RenewItemResponse } from "./types.js";
 
 /** D-136/D-E: `limit`/`cursor` are optional - omitting both preserves the exact request shape
  * every existing call site already sends (server applies its own default limit either way,
@@ -18,6 +18,15 @@ export function fetchDashboard(
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
   if (options?.cursor) params.set("cursor", options.cursor);
   return apiClient.get<DashboardResponse>(`/items/dashboard?${params.toString()}`, { signal: options?.signal });
+}
+
+/** `GET /dashboard/summary` (Roadmap P0.6/D-308 pendência #14) - tenant-wide aggregate, no
+ * pagination/filter params (unlike `fetchDashboard` above, a different real endpoint under
+ * `/items/dashboard`). Backend wraps the payload as `{ summary }`, unwrapped here so every call
+ * site gets the flat shape directly, same as every other fetch function in this file. */
+export async function fetchDashboardSummary(options?: { signal?: AbortSignal }): Promise<DashboardSummaryResponse> {
+  const { summary } = await apiClient.get<{ summary: DashboardSummaryResponse }>("/dashboard/summary", { signal: options?.signal });
+  return summary;
 }
 
 export function fetchItem(itemId: string, options?: { signal?: AbortSignal }): Promise<ItemResponse> {

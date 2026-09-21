@@ -77,6 +77,21 @@ export interface DashboardResponse {
   nextCursor: string | null;
 }
 
+/** `GET /dashboard/summary` (Roadmap P0.6, `DashboardService.getSummary`) - only the
+ * ExpirationItem-only fields are consumed by `Overview.tsx`'s attention row today
+ * (PENDING_PROTOCOL_REVIEW, D-308 pendência #14); the combined Requirement+Item counters exist
+ * for a future compliance-dashboard consumer, not used here. */
+export interface DashboardSummaryResponse {
+  overdueCount: number;
+  expiringSoonCount: number;
+  awaitingReviewCount: number;
+  missingRequirementsCount: number;
+  itemsOverdueCount: number;
+  itemsExpiringSoonCount: number;
+  activeItemsCount: number;
+  approximate: boolean;
+}
+
 /**
  * BLOCKER-C review queue (Variante B, revisão humana explícita — decisão do Marcelo,
  * 2026-08-25, reminder-delivery-pipeline.md's sibling decision brief). The domain-relevant

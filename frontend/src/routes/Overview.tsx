@@ -14,11 +14,11 @@
  * earns its own affordance again if it covers a scope neither card does today (e.g. every status,
  * not just ACTIVE).
  *
- * ADR-0015/pendência #14 (NEXT_SESSION_PROMPT.md): the counts below are PLACEHOLDER data, not
- * real - `useItemsDashboardBounded` only returns a bounded 30-item page, not an aggregate count,
- * so computing these from it would silently undercount past 30 active items (a real Epistemic
- * Integrity violation). Wiring this to a real count requires a new backend aggregate endpoint,
- * not built yet. Do not remove this comment or treat the row as real until that lands.
+ * ADR-0015/pendência #14 (NEXT_SESSION_PROMPT.md, PENDING_PROTOCOL_REVIEW — decisions-log.md):
+ * the 3 attention counts now come from `useDashboardSummary()` (`GET /dashboard/summary`,
+ * `DashboardService.getSummary`'s `itemsOverdueCount`/`itemsExpiringSoonCount`/
+ * `activeItemsCount`), a real tenant-wide aggregate — never derived from `useItemsDashboardBounded`
+ * (only a bounded 30-item page, which would silently undercount past 30 active items).
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -26,13 +26,14 @@ import { useOrgPath } from "../routing/useOrgPath.js";
 import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { ApiError } from "../api/errors.js";
 import { AlertCircle, Clock, ClipboardList, Plus } from "lucide-react";
 import { PageHeader, Panel, AttentionRow, type AttentionItem } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
-import { useItemsDashboardBounded } from "../hooks/useItemsDashboard.js";
+import { useItemsDashboardBounded, useDashboardSummary } from "../hooks/useItemsDashboard.js";
 import { useStorageQuota } from "../hooks/useStorageQuota.js";
 
 /**
@@ -70,6 +71,7 @@ export function Overview() {
   // as the Items Collection screen (D-136/D-E split the hook in two - this screen wants a
   // single bounded read, never the paginated "load more" the Collection needs).
   const query = useItemsDashboardBounded("ACTIVE");
+  const summaryQuery = useDashboardSummary();
   const now = useMemo(() => new Date(), []);
   const orgPath = useOrgPath();
 
@@ -112,7 +114,7 @@ export function Overview() {
     />
   );
 
-  if (query.isPending) {
+  if (query.isPending || summaryQuery.isPending) {
     return (
       <>
         {header}
@@ -155,20 +157,29 @@ export function Overview() {
     );
   }
 
-  // PLACEHOLDER (see file header comment + NEXT_SESSION_PROMPT.md pendência #14) - not derived
-  // from `items` (the bounded 30-item page above), which would silently undercount past 30
-  // active items. Real counts need a backend aggregate endpoint that does not exist yet.
-  const placeholderAttention: AttentionItem[] = [
-    { count: 3, label: "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
-    { count: 4, label: "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
-    { count: items.length, label: "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
-  ];
+  // Real tenant-wide aggregate (D-308 pendência #14, PENDING_PROTOCOL_REVIEW) - `summaryQuery`
+  // is guaranteed settled (not pending) by the gate above; `isError` degrades gracefully instead
+  // of blocking the whole page over a secondary widget (the items table below is the primary
+  // content and never depends on this query).
+  const attention: AttentionItem[] | undefined = summaryQuery.data
+    ? [
+        { count: summaryQuery.data.itemsOverdueCount, label: "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsExpiringSoonCount, label: "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+        { count: summaryQuery.data.activeItemsCount, label: "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+      ]
+    : undefined;
 
   return (
     <>
       {header}
       <StorageQuotaCard orgPath={orgPath} />
-      <AttentionRow items={placeholderAttention} />
+      {attention ? (
+        <AttentionRow items={attention} />
+      ) : (
+        <InlineNotice tone="warning" announce="none">
+          Não foi possível carregar os contadores de atenção agora.
+        </InlineNotice>
+      )}
       <Panel>
         <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
