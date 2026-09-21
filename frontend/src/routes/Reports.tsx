@@ -19,6 +19,7 @@
  *     history lives in the dialog, never duplicated inline.
  */
 import { useState, type FormEvent } from "react";
+import { Download, History, Plus, Trash2 } from "lucide-react";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useReportSubscriptions } from "../hooks/useReportSubscriptions.js";
 import { useCreateReportSubscription } from "../hooks/useCreateReportSubscription.js";
@@ -145,7 +146,7 @@ function ReportCard({ entry }: { entry: ReportCatalogEntry }) {
     <Panel>
       <p className="reports-card__title">{entry.title}</p>
       <p className="reports-card__note">{entry.note}</p>
-      <Button variant="secondary" size="sm" pending={state.kind === "pending"} onClick={() => void handleDownload()}>
+      <Button variant="secondary" size="sm" icon={Download} pending={state.kind === "pending"} onClick={() => void handleDownload()}>
         Baixar CSV
       </Button>
       {state.kind === "truncated" ? (
@@ -176,30 +177,32 @@ function SubscriptionsPanel({
 
   return (
     <Section heading="Assinaturas" headingId="reports-subscriptions" annotation={query.data ? `(${query.data.subscriptions.length})` : undefined}>
-      <div className="reports-subscriptions__header">
-        <Button variant="secondary" size="sm" onClick={onCreate}>
-          Nova assinatura
-        </Button>
-      </div>
-      {query.isPending ? (
-        <CollectionSkeleton rows={2} label="Carregando assinaturas…" />
-      ) : query.isError ? (
-        <InlineNotice tone="critical" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void query.refetch()}>Tentar novamente</Button>}>
-          Não foi possível carregar as assinaturas.
-        </InlineNotice>
-      ) : query.data.subscriptions.length === 0 ? (
-        <EmptyState kind="true-empty" message="Nenhuma assinatura configurada. Crie uma assinatura para receber relatórios por e-mail periodicamente." action={<Button variant="primary" onClick={onCreate}>Nova assinatura</Button>} />
-      ) : (
-        <>
-          {/* Codex review round finding: the backend's list route CAN paginate (DynamoDB) but
-              accepts no cursor input at all - if it ever does, this is the only honest thing to
-              say (never present a truncated count as the real total). */}
-          {query.data.lastEvaluatedKey ? (
-            <InlineNotice tone="neutral">Há mais assinaturas do que esta lista mostra - a busca por mais páginas ainda não é suportada.</InlineNotice>
-          ) : null}
-          <SubscriptionsTable subscriptions={query.data.subscriptions} onRemove={onRemove} onViewHistory={setHistoryFor} />
-        </>
-      )}
+      <Panel>
+        <div className="reports-subscriptions__header">
+          <Button variant="secondary" size="sm" icon={Plus} onClick={onCreate}>
+            Nova assinatura
+          </Button>
+        </div>
+        {query.isPending ? (
+          <CollectionSkeleton rows={2} label="Carregando assinaturas…" />
+        ) : query.isError ? (
+          <InlineNotice tone="critical" announce="alert" actions={<Button size="sm" variant="secondary" onClick={() => void query.refetch()}>Tentar novamente</Button>}>
+            Não foi possível carregar as assinaturas.
+          </InlineNotice>
+        ) : query.data.subscriptions.length === 0 ? (
+          <EmptyState kind="true-empty" message="Nenhuma assinatura configurada. Crie uma assinatura para receber relatórios por e-mail periodicamente." action={<Button variant="primary" icon={Plus} onClick={onCreate}>Nova assinatura</Button>} />
+        ) : (
+          <>
+            {/* Codex review round finding: the backend's list route CAN paginate (DynamoDB) but
+                accepts no cursor input at all - if it ever does, this is the only honest thing to
+                say (never present a truncated count as the real total). */}
+            {query.data.lastEvaluatedKey ? (
+              <InlineNotice tone="neutral">Há mais assinaturas do que esta lista mostra - a busca por mais páginas ainda não é suportada.</InlineNotice>
+            ) : null}
+            <SubscriptionsTable subscriptions={query.data.subscriptions} onRemove={onRemove} onViewHistory={setHistoryFor} />
+          </>
+        )}
+      </Panel>
       {historyFor ? <SubscriptionHistoryDialog subscription={historyFor} onClose={() => setHistoryFor(undefined)} /> : null}
     </Section>
   );
@@ -231,10 +234,10 @@ function SubscriptionsTable({
       actions: true,
       render: (s) => (
         <>
-          <Button size="sm" variant="secondary" onClick={() => onViewHistory(s)}>
+          <Button size="sm" variant="secondary" icon={History} onClick={() => onViewHistory(s)}>
             Ver histórico
           </Button>{" "}
-          <Button size="sm" variant="danger" onClick={() => onRemove(s)}>
+          <Button size="sm" variant="danger" icon={Trash2} onClick={() => onRemove(s)}>
             Remover
           </Button>
         </>
@@ -450,7 +453,7 @@ function RemoveSubscriptionDialog({ subscription, onClose, showToast }: { subscr
       <Button variant="secondary" onClick={onClose}>
         Voltar
       </Button>{" "}
-      <Button variant="danger" pending={mutation.isPending} onClick={() => void handleConfirm()}>
+      <Button variant="danger" icon={Trash2} pending={mutation.isPending} onClick={() => void handleConfirm()}>
         {mutation.isPending ? "Removendo…" : "Confirmar remoção"}
       </Button>
     </Dialog>

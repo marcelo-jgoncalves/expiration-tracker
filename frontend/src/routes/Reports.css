@@ -19,10 +19,19 @@
   margin: 0 0 var(--space-4);
 }
 
+/* Header row (Nova assinatura) lives inside the unpadded Panel that also holds the table
+   below (Marcelo, 2026-09-21, tela 17/Relatórios: matches the same single-card grouping the
+   design-system-v2 pass already uses for every other table+toolbar pairing) - explicit inset
+   padding since `.ui-panel` itself carries none by design (DataTable/EmptyState/
+   CollectionSkeleton already supply their own). */
 .reports-subscriptions__header {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: var(--space-4);
+  padding: var(--space-5) var(--space-6) 0;
+}
+
+.reports-subscriptions__header:last-child {
+  padding-bottom: var(--space-5);
 }
 
 /* D-293 — A16 execution history dialog. */
