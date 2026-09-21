@@ -16,6 +16,7 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { ApiError } from "../api/errors.js";
 import { isValidationError } from "../api/validation.js";
 import type { Member, MembershipRole } from "../api/types.js";
+import { presentMemberLabel } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
@@ -83,7 +84,14 @@ function MembersTable({ members, canManage, actorRole }: { members: Member[]; ca
   }
 
   const columns: DataTableColumn<Member>[] = [
-    { key: "userId", header: "Usuário", primary: true, render: (m) => m.userId },
+    {
+      key: "userId",
+      header: "Usuário",
+      primary: true,
+      // #15 (2026-09-21): displayName/email when resolved, raw userId as the last-resort
+      // fallback and always as the title (still the ground truth for support/debugging).
+      render: (m) => <span title={m.userId}>{presentMemberLabel(m)}</span>,
+    },
     {
       key: "role",
       header: "Papel",

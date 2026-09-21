@@ -8,12 +8,18 @@ import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
 /** D-149: real cursor pagination via TanStack Query's own `pageParam`, same convention as
  * useItemsDashboardPage - never fetches more than one page ahead of "Carregar mais". */
-export function useActivity(filters: { month?: string; resourceType?: string; enabled: boolean }) {
+export function useActivity(filters: { month?: string; resourceType?: string; resourceId?: string; enabled: boolean }) {
   const { organizationId, switching } = useActiveOrganization();
   return useInfiniteQuery<ActivityPageResponse, unknown>({
-    queryKey: queryKeys.activity.page(organizationId ?? "", filters.month, filters.resourceType),
+    queryKey: queryKeys.activity.page(organizationId ?? "", filters.month, filters.resourceType, filters.resourceId),
     queryFn: ({ signal, pageParam }) =>
-      fetchActivity({ signal, month: filters.month, resourceType: filters.resourceType, cursor: pageParam as string | undefined }),
+      fetchActivity({
+        signal,
+        month: filters.month,
+        resourceType: filters.resourceType,
+        resourceId: filters.resourceId,
+        cursor: pageParam as string | undefined,
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.cursor ?? undefined,
     // D-149: never fires the request while the role check hasn't (yet, or ever) cleared -

@@ -1,12 +1,5 @@
-/* A07 — file list/upload row layout. Reuses design-system spacing/color tokens only, no new
-   visual language (design-system.md). */
-
-.ui-form__row {
-  display: flex;
-  gap: var(--space-4);
-  align-items: center;
-  flex-wrap: wrap;
-}
+/* Requisito - Detalhe - reuses design-system spacing/color tokens only, no new visual language
+   (design-system.md), same convention as ItemDocuments.css/ItemReminderPolicy.css. */
 
 .ui-list {
   list-style: none;

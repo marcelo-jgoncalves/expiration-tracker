@@ -56,6 +56,17 @@
   background-color: var(--color-accent-50);
 }
 
+.import-wizard__dropzone-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .import-wizard__actions {
   display: flex;
   gap: var(--space-3);

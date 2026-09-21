@@ -473,6 +473,11 @@ export interface Member {
   status: MembershipStatus;
   joinedAt: string;
   version: number;
+  /** #15 (2026-09-21): resolved from GlobalUser, only present for an ACTIVE global identity -
+   * absent means "no name/email on file to show", never render as a blank/placeholder that
+   * implies loading. */
+  email?: string;
+  displayName?: string;
 }
 
 export interface MembersResponse {
@@ -588,6 +593,14 @@ export interface DocumentsListResponse {
 
 export interface DocumentResponse {
   document: ItemDocument;
+}
+
+/** D-313 (2026-09-21) - GET /items/{itemId}/documents/{documentId}/download response. Never file
+ * bytes themselves, only a freshly minted presigned S3 URL - same shape as document-archive's
+ * dossier-export download route. */
+export interface DocumentDownloadResponse {
+  downloadUrl: string;
+  expiresInSeconds: number;
 }
 
 /** POST /items/{itemId}/documents request body (`ReserveUploadInput`). */

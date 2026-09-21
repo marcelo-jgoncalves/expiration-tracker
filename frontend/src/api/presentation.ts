@@ -29,6 +29,8 @@ import type {
   ImportJobStatus,
   DocumentChasingTier,
   DocumentChasingOccurrenceStatus,
+  Member,
+  MembershipRole,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -365,6 +367,51 @@ export function presentDocumentChasingOccurrenceStatus(status: DocumentChasingOc
     case "CANCELLED":
       return { label: "Cancelado", tone: "neutral" };
   }
+}
+
+/** #15 (2026-09-21): a display label for a member, preferring the resolved GlobalUser profile
+ * over the raw userId - `displayName` first (what a person actually goes by), `email` next
+ * (still identifies them, just less friendly), the raw `userId` only as the last resort when
+ * neither resolved (never a blank/placeholder that could be mistaken for "loading"). */
+export function presentMemberLabel(member: Pick<Member, "userId" | "displayName" | "email">): string {
+  return member.displayName || member.email || member.userId;
+}
+
+/** Same fallback rule as `presentMemberLabel`, for the common case of resolving a bare
+ * `assigneeUserId` (e.g. `ExpirationItem.assigneeUserId`) against an already-fetched member
+ * roster - `undefined` when the id isn't a member of this roster (removed member, stale
+ * reference, or the roster hasn't loaded yet), letting the caller decide the fallback (usually
+ * the raw id itself, so something is still shown rather than nothing). */
+export function resolveAssigneeLabel(assigneeUserId: string | undefined, members: Member[] | undefined): string | undefined {
+  if (!assigneeUserId) return undefined;
+  const member = members?.find((m) => m.userId === assigneeUserId);
+  return member ? presentMemberLabel(member) : undefined;
+}
+
+/** Sidebar identity card (2026-09-21): up to 2 characters for an avatar badge - first letter of
+ * the first two whitespace-separated words of a display name ("Ana Exemplo" -> "AE"), or the
+ * first letter alone for a single word/an email local-part fallback. Never more than 2 chars -
+ * the avatar badge has no room for more and a longer string would just get clipped by CSS. */
+export function initialsFor(name: string | undefined): string {
+  if (!name) return "";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
+}
+
+const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  MEMBER: "Member",
+  VIEWER: "Viewer",
+};
+
+/** Same 4 labels `Members.tsx`'s `ROLE_OPTIONS` already shows in its role-change dropdown - a
+ * single source for anywhere else (e.g. the sidebar identity card) that needs to display a
+ * role, so the two never drift apart. */
+export function presentMembershipRole(role: MembershipRole): string {
+  return MEMBERSHIP_ROLE_LABEL[role];
 }
 
 /** A15 (Block 9) — `ImportJobStatus` label only (the wizard step itself is derived from status

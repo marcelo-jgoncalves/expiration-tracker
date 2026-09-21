@@ -123,6 +123,19 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  /* Marcelo, 2026-09-21: sticky, not fixed - stays a flex sibling of `.app-shell__main` (no
+     layout/z-index side effects on the main content) but no longer scrolls away with it when a
+     screen has many records/long detail content. `align-self: flex-start` overrides
+     `.app-shell`'s `align-items: stretch` (would otherwise force this to the row's full content
+     height, defeating `position: sticky`, which needs the element's own height <= viewport).
+     `overflow-y: auto` is a rarely-hit safety net (nav content taller than the viewport, e.g. a
+     very short/zoomed window), not the common case - the real fix for "scroll back up to reach
+     another screen" is `position: sticky` itself. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .app-shell__wordmark {
@@ -177,6 +190,74 @@ a:hover {
   }
 }
 
+/* Sidebar identity card + logout (Marcelo, 2026-09-21, matches `prototype/03 - Fornecedor
+   Detalhe.html`'s `.v2-rail-footer`) - `SidebarUserFooter` in AppShell.tsx. */
+.app-shell__footer {
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-2);
+}
+
+.app-shell__avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-shell__footer-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell__footer-name {
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-shell__footer-role {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+}
+
+.app-shell__icon-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard), color var(--duration-fast) var(--easing-standard);
+}
+
+.app-shell__icon-button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
 .app-shell__nav-spacer {
   flex: 1;
 }
@@ -213,6 +294,12 @@ a:hover {
     border-right: 0;
     border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
     padding: var(--space-3) var(--space-4);
+    /* Unlike the desktop rail, this wraps into a multi-row top bar - sticky here would pin an
+       increasingly tall block at the top of the viewport as it wraps, unlike the single-column
+       desktop case this feature was actually requested for (Marcelo, 2026-09-21). */
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 
   .app-shell__wordmark {

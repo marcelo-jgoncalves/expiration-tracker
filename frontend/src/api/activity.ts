@@ -11,12 +11,14 @@ export function fetchActivity(options?: {
   signal?: AbortSignal;
   month?: string;
   resourceType?: string;
+  resourceId?: string;
   limit?: number;
   cursor?: string;
 }): Promise<ActivityPageResponse> {
   const params = new URLSearchParams();
   if (options?.month) params.set("month", options.month);
   if (options?.resourceType) params.set("resourceType", options.resourceType);
+  if (options?.resourceId) params.set("resourceId", options.resourceId);
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
   if (options?.cursor) params.set("cursor", options.cursor);
   const qs = params.toString();

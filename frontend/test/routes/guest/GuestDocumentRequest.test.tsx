@@ -95,11 +95,11 @@ describe("GuestDocumentRequest (G02)", () => {
     listGuestDocumentTypesMock.mockResolvedValue({ documentTypes: [{ documentTypeId: "dt-1", displayName: "CND Federal" }] });
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
     const continueButton = screen.getByRole("button", { name: "Continuar" });
     expect(continueButton).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     expect(screen.getByRole("button", { name: "Continuar" })).not.toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
 
@@ -111,8 +111,8 @@ describe("GuestDocumentRequest (G02)", () => {
     listGuestDocumentTypesMock.mockResolvedValue({ documentTypes: [{ documentTypeId: "dt-1", displayName: "CND Federal" }] });
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
 
@@ -130,8 +130,8 @@ describe("GuestDocumentRequest (G02)", () => {
     submitGuestEvidenceMock.mockResolvedValue({ documentId: "doc-1", versionId: "ver-1", seq: 1, fileId: "file-1" });
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
 
@@ -163,8 +163,8 @@ describe("GuestDocumentRequest (G02)", () => {
     confirmGuestUploadMock.mockResolvedValue({ extended: false });
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
     const file = new File(["conteudo"], "cnd.pdf", { type: "application/pdf" });
@@ -191,8 +191,8 @@ describe("GuestDocumentRequest (G02)", () => {
     });
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
 
@@ -223,8 +223,8 @@ describe("GuestDocumentRequest (G02)", () => {
     uploadDocumentBytesMock.mockRejectedValue(new Error("Upload failed with status 500"));
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
     const file = new File(["conteudo"], "cnd.pdf", { type: "application/pdf" });
@@ -245,8 +245,8 @@ describe("GuestDocumentRequest (G02)", () => {
     submitGuestEvidenceMock.mockRejectedValue(new GuestUnavailableError());
     renderGuestScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \*/)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText(/Tipo de documento \*/), { target: { value: "dt-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Tipo de documento \(obrigatório\)/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Tipo de documento \(obrigatório\)/), { target: { value: "dt-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Arquivo" })).toBeInTheDocument());
     const file = new File(["conteudo"], "cnd.pdf", { type: "application/pdf" });

@@ -28,6 +28,7 @@ import { Button } from "../../components/ui/Button.js";
 import { Switch } from "../../components/ui/Switch.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import { SelectField } from "../../components/forms/SelectField.js";
 import type { ExpirationItem, MembershipRole, ReminderTrigger } from "../../api/types.js";
 import "./ItemReminderPolicy.css";
 
@@ -119,20 +120,30 @@ function AddOffsetForm({ existingDays, onAdd }: { existingDays: number[]; onAdd:
 
   return (
     <div className="ui-form__row" role="group" aria-label="Novo aviso">
-      <select value={direction} onChange={(event) => setDirection(event.target.value as "before" | "same-day")} aria-label="Quando avisar">
-        <option value="before">Dias antes</option>
-        <option value="same-day">No dia</option>
-      </select>
+      <SelectField
+        label="Quando avisar"
+        value={direction}
+        onChange={(v) => setDirection(v as "before" | "same-day")}
+        options={[
+          { value: "before", label: "Dias antes" },
+          { value: "same-day", label: "No dia" },
+        ]}
+      />
       {direction === "before" ? (
-        <input
-          type="number"
-          min={1}
-          step={1}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          aria-label="Número de dias antes"
-          className="ui-reminder-policy__offset-input"
-        />
+        <div className="ui-field">
+          <label className="ui-field__label" htmlFor="reminder-offset-days">
+            Número de dias antes
+          </label>
+          <input
+            id="reminder-offset-days"
+            type="number"
+            min={1}
+            step={1}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            className="ui-field__control ui-reminder-policy__offset-input"
+          />
+        </div>
       ) : null}
       <Button variant="primary" size="sm" onClick={handleAdd}>
         Adicionar

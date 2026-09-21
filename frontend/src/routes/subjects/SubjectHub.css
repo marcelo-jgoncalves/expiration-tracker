@@ -1,0 +1,32 @@
+/* A09 - Compliance panel (Marcelo, 2026-09-21, protótipo "03 - Fornecedor Detalhe"). Reuses
+   design-system spacing/color tokens only, no new visual language - same discipline as
+   ItemDocuments.css. Never a donut/progress-bar visualization (Overview.tsx's own "KPI theater"
+   doctrine, mission §29) - the percentage is a plain stat, the breakdown is 3 StatusBadges. */
+.ui-compliance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.ui-compliance__stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.ui-compliance__percent {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-900);
+  line-height: var(--line-height-900);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-compliance__breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

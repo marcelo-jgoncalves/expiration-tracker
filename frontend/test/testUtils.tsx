@@ -20,6 +20,8 @@ function defaultActiveOrganizationValue(): ActiveOrganizationValue {
     switching: false,
     select: () => {},
     isPending: false,
+    displayName: undefined,
+    email: undefined,
   };
 }
 

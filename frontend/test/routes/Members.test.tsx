@@ -51,6 +51,23 @@ describe("Members", () => {
     await waitFor(() => expect(screen.getByText("user-1")).toBeInTheDocument());
   });
 
+  // #15 (2026-09-21): shows the resolved displayName instead of the raw userId once GlobalUser
+  // resolution is present, with the raw id kept as the row's title (support/debugging).
+  it("shows the resolved displayName instead of the raw userId when present", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ displayName: "Ana Exemplo" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "VIEWER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByText("Ana Exemplo")).toBeInTheDocument());
+    expect(screen.queryByText("user-1")).not.toBeInTheDocument();
+    expect(screen.getByText("Ana Exemplo").closest("span")).toHaveAttribute("title", "user-1");
+  });
+
   // Mutação: trocar `canManageMembers` para incluir "VIEWER"/"MEMBER" (ou remover a checagem de
   // role) faria o formulário de convite e as ações de gerência aparecerem para um usuário que o
   // backend rejeitaria - a UI nunca deve prometer uma ação que o servidor vai recusar.

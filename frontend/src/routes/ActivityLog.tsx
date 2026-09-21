@@ -33,6 +33,7 @@
  *      account. Reworded to the honest "Usuário não identificado".
  */
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useActivity } from "../hooks/useActivity.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { ApiError } from "../api/errors.js";
@@ -65,8 +66,13 @@ function resourceLabel(entry: ActivityEntry): string {
 
 export function ActivityLog() {
   const role = useCurrentMembershipRole();
+  const [searchParams] = useSearchParams();
   const [month, setMonth] = useState("");
   const [resourceType, setResourceType] = useState("");
+  // #16 finding (2026-09-20): entry points like ItemDetail's "Histórico de auditoria" card link
+  // here with ?resourceId=<itemId> so the log opens pre-filtered to that one record - seeded
+  // once from the URL, editable afterward like the other two filters.
+  const [resourceId, setResourceId] = useState(() => searchParams.get("resourceId") ?? "");
   const [announcement, setAnnouncement] = useState("");
   const previousPageCount = useRef(0);
   const exhaustedTextRef = useRef<HTMLParagraphElement>(null);
@@ -74,8 +80,9 @@ export function ActivityLog() {
 
   const monthFilter = /^\d{6}$/.test(month) ? month : undefined;
   const resourceTypeFilter = resourceType.trim() || undefined;
+  const resourceIdFilter = resourceId.trim() || undefined;
 
-  const query = useActivity({ month: monthFilter, resourceType: resourceTypeFilter, enabled: canViewActivity(role) });
+  const query = useActivity({ month: monthFilter, resourceType: resourceTypeFilter, resourceId: resourceIdFilter, enabled: canViewActivity(role) });
 
   const header = <PageHeader title="Log de atividade" description="Quem fez o quê, quando — em toda a organização." />;
 
@@ -147,6 +154,7 @@ export function ActivityLog() {
         <Panel>
           <TextField label="Mês (AAAAMM)" value={month} onChange={setMonth} hint="Ex.: 202609. Vazio usa o mês atual." />
           <TextField label="Tipo de recurso" value={resourceType} onChange={setResourceType} hint="Ex.: ExpirationItem. Vazio mostra todos." />
+          <TextField label="Recurso (ID)" value={resourceId} onChange={setResourceId} hint="Ex.: o ID de um vencimento específico. Vazio mostra todos." />
         </Panel>
       </Section>
       <Section heading="Eventos" headingId="activity-events" annotation={`(${entries.length})`}>

@@ -44,7 +44,7 @@ import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Toolbar } from "../components/ui/Layout.js";
-import { Button } from "../components/ui/Button.js";
+import { Button, ButtonLink } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
@@ -167,6 +167,16 @@ export function RequirementsCollection() {
             { key: "assignee", header: "Responsável", render: (r) => r.assigneeUserId ?? "Sem responsável" },
             { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.status)} /> },
             { key: "validity", header: "Validade", numeric: true, render: (r) => (r.evidenceValidUntil ? formatAbsoluteDate(r.evidenceValidUntil) : "—") },
+            {
+              key: "view",
+              header: "",
+              actions: true,
+              render: (r) => (
+                <ButtonLink variant="tertiary" size="sm" to={orgPath(`/subjects/${r.subjectId}/requirements/${r.requirementId}`)}>
+                  Ver
+                </ButtonLink>
+              ),
+            },
             {
               key: "actions",
               header: "Ações",

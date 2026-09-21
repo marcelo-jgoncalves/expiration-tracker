@@ -43,6 +43,11 @@ export interface ActiveOrganizationValue {
    * `enabled`) for the duration. */
   switching: boolean;
   select: (organizationId: string) => void;
+  /** #15/sidebar identity card (2026-09-21): the logged-in user's own resolved profile, read
+   * from the same session query as everything else here - `undefined` fields mean "no name/
+   * email on file", never a loading state (that's `isPending` above). */
+  displayName?: string;
+  email?: string;
 }
 
 export const ActiveOrganizationContext = createContext<ActiveOrganizationValue | undefined>(undefined);
@@ -93,6 +98,8 @@ export function ActiveOrganizationProvider({ children }: { children: ReactNode }
       switching,
       select,
       isPending: sessionQuery.isPending,
+      displayName: sessionQuery.data?.displayName,
+      email: sessionQuery.data?.email,
     }),
     [sessionQuery.data, sessionQuery.isPending, switching, select],
   );

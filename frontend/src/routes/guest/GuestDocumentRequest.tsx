@@ -40,6 +40,7 @@ import { computeChecksumSha256, uploadDocumentBytes } from "../../api/documents.
 import { GuestLinkUnavailable } from "../../components/GuestLinkUnavailable.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Button } from "../../components/ui/Button.js";
+import { SelectField } from "../../components/forms/SelectField.js";
 import { AsyncFeedback } from "../../components/AsyncStates.js";
 import type { GuestDocumentTypeOption, GuestSubmitEvidenceResult } from "../../api/types.js";
 import "./GuestDocumentRequest.css";
@@ -198,7 +199,12 @@ function StepDocumentType({
         Tipo de documento
       </h1>
       {typesQuery.isPending ? (
-        <select disabled aria-label="Tipo de documento">
+        // Deliberately NOT a SelectField here (unlike the real control below) - this is a
+        // transient skeleton, and giving it the identical "Tipo de documento" label would make
+        // it indistinguishable BY LABEL from the real, interactive select that replaces it a
+        // moment later (found via a real flaky-test race: `waitFor` matching this disabled
+        // placeholder before the data resolves, then interacting with a dead control).
+        <select disabled aria-label="Tipo de documento (carregando)">
           <option>Carregando tipos disponíveis…</option>
         </select>
       ) : typesQuery.isError ? (
@@ -207,17 +213,17 @@ function StepDocumentType({
         </InlineNotice>
       ) : (
         <>
-          <label htmlFor="guest-document-type">Tipo de documento *</label>
-          <select id="guest-document-type" value={documentTypeId ?? ""} onChange={(event) => onSelect(event.target.value)}>
-            <option value="" disabled>
-              Selecione…
-            </option>
-            {typesQuery.data.documentTypes.map((option: GuestDocumentTypeOption) => (
-              <option key={option.documentTypeId} value={option.documentTypeId}>
-                {option.displayName}
-              </option>
-            ))}
-          </select>
+          <SelectField
+            id="guest-document-type"
+            label="Tipo de documento"
+            required
+            value={documentTypeId ?? ""}
+            onChange={onSelect}
+            options={[
+              { value: "", label: "Selecione…" },
+              ...typesQuery.data.documentTypes.map((option: GuestDocumentTypeOption) => ({ value: option.documentTypeId, label: option.displayName })),
+            ]}
+          />
           {!documentTypeId ? <InlineNotice tone="neutral">Campo obrigatório — não é possível avançar sem selecionar um tipo.</InlineNotice> : null}
         </>
       )}

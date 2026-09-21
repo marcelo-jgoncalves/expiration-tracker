@@ -53,6 +53,9 @@ const SubjectsCollection = lazy(() =>
 );
 const SubjectForm = lazy(() => import("./routes/subjects/SubjectForm.js").then((m) => ({ default: m.SubjectForm })));
 const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
+const RequirementDetail = lazy(() =>
+  import("./routes/subjects/RequirementDetail.js").then((m) => ({ default: m.RequirementDetail })),
+);
 const RequirementsCollection = lazy(() =>
   import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
 );
@@ -190,6 +193,9 @@ export function App() {
                     route opens the series detail overlay on top of the same two panels. */}
                 <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
+                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - reached from A09's card ("Requisitos
+                    documentais") and A11's table row ("Ver"), no top-level nav entry of its own. */}
+                <Route path="subjects/:subjectId/requirements/:requirementId" element={<RequirementDetail />} />
                 {/* A10 (Block 7, D-267) - Rastreamento legado, reached only from A09's card
                     ("Rastreamento legado"), no top-level nav entry of its own. */}
                 <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
@@ -259,6 +265,10 @@ export function App() {
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requests" element={null} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={null} />
+                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - added here from the start, same
+                    healing-forward discipline as A10/A13/A14/A17/A20/A21/A22, not a repeat of
+                    A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/requirements/:requirementId" element={null} />
                 {/* A10 (Block 7, D-267) - added here from the start, same healing-forward
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/tracking" element={null} />

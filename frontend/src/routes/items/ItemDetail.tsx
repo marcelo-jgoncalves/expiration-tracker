@@ -15,8 +15,10 @@ import { Activity, Bell, ClipboardList, Paperclip, Plus, RefreshCw } from "lucid
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
+import { useActivity } from "../../hooks/useActivity.js";
+import { useMembers } from "../../hooks/useMembers.js";
 import { useReminderPolicy } from "../../hooks/useReminderPolicy.js";
-import { presentItemStatus, presentItemUrgency, formatAbsoluteDate } from "../../api/presentation.js";
+import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, resolveAssigneeLabel } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem } from "../../api/types.js";
@@ -117,16 +119,30 @@ function DocumentsEntryCard({ itemId }: { itemId: string }) {
   );
 }
 
-function AuditEntryCard() {
+/** #16 finding (2026-09-20): GET /activity had no resourceId filter, so this card could only
+ * link to the generic log, never show a real per-item count - fixed now that the backend
+ * filter exists (resourceId, mirrors resourceType). Counts only the first page (same limit-25
+ * cap the backend log view itself has), so "N+" signals more without claiming an exact total. */
+function auditEntryNote(query: ReturnType<typeof useActivity>): string {
+  if (query.isError) return "Não foi possível carregar o histórico";
+  const page = query.data?.pages[0];
+  if (!page) return "Ver log de atividade";
+  const count = page.entries.length;
+  if (count === 0) return "Nenhum evento registrado";
+  return `${count}${page.hasMore ? "+" : ""} evento(s)`;
+}
+
+function AuditEntryCard({ itemId }: { itemId: string }) {
   const orgPath = useOrgPath();
+  const query = useActivity({ resourceId: itemId, enabled: true });
   return (
-    <Link className="ui-attention__link" to={orgPath("/activity")}>
+    <Link className="ui-attention__link" to={orgPath(`/activity?resourceId=${encodeURIComponent(itemId)}`)}>
       <span className="ui-attention__icon ui-attention__icon--accent">
         <Activity size={21} strokeWidth={2} aria-hidden="true" />
       </span>
       <span>
         <span className="ui-attention__count">Histórico de auditoria</span>
-        <span className="ui-attention__label">Ver log de atividade</span>
+        <span className="ui-attention__label">{auditEntryNote(query)}</span>
       </span>
     </Link>
   );
@@ -146,6 +162,11 @@ function DetailBody({
   const orgPath = useOrgPath();
   const now = new Date();
   const urgency = presentItemUrgency(item, now);
+  // #15 (2026-09-21): resolves a name/email instead of the raw assigneeUserId - falls back to
+  // the id itself while the roster hasn't loaded yet or the id isn't a current member (removed
+  // member, stale reference), same "always show something real" rule the rest of this page follows.
+  const membersQuery = useMembers();
+  const assigneeLabel = resolveAssigneeLabel(item.assigneeUserId, membersQuery.data?.members) ?? item.assigneeUserId;
 
   return (
     <div>
@@ -203,7 +224,7 @@ function DetailBody({
           { label: "Vencimento", value: formatAbsoluteDate(item.dueDate) },
           { label: "Periodicidade", value: item.periodicity },
           { label: "Emissor", value: item.issuer },
-          { label: "Responsável", value: item.assigneeUserId },
+          { label: "Responsável", value: assigneeLabel },
         ]}
       />
       {/* Unlike the pre-hero version, none of these three is guaranteed present (Categoria/
@@ -235,7 +256,7 @@ function DetailBody({
             <DocumentsEntryCard itemId={item.itemId} />
           </li>
           <li className="ui-attention__item">
-            <AuditEntryCard />
+            <AuditEntryCard itemId={item.itemId} />
           </li>
         </ul>
       </Section>

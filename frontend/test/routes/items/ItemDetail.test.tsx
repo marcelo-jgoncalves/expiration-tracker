@@ -52,6 +52,7 @@ describe("ItemDetail", () => {
       if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
       if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
       if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: null });
+      if (path === "/activity?resourceId=item-1") return Promise.resolve({ entries: [], cursor: null, hasMore: false });
       return Promise.reject(new Error("unexpected path " + path));
     });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
@@ -59,9 +60,43 @@ describe("ItemDetail", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /Lembretes/ })).toHaveAttribute("href", "/app/org-1/items/item-1/reminder-policy");
     expect(screen.getByRole("link", { name: /Arquivos/ })).toHaveAttribute("href", "/app/org-1/items/item-1/documents");
-    expect(screen.getByRole("link", { name: /Histórico de auditoria/ })).toHaveAttribute("href", "/app/org-1/activity");
+    expect(screen.getByRole("link", { name: /Histórico de auditoria/ })).toHaveAttribute("href", "/app/org-1/activity?resourceId=item-1");
     await waitFor(() => expect(screen.getByText("Nenhum anexo")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Nenhuma política configurada")).toBeInTheDocument());
+  });
+
+  // #15 (2026-09-21): "Responsável" shows a resolved name/email instead of the raw
+  // assigneeUserId once the member roster loads - falls back to the raw id when the roster
+  // hasn't loaded or the id isn't a current member (removed member, stale reference).
+  it("resolves the assignee's displayName instead of showing the raw assigneeUserId", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({ assigneeUserId: "user-42" }) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+      if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: null });
+      if (path === "/activity?resourceId=item-1") return Promise.resolve({ entries: [], cursor: null, hasMore: false });
+      if (path === "/organizations/members") {
+        return Promise.resolve({ members: [{ userId: "user-42", role: "MEMBER", status: "ACTIVE", joinedAt: "2026-01-01T00:00:00.000Z", version: 1, displayName: "Ana Exemplo" }] });
+      }
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
+
+    await waitFor(() => expect(screen.getByText("Ana Exemplo")).toBeInTheDocument());
+    expect(screen.queryByText("user-42")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the raw assigneeUserId when the roster has no matching member", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({ assigneeUserId: "user-42" }) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+      if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: null });
+      if (path === "/activity?resourceId=item-1") return Promise.resolve({ entries: [], cursor: null, hasMore: false });
+      if (path === "/organizations/members") return Promise.resolve({ members: [] });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
+
+    await waitFor(() => expect(screen.getByText("user-42")).toBeInTheDocument());
   });
 
   it("Arquivos entry point degrades gracefully to a neutral prompt while the document count hasn't resolved yet", async () => {
