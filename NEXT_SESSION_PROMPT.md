@@ -34,8 +34,12 @@ FECHADA, validada 2026-09-20** (D-308). **Vencimentos (`ItemsCollection.tsx`): F
 compartilhados; achados do protótipo deliberadamente não portados (coluna "Responsável" sem
 resolução de nome em nenhum lugar do app hoje; cor por categoria sem taxonomia real por trás,
 mesmo padrão "KPI theater" já rejeitado) registrados como pendência de produto, não código.
-**Em andamento agora: Fornecedores** (`prototype/Fornecedores.dc.html` →
-`frontend/src/routes/subjects/SubjectsCollection.tsx`, a confirmar caminho exato).
+**Fornecedores/Criar/Detalhe/Renovar vencimento: FECHADAS, validadas e commitadas 2026-09-20**
+(`543b3f7`) — StatusFilter/IconButton extraídos como componentes compartilhados, novo componente
+`SummaryHero`, achados reais viraram pendências #15/#16 abaixo (nome de usuário, filtro de
+atividade por item), não implementados agora. **Em andamento agora: Configurações**
+(`prototype/Configuracoes.dc.html` → `frontend/src/routes/Settings.tsx`, a confirmar caminho
+exato) — última tela do protótipo pendente.
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
