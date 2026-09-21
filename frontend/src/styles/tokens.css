@@ -133,6 +133,16 @@
   --shadow-none: none;
   --shadow-raised: 0 2px 8px rgba(20, 18, 31, 0.06);
   --shadow-overlay: 0 20px 48px rgba(88, 28, 135, 0.14);
+  /* 2026-09-20 (Marcelo): glow para elementos preenchidos com a cor de destaque (nav ativa,
+     botão primário) - rgba de --color-accent-600 (#7c3aed), mesmo padrão hardcoded que os dois
+     shadows acima já usam. */
+  --shadow-accent-glow: 0 8px 20px rgba(124, 58, 237, 0.28);
+  /* 2026-09-20 (Marcelo, tela Detalhe do Vencimento): gradiente do protótipo (accent-800 ->
+     accent-600 -> #a855f7) truncado nos dois primeiros stops - o terceiro é mais claro que
+     accent-600, e accent-600 é o tom mais claro já verificado com `--color-text-on-accent`
+     (5.70:1) em cima; manter o terceiro stop arriscaria texto branco sub-AA na parte mais
+     clara do gradiente. */
+  --gradient-hero: linear-gradient(155deg, var(--color-accent-800), var(--color-accent-600));
 
   /* Motion (mission §54) */
   --duration-instant: 0ms;
@@ -154,7 +164,12 @@
 
   /* ---------------------------------------------------------------- 2. SEMANTIC */
 
-  --color-surface-page: var(--color-neutral-50);
+  /* 2026-09-20 (Marcelo): fundo de página com leve gradiente lilás, igual aos protótipos
+     (`linear-gradient(180deg,#fbfaff,#f6f5fb)`) - independente de `--color-neutral-50` (que
+     continua sólido, usado em hover de itens da nav etc., onde um gradiente ladrilhado ficaria
+     errado). */
+  --gradient-page: linear-gradient(180deg, #fbfaff, #f6f5fb);
+  --color-surface-page: var(--gradient-page);
   --color-surface-default: var(--color-neutral-0);
   --color-surface-subtle: var(--color-neutral-100);
   --color-surface-hover: var(--color-neutral-50);

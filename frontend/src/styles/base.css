@@ -130,7 +130,7 @@ a:hover {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   text-decoration: none;
   font-weight: var(--font-weight-regular);
@@ -148,17 +148,18 @@ a:hover {
   color: var(--color-text-primary);
 }
 
-/* Current page is marked by weight + an inset bar + tint — three cues, so the state does not
-   depend on color alone (mission §98). `aria-current="page"` is the authoritative signal for
-   assistive tech. ADR-0015 finding: `box-shadow` (the inset bar) is an author color, dropped
-   entirely in forced-colors mode along with background/tint - the override below restores the
-   bar as a real `border` using the system's "selected item" color, which forced-colors does
-   render. */
+/* Current page (Marcelo, 2026-09-20, achado na tela Fornecedores: reverte o tratamento anterior
+   de tinta+barra para o preenchimento sólido do protótipo) — preenchimento cheio + texto
+   invertido + glow, não só cor: o contêiner preenchido é uma pista de FORMA (bloco vs. texto
+   plano), não só de matiz, então continua sem depender de cor isoladamente (mission §98).
+   `aria-current="page"` é o sinal autoritativo pra leitor de tela. Em `forced-colors`, background/
+   glow são descartados (cor de autor) - o override abaixo mantém a barra real via `border` com a
+   cor de sistema "selected item", que `forced-colors` sempre renderiza. */
 .app-shell__link[aria-current="page"] {
-  background: var(--color-surface-selected);
-  color: var(--color-action-primary-pressed);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
   font-weight: var(--font-weight-semibold);
-  box-shadow: inset 3px 0 0 var(--color-action-primary);
+  box-shadow: var(--shadow-accent-glow);
 }
 
 @media (forced-colors: active) {
@@ -212,10 +213,9 @@ a:hover {
     margin-bottom: var(--space-2);
   }
 
-  .app-shell__link[aria-current="page"] {
-    box-shadow: inset 0 -3px 0 var(--color-action-primary);
-  }
-
+  /* Preenchimento sólido (regra desktop acima) não depende de direção de layout - só o
+     fallback de forced-colors abaixo precisa inverter de borda esquerda pra borda inferior,
+     já que a nav vira uma linha horizontal aqui. */
   @media (forced-colors: active) {
     .app-shell__link[aria-current="page"] {
       border-left: 0;

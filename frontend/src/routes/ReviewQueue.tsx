@@ -48,6 +48,10 @@ import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import { queryKeys } from "../api/queryKeys.js";
 import type { ReviewQueueHit, ReviewQueueState, RejectionReason } from "../api/types.js";
+// `.ui-entry-card`/`.ui-entry-card-grid` (below) used to load implicitly via ItemDetail.tsx's
+// own import of this file - ItemDetail.tsx dropped it 2026-09-20 (moved to the `.ui-attention`
+// pattern instead), so this screen now owns the import it always depended on.
+import "./items/ItemDetail.css";
 
 const TABS: { value: ReviewQueueState; label: string }[] = [
   { value: "RECEIVED", label: "Recebidas" },

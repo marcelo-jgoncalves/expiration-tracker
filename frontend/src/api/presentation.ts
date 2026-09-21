@@ -34,8 +34,12 @@ import type {
 export interface StatusPresentation {
   label: string;
   /** Semantic tone for structural styling (never color-only per WCAG 1.4.1, matching the
-   * prototype's established convention of pairing status with a text label always). */
-  tone: "neutral" | "warning" | "danger";
+   * prototype's established convention of pairing status with a text label always).
+   * `info` (Marcelo, 2026-09-20): calm/informational, never a claim of correctness - unlike
+   * `success` (still fully reserved/unused, see `StatusBadge.tsx`'s header comment), `info`
+   * carries no "tudo certo" claim, so it doesn't need the same Type 1 scrutiny. Only
+   * `presentItemUrgency`'s "Sem urgência" emits it today. */
+  tone: "neutral" | "warning" | "danger" | "success" | "info";
 }
 
 /**
@@ -120,7 +124,7 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   if (daysUntil <= SOON_THRESHOLD_DAYS) {
     return { label: daysUntil === 1 ? "Vence em 1 dia" : `Vence em ${daysUntil} dias`, tone: "warning", daysUntil, group: "soon" };
   }
-  return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
+  return { label: "Sem urgência", tone: "info", daysUntil, group: "later" };
 }
 
 /** Storage-quota-scoping (D-2xx) - "1,2 GB de 8 GB", pt-BR decimal comma via Intl, GB-only

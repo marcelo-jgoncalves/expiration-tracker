@@ -34,6 +34,9 @@ Nível classificado: **___** (1 Cosmético / 2 Correção mecânica / 3 Implemen
 ## 2. Gate mínimo pelo nível (`definition-of-done.md` + `quality-gate-tiers.md`)
 
 - [ ] **1-2**: `npm run typecheck` + `npm run lint` rodados e verdes.
+- [ ] Se o diff toca `frontend/src/**` (qualquer nível) → gates `FE-G1..FE-G5`
+      (`docs/frontend/frontend-engineering-quality-standard.md` §63) aplicados de fato, não só
+      citados — FAIL em qualquer um bloqueia independente do nível classificado em §1.
 - [ ] **3-4** (tudo do 1-2, mais): teste do módulo tocado roda e passa; `npm run check-boundaries` se
       import/fronteira mudou; `npm run validate-schemas` se schema/contrato mudou; `npm run
       build:lambdas` se handler/runtime mudou.

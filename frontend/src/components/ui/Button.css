@@ -10,7 +10,10 @@
   font-weight: var(--font-weight-medium);
   min-height: var(--control-height-md);
   padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-md);
+  /* 2026-09-20 (Marcelo, achado na tela Fornecedores): pill em vez de --radius-md - reverte a
+     regra do ADR-0015 ("pill só para badge") especificamente para botões, decisão dele
+     diretamente sobre estética, não uma correção de acessibilidade. */
+  border-radius: var(--radius-pill);
   border: var(--border-width-thin) solid transparent;
   cursor: pointer;
   text-decoration: none;

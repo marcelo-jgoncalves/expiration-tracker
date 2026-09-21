@@ -11,6 +11,26 @@
 | 5 — Muda contrato, chave de partição, fronteira de módulo, ou é difícil de reverter | Novo GSI ou mudança de chave existente; novo formato de evento/schema; nova exceção de particionamento (ex. GSI3/GSI6 globais); mudança de região AWS de produção | **Protocolo Claude↔Codex obrigatório** (`AGENTS.md` §4), mínimo 3 rodadas, nota ≥9.0 de ambos |
 | 6 — Decisão arquitetural formal | Nova stack tecnológica, mudança de modelo de dados fundamental, novo domínio de risco (ex. dado sensível novo, novo terceiro com acesso a PII) | Protocolo Claude↔Codex **+ ADR formal** em `docs/architecture/adr/` + atualização de `decisions-log.md` |
 
+## Gatilhos de frontend (2026-09-20, achado real durante o reskin de identidade visual v2)
+
+Os exemplos da tabela acima são todos de backend (GSI, schema, handler); frontend puro
+(`frontend/src/**`) precisa do próprio gatilho concreto, não julgamento ad-hoc repetido a cada
+tela:
+
+| Nível | Exemplo de frontend |
+|---|---|
+| 1 | Token de cor/raio/sombra, texto de cópia, espaçamento |
+| 2 | Extrair componente duplicado (DRY) sem mudar comportamento visível, corrigir import |
+| 3 | Aplicar um componente/variante já aprovado a uma tela nova |
+| 4 | Reverter ou ampliar um padrão documentado de acessibilidade/design system já `APPROVED` (ex. ampliar o catálogo icon-only do `IconButton`, `design-system.md` §23) |
+| 5 | Componente novo com overlay/focus-trap (Combobox/Modal/Drawer/DropdownMenu/Tooltip — Wave 1b), ou mudança que exige plumbing de dado novo do backend |
+| 6 | Troca de framework/biblioteca de UI, ou reversão de uma decisão de design system já fechada via protocolo completo |
+
+Independente do nível, qualquer mudança que toque `frontend/src/**` passa também pelos gates
+eliminatórios `FE-G1..FE-G5` de `docs/frontend/frontend-engineering-quality-standard.md` §63
+(Correção Funcional/Segurança-BFF/Acessibilidade/Confiabilidade-Epistêmica/Privacidade) — FAIL em
+qualquer um bloqueia, mesmo em nível 1-2.
+
 ## Regra prática
 
 Ao ficar em dúvida entre dois níveis adjacentes, tratar como o nível mais alto — o custo de uma rodada de debate a mais é sempre menor que o custo de uma decisão Type 1 tomada sem revisão (ver `docs/engineering/principles.md` #2).

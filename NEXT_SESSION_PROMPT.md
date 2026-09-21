@@ -28,12 +28,14 @@ Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial �
 definido por Marcelo** (avaliar protótipo em `prototype/*.dc.html` → corrigir inconsistência →
 aplicar na tela real → screenshot em `prototype/_tmp_validacao/` → validação dele → próxima tela;
 sem deploy em `dev` necessário para validar, ver D-308 sobre o mecanismo de screenshot local via
-`vite build`+`preview`+cookie transplantado da sessão de produção). **Visão Geral (Overview)**:
-código aplicado e todos os gates verdes (D-308); screenshot mais recente
-(`prototype/_tmp_validacao/01-visao-geral.png`, já reflete footer redundante removido + nav
-reordenada) gerado mas **ainda sem validação explícita de Marcelo** — confirmar com ele antes de
-considerar esta tela fechada e seguir para a próxima: **Vencimentos**
-(`prototype/Vencimentos.dc.html`).
+`vite build`+`preview`+cookie transplantado da sessão de produção). **Visão Geral (Overview):
+FECHADA, validada 2026-09-20** (D-308). **Vencimentos (`ItemsCollection.tsx`): FECHADA, validada
+2026-09-20, sem alteração de código** — já herdava fonte/radius/cor de acento via componentes
+compartilhados; achados do protótipo deliberadamente não portados (coluna "Responsável" sem
+resolução de nome em nenhum lugar do app hoje; cor por categoria sem taxonomia real por trás,
+mesmo padrão "KPI theater" já rejeitado) registrados como pendência de produto, não código.
+**Em andamento agora: Fornecedores** (`prototype/Fornecedores.dc.html` →
+`frontend/src/routes/subjects/SubjectsCollection.tsx`, a confirmar caminho exato).
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
@@ -83,7 +85,9 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
 13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
-14. **Endpoint agregado de contagem por urgência para a Visão Geral (achado real, 2026-09-20, workstream de identidade visual)** — o protótipo `VisaoGeral.dc.html`/`design-system-v2` propõe 3 contadores acionáveis (vencidos/vence em breve/em acompanhamento), respondendo a D-08 em aberto de `visual-language-and-design-system.md` ("um contador acionável ajudaria a priorizar?"). Marcelo decidiu adicionar essa informação — mas calcular a partir dos dados hoje disponíveis (`useItemsDashboardBounded`, só 30 itens ACTIVE mais próximos do vencimento) subcontaria silenciosamente sempre que houver mais de 30 itens ativos (violaria Epistemic Integrity). Precisa de um endpoint agregado novo (contagem real por urgência/status, não uma página de itens) antes de implementar a UI dos contadores. Decisão dele, 2026-09-20: adiar os contadores para depois, reskin visual da Visão Geral segue sem eles por enquanto. **Mesma sessão, decisão adicional (D-308)**: o link "Ver todos os vencimentos" foi removido (mesmo destino do card "em acompanhamento", CTA duplicado assim que este endpoint entregar o total real) — não recriar como link nem como "4º card" a menos que represente escopo que os 3 cards atuais não cobrem (ex. total incluindo status além de ACTIVE).
+14. **Endpoint agregado de contagem por urgência para a Visão Geral (D-308)** — os 3 contadores da Visão Geral (vencidos/vence em breve/em acompanhamento) usam dado PLACEHOLDER hoje (`useItemsDashboardBounded` só cobre 30 itens, subcontaria em silêncio acima disso). Precisa de endpoint agregado novo antes de virar dado real; decisão de Marcelo, adiado. Link "Ver todos os vencimentos" removido por redundância — não recriar como link nem "4º card" a menos que cubra escopo que os 3 cards não cobrem (detalhe: `decisions-log.md` D-308).
+15. **Resolução de nome de usuário (Responsável) — achado real, 2026-09-20, tela Detalhe do Vencimento.** `assigneeUserId` guarda só o ID; nenhuma tela do sistema resolve nome/e-mail de outro membro (`GET /members` retorna só `userId`/`role`/`status`/`joinedAt`). Precisa de endpoint novo de resolução de usuário antes de qualquer tela mostrar um nome de verdade em vez do ID cru. Backlog de Marcelo, sem prioridade definida ainda.
+16. **Filtro de atividade por item/recurso — achado real, 2026-09-20, mesma sessão.** `GET /activity` só filtra por `month`/`resourceType`, sem `resourceId` — impede contagem real de eventos de auditoria por vencimento individual (o card "Histórico de auditoria" do Detalhe é estático por isso, não por bug de frontend). Backlog de Marcelo, sem prioridade definida ainda.
 
 ## Próxima ação recomendada
 
@@ -195,21 +199,13 @@ reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EX
 
 **Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
 
-**Achado real não corrigido, 2026-09-19 (rodadas de 25k reais com e-mail, `ladder-email-25k`/`-retry`)
-— gargalo cosmético de observabilidade, sem impacto funcional**: sob carga sustentada de 10
-tenants por horas, o layer ADOT de `bff-handler`/`items-handler`/`reminders-handler` (e
-provavelmente outras Lambdas sob a mesma carga) descarta lotes de trace inteiros — timeout local
-app→coletor (`Error: Request Timeout`, `otlp-exporter-base`) e timeout coletor→X-Ray real
-(`OTLPExporterError`/408, `"msg":"Exporting failed. Rejecting data"`, 60-96 itens por lote
-descartado). Confirmado sem nenhum impacto funcional: zero requisição falhou, zero item de
-journal de seed travado nas duas rodadas — só fica sem trace completo no X-Ray para as
-requisições atingidas. Correção real exigiria `collector.yaml` customizado via
-`OPENTELEMETRY_COLLECTOR_CONFIG_URI` (doc oficial: `aws-otel.github.io/docs/getting-started/
-lambda/lambda-custom-configuration`), empacotado no build de TODAS as ~69 Lambdas + variável de
-ambiente compartilhada (`local.common_env`) — mudança sistêmica de observabilidade, com risco real
-de quebrar tracing por completo se mal configurada, não um ajuste pontual. Decisão do Marcelo,
-2026-09-19: registrar como pendência, não implementar agora — mesma categoria de item que o
-débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-01.md` §17/§18.6).
+**Achado real não corrigido, 2026-09-19 (`ladder-email-25k`/`-retry`) — gargalo cosmético de
+observabilidade, sem impacto funcional**: sob carga sustentada, o layer ADOT descarta lotes de
+trace inteiros (timeout app→coletor→X-Ray real); zero requisição falhou, só falta trace completo
+no X-Ray para as atingidas. Correção exigiria `collector.yaml` customizado empacotado em todas as
+~69 Lambdas — mudança sistêmica de observabilidade, arriscada se malfeita. Decisão de Marcelo:
+registrar como pendência, mesma categoria do débito técnico de infra do roadmap (`docs/project/
+roadmap-competitivo-2026-09-01.md` §17/§18.6), não implementar agora.
 
 ## PRÓXIMA SESSÃO — ordem definida por Marcelo (2026-09-20), tem prioridade sobre a escada 100k/500k
 

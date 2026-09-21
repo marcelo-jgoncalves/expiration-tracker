@@ -26,9 +26,18 @@ export interface TextFieldProps {
   multiline?: boolean;
   /** Stable id, so an error summary can link to this control. */
   id?: string;
+  /** Visually hides `label` (world-class search-bar convention, e.g. a toolbar's own search
+   * field) while keeping the real `<label>`/`htmlFor` association in the DOM - never a
+   * `placeholder` standing in for a label (this file's own header comment/mission §55): the
+   * label still exists for assistive tech, it just does not take up visible layout. */
+  hideLabel?: boolean;
+  /** In-field ephemeral hint, gone the moment the user types (real `placeholder`) - distinct
+   * from `hint`, which stays visible below the label for as long as the field is empty AND
+   * full. Never the sole source of the field's accessible name. */
+  placeholder?: string;
 }
 
-export function TextField({ label, value, onChange, error, hint, required, maxLength, type = "text", autoComplete, multiline, id: providedId }: TextFieldProps) {
+export function TextField({ label, value, onChange, error, hint, required, maxLength, type = "text", autoComplete, multiline, id: providedId, hideLabel, placeholder }: TextFieldProps) {
   const generatedId = useId();
   const id = providedId ?? generatedId;
   const errorId = `${id}-error`;
@@ -42,6 +51,7 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
       value={value}
       maxLength={maxLength}
       required={required}
+      placeholder={placeholder}
       aria-invalid={error ? true : undefined}
       aria-describedby={describedBy}
       onChange={(event) => onChange(event.target.value)}
@@ -55,6 +65,7 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
       maxLength={maxLength}
       autoComplete={autoComplete}
       required={required}
+      placeholder={placeholder}
       aria-invalid={error ? true : undefined}
       aria-describedby={describedBy}
       onChange={(event) => onChange(event.target.value)}
@@ -63,7 +74,7 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
 
   return (
     <div className={`ui-field${error ? " ui-field--invalid" : ""}`}>
-      <label className="ui-field__label" htmlFor={id}>
+      <label className={hideLabel ? "ui-field__label u-visually-hidden" : "ui-field__label"} htmlFor={id}>
         {label} <span className="ui-field__requirement">{required ? "(obrigatório)" : "(opcional)"}</span>
       </label>
       {hint ? (

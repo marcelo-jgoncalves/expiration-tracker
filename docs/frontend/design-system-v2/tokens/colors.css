@@ -48,7 +48,12 @@
 
   /* ---- SEMANTIC ---- */
 
-  --color-surface-page: var(--color-neutral-50);
+  /* 2026-09-20 (Marcelo): leve gradiente lilás no fundo de página, igual aos protótipos. */
+  --gradient-page: linear-gradient(180deg, #fbfaff, #f6f5fb);
+  --color-surface-page: var(--gradient-page);
+  /* Summary hero (Detalhe do Vencimento) - trunca o terceiro stop mais claro do protótipo
+     (#a855f7): accent-600 já é o tom mais claro verificado com --color-text-on-accent em cima. */
+  --gradient-hero: linear-gradient(155deg, var(--color-accent-800), var(--color-accent-600));
   --color-surface-default: var(--color-neutral-0);
   --color-surface-subtle: var(--color-neutral-100);
   --color-surface-hover: var(--color-neutral-50);

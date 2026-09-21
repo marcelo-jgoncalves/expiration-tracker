@@ -10,7 +10,7 @@
   font-weight: var(--font-weight-medium);
   min-height: var(--control-height-md);
   padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   border: var(--border-width-thin) solid transparent;
   cursor: pointer;
   text-decoration: none;

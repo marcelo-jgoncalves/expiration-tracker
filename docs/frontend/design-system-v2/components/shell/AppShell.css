@@ -31,7 +31,7 @@
 .app-shell__link {
   display: block;
   padding: var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   text-decoration: none;
   font-weight: var(--font-weight-regular);
@@ -44,16 +44,16 @@
   color: var(--color-text-primary);
 }
 
-/* Current page is marked by weight + an inset bar + tint — three cues, so the state does not
-   depend on color alone. `box-shadow` (the inset bar) is dropped entirely in forced-colors mode
-   (background/tint go too, since those are also author colors) - the override below restores the
-   bar as a real `border`, which forced-colors does render, using the system's own "selected item"
-   color instead of an authored one. */
+/* Current page (Marcelo, 2026-09-20): preenchimento sólido + texto invertido + glow - o
+   contêiner preenchido é uma pista de FORMA (bloco vs. texto plano), não só de matiz, então
+   continua sem depender de cor isoladamente. Em forced-colors, background/glow são descartados
+   (cor de autor) - o override abaixo mantém a barra real via `border` com a cor de sistema
+   "selected item", que forced-colors sempre renderiza. */
 .app-shell__link[aria-current="page"] {
-  background: var(--color-surface-selected);
-  color: var(--color-action-primary-pressed);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
   font-weight: var(--font-weight-semibold);
-  box-shadow: inset 3px 0 0 var(--color-action-primary);
+  box-shadow: var(--shadow-accent-glow);
 }
 
 @media (forced-colors: active) {

@@ -7,7 +7,7 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
-  --radius-pill: 999px; /* pills only for badges */
+  --radius-pill: 999px; /* badges and buttons (Marcelo, 2026-09-20) */
 
   --border-width-thin: 1px;
   --border-width-thick: 2px;
@@ -15,4 +15,5 @@
   --shadow-none: none;
   --shadow-raised: 0 2px 8px rgba(20, 18, 31, 0.06);
   --shadow-overlay: 0 20px 48px rgba(88, 28, 135, 0.14);
+  --shadow-accent-glow: 0 8px 20px rgba(124, 58, 237, 0.28); /* filled accent elements (nav ativa, botão primário) */
 }

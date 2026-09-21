@@ -27,7 +27,7 @@ import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { ApiError } from "../api/errors.js";
-import { AlertCircle, Clock, ClipboardList } from "lucide-react";
+import { AlertCircle, Clock, ClipboardList, Plus } from "lucide-react";
 import { PageHeader, Panel, AttentionRow, type AttentionItem } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
@@ -105,7 +105,7 @@ export function Overview() {
       title="Visão geral"
       description="Seus vencimentos ativos, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to={orgPath("/items/new")} variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
           Novo vencimento
         </ButtonLink>
       }
@@ -146,7 +146,7 @@ export function Overview() {
           kind="true-empty"
           message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
           action={
-            <ButtonLink to={orgPath("/items/new")} variant="primary">
+            <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
               Novo vencimento
             </ButtonLink>
           }
