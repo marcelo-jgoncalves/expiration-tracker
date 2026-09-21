@@ -24,14 +24,46 @@ DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de M
 concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
 Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
 `docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
-`docs/frontend/design-system-v2/`. **Porte para o código real: 7/7 telas do protótipo FECHADAS,
-aprovadas e commitadas, processo tela-por-tela de Marcelo CONCLUÍDO** (avaliar protótipo →
-corrigir inconsistência → aplicar → screenshot em `prototype/_tmp_validacao/` → validação dele →
-próxima; screenshot local via `vite build`+`preview`+cookie transplantado, D-308) — Visão Geral,
-Vencimentos, Fornecedores, Criar/Detalhe/Renovar vencimento, Configurações (D-308/D-309, commits
-`543b3f7`/`793b6fb`/`65659e9`/`5dd4347`). Pendências novas de produto abertas por esse trabalho
-(não código): #15/#16 abaixo. Próxima ação real deste workstream, se houver: aguardar sinal de
-Marcelo (nenhuma tela do protótipo resta a portar).
+`docs/frontend/design-system-v2/`. **Porte para o código real: 13/13 telas do protótipo original
+FECHADAS** (avaliar protótipo → corrigir inconsistência → adequar à realidade do projeto quando o
+protótipo simplifica demais → aplicar → screenshot → validação de Marcelo → próxima) — as 7
+anteriores (Visão Geral/Vencimentos/Fornecedores/Criar/Detalhe/Renovar/Configurações, D-308/D-309)
+mais 6 nesta sessão (2026-09-21, **NENHUM COMMIT AINDA** — ver aviso de estado abaixo): Documento
+(`ItemDocuments.tsx`, manteve lista de N arquivos real em vez do modelo de 1 arquivo do protótipo),
+Alerta (`ItemReminderPolicy.tsx`), Fornecedor Detalhe (`SubjectHub.tsx` — painel de Conformidade
+que era HTML cru virou v2), Requisito Detalhe (**tela nova, não existia** — rota
+`subjects/:subjectId/requirements/:requirementId`, construída só com dados/endpoints já reais),
+Importar CSV (`ImportWizard.tsx`), Guest Submission (`GuestDocumentRequest.tsx`). Achado real no
+processo: barra lateral virou sticky (`position: sticky` em `.app-shell__nav`) + rodapé de
+identidade (avatar+nome+papel+logout só-ícone, `SidebarUserFooter`) — exigiu estender
+`GET /bff/session` com `displayName`/`email` (nunca `userId`, que segue excluído por D-095/D-096).
+
+**Próxima ação real deste workstream — NOVA RODADA, 2026-09-21**: levantamento completo de rotas
+reais (`App.tsx`) encontrou **18 telas reais que nunca passaram pelo processo de protótipo**
+(Onboarding, Aceitar convite, Form de Fornecedor, Requisitos/lista geral, Solicitações e
+Recorrência, Rastreamento Legado, Exportar Dossiê, Fila de Revisão, Detalhe de Documento, Catálogo
+de Tipos de Documento, Editor de Tipo de Documento, Templates de Requisito, Preferência de Entrega,
+Preferências de Notificação, Membros, Log de Atividade, Relatórios, Upload Legado de Convidado —
+`LegacyGuestUpload`, distinta do `GuestDocumentRequest` já portado). **Achado real, verificado
+antes de gerar qualquer protótipo novo**: as 18 já importam os mesmos componentes v2 (`Panel`/
+`Section`/`DataTable`/`Button`/`StatusBadge`/`InlineNotice`/`Dialog`) que as 13 já reskinadas — não
+são HTML cru/v1, já herdam tokens/tipografia/radius do D-307 globalmente. Prints das 18 telas REAIS
+como rodam hoje (dados mockados via `page.route`, mesma técnica de sempre) salvos em
+`prototype/telas-sem-prototipo/` (18 arquivos `01-onboarding.png` a `18-guest-upload-legado.png`).
+
+**PROTÓTIPOS NOVOS JÁ CHEGARAM (2026-09-21, Claude Design, a partir dos prints acima)**:
+`prototype/ui_kits_2/webapp/screens-package-2/standalone/` — 18 arquivos `.html`, mesma numeração/
+nomes dos prints (`01 - Onboarding.html` … `18 - Guest Upload Legado.html`). **Próxima sessão: retomar
+o mesmo processo tela-por-tela das 13 anteriores** (avaliar protótipo → corrigir inconsistência →
+adequar à realidade do projeto quando o protótipo simplificar/inventar algo que o backend não
+suporta → aplicar no código real → screenshot em `prototype/_tmp_validacao/` → validação de Marcelo
+→ próxima), reaproveitando os componentes v2 já existentes (nunca recriar `Panel`/`DataTable`/etc.).
+
+**AVISO DE ESTADO — nada desta sessão foi commitado ainda (2026-09-21, 79 arquivos modificados/
+novos)**: além das 6 telas acima, esta sessão também fechou #15/#16 (ver lista de pendências
+abaixo, já atualizada) e D-313 (download de documento) + D-314 (versionamento completo,
+`PENDING_PROTOCOL_REVIEW`, sem código escrito). Confirmar com Marcelo se ele quer revisar/commitar
+antes de continuar, ou se seguimos direto para a próxima rodada de protótipos.
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
@@ -82,19 +114,26 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
 13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
 14. **Endpoint agregado de contagem por urgência para a Visão Geral (D-308)** — os 3 contadores da Visão Geral (vencidos/vence em breve/em acompanhamento) usam dado PLACEHOLDER hoje (`useItemsDashboardBounded` só cobre 30 itens, subcontaria em silêncio acima disso). Precisa de endpoint agregado novo antes de virar dado real; decisão de Marcelo, adiado. Link "Ver todos os vencimentos" removido por redundância — não recriar como link nem "4º card" a menos que cubra escopo que os 3 cards não cobrem (detalhe: `decisions-log.md` D-308).
-15. **Resolução de nome de usuário (Responsável) — achado real, 2026-09-20, tela Detalhe do Vencimento.** `assigneeUserId` guarda só o ID; nenhuma tela do sistema resolve nome/e-mail de outro membro (`GET /members` retorna só `userId`/`role`/`status`/`joinedAt`). Precisa de endpoint novo de resolução de usuário antes de qualquer tela mostrar um nome de verdade em vez do ID cru. Backlog de Marcelo, sem prioridade definida ainda.
-16. **Filtro de atividade por item/recurso — achado real, 2026-09-20, mesma sessão.** `GET /activity` só filtra por `month`/`resourceType`, sem `resourceId` — impede contagem real de eventos de auditoria por vencimento individual (o card "Histórico de auditoria" do Detalhe é estático por isso, não por bug de frontend). Backlog de Marcelo, sem prioridade definida ainda.
+15. ~~Resolução de nome de usuário (Responsável)~~ — **RESOLVIDO 2026-09-21**: `GET /organizations/members` agora resolve `email`/`displayName` do `GlobalUser` (só quando identidade ACTIVE, mesma regra do `recipient-resolver.ts`); nome capturado via claim OIDC `name` no login (escopo `profile` adicionado). Frontend (Membros, "Responsável" no Detalhe) mostra nome/e-mail resolvido com fallback pro ID.
+16. ~~Filtro de atividade por item/recurso~~ — **RESOLVIDO 2026-09-21**: `GET /activity` aceita `resourceId`, mesmo padrão já usado por `resourceType`. Card "Histórico de auditoria" do Detalhe agora mostra contagem real e leva a um log pré-filtrado.
 17. **PR #382 (`develop`→`main`) aberto, não mergeado** — criado por engano (Claude leu "pode fazer o push também" como pedido de merge; Marcelo corrigiu pra "push pra dev"). Confirmar com ele se ainda quer esse merge ou se o PR deve ser fechado sem mergear.
 18. **Falha pré-existente, não corrigida: `frontend/test/api/documents.test.ts` (`computeChecksumSha256`), 2 dos 415 testes** — `crypto.subtle.digest` no ambiente jsdom/Node atual rejeita o buffer retornado por `readAsArrayBuffer` (`ERR_INVALID_ARG_TYPE`). Confirmado não relacionado a nenhuma mudança desta sessão (arquivo não tocado desde D-2xx). Não bloqueia CI (esses 2 casos já falhavam antes do fix do CI, isolados dos outros 413). Sem prioridade definida.
+19. **Versionamento completo de `Document` (item-level) — `PENDING_PROTOCOL_REVIEW` (D-314, 2026-09-21)**: pedido de Marcelo após comparar a tela "Documento" real com o protótipo, que assume um modelo de "substituir arquivo" inexistente hoje (`Document` é 1 linha = 1 arquivo, sem histórico/versão). Investigação confirmou que é mudança nível 5-6, estruturalmente equivalente ao D-143 (Domínio Documental, 6 rodadas de protocolo) — não implementado, nenhum código escrito. Assim que o protocolo Claude↔Codex voltar (Codex 2026-09-23), rodar a revisão adversarial completa, incluindo a alternativa de menor risco identificada (reaproveitar a máquina de versionamento já existente em `document-archive`/D-143 em vez de duplicá-la). "Baixar documento" (a outra metade do mesmo pedido) já foi implementado nesta sessão sem precisar de protocolo (D-313, nível 1-3, aditivo puro).
 
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Identidade visual v2 (7/7 telas) fechada. Degrau de 100k do Programa de
-Performance encerrado (achado real confirmado, ver seção própria abaixo — não é mais pendência).
-Resta: itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação
-por domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na
-seção do Roadmap).
+— ver seções acima.** Degrau de 100k do Programa de Performance encerrado (achado real confirmado,
+ver seção própria abaixo — não é mais pendência).
+
+**Próxima ação real (2026-09-21)**: workstream de identidade visual v2 — os 18 protótipos novos já
+chegaram (`prototype/ui_kits_2/webapp/screens-package-2/standalone/`, ver seção "Identidade visual"
+acima). **Retomar o processo tela-por-tela** aplicando cada um ao código real, mesma disciplina das
+13 anteriores. **Antes disso, decidir com Marcelo o que fazer com os ~79 arquivos não commitados da
+sessão de 2026-09-21** (ver aviso de estado na seção "Identidade visual"). Fora isso, resta só:
+itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação por
+domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na seção do
+Roadmap).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
