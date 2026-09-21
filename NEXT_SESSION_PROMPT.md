@@ -73,10 +73,10 @@ decisão de Marcelo entre 3 caminhos nomeados em D-202. Detalhe item-a-item: `de
 
 Ambas substancialmente fechadas — todo achado HIGH/ALTA corrigido (E-015/E-016/E-018/E-020/E-021,
 achados P0.1-P0.4/P0.6/P1.6/P2.1-P2.4 da auditoria externa: ver `decisions-log.md` D-232 a D-290
-para detalhe item-a-item, nunca recontado aqui). **Únicos gates ainda não atingidos, ambos
-decisão-dependente, não engenharia**: **E-019** (jurídico — aviso de privacidade/DPA Meta/residência
-de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Marcelo sobre
-`coverage.thresholds` em `vitest.config.ts`). **E-017** teve seus 2 achados pendentes corrigidos
+para detalhe item-a-item, nunca recontado aqui). **Único gate ainda não atingido, decisão-dependente,
+não engenharia**: **E-019** (jurídico — aviso de privacidade/DPA Meta/residência de dados, bloqueia
+WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thresholds` resolvido
+2026-09-21 (D-317, `vitest.config.ts`). **E-017** teve seus 2 achados pendentes corrigidos
 (`definition-of-done.md`), drift desta linha corrigido 2026-09-19.
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
@@ -88,7 +88,9 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
    do PR #380 verdes; PR mergeado em `main` (`mergedAt=2026-09-20T16:08:53Z`).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
 2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
-3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
+3. ~~`coverage.thresholds` em `vitest.config.ts`~~ — **RESOLVIDO 2026-09-21 (D-317)**: medido primeiro
+   (statements 86,55%/branches 84,84%/functions 86,9%/lines 86,55%, 270 arquivos/3148 testes),
+   thresholds configurados ~1,5-2pts abaixo (85/83/85/85) como guard-rail sem quebrar CI.
 4. WhatsApp com usuário real (item 3 P0, engenharia 100% fechada desde D-286 — rota de opt-in também já construída) — resta só aviso de privacidade, DPA Meta, residência de dados (E-019).
 5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
 6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
@@ -141,9 +143,8 @@ Performance encerrado (achado real confirmado, ver seção própria acima — n�
 sentido tecnicamente. Só parar/perguntar se uma decisão genuinamente exigir informação que só ele
 tem (não uma escolha técnica razoável que já cabe a esta sessão decidir sozinha):**
 
-1. **Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)**: decidir um valor real
-   (medir a cobertura atual primeiro, nunca inventar um número às cegas) e configurar. Registrar
-   a decisão e o racional em `decisions-log.md`.
+1. ~~Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)~~ — **RESOLVIDO 2026-09-21
+   (D-317)**, ver item 3 da lista consolidada de pendências acima.
 2. **Item #9 — Import CSV em massa para Items**: autorizado a virar iniciativa agora. Prováveis
    decisões de produto a tomar sozinho (mapeamento de colunas, se a Política de Lembrete vem na
    mesma linha ou é configurada depois, estratégia de deduplicação) seguem o mesmo padrão já usado
